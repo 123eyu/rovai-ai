@@ -3629,5 +3629,15 @@
   "提及的队员已不可用，请移除提及或选择其他队员。": "A mentioned member is unavailable. Remove the mention or choose another member.",
   "编辑使命名称、描述、标签和附件，提及队外队员可在保存时邀请加入。": "Edit the mission title, description, tags and attachments. Mention other members to invite them on save.",
   "已有队员和队长需通过队伍菜单管理": "Manage existing members and the lead from the team menu",
-  "成员 {0} 待邀请，保存时加入": "Member {0}, invitation pending until save"
+  "成员 {0} 待邀请，保存时加入": "Member {0}, invitation pending until save",
+  "连接中断 · 查看原因": "Connection interrupted · View details",
+  "执行中断 · 查看原因": "Execution interrupted · View details",
+  "执行中断，查看原因": "Execution interrupted, view details",
+  "停止请求未成功，请重试。": "Could not stop this run. Try again.",
+  "停止{0}的本次执行": "Stop {0}’s current run",
+  "正在确认停止结果": "Checking the stop result",
+  "停止这次执行？": "Stop this run?",
+  "只停止{0}的这次执行，已经发送的消息会保留。": "Only stop {0}’s current run. Published messages will be kept.",
+  "查看执行过程": "View execution details",
+  "正在提交停止请求…": "Submitting stop request…"
 }

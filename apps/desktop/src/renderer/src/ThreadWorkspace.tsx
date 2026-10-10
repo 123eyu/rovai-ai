@@ -1,4 +1,5 @@
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
+import { ConversationRunPresence } from './ConversationRunPresence'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
 import { memberRuntimeConfigurationPresentation, modelSummary, runtimeAdapterLabel } from './runtime-model-presentation'
@@ -385,6 +386,24 @@ function restoreExecutionConsoleReadingPosition(
       Math.max(0, result.scrollHeight - result.clientHeight) * ratio
     )
   }
+}
+
+function scheduleExecutionConsoleReadingRestore(
+  portal: HTMLElement,
+  position: ExecutionConsoleReadingPosition
+): () => void {
+  // Bottom placement measures its height bounds after the portal moves. Two
+  // frames alone can restore against the temporary CSS height before that
+  // measurement commits, shifting the reader when the final height is applied.
+  const restoreWhenReady = (): void => {
+    const drawer = portal.querySelector<HTMLElement>('.execution-drawer')
+    if (!drawer) return
+    frame = window.requestAnimationFrame(drawer.dataset.layoutReady === 'false'
+      ? restoreWhenReady
+      : () => restoreExecutionConsoleReadingPosition(drawer, position))
+  }
+  let frame = window.requestAnimationFrame(restoreWhenReady)
+  return () => window.cancelAnimationFrame(frame)
 }
 
 export function canStopAgentRun(
@@ -2051,7 +2070,7 @@ export function ThreadWorkspace({
   const executionReadingPosition = useRef<ExecutionConsoleReadingPosition | null>(null)
   const executionPlacementMenuReadingPosition = useRef<ExecutionConsoleReadingPosition | null>(null)
   const pendingExecutionReadingPosition = useRef<ExecutionConsoleReadingPosition | null>(null)
-  const executionReadingRestoreFrames = useRef<[number, number] | null>(null)
+  const cancelExecutionReadingRestore = useRef<(() => void) | null>(null)
   const executionReadingCaptureFrames = useRef<[number, number] | null>(null)
   const executionPlacementRequest = useRef(false)
   const executionPlacementMounted = useRef(true)
@@ -2111,30 +2130,16 @@ export function ThreadWorkspace({
     const readingPosition = pendingExecutionReadingPosition.current
     if (!readingPosition) return
     pendingExecutionReadingPosition.current = null
-    if (executionReadingRestoreFrames.current) {
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[0])
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[1])
-    }
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
-        executionReadingRestoreFrames.current = null
-        restoreExecutionConsoleReadingPosition(
-          executionDrawerPortal.querySelector<HTMLElement>('.execution-drawer'),
-          readingPosition
-        )
-      })
-      executionReadingRestoreFrames.current = [firstFrame, secondFrame]
-    })
-    executionReadingRestoreFrames.current = [firstFrame, firstFrame]
+    cancelExecutionReadingRestore.current?.()
+    cancelExecutionReadingRestore.current = scheduleExecutionConsoleReadingRestore(
+      executionDrawerPortal, readingPosition
+    )
   }, [executionDrawerPortal, executionPlacement, executionPreviewHost, inspectorVisible])
   useEffect(() => {
     executionPlacementMounted.current = true
     return () => {
       executionPlacementMounted.current = false
-      if (executionReadingRestoreFrames.current) {
-        window.cancelAnimationFrame(executionReadingRestoreFrames.current[0])
-        window.cancelAnimationFrame(executionReadingRestoreFrames.current[1])
-      }
+      cancelExecutionReadingRestore.current?.()
       if (executionReadingCaptureFrames.current) {
         window.cancelAnimationFrame(executionReadingCaptureFrames.current[0])
         window.cancelAnimationFrame(executionReadingCaptureFrames.current[1])
@@ -2179,6 +2184,7 @@ export function ThreadWorkspace({
   useEffect(() => {
     executionReadingPosition.current = null
     pendingExecutionReadingPosition.current = null
+    cancelExecutionReadingRestore.current?.()
   }, [executionDrawerAgentId, snapshot.thread.id])
   useEffect(() => {
     if (!showingFirstRunWelcome
@@ -4367,21 +4373,10 @@ export function ThreadWorkspace({
     position: ExecutionConsoleReadingPosition | null
   ): void => {
     if (!position || !executionDrawerPortal) return
-    if (executionReadingRestoreFrames.current) {
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[0])
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[1])
-    }
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
-        executionReadingRestoreFrames.current = null
-        restoreExecutionConsoleReadingPosition(
-          executionDrawerPortal.querySelector<HTMLElement>('.execution-drawer'),
-          position
-        )
-      })
-      executionReadingRestoreFrames.current = [firstFrame, secondFrame]
-    })
-    executionReadingRestoreFrames.current = [firstFrame, firstFrame]
+    cancelExecutionReadingRestore.current?.()
+    cancelExecutionReadingRestore.current = scheduleExecutionConsoleReadingRestore(
+      executionDrawerPortal, position
+    )
   }
 
   const captureExecutionPlacementMenuReadingPosition = (): void => {
@@ -5508,6 +5503,22 @@ export function ThreadWorkspace({
                   if (hasAnchorGap) items.push(<div className="camp-history-gap" role="status" key="anchor-history-gap">{uiAttribute('中间消息尚未加载')}</div>)
                   if (historyLoader) items.push(historyLoader)
                 }
+                const precedingOutput = conversationTimeline.at(-1)
+                const precedingOutputRunId = precedingOutput?.kind === 'run_artifacts' ? precedingOutput.run.id
+                  : precedingOutput?.kind === 'run_file_changes' ? precedingOutput.changes.agentRunId
+                  : precedingOutput?.kind === 'run_images' ? precedingOutput.images.agentRunId
+                  : precedingOutput?.kind === 'member_joined' ? precedingOutput.receipt.sourceAgentRunId
+                  : precedingOutput?.kind === 'camp_message' ? undefined : null
+                items.push(<ConversationRunPresence key={`run-presence:${snapshot.thread.id}`} snapshot={snapshot}
+                  precedingOutputRunId={precedingOutputRunId}
+                  messages={visibleThreadMessages} profiles={agents} progressByRunId={executionProgressByRunId}
+                  windowedEvidence={openCoverage !== null}
+                  stopState={run => agentRunStopViewState(run, snapshot.turns.find(turn => turn.id === run.threadTurnId) ?? null, {
+                    cancelling: cancellingRunIds.has(run.id) || run.cancelRequestedAt !== null,
+                    confirming: confirmingRunIds.has(run.id),
+                    turnCancelling: run.threadTurnId !== null && cancellingTurnIds.has(run.threadTurnId)
+                  })}
+                  onStop={onCancelAgentRun} onOpen={openExecutionProcess} onError={notifyError} />)
                 return items
               })()}
               {!missionBoard && conversationTimeline.length === 0 && snapshot.agentRuns.length === 0 && (
@@ -7606,6 +7617,7 @@ function ExecutionDrawer({
       aria-labelledby="execution-drawer-title"
       tabIndex={-1}
       data-placement={placement}
+      data-layout-ready={placement !== 'bottom' || heightBounds !== null ? 'true' : 'false'}
       data-user-sized={preferredHeight !== null && placement === 'bottom' ? 'true' : 'false'}
       style={drawerStyle}
     >

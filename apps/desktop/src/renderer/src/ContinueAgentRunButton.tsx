@@ -14,10 +14,12 @@ type Submission = {
 const unresolved = new WeakMap<ThreadClient, Map<string, Submission>>()
 
 /** Submission state belongs to this action, never to the terminal source Run. */
-export function ContinueAgentRunButton({ threadId, agentRunId, onError }: {
+export function ContinueAgentRunButton({ threadId, agentRunId, onError, appearance = 'icon', onApplied }: {
   threadId: string
   agentRunId: string
   onError: (message: string) => void
+  appearance?: 'icon' | 'retry'
+  onApplied?: () => void
 }): React.JSX.Element {
   const client = useThreadClient()
   const requests = unresolved.get(client) ?? new Map<string, Submission>()
@@ -42,6 +44,7 @@ export function ContinueAgentRunButton({ threadId, agentRunId, onError }: {
       if (requests.get(requestKey) === request) requests.delete(requestKey)
       setUncertain(false)
       if (result.status === 'rejected') onError(uiAttribute('当前执行无法继续，请刷新后查看。'))
+      else if (result.status === 'applied') onApplied?.()
     } catch {
       request.response = undefined
       // Transport failure is not proof of rejection. The next click reconciles
@@ -54,10 +57,12 @@ export function ContinueAgentRunButton({ threadId, agentRunId, onError }: {
     }
   }
 
-  const label = busy ? uiAttribute('正在提交') : uncertain ? uiAttribute('确认提交结果') : uiAttribute('继续执行')
-  return <button className="execution-continue" type="button" title={label}
+  const label = busy ? uiAttribute(appearance === 'retry' ? '重试中…' : '正在提交')
+    : uncertain ? uiAttribute('确认提交结果') : uiAttribute(appearance === 'retry' ? '重试' : '继续执行')
+  return <button className={appearance === 'retry' ? 'run-presence-retry' : 'execution-continue'} type="button" title={label}
     aria-label={label} aria-busy={busy || undefined} disabled={busy}
     onClick={() => void submit()}>
     <DialogControlIcon name="refresh" />
+    {appearance === 'retry' && <span>{label}</span>}
   </button>
 }

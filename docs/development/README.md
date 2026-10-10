@@ -129,6 +129,10 @@ App，以受控本机 API 和时钟验证页面框架、截止时间与 authorit
 隔离 Electron 与 500 个合成 Run，验证视口范围、展开、隐藏／恢复、稳定终态停止轮询、
 迟到 Usage 和 Session Context 换代／失效；不启动 Core 或真实 Runtime。
 
+消息区队员占位运行 `pnpm test:run-presence-ui`：隔离 Chrome 挂载生产 ThreadWorkspace，覆盖消息顺序、
+流式单行、停止确认、重试与丢失回执、草稿保留、双主题、三种桌面尺寸、200% 等效缩放及粗指针。`ROVAI_PRESENCE_UI_OUTPUT` 保留截图与报告；
+设置 `ROVAI_PRESENCE_REFERENCE_HTML` 可对照 User 确认的 v5 HTML 几何、排版及颜色；非默认 Chrome 路径使用 `ROVAI_TEST_CHROME`。夹具仅模拟数据和回执，不启动 Core 或模型。
+
 ## 按任务阅读
 
 | 任务 | 文档 |

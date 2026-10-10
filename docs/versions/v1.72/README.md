@@ -11,6 +11,13 @@ last_updated: 2026-10-10
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 会话内队员占位（2026-10-11）
+
+按 User 确认的 v5 交互稿，在公开会话末尾投影正在执行的队员：单行正文／命令、Run 身份衔接、确认停止及中断重试。
+复用现有 Evidence、精确 Run Stop 和独立续做命令；不创建排队占位或新公开消息，不改变模型上下文与数据库。
+当前边界见 [Run Process Detail Surface v47](../../contracts/run-process-detail-surface-v47.md)，验证与交付见
+[实施记录](implementation-plan.md#会话内队员占位)。
+
 ## 已实现：Send 正文文件输入
 
 [已确认正文文件方案与模型上下文对照 r5](model-context-change-send-input-file.md)在同一 `--input-file`

@@ -1565,3 +1565,36 @@ Rust workspace（460 通过、1 既有忽略）、continuation 扩展 5 项、th
 最终页脚调整的既有 App owner 181 项、生产继续按钮交互与基于 main 的文档治理均通过。
 真实 Runtime 与安装产物证据随 PR 交付记录；缺少固定 snapshot Judge 配置，未完成通用 12 Case
 基线／候选语义 Gate，专项验证不替代该 Gate。
+
+
+## 会话内队员占位
+
+User 在确认 v5 HTML 后授权独立 worktree 实现。基线 `f9acc2395283d49f0ce247dc0af2207c155f6eb6`；
+分支 `rovai/teammate-presence-v5`，worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-teammate-presence-v5`。
+本次为 Renderer 增量，无需治理文档主线前置，不修改 Core 或模型上下文。
+状态 `ready`；验证后提交、推送上述分支，按 User 偏好不自动创建 PR，保留 worktree 供后续验收。
+
+- `ConversationRunPresence` 作为消息时间线末尾独立节点，消费同一 Evidence/live progress；复制／回复、消息分组和产物布局不变。
+- 轻量 open/re-entry 复用 `ExecutionWindow` 的 blocks API，单块恢复最新正文/命令，并以既有变化水位更新；缓存窗口与 Drawer 历史阅读隔离，不读全文 Blob、不增加轮询。
+- `conversationRunPresence` 只投影实际运行／已开始等待及每位队员最新公开 batch 失败；顺序服从公开消息 sequence，头像是否重复按精确 Run 判断。
+- 消息区确认停止使用原回调及 Run version；`ContinueAgentRunButton` 增加内联重试外观，共享原请求身份与未知回执核对。
+- CSS 复用 v5 的 30px 行、14px 状态/工具图标、26px 停止按钮和单行省略；粗指针 44px，日夜主题及 reduced-motion 共用语义 token。
+
+验证：
+
+- `pnpm typecheck`、`pnpm test` 通过（240 个 Vitest 文件、2621 项用例；另有 339 项 Node 测试通过、2 项平台跳过）；新增 5 项占位投影、8 项 ExecutionWindow 及原有产物渲染回归通过。
+- `pnpm test:run-presence-ui` 覆盖 8 类场景、37 个阶段、真实增量 Evidence 模拟、交错消息、原按钮显隐、停止确认、重试拒绝／未知回执及草稿保留；额外验证轻量 open 无 Evidence 时单块恢复命令、增量正文且不读 Blob。
+- 与 User 确认的 v5 原文件逐项比对行高、间距、字体、颜色及停止按钮：日夜主题 × 1040×700、1440×920、2560×1440 共 6 组通过；另通过 200% 等效布局、44px 粗指针目标及 reduced-motion。
+- 原有 `pnpm test:run-continuation-ui` 及 `execution-state-transition` 浏览器回归通过；`pnpm test:rust:pr` 为 465 passed、1 ignored；`pnpm package:mac` 成功。
+- `pnpm accept:runtime-activity-ui` 完整通过：隔离桌面包/Core 的 13 类结构化 Runtime 夹具、冷启动命令恢复、紧凑消息尾占位、执行台三种位置、工具正文阅读恢复、停止、日夜主题与 200% 等效布局均通过。浏览器和桌面验收使用受控证据与命令回执，不代表真实模型执行。
+- 验收同时复现并修复底部执行台高度测量晚于阅读位置恢复的问题：等待高度边界提交后恢复，原 3% 精度断言保留；底部往返前后外层比例均为 `0.3715415`，正文比例均为 `0.5297483`。最终修复再通过类型检查、执行台浏览器回归与完整桌面包验收。
+
+验收维护：主线 Built-in transport 的断言仍为 36，已在未改动的基线重现并与当前 37 同步；
+通用桌面夹具的 Manifest 32 更新为 33，按当前 Accepted Input Recovery v8 检查结果不明 Run 的失败终态和主动继续，
+并使用当前带数量的标签结构、“智能体默认”文案、执行台统一背景及重入总览契约；Runtime 断言按成员身份定位，已停止步骤计入收口总数。浏览器关闭等待拥有的进程退出，解除 Crashpad 继承日志管道导致的悬挂；
+缺少浏览器时保留清晰的未执行提示，额外验证启动失败能够释放资源。未修改 Core 恢复规则或模型上下文。
+
+本地证据保存在 worktree 的 `docs/prototypes/run-presence-implementation/`（忽略的生成物），含浏览器逐项
+对照、桌面验收 JSON 与截图。最终隔离 `userData` 为
+`/private/var/folders/pm/zmpfxggd0glcm8vx3p3y3mmr0000gq/T/rovai-presence-native-layout-4c6zdmds/user-data`，
+Skill Library 为其 `managed-skill-library/`；未安装、重启或改写日常 App。

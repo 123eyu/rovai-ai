@@ -5559,11 +5559,15 @@ impl AcpCliRuntimeAdapter {
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
-        let compatibility = if self.kind == AdapterKind::ZcodeApp {
-            RuntimeCompatibilityKey::camp(camp_id, agent_id, runtime_compatibility_digest)
-        } else {
-            RuntimeCompatibilityKey::member(camp_id, agent_id, runtime_compatibility_digest)
-        };
+        let compatibility = RuntimeCompatibilityKey::member_session(
+            camp_id,
+            agent_id,
+            frozen_runtime
+                .environment
+                .as_ref()
+                .map(|env| env.plan_id.as_str()),
+            runtime_compatibility_digest,
+        );
         if self.kind == AdapterKind::DeepseekHarness {
             // DSH persists exact Sessions but holds a native lock while the
             // previous Host owns them. Reap obsolete idle Hosts before resume;
@@ -6826,7 +6830,12 @@ fn configure_compaction_detector_command(
                 append_post_compact_hook(&mut settings, &hook_command)?;
                 write_private_json_file(&private_home.join("settings.json"), &settings)?;
                 command.env("QWEN_HOME", &private_home);
-                if std::env::var_os("QWEN_RUNTIME_DIR").is_none() {
+                if rovai_core::runtime_discovery::runtime_environment_variable(
+                    AdapterKind::QwenCode,
+                    "QWEN_RUNTIME_DIR",
+                )
+                .is_none()
+                {
                     command.env("QWEN_RUNTIME_DIR", source_home);
                 }
             }

@@ -9760,6 +9760,21 @@ impl Core {
                 })?;
                 Ok(serde_json::to_value(execution.result)?)
             }
+            "conversations.memberSession.get" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Params {
+                    camp_id: String,
+                    agent_id: String,
+                }
+                let params: Params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                let view: Option<Value> = database.connection().query_row(
+                    "SELECT id,version,EXISTS(SELECT 1 FROM agent_run WHERE conversation_id=conversation.id AND status IN ('queued','running','waiting'))
+                     FROM conversation WHERE camp_id=?1 AND agent_id=?2 AND kind='camp_member'",
+                    rusqlite::params![params.camp_id,params.agent_id], |r| Ok(json!({"conversationId":r.get::<_,String>(0)?,"version":r.get::<_,i64>(1)?,"active":r.get::<_,bool>(2)?}))).optional()?;
+                Ok(json!(view))
+            }
             "conversations.restartNativeSession" => {
                 let params: UserCommandParams<RestartNativeSessionCommand> =
                     serde_json::from_value(request.params.clone())?;
@@ -14722,15 +14737,18 @@ impl Core {
         workspace: &AgentRunWorkspace,
     ) -> std::result::Result<(FrozenAgentRuntimeConfig, i64), RuntimeDispatchFailure> {
         let mut runtime = runtime;
-        if let Some(environment) = &mut runtime.environment {
-            environment
-                .hydrate(self.database.lock().await.connection())
-                .map_err(|error| RuntimeDispatchFailure {
-                    code: "runtime_environment_unavailable".into(),
-                    error,
-                    effective_version: None,
-                })?;
-        }
+        let environment = runtime.environment.as_mut().ok_or_else(|| RuntimeDispatchFailure {
+            code: "runtime_environment_unavailable".into(),
+            error: anyhow::anyhow!("The session environment is unavailable; reset this member's session to use the current configuration"),
+            effective_version: None,
+        })?;
+        environment
+            .hydrate(self.database.lock().await.connection())
+            .map_err(|error| RuntimeDispatchFailure {
+                code: "runtime_environment_unavailable".into(),
+                error,
+                effective_version: None,
+            })?;
         rovai_core::runtime_discovery::with_frozen_environment(
             runtime.environment.clone(),
             self.prepare_runtime_for_dispatch_in_environment(candidate, runtime, workspace),
@@ -15128,9 +15146,8 @@ impl Core {
         launch_permit: &mut ExecutionLaunchPermit,
     ) -> Result<()> {
         let mut resolved = execution.clone();
-        if let Some(environment) = &mut resolved.runtime.environment {
-            environment.hydrate(self.database.lock().await.connection())?;
-        }
+        resolved.runtime.environment.as_mut().context("The session environment is unavailable; reset this member's session to use the current configuration")?
+            .hydrate(self.database.lock().await.connection())?;
         let environment = resolved.runtime.environment.clone();
         rovai_core::runtime_discovery::with_frozen_environment(
             environment,

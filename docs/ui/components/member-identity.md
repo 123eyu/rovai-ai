@@ -93,10 +93,13 @@ Rovai 概念。该表单由 Desktop 与 Mobile 共用；版本不兼容也复用
 运行设置在模型和权限下方提供紧凑折叠的“环境变量 / Environment Variables”入口，使用 JSON 对象编辑。
 placeholder 展示 Claude 的 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_API_KEY` 示例；初始高度 104px，随内容增长，
 上限为 360px 或视口高度的 45%。点击无边框高亮或阴影；移动端字号为 16px。
-沿用表单保存、放弃更改和离页草稿保护，不提供检查连接或额外继承说明。
-默认用 `<saved>` 保留已存凭据，显式查看才读取原值；地址改变且保留凭据时要求确认。
+沿用表单保存、放弃更改和离页草稿保护，不提供检查连接。
+默认用 `<saved>` 保留已存凭据，显式查看才读取原值；不进行地址与凭据配对确认。
+固定提示“环境配置将在新建或重置该队员会话后生效，已有会话保持不变。”与
+“未配置的变量会继承宿主环境。修改服务地址时，请核对同时使用的凭据。”
+Camp 队员操作中的“重置队员会话”复用原生会话重置；不清空 Camp 消息，活动任务期间拒绝。
 值归 Host 私有存储，不进入普通队员资料或“应用到其他队员”。精确行为见
-[Runtime Launch v57](../../contracts/runtime-launch-and-verification-v57.md)。
+[Runtime Launch v58](../../contracts/runtime-launch-and-verification-v58.md)。
 
 ### 应用运行配置到其他队员
 

@@ -4,7 +4,7 @@ import { uiAttribute } from './interface-language'
 export const SAVED_ENVIRONMENT_VALUE = '<saved>'
 export const ENVIRONMENT_PLACEHOLDER = '{\n  "ANTHROPIC_BASE_URL": "https://api.anthropic.com",\n  "ANTHROPIC_API_KEY": "sk-ant-..."\n}'
 export type MemberEnvironmentSnapshot = { revision: number; environment: Record<string, string> }
-export type MemberEnvironmentEdit = { expectedRevision: number; json: string; confirmTargetChange: boolean }
+export type MemberEnvironmentEdit = { expectedRevision: number; json: string }
 export const sensitiveEnvironmentName = (name: string): boolean => /TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(name)
 export const environmentText = (values: Record<string, string>): string => Object.keys(values).length ? JSON.stringify(values, null, 2) : ''
 
@@ -41,9 +41,4 @@ export function parseMemberEnvironment(text: string, windows: boolean, kind: Ada
   if (bytes > 128 * 1024) throw new Error(uiAttribute('环境变量总长度超过限制。'))
   if (kind === 'claude-code-cli' && model?.mode === 'explicit' && entries.some(([name]) => (windows ? name.toUpperCase() : name) === 'ANTHROPIC_MODEL')) throw new Error(uiAttribute('已选择模型。请删除 ANTHROPIC_MODEL，或将模型切回默认。'))
   return windows ? Object.fromEntries(entries.map(([name, value]) => [name.toUpperCase(), value as string])) : values as Record<string, string>
-}
-
-export function environmentNeedsConsent(before: Record<string, string>, after: Record<string, string>): boolean {
-  return Object.keys({ ...before, ...after }).some(name => /URL|ENDPOINT|HOST/i.test(name) && before[name] !== after[name])
-    && Object.entries(after).some(([name, value]) => sensitiveEnvironmentName(name) && value !== '' && Object.hasOwn(before, name) && (value === SAVED_ENVIRONMENT_VALUE || value === before[name]))
 }

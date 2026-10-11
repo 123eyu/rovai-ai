@@ -1767,7 +1767,6 @@ impl PiRpcRuntimeAdapter {
         };
         let locator_root =
             session_locator_root(&self.private_runtime_dir, request.camp_id, request.agent_id)?;
-        let workspace_key = canonical_workspace_key(request.cwd)?;
         let spawn_executable = PathBuf::from(&request.frozen_runtime.executable_path);
         let spawn_cwd = request.cwd.to_path_buf();
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
@@ -1782,10 +1781,14 @@ impl PiRpcRuntimeAdapter {
                     agent_run_id: request.agent_run_id.to_string(),
                     execution_epoch: request.execution_epoch,
                     adapter_kind: AdapterKind::Pi,
-                    compatibility: RuntimeCompatibilityKey::workspace(
+                    compatibility: RuntimeCompatibilityKey::member_session(
                         request.camp_id,
                         request.agent_id,
-                        workspace_key,
+                        request
+                            .frozen_runtime
+                            .environment
+                            .as_ref()
+                            .map(|env| env.plan_id.as_str()),
                         request.runtime_compatibility_digest,
                     ),
                 },
@@ -2323,13 +2326,6 @@ fn canonical_or_future_session_path(path: &Path) -> Result<PathBuf> {
         }
         Err(error) => Err(error).context("Pi Session file metadata is unavailable"),
     }
-}
-
-fn canonical_workspace_key(cwd: &Path) -> Result<String> {
-    let cwd = cwd
-        .canonicalize()
-        .with_context(|| format!("failed to resolve Pi Workspace {}", cwd.display()))?;
-    canonical_json_digest(&json!({"workspace": cwd}))
 }
 
 fn validate_host_state(

@@ -4,11 +4,11 @@ import { useThreadClient } from './camp-client'
 import { DialogControlIcon } from './AppDialog'
 import { uiAttribute as t, useInterfaceLanguage } from './interface-language'
 import { readErrorMessage } from './error-message'
-import { ENVIRONMENT_PLACEHOLDER, SAVED_ENVIRONMENT_VALUE, environmentNeedsConsent, environmentText, parseMemberEnvironment, sensitiveEnvironmentName, type MemberEnvironmentEdit, type MemberEnvironmentSnapshot } from './member-environment'
+import { ENVIRONMENT_PLACEHOLDER, SAVED_ENVIRONMENT_VALUE, environmentText, parseMemberEnvironment, sensitiveEnvironmentName, type MemberEnvironmentEdit, type MemberEnvironmentSnapshot } from './member-environment'
 import './member-environment.css'
 
-type Draft = { snapshot: MemberEnvironmentSnapshot; text: string; error: string; loading: boolean; revealed: boolean; consent: boolean; saved: boolean }
-const empty = (): Draft => ({ snapshot: { revision: 0, environment: {} }, text: '', error: '', loading: true, revealed: false, consent: false, saved: false })
+type Draft = { snapshot: MemberEnvironmentSnapshot; text: string; error: string; loading: boolean; revealed: boolean; saved: boolean }
+const empty = (): Draft => ({ snapshot: { revision: 0, environment: {} }, text: '', error: '', loading: true, revealed: false, saved: false })
 
 export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', memberVersion: number, model: ModelSelection | undefined, windows: boolean) {
   const client = useThreadClient()
@@ -18,6 +18,7 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
   const state = useRef({ key, current }); state.current = { key, current }
   const sequence = useRef(0)
   const revealSequence = useRef(0)
+  const savedReadKey = useRef<string | null>(null)
   const patch = useCallback((change: Partial<Draft>): void => setDrafts(all => ({ ...all, [key]: { ...(all[key] ?? empty()), ...change } })), [key])
   const load = useCallback(async (force = false): Promise<void> => {
     if (!kind) return
@@ -25,12 +26,16 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
     try {
       const snapshot = await client.request<MemberEnvironmentSnapshot>('member.runtimeEnvironment.get', { memberId, adapterKind: kind })
       if (request !== sequence.current) return
+      // A profile-version refresh may supersede the read started by Save. It must
+      // still accept that saved revision instead of treating our own write as a conflict.
+      const saved = savedReadKey.current === key
+      if (saved) savedReadKey.current = null
       setDrafts(all => {
         const previous = all[key]
-        if (!force && previous && previous.text !== environmentText(previous.snapshot.environment)) {
+        if (!force && !saved && previous && previous.text !== environmentText(previous.snapshot.environment)) {
           return { ...all, [key]: { ...previous, loading: false, error: snapshot.revision !== previous.snapshot.revision ? t('运行环境已在其他位置更新，请重新读取。') : previous.error } }
         }
-        return { ...all, [key]: { ...empty(), snapshot, text: environmentText(snapshot.environment), loading: false } }
+        return { ...all, [key]: { ...empty(), snapshot, text: environmentText(snapshot.environment), loading: false, saved } }
       })
     } catch (error) { if (request === sequence.current) patch({ error: readErrorMessage(error), loading: true }) }
   }, [client, key, kind, memberId, patch])
@@ -38,7 +43,6 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
   let parsed: Record<string, string> = {}, parseError = ''
   try { parsed = parseMemberEnvironment(current.text, windows, kind, model) } catch (error) { parseError = readErrorMessage(error) }
   const dirty = current.text !== environmentText(current.snapshot.environment)
-  const needsConsent = !parseError && environmentNeedsConsent(current.snapshot.environment, parsed)
   const mask = (): void => {
     revealSequence.current++
     if (current.revealed && !parseError) {
@@ -48,18 +52,17 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
     }
   }
   return {
-    ...current, dirty, needsConsent, count: Object.keys(current.snapshot.environment).length,
+    ...current, dirty, count: Object.keys(current.snapshot.environment).length,
     hasSecrets: Object.entries(current.snapshot.environment).some(([name, value]) => sensitiveEnvironmentName(name) && value !== ''),
-    update(text: string) { patch({ text, consent: false, error: '', saved: false }) },
-    setConsent(consent: boolean) { patch({ consent, error: '' }) },
+    update(text: string) { patch({ text, error: '', saved: false }) },
     reset() { revealSequence.current++; setDrafts({}); void load(true) },
-    async savedSuccessfully() { await load(true); patch({ saved: true }) },
+    async savedSuccessfully() { savedReadKey.current = key; await load(true) },
     edit(): MemberEnvironmentEdit | undefined {
       const invalidMarker = Object.entries(parsed).some(([name,value]) => value === SAVED_ENVIRONMENT_VALUE && (!sensitiveEnvironmentName(name) || !Object.hasOwn(current.snapshot.environment, name)))
-      const error = parseError || (invalidMarker ? t('请填写真实值；“<saved>”仅用于保留已有凭据。') : '') || (needsConsent && !current.consent ? t('请确认原凭据仍适用于新地址，或直接替换 JSON 中的凭据。') : '')
+      const error = parseError || (invalidMarker ? t('请填写真实值；“<saved>”仅用于保留已有凭据。') : '')
       if (error) { patch({ error }); throw new Error(error) }
       if (!dirty) return undefined
-      return { expectedRevision: current.snapshot.revision, json: current.text, confirmTargetChange: current.consent }
+      return { expectedRevision: current.snapshot.revision, json: current.text }
     },
     async toggleReveal() {
       if (current.revealed) { mask(); return }
@@ -103,8 +106,9 @@ export function MemberEnvironmentEditor({ environment: env, disabled }: { enviro
       {env.error && <p id={`${id}-error`} className="environment-error" role="alert">{env.error}{env.loading && <button type="button" className="quiet-button" onClick={env.reset}>{t('重试')}</button>}</p>}
       {env.hasSecrets && <div className="environment-caption"><button type="button" className="quiet-button environment-reveal" onClick={() => void env.toggleReveal()} disabled={disabled || env.loading} aria-pressed={env.revealed}><DialogControlIcon name={env.revealed ? 'eye-off' : 'eye'}/>{env.revealed ? t('隐藏密钥') : t('显示密钥')}</button></div>}
       {env.hasSecrets && !env.revealed && <p className="environment-secret-hint">{t('保留“<saved>”沿用原凭据，替换其内容即可更新。')}</p>}
-      {env.needsConsent && <label className="environment-consent"><input type="checkbox" checked={env.consent} disabled={disabled} onChange={event => env.setConsent(event.target.checked)}/>{t('原凭据仍适用于新地址')}</label>}
-      {env.saved && <p className="environment-saved" role="status">{t('已保存，将在后续运行中生效。')}</p>}
+      <p className="environment-secret-hint">{t('未配置的变量会继承宿主环境。修改服务地址时，请核对同时使用的凭据。')}</p>
+      <p className="environment-secret-hint">{t('环境配置将在新建或重置该队员会话后生效，已有会话保持不变。')}</p>
+      {env.saved && <p className="environment-saved" role="status">{t('已保存。')}</p>}
     </div>
   </details>
 }

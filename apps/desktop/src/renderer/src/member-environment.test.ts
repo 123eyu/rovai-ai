@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { environmentNeedsConsent, parseMemberEnvironment } from './member-environment'
+import { parseMemberEnvironment } from './member-environment'
 
 describe('member environment JSON boundary', () => {
   it('preserves literal strings, empty overrides and deletion without shell expansion', () => {
@@ -16,10 +16,8 @@ describe('member environment JSON boundary', () => {
     expect(() => parseMemberEnvironment('{"ANTHROPIC_MODEL":"relay"}', false, 'claude-code-cli', { mode: 'explicit', modelId: 'selected', options: {} })).toThrow()
     expect(parseMemberEnvironment('{"ANTHROPIC_MODEL":"relay"}', false, 'claude-code-cli', { mode: 'runtime_default' })).toEqual({ ANTHROPIC_MODEL: 'relay' })
   })
-  it('requires target confirmation only when an existing credential is retained', () => {
-    const before = { ANTHROPIC_BASE_URL: 'https://a.example', ANTHROPIC_API_KEY: '<saved>' }
-    expect(environmentNeedsConsent(before, { ...before, ANTHROPIC_BASE_URL: 'https://b.example' })).toBe(true)
-    expect(environmentNeedsConsent(before, { ...before, ANTHROPIC_BASE_URL: 'https://b.example', ANTHROPIC_API_KEY: 'new-key' })).toBe(false)
-    expect(environmentNeedsConsent(before, { ANTHROPIC_BASE_URL: 'https://b.example' })).toBe(false)
+  it('passes through a URL-only override without provider credential pairing', () => {
+    expect(parseMemberEnvironment('{"ANTHROPIC_BASE_URL":"https://b.example"}', false, 'claude-code-cli', undefined))
+      .toEqual({ ANTHROPIC_BASE_URL: 'https://b.example' })
   })
 })

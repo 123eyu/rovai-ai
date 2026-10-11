@@ -1632,7 +1632,6 @@ impl AgentProfileService {
         };
         // Re-probing may change executable evidence, never the admitted Run's Camp intent.
         rebound.environment = frozen.environment.clone();
-        crate::member_environment::incorporate_identity(&mut rebound)?;
         rebound.camp_fast = frozen.camp_fast.clone();
         if frozen.adapter_kind == AdapterKind::CodexCli
             && frozen.camp_fast.is_some()
@@ -4472,20 +4471,35 @@ pub fn resolve_frozen_runtime(
             }),
         )));
     }
-    let member_environment =
-        crate::member_environment::has_values(transaction, agent_id, binding.adapter_kind)?;
+    let member_environment = crate::member_environment::session_has_values(
+        transaction,
+        conversation_id,
+        agent_id,
+        binding.adapter_kind,
+    )?;
     let mut result = if member_environment {
         resolve_frozen_runtime_binding_with_snapshot(transaction, &binding, Some(None))?
     } else {
-        resolve_frozen_runtime_binding(transaction, &binding)?
+        let environment = crate::member_environment::session_values(
+            transaction,
+            conversation_id,
+            binding.adapter_kind,
+        )?;
+        let snapshot = crate::runtime_startup::snapshot_from_connection_with_environment(
+            transaction,
+            binding.adapter_kind,
+            environment.as_ref(),
+        )?;
+        resolve_frozen_runtime_binding_with_snapshot(transaction, &binding, Some(snapshot))?
     };
     if let Ok(runtime) = &mut result {
-        crate::member_environment::freeze(transaction, agent_id, runtime)?;
+        crate::member_environment::freeze(transaction, conversation_id, agent_id, runtime)?;
         crate::camp_fast::freeze(transaction, conversation_id, agent_id, runtime)?;
     }
     Ok(result)
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_frozen_runtime_binding(
     transaction: &Connection,
     binding: &ResolvedRuntimeBinding,

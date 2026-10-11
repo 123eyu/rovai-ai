@@ -443,6 +443,14 @@ pub(crate) fn snapshot_from_connection(
     connection: &rusqlite::Connection,
     kind: AdapterKind,
 ) -> Result<Option<CustomApiSnapshot>> {
+    snapshot_from_connection_with_environment(connection, kind, None)
+}
+
+pub(crate) fn snapshot_from_connection_with_environment(
+    connection: &rusqlite::Connection,
+    kind: AdapterKind,
+    environment: Option<&std::collections::BTreeMap<String, String>>,
+) -> Result<Option<CustomApiSnapshot>> {
     if !native::supported(kind) {
         return Ok(None);
     }
@@ -450,13 +458,14 @@ pub(crate) fn snapshot_from_connection(
     let Some(database_path) = connection.path() else {
         return Ok(None);
     };
-    Ok(
-        native::NativeContext::resolve(kind, &configuration, Path::new(database_path))
-            .and_then(|context| {
-                native::read(&context, None).map(|read| read.snapshot(&context, false))
-            })
-            .ok(),
+    Ok(native::NativeContext::resolve_with_environment(
+        kind,
+        &configuration,
+        Path::new(database_path),
+        environment,
     )
+    .and_then(|context| native::read(&context, None).map(|read| read.snapshot(&context, false)))
+    .ok())
 }
 /// Explicit checks use the saved native connection; startup drafts never edit it.
 pub fn resolve_draft(
@@ -544,7 +553,7 @@ mod tests {
         let mut frozen = crate::member_environment::FrozenEnvironment {
             plan_id: "fixture".into(),
             revision: 1,
-            identity: "fixture".into(),
+            legacy_identity: None,
             values: Some(overlay.clone()),
             overlay: Some(overlay),
         };
@@ -560,14 +569,14 @@ mod tests {
             .as_mut()
             .unwrap()
             .insert("ANTHROPIC_AUTH_TOKEN".into(), "fixture-other-key".into());
-        assert!(frozen.validate_claude_routing(Some("2.1.287")).is_err());
+        assert!(frozen.validate_claude_routing(Some("2.1.287")).is_ok());
         frozen
             .values
             .as_mut()
             .unwrap()
             .remove("ANTHROPIC_AUTH_TOKEN");
         frozen.values.as_mut().unwrap().remove("ANTHROPIC_API_KEY");
-        assert!(frozen.validate_claude_routing(Some("2.1.287")).is_err());
+        assert!(frozen.validate_claude_routing(Some("2.1.287")).is_ok());
         for retired in ["customApi", "customApiSnapshot", "apiKey"] {
             let input = serde_json::json!({"programPath":null,"environment":[],retired:{"value":"fake-key"}});
             assert!(serde_json::from_value::<RuntimeStartupConfiguration>(input).is_err());

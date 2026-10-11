@@ -390,6 +390,7 @@ mod tests {
             database.connection().execute_batch(
                 "UPDATE schema_migration SET applied_at='2026-10-01T00:00:00Z' WHERE version=188;").unwrap();
             if main_source {
+                member_environment::downgrade_for_test(database.connection());
                 database
                     .connection()
                     .execute_batch("PRAGMA foreign_keys=OFF")

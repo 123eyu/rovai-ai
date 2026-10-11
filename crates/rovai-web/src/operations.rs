@@ -142,6 +142,10 @@ pub enum Operation {
     RuntimeStartupGet,
     #[serde(rename = "member.runtimeEnvironment.get")]
     MemberEnvironmentGet,
+    #[serde(rename = "conversations.memberSession.get")]
+    MemberSessionGet,
+    #[serde(rename = "conversations.restartNativeSession")]
+    MemberSessionRestart,
     #[serde(rename = "runtime.environmentLegacy.list")]
     RuntimeEnvironmentLegacyList,
     #[serde(rename = "runtime.environmentLegacy.get")]
@@ -473,6 +477,8 @@ impl Operation {
             Self::McpImport => "mcp.import.commit",
             Self::RuntimeStartupGet => "runtime.startup.get",
             Self::MemberEnvironmentGet => "member.runtimeEnvironment.get",
+            Self::MemberSessionGet => "conversations.memberSession.get",
+            Self::MemberSessionRestart => "conversations.restartNativeSession",
             Self::RuntimeEnvironmentLegacyList => "runtime.environmentLegacy.list",
             Self::RuntimeEnvironmentLegacyGet => "runtime.environmentLegacy.get",
             Self::RuntimeEnvironmentLegacyAcknowledge => "runtime.environmentLegacy.acknowledge",

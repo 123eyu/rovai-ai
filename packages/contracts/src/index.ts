@@ -4149,6 +4149,7 @@ export type CoreMethod =
   | 'mcp.servers.delete'
   | 'mcp.import.scan'
   | 'mcp.import.commit'
+  | 'conversations.memberSession.get'
   | 'conversations.restartNativeSession'
   | 'channels.credentials.get'
   | 'channels.credentials.listPublished'

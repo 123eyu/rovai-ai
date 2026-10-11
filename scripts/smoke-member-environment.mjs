@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { DatabaseSync } from 'node:sqlite'
-import { coreDataDirectoryArguments } from './lib/runtime-camp-files-root.mjs'
+import { coreDataDirectoryArguments, removeEphemeralRuntimeCampFilesRoot } from './lib/runtime-camp-files-root.mjs'
 
 if (process.platform === 'win32') throw new Error('This shell fixture requires macOS or Linux')
 const root = resolve(import.meta.dirname, '..')
@@ -28,12 +28,12 @@ try {
   const installations = await core.request('runtime.installations.list')
   assert.ok(installations.some(i => i.adapterKind === kind), 'Synthetic Claude installation discovered')
   const initial = await core.request('members.get', { agentId: memberId })
-  const payload = (version, revision, values, confirmTargetChange = false) => ({
+  const payload = (version, revision, values) => ({
     commandId: crypto.randomUUID(), command: {
       agentId: memberId, expectedVersion: version, adapterKind: kind,
       model: { mode: 'runtime_default' },
       permissions: { adapterKind: kind, schemaVersion: 1, values: { permission_mode: 'acceptEdits' } },
-      environment: { expectedRevision: revision, json: JSON.stringify(values), confirmTargetChange }
+      environment: { expectedRevision: revision, json: JSON.stringify(values) }
     }
   })
   const get = (extra = {}) => core.request('member.runtimeEnvironment.get', { memberId, adapterKind: kind, ...extra })
@@ -51,10 +51,8 @@ try {
   assert.equal(rejected.status, 'rejected')
   assert.equal((await get()).revision, 1, 'Profile CAS failure cannot commit environment')
   await assert.rejects(core.request('members.runtime.set', payload(profile.version, 0, {})), /environment changed/)
-  await assert.rejects(core.request('members.runtime.set', payload(profile.version, 1,
-    { ANTHROPIC_BASE_URL: 'https://b.example', ANTHROPIC_API_KEY: '<saved>' })), /Confirm/)
   assert.equal((await core.request('members.runtime.set', payload(profile.version, 1,
-    { ANTHROPIC_BASE_URL: 'https://b.example', ANTHROPIC_API_KEY: '<saved>', ANTHROPIC_MODEL: 'provider-model' }, true))).status, 'applied')
+    { ANTHROPIC_BASE_URL: 'https://b.example', ANTHROPIC_API_KEY: '<saved>', ANTHROPIC_MODEL: 'provider-model' }))).status, 'applied')
   const updated = await core.request('members.get', { agentId: memberId })
   const modelOnly = payload(updated.version, 2, {})
   delete modelOnly.command.environment
@@ -68,6 +66,27 @@ try {
     }), /moved to Teammates/)
   }
   assert.deepEqual((await core.request('runtime.startup.get', { runtimeKind: kind })).configuration.environment, [])
+  const camp = await core.request('camps.create', { commandId: crypto.randomUUID(), name: 'Session reset fixture',
+    workspace: { projectPath: fixture }, memberAgentIds: [memberId], defaultLeadAgentId: memberId, collaborationMode: 'peer' })
+  const campId = camp.payload.threadId
+  assert.equal(await core.request('conversations.memberSession.get', { campId, agentId: memberId }), null)
+  // Seed only the lazy Conversation boundary while the disposable Core is stopped.
+  // Environment capture/reset and native generation are exercised by the Rust owners.
+  await core.stop()
+  const sessionFixture = new DatabaseSync(join(data, 'rovai.sqlite'))
+  sessionFixture.prepare(`INSERT INTO conversation(id,camp_id,agent_id,kind,version,created_at,updated_at)
+    VALUES(?,?,?,'camp_member',1,datetime('now'),datetime('now'))`).run('fixture-member-session', campId, memberId)
+  sessionFixture.close()
+  core = startCore()
+  await core.request('health.check')
+  const session = await core.request('conversations.memberSession.get', { campId, agentId: memberId })
+  assert.ok(session?.conversationId)
+  assert.equal(session.active, false)
+  assert.equal(await core.request('conversations.memberSession.get', { campId, agentId: 'agent_2' }), null)
+  const restart = { commandId: crypto.randomUUID(), command: { conversationId: session.conversationId, expectedVersion: session.version } }
+  assert.equal((await core.request('conversations.restartNativeSession', restart)).status, 'applied')
+  assert.equal((await core.request('conversations.restartNativeSession', { commandId: crypto.randomUUID(),
+    command: { ...restart.command, expectedVersion: session.version + 10 } })).code, 'conversation.version_conflict')
   await core.stop()
   core = startCore()
   await core.request('health.check')
@@ -83,8 +102,8 @@ try {
   // The Core is stopped. Convert only this disposable fixture to the exact prior schema.
   const legacy = new DatabaseSync(join(data, 'rovai.sqlite'))
   legacy.exec(`BEGIN;
-    DROP TABLE member_runtime_environment; DROP TABLE runtime_environment_plan; DROP TABLE runtime_environment_legacy;
-    DELETE FROM schema_migration WHERE version=191;
+    DROP TABLE conversation_runtime_environment; DROP TABLE member_runtime_environment; DROP TABLE runtime_environment_plan; DROP TABLE runtime_environment_legacy;
+    DELETE FROM schema_migration WHERE version IN (191,192);
     UPDATE rovai_data_contract SET projection_schema_version=140 WHERE singleton=1;`)
   legacy.prepare('INSERT INTO runtime_startup_setting(runtime_kind,revision,configuration_json,updated_at) VALUES(?,1,?,datetime(\'now\'))').run(kind,
     JSON.stringify({ programPath: null, environment: [{ name: 'ANTHROPIC_API_KEY', value: secret }] }))
@@ -106,9 +125,10 @@ try {
   assert.equal((await core.request('runtime.environmentLegacy.list'))[0].handled, true)
   assert.equal((await core.request('runtime.environmentLegacy.get', { runtimeKind: kind, reveal: true })).ANTHROPIC_API_KEY, secret)
   assert.equal((await core.request('diagnostics.check')).checks.find(check => check.subjectKind === 'legacy_runtime_environment').status, 'ok')
-  console.log(JSON.stringify({ ok: true, checks: ['private-read', 'masked-read', 'member-and-runtime-scope', 'command-replay', 'atomic-CAS', 'target-confirmation', 'model-conflict', 'retired-runtime-input', 'restart', 'clear-overlay', 'encrypted-storage', 'public-redaction', 'legacy-migration', 'legacy-diagnostic', 'legacy-acknowledgment-restart'] }))
+  console.log(JSON.stringify({ ok: true, checks: ['private-read', 'masked-read', 'member-and-runtime-scope', 'command-replay', 'atomic-CAS', 'configuration-pass-through', 'model-conflict', 'retired-runtime-input', 'member-session-scope', 'session-reset-CAS', 'restart', 'clear-overlay', 'encrypted-storage', 'public-redaction', 'legacy-migration', 'legacy-diagnostic', 'legacy-acknowledgment-restart'] }))
 } finally {
   await core?.stop()
+  await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home })
   await rm(fixture, { recursive: true, force: true })
 }
 

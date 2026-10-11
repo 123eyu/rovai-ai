@@ -3623,7 +3623,15 @@ impl ExecutionRuntimeService {
                     "Native Session cannot be restarted while this Conversation has active work",
                 ));
             }
-            if installation_id.is_none() && native_session_id.is_none() && binding_id.is_none() {
+            let removed_environment = crate::member_environment::reset_session(
+                transaction,
+                &envelope.payload.conversation_id,
+            )?;
+            if removed_environment == 0
+                && installation_id.is_none()
+                && native_session_id.is_none()
+                && binding_id.is_none()
+            {
                 return Ok(CommandHandlerResult::applied(
                     "conversation_native_session_already_clear",
                     json!({

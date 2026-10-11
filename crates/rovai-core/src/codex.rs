@@ -1505,8 +1505,15 @@ impl CodexCliRuntimeAdapter {
         let spawn_builtin_tools = builtin_tools.clone();
         let spawn_custom_api = frozen_runtime.custom_api.clone();
         let spawn_environment = frozen_runtime.environment.clone();
-        let compatibility =
-            RuntimeCompatibilityKey::member(camp_id, agent_id, runtime_compatibility_digest);
+        let compatibility = RuntimeCompatibilityKey::member_session(
+            camp_id,
+            agent_id,
+            frozen_runtime
+                .environment
+                .as_ref()
+                .map(|env| env.plan_id.as_str()),
+            runtime_compatibility_digest,
+        );
         // A different Codex Host can keep the same thread's native writer lock
         // even while idle. Reap it before a replacement attempts thread/resume.
         self.fleet

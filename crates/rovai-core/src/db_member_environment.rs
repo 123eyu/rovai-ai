@@ -1,4 +1,4 @@
-//! Private member overlays and immutable Run environments; no values in roster projections.
+//! Private member overlays and immutable session environments; no values in roster projections.
 use super::*;
 
 const OBJECTS: &[(&str, &str)] = &[
@@ -68,7 +68,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
-            DatabaseContractClassification::Current(_)
+            DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 141
         ),
         "Member environment schema admission failed"
     );
@@ -76,8 +76,54 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
     Ok(())
 }
 
+const SESSION_SQL: &str = "CREATE TABLE conversation_runtime_environment (
+    conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+    runtime_kind TEXT NOT NULL,
+    plan_id TEXT NOT NULL REFERENCES runtime_environment_plan(id),
+    revision INTEGER NOT NULL CHECK(revision>=0),
+    PRIMARY KEY(conversation_id,runtime_kind)
+)";
+
+pub(super) fn session_schema_matches(connection: &Connection) -> rusqlite::Result<bool> {
+    let sql: Option<String> = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='conversation_runtime_environment'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let normalize = |s: &str| s.split_whitespace().collect::<String>();
+    Ok(sql.as_deref().map(normalize) == Some(normalize(SESSION_SQL)))
+}
+
+pub(super) fn migrate_sessions(database: &mut Database) -> Result<()> {
+    let tx = database
+        .connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    anyhow::ensure!(
+        matches!(classify_database_contract(&tx)?,
+        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.contract_version == "v1.72" && marker.projection_schema_version == 141),
+        "Session environment migration requires v1.72/schema 141"
+    );
+    tx.execute_batch(SESSION_SQL)?;
+    tx.execute_batch("INSERT INTO schema_migration VALUES(192,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=142,updated_at=datetime('now') WHERE singleton=1;")?;
+    anyhow::ensure!(
+        matches!(
+            classify_database_contract(&tx)?,
+            DatabaseContractClassification::Current(_)
+        ),
+        "Session environment schema admission failed"
+    );
+    tx.commit()?;
+    Ok(())
+}
+
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
+    connection.execute_batch("DROP TABLE IF EXISTS conversation_runtime_environment;
+        DELETE FROM schema_migration WHERE version=192;
+        UPDATE rovai_data_contract SET projection_schema_version=141 WHERE singleton=1 AND projection_schema_version=142;").unwrap();
     if !connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=191)",

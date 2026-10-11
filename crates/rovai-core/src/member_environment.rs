@@ -5,7 +5,7 @@ use crate::{
     runtime_startup::{RuntimeEnvironmentVariable, RuntimeStartupConfiguration},
 };
 use anyhow::{Context, Result, ensure};
-use ring::{aead, hmac};
+use ring::aead;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{
     Deserialize, Serialize,
@@ -26,15 +26,12 @@ type Environment = BTreeMap<String, String>;
 pub struct EnvironmentEdit {
     pub expected_revision: i64,
     pub json: String,
-    #[serde(default)]
-    pub confirm_target_change: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EnvironmentUpdateReceipt {
     pub expected_revision: i64,
-    pub identity: String,
 }
 
 pub struct PreparedEnvironment {
@@ -49,7 +46,9 @@ pub struct PreparedEnvironment {
 pub struct FrozenEnvironment {
     pub plan_id: String,
     pub revision: i64,
-    pub identity: String,
+    // Read-only compatibility for snapshots written by the unreleased Run-scoped implementation.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "identity")]
+    pub legacy_identity: Option<String>,
     #[serde(skip)]
     pub values: Option<Environment>,
     #[serde(skip)]
@@ -102,10 +101,6 @@ fn key(connection: &Connection) -> Result<Vec<u8>> {
         .read_to_end(&mut bytes)?;
     ensure!(bytes.len() == 32, "Private environment key is invalid");
     Ok(bytes)
-}
-fn identity(connection: &Connection, bytes: &[u8]) -> Result<String> {
-    let digest = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &key(connection)?), bytes);
-    Ok(digest.as_ref().iter().map(|b| format!("{b:02x}")).collect())
 }
 fn encrypt(connection: &Connection, context: &str, value: &impl Serialize) -> Result<Vec<u8>> {
     let secret = aead::UnboundKey::new(&aead::AES_256_GCM, &key(connection)?)
@@ -285,7 +280,6 @@ pub fn prepare(
     );
     let previous = read_version(connection, member, kind, edit.expected_revision)?;
     let mut values = parse(&edit.json, cfg!(windows))?;
-    let mut retained = false;
     for (name, value) in &mut values {
         if value == SAVED {
             ensure!(
@@ -296,28 +290,20 @@ pub fn prepare(
                 .get(name)
                 .context("The saved credential is unavailable")?
                 .clone();
-            retained |= !value.is_empty();
-        } else if sensitive(name) && !value.is_empty() && previous.get(name) == Some(value) {
-            retained = true;
         }
     }
-    let target_changed = previous
-        .keys()
-        .chain(values.keys())
-        .filter(|name| {
-            let name = name.to_ascii_uppercase();
-            name.contains("URL") || name.contains("ENDPOINT") || name.contains("HOST")
-        })
-        .any(|name| previous.get(name) != values.get(name));
-    ensure!(
-        !retained || !target_changed || edit.confirm_target_change,
-        "Confirm that the retained credentials apply to the new address"
-    );
+    // Preserve command replay/conflict detection without hashing environment values.
+    // A committed revision is immutable, so an old command must carry the same private values.
+    if latest(connection, member, kind)? > edit.expected_revision {
+        ensure!(
+            read_version(connection, member, kind, edit.expected_revision + 1)? == values,
+            "Member environment changed; reload the saved configuration"
+        );
+    }
     validate_model(kind, model, &values)?;
     parse(&serde_json::to_string(&values)?, cfg!(windows))?;
     let receipt = EnvironmentUpdateReceipt {
         expected_revision: edit.expected_revision,
-        identity: identity(connection, &serde_json::to_vec(&values)?)?,
     };
     Ok(PreparedEnvironment {
         ciphertext: encrypt(
@@ -342,8 +328,70 @@ impl PreparedEnvironment {
     }
 }
 
-pub fn has_values(connection: &Connection, member: &str, kind: AdapterKind) -> Result<bool> {
+fn saved_session(
+    connection: &Connection,
+    conversation: &str,
+    kind: AdapterKind,
+) -> Result<Option<FrozenEnvironment>> {
+    let saved: Option<(String, i64)> = connection.query_row(
+        "SELECT plan_id, revision FROM conversation_runtime_environment WHERE conversation_id=?1 AND runtime_kind=?2",
+        params![conversation, kind.as_str()], |r| Ok((r.get(0)?, r.get(1)?))
+    ).optional()?;
+    if let Some((plan_id, revision)) = saved {
+        let mut environment = FrozenEnvironment {
+            plan_id,
+            revision,
+            legacy_identity: None,
+            values: None,
+            overlay: None,
+        };
+        environment.hydrate(connection)?;
+        return Ok(Some(environment));
+    }
+    // An existing native session must not silently adopt today's Host environment on upgrade.
+    let has_native: bool = connection.query_row(
+        "SELECT native_session_id IS NOT NULL FROM conversation WHERE id=?1",
+        [conversation],
+        |r| r.get(0),
+    )?;
+    if has_native {
+        let raw: Option<String> = connection.query_row(
+            "SELECT json_extract(effective_config_json,'$.runtime.environment') FROM agent_run
+             WHERE conversation_id=?1 AND runtime_adapter_kind=?2 ORDER BY created_at DESC, id DESC LIMIT 1",
+            params![conversation, kind.as_str()], |r| r.get(0)).optional()?.flatten();
+        let mut environment: FrozenEnvironment = serde_json::from_str(raw.as_deref().context(
+            "The session environment is unavailable; reset this member's session to use the current configuration")?)?;
+        environment.hydrate(connection)?;
+        return Ok(Some(environment));
+    }
+    Ok(None)
+}
+
+pub(crate) fn session_values(
+    connection: &Connection,
+    conversation: &str,
+    kind: AdapterKind,
+) -> Result<Option<Environment>> {
+    Ok(saved_session(connection, conversation, kind)?.and_then(|environment| environment.values))
+}
+
+pub fn session_has_values(
+    connection: &Connection,
+    conversation: &str,
+    member: &str,
+    kind: AdapterKind,
+) -> Result<bool> {
+    if let Some(environment) = saved_session(connection, conversation, kind)? {
+        return Ok(environment.overlay.as_ref().is_some_and(|v| !v.is_empty()));
+    }
     Ok(!read_version(connection, member, kind, latest(connection, member, kind)?)?.is_empty())
+}
+
+pub fn reset_session(connection: &Connection, conversation: &str) -> Result<usize> {
+    Ok(connection.execute(
+        "DELETE FROM conversation_runtime_environment WHERE conversation_id=?1",
+        [conversation],
+    )?)
 }
 
 fn validate_model(kind: AdapterKind, model: &ModelSelection, values: &Environment) -> Result<()> {
@@ -378,76 +426,86 @@ pub fn validate_saved_model(
 
 pub fn freeze(
     connection: &Connection,
+    conversation: &str,
     member: &str,
     runtime: &mut FrozenAgentRuntimeConfig,
 ) -> Result<()> {
-    let revision = latest(connection, member, runtime.adapter_kind)?;
-    let overlay = read_version(connection, member, runtime.adapter_kind, revision)?;
-    let mut values = crate::runtime_discovery::capture_host_runtime_environment();
-    for (name, value) in &overlay {
-        if cfg!(windows) {
-            values.retain(|key, _| !key.eq_ignore_ascii_case(name));
-        }
-        values.insert(name.clone(), value.clone());
-    }
-    // Native snapshot readers describe the shared account. A member overlay is
-    // governed by its frozen environment and must not assert the shared credential.
-    if !overlay.is_empty() {
-        runtime.custom_api = None;
-    }
-    if runtime.adapter_kind == AdapterKind::ClaudeCodeCli && claude_routing_override(&overlay) {
-        values.insert("CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST".into(), "1".into());
-    }
-    let identity = identity(connection, &serde_json::to_vec(&values)?)?;
-    let plan_identity = crate::member_environment::identity(
+    freeze_with_host(
         connection,
-        &serde_json::to_vec(&json!({"values":values,"overlay":overlay}))?,
-    )?;
-    let plan_id: Option<String> = connection
-        .query_row(
-            "SELECT id FROM runtime_environment_plan WHERE identity=?1",
-            [&plan_identity],
-            |r| r.get(0),
-        )
-        .optional()?;
-    let plan_id = match plan_id {
-        Some(id) => id,
+        conversation,
+        member,
+        runtime,
+        crate::runtime_discovery::capture_host_runtime_environment,
+    )
+}
+
+fn freeze_with_host(
+    connection: &Connection,
+    conversation: &str,
+    member: &str,
+    runtime: &mut FrozenAgentRuntimeConfig,
+    capture: impl FnOnce() -> Environment,
+) -> Result<()> {
+    ensure!(
+        connection.query_row(
+            "SELECT agent_id=?2 FROM conversation WHERE id=?1",
+            params![conversation, member],
+            |r| r.get::<_, bool>(0)
+        )?,
+        "Session environment belongs to another member"
+    );
+    let environment = match saved_session(connection, conversation, runtime.adapter_kind)? {
+        Some(environment) => environment,
         None => {
-            let id = uuid::Uuid::new_v4().to_string();
-            // Overlay is retained separately for native CLI settings precedence; it never enters a public snapshot.
+            let revision = latest(connection, member, runtime.adapter_kind)?;
+            let overlay = read_version(connection, member, runtime.adapter_kind, revision)?;
+            let mut values = capture();
+            for (name, value) in &overlay {
+                if cfg!(windows) {
+                    values.retain(|key, _| !key.eq_ignore_ascii_case(name));
+                }
+                values.insert(name.clone(), value.clone());
+            }
+            if runtime.adapter_kind == AdapterKind::ClaudeCodeCli
+                && claude_routing_override(&overlay)
+            {
+                values.insert("CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST".into(), "1".into());
+            }
+            // Random snapshot reference, not an environment/credential digest. The old identity
+            // column remains the encryption context for compatibility with encrypted Run plans.
+            let plan_id = uuid::Uuid::new_v4().to_string();
             let ciphertext = encrypt(
                 connection,
-                &plan_identity,
+                &plan_id,
                 &json!({"values":values,"overlay":overlay}),
             )?;
             connection.execute(
-                "INSERT INTO runtime_environment_plan(id,identity,ciphertext) VALUES(?1,?2,?3)",
-                params![id, plan_identity, ciphertext],
+                "INSERT INTO runtime_environment_plan(id,identity,ciphertext) VALUES(?1,?1,?2)",
+                params![plan_id, ciphertext],
             )?;
-            id
+            FrozenEnvironment {
+                plan_id,
+                revision,
+                legacy_identity: None,
+                values: Some(values),
+                overlay: Some(overlay),
+            }
         }
     };
+    connection.execute("INSERT OR IGNORE INTO conversation_runtime_environment(conversation_id,runtime_kind,plan_id,revision) VALUES(?1,?2,?3,?4)",
+        params![conversation,runtime.adapter_kind.as_str(),environment.plan_id,environment.revision])?;
+    if environment
+        .overlay
+        .as_ref()
+        .is_some_and(|values| !values.is_empty())
+    {
+        runtime.custom_api = None;
+    }
     runtime.environment = Some(FrozenEnvironment {
-        plan_id,
-        revision,
-        identity,
         values: None,
         overlay: None,
+        ..environment
     });
-    incorporate_identity(runtime)?;
-    Ok(())
-}
-pub fn incorporate_identity(runtime: &mut FrozenAgentRuntimeConfig) -> Result<()> {
-    if let Some(environment) = &runtime.environment {
-        runtime.host_config_digest = crate::command::canonical_json_digest(&json!([
-            runtime.host_config_digest,
-            environment.identity
-        ]))?;
-        runtime.binding_compatibility_digest = crate::command::canonical_json_digest(&json!([
-            runtime.binding_compatibility_digest,
-            environment.identity
-        ]))?;
-    }
     runtime.refresh_config_digest()
 }
 pub(crate) fn configure_values(command: &mut tokio::process::Command, values: &Environment) {
@@ -504,39 +562,6 @@ impl FrozenEnvironment {
             version.is_some_and(|v| v >= (2, 1, 287) && v.0 == 2),
             "Member provider routing requires Claude Code 2.1.287 or a newer compatible 2.x release"
         );
-        let values = self
-            .values
-            .as_ref()
-            .context("Frozen environment was not resolved")?;
-        let credentials = [
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "CLAUDE_CODE_OAUTH_TOKEN",
-        ]
-        .iter()
-        .filter(|name| values.get(**name).is_some_and(|v| !v.is_empty()))
-        .count();
-        ensure!(
-            credentials <= 1,
-            "Claude authentication variables conflict; explicitly override the unused credential with an empty string"
-        );
-        if values
-            .get("ANTHROPIC_BASE_URL")
-            .is_some_and(|value| !value.is_empty())
-        {
-            ensure!(
-                credentials == 1,
-                "Claude member endpoint requires a credential in the effective environment; native account fallback is disabled"
-            );
-            ensure!(
-                !values
-                    .iter()
-                    .any(|(name, value)| name.starts_with("CLAUDE_CODE_USE_")
-                        && ["1", "true", "yes", "on"]
-                            .contains(&value.to_ascii_lowercase().as_str())),
-                "Claude provider switches conflict with ANTHROPIC_BASE_URL; explicitly override unused switches with an empty string"
-            );
-        }
         Ok(())
     }
 
@@ -549,10 +574,6 @@ impl FrozenEnvironment {
             overlay: Environment,
         }
         let plan: Plan = decrypt(connection, &plan_identity, &bytes)?;
-        ensure!(
-            identity(connection, &serde_json::to_vec(&plan.values)?)? == self.identity,
-            "Frozen environment identity does not match its private plan"
-        );
         self.values = Some(plan.values);
         self.overlay = Some(plan.overlay);
         Ok(())
@@ -595,7 +616,22 @@ pub(crate) fn archive_legacy(connection: &Connection) -> Result<()> {
             .into_iter()
             .map(|row| (row.name, row.value))
             .collect::<Environment>();
-        let identity = identity(connection, &serde_json::to_vec(&values)?)?;
+        let previous: Option<(String, Vec<u8>)> = connection
+            .query_row(
+                "SELECT identity,ciphertext FROM runtime_environment_legacy WHERE runtime_kind=?1",
+                [&kind],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let identity = match previous {
+            Some((id, bytes))
+                if decrypt::<Environment>(connection, &format!("legacy:{kind}"), &bytes)?
+                    == values =>
+            {
+                id
+            }
+            _ => uuid::Uuid::new_v4().to_string(),
+        };
         let encrypted = encrypt(connection, &format!("legacy:{kind}"), &values)?;
         connection.execute("INSERT INTO runtime_environment_legacy(runtime_kind,identity,ciphertext,variable_count) VALUES(?1,?2,?3,?4)
             ON CONFLICT(runtime_kind) DO UPDATE SET identity=excluded.identity,ciphertext=excluded.ciphertext,variable_count=excluded.variable_count",params![kind,identity,encrypted,values.len() as i64])?;

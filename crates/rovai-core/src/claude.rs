@@ -3817,7 +3817,7 @@ mod tests {
                     Some(rovai_core::member_environment::FrozenEnvironment {
                         plan_id: "fixture".into(),
                         revision: 1,
-                        identity: "fixture".into(),
+                        legacy_identity: None,
                         values: Some(values),
                         overlay: Some(overlay),
                     });

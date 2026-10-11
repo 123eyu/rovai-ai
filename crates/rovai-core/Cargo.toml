@@ -22,6 +22,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 json5 = "0.4"
 rusqlite = { version = "0.40.2", features = ["backup", "bundled", "functions"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"

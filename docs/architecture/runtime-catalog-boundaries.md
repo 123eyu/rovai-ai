@@ -128,34 +128,26 @@ continuation、Built-in Tool、Approval、cancel、terminal、process cleanup �
 
 ## 本机启动设置
 
-Runtime Startup Settings 是 Core 拥有的按 Runtime Kind 本机配置，包含可选程序路径与子进程环境。
-Desktop 只编辑草稿，不拥有第二份有效配置。SQLite 保存与旧 managed readiness 失效同事务提交；
-保存后的 immutable Search Environment 供发现和新进程使用，已启动进程不受配置写入影响。
+Runtime Startup Settings 只保存本机程序路径。环境覆盖属于当前 Host 的具体队员实例和 Runtime，
+由 Core 私有存储管理；Host 环境与队员环境同名覆盖、不同名追加，删除队员条目恢复继承。
+已启动进程不受保存影响，旧 Agents 环境不再参与启动/检查，独立只读归档由诊断提供人工迁移参考。
 
-显式程序路径失效时保持缺失，不能换用自动候选；用户恢复自动后再使用原有发现来源。
-草稿浅检不写安装，草稿深检复用 Check Manager 的并发、deadline 与清理 owner，结果只回到编辑器。
-环境只传入对应 Runtime 进程与原生配置读取，既不修改系统环境，也不投影到公共上下文。
-字段、CAS、迁移和错误边界由 [Runtime Launch v55](../contracts/runtime-launch-and-verification-v55.md)拥有。
-
-主动正式检查在后端先读取最新基础环境、加载已保存启动设置，再将不可变环境快照交给 Check Manager。
-刷新后的请求不与旧搜索代数合并；结果写回与保存/刷新共用更新锁并重验代数和程序身份。
-草稿检查只复用读取步骤，在临时快照叠加草稿；不发布全局环境、安装、正式可用性或模型缓存。
-列表和指南共用正式入口；重新检测仍是目录浅检，不是主动检查的前置操作。
-
-保存是一次本地提交：复用已捕获环境，校验目标、字段与版本，写入并返回修订。它不重新读取 Shell/PATH，
-不扫描 Runtime、不查询身份或目录、不重启 Host，也不在返回后自动排队这些操作。显式程序路径只作本地文件校验。
-新配置按原规则失效缓存、冻结与 Host 兼容性；既有 Run 按生命周期完成，后继执行仍需匹配新来源摘要。
-环境捕获与发现文件校验在提交锁外进行，晚到发布重验代次并加载最新设置，不能使保存等待外部任务。
+首次建立队员会话时冻结 Host＋队员环境；后续运行、重试、进程重建和冷恢复读取原私有快照。
+仅新建或显式重置会话后读取最新配置；配置透传，不新增环境摘要、凭据配对或组合确认。
+进程只在同一 Camp、同一队员的当前会话内复用，继续遵循各 Adapter 的工作目录、恢复与停止策略。
+值不进入成员资料、公开命令、工具、事件或诊断导出；Owner 管理面使用遮蔽读取及显式查看。
+程序绝对路径仍属于安装发现，不由队员 PATH 偷换。详细字段、CAS、凭据保护、CLI 资格与迁移见
+[Runtime Launch v58](../contracts/runtime-launch-and-verification-v58.md)。
 
 ### Claude Code 与 Codex 原生配置
 
-原生连接编辑已按 User 要求退出。启动设置只拥有程序路径与普通子进程环境，不再读取到表单或编辑
+原生连接编辑已按 User 要求退出。启动设置只拥有程序路径，队员环境由独立私有入口拥有，不再读取到表单或编辑
 原生地址、Key、连接方式和模型列表，不再观察账号或生成原生目录。移除入口不修改任何已有原生配置，
 原生 CLI 继续读取其文件、环境、认证与模型设置。
 
 执行仍保留只读连接摘要、凭据来源引用和输出脱敏，以保持旧快照与 Host/binding 兼容隔离；
 内部历史快照名不代表可编辑 API 配置。队员模型选择使用原生目录及能力，不附加编辑器允许名单或
-推理强度 fallback。边界由 [Runtime Launch v55](../contracts/runtime-launch-and-verification-v55.md)拥有。
+推理强度 fallback。边界由 [Runtime Launch v58](../contracts/runtime-launch-and-verification-v58.md)拥有。
 
 ### 受管执行的原生自动记忆
 
@@ -180,6 +172,7 @@ CLI/settings 覆盖仍受原生管理策略约束。明确的参数拒绝或配�
 版本、平台与未验证项见[兼容性清单](../runtime-compatibility.md#2026-10-10-关闭原生自动记忆)。
 
 <a id="浅检测与按需深检"></a>
+
 ## 安装发现与真实 Host 验证
 
 OpenCode 保持一个产品与 Adapter。显式路径或现有发现顺序确定程序后，在启动准备阶段先取得
@@ -484,8 +477,8 @@ Pi 0.84.4 是当前最低兼容版本；
 Skills、Context files、Prompt templates 与用户 Settings；`--approve` 只信任当前项目，不是 Tool Approval，也不改写
 用户全局 trust。Rovai 不提供 `--no-extensions` fallback，任何 Extension
 启动错误都保留真实诊断并直接失败。Pi Host 进入统一 Fleet，策略为 `resident_multi_session`：一个 Host 串行服务多个 Native Session，并发 Run 使用
-不同 Host。Pi 的复用 identity 是 canonical workspace + process digest；当前独占 lease 的 Camp/member invalidation
-scope 单独保存并随每次领取更新，因此允许同 workspace 跨 Camp 串行复用而不削弱删除失效。其他 Runtime 的
+不同 Host。Pi 的复用归属是 Camp + member + 当前会话引用，canonical workspace 仍进入 process digest。
+同工作区不允许跨 Camp 或跨队员借用，删除失效仍保留。其他 Runtime 的
 Camp/member-scoped identity 不变。创建 gate 按 `(agent_run_id, execution_epoch)` singleflight，registry 锁不跨 IO。
 process key 不包含 Session、Bootstrap、Skills、model 或 Prompt；Fleet 以计入容量的 Starting reservation 在短锁内
 Reserve，并立即交给 Fleet-owned operation 锁外 Spawn、短锁内 Commit；同 Run/epoch waiter 共享结果且任意 waiter
@@ -564,8 +557,9 @@ Runtime-managed AgentRun 通过标准 ACP `session/set_config_option` 投递冻�
 保守提示，不改变 Product default；已有成员保存的
 `default`、`auto` 或 `plan` 不由 discovery、升级或 migration 静默扩权。十二种 Runtime 的 exact 默认矩阵见
 [Runtime Launch and Verification v55](../contracts/runtime-launch-and-verification-v55.md)。
-复用 Kimi Host 时从当前 AgentRun 的冻结配置设置 Session 模式，不继承原 Host 创建时的模式；注入 Host 的
-Provider 环境按生效键值计算私有兼容摘要，注释或无关文件格式变化不触发替换，环境值变化则替换 Host。
+复用 Kimi Host 时从当前 AgentRun 的冻结配置设置 Session 模式，不继承原 Host 创建时的模式。
+Host＋队员环境按 [v58](../contracts/runtime-launch-and-verification-v58.md) 固定于会话；保存配置不替换
+当前 Host，显式重置后使用新会话快照。既有原生配置与协议兼容判断继续保留，不新增环境摘要。
 CodeBuddy 的显式模型通过 Host 启动参数 `--model` 选择，因此它参与进程兼容；Runtime-default
 不传该参数，Session/Turn 选项变化不因完整 Run 配置摘要而重启 Host。
 

@@ -28,6 +28,19 @@ User 消息 19 已授权独立 worktree 实施。当前合同为 [Built-in Tool 
 代码与确定性验证已完成；真实模型 Gate、旧 Session 连续发送和回滚实测尚未运行。
 具体结果、测试准入与限制见[实施记录](implementation-plan.md#send-正文文件输入)。
 
+## 队员运行环境（2026-10-11）
+
+环境配置从 Agents 移至 Teammates，按队员实例与 Runtime 保存 Host 私有 JSON 覆盖。R4 紧凑双语编辑器
+沿用保存/放弃，移除旧 Agents 编辑区域及活动环境层；旧值以只读归档在“需要处理的问题”提示手动迁移。
+Migration 191 建立私有存储，192 发布 schema 142 并关联 Conversation 快照。按 User 后续规则，
+环境在队员会话创建时固定，冷恢复沿用，保存只影响新建或显式重置的会话；不提供环境摘要或凭据组合确认。
+Pi、ZCode、Fleet 收窄到同一 Camp/队员/当前会话，保留各 Adapter 的恢复、停止与后台消息机制。
+合同见 [Runtime Launch v58](../../contracts/runtime-launch-and-verification-v58.md)；
+测试归属见[队员环境 owner](../../development/testing.md#队员运行环境-owner2026-10-11)。
+可重复命令、实测结果和边界见[验收记录](../../research/member-runtime-environment-acceptance.md)。
+真实 Claude Code 2.1.287 已用两个 loopback 接口、不同假凭据/模型及冲突原生设置验证并行路由。
+其他 Runtime 不由这项测试推断 Provider 兼容性，Warm 与字面量子进程边界另由自动化测试覆盖。
+
 ## 并行交付：OpenCode V1/V2
 
 按 User 的可用性优先、最小必要改动意见，单一 OpenCode Adapter 在配置冻结前识别所选程序，
@@ -45,7 +58,7 @@ Windows V1 已补齐原生压缩监听插件的安装路径，复用平台私有
 
 按 User 要求退役 Rovai 专属 `kimi-code.env`、`ROVAI_KIMI_CONFIG` 与模型变量注入。
 正式运行、健康检查和模型目录探测由 Kimi 读取官方配置；旧文件不再影响启动或 Host 复用，
-不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v56](../../contracts/runtime-launch-and-verification-v56.md)，
+不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v58](../../contracts/runtime-launch-and-verification-v58.md)，
 理由见 [V1.72-D32](decisions.md#v1-72-d32)，验证记录见[实施计划](implementation-plan.md#2026-10-10-kimi-官方-provider-配置)。
 
 ## Claude Code / Codex 原生自动记忆（2026-10-10）

@@ -234,14 +234,8 @@ pub async fn acp_capability_probe_at_for_purpose(
 ) -> AcpCapabilityProbe {
     let mut probe = acp_probe_at(path, kind, acp_deep_session_probe_enabled(kind), purpose).await;
     redact_probe(kind, &mut probe.result);
-    if let Some(redactor) = probe_redactor(kind) {
-        for value in [&mut probe.initialize_result, &mut probe.session_result]
-            .into_iter()
-            .flatten()
-        {
-            redactor.value(value);
-        }
-    }
+    // Capability/session results remain protocol data for catalog and compatibility
+    // consumers. Only the diagnostic view above is scrubbed.
     probe
 }
 
@@ -254,9 +248,11 @@ fn probe_redactor(kind: AdapterKind) -> Option<rovai_core::runtime_custom_api::C
 
 fn redact_probe(kind: AdapterKind, result: &mut AgentRuntimeProbeResult) {
     if let Some(redactor) = probe_redactor(kind) {
-        let mut value = serde_json::to_value(&*result).expect("serializable probe");
-        redactor.value(&mut value);
-        *result = serde_json::from_value(value).expect("redaction preserves the probe shape");
+        result.detail = result.detail.as_deref().map(|text| redactor.text(text));
+        if let Some(failure) = &mut result.failure {
+            failure.summary = redactor.text(&failure.summary);
+            failure.detail = failure.detail.as_deref().map(|text| redactor.text(text));
+        }
     }
 }
 

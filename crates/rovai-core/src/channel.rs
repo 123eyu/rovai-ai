@@ -17899,7 +17899,8 @@ mod tests {
     // dependents; a blank-schema fixture cannot prove that FK cascades kept them.
     #[test]
     fn pending_picker_upgrade_keeps_history_rolls_back_failure_and_reuses_the_old_card() {
-        let mut database = crate::test_support::seeded_runtime_database_v170_owned();
+        // Seed current service operations before converting to the historical source.
+        let mut database = crate::test_support::seeded_runtime_database_owned();
         let service = ChannelService::default();
         connect_account(&service, &mut database);
         publish_bot(&service, &mut database, "agent_1", "cli_app_1");

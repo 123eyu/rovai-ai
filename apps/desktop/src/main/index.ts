@@ -262,6 +262,7 @@ const allowedMethods = new Set<CoreMethod>([
   'mcp.servers.delete',
   'mcp.import.scan',
   'mcp.import.commit',
+  'conversations.memberSession.get',
   'conversations.restartNativeSession',
   'app.info',
   'threads.creationPreflight',

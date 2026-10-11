@@ -1523,6 +1523,7 @@ dependencies = [
  "libc",
  "plist",
  "reqwest",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",

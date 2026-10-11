@@ -119,6 +119,29 @@ ACP 的 `command_code_acp.rs`、System Mod、Cline、共享 ACP、文件证据�
 `cargo test -p rovai-core --features extended-tests --lib cline::tests::`，以及相关 Renderer/Node 测试、typecheck 与文档门禁。
 以下 2026-10-04 的 headless owner/命令是退役前历史，不能作为当前测试入口。
 
+## 队员运行环境 owner（2026-10-11）
+
+复用 `runtime_startup::tests::environment_validation_preserves_values_and_rejects_ambiguous_or_reserved_names`
+拥有变量边界和智能体旧入口关闭，`runtime_fleet::tests::member_sessions_reuse_only_within_their_camp_and_current_session`
+拥有同会话复用、跨 Camp/成员/会话拒绝及工作目录兼容分支；原宽范围共享政策退出。新增 `member_environment::tests` 扩展层 owner：私有版本事务、密钥遮蔽与加密、
+会话快照重开、保存后旧会话不变、显式重置、新 Camp、缺失快照失败、真实子进程并行环境、旧配置确认与迁移失败回滚。这些涉及 SQLite、私有文件或进程，
+现有纯解析/内存 fleet fixture 无法证明这些失败路径，全部进入 `extended-tests`。
+最小命令：`cargo test -p rovai-core --features extended-tests --lib member_environment::tests`、
+`cargo test -p rovai-core --features extended-tests --lib runtime_startup::tests`、
+`cargo test -p rovai-core --features extended-tests --lib member_sessions_reuse_only`。
+不删除原有 owner，数据库当前 admission 矩阵继续覆盖完整 receipt 和未知未来 schema。
+用户退役 Agents 环境编辑后，旧 `runtime_custom_api::tests::startup_saves_preserve_native_files_and_merge_only_local_preferences`
+与 `application::runtime_check_environment::tests` 的可写环境断言改为拒绝；程序路径 CAS、回滚、原生文件不变、
+草稿隔离和旧检查不能覆盖新检查继续由这些 owner 负责。后者使用 `--features slow-tests --lib runtime_check_environment::tests`。
+完整 Core 私有 RPC seam 使用 `node scripts/smoke-member-environment.mjs`（先构建 Core）；临时 Host/Skill Library/MCP
+全隔离，凭据与 CLI 都是合成 fixture，不触达真实账号。191 与 192 分别注入 receipt 失败，证明两次迁移各自原子提交。
+原生绑定重置与 generation 语义复验既有 slow owner `manual_native_session_restart_keeps_conversation_identity_and_generation`。
+`v163_requeues_unfrozen_public_work_and_retires_the_legacy_run_placeholder` 在重新 claim 前补齐 191/192；
+`pending_picker_upgrade_keeps_history_rolls_back_failure_and_reuses_the_old_card` 先用当前 schema 创建服务事实再降级，
+避免新版服务调用不存在的字段。两者的历史数据保留、失败回滚与恢复断言不变。
+`node scripts/smoke-member-environment-ui.mjs` 通过生产组件验证保存回读与资料刷新竞态、重置 CAS/活动任务拒绝、
+中英文和移动布局；Electron 数据与 Skill Library 全隔离，不启动 Core 或 Runtime。
+
 ## 主干 / Preview Migration 合流（2026-10-08）
 
 扩展既有 `runtime_catalog_migrations_preserve_rows_and_roll_back_with_their_receipts`，保留 schema 133
@@ -298,7 +321,8 @@ Preview/137 缺索引，main/136 有索引但缺 Cline/Command catalog；后者�
 `db::run_continuation::tests::continuation_migration_rolls_back_and_preserves_frozen_evidence`：
 覆盖主干已具备内部请求但缺 catalog、Preview 139 仍使用消息来源、部分结构拒绝、失败回滚、旧 188
 收据与冻结证据保留及重开。既有 `delivery_queue::tests::user_continuation_preserves_source_and_claims_independent_fifo_batches`
-拥有带历史消息/排队数据的转换。没有新增或退役 Rust owner；最小命令为
+拥有带历史消息/排队数据的转换。该主干来源 fixture 先移除后加的 191/192 层，避免残留新收据伪装旧来源；
+原有失败回滚与冻结证据断言保持。没有新增或退役 Rust owner；最小命令为
 `cargo test -p rovai-core --features extended-tests --lib continuation_`，并复验 Mention 与 catalog migration owner。
 
 

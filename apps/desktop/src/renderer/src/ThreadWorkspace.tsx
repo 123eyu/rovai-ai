@@ -1,3 +1,4 @@
+import { MemberSessionReset } from './MemberSessionReset'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
@@ -8337,6 +8338,7 @@ function ThreadMembersPanel({
   onRemoveMember?(preview: ThreadMemberRemovalPreview): Promise<ThreadMemberRemoveOutcome>
   onNotify(message: string): void
 }): JSX.Element {
+  const [sessionResetMember, setSessionResetMember] = useState<{ agentId: string; displayName: string } | null>(null)
   const mobile = useMobileLayout()
   const members = campInspectorMembers(snapshot.members)
   const presentCount = members.filter(campMemberIsLeadEligible).length
@@ -8521,6 +8523,7 @@ function ThreadMembersPanel({
 
   return (
     <section aria-label={uiAttribute("当前会话队员")}>
+      {sessionResetMember && <MemberSessionReset key={sessionResetMember.agentId} campId={snapshot.thread.id} member={sessionResetMember} onClose={() => setSessionResetMember(null)} onNotify={onNotify}/>}
       <div className="camp-members-summary">
         <div className="camp-members-summary-line">
           <div>
@@ -8602,6 +8605,7 @@ function ThreadMembersPanel({
                 <strong>{presenceLabel}</strong>
                 {runtimeTone === 'attention' && profile && <small className="runtime-attention">{runtimeReadinessLabel(profile.runtimeReadiness.status)}</small>}
               </span>
+              {mobile && <button type="button" className="quiet-button" disabled={busy} onClick={() => setSessionResetMember(member)}>{uiAttribute('重置队员会话')}</button>}
               {!mobile && <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button
@@ -8642,6 +8646,9 @@ function ThreadMembersPanel({
                       <strong><UiText zh={"模型信息"} /></strong>
                       {!runtimeConfiguration && <small><UiText zh={"请先配置智能体"} /></small>}
                     </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="camp-member-menu-separator" />
+                    <DropdownMenu.Item className="camp-member-menu-item" disabled={busy}
+                      onSelect={() => setSessionResetMember(member)}><strong><UiText zh={"重置队员会话"}/></strong></DropdownMenu.Item>
                     <DropdownMenu.Separator className="camp-member-menu-separator" />
                     <DropdownMenu.Item
                       className="camp-member-menu-item is-danger"

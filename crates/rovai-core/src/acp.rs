@@ -77,6 +77,7 @@ pub enum AcpIncoming {
         execution_epoch: i64,
         registration: bool,
         message: Value,
+        redactor: Option<rovai_core::runtime_custom_api::CredentialRedactor>,
     },
     InputAccepted {
         adapter_kind: AdapterKind,
@@ -1303,6 +1304,7 @@ struct ZcodeBackgroundRoute {
 }
 
 pub(crate) struct AcpHost {
+    credential_redactor: Option<rovai_core::runtime_custom_api::CredentialRedactor>,
     adapter_kind: AdapterKind,
     reported_version: Option<String>,
     opencode_program_identity: Option<String>,
@@ -1440,6 +1442,39 @@ impl AcpHost {
         private_runtime_dir: &Path,
         attachment_access_root: Option<&Path>,
     ) -> Result<Arc<Self>> {
+        rovai_core::runtime_discovery::with_frozen_environment(
+            frozen_runtime.environment.clone(),
+            Self::spawn_in_environment(
+                cwd,
+                workspace,
+                permission_semantics,
+                frozen_runtime,
+                incoming,
+                builtin_tools,
+                compaction_detector_policy,
+                allow_client_fs,
+                external_mcp_servers,
+                private_runtime_dir,
+                attachment_access_root,
+            ),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_in_environment(
+        cwd: &Path,
+        workspace: &AgentRunWorkspace,
+        permission_semantics: PermissionSemantics,
+        frozen_runtime: &FrozenAgentRuntimeConfig,
+        incoming: mpsc::UnboundedSender<AcpIncoming>,
+        builtin_tools: Option<BuiltinToolProcessConfig>,
+        compaction_detector_policy: CompactionDetectorPolicy,
+        allow_client_fs: bool,
+        external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
+        private_runtime_dir: &Path,
+        attachment_access_root: Option<&Path>,
+    ) -> Result<Arc<Self>> {
         if !runtime_launch_allowed(
             frozen_runtime.adapter_kind,
             RuntimeLaunchPurpose::AgentExecution,
@@ -1471,6 +1506,9 @@ impl AcpHost {
             frozen_runtime.adapter_kind,
             &mut command,
         );
+        if let Some(environment) = &frozen_runtime.environment {
+            environment.apply(&mut command)?;
+        }
         if let Some(config) = &builtin_tools {
             config.configure_command(&mut command)?;
         }
@@ -1592,6 +1630,10 @@ impl AcpHost {
             (Box::new(stdin), Box::new(stdout))
         };
         let host = Arc::new(Self {
+            credential_redactor: frozen_runtime
+                .environment
+                .as_ref()
+                .map(|env| env.redactor()),
             adapter_kind: frozen_runtime.adapter_kind,
             reported_version: frozen_runtime.reported_version.clone(),
             opencode_program_identity: if frozen_runtime.adapter_kind == AdapterKind::OpencodeCli {
@@ -1835,7 +1877,7 @@ impl AcpHost {
                                     format!("ACP Host emitted invalid protocol JSON: {error}");
                                 if host.has_loading_replay().await {
                                     host.reject_loading_replay(reason.clone()).await;
-                                    eprintln!("{reason}");
+                                    eprintln!("{}", host.redact_text(&reason));
                                     continue;
                                 }
                                 host.send_host_diagnostic(reason);
@@ -2087,7 +2129,10 @@ impl AcpHost {
                                 }
                             }
                             AcpSessionMessageRoute::ReplayRejected(reason) => {
-                                eprintln!("ACP Session replay was rejected: {reason}");
+                                eprintln!(
+                                    "ACP Session replay was rejected: {}",
+                                    host.redact_text(&reason)
+                                );
                                 host.reject_loading_replay(reason).await;
                             }
                             AcpSessionMessageRoute::Missing
@@ -2096,7 +2141,7 @@ impl AcpHost {
                                 let reason =
                                     "ACP History Restore emitted an event for another Session"
                                         .to_string();
-                                eprintln!("{reason}");
+                                eprintln!("{}", host.redact_text(&reason));
                                 host.reject_loading_replay(reason).await;
                             }
                             AcpSessionMessageRoute::Missing if message.get("id").is_some() => {
@@ -2203,7 +2248,7 @@ impl AcpHost {
     async fn complete_pending(&self, id: u64, pending: PendingRpc, message: Value) {
         let response_error = message.get("error").map(AcpRpcError::from_response);
         let response = if let Some(error) = response_error.as_ref() {
-            Err(error.diagnostic())
+            Err(self.redact_text(&error.diagnostic()))
         } else {
             Ok(message.get("result").cloned().unwrap_or(Value::Null))
         };
@@ -2529,6 +2574,10 @@ impl AcpHost {
             }
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                let line = host
+                    .credential_redactor
+                    .as_ref()
+                    .map_or_else(|| line.clone(), |redactor| redactor.text(&line));
                 if !line.trim().is_empty() {
                     {
                         let mut diagnostic = host.startup_diagnostics.lock().await;
@@ -2817,6 +2866,7 @@ impl AcpHost {
                 execution_epoch: route.owner.execution_epoch,
                 registration,
                 message,
+                redactor: self.credential_redactor.clone(),
             })
             .context("ZCode background evidence receiver closed")?;
         let mut tasks = self
@@ -3309,11 +3359,18 @@ impl AcpHost {
     }
 
     fn send_host_diagnostic(&self, text: String) {
+        let text = self.redact_text(&text);
         let _ = self.incoming.send(AcpIncoming::HostDiagnostic {
             adapter_kind: self.adapter_kind,
             host_instance_id: self.host_instance_id.clone(),
             text,
         });
+    }
+
+    fn redact_text(&self, text: &str) -> String {
+        self.credential_redactor
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |redactor| redactor.text(text))
     }
 
     pub(crate) fn host_instance_id(&self) -> &str {
@@ -3541,6 +3598,7 @@ impl AcpHost {
                     execution_epoch: route.owner.execution_epoch,
                     registration: false,
                     message,
+                    redactor: self.credential_redactor.clone(),
                 })
                 .is_err()
             {
@@ -4199,6 +4257,17 @@ pub(crate) fn build_acp_resume_session_params(
 }
 
 impl AcpRuntime {
+    pub(crate) fn redact_output(&self, value: &Value) -> Value {
+        self.host
+            .credential_redactor
+            .as_ref()
+            .map_or_else(|| value.clone(), |redactor| redactor.redacted_value(value))
+    }
+
+    pub(crate) fn redact_text(&self, text: &str) -> String {
+        self.host.redact_text(text)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn from_host(
         owner: AcpRuntimeOwner,
@@ -5147,7 +5216,10 @@ impl AcpRuntime {
         let observation = observation
             .as_ref()
             .filter(|observation| observation.prompt_id == native_prompt_id)?;
-        observation.assistant_suffix.candidate()
+        observation
+            .assistant_suffix
+            .candidate()
+            .map(|text| self.redact_text(&text))
     }
 
     pub async fn missing_send_recovery_candidate(&self, native_prompt_id: &str) -> Option<String> {
@@ -5158,7 +5230,9 @@ impl AcpRuntime {
             .as_ref()
             .filter(|observation| observation.prompt_id == native_prompt_id)
             .and_then(|observation| observation.assistant_suffix.candidate());
-        candidate.filter(|text| !text.is_empty())
+        candidate
+            .filter(|text| !text.is_empty())
+            .map(|text| self.redact_text(&text))
     }
 
     pub async fn session_id(&self) -> Option<String> {
@@ -5508,11 +5582,15 @@ impl AcpCliRuntimeAdapter {
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
-        let compatibility = if self.kind == AdapterKind::ZcodeApp {
-            RuntimeCompatibilityKey::camp(camp_id, agent_id, runtime_compatibility_digest)
-        } else {
-            RuntimeCompatibilityKey::member(camp_id, agent_id, runtime_compatibility_digest)
-        };
+        let compatibility = RuntimeCompatibilityKey::member_session(
+            camp_id,
+            agent_id,
+            frozen_runtime
+                .environment
+                .as_ref()
+                .map(|env| env.plan_id.as_str()),
+            runtime_compatibility_digest,
+        );
         if self.kind == AdapterKind::DeepseekHarness {
             // DSH persists exact Sessions but holds a native lock while the
             // previous Host owns them. Reap obsolete idle Hosts before resume;
@@ -6567,9 +6645,10 @@ fn load_grok_native_configuration() -> Result<GrokNativeConfiguration> {
     let home = grok_home_path()?;
     let config_path = grok_native_config_path()?;
     let environment_path = grok_environment_file_path()?;
-    let inherited_environment = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-        .collect::<BTreeMap<_, _>>();
+    // Formal launches read the saved session map, including absence. One-off
+    // probes use their scoped check environment through the same accessor.
+    let inherited_environment =
+        rovai_core::runtime_discovery::runtime_environment(AdapterKind::GrokBuild);
     load_grok_native_configuration_from_paths(
         &home,
         &config_path,
@@ -6777,7 +6856,12 @@ fn configure_compaction_detector_command(
                 append_post_compact_hook(&mut settings, &hook_command)?;
                 write_private_json_file(&private_home.join("settings.json"), &settings)?;
                 command.env("QWEN_HOME", &private_home);
-                if std::env::var_os("QWEN_RUNTIME_DIR").is_none() {
+                if rovai_core::runtime_discovery::runtime_environment_variable(
+                    AdapterKind::QwenCode,
+                    "QWEN_RUNTIME_DIR",
+                )
+                .is_none()
+                {
                     command.env("QWEN_RUNTIME_DIR", source_home);
                 }
             }
@@ -8458,6 +8542,7 @@ mod tests {
 
     fn frozen_trae_runtime(executable: &Path) -> FrozenAgentRuntimeConfig {
         FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::TraeCnCli,
@@ -8490,6 +8575,7 @@ mod tests {
 
     fn frozen_kiro_runtime() -> FrozenAgentRuntimeConfig {
         FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::KiroCli,
@@ -8522,6 +8608,7 @@ mod tests {
 
     fn frozen_cursor_runtime(executable: &Path) -> FrozenAgentRuntimeConfig {
         FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::CursorAgent,
@@ -8561,6 +8648,7 @@ mod tests {
 
     fn frozen_kimi_runtime(executable: &Path) -> FrozenAgentRuntimeConfig {
         FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::KimiCodeCli,
@@ -8593,6 +8681,7 @@ mod tests {
 
     fn frozen_grok_runtime(executable: &Path) -> FrozenAgentRuntimeConfig {
         FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::GrokBuild,
@@ -8954,7 +9043,7 @@ while IFS= read -r ignored; do :; done
             "id": 91,
             "method": "terminal/create",
             "params": {
-                "sessionId": "session-kimi-038-terminal",
+                "sessionId": "session-kimi-038-terminal-1-wire-stdout",
                 "command": "/bin/sh",
                 "args": [
                     "-c",
@@ -8974,7 +9063,7 @@ printf '%s\n' "$initialize" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{}}}}}}'
 IFS= read -r session_new || exit 1
 printf '%s\n' "$session_new" >> '{}'
-printf '%s\n' '{{"jsonrpc":"2.0","id":2,"result":{{"sessionId":"session-kimi-038-terminal","configOptions":[{{"id":"mode","currentValue":"default","options":[{{"value":"default","name":"Default"}}]}}]}}}}'
+printf '%s\n' '{{"jsonrpc":"2.0","id":2,"result":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","configOptions":[{{"id":"mode","currentValue":"default","options":[{{"value":"default","name":"Default"}}]}}]}}}}'
 IFS= read -r mode || exit 1
 printf '%s\n' "$mode" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":3,"result":null}}'
@@ -8987,22 +9076,22 @@ IFS= read -r create_response || exit 1
 printf '%s\n' "$create_response" >> '{}'
 terminal_id=$(printf '%s' "$create_response" | sed -n 's/.*"terminalId":"\([^"]*\)".*/\1/p')
 [ -n "$terminal_id" ] || exit 1
-printf '{{"jsonrpc":"2.0","id":92,"method":"terminal/output","params":{{"sessionId":"session-kimi-038-terminal","terminalId":"%s"}}}}\n' "$terminal_id"
+printf '{{"jsonrpc":"2.0","id":92,"method":"terminal/output","params":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","terminalId":"%s"}}}}\n' "$terminal_id"
 IFS= read -r initial_output || exit 1
 printf '%s\n' "$initial_output" >> '{}'
-printf '{{"jsonrpc":"2.0","id":93,"method":"terminal/wait_for_exit","params":{{"sessionId":"session-kimi-038-terminal","terminalId":"%s"}}}}\n' "$terminal_id"
+printf '{{"jsonrpc":"2.0","id":93,"method":"terminal/wait_for_exit","params":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","terminalId":"%s"}}}}\n' "$terminal_id"
 IFS= read -r wait_response || exit 1
 printf '%s\n' "$wait_response" >> '{}'
-printf '{{"jsonrpc":"2.0","id":94,"method":"terminal/output","params":{{"sessionId":"session-kimi-038-terminal","terminalId":"%s"}}}}\n' "$terminal_id"
+printf '{{"jsonrpc":"2.0","id":94,"method":"terminal/output","params":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","terminalId":"%s"}}}}\n' "$terminal_id"
 IFS= read -r final_output || exit 1
 printf '%s\n' "$final_output" >> '{}'
-printf '{{"jsonrpc":"2.0","id":95,"method":"terminal/kill","params":{{"sessionId":"session-kimi-038-terminal","terminalId":"%s"}}}}\n' "$terminal_id"
+printf '{{"jsonrpc":"2.0","id":95,"method":"terminal/kill","params":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","terminalId":"%s"}}}}\n' "$terminal_id"
 IFS= read -r kill_response || exit 1
 printf '%s\n' "$kill_response" >> '{}'
-printf '{{"jsonrpc":"2.0","id":96,"method":"terminal/release","params":{{"sessionId":"session-kimi-038-terminal","terminalId":"%s"}}}}\n' "$terminal_id"
+printf '{{"jsonrpc":"2.0","id":96,"method":"terminal/release","params":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","terminalId":"%s"}}}}\n' "$terminal_id"
 IFS= read -r release_response || exit 1
 printf '%s\n' "$release_response" >> '{}'
-printf '{{"jsonrpc":"2.0","id":97,"method":"terminal/release","params":{{"sessionId":"session-kimi-038-terminal","terminalId":"%s"}}}}\n' "$terminal_id"
+printf '{{"jsonrpc":"2.0","id":97,"method":"terminal/release","params":{{"sessionId":"session-kimi-038-terminal-1-wire-stdout","terminalId":"%s"}}}}\n' "$terminal_id"
 IFS= read -r repeated_release_response || exit 1
 printf '%s\n' "$repeated_release_response" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":4,"result":{{"stopReason":"end_turn"}}}}'
@@ -9025,6 +9114,17 @@ while IFS= read -r ignored; do :; done
 
         let mut frozen = frozen_kimi_runtime(&executable);
         frozen.reported_version = Some("0.38.0".to_string());
+        frozen.environment = Some(rovai_core::member_environment::FrozenEnvironment {
+            plan_id: "protocol-fixture".into(),
+            revision: 1,
+            legacy_identity: None,
+            values: Some(BTreeMap::from([
+                ("PATH".into(), "/usr/bin:/bin".into()),
+                ("AUTH_ENABLED".into(), "1".into()),
+                ("XAI_API_KEY".into(), "wire-stdout".into()),
+            ])),
+            overlay: None,
+        });
         let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
         let (incoming, mut receiver) = mpsc::unbounded_channel();
         let host = AcpHost::spawn(
@@ -9070,6 +9170,19 @@ while IFS= read -r ignored; do :; done
             )
             .await
             .unwrap();
+        assert_eq!(
+            runtime.session_id().await.as_deref(),
+            Some("session-kimi-038-terminal-1-wire-stdout")
+        );
+        let original = json!({"sessionId":"session-kimi-038-terminal-1-wire-stdout", "args":["wire-stdout", "1"]});
+        let public = runtime.redact_output(&original);
+        assert_eq!(public["args"], json!(["[redacted]", "1"]));
+        assert_eq!(original["args"], json!(["wire-stdout", "1"]));
+        host.send_host_diagnostic("test failure: wire-stdout; retry 1".into());
+        let diagnostic = receiver.recv().await.unwrap();
+        assert!(
+            matches!(diagnostic, AcpIncoming::HostDiagnostic { ref text, .. } if text == "test failure: [redacted]; retry 1")
+        );
         runtime
             .start_prompt(
                 "delivery-kimi-038-terminal",
@@ -9120,6 +9233,20 @@ while IFS= read -r ignored; do :; done
                 .is_empty()
                 .await
         );
+
+        let (sender, error_response) = oneshot::channel();
+        host.complete_pending(
+            999,
+            PendingRpc::Response {
+                sender,
+                method: "fixture/error".into(),
+            },
+            json!({"id":999,"error":{"code":-32000,"message":"wire-stdout failure 1"}}),
+        )
+        .await;
+        let detail = error_response.await.unwrap().unwrap_err();
+        assert!(!detail.contains("wire-stdout"));
+        assert!(detail.contains("failure 1"));
 
         runtime.detach().await;
         host.shutdown().await;
@@ -9713,8 +9840,24 @@ done
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[test]
-    fn grok_official_model_config_resolves_only_referenced_secure_environment() {
+    #[tokio::test]
+    async fn grok_official_model_config_resolves_only_referenced_secure_environment() {
+        // A subprocess owns the changed Host environment; the parallel test runner
+        // and daily application never have their global environment mutated.
+        if std::env::var_os("ROVAI_GROK_ENV_FIXTURE").is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "acp::tests::grok_official_model_config_resolves_only_referenced_secure_environment", "--nocapture"])
+                .env("ROVAI_GROK_ENV_FIXTURE", "1")
+                .env("XAI_API_KEY", "fixture-current-host")
+                .env("GROK_CODE_XAI_API_KEY", "fixture-added-after-session")
+                .output().unwrap();
+            assert!(
+                output.status.success(),
+                "isolated Grok fixture failed: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
         let root = std::env::temp_dir().join(format!(
             "rovai-grok-provider-config-{}",
             uuid::Uuid::new_v4()
@@ -9799,6 +9942,50 @@ done
         assert_eq!(environment["GROK_DISABLE_AUTOUPDATER"], "1");
         assert!(!environment.contains_key("GROK_DEFAULT_MODEL"));
         assert!(!environment.contains_key("GROK_MODELS_BASE_URL"));
+
+        // Native .env still wins for its explicitly referenced entries. For
+        // inherited entries, run the actual Grok launch configuration under each
+        // session snapshot, after generic Command injection.
+        for (saved_key, added_key) in [
+            ("fixture-member-key", None),
+            ("fixture-old-session-key", None),
+            ("fixture-current-host", Some("fixture-added-after-session")),
+        ] {
+            let mut values = BTreeMap::from([
+                ("GROK_HOME".into(), root.to_string_lossy().into_owned()),
+                ("PATH".into(), "/usr/bin:/bin".into()),
+                ("XAI_API_KEY".into(), saved_key.into()),
+                (
+                    "MINIMAX_API_KEY".into(),
+                    "session-value-overridden-by-native-file".into(),
+                ),
+            ]);
+            if let Some(value) = added_key {
+                values.insert("GROK_CODE_XAI_API_KEY".into(), value.into());
+            }
+            let snapshot = rovai_core::member_environment::FrozenEnvironment {
+                plan_id: "grok-session-fixture".into(),
+                revision: 1,
+                legacy_identity: None,
+                values: Some(values),
+                overlay: None,
+            };
+            rovai_core::runtime_discovery::with_frozen_environment(Some(snapshot), async {
+                let mut command = Command::new("/bin/sh");
+                command.args(["-c", "printf '%s\\0%s\\0%s' \"$XAI_API_KEY\" \"${GROK_CODE_XAI_API_KEY-absent}\" \"$MINIMAX_API_KEY\""]);
+                rovai_core::runtime_discovery::configure_runtime_command(AdapterKind::GrokBuild, &mut command);
+                configure_grok_native_environment(&mut command).unwrap();
+                let spec = ManagedProcessLaunchSpec::capture(&command, ManagedProcessPurpose::RuntimeOneShot,
+                    ManagedStdinPolicy::Null, ManagedWindowsArgvDialect::MicrosoftCrt, "grok-environment-fixture").unwrap();
+                let mut child = ManagedProcess::spawn(spec).unwrap();
+                let mut bytes = Vec::new();
+                child.take_stdout().unwrap().read_to_end(&mut bytes).await.unwrap();
+                assert!(child.wait().await.unwrap().success());
+                child.force_terminate_tree().unwrap();
+                assert_eq!(String::from_utf8(bytes).unwrap().split('\0').collect::<Vec<_>>(),
+                    [saved_key, added_key.unwrap_or("absent"), "test-plan-key"]);
+            }).await;
+        }
 
         std::fs::remove_dir_all(root).unwrap();
     }

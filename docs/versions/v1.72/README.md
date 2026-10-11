@@ -11,6 +11,14 @@ last_updated: 2026-10-11
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Windows Web 凭据可用性（2026-10-11）
+
+在已准入 Core 数据目录内，Windows `web-auth.json` 接受正常继承权限；只对新建的原子写入临时文件
+尽力加固，不再以精确文件 ACL 模板阻断远程连接。保留目录/路径/内容检查、先落盘再更新状态与显式重置语义。
+Host、HTTP 与 Desktop 使用脱敏的读取、保存、内容和路径错误；正常继承不产生修复流程或警告。
+当前合同见 [Host Web v4](../../contracts/host-web-v4.md#windows-web-凭据可用性)，取舍见
+[V1.72-D34](decisions.md#v1-72-d34)，验证与未测范围见[实施记录](implementation-plan.md#windows-web-凭据可用性2026-10-11)。
+
 ## 已实现：Send 正文文件输入
 
 [已确认正文文件方案与模型上下文对照 r5](model-context-change-send-input-file.md)在同一 `--input-file`

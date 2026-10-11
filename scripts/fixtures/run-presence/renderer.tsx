@@ -50,6 +50,11 @@ function Workbench() {
   const [detailHost, setDetailHost] = useState<HTMLElement | null>(null)
   const [placement, setPlacement] = useState<any>('inspector')
   const [profile, setProfile] = useState({ displayName: '你', avatarDataUrl: null })
+  const [otherThread, setOtherThread] = useState<{ id: string; title: string } | null>(null)
+  const visibleSnapshot = otherThread ? { ...state.snapshot, thread: { ...state.snapshot.thread, ...otherThread },
+    messages: [], agentRuns: [], messageDeliveries: [], executionEvidence: [] } : model.controls.holdEntrySnapshot
+      ? { ...state.snapshot, agentRuns: state.snapshot.agentRuns.map((r: any) => ({ ...r, hasAcceptedContinuation: false })) }
+      : state.snapshot
   const sequence = scenarios[state.scenario]
   const navigation = useMemo(() => {
     const nav = createDesktopNavigation(async () => {})
@@ -76,7 +81,7 @@ function Workbench() {
         ...['消息投递与恢复', '会话工作区优化', '发布前检查'].map((title, i) => ({ ...current, id: `demo-thread-${i}`, title, marker: 'none' }))] }] }
   useEffect(() => {
     Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal,
-      getState: model.get, controls: model.controls, stop: model.stop, retry: model.retry, verify: () => {
+      getState: model.get, controls: model.controls, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
         const s = model.get().snapshot
         const ids = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].map(e => e.dataset.messageId)
         const positions = ids.map(id => s.messages.findIndex((m: any) => m.id === id)).filter(i => i >= 0)
@@ -106,17 +111,18 @@ function Workbench() {
     <div className="prototype-workbench">
       <NavigationShell platform="darwin" className="app-shell-camp" navigation={navigation}>
         <div className="prototype-window-lights" aria-hidden="true"><i /><i /><i /></div>
-        <ThreadNavigation view="camp" platform="darwin" state="ready" navigation={navSnapshot} activeThreadId={state.snapshot.thread.id}
+        <ThreadNavigation view="camp" platform="darwin" state="ready" navigation={navSnapshot} activeThreadId={visibleSnapshot.thread.id}
           currentProjectKey="presence-project" pendingMemoryCount={0}
           onNewConversation={() => unsupported('新对话')} onMembers={() => setInspector('members')}
           onMemory={() => unsupported('记忆')} onAutomations={() => unsupported('定时任务')} onMissions={() => unsupported('使命板')}
           onSettings={() => setInfo(true)} onOpenProject={() => unsupported('项目')} onCreateInProject={() => unsupported('新对话')}
-          onThread={thread => thread.id === current.id ? setInspector(null) : unsupported('其他对话')}
+          onThread={thread => { setInspector(null); setOtherThread(thread.id === current.id ? null : { id: thread.id, title: thread.title }) }}
           onRemoveProject={async () => unsupported('移除项目')} onDelete={async () => unsupported('删除对话')}
           onRename={async (_, title) => model.rename(title)} onError={error => model.note(String(error))} />
-        <AppHeader threadTitle={state.snapshot.thread.title} contextLabel="rovai-ai" thread={state.snapshot} detailEntryHostRef={setDetailHost} onFocusApprovals={() => {}} />
+        <AppHeader threadTitle={visibleSnapshot.thread.title} contextLabel="rovai-ai" thread={visibleSnapshot} detailEntryHostRef={setDetailHost} onFocusApprovals={() => {}} />
         <main className="content task-content camp-content">
-          <ThreadWorkspace key={state.generation} snapshot={params.has('windowed') ? { ...state.snapshot, executionEvidence: [] } : state.snapshot}
+          <ThreadWorkspace key={`${state.generation}:${visibleSnapshot.thread.id}`} snapshot={params.has('windowed') ? { ...visibleSnapshot, executionEvidence: [] } : visibleSnapshot}
+            workspaceEntrySnapshotReady={!model.controls.holdEntrySnapshot}
             openCoverage={params.has('windowed') ? openCoverage : null} projectName="rovai-ai" agents={profiles as any}
             installations={installations as any} initialComposerDraft={state.draft} busy={state.busy}
             onSend={model.send} onChangeLead={model.changeLead} onTasksChanged={async () => {}}
@@ -129,7 +135,7 @@ function Workbench() {
         </main>
       </NavigationShell>
       {controls && <section className="prototype-control-bar" aria-label="交互稿演示控制">
-        <div className="prototype-label"><strong>队员占位</strong><span>v5 实现 · 模拟数据</span></div>
+        <div className="prototype-label"><strong>队员占位</strong><span>停止区分隔 · 模拟数据</span></div>
         <label className="sr-only" htmlFor="prototype-scenario">演示场景</label>
         <select id="prototype-scenario" value={state.scenario} onChange={e => { setInspector(null); model.setScenario(e.target.value) }}>
           {Object.entries(scenarios).map(([id, scenario]) => <option key={id} value={id}>{scenario.name}</option>)}
@@ -151,11 +157,11 @@ function Workbench() {
       {!proposal && <div className="prototype-baseline-label">现有界面</div>}
     </div>
     <Dialog.Root open={info} onOpenChange={setInfo}><AppDialogContent className="app-dialog prototype-info-dialog">
-      <AppDialogHeader title="跟着消息向下，继续处理" description="群聊中的队员占位 · 交互稿 v5" />
+      <AppDialogHeader title="跟着消息向下，继续处理" description="群聊中的队员占位 · 停止区分隔" />
       <AppDialogBody>
         <p>占位始终在最新消息后面。上一条属于同一个 Run，就沿用上方身份；被其他消息隔开，或属于另一个 Run，就重新显示头像和姓名。</p>
-        <div className="prototype-info-rule"><strong>进行中标识、单行内容、停止</strong><p>正文从开头逐字显示，满一行后省略，不横向滚动；命令带有终端图标，同样单行省略。右侧停止按钮沿用 V2：轻量方框，点击后确认。点击内容打开现有执行台，查看全文与耗时。</p></div>
-        <div className="prototype-info-rule"><strong>中断可重试，结束就收起</strong><p>中断行保留原因入口和重试按钮。重试沿用本次输入，提交中禁止重复操作；开始处理后恢复占位，原失败记录保留在执行台。排队不占位，结束不保留完成行。复制／回复继续使用现有规则，默认只有最新一条队员消息常驻显示。</p></div>
+        <div className="prototype-info-rule"><strong>进行中标识、单行内容、停止</strong><p>正文从开头逐字显示，满一行后省略，不横向滚动；命令带有终端图标，同样单行省略。右侧短竖线分隔停止区，按钮默认中性色、悬浮变红，点击后确认。点击内容打开现有执行台，查看全文与耗时。</p></div>
+        <div className="prototype-info-rule"><strong>中断可重试，结束就收起</strong><p>中断行保留原因入口和重试按钮。重试受理后收起旧提示，切群和刷新也保持收起；新执行开始后恢复占位，再失败时重试新执行。原失败记录与继续执行按钮保留在执行台。排队不占位，结束不保留完成行。复制／回复继续使用现有规则。</p></div>
         <div className="prototype-info-rule"><strong>直接复用当前前端</strong><p>侧栏、顶栏、消息气泡、头像、Composer、队员列表与执行台均由当前仓库的生产 React 组件渲染。日夜主题使用原有 token。</p>
           <code>ThreadWorkspace · ThreadNavigation · NavigationShell<br />AppHeader · MemberAvatar · styles.css · theme.css</code>
           <p className="prototype-source">源码基线：{__SOURCE_COMMIT__.slice(0, 12)}</p></div>

@@ -46,6 +46,12 @@ describe('conversation Run presence', () => {
     expect(project([failed, next], [])).toEqual([['next', false]])
     expect(project([failed, { ...next, status: 'succeeded' }], [])).toEqual([])
     expect(project([failed, { ...next, status: 'queued' }], [])).toEqual([['failed', false]])
+    // A fresh component has no local acknowledgement. The persisted Delivery
+    // fact suppresses the source even before a successor Run exists.
+    const accepted = { ...failed, hasAcceptedContinuation: true }
+    expect(project([accepted], [])).toEqual([])
+    expect(project([accepted, { ...next, status: 'queued' }], [])).toEqual([])
+    expect(project([accepted, { ...next, status: 'failed' }], [])).toEqual([['next', false]])
     expect(project([{ ...failed, invocationKind: 'direct' }], [])).toEqual([])
     expect(failed.status).toBe('failed')
   })

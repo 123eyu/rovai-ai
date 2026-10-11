@@ -1569,9 +1569,9 @@ Rust workspace（460 通过、1 既有忽略）、continuation 扩展 5 项、th
 
 ## 会话内队员占位
 
-User 在确认 v5 HTML 后授权独立 worktree 实现。基线 `f9acc2395283d49f0ce247dc0af2207c155f6eb6`；
+初版在 User 确认 v5 HTML 后授权独立 worktree 实现。下列保留初版验证记录；当前增量见本节末尾「停止区分隔与重试恢复」。基线 `f9acc2395283d49f0ce247dc0af2207c155f6eb6`；
 分支 `rovai/teammate-presence-v5`，worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-teammate-presence-v5`。
-本次为 Renderer 增量，无需治理文档主线前置，不修改 Core 或模型上下文。
+初版为 Renderer 增量，无需治理文档主线前置，不修改 Core 或模型上下文。
 状态 `ready`；验证后提交、推送上述分支，按 User 偏好不自动创建 PR，保留 worktree 供后续验收。
 
 - `ConversationRunPresence` 作为消息时间线末尾独立节点，消费同一 Evidence/live progress；复制／回复、消息分组和产物布局不变。
@@ -1598,3 +1598,35 @@ User 在确认 v5 HTML 后授权独立 worktree 实现。基线 `f9acc2395283d49
 对照、桌面验收 JSON 与截图。最终隔离 `userData` 为
 `/private/var/folders/pm/zmpfxggd0glcm8vx3p3y3mmr0000gq/T/rovai-presence-native-layout-4c6zdmds/user-data`，
 Skill Library 为其 `managed-skill-library/`；未安装、重启或改写日常 App。
+
+### 停止区分隔与重试恢复（2026-10-11）
+
+在 `2890a04251774e348f01444f60eb9bc4bf777ccf` 上继续使用原 worktree 和分支，按 User 选定的 v10
+「停止区分隔」实现；随后按 User 修正恢复 v8 默认中性色、悬浮红色的停止按钮。
+当前合同为 [Run Process Detail Surface v48](../../contracts/run-process-detail-surface-v48.md)。
+
+- 透明行内增加 1px × 16px 操作区分隔，36px 行高、34px 内容入口、26px 停止按钮；粗指针扩大为 44px 目标。
+  进行中图标使用执行台颜色与动画，停止图标提取为共用组件。保留单行流式省略、消息顺序和原复制／回复显隐。
+- `AgentRunView.hasAcceptedContinuation` 从 `camp_run_continuation` 与真实 Delivery 派生；同一读取覆盖
+  完整快照和轻量打开。受理后收起旧失败入口，切群／刷新可恢复，不依赖组件 Set 或有界 Delivery 列表。
+  切群先展示缓存时暂不呈现中断行，权威读取完成后再判断，避免缓存短暂复活旧入口。
+  旧 Run 状态/version 不变；新 Run 失败只重试新 Run，执行台仍允许对历史 Run 多次主动授权。
+- 消息区提交中显示「正在提交…」，回执丢失只保留普通重试，内部继续复用同一 commandId；没有新增结果未知状态。
+  数据库结构、调度、授权命令和模型上下文均不变。
+
+验证证据：
+
+- `pnpm typecheck`、`pnpm test` 通过：240 个 Vitest 文件、2621 项用例；339 项 Node 测试通过、2 项平台跳过。
+- `pnpm test:run-presence-ui` 通过 37 个场景阶段、19 项交互记录、6 组主题/尺寸，以及 v10 原文件的 6 组几何/排版对照；
+  单独验证双主题的默认中性色、悬浮红色、鼠标移开恢复、200% 等效布局、粗指针与 reduced-motion。
+  暂缓调度领取后实际点击侧栏切群再返回（含旧缓存预览）、完整刷新，旧失败行均不复活且只有一条等待 Delivery；
+  后继失败点击指向新 Run；执行台两次主动继续分别产生独立授权，返回消息区仍收起旧提示。
+- 扩展既有 Rust owner `user_continuation_preserves_source_and_claims_independent_fifo_batches`，覆盖事务回滚未受理、
+  已受理但尚无新 Run、SQLite 重开与轻量投影恢复、source version 不变、后继 Run 不继承源 Run 的受理标记。
+  使用真实 SQLite 验证持久化边界；未新增重复测试 owner。
+- `pnpm test:rust:pr` 通过 465 项，1 项忽略；定向扩展 owner 通过。`pnpm test:run-continuation-ui`、
+  `pnpm build:desktop` 与文档通用门禁通过；最终定向 App、界面语言与占位测试通过。
+
+截图与浏览器报告保存在 worktree 的 `docs/prototypes/run-presence-divider-implementation/`（忽略的生成物）。
+浏览器使用生产 React 组件和模拟服务端记录；Core 测试使用隔离数据库。这次未运行真实 Runtime，未安装或重启日常 App。
+完成后提交并推送原分支，按 User 偏好不自动创建 PR，保留 worktree。

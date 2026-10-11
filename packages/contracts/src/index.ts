@@ -1864,6 +1864,8 @@ export interface AgentRunView {
   anchorMessageId?: string | null
   /** Core-rendered title source, independent of the loaded conversation page. */
   inputSummary?: string | null
+  /** At least one continuation Delivery was accepted for this Run; not an execution-eligibility lock. */
+  hasAcceptedContinuation?: boolean
   conversationId: string
   agentId: string
   taskId: string | null

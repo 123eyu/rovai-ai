@@ -3597,6 +3597,8 @@
   "Fast 实际状态未确认": "Actual Fast state unconfirmed",
   "继续执行": "Continue execution",
   "正在提交": "Submitting",
+  "正在提交…": "Submitting…",
+  "连接暂时不可用，请稍后重试。": "Connection temporarily unavailable. Try again shortly.",
   "确认提交结果": "Confirm submission",
   "当前执行无法继续，请刷新后查看。": "This execution cannot continue. Refresh to view its current state.",
   "未确认提交结果，请再次点击核对。": "Submission is unconfirmed. Click again to check.",

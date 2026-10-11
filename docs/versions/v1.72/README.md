@@ -13,9 +13,11 @@ last_updated: 2026-10-10
 
 ## 会话内队员占位（2026-10-11）
 
-按 User 确认的 v5 交互稿，在公开会话末尾投影正在执行的队员：单行正文／命令、Run 身份衔接、确认停止及中断重试。
-复用现有 Evidence、精确 Run Stop 和独立续做命令；不创建排队占位或新公开消息，不改变模型上下文与数据库。
-当前边界见 [Run Process Detail Surface v47](../../contracts/run-process-detail-surface-v47.md)，验证与交付见
+按 User 确认的 v10「停止区分隔」及后续 v8 默认色修正，在公开会话末尾投影正在执行的队员：
+单行正文／命令、Run 身份衔接、确认停止及中断重试。停止按钮默认中性色，悬浮变红。
+复用现有 Evidence、精确 Run Stop 和独立续做命令；Core 从持久化续做 Delivery 派生受理事实，
+切群／刷新后旧失败入口保持收起。排队不占位，不创建公开消息，不改变模型上下文或数据库结构。
+当前边界见 [Run Process Detail Surface v48](../../contracts/run-process-detail-surface-v48.md)，验证与交付见
 [实施记录](implementation-plan.md#会话内队员占位)。
 
 ## 已实现：Send 正文文件输入

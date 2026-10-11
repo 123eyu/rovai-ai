@@ -143,7 +143,7 @@ import {
 import { MemberAvatar } from './MemberAvatar'
 import { ImageGallery, partitionMessageAttachments, type GalleryImage } from './ImageGallery'
 import { ExecutionAvatarRail } from './ExecutionAvatarRail'
-import { ExecutionIcon, ExecutionOverviewMark } from './ExecutionIcons'
+import { ExecutionIcon, ExecutionOverviewMark, ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph, type ExecutionStatusShape } from './ExecutionStatusGlyph'
 import { AgentRunDeliveryRecipients } from './AgentRunDeliveryRecipients'
 import { MemberPortrait } from './MemberPortrait'
@@ -5510,6 +5510,7 @@ export function ThreadWorkspace({
                   : precedingOutput?.kind === 'member_joined' ? precedingOutput.receipt.sourceAgentRunId
                   : precedingOutput?.kind === 'camp_message' ? undefined : null
                 items.push(<ConversationRunPresence key={`run-presence:${snapshot.thread.id}`} snapshot={snapshot}
+                  snapshotReady={workspaceEntrySnapshotReady}
                   precedingOutputRunId={precedingOutputRunId}
                   messages={visibleThreadMessages} profiles={agents} progressByRunId={executionProgressByRunId}
                   windowedEvidence={openCoverage !== null}
@@ -6796,12 +6797,6 @@ function ExecutionRunMetric({ run, usage }: {
 function ExecutionCardChevron({ expanded }: { expanded: boolean }): JSX.Element {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d={expanded ? 'm5 15 7-7 7 7' : 'm5 9 7 7 7-7'} />
-  </svg>
-}
-
-function ExecutionStopIcon(): JSX.Element {
-  return <svg viewBox="0 0 24 24" aria-hidden="true">
-    <rect x="5" y="5" width="14" height="14" rx="1.5" fill="currentColor" stroke="none" />
   </svg>
 }
 

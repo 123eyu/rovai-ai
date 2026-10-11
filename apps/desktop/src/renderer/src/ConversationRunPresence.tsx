@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import type { AgentProfile, AgentRunView, ThreadSnapshot } from '@contracts'
 import { AppDialogContent, AppDialogFooter, AppDialogHeader } from './AppDialog'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
+import { ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph } from './ExecutionStatusGlyph'
 import { ToolCallIcon } from './ExecutionToolGroup'
 import { MemberAvatar } from './MemberAvatar'
@@ -14,8 +15,9 @@ import { useExecutionWindow } from './useExecutionWindow'
 import type { AgentRunStopViewState } from './ThreadWorkspace'
 import './conversation-run-presence.css'
 
-export function ConversationRunPresence({ snapshot, messages, precedingOutputRunId, profiles, progressByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
+export function ConversationRunPresence({ snapshot, snapshotReady, messages, precedingOutputRunId, profiles, progressByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
   snapshot: ThreadSnapshot
+  snapshotReady: boolean
   messages: ThreadSnapshot['messages']
   precedingOutputRunId?: string | null
   profiles: readonly AgentProfile[]
@@ -27,13 +29,18 @@ export function ConversationRunPresence({ snapshot, messages, precedingOutputRun
   onError(message: string): void
 }): React.JSX.Element | null {
   useInterfaceLanguage()
+  // Immediate receipt feedback while the refreshed Core projection is in flight.
+  // Re-entry is owned by run.hasAcceptedContinuation, not this component Set.
   const [continuedRunIds, setContinuedRunIds] = useState<ReadonlySet<string>>(() => new Set())
   const [stopId, setStopId] = useState<string | null>(null)
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const submitting = useRef(false)
   const stopTrigger = useRef<HTMLButtonElement | null>(null)
-  const slots = useMemo(() => conversationRunPresence(snapshot.agentRuns, messages, continuedRunIds, precedingOutputRunId),
-    [snapshot.agentRuns, messages, continuedRunIds, precedingOutputRunId])
+  const slots = useMemo(() => conversationRunPresence(snapshot.agentRuns, messages, continuedRunIds, precedingOutputRunId)
+    // A cached entry preview can predate the accepted Delivery. Do not briefly
+    // revive an actionable failure while the authoritative open is pending.
+    .filter(slot => snapshotReady || slot.run.status !== 'failed'),
+    [snapshot.agentRuns, snapshotReady, messages, continuedRunIds, precedingOutputRunId])
   const target = snapshot.agentRuns.find(run => run.id === stopId)
   const canConfirm = Boolean(target && stopState(target) === 'available')
   const memberName = (run: AgentRunView): string => snapshot.members.find(member => member.agentId === run.agentId)?.displayName
@@ -67,6 +74,7 @@ export function ConversationRunPresence({ snapshot, messages, precedingOutputRun
         const profile = profiles.find(profile => profile.agentId === run.agentId)
         const state = submittingId === run.id ? 'stopping' : stopState(run)
         const canStop = state === 'available' || state === 'stopping' || state === 'confirming'
+        const canRetry = run.status === 'failed' && run.invocationKind === 'batch' && (run.inputMessageIds?.length ?? 0) > 0
         const description = run.status === 'failed' ? uiAttribute('执行中断，查看原因')
           : uiAttribute('查看执行过程')
         return <article key={run.id} className="conversation-bubble agent conversation-run-presence"
@@ -79,15 +87,16 @@ export function ConversationRunPresence({ snapshot, messages, precedingOutputRun
             <div className="run-presence-line">
               <RunPresenceOpen threadId={snapshot.thread.id} run={run} name={name} description={description}
                 windowedEvidence={windowedEvidence} progress={progressByRunId.get(run.id)} onOpen={onOpen} />
+              {(canStop || canRetry) && <span className="run-presence-guide" aria-hidden="true" />}
               {canStop && <button className="run-presence-stop" type="button" disabled={state !== 'available'}
                 title={state === 'confirming' ? uiAttribute('正在确认停止结果') : uiAttribute('停止{0}的本次执行', name)}
                 aria-label={state === 'stopping' ? uiAttribute('正在提交停止请求…') : state === 'confirming'
                   ? uiAttribute('正在确认停止结果') : uiAttribute('停止{0}的本次执行', name)}
                 aria-busy={state === 'stopping' || state === 'confirming' || undefined}
                 onClick={event => { stopTrigger.current = event.currentTarget; setStopId(run.id) }}>
-                <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" /></svg>
+                <ExecutionStopIcon />
               </button>}
-              {run.status === 'failed' && run.invocationKind === 'batch' && (run.inputMessageIds?.length ?? 0) > 0 &&
+              {canRetry &&
                 <ContinueAgentRunButton threadId={snapshot.thread.id} agentRunId={run.id} appearance="retry"
                   onError={onError} onApplied={() => setContinuedRunIds(current => new Set(current).add(run.id))} />}
             </div>

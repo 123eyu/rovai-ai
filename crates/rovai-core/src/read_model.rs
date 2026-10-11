@@ -370,6 +370,7 @@ pub struct AgentRunView {
     pub input_message_ids: Vec<String>,
     pub anchor_message_id: Option<String>,
     pub input_summary: Option<String>,
+    pub has_accepted_continuation: bool,
     pub conversation_id: String,
     pub agent_id: String,
     pub task_id: Option<String>,
@@ -3132,11 +3133,18 @@ fn load_agent_runs(
                  agent_run.trigger_camp_message_id,
                  CASE WHEN camp_turn.trigger_type = 'camp_message'
                       THEN camp_turn.trigger_id END
-               )
+               ),
+               continued.source_agent_run_id IS NOT NULL
         FROM agent_run
         LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
         JOIN camp ON camp.id = COALESCE(agent_run.camp_id, camp_turn.camp_id)
         JOIN conversation ON conversation.id = agent_run.conversation_id
+        LEFT JOIN (
+            SELECT DISTINCT continuation.source_agent_run_id
+            FROM camp_message_delivery AS delivery
+            JOIN camp_run_continuation AS continuation ON continuation.delivery_id = delivery.id
+            WHERE delivery.camp_id = ?1
+        ) AS continued ON continued.source_agent_run_id = agent_run.id
         WHERE camp.id = ?1
           AND agent_run.invocation_kind <> 'single_chat'
         ORDER BY
@@ -3201,6 +3209,7 @@ fn load_agent_runs(
                 row.get::<_, String>(38)?,
                 row.get::<_, Option<String>>(39)?,
                 row.get::<_, Option<String>>(40)?,
+                row.get::<_, bool>(41)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -3253,6 +3262,7 @@ fn load_agent_runs(
                 input_message_ids_json,
                 anchor_message_id,
                 summary_message_id,
+                has_accepted_continuation,
             )| {
                 Ok(AgentRunView {
                     id,
@@ -3262,6 +3272,7 @@ fn load_agent_runs(
                     anchor_message_id,
                     input_summary: summary_message_id
                         .and_then(|id| summaries.get(&id).cloned().flatten()),
+                    has_accepted_continuation,
                     conversation_id,
                     agent_id,
                     task_id,

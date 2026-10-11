@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 
-test('production conversation presence matches v5 ordering, layout and recoverable controls', {timeout:180_000}, async t => {
+test('production conversation presence matches the divider design and durable retry recovery', {timeout:180_000}, async t => {
 const chrome = process.env.ROVAI_TEST_CHROME ?? process.env.ROVAI_REVIEW_CHROME ?? (process.platform === 'darwin'
   ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : process.platform === 'win32'
     ? join(process.env.PROGRAMFILES ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe') : '/usr/bin/google-chrome')
@@ -118,6 +118,20 @@ try {
   // V2's lightweight Stop requires confirmation; cancel/Escape are harmless.
   await scenario('parallel',2);await rest()
   assert.equal(await b.evaluate(`getComputedStyle(document.querySelector('${row} .run-presence-stop')).opacity`),'1')
+  for (const theme of ['day', 'night']) {
+    await b.evaluate(`__presence.setTheme('${theme}')`); await rest()
+    const colors = () => b.evaluate(`(() => { const e=document.querySelector('${row} .run-presence-stop'),s=getComputedStyle(e),probe=document.createElement('span');document.body.append(probe);const color=token=>{probe.style.color='var('+token+')';return getComputedStyle(probe).color};const result={color:s.color,background:s.backgroundColor,muted:color('--muted'),danger:color('--danger'),dangerSoft:color('--danger-soft')};probe.remove();return result })()`)
+    const neutral = await colors()
+    assert.equal(neutral.background, 'rgba(0, 0, 0, 0)')
+    assert.equal(neutral.color,neutral.muted)
+    const target = await b.evaluate(`(() => {const r=document.querySelector('${row} .run-presence-stop').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`)
+    await b.send('Input.dispatchMouseEvent',{type:'mouseMoved',...target}); await settle()
+    const hover = await colors()
+    assert.equal(hover.color,hover.danger); assert.equal(hover.background,hover.dangerSoft)
+    await b.capture(join(out,`stop-hover-${theme}.png`)); await rest()
+    assert.deepEqual(await colors(), neutral)
+  }
+  await b.evaluate("__presence.setTheme('day')"); await rest()
   const publishedBeforeStop=await b.evaluate('__presence.getState().snapshot.messages.map(m=>m.id)')
   await b.click(`${row} .run-presence-stop`);await settle()
   assert.match(await b.evaluate('document.querySelector(".run-presence-stop-dialog").innerText'),/只停止爱丽丝/)
@@ -144,7 +158,7 @@ try {
   await scenario('single',3);await b.click(`${row} .run-presence-stop`);await stage(4)
   assert.equal(await b.evaluate('!!document.querySelector(".run-presence-stop-dialog")'),false)
   assert.equal(await b.evaluate('__presence.getState().snapshot.agentRuns[0].status'),'succeeded')
-  report.interactions.push('V2 Stop: borderless outlined square; cancel/Escape restore focus without stopping; mouse/keyboard confirmation stops only its Run; published replies remain; natural completion dismisses stale confirmation')
+  report.interactions.push('V2 confirmation with a shared console Stop glyph and neutral resting color; cancel/Escape restore focus without stopping; mouse/keyboard confirmation stops only its Run; published replies remain; natural completion dismisses stale confirmation')
 
   // The existing Run detail retains the same Stop behavior.
   await scenario('parallel',2);await b.click(`${row} .run-presence-open`);await settle()
@@ -167,7 +181,7 @@ try {
   await b.click('.run-presence-retry')
   assert.equal(await b.evaluate('document.querySelector(".run-presence-retry").disabled'),true)
   assert.equal(await b.evaluate('document.querySelector(".run-presence-retry").getAttribute("aria-busy")'),'true')
-  assert.equal(await b.evaluate('document.querySelector(".run-presence-retry").textContent'),'重试中…')
+  assert.equal(await b.evaluate('document.querySelector(".run-presence-retry").textContent'),'正在提交…')
   await b.evaluate('document.querySelector(".run-presence-retry").click()')
   assert.deepEqual(await b.evaluate('__presence.getState().snapshot.messages.map(m=>m.id)'),beforeRetry.messages)
   assert.equal(await b.evaluate('document.querySelectorAll(".conversation-run-presence").length'),1)
@@ -193,7 +207,56 @@ try {
   assert.equal(await b.evaluate('__presence.getState().snapshot.messages.at(-1).sourceAgentRunId'),retryRunId)
   report.interactions.push('inline Retry: disabled while pending; no queued placeholder or duplicate user message; original inputs and draft retained; one fresh Run; failure history retained; success appends a reply and removes live row')
 
-  // Retrying from either view shares the same local continuation and stop semantics.
+  // Hold the scheduler between accepted Delivery and successor Run. Re-entry
+  // creates a fresh production component; reload also loses all module state.
+  await scenario('failed',2)
+  await b.evaluate('__presence.controls.holdDispatch=true;__presence.controls.persistServer=true')
+  await b.click('.run-presence-retry'); await b.wait('!document.querySelector(".run-presence-retry")')
+  const waiting = () => b.evaluate(`({runs:__presence.getState().snapshot.agentRuns.map(r=>({id:r.id,status:r.status,accepted:r.hasAcceptedContinuation})),deliveries:__presence.getState().snapshot.messageDeliveries.filter(d=>d.continuationRequest).map(d=>({id:d.id,status:d.status,target:d.targetAgentRunId}))})`)
+  const accepted = await waiting()
+  assert.deepEqual(accepted.runs,[{id:'run-alice',status:'failed',accepted:true}])
+  assert.equal(accepted.deliveries.length,1);assert.equal(accepted.deliveries[0].status,'waiting');assert.equal(accepted.deliveries[0].target,null)
+  const homeThread = await b.evaluate('__presence.getState().snapshot.thread.id')
+  await b.click('[data-thread-id="demo-thread-0"] button'); await settle()
+  assert.equal(await b.evaluate('document.querySelectorAll("[data-message-id]").length'),0)
+  await b.evaluate('__presence.controls.holdEntrySnapshot=true')
+  await b.click(`[data-thread-id="${homeThread}"] button`); await settle()
+  assert.equal(await b.evaluate('document.querySelectorAll(".conversation-run-presence").length'),0)
+  await b.evaluate('__presence.controls.holdEntrySnapshot=false;__presence.setStage(2)'); await settle()
+  assert.equal(await b.evaluate('document.querySelectorAll(".conversation-run-presence").length'),0)
+  assert.deepEqual(await waiting(),accepted)
+  await b.send('Page.reload'); await b.wait('!!window.__presence && !!document.querySelector(".composer-box")')
+  assert.equal(await b.evaluate('document.querySelectorAll(".conversation-run-presence").length'),0)
+  assert.deepEqual(await waiting(),accepted)
+  await b.capture(join(out,'accepted-retry-after-reload.png'))
+  await b.evaluate('__presence.controls.holdDispatch=false')
+  await b.wait('document.querySelector(".conversation-run-presence")?.dataset.presenceState === "running"')
+  const successor = await b.evaluate('document.querySelector(".conversation-run-presence").dataset.presenceRun')
+  assert.notEqual(successor,'run-alice')
+  await b.evaluate(`__presence.failRun(${JSON.stringify(successor)});__presence.controls.holdDispatch=true`); await settle()
+  assert.equal(await b.evaluate('document.querySelector(".conversation-run-presence").dataset.presenceRun'),successor)
+  await b.click('.run-presence-retry'); await settle()
+  assert.equal(await b.evaluate('__presence.controls.continueAttempts.at(-1).command.agentRunId'),successor)
+  assert.equal(await b.evaluate('document.querySelectorAll(".conversation-run-presence").length'),0)
+  assert.equal((await waiting()).deliveries.length,2)
+  report.interactions.push('accepted Retry remains hidden while dispatch is held, through stale cached entry preview, sidebar navigation/remount and full reload; exactly one waiting Delivery; a failed successor retries only that new Run')
+
+  // The history action is intentionally repeatable: each deliberate click is
+  // a new authorization, even though the inline failure has been handled.
+  await scenario('failed',2); await b.evaluate('__presence.controls.holdDispatch=true')
+  await b.click('.run-presence-open'); await settle()
+  const historyAttempts = await b.evaluate('__presence.controls.continueAttempts.length')
+  for (let i=0;i<2;i++) { await b.click('.camp-detail-popover button[title="继续执行"]'); await settle() }
+  const authorized = await b.evaluate(`__presence.controls.continueAttempts.slice(${historyAttempts})`)
+  assert.equal(authorized.length,2);assert.notEqual(authorized[0].commandId,authorized[1].commandId)
+  assert.equal((await waiting()).deliveries.length,2)
+  await b.key('Escape'); await settle()
+  await b.click('[data-thread-id="demo-thread-0"] button'); await settle()
+  await b.click(`[data-thread-id="${homeThread}"] button`); await settle()
+  assert.equal(await b.evaluate('document.querySelectorAll(".conversation-run-presence").length'),0)
+  report.interactions.push('history RunCard can accept two explicit continuations; each creates a distinct Delivery; returning to the conversation does not revive its handled failure')
+
+  // Retrying from either view shares the same accepted continuation and stop semantics.
   await scenario('failed',2);await b.click('.run-presence-open');await settle()
   await b.click('.camp-detail-popover button[title="继续执行"]');await b.key('Escape');await settle()
   await b.wait('__presence.getState().snapshot.prototypeRetries["run-alice"]?.status==="started"')
@@ -213,8 +276,8 @@ try {
   await b.click('.run-presence-retry');await settle()
   assert.equal(await b.evaluate('document.querySelector(".run-presence-retry").disabled'),false)
   assert.match(await b.evaluate('document.querySelector(".prototype-toast").textContent'),/无法继续/)
-  await b.evaluate('__presence.controls.continuationMode="response-lost"')
-  await b.click('.run-presence-retry');await b.wait('document.querySelector(".run-presence-retry")?.textContent === "确认提交结果"')
+  await b.evaluate('__presence.controls.continuationMode="response-lost";__presence.controls.holdContinuationProjection=true;__presence.controls.holdDispatch=true')
+  await b.click('.run-presence-retry');await b.wait('document.querySelector(".run-presence-retry")?.textContent === "重试" && !document.querySelector(".run-presence-retry").disabled')
   await b.click('.run-presence-retry');await b.wait('!document.querySelector(".run-presence-retry")')
   const recovered=await b.evaluate('__presence.controls.continueAttempts.slice(-2)')
   assert.equal(recovered[0].commandId,recovered[1].commandId)
@@ -256,7 +319,7 @@ try {
       await b.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false})
       await scenario('stream',1)
       const layout=await b.evaluate(`(() => {const rail=document.querySelector('.unified-sidebar').getBoundingClientRect(),head=document.querySelector('.camp-topbar').getBoundingClientRect(),bar=document.querySelector('.prototype-control-bar').getBoundingClientRect(),composer=document.querySelector('.composer-box').getBoundingClientRect(),line=document.querySelector('.run-presence-open');return {rail:rail.width,header:head.height,overflow:document.documentElement.scrollWidth>innerWidth,composerVisible:composer.bottom<=bar.top,lineHeight:line.getBoundingClientRect().height,controls:line.querySelectorAll('button').length,viewport:[innerWidth,innerHeight]}})()`)
-      assert.equal(layout.rail,270);assert.equal(layout.header,38);assert.equal(layout.overflow,false);assert.equal(layout.composerVisible,true);assert.equal(layout.lineHeight,30)
+      assert.equal(layout.rail,270);assert.equal(layout.header,38);assert.equal(layout.overflow,false);assert.equal(layout.composerVisible,true);assert.equal(layout.lineHeight,34)
       report.viewports.push({theme,...layout});await b.capture(join(out,`${theme}-${width}x${height}.png`))
     }
   }
@@ -264,14 +327,14 @@ try {
     await b.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false,screenWidth:width*2,screenHeight:height*2})
     await scenario('stream',1)
     const zoom=await b.evaluate(`(() => {const timeline=document.querySelector('.camp-timeline'),row=document.querySelector('.run-presence-line'),stop=row.querySelector('.run-presence-stop'),r=row.getBoundingClientRect(),s=stop.getBoundingClientRect();return {overflow:document.documentElement.scrollWidth>innerWidth,timelineOverflow:timeline.scrollWidth>timeline.clientWidth+1,lineHeight:r.height,inside:s.left>=r.left&&s.right<=r.right+1,stopWidth:s.width}})()`)
-    assert.equal(zoom.overflow,false);assert.equal(zoom.timelineOverflow,false);assert.equal(zoom.lineHeight,30);assert.equal(zoom.inside,true);assert.equal(zoom.stopWidth,26)
+    assert.equal(zoom.overflow,false);assert.equal(zoom.timelineOverflow,false);assert.equal(zoom.lineHeight,36);assert.equal(zoom.inside,true);assert.equal(zoom.stopWidth,26)
     await b.capture(join(out,`zoom-200-${width*2}x${height*2}.png`))
     report.interactions.push({zoom200Equivalent:[width,height],...zoom})
   }
   await b.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1})
   await settle()
   assert.equal(await b.evaluate('matchMedia("(pointer:coarse)").matches'),true)
-  assert.equal(await b.evaluate('document.querySelector(".run-presence-line").getBoundingClientRect().height'),44)
+  assert.equal(await b.evaluate('document.querySelector(".run-presence-line").getBoundingClientRect().height'),48)
   assert.equal(await b.evaluate('document.querySelector(".run-presence-stop").getBoundingClientRect().width'),44)
   await b.send('Emulation.setTouchEmulationEnabled',{enabled:false})
   report.interactions.push('coarse pointers retain a single line and expand the Stop target to 44px')
@@ -308,7 +371,7 @@ try {
     const metrics=async (prefix,rootSelector) => b.evaluate(`(() => {
       const row=document.querySelector('${rootSelector}'),line=row.querySelector('${prefix}line'),preview=row.querySelector('${prefix}preview'),stop=row.querySelector('${prefix}stop'),rect=row.getBoundingClientRect();
       const offset=e=>{const r=e.getBoundingClientRect();return [Math.round((r.left-rect.left)*100)/100,Math.round((r.top-rect.top)*100)/100,r.width,r.height]};
-      const font=getComputedStyle(preview);return {row:[rect.width,rect.height],line:offset(line),preview:offset(preview),stop:offset(stop),font:[font.fontSize,font.fontFamily,font.fontWeight,font.whiteSpace,font.textOverflow],ink:font.color,stopBorder:getComputedStyle(stop).borderWidth}
+      const font=getComputedStyle(preview);return {row:[rect.width,rect.height],line:offset(line),preview:offset(preview),stop:offset(stop),divider:offset(row.querySelector('.run-presence-guide')),font:[font.fontSize,font.fontFamily,font.fontWeight,font.whiteSpace,font.textOverflow],ink:font.color,stopBorder:getComputedStyle(stop).borderWidth}
     })()`)
     const actual=[]
     for(const theme of ['day','night']) for(const size of [[1040,700],[1440,920],[2560,1440]]) {
@@ -316,12 +379,13 @@ try {
       await b.evaluate(`__presence.setTheme('${theme}')`);await scenario('stream',1)
       actual.push({theme,size,metrics:await metrics('.run-presence-','.conversation-run-presence')})
     }
-    await b.send('Page.navigate',{url:pathToFileURL(process.env.ROVAI_PRESENCE_REFERENCE_HTML).href})
+    const referenceUrl = pathToFileURL(process.env.ROVAI_PRESENCE_REFERENCE_HTML); referenceUrl.search = 'row=divider'
+    await b.send('Page.navigate',{url:referenceUrl.href})
     await b.wait('!!window.__presence && !!document.querySelector(".composer-box")')
     for(const expected of actual) {
       await b.send('Emulation.setDeviceMetricsOverride',{width:expected.size[0],height:expected.size[1],deviceScaleFactor:1,mobile:false})
       await b.evaluate(`__presence.setTheme('${expected.theme}')`);await scenario('stream',1)
-      assert.deepEqual(expected.metrics,await metrics('.presence-','.prototype-presence'),`v5 reference ${expected.theme}/${expected.size}`)
+      assert.deepEqual(expected.metrics,await metrics('.run-presence-','.conversation-run-presence'),`v10 divider reference ${expected.theme}/${expected.size}`)
     }
     report.reference={path:process.env.ROVAI_PRESENCE_REFERENCE_HTML,comparisons:actual}
   }

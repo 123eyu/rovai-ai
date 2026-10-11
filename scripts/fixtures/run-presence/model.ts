@@ -91,7 +91,10 @@ let state: any = { scenario: scenarios[initialScenario] ? initialScenario : 'str
 const update = (patch: any) => { state = { ...state, ...patch, version: state.version + 1 }; listeners.forEach(fn => fn()) }
 let extraMessages: any[] = [], extraRuns: any[] = [], extraDeliveries: any[] = []
 const stopped = new Map<string, any>()
-const retries = new Map<string, { status: 'pending' | 'started'; runId: string }>()
+const retries = new Map<string, { status: 'pending' | 'started'; runId: string; deliveryId: string }>()
+// Only this browser fixture persists its simulated server records. Production
+// derives hasAcceptedContinuation from Core's immutable continuation Delivery.
+const persistenceKey = 'run-presence-acceptance-server'
 let stopTrigger: HTMLElement | null = null
 let playTimer: ReturnType<typeof setTimeout> | null = null
 let serial = 0
@@ -155,6 +158,8 @@ function snapshot() {
   value.agentRuns.push(...extraRuns)
   value.messageDeliveries.push(...extraDeliveries)
   value.agentRuns = value.agentRuns.map((r: any) => stopped.has(r.id) ? { ...r, ...stopped.get(r.id).run } : r)
+  value.agentRuns = value.agentRuns.map((r: any) => ({ ...r, hasAcceptedContinuation: !controls.holdContinuationProjection
+    && extraDeliveries.some(d => d.continuationRequest && d.sourceAgentRunId === r.id) }))
   value.messages = value.messages.filter((m: any) => !stopped.has(m.sourceAgentRunId) || stopped.get(m.sourceAgentRunId).publishedIds.includes(m.id))
   value.executionEvidence = value.agentRuns.flatMap((run: any) => evidence(run, value.messages.some((m: any) => m.authorType === 'agent' && m.sourceAgentRunId === run.id)))
   value.agentRuns.forEach((run: any) => { const count = value.executionEvidence.filter((e: any) => e.agentRunId === run.id).length; run.executionEvidenceCount = count; run.executionEvidenceChangeSequence = count })
@@ -182,6 +187,10 @@ function seedStreams(value: any) {
 const refresh = () => {
   const value = seedStreams(snapshot())
   update({ snapshot: value, stopId: value.agentRuns.some((r: any) => r.id === state.stopId && ['running','waiting'].includes(r.status)) ? state.stopId : null })
+  if (controls.persistServer) sessionStorage.setItem(persistenceKey, JSON.stringify({
+    scenario: state.scenario, stage: state.stage, serial, extraMessages, extraRuns, extraDeliveries,
+    retries: [...retries], holdDispatch: controls.holdDispatch
+  }))
 }
 function streamTick() {
   if (document.hidden || state.streamPaused) return
@@ -225,7 +234,8 @@ function localSend(body: string, recipients = [aid(0)], draft?: any) {
     refresh()
   }, 4600)
 }
-const controls = { holdContinue: false, holdStop: false, continuationMode: 'normal', stopError: false,
+const controls = { holdContinue: false, holdStop: false, holdDispatch: false, holdContinuationProjection: false, holdEntrySnapshot: false,
+  persistServer: false, continuationMode: 'normal', stopError: false,
   executionReads: [] as any[],
   continueAttempts: [] as any[], stopAttempts: [] as any[], receipts: new Map<string, any>() }
 export const model = {
@@ -241,6 +251,8 @@ export const model = {
   setStage(stage: number) { halt(); streams.clear(); update({ streamPaused: false, stage: Math.max(0, Math.min(scenarios[state.scenario].steps.length - 1, stage)) }); refresh() },
   setScenario(scenario: string) {
     if (!scenarios[scenario]) return
+    controls.persistServer = false; controls.holdDispatch = false; controls.holdContinuationProjection = false; controls.holdEntrySnapshot = false
+    sessionStorage.removeItem(persistenceKey)
     halt(); timers.forEach(clearTimeout); timers.clear(); streams.clear(); extraMessages = []; extraRuns = []; extraDeliveries = []; stopped.clear(); retries.clear(); liveSequence = 100; stopTrigger = null
     update({ scenario, stage: ['followup','stream','same_member'].includes(scenario) ? 0 : 1, streamPaused: false, stopId: null, generation: state.generation + 1, note: '' }); refresh()
   },
@@ -269,27 +281,20 @@ export const model = {
     refresh()
   },
   retry(id: string) {
-    if (retries.has(id)) return retries.get(id)!.runId
     const source = state.snapshot.agentRuns.find((r: any) => r.id === id)
     if (!source || !['failed','cancelled'].includes(source.status) || source.failure?.retryable === false) return null
     halt()
-    const runId = `retry-run-${++serial}`, agentIndex = profiles.findIndex(p => p.agentId === source.agentId)
-    retries.set(id, { status: 'pending', runId }); refresh()
-    later(() => {
-      const run = makeRun(runId, agentIndex, 'running', [...source.inputMessageIds])
-      const now = new Date().toISOString()
-      Object.assign(run, { inputSummary: source.inputSummary, anchorMessageId: source.anchorMessageId, createdAt: now, startedAt: now, updatedAt: now })
-      extraRuns.push(run); retries.set(id, { status: 'started', runId }); refresh()
-    }, 1100)
-    later(() => {
-      if (stopped.has(runId)) return
-      const now = new Date().toISOString()
-      extraMessages.push({ ...makeMessage(`${runId}-reply`, ++liveSequence,
-        '已继续检查刚才的请求。占位跟随最新消息，原有回复和复制、回复按钮的显示规则都保留。', agentIndex, runId), createdAt: now })
-      extraRuns = extraRuns.map(r => r.id === runId ? { ...r, status: 'succeeded', updatedAt: now, endedAt: now } : r)
-      refresh()
-    }, 4600)
-    return runId
+    const runId = `retry-run-${++serial}`, deliveryId = `retry-delivery-${serial}`
+    extraDeliveries.push({ ...delivery(deliveryId, source.inputMessageIds[0], source.agentId, null),
+      continuationRequest: true, sourceAgentRunId: id, inputMessageIds: [...source.inputMessageIds] })
+    retries.set(id, { status: 'pending', runId, deliveryId }); refresh()
+    scheduleRetry(source, runId, deliveryId)
+    return deliveryId
+  },
+  failRun(id: string) {
+    extraRuns = extraRuns.map(r => r.id === id ? { ...r, status: 'failed', endedAt: new Date().toISOString(),
+      failure: { code: 'runtime_disconnected', message: 'Runtime 连接中断。', retryable: true } } : r)
+    refresh()
   },
   async send(draft: any) {
     const recipients = profiles.filter(p => draft.body.includes(`@${p.displayName}`)).map(p => p.agentId)
@@ -353,7 +358,40 @@ export const model = {
     }
   }
 }
+function scheduleRetry(source: any, runId: string, deliveryId: string) {
+  const start = () => {
+    if (controls.holdDispatch) { later(start, 100); return }
+    const agentIndex = profiles.findIndex(p => p.agentId === source.agentId)
+    const run = makeRun(runId, agentIndex, 'running', [...source.inputMessageIds])
+    const now = new Date().toISOString()
+    Object.assign(run, { inputSummary: source.inputSummary, anchorMessageId: source.anchorMessageId, createdAt: now, startedAt: now, updatedAt: now })
+    extraRuns.push(run)
+    extraDeliveries = extraDeliveries.map(d => d.id === deliveryId ? { ...d, status: 'running', targetAgentRunId: runId } : d)
+    retries.set(source.id, { status: 'started', runId, deliveryId }); refresh()
+    later(() => {
+      if (stopped.has(runId) || extraRuns.find(r => r.id === runId)?.status !== 'running') return
+      const endedAt = new Date().toISOString()
+      extraMessages.push({ ...makeMessage(`${runId}-reply`, ++liveSequence,
+        '已继续检查刚才的请求。占位跟随最新消息，原有回复和复制、回复按钮的显示规则都保留。', agentIndex, runId), createdAt: endedAt })
+      extraRuns = extraRuns.map(r => r.id === runId ? { ...r, status: 'succeeded', updatedAt: endedAt, endedAt } : r)
+      extraDeliveries = extraDeliveries.map(d => d.id === deliveryId ? { ...d, status: 'succeeded', endedAt } : d)
+      refresh()
+    }, 3500)
+  }
+  later(start, 1100)
+}
+
+const savedServer = sessionStorage.getItem(persistenceKey)
+if (savedServer) {
+  const saved = JSON.parse(savedServer)
+  Object.assign(state, { scenario: saved.scenario, stage: saved.stage })
+  serial = saved.serial; extraMessages = saved.extraMessages; extraRuns = saved.extraRuns; extraDeliveries = saved.extraDeliveries
+  for (const [sourceId, record] of saved.retries) retries.set(sourceId, record)
+  controls.persistServer = true; controls.holdDispatch = saved.holdDispatch
+}
 refresh()
+for (const [sourceId, record] of retries) if (record.status === 'pending')
+  scheduleRetry(state.snapshot.agentRuns.find((r: any) => r.id === sourceId), record.runId, record.deliveryId)
 const streamingTimer = setInterval(streamTick, 90)
 addEventListener('pagehide', () => clearInterval(streamingTimer), { once: true })
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.playing) halt() })

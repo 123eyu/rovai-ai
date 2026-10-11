@@ -29,7 +29,8 @@ export function conversationRunPresence(
   return publicRuns.filter(run => run.status === 'running'
     || run.status === 'waiting' && run.startedAt !== null
     || run.status === 'failed' && run.invocationKind === 'batch'
-      && latestByAgent.get(run.agentId)?.id === run.id && !continuedRunIds.has(run.id))
+      && latestByAgent.get(run.agentId)?.id === run.id
+      && !run.hasAcceptedContinuation && !continuedRunIds.has(run.id))
     .sort((a, b) => Number(b.id === lastRunId) - Number(a.id === lastRunId)
       || (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt)
       || a.id.localeCompare(b.id))

@@ -50,15 +50,15 @@ export function ContinueAgentRunButton({ threadId, agentRunId, onError, appearan
       // Transport failure is not proof of rejection. The next click reconciles
       // this exact authorization; it must not create a second request.
       setUncertain(true)
-      onError(uiAttribute('未确认提交结果，请再次点击核对。'))
+      onError(uiAttribute(appearance === 'retry' ? '连接暂时不可用，请稍后重试。' : '未确认提交结果，请再次点击核对。'))
     } finally {
       submitting.current = false
       setBusy(false)
     }
   }
 
-  const label = busy ? uiAttribute(appearance === 'retry' ? '重试中…' : '正在提交')
-    : uncertain ? uiAttribute('确认提交结果') : uiAttribute(appearance === 'retry' ? '重试' : '继续执行')
+  const label = appearance === 'retry' ? uiAttribute(busy ? '正在提交…' : '重试')
+    : uiAttribute(busy ? '正在提交' : uncertain ? '确认提交结果' : '继续执行')
   return <button className={appearance === 'retry' ? 'run-presence-retry' : 'execution-continue'} type="button" title={label}
     aria-label={label} aria-busy={busy || undefined} disabled={busy}
     onClick={() => void submit()}>

@@ -561,7 +561,10 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [ContextManifest Evidence v9 (historical)](context-manifest-evidence-v9.md) | bounded public omission evidence；不作为 Formatter v13 恢复入口 |
 | [Context Delivery Profile v2 (historical)](context-delivery-profile-v2.md) | 公共引用链与历史 budget 的旧当前合同；不选择 self-active Task |
 | [Context Delivery Profile v1 (historical)](context-delivery-profile-v1.md) | AgentRun 公共消息窗口、Unicode scalar 正文截断、历史字符预算与遗漏提示 |
-| [Run Process Detail Surface v46（当前）](run-process-detail-surface-v46.md) | 继承 v45；继续图标直接提交，取消新会话确认弹窗 |
+| [Run Process Detail Surface v49（当前）](run-process-detail-surface-v49.md) | 单行预览首次读取失败的事件驱动恢复、在途更新补拉及新旧 Evidence 合并；不改变 v48 展示与授权规则 |
+| [Run Process Detail Surface v48](run-process-detail-surface-v48.md) | 停止区短竖线分隔、默认中性色停止按钮；按持久化续做 Delivery 恢复已受理重试的收起状态 |
+| [Run Process Detail Surface v47（历史）](run-process-detail-surface-v47.md) | 会话内单行队员占位、V2 确认停止、命令图标与中断重试；复用已有命令和 Evidence |
+| [Run Process Detail Surface v46（历史）](run-process-detail-surface-v46.md) | 继承 v45；继续图标直接提交，取消新会话确认弹窗 |
 | [Run Process Detail Surface v45（历史）](run-process-detail-surface-v45.md) | 继承 v44；失败／停止卡片的紧凑继续图标与独立排队请求 |
 | [Run Process Detail Surface v44（历史）](run-process-detail-surface-v44.md) | 继承 v43；根思考全阶段反馈、Codex/Copilot 有界原生短标题与瞬时读取 |
 | [Run Process Detail Surface v43（历史）](run-process-detail-surface-v43.md) | 继承 v42；主线按完整内容块分页、Tool 组独立游标与有界自动补齐，不新增表或迁移 |

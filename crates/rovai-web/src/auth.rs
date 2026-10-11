@@ -982,7 +982,8 @@ mod tests {
             })
             .unwrap(),
         ] {
-            atomic_write_private_bytes(&path, &bytes).unwrap();
+            // Match credential I/O policy when constructing invalid-content fixtures.
+            write_store_file(&path, &bytes).unwrap();
             let error = Sessions::open(&root, None)
                 .err()
                 .expect("invalid content must fail");

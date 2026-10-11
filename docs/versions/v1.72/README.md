@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-10
+last_updated: 2026-10-11
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -30,6 +30,8 @@ V1 移除 Rovai 强加的 `--pure`，恢复现有压缩监听及原生用户插�
 本机 V1 `1.18.32` 与 Brew V2 `2.0.25` 已完成真实开发版、协作、审批/取消、压缩补发与 MCP 回归。
 V1 初始化单独保留 90 秒窗口，容纳原生冷启动依赖锁的 60 秒过期；不删除用户锁或重发任务。
 不增加版本资格门禁或安装管理，不变更数据库 schema、版本指针或模型上下文格式。
+Windows V1 已补齐原生压缩监听插件的安装路径，复用平台私有存储与现有 relay；跨平台配置回归
+及验证边界见[Windows 安装修复](opencode-v1-v2-implementation.md#windows-v1-压缩监听安装2026-10-11)。
 
 ## Kimi 使用官方 Provider 配置（2026-10-10）
 

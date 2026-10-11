@@ -2,7 +2,7 @@
 document_type: implementation-record
 version: v1.72
 authority: implementation-evidence
-last_updated: 2026-10-10
+last_updated: 2026-10-11
 ---
 
 # OpenCode V1/V2 适配
@@ -233,3 +233,19 @@ Runtime model picker 独立 Electron 验收通过。ACP 数量变化来自主线
 此前 V1／Brew V2 的真实开发版证据仍限于各自记录的构建；本次日常提升须在 PR CI 通过后，
 从合入后的主线构建 `package:mac:daily`，完成新的隔离打包 App 验收与签名门禁，再由
 `install:mac:daily` 保留当前宿主进程并替换日常安装。实际构建身份、验收和安装结果随本次任务交付。
+
+## Windows V1 压缩监听安装（2026-10-11）
+
+Windows 真请求发现 V1 原生压缩已完成，但 `configure_compaction_detector_command` 在非 Unix
+分支提前返回，未安装 `session.compacted` 插件。以 `f9acc239` 为基线，将既有 OpenCode 插件安装
+移出 Unix shell Hook 分支，继续调用同一个 bundled CLI、Observer Lease、去重与补发链路。
+插件目录和文件复用平台私有存储原语；Windows 使用创建时 protected DACL，加载路径使用转义的
+`file:` URL，并在原生 CLI argv 中去掉 Windows verbatim 前缀。用户插件、权限与模型配置保留。
+V2 继续由既有代际分支消费 ACP completion，不安装 V1 插件。
+
+既有 `opencode_detector_plugin_is_additive_to_runtime_config` owner 移到跨平台的
+`acp::compaction_detector_tests`，保留两代与 allow/ask/deny 配置矩阵，扩展真实安装入口、中文／空格／
+`#`／`%` 路径、私有文件读取和非法插件配置断言。修复前该入口在 Windows 返回不支持；沿用既有
+owner，没有新增平行测试或数据库／模型 fixture。最小命令为
+`cargo test -p rovai-core --features extended-tests --lib acp::compaction_detector_tests::`，
+并接入手动 `Full check` 的 Windows Runtime scope。

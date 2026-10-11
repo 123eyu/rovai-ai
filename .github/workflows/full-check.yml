@@ -217,6 +217,11 @@ jobs:
           cargo test -p rovai-core --lib --features extended-tests
           --target x86_64-pc-windows-msvc claude::tests:: -- --test-threads=2
 
+      - name: Exercise Windows OpenCode compaction plugin installation
+        run: >-
+          cargo test -p rovai-core --lib --features extended-tests
+          --target x86_64-pc-windows-msvc acp::compaction_detector_tests::
+
       - name: Exercise Windows private storage admission
         run: >-
           cargo test -p rovai-core --lib

@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
+    io::Write,
     path::{Component, Path, PathBuf},
     process::ExitStatus,
     sync::{
@@ -11,7 +12,7 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::{fs::OpenOptions, io::Write};
+use std::fs::OpenOptions;
 
 use anyhow::{Context, Result, bail, ensure};
 #[cfg(all(test, unix, feature = "extended-tests"))]
@@ -6606,6 +6607,54 @@ fn configure_compaction_detector_command(
     private_runtime_dir: &Path,
     runtime_cwd: &Path,
 ) -> Result<Option<PathBuf>> {
+    if adapter_kind == AdapterKind::OpencodeCli {
+        let root = rovai_core::platform::private_storage::prepare_private_directory(
+            &private_runtime_dir
+                .join("compaction-detector")
+                .join(host_instance_id),
+        )?;
+        let plugin_path = root.join("opencode-compaction-observer.ts");
+        let cli = serde_json::to_string(&acp_protocol_path(builtin_tools.cli_executable()))?;
+        let host = serde_json::to_string(host_instance_id)?;
+        write_private_text_file(
+            &plugin_path,
+            &format!(
+                r#"export const RovaiCompactionObserver = async () => ({{
+  event: async ({{ event }}) => {{
+    if (event?.type !== "session.compacted") return
+    const sessionId = event?.properties?.sessionID
+    if (typeof sessionId !== "string" || sessionId.length === 0) return
+    const child = Bun.spawn([
+      {cli}, "__compaction-hook", "--adapter-kind", "opencode-cli",
+      "--host-instance-id", {host}, "--source-signal", "session.compacted"
+    ], {{ stdin: "pipe", stdout: "ignore", stderr: "ignore" }})
+    child.stdin.write(JSON.stringify({{
+      session_id: sessionId,
+      hook_event_name: "session.compacted",
+      trigger: "completed",
+      observation_id: crypto.randomUUID(),
+      timestamp: Date.now()
+    }}))
+    child.stdin.end()
+    await child.exited
+  }}
+}})
+"#,
+            ),
+        )?;
+        let config = command
+            .as_std()
+            .get_envs()
+            .find(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT")
+            .and_then(|(_, value)| value)
+            .context("OpenCode Runtime config content is missing")?
+            .to_str()
+            .context("OpenCode Runtime config content is not UTF-8")?;
+        let mut config: Value = serde_json::from_str(config)?;
+        append_opencode_compaction_plugin(&mut config, &plugin_path)?;
+        command.env("OPENCODE_CONFIG_CONTENT", serde_json::to_string(&config)?);
+        return Ok(Some(root));
+    }
     if matches!(
         adapter_kind,
         AdapterKind::KiroCli | AdapterKind::KimiCodeCli
@@ -6617,8 +6666,7 @@ fn configure_compaction_detector_command(
     }
     if !matches!(
         adapter_kind,
-        AdapterKind::OpencodeCli
-            | AdapterKind::CopilotCli
+        AdapterKind::CopilotCli
             | AdapterKind::QoderCli
             | AdapterKind::CodebuddyCli
             | AdapterKind::QwenCode
@@ -6659,55 +6707,10 @@ fn configure_compaction_detector_command(
                 AdapterKind::CopilotCli => "preCompact",
                 AdapterKind::QoderCli | AdapterKind::QwenCode => "PostCompact",
                 AdapterKind::CodebuddyCli => "SessionStart",
-                AdapterKind::OpencodeCli => "session.compacted",
                 _ => unreachable!(),
             }),
         );
         match adapter_kind {
-            AdapterKind::OpencodeCli => {
-                let plugin_path = root.join("opencode-compaction-observer.ts");
-                let cli = serde_json::to_string(
-                    &builtin_tools.cli_executable().to_string_lossy().as_ref(),
-                )?;
-                let host = serde_json::to_string(host_instance_id)?;
-                write_private_text_file(
-                    &plugin_path,
-                    &format!(
-                        r#"export const RovaiCompactionObserver = async () => ({{
-  event: async ({{ event }}) => {{
-    if (event?.type !== "session.compacted") return
-    const sessionId = event?.properties?.sessionID
-    if (typeof sessionId !== "string" || sessionId.length === 0) return
-    const child = Bun.spawn([
-      {cli}, "__compaction-hook", "--adapter-kind", "opencode-cli",
-      "--host-instance-id", {host}, "--source-signal", "session.compacted"
-    ], {{ stdin: "pipe", stdout: "ignore", stderr: "ignore" }})
-    child.stdin.write(JSON.stringify({{
-      session_id: sessionId,
-      hook_event_name: "session.compacted",
-      trigger: "completed",
-      observation_id: crypto.randomUUID(),
-      timestamp: Date.now()
-    }}))
-    child.stdin.end()
-    await child.exited
-  }}
-}})
-"#,
-                    ),
-                )?;
-                let config = command
-                    .as_std()
-                    .get_envs()
-                    .find(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT")
-                    .and_then(|(_, value)| value)
-                    .context("OpenCode Runtime config content is missing")?
-                    .to_str()
-                    .context("OpenCode Runtime config content is not UTF-8")?;
-                let mut config: Value = serde_json::from_str(config)?;
-                append_opencode_compaction_plugin(&mut config, &plugin_path)?;
-                command.env("OPENCODE_CONFIG_CONTENT", serde_json::to_string(&config)?);
-            }
             AdapterKind::CopilotCli => {
                 let plugin_root = root.join("copilot-plugin");
                 std::fs::create_dir_all(&plugin_root)?;
@@ -6841,7 +6844,6 @@ fn append_post_compact_hook(settings: &mut Value, hook_command: &str) -> Result<
     Ok(())
 }
 
-#[cfg(unix)]
 fn append_opencode_compaction_plugin(config: &mut Value, plugin_path: &Path) -> Result<()> {
     let config = config
         .as_object_mut()
@@ -6851,7 +6853,11 @@ fn append_opencode_compaction_plugin(config: &mut Value, plugin_path: &Path) -> 
         .or_insert_with(|| json!([]))
         .as_array_mut()
         .context("OpenCode Runtime config plugins must be an array")?;
-    plugins.push(Value::String(plugin_path.to_string_lossy().into_owned()));
+    // Native plugin loading uses import URLs. Drive letters, verbatim prefixes,
+    // spaces and URL metacharacters must not become a package name or fragment.
+    let plugin_url = url::Url::from_file_path(acp_protocol_path(plugin_path))
+        .map_err(|()| anyhow::anyhow!("OpenCode detector plugin path is not absolute"))?;
+    plugins.push(Value::String(plugin_url.into()));
     Ok(())
 }
 
@@ -6948,17 +6954,8 @@ fn write_private_json_file(path: &Path, value: &Value) -> Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
 fn write_private_text_file(path: &Path, value: &str) -> Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
+    let mut file = rovai_core::platform::private_storage::create_private_new_file(path)
         .with_context(|| format!("failed to create {}", path.display()))?;
     file.write_all(value.as_bytes())
         .with_context(|| format!("failed to write {}", path.display()))?;
@@ -8258,6 +8255,125 @@ mod route_policy_tests {
             AdapterKind::KiroCli,
             &mcp_request
         ));
+    }
+}
+
+#[cfg(all(test, feature = "extended-tests"))]
+mod compaction_detector_tests {
+    use super::*;
+
+    #[test]
+    fn opencode_detector_plugin_is_additive_to_runtime_config() {
+        for generation in [
+            crate::opencode_compat::Generation::V1,
+            crate::opencode_compat::Generation::V2,
+        ] {
+            for mode in ["allow", "ask", "deny"] {
+                let mut command = Command::new("/selected/opencode");
+                command.env("OPENCODE_CONFIG_CONTENT", "{model:'test/model', agent:{custom:{permission:'ask'}}, agents:{custom:{permissions:[{action:'*',resource:'*',effect:'deny'}]},build:{model:'test/other'}}, plugin:['user-plugin']}");
+                crate::opencode_compat::configure_permissions(generation, &mut command, mode)
+                    .unwrap();
+                let (_, content) = command
+                    .as_std()
+                    .get_envs()
+                    .find(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT")
+                    .unwrap();
+                let config: Value =
+                    serde_json::from_str(content.unwrap().to_str().unwrap()).unwrap();
+                assert_eq!(config["model"], "test/model");
+                assert_eq!(config["plugin"], json!(["user-plugin"]));
+                assert_eq!(config["agent"]["custom"]["permission"], "ask");
+                assert_eq!(
+                    config["agents"]["custom"]["permissions"][0]["effect"],
+                    "deny"
+                );
+                assert_eq!(config["agents"]["build"]["model"], "test/other");
+                if generation == crate::opencode_compat::Generation::V1 {
+                    assert_eq!(
+                        config["permission"],
+                        json!({"*":mode,"skill":"allow","bash":"allow"})
+                    );
+                    assert_eq!(config["agent"]["plan"]["permission"], config["permission"]);
+                } else {
+                    assert_eq!(
+                        config["permissions"],
+                        json!([
+                            {"action":"*","resource":"*","effect":mode},
+                            {"action":"shell","resource":"*","effect":"allow"},
+                            {"action":"skill","resource":"*","effect":"allow"}
+                        ])
+                    );
+                    assert_eq!(
+                        config["agents"]["plan"]["permissions"],
+                        config["permissions"]
+                    );
+                }
+            }
+        }
+        let mut config = json!({
+            "autoupdate": false,
+            "permission": {"*": "ask"},
+            "plugin": ["existing-plugin"]
+        });
+        let root = rovai_core::platform::private_storage::prepare_private_directory(
+            &std::env::temp_dir().join(format!("rovai-opencode-{} 空格 #%", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        let cli = root.join("Rovai's CLI.exe");
+        std::fs::write(&cli, "fixture CLI; not executed").unwrap();
+        #[cfg(windows)]
+        let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::WindowsNamedPipe {
+            name: format!(r"\\.\pipe\rovai-ai-1-{}", uuid::Uuid::new_v4()),
+        };
+        #[cfg(not(windows))]
+        let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
+            path: root.join("core.sock").to_string_lossy().into_owned(),
+        };
+        let builtin_tools = BuiltinToolProcessConfig::create(&cli, &endpoint, &root).unwrap();
+        let mut command = Command::new(&cli);
+        command.env("OPENCODE_CONFIG_CONTENT", config.to_string());
+        let detector_root = configure_compaction_detector_command(
+            &mut command,
+            AdapterKind::OpencodeCli,
+            "observer-host",
+            &builtin_tools,
+            &root,
+            &root,
+        )
+        .expect("OpenCode detector should install on every supported platform")
+        .unwrap();
+        let content = command
+            .as_std()
+            .get_envs()
+            .find(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT")
+            .and_then(|(_, value)| value)
+            .unwrap();
+        config = serde_json::from_str(content.to_str().unwrap()).unwrap();
+        let plugin_path = detector_root.join("opencode-compaction-observer.ts");
+        let plugin_url = url::Url::parse(config["plugin"][1].as_str().unwrap()).unwrap();
+        assert_eq!(plugin_url.scheme(), "file");
+        assert_eq!(
+            plugin_url.to_file_path().unwrap().canonicalize().unwrap(),
+            plugin_path
+        );
+        assert!(plugin_url.fragment().is_none());
+        let mut plugin = String::new();
+        let mut file = rovai_core::platform::private_storage::open_private_read_file(&plugin_path)
+            .expect("observer must be a private regular file");
+        std::io::Read::read_to_string(&mut file, &mut plugin).unwrap();
+        drop(file);
+        assert!(plugin.contains(&serde_json::to_string(&acp_protocol_path(&cli)).unwrap()));
+        assert!(plugin.contains("\"--host-instance-id\", \"observer-host\""));
+        assert!(plugin.contains("event?.type !== \"session.compacted\""));
+        assert_eq!(config["autoupdate"], false);
+        assert_eq!(config["permission"]["*"], "ask");
+        assert_eq!(config["plugin"][0], "existing-plugin");
+        assert_eq!(config["plugin"].as_array().unwrap().len(), 2);
+        let mut invalid = json!({"plugin": {"unexpected": true}});
+        assert!(append_opencode_compaction_plugin(&mut invalid, &plugin_path).is_err());
+        assert_eq!(invalid, json!({"plugin": {"unexpected": true}}));
+        drop(builtin_tools);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 
@@ -12789,73 +12905,6 @@ while IFS= read -r ignored; do :; done
         assert_eq!(qoder["hooks"]["PostCompact"][0]["matcher"], "manual|auto");
         let codebuddy = codebuddy_compaction_hook_settings("rovai hook");
         assert_eq!(codebuddy["hooks"]["SessionStart"][0]["matcher"], "compact");
-    }
-
-    #[test]
-    fn opencode_detector_plugin_is_additive_to_runtime_config() {
-        for generation in [
-            crate::opencode_compat::Generation::V1,
-            crate::opencode_compat::Generation::V2,
-        ] {
-            for mode in ["allow", "ask", "deny"] {
-                let mut command = Command::new("/selected/opencode");
-                command.env("OPENCODE_CONFIG_CONTENT", "{model:'test/model', agent:{custom:{permission:'ask'}}, agents:{custom:{permissions:[{action:'*',resource:'*',effect:'deny'}]},build:{model:'test/other'}}, plugin:['user-plugin']}");
-                crate::opencode_compat::configure_permissions(generation, &mut command, mode)
-                    .unwrap();
-                let (_, content) = command
-                    .as_std()
-                    .get_envs()
-                    .find(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT")
-                    .unwrap();
-                let config: Value =
-                    serde_json::from_str(content.unwrap().to_str().unwrap()).unwrap();
-                assert_eq!(config["model"], "test/model");
-                assert_eq!(config["plugin"], json!(["user-plugin"]));
-                assert_eq!(config["agent"]["custom"]["permission"], "ask");
-                assert_eq!(
-                    config["agents"]["custom"]["permissions"][0]["effect"],
-                    "deny"
-                );
-                assert_eq!(config["agents"]["build"]["model"], "test/other");
-                if generation == crate::opencode_compat::Generation::V1 {
-                    assert_eq!(
-                        config["permission"],
-                        json!({"*":mode,"skill":"allow","bash":"allow"})
-                    );
-                    assert_eq!(config["agent"]["plan"]["permission"], config["permission"]);
-                } else {
-                    assert_eq!(
-                        config["permissions"],
-                        json!([
-                            {"action":"*","resource":"*","effect":mode},
-                            {"action":"shell","resource":"*","effect":"allow"},
-                            {"action":"skill","resource":"*","effect":"allow"}
-                        ])
-                    );
-                    assert_eq!(
-                        config["agents"]["plan"]["permissions"],
-                        config["permissions"]
-                    );
-                }
-            }
-        }
-        let mut config = json!({
-            "autoupdate": false,
-            "permission": {"*": "ask"},
-            "plugin": ["existing-plugin"]
-        });
-        append_opencode_compaction_plugin(
-            &mut config,
-            Path::new("/private/rovai/opencode-compaction-observer.ts"),
-        )
-        .expect("OpenCode detector plugin should append");
-        assert_eq!(config["autoupdate"], false);
-        assert_eq!(config["permission"]["*"], "ask");
-        assert_eq!(config["plugin"][0], "existing-plugin");
-        assert_eq!(
-            config["plugin"][1],
-            "/private/rovai/opencode-compaction-observer.ts"
-        );
     }
 
     #[test]

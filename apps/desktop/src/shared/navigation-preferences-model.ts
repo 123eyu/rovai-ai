@@ -1,5 +1,5 @@
 import { isThreadId } from '@contracts'
-import type { NavigationPin, NavigationPreferencesSnapshot, NavigationThreadReadState, RemovedNavigationProject } from '@contracts'
+import type { LegacyProjectDirectories, NavigationPin, NavigationPreferencesSnapshot, NavigationThreadReadState, RemovedNavigationProject } from '@contracts'
 import { normalizeProjectDisplayName, projectDisplayNameError } from './project-display-name'
 
 export const EMPTY_SNAPSHOT: NavigationPreferencesSnapshot = {
@@ -138,7 +138,7 @@ export function sanitizeThreadReadStates(source: unknown): Record<string, Naviga
   ))
 }
 
-/** Strict import gate: normalization must never discard unread legacy identities. */
+/** Write-protection gate: optional normalization may be displayed, never silently saved. */
 export function sourceMatchesSupportedSnapshot(source: unknown, snapshot: NavigationPreferencesSnapshot): boolean {
   if (!isRecord(source) || ![1, 2, 3, 4, 5].includes(source.schemaVersion as number)) return false
   if (!Array.isArray(source.pins) || source.pins.length !== snapshot.pins.length) return false
@@ -154,4 +154,33 @@ export function sourceMatchesSupportedSnapshot(source: unknown, snapshot: Naviga
   const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)
     : isRecord(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])])) : value
   return JSON.stringify(sorted({ ...source, pins: snapshot.pins, ...(version >= 2 ? { removedProjects: snapshot.removedProjects } : {}) })) === JSON.stringify(sorted(expected))
+}
+
+/** Directory identities survive damaged optional labels/order. Only unreadable
+ * removal decisions prevent the one-time import from completing. */
+export function legacyProjectDirectories(source: unknown): LegacyProjectDirectories {
+  if (!isRecord(source) || ![1, 2, 3, 4, 5].includes(source.schemaVersion as number)) {
+    throw new Error('项目偏好暂时无法读取，请重试。')
+  }
+  const pathFromKey = (key: unknown): string | null => typeof key === 'string' && key.startsWith('directory:')
+    && isLegacyProjectPath(key.slice(10)) ? key.slice(10) : null
+  const removed = source.schemaVersion === 1 ? [] : source.removedProjects
+  if (!Array.isArray(removed) || removed.some(value => !isRecord(value) || !pathFromKey(value.targetKey))) {
+    throw new Error('已移除项目的记录暂时无法读取，请重试。')
+  }
+  const candidates = [
+    ...(Array.isArray(source.projectOrder) ? source.projectOrder : []),
+    ...(isRecord(source.projectNames) ? Object.keys(source.projectNames) : []),
+    ...(Array.isArray(source.pins) ? source.pins.flatMap(pin => isRecord(pin) && pin.kind === 'project' ? [pin.targetKey] : []) : [])
+  ]
+  return {
+    projectPaths: [...new Set(candidates.flatMap(key => pathFromKey(key) ?? []))],
+    removedPaths: [...new Set(removed.map(value => pathFromKey(value.targetKey)!))]
+  }
+}
+
+export function isLegacyProjectPath(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 8192 && !value.includes('\0')
+    && (/^\//.test(value) || /^[a-z]:[\\/]/i.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value))
+    && !value.split(/[\\/]/).some(part => part === '.' || part === '..')
 }

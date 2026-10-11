@@ -7,7 +7,7 @@ import type { ThreadReadInvalidation, SingleChatSnapshot, CoreMethod, FilePrevie
 import { ConsoleClient, WEB_OPERATIONS, type WebOperation } from './client'
 import { createBrowserNavigationHistory } from './navigation-history'
 import { browserEditingRecovery } from './editing-recovery'
-import { createProjectRegistry, legacyProjectPaths } from '../../desktop/src/renderer/src/project-registry'
+import { createProjectRegistry, captureLegacyProjectInitialization } from '../../desktop/src/renderer/src/project-registry'
 import { browserPreferences } from './preferences'
 import { createServerUpdates } from './server-updates'
 import { restorableFilePreviewRequest } from '../../desktop/src/renderer/src/file-preview-session'
@@ -190,7 +190,7 @@ export function createThreadAdapter(transport: ConsoleClient, selectWorkspaceDir
   } }
   const { preferences, profile } = browserPreferences(transport.presentationScope, transport)
   const environment: BusinessEnvironment = { navigationHistory: createBrowserNavigationHistory(transport.editingScope), client, preferences, files, selectWorkspaceDirectory,
-    projects: createProjectRegistry(client.request, async () => legacyProjectPaths(await preferences.navigationPreferences.get()), () => browserProjectIdentity(transport.presentationScope!)),
+    projects: createProjectRegistry(client.request, captureLegacyProjectInitialization(() => preferences.navigationPreferences.getProjectInitialization()), () => browserProjectIdentity(transport.presentationScope!)),
     serverUpdates: transport.channels === 'desktop' ? undefined : createServerUpdates(transport) }
   return { environment, profile, invalidate: (change: ThreadReadInvalidation = { resync: true }) => { for (const listener of listeners) listener(change); void refreshUpdates() } }
 }

@@ -1062,9 +1062,28 @@ export function BusinessApp({
   const [navigationState, setNavigationState] = useState<LoadState>('loading')
   const [navigationPins, setNavigationPins] = useState<NavigationPin[]>([])
   const [registeredProjects, setRegisteredProjects] = useState<ProjectRegistrySnapshot | null>(null)
+  const registeredProjectsRef = useRef<ProjectRegistrySnapshot | null>(null)
+  const [projectRegistryError, setProjectRegistryError] = useState<string | null>(null)
   const removedProjectAuthorityReady = registeredProjects?.initialized === true
   const removedProjectKeys = useMemo(() => new Set(registeredProjects?.projects.filter(project => project.removed).map(project => projectTargetKey(project.projectPath)) ?? []), [registeredProjects])
-  useEffect(() => projectRegistry.subscribe(setRegisteredProjects), [projectRegistry])
+  useEffect(() => projectRegistry.subscribe(snapshot => {
+    registeredProjectsRef.current = snapshot
+    setRegisteredProjects(snapshot)
+  }), [projectRegistry])
+  const refreshProjectRegistry = useCallback(async (): Promise<ProjectRegistrySnapshot> => {
+    try {
+      const snapshot = await projectRegistry.get()
+      setProjectRegistryError(null)
+      return snapshot
+    } catch (nextError) {
+      setProjectRegistryError(uiAttribute("项目列表暂时无法刷新：{0}", String(errorMessage(nextError))))
+      // A reliable registry still owns visibility, including every tombstone.
+      // Its read failure must not discard a successful, newer Thread window.
+      const previous = registeredProjectsRef.current
+      if (!previous?.initialized) throw nextError
+      return previous
+    }
+  }, [projectRegistry])
   const [projectOrder, setProjectOrder] = useState<string[] | null>(null)
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const projectNamesGeneration = useRef(0)
@@ -1478,7 +1497,7 @@ export function BusinessApp({
     () => createNavigationWindowReader(
       async (request) => {
         const [snapshot] = await Promise.all([
-          client.request<NavigationSnapshot>('navigation.snapshot', request), projectRegistry.get()
+          client.request<NavigationSnapshot>('navigation.snapshot', request), refreshProjectRegistry()
         ])
         return snapshot
       },
@@ -1496,7 +1515,7 @@ export function BusinessApp({
         onError: () => setNavigationState('error')
       }
     ),
-    [client, projectRegistry, commitNavigation]
+    [client, refreshProjectRegistry, commitNavigation]
   )
 
   const loadNavigation = useCallback(async (
@@ -1596,36 +1615,25 @@ export function BusinessApp({
           const [nextNavigation, nextNavigationPreferences, registry] = await Promise.all([
             nextNavigationPromise,
             nextNavigationPreferencesPromise,
-            projectRegistry.get()
+            refreshProjectRegistry()
           ])
           const resolvedPins = await resolveNavigationPins(
             navigationWithRegisteredProjects(nextNavigation, registry)!,
             nextNavigationPreferences.pins, client
           )
-          let resolvedNavigationPreferences = nextNavigationPreferences
-          if (resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
-            resolvedNavigationPreferences = await uiPreferences.navigationPreferences.replacePins(
-              resolvedPins.pins
-            )
-          }
-          const removedProjectKeySet = new Set(
-            registry.projects.filter(project => project.removed).map(project => projectTargetKey(project.projectPath))
-          )
-          resolvedNavigationPreferences = await uiPreferences.navigationPreferences
-            .synchronizeProjectOrder(
-              registry.projects
-                .map((project) => projectTargetKey(project.projectPath))
-                .filter((projectKey) => !removedProjectKeySet.has(projectKey))
-            )
           setNavigationPins(resolvedPins.pins)
-          setProjectOrder(resolvedNavigationPreferences.projectOrder)
+          setProjectOrder(nextNavigationPreferences.projectOrder)
           if (namesGeneration === projectNamesGeneration.current) {
-            setProjectNames(resolvedNavigationPreferences.projectNames)
+            setProjectNames(nextNavigationPreferences.projectNames)
           }
-          if (readGeneration === threadReadGeneration.current) acceptThreadReadStates(resolvedNavigationPreferences)
+          if (readGeneration === threadReadGeneration.current) acceptThreadReadStates(nextNavigationPreferences)
           setPinnedThreadItems(
             resolvedPins.threads.filter((thread) => !deletingThreadIdsRef.current.has(thread.id))
           )
+          if (resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
+            void uiPreferences.navigationPreferences.replacePins(resolvedPins.pins)
+              .catch(nextError => setError(errorMessage(nextError)))
+          }
         })()
         const results = await Promise.allSettled([
           navigationOverviewPromise,
@@ -1651,7 +1659,7 @@ export function BusinessApp({
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadNavigation])
+  }, [loadAgents, loadNavigation, refreshProjectRegistry])
 
   const loadHealth = useCallback((): Promise<HealthStatus> => {
     if (healthRequest.current) return healthRequest.current
@@ -4133,7 +4141,7 @@ export function BusinessApp({
     : startupRoutePending?.kind ?? startupRouteTarget?.kind ?? 'location'
   const inlineNotices = memoryReviewNotice
     || memoryAutoNotice.count > 0
-    || (!shuttingDown && (error || locationSaveError))
+    || (!shuttingDown && (error || projectRegistryError || locationSaveError))
     ? (
         <>
           {memoryReviewNotice && (
@@ -4148,11 +4156,11 @@ export function BusinessApp({
               <div><button className="quiet-button compact" type="button" onClick={openAutomaticMemory}><UiText zh={"查看"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("关闭自动形成提示")} onClick={() => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })}>×</button></div>
             </div>
           )}
-          {!shuttingDown && error && (
+          {!shuttingDown && (error || projectRegistryError) && (
             <div className="error-banner" role="alert">
               <span className="error-icon" aria-hidden="true">!</span>
-              <div><strong><UiText zh={"操作未完成"} /></strong><span>{error}</span><small><UiText zh={"项目文件和已经写入的审计记录不会因此丢失。"} /></small></div>
-              <div className="error-actions"><button className="quiet-button" onClick={() => void loadOverview()}><UiText zh={"刷新状态"} /></button><button className="icon-button" aria-label={uiAttribute("关闭错误")} onClick={() => setError(null)}>×</button></div>
+              <div><strong><UiText zh={"操作未完成"} /></strong><span>{error || projectRegistryError}</span><small><UiText zh={"项目文件和已经写入的审计记录不会因此丢失。"} /></small></div>
+              <div className="error-actions"><button className="quiet-button" onClick={() => void loadOverview()}><UiText zh={"刷新状态"} /></button><button className="icon-button" aria-label={uiAttribute("关闭错误")} onClick={() => { setError(null); setProjectRegistryError(null) }}>×</button></div>
             </div>
           )}
           {!shuttingDown && locationSaveError && (

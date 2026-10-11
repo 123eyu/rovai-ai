@@ -3430,11 +3430,17 @@ export interface NavigationPreferencesSnapshot {
 
 export interface NavigationPreferencesApi {
   get(): Promise<NavigationPreferencesSnapshot>
+  getProjectInitialization(): Promise<LegacyProjectDirectories>
   setThreadReadState(threadId: string, state: NavigationThreadReadState | null): Promise<NavigationPreferencesSnapshot>
   onChanged(listener: (snapshot: NavigationPreferencesSnapshot) => void): () => void
   replacePins(pins: NavigationPin[]): Promise<NavigationPreferencesSnapshot>
   synchronizeProjectOrder(projectKeys: string[]): Promise<NavigationPreferencesSnapshot>
   setProjectName(targetKey: string, name: string | null): Promise<NavigationPreferencesSnapshot>
+}
+
+export interface LegacyProjectDirectories {
+  projectPaths: string[]
+  removedPaths: string[]
 }
 
 export interface MemberAvatarCrop {

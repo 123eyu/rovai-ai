@@ -1,5 +1,6 @@
 import { newCommandId } from '../../shared/command-id'
-import type { CoreMethod, NavigationPreferencesSnapshot, NavigationSnapshot, ProjectRegistrySnapshot, StoredCommandResult } from '@contracts'
+import type { CoreMethod, LegacyProjectDirectories, NavigationSnapshot, ProjectRegistrySnapshot, StoredCommandResult } from '@contracts'
+import { isLegacyProjectPath } from '../../shared/navigation-preferences-model'
 import { CURRENT_PROJECT_STORAGE_KEY, projectTargetKey } from './new-conversation-preferences'
 
 export interface ProjectRegistry {
@@ -10,16 +11,18 @@ export interface ProjectRegistry {
 
 type Request = <T>(method: CoreMethod, params?: unknown) => Promise<T>
 
-export function legacyProjectPaths(preferences: NavigationPreferencesSnapshot, storage: Storage = localStorage): { projectPaths: string[]; removedPaths: string[] } {
-  const keys = [...preferences.projectOrder ?? [], ...Object.keys(preferences.projectNames),
-    ...preferences.pins.filter(pin => pin.kind === 'project').map(pin => pin.targetKey)]
-  // Storage/JSON failures must not mark initialization complete with empty defaults.
-  const selected = storage.getItem(CURRENT_PROJECT_STORAGE_KEY)
-  const current = selected === null ? null : JSON.parse(selected) as { kind?: string; projectPath?: string }
-  if (current?.kind === 'directory' && typeof current.projectPath === 'string') keys.push(projectTargetKey(current.projectPath))
-  return {
-    projectPaths: [...new Set(keys.filter(key => key.startsWith('directory:')).map(key => key.slice(10)))],
-    removedPaths: preferences.removedProjects.map(project => project.targetKey.slice(10))
+export function captureLegacyProjectInitialization(read: () => Promise<LegacyProjectDirectories>, storage?: Pick<Storage, 'getItem'>): () => Promise<LegacyProjectDirectories> {
+  // Capture before startup restoration can replace the selected directory.
+  // This synchronous optional read does not delay the route or any Core request.
+  let selectedPath: string | null = null
+  try {
+    const selected = (storage ?? globalThis.localStorage)?.getItem(CURRENT_PROJECT_STORAGE_KEY)
+    const current = selected ? JSON.parse(selected) : null
+    if (current?.kind === 'directory' && isLegacyProjectPath(current.projectPath)) selectedPath = current.projectPath
+  } catch { /* A missing/invalid optional selection cannot block the authoritative legacy read. */ }
+  return async () => {
+    const previous = await read()
+    return { ...previous, projectPaths: [...new Set([...previous.projectPaths, ...(selectedPath ? [selectedPath] : [])])] }
   }
 }
 

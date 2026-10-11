@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # v1.72 实施与验收
@@ -42,8 +42,50 @@ schema 更新到 141，并同步了基线中已为 37、断言仍写 36 的 Buil
 `Leaving the loaded empty Camp must initiate cleanup before the race is tested` 失败。
 候选为新登记接口补了确定性响应，没有修改或跳过该清理断言；不将此测试报告为通过。
 
-未执行打包 App 的真实升级/重启与 `accept:sidebar-ui`，未调用真实模型，未执行 Windows 真机
-或远端浏览器 HTTP 验收。SQLite 生命周期和浏览器存储夹具通过不代替这些端到端结论。
+以上是首版 `5557c9558` 的验证；当时未执行打包 App 的真实升级/重启，不作为无感升级验收结论。
+
+### 无感升级复核修正（2026-10-12）
+
+保留 SQLite 登记、作用域、移除 tombstone 和原并发保护。本次只修正客户端启动和失败传播：
+
+- Desktop/Web 环境创建时先同步保留旧选中目录，再异步读取初始化输入，恢复会话不等待登记初始化。
+- 新增兼容输入读取接口，独立解析目录身份和移除路径；名称、顺序、可选选中项损坏不封锁项目初始化。
+  原文件仍受写入保护，自动顺序同步不回写损坏记录。重试重新读取实际存储；无效移除身份仍阻止初始化完成。
+- 可靠登记快照存在时，登记刷新失败使用该快照继续移除过滤，接受成功的新会话窗口，独立显示登记错误。
+  偏好清理失败不再把已经成功的导航初始化改判为失败。没有新增迁移界面或恢复框架。
+
+| 本轮实际执行 | 结果 |
+| --- | --- |
+| `pnpm exec vitest run --maxWorkers 4` | 239 文件、2626 项通过；含 Main/Web 损坏输入与真实重读、旧选中目录提前保留 |
+| `pnpm typecheck` | 通过 |
+| `ROVAI_TEST_PROJECT_REGISTRY=1 pnpm test:startup-presentation` | 通过；延迟初始化期间恢复会话、覆盖选中值后仍导入旧空目录、登记刷新失败保留新会话与移除过滤、重试恢复 |
+| `pnpm test:startup-presentation` | 2 个 owner 中新增登记 owner 通过；既有 owner 仍在上述空 Camp 清理断言失败，未弱化或跳过 |
+| 导航壳与 Desktop contextBridge 的 Node owner | 2 项通过；真实 Electron、隔离 userData，无 Core/Runtime |
+| ARM64 release Core/Host/CLI、`pnpm build:desktop`、macOS dir 打包 | 通过；本地 ad-hoc 签名产物，未作为签名发布版安装。Rust strip 工具有缺少 libLLVM 的非致命警告 |
+| `scripts/accept-project-registry.mjs` | 真旧 App 创建 schema 140 数据，候选 App 升级到 141；五组断言与两次正常退出/重启通过，截图已查看 |
+| 文档与补丁门禁 | `pnpm docs:test` 10 项通过，`pnpm docs:check`、以 `5557c9558` 为 base 的 `docs:check:ci` 和 `git diff --check` 通过 |
+
+打包命令与验收命令：
+
+```bash
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac dir --arm64 -c.mac.identity=-
+node scripts/accept-project-registry.mjs "/Applications/Rovai AI.app" \
+  "/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-sqlite-project-registry/dist/mac-arm64/Rovai AI.app" \
+  /tmp/rovai-registry-upgrade-20261012-07
+```
+
+脚本要求新的独立目录，重复执行必须换目录。成功证据在
+`/private/tmp/rovai-registry-upgrade-20261012-07/report.json`、四张 PNG 及每轮进程日志；报告记录旧/新
+Host 与 app.asar SHA-256、实际 Core 启动参数、最终登记行。独立 userData 与 Skill Library 均位于此目录。
+通过旧版 API 创建数据后，注入可选字段损坏的旧偏好夹具；首次升级和新增空项目在不修复配置的情况下通过。
+随后脚本只为验证“重试重新读取”而替换自己制造的损坏偏好，再保存空项目置顶；这不是产品升级步骤。
+删除、登记、恢复和版本冲突调用打包 App 的正式 IPC/Core 接口，切换项目使用真实界面，退出使用 macOS 正常退出。
+验证了移除目录和原会话都未删除，重加仅一个入口，旧恢复版本被拒绝；没有手工改写登记表。
+
+未重新执行首版已通过的 Rust 默认/extended 矩阵（本轮无 Rust 修改），未运行完整 `accept:sidebar-ui`、
+Windows 真机、远端 Web HTTP 或真实模型。用户提到的 `rovai-5557c9558-review-repros.zip` 在本次消息中无附件，
+本机约定附件目录未找到，未声称运行该包；同类时序与失败传播由新增生产 Renderer 集成夹具覆盖。
+保留独立 worktree 和任务分支，未合入、未替换或重启日常 App。
 
 ## Send 正文文件输入
 

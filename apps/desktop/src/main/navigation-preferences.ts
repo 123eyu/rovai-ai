@@ -1,10 +1,11 @@
 import { isThreadId } from '@contracts'
-import { EMPTY_SNAPSHOT, sanitizeSnapshot, sourceMatchesSupportedSnapshot, isProjectTargetKey, isStableId, isTimestamp, isRecord, isNavigationThreadReadState } from '../shared/navigation-preferences-model'
+import { EMPTY_SNAPSHOT, legacyProjectDirectories, sanitizeSnapshot, sourceMatchesSupportedSnapshot, isProjectTargetKey, isNavigationThreadReadState } from '../shared/navigation-preferences-model'
 import { readFile } from 'node:fs/promises'
 import type {
   NavigationPin,
   NavigationPreferencesSnapshot,
   NavigationThreadReadState,
+  LegacyProjectDirectories,
   StructuredError
 } from '@contracts'
 import { writePrivateJson } from './general-preferences'
@@ -17,6 +18,7 @@ export async function readNavigationPreferences(
 }
 
 async function readNavigationPreferencesResult(filePath: string): Promise<{
+  source: unknown
   snapshot: NavigationPreferencesSnapshot
   degradation: StructuredError | null
 }> {
@@ -25,6 +27,7 @@ async function readNavigationPreferencesResult(filePath: string): Promise<{
     source = JSON.parse(await readFile(filePath, 'utf8')) as unknown
   } catch (error) {
     return {
+      source: isMissingPathError(error) ? EMPTY_SNAPSHOT : undefined,
       snapshot: structuredClone(EMPTY_SNAPSHOT),
       degradation: isMissingPathError(error)
         ? null
@@ -38,6 +41,7 @@ async function readNavigationPreferencesResult(filePath: string): Promise<{
   const snapshot = sanitizeSnapshot(source)
   const changed = !sourceMatchesSupportedSnapshot(source, snapshot)
   return {
+    source,
     snapshot,
     degradation: changed
       ? navigationDegradation(
@@ -51,7 +55,8 @@ async function readNavigationPreferencesResult(filePath: string): Promise<{
 export class NavigationPreferencesStore {
   readonly #filePath: string
   #snapshot: NavigationPreferencesSnapshot
-  readonly loadDegradation: StructuredError | null
+  #source: unknown
+  loadDegradation: StructuredError | null
   #writeTail: Promise<void> = Promise.resolve()
 
   private constructor(
@@ -81,9 +86,12 @@ export class NavigationPreferencesStore {
     return new NavigationPreferencesStore(filePath, structuredClone(EMPTY_SNAPSHOT))
   }
 
-  get(): NavigationPreferencesSnapshot {
-    if (this.loadDegradation) throw new Error(this.loadDegradation.message)
-    return structuredClone(this.#snapshot)
+  get(): Promise<NavigationPreferencesSnapshot> {
+    return this.#enqueue(async () => structuredClone(this.#snapshot))
+  }
+
+  getProjectInitialization(): Promise<LegacyProjectDirectories> {
+    return this.#enqueue(async () => legacyProjectDirectories(this.#source))
   }
 
   replacePins(pins: NavigationPin[]): Promise<NavigationPreferencesSnapshot> {
@@ -93,7 +101,7 @@ export class NavigationPreferencesStore {
         pins
       })
       await this.#commit(next)
-      return this.get()
+      return structuredClone(this.#snapshot)
     })
   }
 
@@ -110,7 +118,7 @@ export class NavigationPreferencesStore {
           threadReadStates[threadId]?.readThroughGlobalSequence ?? 0)
       }
       await this.#commit({ ...this.#snapshot, threadReadStates })
-      return this.get()
+      return structuredClone(this.#snapshot)
     })
   }
 
@@ -128,7 +136,7 @@ export class NavigationPreferencesStore {
       if (name === null) delete projectNames[targetKey]
       else projectNames[targetKey] = normalizeProjectDisplayName(name)
       await this.#commit({ ...this.#snapshot, projectNames })
-      return this.get()
+      return structuredClone(this.#snapshot)
     })
   }
 
@@ -141,6 +149,9 @@ export class NavigationPreferencesStore {
       return Promise.reject(new Error('Project navigation keys are invalid'))
     }
     return this.#enqueue(async () => {
+      // Automatic membership sync must not rewrite a damaged preference file.
+      // Its optional ordering never blocks SQLite registration or navigation.
+      if (this.loadDegradation) return structuredClone(this.#snapshot)
       const currentProjectKeys = new Set(projectKeys)
       const retainedProjectKeys = this.#snapshot.projectOrder === null
         ? []
@@ -155,7 +166,7 @@ export class NavigationPreferencesStore {
         projectOrder
       })
       await this.#commit(next)
-      return this.get()
+      return structuredClone(this.#snapshot)
     })
   }
 
@@ -167,7 +178,14 @@ export class NavigationPreferencesStore {
   }
 
   #enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#writeTail.then(operation, operation)
+    const reread = async (): Promise<T> => {
+      const current = await readNavigationPreferencesResult(this.#filePath)
+      this.#source = current.source
+      this.loadDegradation = current.degradation
+      if (current.degradation?.code !== 'navigation_preferences_unreadable') this.#snapshot = current.snapshot
+      return operation()
+    }
+    const result = this.#writeTail.then(reread, reread)
     this.#writeTail = result.then(() => undefined, () => undefined)
     return result
   }

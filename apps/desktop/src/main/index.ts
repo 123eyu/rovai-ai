@@ -1612,6 +1612,10 @@ ipcMain.handle('rovai:navigation-preferences-get', () =>
   projectAccessTransactions.run(async () => requireNavigationPreferences().get())
 )
 
+ipcMain.handle('rovai:navigation-preferences-project-initialization', () =>
+  projectAccessTransactions.run(() => requireNavigationPreferences().getProjectInitialization())
+)
+
 ipcMain.handle('rovai:navigation-preferences-replace-pins', (_event, pins: NavigationPin[]) =>
   projectAccessTransactions.run(() => requireNavigationPreferences().replacePins(pins))
 )

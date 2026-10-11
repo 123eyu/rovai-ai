@@ -21,6 +21,12 @@ app.whenReady().then(async () => {
   })
   window.webContents.on('console-message', event => console.error(event.message))
   await window.loadFile(renderer)
+  if (process.env.ROVAI_TEST_PROJECT_REGISTRY === '1') {
+    const report = await window.webContents.executeJavaScript('window.startupTest.registryRegressions()', true)
+    console.log(JSON.stringify(report))
+    app.exit(report.ok ? 0 : 1)
+    return
+  }
   const report = await window.webContents.executeJavaScript('window.startupTest.run()', true)
   for (const theme of ['day', 'night']) {
     for (const collapsed of [false, true]) {

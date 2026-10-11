@@ -6,6 +6,29 @@ import type { NavigationPreferencesSnapshot } from '@contracts'
 // The actual Web preference adapter must read the Host's saved team instead
 // of letting an empty or stale browser-local copy shadow the Desktop choice.
 afterEach(() => vi.unstubAllGlobals())
+
+it('isolates optional preference damage from initialization, protects the source and rereads a failed import', async () => {
+  const key = 'rovai.presentation:host-a:navigation'
+  const original = JSON.stringify({ schemaVersion: 5, pins: [], removedProjects: [{ targetKey: 'directory:/removed', removedAt: 'invalid optional time' }],
+    projectOrder: ['directory:/kept', 'invalid'], projectNames: { 'directory:/empty': 2 }, threadReadStates: {} })
+  const entries = new Map([[key, original]])
+  vi.stubGlobal('localStorage', { getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => entries.set(key, value) })
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  const api = browserPreferences('host-a', { request: vi.fn() } as unknown as ConsoleClient).preferences.navigationPreferences
+  await expect(api.get()).resolves.toMatchObject({ projectOrder: ['directory:/kept'], projectNames: {} })
+  await expect(api.getProjectInitialization()).resolves.toEqual({ projectPaths: ['/kept', '/empty'], removedPaths: ['/removed'] })
+  await api.synchronizeProjectOrder(['directory:/kept'])
+  expect(entries.get(key)).toBe(original)
+  await expect(api.replacePins([])).rejects.toThrow('原记录已保留')
+  entries.set(key, '{unreadable')
+  await expect(api.getProjectInitialization()).rejects.toThrow()
+  await expect(api.get()).resolves.toMatchObject({ projectOrder: ['directory:/kept'] })
+  entries.set(key, JSON.stringify({ schemaVersion: 5, pins: [], removedProjects: [], projectOrder: [], projectNames: {}, threadReadStates: {} }))
+  await expect(api.getProjectInitialization()).resolves.toEqual({ projectPaths: [], removedPaths: [] })
+  await api.setProjectName('directory:/kept', 'Recovered')
+  expect((await api.get()).projectNames).toEqual({ 'directory:/kept': 'Recovered' })
+})
+
 it('uses the Host team and one-click flag across browser sessions', async () => {
   const entries = new Map<string, string>()
   vi.stubGlobal('localStorage', { getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => entries.set(key, value) })

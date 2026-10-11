@@ -348,6 +348,9 @@ const api: RovaiApi = {
     get() {
       return ipcRenderer.invoke('rovai:navigation-preferences-get') as Promise<NavigationPreferencesSnapshot>
     },
+    getProjectInitialization() {
+      return ipcRenderer.invoke('rovai:navigation-preferences-project-initialization')
+    },
     replacePins(pins: NavigationPin[]) {
       return ipcRenderer.invoke('rovai:navigation-preferences-replace-pins', pins) as Promise<NavigationPreferencesSnapshot>
     },

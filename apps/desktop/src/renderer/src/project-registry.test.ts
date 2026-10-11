@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CoreMethod, NavigationSnapshot, ProjectRegistrySnapshot } from '@contracts'
-import { EMPTY_SNAPSHOT } from '../../shared/navigation-preferences-model'
-import { createProjectRegistry, legacyProjectPaths, navigationWithRegisteredProjects } from './project-registry'
+import { createProjectRegistry, captureLegacyProjectInitialization, navigationWithRegisteredProjects } from './project-registry'
 
 const registry = (revision: number, removed = false): ProjectRegistrySnapshot => ({ initialized: true, revision,
   projects: [{ projectPath: '/a', version: revision, removed }, { projectPath: '/b', version: 1, removed: false }] })
@@ -22,14 +21,23 @@ describe('SQLite project registration client', () => {
     expect(navigationWithRegisteredProjects(removed, registry(3))?.projects.map(project => project.projectPath)).toEqual(['/a', '/b'])
   })
 
-  it('imports identifiable selected empty directories and legacy removal, and refuses unreadable storage', () => {
+  it('captures the old empty selection before delayed initialization and startup restoration can overwrite it', async () => {
     const local = storage()
     local.setItem('rovai.current-project.v1', JSON.stringify({ kind: 'directory', projectPath: '/selected' }))
-    expect(legacyProjectPaths({ ...EMPTY_SNAPSHOT, projectOrder: ['directory:/a'], removedProjects: [{ targetKey: 'directory:/a', removedAt: '2026-10-11' }] }, local))
-      .toEqual({ projectPaths: ['/a', '/selected'], removedPaths: ['/a'] })
+    let finish!: (value: { projectPaths: string[]; removedPaths: string[] }) => void
+    const read = captureLegacyProjectInitialization(() => new Promise(resolve => { finish = resolve }), local)
+    local.setItem('rovai.current-project.v1', JSON.stringify({ kind: 'directory', projectPath: '/restored-thread' }))
+    const input = read()
+    finish({ projectPaths: ['/a'], removedPaths: ['/a'] })
+    await expect(input).resolves.toEqual({ projectPaths: ['/a', '/selected'], removedPaths: ['/a'] })
+  })
+
+  it('ignores a damaged or inaccessible optional selection without blocking known legacy directories', async () => {
+    const local = storage()
+    const previous = { projectPaths: ['/known'], removedPaths: ['/removed'] }
     local.setItem('rovai.current-project.v1', '{broken')
-    expect(() => legacyProjectPaths(EMPTY_SNAPSHOT, local)).toThrow()
-    expect(() => legacyProjectPaths(EMPTY_SNAPSHOT, { getItem() { throw new Error('unavailable') } } as unknown as Storage)).toThrow('unavailable')
+    await expect(captureLegacyProjectInitialization(async () => previous, local)()).resolves.toEqual(previous)
+    await expect(captureLegacyProjectInitialization(async () => previous, { getItem() { throw new Error('unavailable') } })()).resolves.toEqual(previous)
   })
 
   it('does not complete initialization after legacy read failure and does not reimport after success', async () => {

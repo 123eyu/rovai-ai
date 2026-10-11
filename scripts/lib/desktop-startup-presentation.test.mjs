@@ -13,7 +13,8 @@ import { admitElectronIntegrationTest } from './electron-sandbox-capability.mjs'
 const root = resolve(import.meta.dirname, '../..')
 const fixtureSource = join(root, 'scripts/fixtures/desktop-startup-presentation')
 
-test('the production App presents the full-window brand loader without weakening Core admission', { timeout: 60_000 }, async (t) => {
+const registerStartupTest = registryOnly => test(registryOnly ? 'the production App preserves legacy empty projects and independent refresh results'
+  : 'the production App presents the full-window brand loader without weakening Core admission', { timeout: 60_000 }, async (t) => {
   if (!admitElectronIntegrationTest(t)) return
   const fixture = await mkdtemp(join(tmpdir(), 'rovai-startup-presentation-test-'))
   let child
@@ -28,7 +29,7 @@ test('the production App presents the full-window brand loader without weakening
       resolve: { alias: { '@contracts': join(root, 'packages/contracts/src/index.ts') } },
       build: { outDir: join(fixture, 'renderer'), minify: false }
     })
-    const environment = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
+    const environment = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', ROVAI_TEST_PROJECT_REGISTRY: registryOnly ? '1' : '0' }
     delete environment.ELECTRON_RUN_AS_NODE
     process.stdout.write(`Automatic acceptance userData: ${join(fixture, 'user-data')}; no Core/SQLite/Skill Library/Runtime\n`)
     child = spawn(electron, [
@@ -52,6 +53,12 @@ test('the production App presents the full-window brand loader without weakening
     assert.equal(code, 0, `Desktop startup regression failed:\n${stdout}\n${stderr}`)
     const report = JSON.parse(stdout.split('\n').find(line => line.startsWith('{')))
     assert.equal(report.ok, true)
+    if (registryOnly) {
+      assert.deepEqual(report.cases, ['Startup restores without waiting for registry initialization',
+        'Initialization preserves the pre-restoration empty selection',
+        'Registry failure retains successful Thread refresh and removal filtering', 'Registry retry rereads and recovers'])
+      return
+    }
     assert.ok(report.cases.length >= 8)
     assert.ok(report.cases.includes('Ordinary Camp switching reads only the target row without unrelated queries'))
     assert.ok(report.cases.includes('The Skill picker loads its catalog on demand'))
@@ -75,3 +82,6 @@ test('the production App presents the full-window brand loader without weakening
     }
   }
 })
+
+if (process.env.ROVAI_TEST_PROJECT_REGISTRY !== '1') registerStartupTest(false)
+registerStartupTest(true)

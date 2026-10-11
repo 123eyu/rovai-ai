@@ -249,3 +249,22 @@ V2 继续由既有代际分支消费 ACP completion，不安装 V1 插件。
 owner，没有新增平行测试或数据库／模型 fixture。最小命令为
 `cargo test -p rovai-core --features extended-tests --lib acp::compaction_detector_tests::`，
 并接入手动 `Full check` 的 Windows Runtime scope。
+
+Windows 10 x64 使用修复后的 Debug Core、V1 `1.18.34` 和 V2 `2.0.26`，均以官方免费模型
+`opencode/mimo-v2.6-flash-free` 完成四轮真实请求。Core、Skill Library、MCP 与原生 Home 隔离，
+目录包含中文、空格、`#` 和 `%`。实际读取受控文件触发自动压缩，再重启 Core 验证同一 Native
+Session 的恢复与补发；没有注入完成事件或测试 relay。V1 的额外原生插件仅记录事件，安装与转发
+完全由产品路径完成。
+
+| 核对项 | V1 | V2 对照 |
+| --- | --- | --- |
+| 四轮真实 Run | 全部 succeeded | 全部 succeeded |
+| 原生数据库与 Core observation | 1 次 auto、成功 summary、1 次 observation | 2 次 auto completed、2 次 observation |
+| requested / acknowledged revision | 1 / 1 | 2 / 2 |
+| 冷恢复与原生补发正文 | 同一 Session、新 Host；原生正文含补发 marker | 同一 Session、新 Host；原生正文含补发 marker |
+| V1 插件与退出清理 | 活跃 Host 已安装；退出后无监听目录残留 | 未安装 V1 插件 |
+
+Windows 配置 owner 1 项与 compaction policy 3 项、typecheck、格式与文档治理通过。
+完整 JavaScript 验证的 11 项 Vitest 与 3 项 Node 测试受本机 symlink `EPERM` 限制，另有 1 项
+Node 测试仍期待 Built-in contract 36 而主线已为 37；在未修改的 `f9acc239` 上复跑得到相同失败名，
+不计作本修复通过。未重跑 macOS、安装器或任意第三方插件矩阵。

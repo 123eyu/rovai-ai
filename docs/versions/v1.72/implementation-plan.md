@@ -8,6 +8,32 @@ last_updated: 2026-10-11
 
 # v1.72 实施与验收
 
+## CJK Markdown 与引用投影（2026-10-11）
+
+基线 `4522057d5e5af503647a5f883902c6babb98f314`，分支 `rovai/cjk-markdown-quotes`。
+SafeMarkdown 与两处正文解析辅助函数使用 remark 的现成 CJK 扩展；Core 改用启用同等扩展的
+Comrak 0.48（满足 workspace 的 Rust 1.85 下限）。保留单波浪线字面值、隐藏任务框后的正文空格和既有段落边界。
+新引用沿用 locator 的 projectionVersion=2；快照仍为 version 1，不迁移消息或引用。
+旧摘要失配只影响高亮，完整引用继续展示与进入模型输入；不新增服务、队列或模糊定位。
+
+复用现有 Rust 纯投影、SQLite capture owner 与隔离 Electron 引用 owner，共读
+`packages/contracts/fixtures/message-quote-projection-v2.json`，保留全部旧例并增加原问题片段、中文标点、
+嵌套、代码、转义、流式未闭合、GFM 和结构化 Mention。SQLite owner 同时验证旧快照字节不变与捕获摘要。
+Electron 继续验证原生选文、复制关闭、v1/v2 回跳、旧定位失败后的完整展示、移除与重排、私聊视口和高亮重排。
+共享用例增加后，回跳验收改为在有限时间内等待行进入视口，避免将原固定 400ms 误当滚动完成。
+未新增、删除或停用 Rust 测试函数；复用现有最小内存 schema，不启动 Core 或模型。
+
+当前权威同步到 Message Quotes 合同、架构与会话区 UI。此为可逆的解析器适配，现有投影版本和不可变快照
+已拥有兼容边界，不满足新 Version Decision 的高变更成本准入，不新增决定或修改版本指针。
+
+验证结果：共享用例 55 组（全部保留原 21 组），Core 投影/capture 的 3 个既有 owner 与真实 Electron
+引用交互均通过；包含日夜主题截图、CJK 原生选文、代码字面量、引用复用与失配反馈。
+`pnpm test` 通过：Vitest 2,625 项，后续 Node 339 项通过、2 项平台专属跳过；文档 10 项、Skill 3 项与
+Electron 能力分类 7 项通过。`pnpm test:rust:pr` 465 项通过、1 项既有 ignored。
+最终空代码块边界修正与旧快照用例完善后，Core 定向 3 项再次通过；55 组 Electron 用例通过。
+`pnpm typecheck`、包含 Web/执行台构建的 `pnpm build:desktop`、带上述 base 的 `pnpm docs:check:ci`、
+Rust 格式与 diff 检查通过；前端机械设计扫描无发现。未安装日常 App，未启动真实 Runtime。
+
 ## Windows Web 凭据可用性（2026-10-11）
 
 基线 `70510b3fa43a7fe845e339fd5dbbe8391ad20e39`，分支 `rovai/windows-web-auth-availability`。

@@ -1390,7 +1390,7 @@ export interface MessageQuoteSnapshot {
   capturedAt: string
   sourceContentDigest: string
   /** Internal, immutable selection anchor. Never projected into model input. */
-  locator?: { projectionVersion: 1; startScalar: number; endScalar: number; projectionDigest: string }
+  locator?: { projectionVersion: 1 | 2; startScalar: number; endScalar: number; projectionDigest: string }
   snapshotDigest: string
 }
 

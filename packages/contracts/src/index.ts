@@ -3395,6 +3395,12 @@ export interface WindowsApplicationMenuPopupRequest {
   sourceType: 'mouse' | 'keyboard'
 }
 
+export interface ProjectRegistrySnapshot {
+  initialized: boolean
+  revision: number
+  projects: { projectPath: string; removed: boolean; version: number }[]
+}
+
 export interface NavigationPin {
   kind: 'camp' | 'project'
   targetKey: string
@@ -3429,8 +3435,6 @@ export interface NavigationPreferencesApi {
   replacePins(pins: NavigationPin[]): Promise<NavigationPreferencesSnapshot>
   synchronizeProjectOrder(projectKeys: string[]): Promise<NavigationPreferencesSnapshot>
   setProjectName(targetKey: string, name: string | null): Promise<NavigationPreferencesSnapshot>
-  removeProject(targetKey: string, relatedThreadIds: string[]): Promise<NavigationPreferencesSnapshot>
-  restoreProject(targetKey: string): Promise<NavigationPreferencesSnapshot>
 }
 
 export interface MemberAvatarCrop {
@@ -4130,9 +4134,6 @@ export type CoreMethod =
   | 'skills.projections.listIssues'
   | 'skills.reconcile'
   | 'skills.cleanupLegacyEntries'
-  | 'skills.projectAccess.sync'
-  | 'skills.projectAccess.remove'
-  | 'skills.projectAccess.restore'
   | 'skills.revealLocation'
   | 'mcp.config.get'
   | 'mcp.servers.reveal'
@@ -4226,6 +4227,9 @@ export type CoreMethod =
   | 'threads.creationPreflight'
   | 'workspaces.validate'
   | 'workspaces.inspect'
+  | 'projects.get'
+  | 'projects.initialize'
+  | 'projects.set'
   | 'navigation.snapshot'
   | 'navigation.threads'
   | 'navigation.groupThreads'

@@ -210,6 +210,12 @@ pub enum Operation {
     Members,
     #[serde(rename = "members.get")]
     Member,
+    #[serde(rename = "projects.get")]
+    ProjectsGet,
+    #[serde(rename = "projects.initialize")]
+    ProjectsInitialize,
+    #[serde(rename = "projects.set")]
+    ProjectsSet,
     #[serde(rename = "navigation.snapshot")]
     Navigation,
     #[serde(rename = "navigation.threads", alias = "navigation.camps")]
@@ -535,6 +541,9 @@ impl Operation {
             Self::AppInfo => "app.info",
             Self::Members => "members.list",
             Self::Member => "members.get",
+            Self::ProjectsGet => "projects.get",
+            Self::ProjectsInitialize => "projects.initialize",
+            Self::ProjectsSet => "projects.set",
             Self::Navigation => "navigation.snapshot",
             Self::NavigationCamps => "navigation.camps",
             Self::GroupCamps => "navigation.groupCamps",

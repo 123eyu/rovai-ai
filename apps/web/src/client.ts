@@ -105,6 +105,9 @@ export const WEB_OPERATIONS = [
   'automations.delete',
   'automations.run',
   'app.info',
+  'projects.get',
+  'projects.initialize',
+  'projects.set',
   'navigation.snapshot',
   'navigation.threads',
   'navigation.groupThreads',
@@ -179,6 +182,7 @@ export const WEB_OPERATIONS = [
 export type WebOperation = typeof WEB_OPERATIONS[number]
 
 const RECONCILABLE_COMMANDS = new Set<WebOperation>([
+  'projects.set',
   'threads.rename',
   'threads.delete',
   'threads.retryDeletion',

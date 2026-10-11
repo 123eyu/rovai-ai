@@ -1044,13 +1044,25 @@ impl CollaborationService {
         validate_project_path(&envelope.payload.project_path)?;
         let camp_id = ThreadId::new();
         self.gateway.execute(database, envelope, |transaction| {
-            create_camp_in_tx(
+            let result = create_camp_in_tx(
                 transaction,
                 &envelope.actor,
                 envelope.execution_epoch,
                 &envelope.payload,
                 &camp_id,
-            )
+            )?;
+            // The requesting UI saves its own directory before creating a Thread.
+            // Other scopes discover only successfully introduced visible Threads.
+            if result.status == crate::command::CommandResultStatus::Applied
+                && envelope.payload.project_binding_kind == ProjectBindingKind::Directory
+                && envelope.payload.activation_state == ThreadActivationState::Active
+            {
+                crate::project_registry::register_introduced(
+                    transaction,
+                    &envelope.payload.project_path,
+                )?;
+            }
+            Ok(result)
         })
     }
 
@@ -2990,6 +3002,9 @@ impl CollaborationService {
             .into_iter()
             .next()
             .context("scheduled Automation admission created no Delivery")?;
+        if input.project_binding_kind == ProjectBindingKind::Directory {
+            crate::project_registry::register_introduced(transaction, &input.project_path)?;
+        }
         Ok(Ok(ScheduledAutomationAdmissionResult {
             camp_id,
             camp_message_id,
@@ -4142,6 +4157,15 @@ fn queue_camp_message_and_runs(
         [input.camp_id],
         |row| row.get(0),
     )?;
+    if activation_state == "pending" {
+        let path: Option<String> = transaction.query_row(
+            "SELECT project_path FROM camp WHERE id=?1 AND project_binding_kind='directory' AND NOT EXISTS(SELECT 1 FROM mission WHERE camp_id=?1)",
+            [input.camp_id], |row| row.get(0),
+        ).optional()?;
+        if let Some(path) = path {
+            crate::project_registry::register_introduced(transaction, &path)?;
+        }
+    }
     transaction.execute(
         r#"
         UPDATE camp

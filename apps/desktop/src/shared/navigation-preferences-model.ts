@@ -137,3 +137,21 @@ export function sanitizeThreadReadStates(source: unknown): Record<string, Naviga
       : []
   ))
 }
+
+/** Strict import gate: normalization must never discard unread legacy identities. */
+export function sourceMatchesSupportedSnapshot(source: unknown, snapshot: NavigationPreferencesSnapshot): boolean {
+  if (!isRecord(source) || ![1, 2, 3, 4, 5].includes(source.schemaVersion as number)) return false
+  if (!Array.isArray(source.pins) || source.pins.length !== snapshot.pins.length) return false
+  const version = source.schemaVersion as number
+  if (version >= 2 && (!Array.isArray(source.removedProjects) || source.removedProjects.length !== snapshot.removedProjects.length)) return false
+  const expected = {
+    schemaVersion: version, pins: snapshot.pins,
+    ...(version >= 2 ? { removedProjects: snapshot.removedProjects } : {}),
+    ...(version >= 3 ? { projectOrder: snapshot.projectOrder } : {}),
+    ...(version >= 4 ? { projectNames: snapshot.projectNames } : {}),
+    ...(version >= 5 ? { threadReadStates: snapshot.threadReadStates } : {})
+  }
+  const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)
+    : isRecord(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])])) : value
+  return JSON.stringify(sorted({ ...source, pins: snapshot.pins, ...(version >= 2 ? { removedProjects: snapshot.removedProjects } : {}) })) === JSON.stringify(sorted(expected))
+}

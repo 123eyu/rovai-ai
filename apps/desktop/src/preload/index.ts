@@ -363,19 +363,6 @@ const api: RovaiApi = {
         targetKey,
         name
       ) as Promise<NavigationPreferencesSnapshot>
-    },
-    removeProject(targetKey: string, relatedThreadIds: string[]) {
-      return ipcRenderer.invoke(
-        'rovai:navigation-preferences-remove-project',
-        targetKey,
-        relatedThreadIds
-      ) as Promise<NavigationPreferencesSnapshot>
-    },
-    restoreProject(targetKey: string) {
-      return ipcRenderer.invoke(
-        'rovai:navigation-preferences-restore-project',
-        targetKey
-      ) as Promise<NavigationPreferencesSnapshot>
     }
   },
   memberAvatars: {

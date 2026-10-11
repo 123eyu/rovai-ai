@@ -1,11 +1,10 @@
 import { isThreadId } from '@contracts'
-import { EMPTY_SNAPSHOT, sanitizeSnapshot, isProjectTargetKey, isStableId, isTimestamp, isRecord, isNavigationThreadReadState } from '../shared/navigation-preferences-model'
+import { EMPTY_SNAPSHOT, sanitizeSnapshot, sourceMatchesSupportedSnapshot, isProjectTargetKey, isStableId, isTimestamp, isRecord, isNavigationThreadReadState } from '../shared/navigation-preferences-model'
 import { readFile } from 'node:fs/promises'
 import type {
   NavigationPin,
   NavigationPreferencesSnapshot,
   NavigationThreadReadState,
-  RemovedNavigationProject,
   StructuredError
 } from '@contracts'
 import { writePrivateJson } from './general-preferences'
@@ -49,38 +48,8 @@ async function readNavigationPreferencesResult(filePath: string): Promise<{
   }
 }
 
-function sourceMatchesSupportedSnapshot(
-  source: unknown,
-  snapshot: NavigationPreferencesSnapshot
-): boolean {
-  if (!isRecord(source)) return false
-  if (source.schemaVersion === 2) {
-    return JSON.stringify(source) === JSON.stringify({
-      schemaVersion: 2,
-      pins: snapshot.pins,
-      removedProjects: snapshot.removedProjects
-    })
-  }
-  if (source.schemaVersion === 3) {
-    return JSON.stringify(source) === JSON.stringify({
-      schemaVersion: 3,
-      pins: snapshot.pins,
-      removedProjects: snapshot.removedProjects,
-      projectOrder: snapshot.projectOrder
-    })
-  }
-  if (source.schemaVersion === 4) {
-    return JSON.stringify(source) === JSON.stringify({
-      schemaVersion: 4, pins: snapshot.pins, removedProjects: snapshot.removedProjects,
-      projectOrder: snapshot.projectOrder, projectNames: snapshot.projectNames
-    })
-  }
-  return JSON.stringify(source) === JSON.stringify(snapshot)
-}
-
 export class NavigationPreferencesStore {
   readonly #filePath: string
-  readonly #now: () => string
   #snapshot: NavigationPreferencesSnapshot
   readonly loadDegradation: StructuredError | null
   #writeTail: Promise<void> = Promise.resolve()
@@ -88,36 +57,32 @@ export class NavigationPreferencesStore {
   private constructor(
     filePath: string,
     snapshot: NavigationPreferencesSnapshot,
-    now: () => string,
     loadDegradation: StructuredError | null = null
   ) {
     this.#filePath = filePath
     this.#snapshot = snapshot
-    this.#now = now
     this.loadDegradation = loadDegradation
   }
 
   static async load(
-    filePath: string,
-    now: () => string = () => new Date().toISOString()
+    filePath: string
   ): Promise<NavigationPreferencesStore> {
     const result = await readNavigationPreferencesResult(filePath)
     return new NavigationPreferencesStore(
       filePath,
       result.snapshot,
-      now,
       result.degradation
     )
   }
 
   static defaults(
-    filePath: string,
-    now: () => string = () => new Date().toISOString()
+    filePath: string
   ): NavigationPreferencesStore {
-    return new NavigationPreferencesStore(filePath, structuredClone(EMPTY_SNAPSHOT), now)
+    return new NavigationPreferencesStore(filePath, structuredClone(EMPTY_SNAPSHOT))
   }
 
   get(): NavigationPreferencesSnapshot {
+    if (this.loadDegradation) throw new Error(this.loadDegradation.message)
     return structuredClone(this.#snapshot)
   }
 
@@ -194,83 +159,8 @@ export class NavigationPreferencesStore {
     })
   }
 
-  removeProject(
-    targetKey: string,
-    relatedThreadIds: string[]
-  ): Promise<NavigationPreferencesSnapshot> {
-    if (!isProjectTargetKey(targetKey)) {
-      return Promise.reject(new Error('Unsupported Project navigation key'))
-    }
-    if (!Array.isArray(relatedThreadIds) || !relatedThreadIds.every(isThreadId)) {
-      return Promise.reject(new Error('Related Thread IDs are invalid'))
-    }
-    return this.#enqueue(async () => {
-      const relatedThreadIdSet = new Set(relatedThreadIds)
-      const existing = this.#snapshot.removedProjects.find(
-        (project) => project.targetKey === targetKey
-      )
-      const next = sanitizeSnapshot({
-        ...this.#snapshot,
-        pins: this.#snapshot.pins.filter((pin) => !(
-          (pin.kind === 'project' && pin.targetKey === targetKey)
-          || (pin.kind === 'camp' && relatedThreadIdSet.has(pin.targetKey))
-        )),
-        removedProjects: [
-          ...this.#snapshot.removedProjects.filter(
-            (project) => project.targetKey !== targetKey
-          ),
-          existing ?? { targetKey, removedAt: this.#now() }
-        ],
-        projectOrder: this.#snapshot.projectOrder?.filter(
-          (projectKey) => projectKey !== targetKey
-        ) ?? null
-      })
-      await this.#commit(next)
-      return this.get()
-    })
-  }
-
-  restoreProject(targetKey: string): Promise<NavigationPreferencesSnapshot> {
-    if (!isProjectTargetKey(targetKey)) {
-      return Promise.reject(new Error('Unsupported Project navigation key'))
-    }
-    return this.#enqueue(async () => {
-      const next = {
-        ...this.#snapshot,
-        removedProjects: this.#snapshot.removedProjects.filter(
-          (project) => project.targetKey !== targetKey
-        )
-      }
-      await this.#commit(next)
-      return this.get()
-    })
-  }
-
-  reinstateRemovedProject(
-    project: RemovedNavigationProject
-  ): Promise<NavigationPreferencesSnapshot> {
-    if (!isProjectTargetKey(project.targetKey) || !isTimestamp(project.removedAt)) {
-      return Promise.reject(new Error('Removed Project rollback record is invalid'))
-    }
-    return this.#enqueue(async () => {
-      const next = sanitizeSnapshot({
-        ...this.#snapshot,
-        pins: this.#snapshot.pins.filter((pin) => !(
-          pin.kind === 'project' && pin.targetKey === project.targetKey
-        )),
-        removedProjects: [
-          ...this.#snapshot.removedProjects.filter(
-            (candidate) => candidate.targetKey !== project.targetKey
-          ),
-          project
-        ]
-      })
-      await this.#commit(next)
-      return this.get()
-    })
-  }
-
   async #commit(next: NavigationPreferencesSnapshot): Promise<void> {
+    if (this.loadDegradation) throw new Error(this.loadDegradation.message)
     if (JSON.stringify(next) === JSON.stringify(this.#snapshot)) return
     await writePrivateJson(this.#filePath, next)
     this.#snapshot = next

@@ -5,7 +5,7 @@ import { DEFAULT_CURRENT_USER_PROFILE, currentUserNameError, isThreadId } from '
 import type { BusinessEnvironment } from '../../desktop/src/renderer/src/business-environment'
 import { DEFAULT_APPEARANCE, parseAppearancePatch } from '../../desktop/src/shared/appearance'
 import { DEFAULT_GENERAL_PREFERENCES, parseGeneralPreferences } from '../../desktop/src/shared/general-preferences-model'
-import { sanitizeSnapshot, isNavigationThreadReadState } from '../../desktop/src/shared/navigation-preferences-model'
+import { sanitizeSnapshot, sourceMatchesSupportedSnapshot, isNavigationThreadReadState } from '../../desktop/src/shared/navigation-preferences-model'
 import { normalizeProjectDisplayName, projectDisplayNameError } from '../../desktop/src/shared/project-display-name'
 
 /** Browser presentation preferences only. No drafts, domain facts or credentials enter storage. */
@@ -22,7 +22,13 @@ export function browserPreferences(scope: string, transport: ConsoleClient): {
   let navigation = sanitizeSnapshot(read('navigation', null))
   const navigationListeners = new Set<(snapshot: NavigationPreferencesSnapshot) => void>()
   const publishNavigation = (): void => { for (const listener of navigationListeners) listener(structuredClone(navigation)) }
-  const refreshNavigation = (): void => { navigation = sanitizeSnapshot(read('navigation', null)) }
+  const refreshNavigation = (): void => {
+    const raw = localStorage.getItem(`${key}:navigation`)
+    const source = raw === null ? null : JSON.parse(raw) as unknown
+    const next = sanitizeSnapshot(source)
+    if (source !== null && !sourceMatchesSupportedSnapshot(source, next)) throw new Error('项目偏好无法完整读取，请恢复浏览器存储后重试。')
+    navigation = next
+  }
   const storageChanged = (event: StorageEvent): void => {
     if (event.storageArea !== localStorage || event.key !== `${key}:navigation`) return
     refreshNavigation(); publishNavigation()
@@ -109,8 +115,6 @@ export function browserPreferences(scope: string, transport: ConsoleClient): {
           if (name === null) delete names[key]; else names[key] = normalizeProjectDisplayName(name)
           return commitNavigation({ projectNames: names })
         },
-        removeProject: (key, threadIds) => commitNavigation({ pins: navigation.pins.filter(pin => !(pin.kind === 'project' ? pin.targetKey === key : threadIds.includes(pin.targetKey))), removedProjects: [...navigation.removedProjects.filter(p => p.targetKey !== key), { targetKey: key, removedAt: new Date().toISOString() }] }),
-        restoreProject: key => commitNavigation({ removedProjects: navigation.removedProjects.filter(p => p.targetKey !== key) })
       }
     }
   }

@@ -1,3 +1,5 @@
+import { navigationWithRegisteredProjects } from '../../../apps/desktop/src/renderer/src/project-registry'
+import { browserProjectIdentity, browserAuthStorage } from '../../../apps/web/src/auth-storage'
 import { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { NavigationShell } from '../../../apps/desktop/src/renderer/src/NavigationShell'
@@ -53,6 +55,9 @@ function Content(): React.JSX.Element { renders++; return <div style={{ paddingT
 function Fixture(): React.JSX.Element {
   const [threadReadStates, setReadStates] = useState<Record<string, NavigationThreadReadState>>({})
   const [running, setRunning] = useState(true)
+  const [emptyProjects, setEmptyProjects] = useState(false)
+  const [readState, setReadState] = useState<'ready' | 'error' | 'loading'>('ready')
+  const [pins, setPins] = useState<NavigationPin[]>(navigationPins)
   useEffect(() => {
     void preferences.get().then(snapshot => setReadStates(snapshot.threadReadStates))
     return preferences.onChanged(snapshot => setReadStates(snapshot.threadReadStates))
@@ -73,16 +78,27 @@ function Fixture(): React.JSX.Element {
   document.documentElement.dataset.rovaiSurface = browser ? 'web' : 'desktop'
   Object.assign(window, { navigationTest: {
     renders: () => renders, setSettings, setPlatform, setDisabled, setBrowser, navigation, target, actions, setRunning,
-    threadReadStates, preferences,
+    threadReadStates, preferences, setEmptyProjects, setReadState,
+    checkProjectIdentity: async () => {
+      const scope = 'http://fixture.invalid/local_user'
+      const [first, second] = await Promise.all([browserProjectIdentity(scope), browserProjectIdentity(scope)])
+      const other = await browserProjectIdentity('http://other.invalid/local_user')
+      const auth = browserAuthStorage('http://fixture.invalid')
+      await auth.write({ version: 1, origin: 'http://fixture.invalid', token: 'fixture-token', ownerId: 'local_user', expiresAt: null })
+      await auth.remove('fixture-token')
+      return { first, second, other, reopened: await browserProjectIdentity(scope), session: await auth.read() }
+    },
     hostNavigation: (direction: 'back' | 'forward') => navigationListeners.forEach(listener => listener(direction)),
     hostListenerCount: () => navigationListeners.size,
     settle: () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150))))
   } })
   return <><WindowsApplicationMenu /><NavigationShell platform={platform} browser={browser} disabled={disabled} settings={settings} navigation={navigation} nativeWindowControls={browser ? undefined : window.rovai.windowControls}>
-    <ThreadNavigation platform={platform} view={settings ? 'settings' : 'compose'} state="ready"
-      navigation={{ ...navigationSnapshot, projects: navigationSnapshot.projects.map(project => ({ ...project,
-        recentThreads: [{ ...runningCamp, marker: running ? 'loading' : 'none' }] })) }}
-      pins={navigationPins} activeThreadId={pinnedCamp.id} pendingMemoryCount={0} threadReadStates={threadReadStates}
+    <ThreadNavigation platform={platform} view={settings ? 'settings' : 'compose'} state={readState}
+      navigation={navigationWithRegisteredProjects({ ...navigationSnapshot, projects: navigationSnapshot.projects.map(project => ({ ...project,
+        recentThreads: [{ ...runningCamp, marker: running ? 'loading' : 'none' }] })) }, { initialized: true, revision: 1,
+        projects: ['/fixture/rovai-ai', ...(emptyProjects ? ['/fixture/empty-a', '/fixture/empty-b'] : [])].map(projectPath => ({ projectPath, version: 1, removed: false })) })}
+      pins={pins} onTogglePin={(kind, targetKey) => setPins(current => current.some(pin => pin.kind === kind && pin.targetKey === targetKey)
+        ? current.filter(pin => !(pin.kind === kind && pin.targetKey === targetKey)) : [...current, { kind, targetKey, pinnedAt: '2026-10-11T00:00:00Z' }])} activeThreadId={pinnedCamp.id} pendingMemoryCount={0} threadReadStates={threadReadStates}
       onNewConversation={() => { actions.push('new-chat') }} onMembers={noop} onMemory={noop} onSettings={() => setSettings(true)} onSettingsBack={() => setSettings(false)}
       onCreateInProject={() => { actions.push('new-chat') }} onRenameProject={async () => undefined}
       onOpenProject={noop} onThread={() => { actions.push('open-thread') }} onRemoveProject={async () => undefined} onRename={async () => undefined} onDelete={async () => undefined} onError={error => { throw error }}

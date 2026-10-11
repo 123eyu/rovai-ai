@@ -3,18 +3,19 @@ document_type: architecture
 architecture: desktop-navigation-refresh
 authority: desktop-navigation-invalidation-and-refresh-boundaries
 status: accepted
-last_updated: 2026-10-02
+last_updated: 2026-10-11
 ---
 
 # Desktop Navigation Refresh 架构
 
 本架构规定侧栏的单会话、单分组、完整快照读取与刷新边界。Core 拥有状态、排序、计数；Main-owned
-Navigation Preferences 拥有本机项目顺序和显示名称。字段见 [Navigation Read v1](../contracts/navigation-read-v1.md)。
+Navigation Preferences 拥有本机项目顺序和显示名称；项目入口由 [SQLite 目录登记](../contracts/project-directory-registry-v1.md) 拥有。字段见 [Navigation Read v1](../contracts/navigation-read-v1.md)。
 
 ## Component authority
 
 | Component | Responsibility |
 | --- | --- |
+| Core Project Registry | 按客户端作用域保存目录及移除状态；会话数量不影响登记；旧数据只初始化一次 |
 | Core Navigation Read Model | 从 camp 摘要与现有业务表读取；目标行按 ID、分组按索引前缀；同一事务取得窗口与总数 |
 | Core mutation boundary | 事件序号确定后，同事务维护所属 Camp 的活动/完成摘要；提交后发带 scope 的失效提示 |
 | Electron Main | 原样转发，不组装业务状态；schema 5 私有原子 JSON 保存 projectOrder/projectNames/threadReadStates |
@@ -103,25 +104,25 @@ Migration 177 接受经核验的 v1.72/schema 126，升级到 schema 127，新�
 | camp_navigation_reply_tombstone | Agent 消息撤回状态变化时重算该 Camp 的最新可见回复水位 |
 
 迁移事务内按消息首次 publication 规则进行一次回填；既有 camp_view_state、消息/事件字节和排序规则保留。
-新数据在写入时更新三项摘要；正常一行、一组及完整快照不访问 event_log。不引入持久化组状态、删除记录、
+新数据在写入时更新三项摘要；正常一行、一组及完整快照不访问 event_log。会话窗口不持久化分组缓存；独立目录登记不复制计数或活动数据。不引入
 保留期或通用增量同步；不另造数据库调度层，先移除无关刷新与昂贵读取。
 
 ## Sidecar Project order synchronization
 
 `navigation.json` schema 5 的 `projectOrder: string[] | null` 只保存 canonical
 `directory:<projectPath>` key。合法 schema 2 以 `null` 读取而不被视为损坏；`null` 与空数组不同，前者表示尚未
-首次冻结，后者表示已经在空列表上完成冻结。第一次同步按 Core 当前 Project 数组顺序写入所有未被本机移除的
-Project。后续每次同步执行同一确定性规则：
+首次冻结，后者表示已经在空列表上完成冻结。第一次同步按已登记目录顺序写入所有未被主动移除的
+Project，旧目录导入保留既有顺序。后续每次同步执行同一确定性规则：
 
-1. 从旧顺序删除本次列表中已不存在的 key；
+1. 从旧顺序删除已明确移除登记的 key；
 2. 保留其余 key 的原相对顺序；
 3. 把本次列表中尚未保存的 key 按发现顺序追加到末尾。
 
 相同结果不写文件。Project 的消息、Run、时间或未读变化不会改变 key 集合，因此不能移动 Project；Core 仍在每个
-Project 内按 `lastActivityAt`、global sequence 和 Camp ID 排列 Camp。刚选择但尚未形成 Core Project 的空目录由
-Renderer 作为新项追加到当前列表尾部；形成 Camp 后再进入相同同步规则。
+Project 内按 `lastActivityAt`、global sequence 和 Camp ID 排列 Camp。空目录先写入 SQLite，再作为正常登记项目
+进入相同同步规则；选中项与会话数量都不补造或移除项目。
 
-Project 本机移除会同时清理其顺序 key；重新选择或恢复后，它作为新发现项追加。偏好同步由与 pin/移除/恢复相同的
+Project 本机移除会同时清理其顺序 key；重新选择或恢复后，它作为新发现项追加。移除/恢复由 Core SQLite 事务拥有；界面偏好同步由与 pin 相同的
 Main 串行队列保护，Renderer 用 generation 忽略迟到返回。同步失败可以显示本机保存错误，但已经提交的 Core
 Navigation Snapshot 和协调器 generation 不回滚、不停止后续失效刷新。
 
@@ -129,14 +130,14 @@ Navigation Snapshot 和协调器 generation 不回滚、不停止后续失效刷
 
 `projectNames: Record<string, string>` 使用既有 canonical `directory:<projectPath>` key 保存本机显示名称。
 合法 schema 2/3 在内存升级时补空映射，不因升级产生损坏提示，也不在读取时重写旧文件。schema 1 继续沿用
-已有恢复规则。后续成功写入输出 schema 5；名称与置顶、移除、恢复、顺序共用 Main 串行队列和原子文件写入。
+已有恢复规则。后续成功写入输出 schema 5；名称与置顶、顺序共用 Main 串行队列和原子文件写入，移除状态由 SQLite 登记拥有。
 写入失败保留旧快照；返回完整快照只发生在成功保存后。
 
 Main-owned `navigationPreferences.setProjectName(targetKey, name)` 接受字符串或 `null`；字符串去除首尾空白、
 合并连续空白，非空且最多 80 个 Unicode scalar；`null` 删除覆盖、恢复目录名。名称可重复，同名不同路径独立保存。
 移除项目、顺序同步中的暂时消失、无 Camp 的空目录均不删除名称；重新选择相同目录后恢复该名称。
 
-Renderer 在 Core 原始 Navigation Snapshot 之外建立名称展示投影，并在加入当前空目录后再次应用覆盖。
+Renderer 在 Core 原始 Navigation Snapshot 之外建立名称展示投影，在合并已登记空目录后应用覆盖。
 侧栏/置顶、顶部、搜索、新建对话和定时任务项目选择共用该投影；Workspace inspection 返回的目录名称不会覆盖
 已保存的显示名称。重命名不调用 Core mutation、Workspace inspection 或 Runtime；不修改项目路径、Camp ID、
 消息、队员、记忆、Native Session、执行状态、活动时间或排序。渠道项目目录仍由既有 Core 投影拥有，本机别名不进入
@@ -161,6 +162,9 @@ Desktop 的 `revealProjectDirectory` 由 Main 验证绝对目录仍存在，然�
 
 ## Failure and lifecycle boundaries
 
+目录登记与会话读取独立：会话失败保留项目入口并显示读取错误，不能误报空状态。删除最后一个会话
+不注销目录。置顶和排序校验以登记清单为基础，SQLite 保存失败不选中新目录，也不回退到 JSON 双写。
+
 一次读取失败时，当前共享 Promise reject，completed generation 不前进，失效意图保留。后台重试使用
 `1s -> 2s -> 5s -> 10s` 上限退避；普通事件和安全轮询只合并 generation，不绕过在途退避。窗口 focus 或用户
 显式重试可以取消等待并立即尝试；一次成功的 quiet-point drain 重置退避。
@@ -176,7 +180,7 @@ preference 失败可以报告自己的错误，但不能停止 Navigation retry�
 ## Acceptance
 
 - 多个 Camp 同时终态只形成一个在途刷新批次与必要的 trailing read；
-- Migration 前后 table 名称集合完全相同；正常导航读取在禁止访问 event_log 时仍成功；
+- Navigation 摘要迁移不新增表；独立目录登记仅新增一张轻量表；正常导航读取在禁止访问 event_log 时仍成功；
 - 普通切换的请求记录中没有全侧栏、其他组、使命列表或技能扫描；
 - 后台 Camp 终态无需打开该 Camp 或重载 Renderer 即可清除侧栏 spinner；
 - trailing 失败 reject 当前调用者且自动按上限退避恢复，不形成热循环或 unhandled rejection；
@@ -189,7 +193,7 @@ preference 失败可以报告自己的错误，但不能停止 Navigation retry�
 - Overview 附属模块失败不禁用侧栏刷新；
 - Core 通知只在权威 mutation 已提交后发生。
 - schema 2 第一次进入时冻结旧显示顺序，合法升级不产生偏好损坏提示；
-- 老 Project 的消息活动不改顺序，新 Project 追加，消失或本机移除的 Project 清理；
+- 老 Project 的消息活动不改顺序，新 Project 追加，只有主动移除的 Project 清理；
 - Sidecar Project 稳定顺序不改变 Project 内 Camp 最近活动、时间、marker 或未读更新。
 - 改名后刷新与重启保留，独立路径互不覆盖，保存失败可重试；目录和 Camp/Runtime 身份不变。
 

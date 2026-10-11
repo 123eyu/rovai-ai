@@ -8,8 +8,10 @@ last_updated: 2026-10-02
 
 # Navigation Read v1
 
-Core 在 SQLite 事务内返回侧栏权威状态；事件只声明读取范围。排序仍只由已发布的用户或
+Core 在 SQLite 事务内返回会话分组权威状态；事件只声明读取范围。排序仍只由已发布的用户或
 external_principal 消息推进。查看、重命名、队员消息和 Run 终态不改变用户活动排序。
+
+项目入口与空目录由 [Project Directory Registry v1](project-directory-registry-v1.md) 独立决定；以下会话分组缺失不代表项目不存在。
 
 ## Read scopes
 

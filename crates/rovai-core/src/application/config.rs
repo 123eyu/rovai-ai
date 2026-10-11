@@ -1,7 +1,7 @@
 use super::*;
 
-/// Optional Skill cleanup input. A malformed Desktop cleanup option degrades
-/// Skills during its existing initialization, not the Core authority startup.
+/// Legacy startup input retained only for compatibility diagnostics.
+/// SQLite registration owns access; these paths never change project state.
 #[derive(Clone, Debug)]
 pub struct RemovedSkillProjectRoots(std::result::Result<Vec<String>, String>);
 

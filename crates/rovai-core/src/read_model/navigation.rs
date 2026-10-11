@@ -332,3 +332,13 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+pub(super) fn project_paths(
+    tx: &Transaction<'_>,
+    client: &crate::draft_client::DraftClient,
+) -> Result<Vec<String>> {
+    let mut statement = tx.prepare(&format!("SELECT project_path FROM (SELECT camp.project_path, COALESCE(camp.navigation_activity_at,camp.created_at) AS activity, camp.navigation_activity_sequence AS sequence, ROW_NUMBER() OVER (PARTITION BY camp.project_path ORDER BY {ORDER}) AS rank FROM camp WHERE camp.project_binding_kind='directory' AND {VISIBLE}) WHERE rank=1 ORDER BY activity DESC,sequence DESC,project_path"))?;
+    Ok(statement
+        .query_map([client.id()], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}

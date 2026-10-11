@@ -861,6 +861,7 @@ fn request_uses_independent_read_queue(method: &str) -> bool {
         method,
         "camps.open"
             | "camps.enter"
+            | "projects.get"
             | "navigation.snapshot"
             | "navigation.camps"
             | "navigation.groupCamps"
@@ -1597,18 +1598,6 @@ struct NativeSkillReadParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ToolboxReadParams {
     skill_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SyncSkillProjectAccessParams {
-    removed_execution_roots: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SkillProjectAccessParams {
-    execution_root: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -9453,39 +9442,6 @@ impl Core {
                     self.skill_library.list_delivery_groups(&database)?,
                 )?)
             }
-            "skills.projectAccess.sync" => {
-                let params: SyncSkillProjectAccessParams =
-                    serde_json::from_value(request.params.clone())?;
-                let mut database = self.database.lock().await;
-                SkillProjectionReconciler.synchronize_removed_execution_roots(
-                    &mut database,
-                    &params.removed_execution_roots,
-                )?;
-                Ok(json!({
-                    "removedRootCount": params.removed_execution_roots.len(),
-                }))
-            }
-            "skills.projectAccess.remove" => {
-                let params: SkillProjectAccessParams =
-                    serde_json::from_value(request.params.clone())?;
-                let mut database = self.database.lock().await;
-                Ok(serde_json::to_value(
-                    SkillProjectionReconciler.remove_execution_root(
-                        &mut database,
-                        &self.skill_library,
-                        Path::new(&params.execution_root),
-                    )?,
-                )?)
-            }
-            "skills.projectAccess.restore" => {
-                let params: SkillProjectAccessParams =
-                    serde_json::from_value(request.params.clone())?;
-                let mut database = self.database.lock().await;
-                Ok(serde_json::to_value(
-                    SkillProjectionReconciler
-                        .restore_execution_root(&mut database, &params.execution_root)?,
-                )?)
-            }
             "skills.revealLocation" => {
                 let params: SkillIdParams = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
@@ -9793,6 +9749,66 @@ impl Core {
                     false,
                 )?;
                 Ok(serde_json::to_value(selection)?)
+            }
+            "projects.get" => {
+                let params: crate::project_registry::ScopeRequest =
+                    serde_json::from_value(request.params.clone())?;
+                let scope = crate::project_registry::scope(
+                    &request.client,
+                    params.browser_scope_id.as_deref(),
+                )?;
+                let database = self.database.lock().await;
+                Ok(serde_json::to_value(crate::project_registry::snapshot(
+                    database.connection(),
+                    &scope,
+                )?)?)
+            }
+            "projects.initialize" => {
+                let params: crate::project_registry::InitializeRequest =
+                    serde_json::from_value(request.params.clone())?;
+                let scope = crate::project_registry::scope(
+                    &request.client,
+                    params.browser_scope_id.as_deref(),
+                )?;
+                let mut database = self.database.lock().await;
+                let result = crate::project_registry::initialize(
+                    &mut database,
+                    &scope,
+                    &request.client,
+                    &params,
+                )?;
+                Ok(serde_json::to_value(result)?)
+            }
+            "projects.set" => {
+                let mut params: crate::project_registry::SetRequest =
+                    serde_json::from_value(request.params.clone())?;
+                params.command.scope = crate::project_registry::scope(
+                    &request.client,
+                    params.browser_scope_id.as_deref(),
+                )?;
+                let path = params.command.project_path.clone();
+                let removed = params.command.removed;
+                let desktop = request.client.is_desktop();
+                let mut database = self.database.lock().await;
+                let execution = crate::project_registry::set(
+                    &mut database,
+                    &user_command_envelope(params.command_id, params.command),
+                )?;
+                if !execution.replayed && execution.result.status == CommandResultStatus::Applied {
+                    // The access projection was committed with registration. Cleanup
+                    // retains the existing deferred retry semantics after commit.
+                    if desktop && removed {
+                        if let Err(error) = SkillProjectionReconciler.remove_execution_root(
+                            &mut database,
+                            &self.skill_library,
+                            Path::new(&path),
+                        ) {
+                            eprintln!("deferred removed project Skill cleanup: {error:#}");
+                        }
+                    }
+                    emit_navigation_invalidated(&self.output, "projects.changed", None);
+                }
+                Ok(serde_json::to_value(execution.result)?)
             }
             "navigation.snapshot" => {
                 let params: NavigationSnapshotParams =

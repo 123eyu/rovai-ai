@@ -133,6 +133,7 @@ async function reset(target: RestorableLocation | null = { kind: 'camp', threadI
   coreListeners.clear()
   navigationPreferenceListeners.clear()
   responses.clear()
+  responses.set('projects.get', { initialized: true, revision: 1, projects: [] })
   requestHandlers.clear()
   calls.length = 0
   errors.length = 0
@@ -199,9 +200,9 @@ function recoveryFrame(kind: string) {
 }
 
 function noAuthority() {
-  // Session state, interface language and preview retention are Main-owned
+  // Window-close preferences, session state, interface language and preview retention are Main-owned
   // local reads; none enter Core authority before admission.
-  check(calls.every(call => ['desktopSession.getStartupSnapshot', 'desktopSession.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
+  check(calls.every(call => ['windowClose.get', 'desktopSession.getStartupSnapshot', 'desktopSession.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
 }
 
 Object.assign(window, { startupTest: {
@@ -411,6 +412,7 @@ Object.assign(window, { startupTest: {
     responses.set('health.check', health)
     responses.set('members.list', [])
     responses.set('runtime.installations.list', [])
+    responses.set('projects.get', { initialized: true, revision: 1, projects: [] })
     responses.set('navigation.snapshot', { schemaVersion: 3, projects: [], quickChat: { recentThreads: [], totalCount: 0 } })
     const navPreferences: NavigationPreferencesSnapshot = { schemaVersion: 5, pins: [], removedProjects: [], projectOrder: [], projectNames: {}, threadReadStates: {} }
     responses.set('navigationPreferences.get', navPreferences)

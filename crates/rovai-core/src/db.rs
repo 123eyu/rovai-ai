@@ -14,6 +14,8 @@ mod mission_details;
 pub(crate) mod notification_model;
 #[path = "db_pending_draft.rs"]
 mod pending_draft;
+#[path = "db_project_registry.rs"]
+mod project_registry;
 #[path = "db_run_continuation.rs"]
 mod run_continuation;
 #[path = "db_thread_names.rs"]
@@ -35,6 +37,7 @@ pub(crate) use run_continuation::assert_legacy_request_upgrade;
 pub(crate) fn upgrade_message_mentions_fixture(database: &mut Database) {
     message_mentions::migrate(database).unwrap();
     run_continuation::migrate_requests(database).unwrap();
+    project_registry::migrate(database).unwrap();
 }
 
 // Exercise upgrade against the context owner's populated, isolated legacy fixture.
@@ -337,7 +340,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 140;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 141;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -802,6 +805,7 @@ struct CurrentMigrationState {
     v188: bool,
     v189: bool,
     v190: bool,
+    v191: bool,
 }
 
 impl CurrentMigrationState {
@@ -823,11 +827,19 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v191 {
+            let mut previous = *self;
+            previous.v191 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+                && self.v190
+                && previous.admits("v1.72", 140, classifier);
+        }
         if self.v190 {
             let mut previous = *self;
             previous.v190 = false;
             return contract == CURRENT_DATA_CONTRACT_VERSION
-                && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+                && schema == 140
                 && self.v189
                 && previous.admits("v1.72", 139, classifier);
         }
@@ -3409,6 +3421,7 @@ pub(crate) fn classify_database_contract(
                 || (!command_code_runtime_v185_schema_matches(connection)?
                     && (!message_mentions::schema_matches(connection)?
                         || !run_continuation::request_schema_matches(connection)?))))
+        || (migrations.v191 && !project_registry::schema_matches(connection)?)
         || (migrations.v190
             && (!run_continuation::request_schema_matches(connection)?
                 || !command_code_runtime_v185_schema_matches(connection)?))
@@ -5500,7 +5513,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 187),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 188),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 189),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 190)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 190),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 191)
         "#,
         [],
         |row| {
@@ -5626,6 +5640,7 @@ fn load_current_migration_state(
                 v188: row.get(118)?,
                 v189: row.get(119)?,
                 v190: row.get(120)?,
+                v191: row.get(121)?,
             })
         },
     )
@@ -8796,6 +8811,9 @@ impl Database {
             if !self.schema_migration_applied(190)? {
                 migration_step!("migration_190", run_continuation::migrate_requests(self));
             }
+            if !self.schema_migration_applied(191)? {
+                migration_step!("migration_191", project_registry::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -9584,6 +9602,9 @@ impl Database {
         }
         if !self.schema_migration_applied(190)? {
             migration_step!("migration_190", run_continuation::migrate_requests(self));
+        }
+        if !self.schema_migration_applied(191)? {
+            migration_step!("migration_191", project_registry::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41262,6 +41283,7 @@ mod tests {
             v188: version >= 188,
             v189: version >= 189,
             v190: version >= 190,
+            v191: version >= 191,
         }
     }
 
@@ -41456,7 +41478,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                190,
+                191,
             ),
             (
                 "v1.72/schema 139 before continuation request convergence",
@@ -42002,7 +42024,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(190);
+        let current = migration_state_through(191);
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;
@@ -42548,7 +42570,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(190));
+        assert_eq!(state, migration_state_through(191));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -42931,20 +42953,29 @@ mod tests {
         project: String,
         tags: &[&str],
     ) -> (String, String) {
-        let created = crate::collaboration::CollaborationService::default()
-            .create_camp(
-                database,
-                &crate::command::CommandEnvelope {
-                    command_id: Uuid::new_v4().to_string(),
-                    actor: crate::command::ActorRef::User {
-                        user_id: "local_user".into(),
-                    },
-                    camp_id: None,
-                    expected_versions: vec![],
-                    execution_epoch: None,
-                    payload: crate::collaboration::CreateThreadCommand::for_test(project),
-                },
-            )
+        // Construct an old Camp in the old schema. Current create_camp also
+        // registers directories, which did not exist in this migration source.
+        let envelope = crate::command::CommandEnvelope {
+            command_id: Uuid::new_v4().to_string(),
+            actor: crate::command::ActorRef::User {
+                user_id: "local_user".into(),
+            },
+            camp_id: None,
+            expected_versions: vec![],
+            execution_epoch: None,
+            payload: crate::collaboration::CreateThreadCommand::for_test(project),
+        };
+        let camp_id = ThreadId::new();
+        let created = crate::command::DomainCommandGateway
+            .execute(database, &envelope, |tx| {
+                crate::collaboration::create_camp_in_tx(
+                    tx,
+                    &envelope.actor,
+                    None,
+                    &envelope.payload,
+                    &camp_id,
+                )
+            })
             .unwrap();
         let camp = created.result.payload["threadId"]
             .as_str()

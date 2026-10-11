@@ -3,10 +3,47 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-10
+last_updated: 2026-10-11
 ---
 
 # v1.72 实施与验收
+
+## 项目目录独立登记
+
+Worktree：`rovai-ai-sqlite-project-registry`；分支：`rovai/sqlite-project-registry`；基线 `70510b3fa`。
+实现及测试 owner 见 [Project Directory Registry v1](../../contracts/project-directory-registry-v1.md)。
+新增轻量 SQLite 登记及版本校验、旧数据一次导入、Desktop/Web 作用域、统一导航合并；退役 JSON 移除写入和临时当前空项目。
+
+实现完成，保留独立 worktree；未合入或安装日常 App。Migration 191 将 schema 140 升到 141，
+仅创建登记表；各客户端首次成功读取旧偏好后才在事务内导入目录和移除记录并写初始化标记。
+客户端作用域、单目录版本和命令回执共同保护主动移除，普通刷新不补回项目。
+
+### 项目登记验证
+
+| 验证 | 结果 |
+| --- | --- |
+| `pnpm test:rust:pr` | 最终源码下 465 通过、1 个既有 ignored |
+| `cargo test -p rovai-core --features extended-tests --lib project_registry:: -j4` | 3 项通过：空目录与作用域、生产创建/删除接口、数据库重开、移除/恢复/重放、读写失败、旧数据导入与 schema 回滚 |
+| `cargo test -p rovai-core --features extended-tests --lib db:: -j4` | 首轮 102 通过、2 个旧 Mission 夹具失败；按旧 schema 准备 Camp 后，两个 owner 定向复跑均通过；没有再次执行整个 104 项矩阵 |
+| `pnpm test` 的全部组成项 | Vitest 使用 `--maxWorkers 4`：239 文件、2623 项通过；最终 Node 阶段 339 通过、2 个平台跳过；文档、Skill、Electron sandbox 组成项通过 |
+| `pnpm typecheck` / `pnpm build:desktop` | 通过；构建包含 Web、执行台和 Electron |
+| `pnpm test:navigation-shell` | 通过；真实 Electron 验证多个空目录、空项目置顶、读取失败不误报空状态；截图已检查；真实 IndexedDB 验证并发身份、Host 区分和登出后身份保留 |
+| `pnpm test:desktop-bridge` / `pnpm test:member-creation` / `pnpm test:mission-board` | 1 / 2 / 8 项通过；隔离 userData，未启动真实 Runtime |
+| `cargo fmt --all --check` / `git diff --check` | 通过 |
+| `DOCS_BASE_REF=70510b3fa43a7fe845e339fd5dbbe8391ad20e39 pnpm docs:check:ci` | 通过 |
+
+首次默认 Vitest 并发运行有两个既有 5 秒超时，限制 workers 后全通过。Node 产品指纹 owner 随新
+schema 更新到 141，并同步了基线中已为 37、断言仍写 36 的 Built-in 版本；没有改动 Built-in 协议。
+退役 JSON 两阶段恢复测试与临时当前空项目合同；SQLite 生命周期 owner 接替其保存和失败保护，
+导航夹具接替空项目交互验证。旧迁移夹具修复保留全部原断言，不跳过迁移测试。
+
+`pnpm test:startup-presentation` 未通过。基线 `70510b3fa` 先因夹具漏列 Main 本地
+`windowClose.get` 读取失败；给基线和候选同时补入此白名单后，两者均在
+`Leaving the loaded empty Camp must initiate cleanup before the race is tested` 失败。
+候选为新登记接口补了确定性响应，没有修改或跳过该清理断言；不将此测试报告为通过。
+
+未执行打包 App 的真实升级/重启与 `accept:sidebar-ui`，未调用真实模型，未执行 Windows 真机
+或远端浏览器 HTTP 验收。SQLite 生命周期和浏览器存储夹具通过不代替这些端到端结论。
 
 ## Send 正文文件输入
 

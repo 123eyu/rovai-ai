@@ -19,8 +19,6 @@ export type CurrentProjectAccessDecision =
   | 'wait'
   | 'fallback'
   | 'clear_hint'
-  | 'keep_hint'
-  | 'inspect'
 
 export interface CurrentProjectAccessInput {
   currentProject: CurrentProject
@@ -180,7 +178,6 @@ export function currentProjectWorkspace(
 
 export function currentProjectAccessDecision({
   currentProject,
-  currentWorkspaceHint,
   navigation,
   removedProjectKeys,
   removedProjectAuthorityReady
@@ -189,35 +186,7 @@ export function currentProjectAccessDecision({
   if (currentProject.kind === 'quick_chat') return 'clear_hint'
   if (removedProjectKeys.has(projectTargetKey(currentProject.projectPath))) return 'fallback'
   if (currentProjectGroup(navigation, currentProject)) return 'clear_hint'
-  if (currentWorkspaceHint?.projectPath === currentProject.projectPath) return 'keep_hint'
-  return 'inspect'
-}
-
-export function navigationIncludingCurrentWorkspace(
-  navigation: NavigationSnapshot | null,
-  currentProject: CurrentProject,
-  currentWorkspace: WorkspaceSelection | null
-): NavigationSnapshot | null {
-  if (
-    !navigation
-    || currentProject.kind !== 'directory'
-    || currentProjectGroup(navigation, currentProject)
-    || currentWorkspace?.projectPath !== currentProject.projectPath
-  ) return navigation
-
-  const emptyProject: ProjectNavigationGroup = {
-    projectKey: projectTargetKey(currentWorkspace.projectPath),
-    name: currentWorkspace.name,
-    projectPath: currentWorkspace.projectPath,
-    lastActivityAt: '',
-    lastActivityGlobalSequence: 0,
-    totalCount: 0,
-    recentThreads: []
-  }
-  return {
-    ...navigation,
-    projects: [...navigation.projects, emptyProject]
-  }
+  return 'fallback'
 }
 
 export function resolveNewConversationDefaults(

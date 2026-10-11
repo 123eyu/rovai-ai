@@ -1,3 +1,4 @@
+import { projectRegistryFixture } from '../host-web-parity/project-registry'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { BusinessApp } from '../../../apps/desktop/src/renderer/src/BusinessApp'
@@ -100,7 +101,7 @@ const client = { ...model.client, onInvalidated: undefined,
 const preferences: any = { appearance: { get: async () => appearance, onChanged: () => () => {} },
   generalPreferences: new Proxy({}, { get: (_, key) => async (...args: any[]) => { if (key === 'setInterfaceLanguage') prefs.interfaceLanguage = args[0]; return prefs } }),
   navigationPreferences: new Proxy({}, { get: () => async () => navPrefs }) }
-const environment: any = { client, files: { ...model.fileApi, bindThread: async () => {} }, preferences,
+const environment: any = { projects: projectRegistryFixture([]), client, files: { ...model.fileApi, bindThread: async () => {} }, preferences,
   navigationHistory: { initial: { entries: [pendingMode ? { kind: 'quick_chat' } : { kind: 'members', agentId: profiles[0].agentId, tab: 'identity' }], index: 0 }, write: (state: any) => state, go: async () => false, listen: () => () => {} } }
 ;(window as any).memberCreationQA = { calls, threads, profiles, pendingPresence, errors: [],
   checkpoint: () => localStorage.setItem('pending-fixture', JSON.stringify({ threads: [...threads].filter(([id, t]) => t.thread.activationState === 'active' || pendingPresence.has(id)), presence: [...pendingPresence], sequence })),

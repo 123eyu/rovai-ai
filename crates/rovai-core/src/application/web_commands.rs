@@ -49,6 +49,16 @@ pub(super) fn reconcile(
         }};
     }
     match query.operation.as_str() {
+        "projects.set" => {
+            let mut params: crate::project_registry::SetRequest =
+                serde_json::from_value(query.params)?;
+            params.command.scope =
+                crate::project_registry::scope(client, params.browser_scope_id.as_deref())?;
+            receipt(
+                database,
+                user_command_envelope(params.command_id, params.command),
+            )
+        }
         "missions.create" => {
             let mut params: UserCommandParams<crate::mission::CreateMissionCommand> =
                 serde_json::from_value(query.params)?;

@@ -1,7 +1,7 @@
 {
   "name": "rovai-ai",
   "productName": "Rovai AI",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "type": "module",
   "description": "A desktop workspace for long-lived agent teams, shared Camps, visible execution, and collaborative memory.",
@@ -207,6 +207,8 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
+    "remark-cjk-friendly": "2.3.2",
+    "remark-cjk-friendly-gfm-strikethrough": "2.3.1",
     "remark-gfm": "^4.0.1",
     "remark-stringify": "^11.0.0",
     "style-mod": "4.1.3",

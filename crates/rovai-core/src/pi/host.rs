@@ -302,6 +302,7 @@ fn pi_epoch_disposition(existing: i64, requested: i64) -> PiEpochDisposition {
 }
 
 pub(crate) struct PiHost {
+    credential_redactor: Option<rovai_core::runtime_custom_api::CredentialRedactor>,
     host_instance_id: String,
     child: Mutex<ManagedProcess>,
     stdin: Mutex<ManagedChildStdin>,
@@ -328,6 +329,7 @@ pub(crate) struct PiHost {
 }
 
 struct PiHostLaunch<'a> {
+    environment: Option<&'a rovai_core::member_environment::FrozenEnvironment>,
     executable: &'a Path,
     cwd: &'a Path,
     private_runtime_dir: &'a Path,
@@ -518,6 +520,13 @@ fn configure_host_working_directory(command: &mut Command, cwd: &Path) -> Result
 
 impl PiHost {
     async fn spawn(launch: PiHostLaunch<'_>) -> Result<Arc<Self>> {
+        rovai_core::runtime_discovery::with_frozen_environment(
+            launch.environment.cloned(),
+            Self::spawn_in_environment(launch),
+        )
+        .await
+    }
+    async fn spawn_in_environment(launch: PiHostLaunch<'_>) -> Result<Arc<Self>> {
         create_private_directory(launch.private_runtime_dir)?;
         if let Some(session_dir) = launch.session_dir {
             create_private_directory(session_dir)?;
@@ -536,6 +545,9 @@ impl PiHost {
 
         let mut command = Command::new(launch.executable);
         rovai_core::runtime_discovery::configure_runtime_command(AdapterKind::Pi, &mut command);
+        if let Some(environment) = launch.environment {
+            environment.apply(&mut command)?;
+        }
         if let Some(config) = &launch.builtin_tools {
             config.configure_command(&mut command)?;
         }
@@ -562,6 +574,7 @@ impl PiHost {
             .take_stderr()
             .context("Pi RPC stderr was unavailable")?;
         let host = Arc::new(Self {
+            credential_redactor: launch.environment.map(|env| env.redactor()),
             host_instance_id,
             child: Mutex::new(child),
             stdin: Mutex::new(stdin),
@@ -694,10 +707,13 @@ impl PiHost {
                     {
                         Ok(message)
                     } else {
-                        Err(message
-                            .get("error")
-                            .and_then(Value::as_str)
-                            .unwrap_or("Pi RPC command failed")
+                        Err(host
+                            .redact_text(
+                                message
+                                    .get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Pi RPC command failed"),
+                            )
                             .chars()
                             .take(2_000)
                             .collect())
@@ -763,8 +779,14 @@ impl PiHost {
             agent_run_id: owner.as_ref().map(|value| value.agent_run_id.clone()),
             execution_epoch: owner.as_ref().map(|value| value.execution_epoch),
             phase: phase.to_string(),
-            message: redact_pi_diagnostic(message),
+            message: redact_pi_diagnostic(&self.redact_text(message)),
         });
+    }
+
+    fn redact_text(&self, text: &str) -> String {
+        self.credential_redactor
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |redactor| redactor.text(text))
     }
 
     async fn route_message(&self, message: Value) {
@@ -1343,6 +1365,13 @@ pub struct PiRuntime {
 }
 
 impl PiRuntime {
+    pub(crate) fn redact_output(&self, value: &Value) -> Value {
+        self.host
+            .credential_redactor
+            .as_ref()
+            .map_or_else(|| value.clone(), |redactor| redactor.redacted_value(value))
+    }
+
     fn from_host(
         owner: PiRuntimeOwner,
         camp_id: String,
@@ -1564,7 +1593,11 @@ impl PiRuntime {
 
     pub async fn terminal(&self) -> (Option<String>, Option<String>) {
         (
-            self.final_message.read().await.clone(),
+            self.final_message
+                .read()
+                .await
+                .as_ref()
+                .map(|text| self.host.redact_text(text)),
             self.final_stop_reason.read().await.clone(),
         )
     }
@@ -1746,13 +1779,13 @@ impl PiRpcRuntimeAdapter {
         };
         let locator_root =
             session_locator_root(&self.private_runtime_dir, request.camp_id, request.agent_id)?;
-        let workspace_key = canonical_workspace_key(request.cwd)?;
         let spawn_executable = PathBuf::from(&request.frozen_runtime.executable_path);
         let spawn_cwd = request.cwd.to_path_buf();
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_seed = seed.clone();
         let spawn_incoming = self.incoming.clone();
         let spawn_builtin_tools = request.builtin_tools.clone();
+        let spawn_environment = request.frozen_runtime.environment.clone();
         let lease = self
             .fleet
             .acquire(
@@ -1760,15 +1793,20 @@ impl PiRpcRuntimeAdapter {
                     agent_run_id: request.agent_run_id.to_string(),
                     execution_epoch: request.execution_epoch,
                     adapter_kind: AdapterKind::Pi,
-                    compatibility: RuntimeCompatibilityKey::workspace(
+                    compatibility: RuntimeCompatibilityKey::member_session(
                         request.camp_id,
                         request.agent_id,
-                        workspace_key,
+                        request
+                            .frozen_runtime
+                            .environment
+                            .as_ref()
+                            .map(|env| env.plan_id.as_str()),
                         request.runtime_compatibility_digest,
                     ),
                 },
                 move || async move {
                     let host = PiHost::spawn(PiHostLaunch {
+                        environment: spawn_environment.as_ref(),
                         executable: &spawn_executable,
                         cwd: &spawn_cwd,
                         private_runtime_dir: &spawn_private_runtime_dir,
@@ -2015,6 +2053,7 @@ async fn spawn_probe_host(executable: &Path) -> Result<(Arc<PiHost>, PiProbeRoot
     };
     let (incoming, _receiver) = mpsc::unbounded_channel();
     let host = PiHost::spawn(PiHostLaunch {
+        environment: None,
         executable,
         cwd: &probe_root,
         private_runtime_dir: &private_runtime_dir,
@@ -2299,13 +2338,6 @@ fn canonical_or_future_session_path(path: &Path) -> Result<PathBuf> {
         }
         Err(error) => Err(error).context("Pi Session file metadata is unavailable"),
     }
-}
-
-fn canonical_workspace_key(cwd: &Path) -> Result<String> {
-    let cwd = cwd
-        .canonicalize()
-        .with_context(|| format!("failed to resolve Pi Workspace {}", cwd.display()))?;
-    canonical_json_digest(&json!({"workspace": cwd}))
 }
 
 fn validate_host_state(
@@ -3238,6 +3270,7 @@ done
         };
         let (incoming, _receiver) = mpsc::unbounded_channel();
         let host = PiHost::spawn(PiHostLaunch {
+            environment: None,
             executable: &executable,
             cwd: &root,
             private_runtime_dir: &root.join("private"),
@@ -3419,6 +3452,7 @@ done
             };
             let (incoming, _receiver) = mpsc::unbounded_channel();
             let host = PiHost::spawn(PiHostLaunch {
+                environment: None,
                 executable: &executable,
                 cwd: &canonical,
                 private_runtime_dir: &private_runtime_directory(&root),

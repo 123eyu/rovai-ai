@@ -361,12 +361,38 @@ impl CodexHost {
         incoming: mpsc::UnboundedSender<CodexIncoming>,
         builtin_tools: Option<BuiltinToolProcessConfig>,
         custom_api: Option<rovai_core::runtime_custom_api::CustomApiSnapshot>,
+        environment: Option<rovai_core::member_environment::FrozenEnvironment>,
+    ) -> Result<Arc<Self>> {
+        rovai_core::runtime_discovery::with_frozen_environment(
+            environment.clone(),
+            Self::spawn_in_environment(
+                codex_path,
+                cwd,
+                incoming,
+                builtin_tools,
+                custom_api,
+                environment,
+            ),
+        )
+        .await
+    }
+
+    async fn spawn_in_environment(
+        codex_path: &Path,
+        cwd: &Path,
+        incoming: mpsc::UnboundedSender<CodexIncoming>,
+        builtin_tools: Option<BuiltinToolProcessConfig>,
+        custom_api: Option<rovai_core::runtime_custom_api::CustomApiSnapshot>,
+        environment: Option<rovai_core::member_environment::FrozenEnvironment>,
     ) -> Result<Arc<Self>> {
         let mut command = Command::new(codex_path);
         rovai_core::runtime_discovery::configure_runtime_command(
             rovai_core::agent_profile::AdapterKind::CodexCli,
             &mut command,
         );
+        if let Some(environment) = &environment {
+            environment.apply(&mut command)?;
+        }
         if let Some(api) = &custom_api {
             api.assert_current()?;
         }
@@ -406,7 +432,24 @@ impl CodexHost {
             .context("Codex app-server stderr was unavailable")?;
         let host = Arc::new(Self {
             initialized: tokio::sync::OnceCell::new(),
-            credential_redactor: custom_api.as_ref().and_then(|api| api.redactor().ok()),
+            credential_redactor: Some(
+                environment
+                    .as_ref()
+                    .map(|env| env.redactor())
+                    .unwrap_or_else(|| {
+                        rovai_core::runtime_custom_api::CredentialRedactor::from_values(vec![])
+                    })
+                    .extend(
+                        custom_api
+                            .as_ref()
+                            .and_then(|api| api.redactor().ok())
+                            .unwrap_or_else(|| {
+                                rovai_core::runtime_custom_api::CredentialRedactor::from_values(
+                                    vec![],
+                                )
+                            }),
+                    ),
+            ),
             host_instance_id: uuid::Uuid::new_v4().to_string(),
             #[cfg(windows)]
             windows_job_name: child.windows_job_name().to_owned(),
@@ -445,7 +488,7 @@ impl CodexHost {
             loop {
                 match lines.next_line().await {
                     Ok(Some(line)) if !line.trim().is_empty() => {
-                        let mut message = match serde_json::from_str::<Value>(&line) {
+                        let message = match serde_json::from_str::<Value>(&line) {
                             Ok(message) => message,
                             Err(error) => {
                                 host.broadcast_stderr(format!(
@@ -455,9 +498,6 @@ impl CodexHost {
                                 continue;
                             }
                         };
-                        if let Some(redactor) = &host.credential_redactor {
-                            redactor.value(&mut message);
-                        }
                         // Keep routing and queue insertion atomic with cancellation's
                         // unbind + ingress barrier. Otherwise cancellation could enqueue
                         // its barrier after routing selected an owner but before this
@@ -469,11 +509,12 @@ impl CodexHost {
                             let id = message["id"].as_u64().expect("checked above");
                             if let Some(pending) = host.pending.lock().await.remove(&id) {
                                 let mut response = if let Some(error) = message.get("error") {
-                                    Err(error
-                                        .get("message")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("Codex request failed")
-                                        .to_string())
+                                    Err(host.redact_text(
+                                        error
+                                            .get("message")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or("Codex request failed"),
+                                    ))
                                 } else {
                                     Ok(message.get("result").cloned().unwrap_or(Value::Null))
                                 };
@@ -614,15 +655,18 @@ impl CodexHost {
     }
 
     async fn broadcast_stderr(&self, text: String) {
-        let text = self
-            .credential_redactor
-            .as_ref()
-            .map_or_else(|| text.clone(), |redactor| redactor.text(&text));
+        let text = self.redact_text(&text);
         for owner in self.owners().await {
             let _ = self
                 .incoming
                 .send(owner.stderr(&self.host_instance_id, text.clone()));
         }
+    }
+
+    fn redact_text(&self, text: &str) -> String {
+        self.credential_redactor
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |redactor| redactor.text(text))
     }
 
     pub(crate) fn host_instance_id(&self) -> &str {
@@ -810,6 +854,17 @@ pub struct CodexAgentThreadOptions<'a> {
 }
 
 impl CodexRuntime {
+    pub(crate) fn redact_output(&self, value: &Value) -> Value {
+        self.host
+            .credential_redactor
+            .as_ref()
+            .map_or_else(|| value.clone(), |redactor| redactor.redacted_value(value))
+    }
+
+    pub(crate) fn redact_text(&self, text: &str) -> String {
+        self.host.redact_text(text)
+    }
+
     fn from_host(
         owner: CodexRuntimeOwner,
         camp_id: Option<String>,
@@ -1153,10 +1208,10 @@ impl CodexRuntime {
 
     pub async fn final_agent_message(&self) -> Option<String> {
         if let Some(message) = self.completed_agent_message.read().await.clone() {
-            return Some(message);
+            return Some(self.redact_text(&message));
         }
         let streamed = self.streamed_agent_text.lock().await.trim().to_string();
-        (!streamed.is_empty()).then_some(streamed)
+        (!streamed.is_empty()).then(|| self.redact_text(&streamed))
     }
 
     pub fn agent_run_epoch(&self) -> Option<i64> {
@@ -1461,8 +1516,16 @@ impl CodexCliRuntimeAdapter {
         let spawn_incoming = self.incoming.clone();
         let spawn_builtin_tools = builtin_tools.clone();
         let spawn_custom_api = frozen_runtime.custom_api.clone();
-        let compatibility =
-            RuntimeCompatibilityKey::member(camp_id, agent_id, runtime_compatibility_digest);
+        let spawn_environment = frozen_runtime.environment.clone();
+        let compatibility = RuntimeCompatibilityKey::member_session(
+            camp_id,
+            agent_id,
+            frozen_runtime
+                .environment
+                .as_ref()
+                .map(|env| env.plan_id.as_str()),
+            runtime_compatibility_digest,
+        );
         // A different Codex Host can keep the same thread's native writer lock
         // even while idle. Reap it before a replacement attempts thread/resume.
         self.fleet
@@ -1484,6 +1547,7 @@ impl CodexCliRuntimeAdapter {
                         spawn_incoming,
                         Some(spawn_builtin_tools),
                         spawn_custom_api,
+                        spawn_environment,
                     )
                     .await?;
                     Ok(RuntimeProcessHost::Codex(host))
@@ -2307,6 +2371,7 @@ mod tests {
 
     fn process_compatibility_runtime(executable: &Path) -> FrozenAgentRuntimeConfig {
         FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::CodexCli,
@@ -3158,6 +3223,7 @@ for line in sys.stdin:
         )
         .unwrap();
         let runtime_config = FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::CodexCli,

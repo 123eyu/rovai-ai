@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-10
+last_updated: 2026-10-11
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -21,6 +21,14 @@ last_updated: 2026-10-10
 当前边界见 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)，验证与交付见
 [实施记录](implementation-plan.md#会话内队员占位)。
 
+## Windows Web 凭据可用性（2026-10-11）
+
+在已准入 Core 数据目录内，Windows `web-auth.json` 接受正常继承权限；只对新建的原子写入临时文件
+尽力加固，不再以精确文件 ACL 模板阻断远程连接。保留目录/路径/内容检查、先落盘再更新状态与显式重置语义。
+Host、HTTP 与 Desktop 使用脱敏的读取、保存、内容和路径错误；正常继承不产生修复流程或警告。
+当前合同见 [Host Web v4](../../contracts/host-web-v4.md#windows-web-凭据可用性)，取舍见
+[V1.72-D34](decisions.md#v1-72-d34)，验证与未测范围见[实施记录](implementation-plan.md#windows-web-凭据可用性2026-10-11)。
+
 ## 已实现：Send 正文文件输入
 
 [已确认正文文件方案与模型上下文对照 r5](model-context-change-send-input-file.md)在同一 `--input-file`
@@ -29,6 +37,19 @@ last_updated: 2026-10-10
 User 消息 19 已授权独立 worktree 实施。当前合同为 [Built-in Tool Transport v37](../../contracts/builtin-tool-transport-v37.md)，
 代码与确定性验证已完成；真实模型 Gate、旧 Session 连续发送和回滚实测尚未运行。
 具体结果、测试准入与限制见[实施记录](implementation-plan.md#send-正文文件输入)。
+
+## 队员运行环境（2026-10-11）
+
+环境配置从 Agents 移至 Teammates，按队员实例与 Runtime 保存 Host 私有 JSON 覆盖。R4 紧凑双语编辑器
+沿用保存/放弃，移除旧 Agents 编辑区域及活动环境层；旧值以只读归档在“需要处理的问题”提示手动迁移。
+Migration 191 建立私有存储，192 发布 schema 142 并关联 Conversation 快照。按 User 后续规则，
+环境在队员会话创建时固定，冷恢复沿用，保存只影响新建或显式重置的会话；不提供环境摘要或凭据组合确认。
+Pi、ZCode、Fleet 收窄到同一 Camp/队员/当前会话，保留各 Adapter 的恢复、停止与后台消息机制。
+合同见 [Runtime Launch v58](../../contracts/runtime-launch-and-verification-v58.md)；
+测试归属见[队员环境 owner](../../development/testing.md#队员运行环境-owner2026-10-11)。
+可重复命令、实测结果和边界见[验收记录](../../research/member-runtime-environment-acceptance.md)。
+真实 Claude Code 2.1.287 已用两个 loopback 接口、不同假凭据/模型及冲突原生设置验证并行路由。
+其他 Runtime 不由这项测试推断 Provider 兼容性，Warm 与字面量子进程边界另由自动化测试覆盖。
 
 ## 并行交付：OpenCode V1/V2
 
@@ -40,12 +61,14 @@ V1 移除 Rovai 强加的 `--pure`，恢复现有压缩监听及原生用户插�
 本机 V1 `1.18.32` 与 Brew V2 `2.0.25` 已完成真实开发版、协作、审批/取消、压缩补发与 MCP 回归。
 V1 初始化单独保留 90 秒窗口，容纳原生冷启动依赖锁的 60 秒过期；不删除用户锁或重发任务。
 不增加版本资格门禁或安装管理，不变更数据库 schema、版本指针或模型上下文格式。
+Windows V1 已补齐原生压缩监听插件的安装路径，复用平台私有存储与现有 relay；跨平台配置回归
+及验证边界见[Windows 安装修复](opencode-v1-v2-implementation.md#windows-v1-压缩监听安装2026-10-11)。
 
 ## Kimi 使用官方 Provider 配置（2026-10-10）
 
 按 User 要求退役 Rovai 专属 `kimi-code.env`、`ROVAI_KIMI_CONFIG` 与模型变量注入。
 正式运行、健康检查和模型目录探测由 Kimi 读取官方配置；旧文件不再影响启动或 Host 复用，
-不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v56](../../contracts/runtime-launch-and-verification-v56.md)，
+不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v58](../../contracts/runtime-launch-and-verification-v58.md)，
 理由见 [V1.72-D32](decisions.md#v1-72-d32)，验证记录见[实施计划](implementation-plan.md#2026-10-10-kimi-官方-provider-配置)。
 
 ## Claude Code / Codex 原生自动记忆（2026-10-10）

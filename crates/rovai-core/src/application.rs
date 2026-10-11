@@ -4301,6 +4301,29 @@ impl Core {
         {
             let database = self.database.lock().await;
             checks.push(database_integrity_check(&database));
+            match rovai_core::member_environment::legacy_list(database.connection()) {
+                Ok(legacy) => {
+                    for item in legacy.as_array().into_iter().flatten() {
+                        let kind = item["runtimeKind"].as_str().unwrap_or_default();
+                        checks.push(DiagnosticCheck::new(format!("legacy-environment:{kind}"), DiagnosticGroup::ManagedContent,
+                        "legacy_runtime_environment", kind,
+                        if item["handled"]==true {DiagnosticStatus::Ok} else {DiagnosticStatus::Attention},
+                        "runtime_environment_moved_to_members", "Environment settings moved from Agents to Teammates; manually migrate the values still needed")
+                        .with_subject_id(kind)
+                        .with_fact("variableCount",item["count"].to_string())
+                        .with_fact("identity",item["identity"].as_str().unwrap_or_default()));
+                    }
+                }
+                Err(_) => checks.push(DiagnosticCheck::new(
+                    "legacy-environment",
+                    DiagnosticGroup::ManagedContent,
+                    "legacy_runtime_environment_unavailable",
+                    "environment",
+                    DiagnosticStatus::Unknown,
+                    "runtime_environment_legacy_unavailable",
+                    "Legacy environment archive could not be read",
+                )),
+            }
 
             match SkillProjectionReconciler.legacy_entry_count(&database) {
                 Ok(0) => checks.push(
@@ -6146,6 +6169,7 @@ impl Core {
         &self,
         source: &AgentRunExecution,
         payload: &Value,
+        output_redactor: &rovai_core::runtime_custom_api::CredentialRedactor,
     ) -> Result<()> {
         let execution = {
             let database = self.database.lock().await;
@@ -6209,6 +6233,7 @@ impl Core {
                 preparation.result.code
             );
         }
+        let reason = reason.as_deref().map(|text| output_redactor.text(text));
         emit(
             &self.output,
             "action.prepared",
@@ -8918,8 +8943,18 @@ impl Core {
                 Ok(serde_json::to_value(execution.result)?)
             }
             "members.runtime.set" => {
-                let params: UserCommandParams<SetMemberRuntimeConfigurationCommand> =
+                let mut params: UserCommandParams<SetMemberRuntimeConfigurationCommand> =
                     serde_json::from_value(request.params.clone())?;
+                let environment_edit = request
+                    .params
+                    .get("command")
+                    .and_then(|command| command.get("environment"))
+                    .cloned()
+                    .map(serde_json::from_value::<rovai_core::member_environment::EnvironmentEdit>)
+                    .transpose()
+                    .map_err(|_| anyhow::anyhow!("Member environment input is invalid"))?;
+                // The receipt is Host-derived. Client environment values never enter the domain command.
+                params.command.environment_update = None;
                 if let Some(blocker) = current_runtime_platform_blocker(params.command.adapter_kind)
                 {
                     return Ok(serde_json::to_value(blocker)?);
@@ -8927,9 +8962,23 @@ impl Core {
                 let agent_id = params.command.agent_id.clone();
                 let execution = {
                     let mut database = self.database.lock().await;
-                    let execution = AgentProfileService::default().set_runtime(
+                    let environment = environment_edit
+                        .map(|edit| {
+                            rovai_core::member_environment::prepare(
+                                database.connection(),
+                                &agent_id,
+                                params.command.adapter_kind,
+                                &params.command.model,
+                                edit,
+                            )
+                        })
+                        .transpose()?;
+                    params.command.environment_update =
+                        environment.as_ref().map(|update| update.receipt.clone());
+                    let execution = AgentProfileService::default().set_runtime_with_environment(
                         &mut database,
                         &user_command_envelope(params.command_id, params.command),
+                        environment.as_ref(),
                     )?;
                     if execution.result.status == CommandResultStatus::Applied {
                         self.mark_skill_projections_dirty_best_effort(&mut database, true);
@@ -9712,6 +9761,21 @@ impl Core {
                     ))
                 })?;
                 Ok(serde_json::to_value(execution.result)?)
+            }
+            "conversations.memberSession.get" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Params {
+                    camp_id: String,
+                    agent_id: String,
+                }
+                let params: Params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                let view: Option<Value> = database.connection().query_row(
+                    "SELECT id,version,EXISTS(SELECT 1 FROM agent_run WHERE conversation_id=conversation.id AND status IN ('queued','running','waiting'))
+                     FROM conversation WHERE camp_id=?1 AND agent_id=?2 AND kind='camp_member'",
+                    rusqlite::params![params.camp_id,params.agent_id], |r| Ok(json!({"conversationId":r.get::<_,String>(0)?,"version":r.get::<_,i64>(1)?,"active":r.get::<_,bool>(2)?}))).optional()?;
+                Ok(json!(view))
             }
             "conversations.restartNativeSession" => {
                 let params: UserCommandParams<RestartNativeSessionCommand> =
@@ -11297,6 +11361,57 @@ impl Core {
             | "runtime.startup.save") => {
                 self.handle_runtime_startup(method, request.params.clone())
                     .await
+            }
+            "member.runtimeEnvironment.get" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Params {
+                    member_id: String,
+                    adapter_kind: AdapterKind,
+                    #[serde(default)]
+                    reveal: bool,
+                }
+                let params: Params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                rovai_core::member_environment::get(
+                    database.connection(),
+                    &params.member_id,
+                    params.adapter_kind,
+                    params.reveal,
+                )
+            }
+            "runtime.environmentLegacy.list" => {
+                let database = self.database.lock().await;
+                rovai_core::member_environment::legacy_list(database.connection())
+            }
+            "runtime.environmentLegacy.get" | "runtime.environmentLegacy.acknowledge" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Params {
+                    runtime_kind: AdapterKind,
+                    #[serde(default)]
+                    reveal: bool,
+                    identity: Option<String>,
+                }
+                let params: Params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                if request.method.ends_with(".get") {
+                    rovai_core::member_environment::legacy_get(
+                        database.connection(),
+                        params.runtime_kind,
+                        params.reveal,
+                    )
+                } else {
+                    rovai_core::member_environment::legacy_acknowledge(
+                        database.connection(),
+                        params.runtime_kind,
+                        params
+                            .identity
+                            .as_deref()
+                            .context("Legacy identity is required")?,
+                    )?;
+                    Ok(json!({"handled":true}))
+                }
             }
             "runtime.discovery.rescan" => {
                 let params: RuntimeDiscoveryRescanParams =
@@ -14623,6 +14738,32 @@ impl Core {
         runtime: FrozenAgentRuntimeConfig,
         workspace: &AgentRunWorkspace,
     ) -> std::result::Result<(FrozenAgentRuntimeConfig, i64), RuntimeDispatchFailure> {
+        let mut runtime = runtime;
+        let environment = runtime.environment.as_mut().ok_or_else(|| RuntimeDispatchFailure {
+            code: "runtime_environment_unavailable".into(),
+            error: anyhow::anyhow!("The session environment is unavailable; reset this member's session to use the current configuration"),
+            effective_version: None,
+        })?;
+        environment
+            .hydrate(self.database.lock().await.connection())
+            .map_err(|error| RuntimeDispatchFailure {
+                code: "runtime_environment_unavailable".into(),
+                error,
+                effective_version: None,
+            })?;
+        rovai_core::runtime_discovery::with_frozen_environment(
+            runtime.environment.clone(),
+            self.prepare_runtime_for_dispatch_in_environment(candidate, runtime, workspace),
+        )
+        .await
+    }
+
+    async fn prepare_runtime_for_dispatch_in_environment(
+        &self,
+        candidate: &rovai_core::runtime::QueuedAgentRunCandidate,
+        runtime: FrozenAgentRuntimeConfig,
+        workspace: &AgentRunWorkspace,
+    ) -> std::result::Result<(FrozenAgentRuntimeConfig, i64), RuntimeDispatchFailure> {
         if let Some(blocker) = current_runtime_platform_blocker(runtime.adapter_kind) {
             return Err(RuntimeDispatchFailure {
                 code: blocker.code,
@@ -14999,6 +15140,31 @@ impl Core {
     }
 
     async fn launch_agent_run(
+        self: &Arc<Self>,
+        execution: &AgentRunExecution,
+        attachment_admission: &ThreadAttachmentReadAdmission,
+        attachment_authorization: &ThreadOutputDirectory,
+        output: &mpsc::UnboundedSender<String>,
+        launch_permit: &mut ExecutionLaunchPermit,
+    ) -> Result<()> {
+        let mut resolved = execution.clone();
+        resolved.runtime.environment.as_mut().context("The session environment is unavailable; reset this member's session to use the current configuration")?
+            .hydrate(self.database.lock().await.connection())?;
+        let environment = resolved.runtime.environment.clone();
+        rovai_core::runtime_discovery::with_frozen_environment(
+            environment,
+            self.launch_agent_run_in_environment(
+                &resolved,
+                attachment_admission,
+                attachment_authorization,
+                output,
+                launch_permit,
+            ),
+        )
+        .await
+    }
+
+    async fn launch_agent_run_in_environment(
         self: &Arc<Self>,
         execution: &AgentRunExecution,
         attachment_admission: &ThreadAttachmentReadAdmission,
@@ -15799,6 +15965,26 @@ impl Core {
         let (runtime_event_sender, mut runtime_event_receiver) = mpsc::unbounded_channel();
         let (launch_handoff_sender, mut launch_handoff_receiver) = oneshot::channel();
         let (input_ready_sender, mut input_ready_receiver) = mpsc::unbounded_channel();
+        // Keep the display scrubber with the consumer until its queue is drained,
+        // including events delivered after the CLI process has already exited.
+        let output_redactor = execution
+            .runtime
+            .environment
+            .as_ref()
+            .map(|env| env.redactor())
+            .unwrap_or_else(|| {
+                rovai_core::runtime_custom_api::CredentialRedactor::from_values(Vec::new())
+            })
+            .extend(
+                execution
+                    .runtime
+                    .custom_api
+                    .as_ref()
+                    .and_then(|api| api.redactor().ok())
+                    .unwrap_or_else(|| {
+                        rovai_core::runtime_custom_api::CredentialRedactor::from_values(Vec::new())
+                    }),
+            );
         let run = self.claude_code_cli.run(ClaudeCodeRunRequest {
             agent_run_id: execution.agent_run_id.clone(),
             execution_epoch: execution.execution_epoch,
@@ -16022,7 +16208,7 @@ impl Core {
                             continue;
                         };
                         if let Err(error) = self.process_claude_runtime_event(
-                            execution, output, builtin_tools.run_tmp(), &runtime_event,
+                            execution, output, builtin_tools.run_tmp(), &runtime_event, &output_redactor,
                         ).await {
                             eprintln!(
                                 "failed to persist Claude Code Runtime Evidence for AgentRun {}: {error:#}",
@@ -16035,7 +16221,7 @@ impl Core {
             };
             while let Ok(runtime_event) = runtime_event_receiver.try_recv() {
                 if let Err(error) = self.process_claude_runtime_event(
-                    execution, output, builtin_tools.run_tmp(), &runtime_event,
+                    execution, output, builtin_tools.run_tmp(), &runtime_event, &output_redactor,
                 ).await {
                     eprintln!(
                         "failed to persist queued Claude Code Runtime Evidence for AgentRun {}: {error:#}",
@@ -16203,6 +16389,7 @@ impl Core {
         output: &mpsc::UnboundedSender<String>,
         managed_output_root: &Path,
         event: &claude::ClaudeCodeRuntimeEvent,
+        output_redactor: &rovai_core::runtime_custom_api::CredentialRedactor,
     ) -> Result<()> {
         if event.event_type == "runtime.fast.initialized" {
             record_runtime_fast_default(
@@ -16232,7 +16419,7 @@ impl Core {
         }
         if event.event_type == "claude.permission_request" {
             if let Err(error) = self
-                .prepare_claude_permission_action(execution, &event.payload)
+                .prepare_claude_permission_action(execution, &event.payload, output_redactor)
                 .await
             {
                 if let Some(runtime) = self
@@ -16271,6 +16458,7 @@ impl Core {
             },
             event.event_type,
             &event.payload,
+            Some(output_redactor),
         )
         .await
     }
@@ -16837,6 +17025,7 @@ impl Core {
                             },
                             runtime_event.event_type,
                             &runtime_event.payload,
+                            None,
                         ).await {
                             eprintln!(
                                 "failed to persist Antigravity Runtime Evidence for AgentRun {}: {error:#}",
@@ -16860,6 +17049,7 @@ impl Core {
                     },
                     runtime_event.event_type,
                     &runtime_event.payload,
+                    None,
                 )
                 .await
                 {
@@ -19577,6 +19767,7 @@ struct AcpRuntimeDeltaMessage {
 
 fn prepare_codex_delta_batch(
     messages: &[Value],
+    redact_output: impl Fn(&Value) -> Value,
 ) -> Result<Option<Vec<PreparedRuntimeDeltaMessage>>> {
     let mut total_bytes = 0_usize;
     let mut prepared = Vec::with_capacity(messages.len());
@@ -19597,7 +19788,7 @@ fn prepare_codex_delta_batch(
             return Ok(None);
         }
         let Some(evidence) =
-            ExecutionEvidenceService.prepare_runtime_event(event_type, &payload)?
+            ExecutionEvidenceService.prepare_runtime_event(event_type, &redact_output(&payload))?
         else {
             return Ok(None);
         };
@@ -19623,6 +19814,7 @@ fn prepare_codex_delta_batch(
 fn prepare_acp_delta_batch(
     adapter_kind: AdapterKind,
     messages: &[AcpRuntimeDeltaMessage],
+    redact_output: impl Fn(&Value) -> Value,
 ) -> Result<Option<Vec<PreparedRuntimeDeltaMessage>>> {
     let mut total_bytes = 0_usize;
     let mut prepared = Vec::with_capacity(messages.len());
@@ -19639,7 +19831,7 @@ fn prepare_acp_delta_batch(
             return Ok(None);
         }
         let Some(evidence) =
-            ExecutionEvidenceService.prepare_runtime_event(event_type, &payload)?
+            ExecutionEvidenceService.prepare_runtime_event(event_type, &redact_output(&payload))?
         else {
             return Ok(None);
         };
@@ -20079,6 +20271,7 @@ async fn process_agent_run_pi_message(
         .await;
     }
     for (event_type, payload) in runtime.normalize_events(&message).await {
+        let payload = runtime.redact_output(&payload);
         if event_type != "runtime.usage" {
             let evidence = persist_runtime_evidence(
                 core,
@@ -20755,10 +20948,14 @@ async fn process_acp_events(
                 execution_epoch,
                 registration,
                 message,
+                redactor,
             } => {
                 let params = &message["params"];
                 let (_, mut payload) =
                     normalize_acp_event(AdapterKind::ZcodeApp, "session/update", params);
+                if let Some(redactor) = redactor {
+                    payload = redactor.redacted_value(&payload);
+                }
                 let mut identity = params["background"].clone();
                 let status = identity.as_object_mut().and_then(|v| v.remove("status"));
                 let result = async {
@@ -21121,7 +21318,20 @@ async fn process_agent_run_acp_delta_batch(
     messages: Vec<AcpRuntimeDeltaMessage>,
     runtime_route_permit: &mut rovai_core::planned_shutdown::RuntimeRoutePermit,
 ) {
-    let prepared = match prepare_acp_delta_batch(adapter_kind, &messages) {
+    let Some(runtime) = acp_runtime_on_host(
+        core,
+        adapter_kind,
+        host_instance_id,
+        agent_run_id,
+        execution_epoch,
+    )
+    .await
+    else {
+        return;
+    };
+    let prepared = match prepare_acp_delta_batch(adapter_kind, &messages, |value| {
+        runtime.redact_output(value)
+    }) {
         Ok(Some(prepared)) => prepared,
         Ok(None) => {
             for incoming in messages {
@@ -21166,17 +21376,6 @@ async fn process_agent_run_acp_delta_batch(
             }
             return;
         }
-    };
-    let Some(runtime) = acp_runtime_on_host(
-        core,
-        adapter_kind,
-        host_instance_id,
-        agent_run_id,
-        execution_epoch,
-    )
-    .await
-    else {
-        return;
     };
     let Some(first) = messages.first() else {
         return;
@@ -21492,7 +21691,7 @@ async fn process_agent_run_acp_message(
                 execution_epoch,
                 None,
                 "agent.thinking.title",
-                &intent,
+                &runtime.redact_output(&intent),
             )
             .await
             {
@@ -21565,6 +21764,7 @@ async fn process_agent_run_acp_message(
     if event_type == "runtime.usage" {
         return;
     }
+    let payload = runtime.redact_output(&payload);
     let evidence = match persist_runtime_evidence(
         core,
         agent_run_id,
@@ -22081,6 +22281,7 @@ async fn process_runtime_event(
     scope: RuntimeEventScope<'_>,
     event_type: &str,
     payload: &Value,
+    output_redactor: Option<&rovai_core::runtime_custom_api::CredentialRedactor>,
 ) -> Result<()> {
     let Some(_runtime_route_permit) = core.planned_shutdown.enter_runtime_route().await else {
         return Ok(());
@@ -22167,13 +22368,19 @@ async fn process_runtime_event(
         .await?;
         return Ok(());
     }
+    // Routing, native observations and image ingestion above consume raw data.
+    // Only this independently stored/displayed evidence payload is redacted.
+    let public_payload = output_redactor.map_or_else(
+        || payload.clone(),
+        |redactor| redactor.redacted_value(payload),
+    );
     let Some(evidence) = persist_runtime_evidence(
         core,
         scope.agent_run_id,
         scope.execution_epoch,
         scope.managed_output_root,
         event_type,
-        payload,
+        &public_payload,
     )
     .await?
     else {
@@ -22645,7 +22852,7 @@ async fn process_agent_run_acp_approval_request(
             "agentRunId": agent_run_id,
             "executionEpoch": execution_epoch,
             "nativeMethod": "session/request_permission",
-            "reason": request_reason,
+            "reason": request_reason.as_deref().map(|text| runtime.redact_text(text)),
             "result": preparation.result,
             "replayed": preparation.replayed,
         }),
@@ -22673,7 +22880,7 @@ async fn reject_acp_request(
             "agentRunId": agent_run_id,
             "executionEpoch": execution_epoch,
             "nativeMethod": "session/request_permission",
-            "reason": reason,
+            "reason": runtime.redact_text(reason),
         }),
     );
     Ok(())
@@ -23492,7 +23699,15 @@ async fn process_agent_run_codex_delta_batch(
     messages: Vec<Value>,
     runtime_route_permit: &mut rovai_core::planned_shutdown::RuntimeRoutePermit,
 ) {
-    let prepared = match prepare_codex_delta_batch(&messages) {
+    let Some(runtime) = core
+        .codex_cli
+        .get_agent_run_on_host(host_instance_id, agent_run_id, execution_epoch)
+        .await
+    else {
+        return;
+    };
+    let prepared = match prepare_codex_delta_batch(&messages, |value| runtime.redact_output(value))
+    {
         Ok(Some(prepared)) => prepared,
         Ok(None) => {
             for message in messages {
@@ -23527,13 +23742,6 @@ async fn process_agent_run_codex_delta_batch(
             }
             return;
         }
-    };
-    let Some(runtime) = core
-        .codex_cli
-        .get_agent_run_on_host(host_instance_id, agent_run_id, execution_epoch)
-        .await
-    else {
-        return;
     };
     let evidence = match persist_prepared_runtime_evidence_batch(
         core,
@@ -23737,6 +23945,7 @@ async fn process_agent_run_codex_message(
                 },
                 "runtime.fast.observed",
                 &json!({"state": state, "observedServiceTier": tier}),
+                None,
             )
             .await;
         }
@@ -23780,6 +23989,7 @@ async fn process_agent_run_codex_message(
     }
     let (event_type, payload) = codex::normalize_event(&method, &params);
     runtime.observe_agent_message(&method, &params).await;
+    let payload = runtime.redact_output(&payload);
     let evidence = match persist_runtime_evidence(
         core,
         agent_run_id,
@@ -23945,7 +24155,7 @@ async fn process_agent_run_codex_message(
                     &ManagedBlobStore::new(&core.data_dir),
                     agent_run_id,
                     execution_epoch,
-                    &payload,
+                    &runtime.redact_output(&payload),
                     runtime
                         .builtin_tool_process_config()
                         .map(BuiltinToolProcessConfig::run_tmp),
@@ -23979,10 +24189,14 @@ async fn process_agent_run_codex_message(
     {
         eprintln!("failed to flush Codex monitoring for AgentRun {agent_run_id}: {error:#}");
     }
-    let missing_send_recovery_candidate = completed.final_agent_message.clone().map(|body| {
+    let completed_message = completed
+        .final_agent_message
+        .as_deref()
+        .map(|text| runtime.redact_text(text));
+    let missing_send_recovery_candidate = completed_message.clone().map(|body| {
         MissingSendRecoveryCandidate::new(MissingSendRecoveryBoundary::CodexCompletedTurn, body)
     });
-    let final_agent_message = match completed.final_agent_message.clone() {
+    let final_agent_message = match completed_message {
         Some(message) => Some(message),
         None => runtime.final_agent_message().await,
     };
@@ -24018,7 +24232,8 @@ async fn process_agent_run_codex_message(
             completed.turn_id, completed.status
         ),
     };
-    let public_failure = (planned_outcome == RuntimeTerminalOutcome::Failed).then(|| {
+    let error_detail = runtime.redact_text(&error_detail);
+    let mut public_failure = (planned_outcome == RuntimeTerminalOutcome::Failed).then(|| {
         if completed.status == "failed" {
             rovai_core::runtime_failure::public_codex_terminal_failure(
                 &base_error_code,
@@ -24037,6 +24252,12 @@ async fn process_agent_run_codex_message(
             )
         }
     });
+    if let Some(failure) = &mut public_failure {
+        failure.detail = failure
+            .detail
+            .as_deref()
+            .map(|detail| runtime.redact_text(detail));
+    }
     let error_code = public_failure
         .as_ref()
         .map(|failure| failure.code.clone())
@@ -24471,7 +24692,7 @@ async fn process_agent_run_approval_request(
             "agentRunId": server_request.agent_run_id,
             "executionEpoch": server_request.execution_epoch,
             "nativeMethod": server_request.method,
-            "reason": request_reason,
+            "reason": request_reason.as_deref().map(|text| runtime.redact_text(text)),
             "result": preparation.result,
             "replayed": preparation.replayed,
         }),
@@ -24584,7 +24805,7 @@ async fn reject_agent_run_approval_request(
             "agentRunId": request.agent_run_id,
             "executionEpoch": request.execution_epoch,
             "nativeMethod": request.method,
-            "reason": reason,
+            "reason": runtime.redact_text(reason),
         }),
     );
     Ok(())
@@ -28579,7 +28800,7 @@ done
             &id_bearing_output_delta
         ));
         assert!(
-            prepare_codex_delta_batch(std::slice::from_ref(&command_output_message))
+            prepare_codex_delta_batch(std::slice::from_ref(&command_output_message), Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28716,19 +28937,23 @@ done
         let CodexIncoming::Message { message, .. } = codex_delta else {
             unreachable!()
         };
-        assert!(prepare_codex_delta_batch(&[message]).unwrap().is_none());
+        assert!(
+            prepare_codex_delta_batch(&[message], Value::clone)
+                .unwrap()
+                .is_none()
+        );
         let mut item_bounded_batch = vec![
             json!({"method":"item/plan/delta","params":{"delta":"step"}});
             RUNTIME_EVIDENCE_DELTA_BATCH_MAX_ITEMS
         ];
         assert!(
-            prepare_codex_delta_batch(&item_bounded_batch)
+            prepare_codex_delta_batch(&item_bounded_batch, Value::clone)
                 .unwrap()
                 .is_some()
         );
         item_bounded_batch.push(item_bounded_batch[0].clone());
         assert!(
-            prepare_codex_delta_batch(&item_bounded_batch)
+            prepare_codex_delta_batch(&item_bounded_batch, Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28741,7 +28966,7 @@ done
             }
         });
         assert!(
-            prepare_codex_delta_batch(&[oversized_delta])
+            prepare_codex_delta_batch(&[oversized_delta], Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28753,7 +28978,7 @@ done
             unreachable!()
         };
         assert!(
-            prepare_codex_delta_batch(&[terminal_message])
+            prepare_codex_delta_batch(&[terminal_message], Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28778,7 +29003,8 @@ done
                     delivery_id,
                     sequence,
                     message,
-                }]
+                }],
+                Value::clone,
             )
             .unwrap()
             .is_none()
@@ -28803,7 +29029,8 @@ done
                     delivery_id,
                     sequence,
                     message,
-                }]
+                }],
+                Value::clone,
             )
             .unwrap()
             .is_none()
@@ -32224,6 +32451,7 @@ for line in sys.stdin:
             "#!/bin/sh\ntrap '' TERM\nread -r line\nprintf '%s\\n' '{\"id\":1,\"result\":{}}'\nwhile read -r line; do :; done\n",
         );
         let runtime_config = FrozenAgentRuntimeConfig {
+            environment: None,
             custom_api: None,
             camp_fast: None,
             adapter_kind: AdapterKind::CodexCli,

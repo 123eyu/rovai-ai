@@ -3,7 +3,7 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-10
+last_updated: 2026-10-11
 ---
 
 # v1.72 版本决定
@@ -756,3 +756,24 @@ User 要求删除自有 env 与变量注入，正式运行、检查和目录探�
 只在旧 env 中配置的 Provider 必须由用户在 Kimi 原生配置中提供；历史 Run/Session 保留。
 拒绝把旧 env 保留为隐式 fallback，因为这会继续形成两个配置来源；也不把旧字段自动合并进官方 TOML，
 避免覆盖用户已经配置的 Provider。MCP、权限与原生 Session 延续继续使用已有合同。
+
+<a id="v1-72-d34"></a>
+## V1.72-D34：Windows Web 凭据采用目录信任与可用性优先
+
+- 状态：accepted
+- 日期：2026-10-11
+- 确认：User 消息 `83d8555f-36b5-4d12-875d-304bc654c792` 与 `6d0d31b5-12f3-46bf-ab60-149d18a18d64`
+- 当前权威：[Host Web v4](../../contracts/host-web-v4.md#windows-web-凭据可用性)、[Windows Private Storage v2](../../contracts/windows-private-storage-v2.md#windows-web-credential-exception)、[统一 Rust Host](../../architecture/unified-rust-host.md#身份与控制面)
+
+### 背景与选择
+
+备份恢复可保留有效凭据内容，却把单文件 protected DACL 变成正常目录继承。精确权限模板检查
+因此拒绝操作系统允许读取的凭据，连查看 Token 也失败。User 明确选择在已准入数据目录内接受
+正常继承，以操作系统读写能力为基础；额外文件权限加固尽力完成，不是使用远程连接的前置条件。
+
+### 后果与替代方案
+
+不再承诺每个 Windows Web 凭据文件独立受保护或精确匹配 ACL 模板；承诺普通文件/路径检查、
+内容验证与原子持久化。通用私有存储、数据目录准入和其他平台保持原合同。
+拒绝先自动修 ACL 再允许连接，因其仍要求用户拥有额外改权能力；拒绝全局放宽私有文件规则，
+因为本次可用性决策仅属于 Web 凭据。读取失败不生成替代 Token，实际保存失败不能报告成功。

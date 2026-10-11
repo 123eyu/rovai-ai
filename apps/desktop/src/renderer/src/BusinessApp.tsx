@@ -1501,6 +1501,10 @@ export function BusinessApp({
     return snapshot
   }, [navigationRefreshCoordinator])
 
+  useEffect(() => {
+    void navigationRefreshCoordinator.refreshPins().catch(nextError => setError(errorMessage(nextError)))
+  }, [navigationRefreshCoordinator, navigationPins])
+
   const retryThreadDeletion = useCallback((operationId: string): void => {
     const retry = (): void => {
       void client.request<StoredCommandResult>('threads.retryDeletion', {

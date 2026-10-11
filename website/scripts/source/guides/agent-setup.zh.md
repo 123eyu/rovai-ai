@@ -2,7 +2,7 @@
 
 各智能体的安装入口，以及账号、模型与工具配置的差异。Rovai 界面中的操作和字段说明见[智能体与模型配置](https://rovai.dev/zh/docs/agents.html)。
 
-本文对应 **Rovai v0.4.7**。安装和登录在运行 Rovai Desktop 或 Server 的主机上完成。
+本文以 **Rovai v0.4.7** 为基础；在 Rovai 中选择 Pi 思考强度需要 **v0.4.8 或更新版本**。安装和登录在运行 Rovai Desktop 或 Server 的主机上完成。
 
 在原生智能体中完成账号与模型配置后，到「设置 → 智能体」确认 Rovai 能找到它，再为队员选择智能体与模型。已有的登录和配置继续使用；通过浏览器访问时，使用的是服务主机上的安装。
 
@@ -70,11 +70,43 @@ Rovai v0.4.7 补充读取的是**标准 Web Profile** 的模型配置；同名 P
 
 同时保留多个安装版本或配置目录时，Rovai 的程序路径和环境需要对应你已经登录的那一份。终端里能够运行、Rovai 却找不到程序时，可以在启动设置中填写可执行文件的绝对路径。
 
-## Pi 的模型与工具 {#pi}
+## Pi：模型与思考强度配置 {#pi}
 
-Pi 的模型目录来自它已经配置的 Provider。新增 Provider 或模型后，再回到 Rovai 选择；随 Rovai 提供的扩展会在执行时加载，无需手动复制。
+### 配置模型
 
-当前 Pi 适配不提供外部 MCP 分配。Pi 的原生 Skills、扩展和 Rovai 内置协作工具仍按各自入口使用，具体操作见 [Skills](https://rovai.dev/zh/docs/skills.html) 与 [MCP](https://rovai.dev/zh/docs/mcp.html)。
+使用 Pi 内置 Provider 时，在 Pi 终端界面运行 `/login` 登录，再用 `/model` 选择模型。自定义服务（如 sub2api）在运行 Rovai 的主机上配置 `~/.pi/agent/models.json`。
+
+下面以 GPT-6.1 Sol 为例。替换网关地址和 API Key；已有配置时，合并对应的 Provider、模型字段，保留其他内容。
+
+```json
+{
+  "providers": {
+    "sub2api": {
+      "api": "openai-responses",
+      "baseUrl": "https://gateway.example/v1",
+      "apiKey": "YOUR_API_KEY",
+      "models": [{
+        "id": "gpt-6.1-sol",
+        "reasoning": true,
+        "thinkingLevelMap": {
+          "off": null, "minimal": null,
+          "low": "low", "medium": "medium",
+          "high": "high", "xhigh": "xhigh",
+          "max": "max"
+        }
+      }]
+    }
+  }
+}
+```
+
+### 配置思考强度
+
+`reasoning: true` 声明模型支持思考；`thinkingLevelMap` 的左侧是 Pi 档位，右侧是传给上游的值，`null` 表示不提供该档位。上例提供 **low / medium / high / xhigh / max** 五档，其他模型按其实际支持情况填写。
+
+保存后在 Pi 中重新打开 `/model` 加载配置，也可用 `/thinking` 选择强度。回到 Rovai 的**队员 → 运行配置**，打开模型选择器完成刷新，选择具体模型和思考强度，再保存。选择“跟随模型默认值”时，Rovai 不额外指定强度。
+
+Pi 命令以 1.1.0 为例。[Pi 模型配置说明](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/models.md) · [GPT-6.1 Sol 档位说明](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
 
 ## 接入新智能体 {#adding-agents}
 

@@ -1,5 +1,5 @@
 import { useThreadClient } from './camp-client'
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentRunView, AgentRunExecutionBlockPage, AgentRunExecutionBlockChanges, AgentRunExecutionEvidenceView } from '@contracts'
 import { ExecutionWindow, executionWindowPageSize, executionWindowCacheFor } from './execution-window'
 
@@ -133,16 +133,31 @@ export function useExecutionWindow(enabled: boolean, threadId: string, run: Agen
     return () => latest.setHasNewer(false)
   }, [latest?.runId, latest?.setHasNewer, run.id])
 
-  useEffect(() => {
-    if (!enabled || !store.current || pendingRefresh.current !== null) return
-    if (initialInvalidation.current) { initialInvalidation.current = false; return }
+  const scheduleRefresh = useCallback(() => {
+    if (!store.current || pendingRefresh.current !== null) return
     pendingRefresh.current = window.setTimeout(() => {
       pendingRefresh.current = null
-      const following = (): boolean => tailOnly || !readingHistory.current && scrollHost()?.dataset.followingLatest === 'true'
+      const following = (): boolean => tailOnly || !readingHistory.current
+        && root.current?.closest<HTMLElement>('.execution-drawer-body')?.dataset.followingLatest === 'true'
       if (following()) followAfterLoad.current = 'live'
-      void store.current?.refresh(following)
+      void store.current?.refresh(following, tailOnly)
     }, 300)
-  }, [enabled, run.updatedAt, run.executionEvidenceChangeSequence, run.status, liveRevision, tailOnly])
+  }, [tailOnly])
+
+  useEffect(() => {
+    if (!enabled) return
+    if (initialInvalidation.current) { initialInvalidation.current = false; return }
+    scheduleRefresh()
+  }, [client, enabled, threadId, run.id, run.executionEpoch, run.updatedAt, run.executionEvidenceChangeSequence, run.status, liveRevision, scheduleRefresh])
+
+  useEffect(() => {
+    if (!enabled || !tailOnly) return
+    // A reconnect can leave every Run scalar unchanged. Its resync notification
+    // must still repair a failed initial tail read through the same bounded path.
+    return client.onInvalidated?.(change => {
+      if (!change || change.resync) scheduleRefresh()
+    })
+  }, [client, enabled, tailOnly, scheduleRefresh])
 
   useLayoutEffect(() => {
     const current = store.current

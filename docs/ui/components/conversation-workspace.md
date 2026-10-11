@@ -998,7 +998,7 @@ Run 卡片与步骤组均以权威终态优先：即使取消标记尚存，终�
 不增加“结果未知”交互。新 Run 开始再展示，再失败时重试新 Run；执行台历史记录仍可主动多次继续执行。
 新 Run 不改变原消息与草稿。仅每位队员最新且尚未受理续做的公开 batch 失败可留在末尾，避免历史失败堆积。
 已发消息的复制／回复按钮、分组、文件与图片不变；桌面静止时仍只有最新一条队员消息的复制／回复常驻。
-桌面行高 36px，停止目标 26px，粗指针扩展为 44px 目标；精确边界见 [Run Process Detail Surface v48](../../contracts/run-process-detail-surface-v48.md)。
+桌面行高 36px，停止目标 26px，粗指针扩展为 44px 目标；精确边界见 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)。
 
 ## 会话 Pane 紧凑布局
 

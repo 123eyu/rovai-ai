@@ -356,6 +356,7 @@ try {
   const reads=await b.evaluate('__presence.controls.executionReads')
   assert.ok(reads.some(r=>r.method==='agentRunExecution.page'&&r.limit===1&&r.projection==='blocks'))
   assert.equal(reads.some(r=>r.method==='agentRunEvidence.getContent'),false)
+  await b.evaluate('__presence.controls.liveEvidence=true')
   await stage(3)
   await b.wait('document.querySelector(".run-presence-open")?.dataset.previewKind === "narration"')
   const restoredBody=await b.evaluate('document.querySelector(".run-presence-preview").textContent')
@@ -364,6 +365,40 @@ try {
   assert.equal(await b.evaluate('__presence.controls.executionReads.some(r=>r.method==="agentRunEvidence.getContent")'),false)
   await b.capture(join(out,'reentered-stream.png'))
   report.interactions.push('lightweight Thread re-entry restores the latest command through a one-block page, then follows streaming block changes without reading full blobs')
+
+  const initialPages='__presence.controls.executionReads.filter(r=>r.method==="agentRunExecution.page"&&r.beforeSequence===null).length'
+  const changeReads='__presence.controls.executionReads.filter(r=>r.method==="agentRunExecution.changes").length'
+  windowedUrl.search='windowed=1&scenario=stream&stage=1&executionRead=fail'
+  await b.send('Page.navigate',{url:windowedUrl.href})
+  await b.wait(`!!window.__presence && ${initialPages} === 1 && document.querySelector('.run-presence-open')?.dataset.previewKind === 'status'`)
+  await pause(500)
+  assert.equal(await b.evaluate(initialPages),1,'a failed initial read does not poll itself')
+  assert.equal(await b.evaluate('document.querySelectorAll(".run-presence-retry").length'),0,'read errors are not Run failures')
+  await b.evaluate('__presence.resync()') // No new live evidence or Run scalar change.
+  await b.wait('document.querySelector(".run-presence-open")?.dataset.previewKind === "command"')
+  assert.equal(await b.evaluate(initialPages),2)
+  assert.match(await b.evaluate('document.querySelector(".run-presence-preview").textContent'),/rg -n/)
+  report.interactions.push('initial tail page failure recovers in place on connection resync with unchanged Run data; no polling or task-failure UI')
+
+  for (const liveEvidence of [false,true]) {
+    windowedUrl.search='windowed=1&scenario=stream&stage=1&executionRead=hold'
+    await b.send('Page.navigate',{url:windowedUrl.href})
+    await b.wait(`!!window.__presence && ${initialPages} === 1`)
+    await b.evaluate(`__presence.controls.holdExecutionChanges=true; __presence.controls.liveEvidence=${liveEvidence}; __presence.setStage(3); __presence.getState().streamPaused=true`)
+    await pause(500) // The update reaches refresh while the captured command page is still pending.
+    if(liveEvidence) await b.wait('document.querySelector(".run-presence-open")?.dataset.previewKind === "narration"')
+    const liveBody=await b.evaluate('document.querySelector(".run-presence-preview").textContent')
+    await b.evaluate('__presence.controls.holdExecutionPage=false')
+    await b.wait(`${changeReads} === 1`)
+    await settle()
+    if(liveEvidence) assert.equal(await b.evaluate('document.querySelector(".run-presence-preview").textContent'),liveBody,'late initial page must not regress newer live narration')
+    else assert.equal(await b.evaluate('document.querySelector(".run-presence-open").dataset.previewKind'),'command')
+    await b.evaluate('__presence.controls.holdExecutionChanges=false')
+    await b.wait('document.querySelector(".run-presence-open")?.dataset.previewKind === "narration"')
+    assert.equal(await b.evaluate(initialPages),1)
+    assert.equal(await b.evaluate(changeReads),1,'one trailing refresh catches up without another notification')
+  }
+  report.interactions.push('slow initial page retains its invalidation and catches up once; newer live narration stays visible while both page and trailing changes are delayed')
   await b.send('Page.navigate',{url:pathToFileURL(join(root,'rovai-teammate-presence.html')).href})
   await b.wait('!!window.__presence && !!document.querySelector(".composer-box")')
 

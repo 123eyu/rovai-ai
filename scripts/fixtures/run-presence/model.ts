@@ -234,12 +234,17 @@ function localSend(body: string, recipients = [aid(0)], draft?: any) {
     refresh()
   }, 4600)
 }
+const executionReadMode = new URLSearchParams(location.search).get('executionRead')
+const invalidationListeners = new Set<() => void>()
 const controls = { holdContinue: false, holdStop: false, holdDispatch: false, holdContinuationProjection: false, holdEntrySnapshot: false,
+  failNextExecutionPage: executionReadMode === 'fail', holdExecutionPage: executionReadMode === 'hold',
+  holdExecutionChanges: false, liveEvidence: false,
   persistServer: false, continuationMode: 'normal', stopError: false,
   executionReads: [] as any[],
   continueAttempts: [] as any[], stopAttempts: [] as any[], receipts: new Map<string, any>() }
 export const model = {
   controls,
+  resync: () => invalidationListeners.forEach(listener => listener()),
   async cancel(run: any) {
     controls.stopAttempts.push({ id: run.id, version: run.version })
     while (controls.holdStop) await new Promise(resolve => setTimeout(resolve, 20))
@@ -306,11 +311,16 @@ export const model = {
   async changeLead(agentId: string) { update({ snapshot: { ...state.snapshot, thread: { ...state.snapshot.thread, defaultLeadAgentId: agentId }, members: state.snapshot.members.map((m: any) => ({ ...m, isDefaultLead: m.agentId === agentId })) } }) },
   fileApi: backing.fileApi,
   client: { ...backing.client,
+    onInvalidated: (listener: () => void) => { invalidationListeners.add(listener); return () => invalidationListeners.delete(listener) },
     request: async (method: string, input: any = {}): Promise<any> => {
       if (['agentRunExecution.page', 'agentRunExecution.changes', 'agentRunEvidence.getContent'].includes(method))
         controls.executionReads.push({ method, ...input })
       if (method === 'members.list') return profiles
       if (method === 'agentRunExecution.page' || method === 'agentRunExecution.changes') {
+        if (method === 'agentRunExecution.page' && controls.failNextExecutionPage) {
+          controls.failNextExecutionPage = false
+          throw new Error('Simulated transient execution read failure')
+        }
         const all = state.snapshot.executionEvidence.filter((e: any) => e.agentRunId === input.agentRunId)
         const blocks = all.map((e: any) => ({ key: e.id, kind: e.kind === 'command' ? 'toolGroup' : 'item',
           sequence: e.sequence, lastSequence: e.sequence, changeSequence: state.version, toolCount: e.kind === 'command' ? 1 : 0,
@@ -318,14 +328,20 @@ export const model = {
           evidence: [structuredClone(e)] }))
         const common = { schemaVersion: 3, threadId: state.snapshot.thread.id, agentRunId: input.agentRunId,
           throughSequence: all.at(-1)?.sequence ?? 0, throughChangeSequence: state.version }
-        if (method === 'agentRunExecution.changes') return { ...common,
+        if (method === 'agentRunExecution.changes') {
+          const response = { ...common,
           requestedAfterChangeSequence: input.afterChangeSequence, nextAfterChangeSequence: state.version,
           blocks: blocks.slice(-1), refreshedBlocks: [], hasMore: false }
+          while (controls.holdExecutionChanges) await new Promise(resolve => setTimeout(resolve, 20))
+          return response
+        }
         const before = input.beforeSequence ?? null
         const eligible = blocks.filter((b: any) => before === null || b.sequence < before)
         const page = eligible.slice(-(input.limit ?? 24)), hasMore = eligible.length > page.length
-        return { ...common, requestedBeforeSequence: before, blocks: page, hasMore,
+        const response = { ...common, requestedBeforeSequence: before, blocks: page, hasMore,
           nextBeforeSequence: hasMore ? page[0].sequence : null }
+        while (controls.holdExecutionPage) await new Promise(resolve => setTimeout(resolve, 20))
+        return response
       }
       if (method === 'agentRuns.continue') {
         controls.continueAttempts.push(structuredClone(input))

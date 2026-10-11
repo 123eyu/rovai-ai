@@ -13,6 +13,7 @@ import { MobileLayoutProvider } from '../../../apps/desktop/src/renderer/src/Mob
 import { AppDialogBody, AppDialogContent, AppDialogFooter, AppDialogHeader } from '../../../apps/desktop/src/renderer/src/AppDialog'
 import { model, profiles, scenarios, installations } from './model'
 import { conversationRunPresence } from '../../../apps/desktop/src/renderer/src/conversation-run-presence'
+import { liveRuntimeEventFromExecutionEvidence } from '../../../apps/desktop/src/renderer/src/ui-model'
 const projectedPresence = (snapshot: any) => conversationRunPresence(snapshot.agentRuns, snapshot.messages, new Set()).map(slot => ({ ...slot, status: slot.run.status }))
 import '../../../apps/desktop/src/renderer/src/styles.css'
 import './fixture.css'
@@ -81,7 +82,7 @@ function Workbench() {
         ...['消息投递与恢复', '会话工作区优化', '发布前检查'].map((title, i) => ({ ...current, id: `demo-thread-${i}`, title, marker: 'none' }))] }] }
   useEffect(() => {
     Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal,
-      getState: model.get, controls: model.controls, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
+      getState: model.get, controls: model.controls, resync: model.resync, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
         const s = model.get().snapshot
         const ids = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].map(e => e.dataset.messageId)
         const positions = ids.map(id => s.messages.findIndex((m: any) => m.id === id)).filter(i => i >= 0)
@@ -122,6 +123,7 @@ function Workbench() {
         <AppHeader threadTitle={visibleSnapshot.thread.title} contextLabel="rovai-ai" thread={visibleSnapshot} detailEntryHostRef={setDetailHost} onFocusApprovals={() => {}} />
         <main className="content task-content camp-content">
           <ThreadWorkspace key={`${state.generation}:${visibleSnapshot.thread.id}`} snapshot={params.has('windowed') ? { ...visibleSnapshot, executionEvidence: [] } : visibleSnapshot}
+            liveRuntimeEvents={model.controls.liveEvidence ? visibleSnapshot.executionEvidence.map(liveRuntimeEventFromExecutionEvidence) : undefined}
             workspaceEntrySnapshotReady={!model.controls.holdEntrySnapshot}
             openCoverage={params.has('windowed') ? openCoverage : null} projectName="rovai-ai" agents={profiles as any}
             installations={installations as any} initialComposerDraft={state.draft} busy={state.busy}

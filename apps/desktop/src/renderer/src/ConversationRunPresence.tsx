@@ -10,18 +10,19 @@ import { MemberAvatar } from './MemberAvatar'
 import { conversationRunPresence, runPresencePreview } from './conversation-run-presence'
 import { identityColorToken } from './theme'
 import { uiAttribute, useInterfaceLanguage } from './interface-language'
-import { buildLiveExecutionProgress, liveRuntimeEventFromExecutionEvidence, type LiveExecutionProgress } from './ui-model'
+import { buildLiveExecutionProgress, type LiveRuntimeEvent } from './ui-model'
+import { groupExecutionEventsByRunId } from './execution-events'
 import { useExecutionWindow } from './useExecutionWindow'
 import type { AgentRunStopViewState } from './ThreadWorkspace'
 import './conversation-run-presence.css'
 
-export function ConversationRunPresence({ snapshot, snapshotReady, messages, precedingOutputRunId, profiles, progressByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
+export function ConversationRunPresence({ snapshot, snapshotReady, messages, precedingOutputRunId, profiles, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
   snapshot: ThreadSnapshot
   snapshotReady: boolean
   messages: ThreadSnapshot['messages']
   precedingOutputRunId?: string | null
   profiles: readonly AgentProfile[]
-  progressByRunId: ReadonlyMap<string, LiveExecutionProgress>
+  eventsByRunId: ReadonlyMap<string, LiveRuntimeEvent[]>
   windowedEvidence: boolean
   stopState(run: AgentRunView): AgentRunStopViewState
   onStop(run: AgentRunView): Promise<void>
@@ -86,7 +87,7 @@ export function ConversationRunPresence({ snapshot, snapshotReady, messages, pre
             {!continuation && <div className="bubble-meta"><strong>{name}</strong></div>}
             <div className="run-presence-line">
               <RunPresenceOpen threadId={snapshot.thread.id} run={run} name={name} description={description}
-                windowedEvidence={windowedEvidence} progress={progressByRunId.get(run.id)} onOpen={onOpen} />
+                windowedEvidence={windowedEvidence} events={eventsByRunId.get(run.id)} onOpen={onOpen} />
               {(canStop || canRetry) && <span className="run-presence-guide" aria-hidden="true" />}
               {canStop && <button className="run-presence-stop" type="button" disabled={state !== 'available'}
                 title={state === 'confirming' ? uiAttribute('正在确认停止结果') : uiAttribute('停止{0}的本次执行', name)}
@@ -124,20 +125,23 @@ export function ConversationRunPresence({ snapshot, snapshotReady, messages, pre
   </>
 }
 
-function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, progress, onOpen }: {
+function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, events, onOpen }: {
   threadId: string
   run: AgentRunView
   name: string
   description: string
   windowedEvidence: boolean
-  progress?: LiveExecutionProgress
+  events?: LiveRuntimeEvent[]
   onOpen(agentId: string, trigger: HTMLButtonElement, options: { runId: string }): void
 }): React.JSX.Element {
-  const tail = useExecutionWindow(windowedEvidence && run.status === 'running', threadId, run, progress, null, true)
-  const restored = useMemo(() => tail.evidence.length
-    ? buildLiveExecutionProgress(tail.evidence.map(liveRuntimeEventFromExecutionEvidence), run.id, { includePublicResults: false })
-    : null, [tail.evidence, run.id])
-  const preview = runPresencePreview(run, restored ?? progress)
+  const tail = useExecutionWindow(windowedEvidence && run.status === 'running', threadId, run, events, null, true)
+  const progress = useMemo(() => {
+    // Reconcile evidence by identity/revision before projecting a line. A late
+    // restored page must not replace newer live text or a newly started command.
+    const merged = groupExecutionEventsByRunId([{ id: run.id }], tail.evidence, windowedEvidence ? events?.slice(-48) ?? [] : events ?? [])
+    return buildLiveExecutionProgress(merged.get(run.id) ?? [], run.id, { includePublicResults: false })
+  }, [tail.evidence, events, run.id, windowedEvidence])
+  const preview = runPresencePreview(run, progress)
   return <button className={`run-presence-open is-${preview.kind}`} type="button" data-preview-kind={preview.kind}
     title={uiAttribute('查看执行过程')} aria-label={`${name}，${preview.text}，${description}`}
     onClick={event => onOpen(run.agentId, event.currentTarget, { runId: run.id })}>

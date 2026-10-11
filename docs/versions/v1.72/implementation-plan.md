@@ -1569,7 +1569,7 @@ Rust workspace（460 通过、1 既有忽略）、continuation 扩展 5 项、th
 
 ## 会话内队员占位
 
-初版在 User 确认 v5 HTML 后授权独立 worktree 实现。下列保留初版验证记录；当前增量见本节末尾「停止区分隔与重试恢复」。基线 `f9acc2395283d49f0ce247dc0af2207c155f6eb6`；
+初版在 User 确认 v5 HTML 后授权独立 worktree 实现。下列保留初版验证记录；后续增量见本节「停止区分隔与重试恢复」及「单行进度读取恢复」。基线 `f9acc2395283d49f0ce247dc0af2207c155f6eb6`；
 分支 `rovai/teammate-presence-v5`，worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-teammate-presence-v5`。
 初版为 Renderer 增量，无需治理文档主线前置，不修改 Core 或模型上下文。
 状态 `ready`；验证后提交、推送上述分支，按 User 偏好不自动创建 PR，保留 worktree 供后续验收。
@@ -1603,7 +1603,7 @@ Skill Library 为其 `managed-skill-library/`；未安装、重启或改写日�
 
 在 `2890a04251774e348f01444f60eb9bc4bf777ccf` 上继续使用原 worktree 和分支，按 User 选定的 v10
 「停止区分隔」实现；随后按 User 修正恢复 v8 默认中性色、悬浮红色的停止按钮。
-当前合同为 [Run Process Detail Surface v48](../../contracts/run-process-detail-surface-v48.md)。
+该次合同为 [Run Process Detail Surface v48](../../contracts/run-process-detail-surface-v48.md)。
 
 - 透明行内增加 1px × 16px 操作区分隔，36px 行高、34px 内容入口、26px 停止按钮；粗指针扩大为 44px 目标。
   进行中图标使用执行台颜色与动画，停止图标提取为共用组件。保留单行流式省略、消息顺序和原复制／回复显隐。
@@ -1630,3 +1630,25 @@ Skill Library 为其 `managed-skill-library/`；未安装、重启或改写日�
 截图与浏览器报告保存在 worktree 的 `docs/prototypes/run-presence-divider-implementation/`（忽略的生成物）。
 浏览器使用生产 React 组件和模拟服务端记录；Core 测试使用隔离数据库。这次未运行真实 Runtime，未安装或重启日常 App。
 完成后提交并推送原分支，按 User 偏好不自动创建 PR，保留 worktree。
+
+### 单行进度读取恢复（2026-10-11）
+
+在固定提交 `63c3f2be1dea1be0b5de729a53f033dbdc2033fc` 上复现：首次 page 失败后，连续三次
+refresh 不再请求；首次 page 在途期间收到更新也被丢弃。User 随后授权在原 worktree 修复。
+当前边界为 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)。
+
+- `ExecutionWindow` 先记录在途失效，再判断是否已有数据。活动尾窗首次失败可由新更新或连接
+  resync 重新读取；多个在途更新合并为一次补拉，持续失败不自行循环。未读取窗口保持冷态，
+  执行台历史分页仍保留显式重试及方向／游标，释放窗口清除待刷新并隔离迟到回执。
+- 单行预览与 Thread 复用同一 Evidence 合并函数，先按身份／版本／流式增长合并，再投影内容；
+  移除旧恢复结果优先于全部实时进度的选择，避免正文回退，并拒绝旧版本流式事件覆盖新恢复记录。
+- 没有 CSS、按钮或 Core 改动；排队、完成展示、已受理重试收起及 v8 默认停止色保持。
+
+验证：`pnpm typecheck` 通过；`pnpm test` 为 241 个 Vitest 文件、2627 项用例通过，另有
+339 项 Node 测试通过、2 项平台跳过。新增读取类测试覆盖失败后恢复、慢首读补拉、持续失败不循环
+和释放后不补拉；Evidence 合并测试覆盖新旧版本两种方向及同版本流式增长。
+
+`pnpm test:run-presence-ui` 使用生产 React 组件和受控服务读取，验证无 Run 字段变化的重连原位恢复、
+慢首读后无须新通知即可追上、补拉延迟时新实时正文不回退；原 37 个场景阶段与按钮／重试回归通过。
+`execution-state-transition` 浏览器回归、`pnpm build:desktop` 及文档通用门禁通过。
+本次没有运行桌面包或真实 Runtime；验证不依赖启动或修改日常 App。

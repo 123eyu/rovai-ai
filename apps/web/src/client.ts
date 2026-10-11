@@ -12,7 +12,7 @@ class HttpRequestError extends Error {
 }
 
 function sessionStorageMessage(body: { error?: { code?: string; message?: string } }): string | undefined {
-  return body.error?.code === 'session_storage_unavailable' && typeof body.error.message === 'string'
+  return body?.error?.code === 'session_storage_unavailable' && typeof body.error.message === 'string'
     ? body.error.message : undefined
 }
 

@@ -22,7 +22,47 @@ loopback 服务，没有访问日常 Core 数据、原生账号或真实模型�
 - Pi、ZCode 和 Fleet 只允许同一 Camp、队员、当前会话内复用；工作目录兼容、停止例外、租约和后台路由继续保留。
 - Camp 队员操作提供“重置队员会话”。紧凑 JSON 编辑器保留遮蔽、显隐、保存/放弃，显示两条固定双语提示，没有检查连接和组合确认。
 
-## 本次验收证据
+## 7c6f735ba 后的环境来源与协议脱敏修正
+
+本次是 v58 的实现勘误，不改变会话固定环境、显式重置或进程归属，也不恢复环境 digest、凭据组合确认或自动失效。
+
+- Grok 的继承环境改读统一的运行环境访问器。正式会话读取完整快照，快照缺项不从当前 Host 补充；
+  非会话检查读取自己的检查环境。原生 `.env`、`config.toml` 的解析、优先级和兼容性规则保持原范围。
+- ACP、Codex、Pi 的原始响应先完成匹配、Session 路由与工具执行；Claude 控制请求与流解析、Antigravity
+  会话校验也保留原文。脱敏在诊断、最终文本、公开 Evidence 等输出边界生成副本。
+  Claude 的输出消费端保留脱敏器直到队列排空；ZCode 后台消息继续携带原始归属，展示副本另行处理。
+- `CredentialRedactor` 不再提供公开的原地 JSON 修改接口。队员编辑器仍保守遮蔽敏感名称，
+  输出替换列表只采用凭据名称；`AUTH_ENABLED`、`TOKEN_LIMIT`、`KEY_PATH` 等普通配置不进入替换列表。
+  真实短凭据仍脱敏，证明本次没有用“忽略短值”代替协议边界修正。
+- 能力探测保留内部能力与 Session 数据，仅遮蔽诊断文案，避免通过序列化、替换、反序列化改坏状态枚举或字段名。
+
+沿用既有测试 owner，没有新增平行 fixture 或退役测试：
+
+| owner | 本次增加的断言与修复前失败输入 |
+| --- | --- |
+| `acp::tests::grok_official_model_config_resolves_only_referenced_secure_environment` | 隔离测试进程提供与快照不同的 Host 密钥，以及旧快照没有的新 Host 项。经过通用注入和 Grok 专属处理后，真实 ManagedProcess 子进程读取到快照值/缺项；显式提供的新快照可读取新值，原生文件的既有覆盖仍成立。仅检查快照对象无法发现旧代码后写 Host 的问题。 |
+| `acp::tests::kimi_038_fixture_uses_the_standard_terminal_wire_lifecycle` | `AUTH_ENABLED=1` 与测试密钥并存；Session ID、终端执行参数和输出故意包含测试密钥，实际协议往返必须原样成功。诊断/错误详情及展示副本隐藏密钥，原对象不变。仅过滤短值仍不能通过此例。 |
+| `member_environment::tests::private_versions_preserve_credentials_and_freeze_retries_across_reopen` | 继续拥有保存、重开数据库、重置与缺失快照拒绝的合同；追加普通配置不误替换、真实短凭据仍隐藏的矩阵。 |
+| `runtime_custom_api::tests::native_sources_are_read_only_and_keep_secrets_out_of_snapshots` | 展示副本递归隐藏测试密钥，包含密钥的原始字段名和值保持原样。 |
+| `claude_control::tests::native_decisions_are_serialized_by_id_and_close_only_after_the_last_idle_result` | 权限工具 ID 与命令包含测试秘密时，原生控制请求与后续响应仍保持原值和原有关闭时序。 |
+
+Grok 的测试负责最终启动边界，持久化与重置仍由已有会话环境 owner 负责；本轮不将合成 CLI 验收描述为真实 Grok Provider 或账号验收。
+
+本次定向回归命令（包括现有冷恢复、重置和协议生命周期 owner）：
+
+```bash
+cargo test -p rovai-core --features extended-tests --lib -- \
+  acp::tests member_environment::tests runtime_custom_api::tests \
+  claude::tests claude_control::tests codex::tests pi:: antigravity::tests health::tests \
+  application::tests::runtime_delta_batching_is_bounded_and_stops_at_durable_boundaries
+```
+
+结果为 **194 通过、0 失败、7 项既有真实 Runtime/人工验收忽略**。
+`pnpm test:rust:pr` 的默认 workspace 为 **465 通过、0 失败、1 项既有人工测试忽略**。
+首次定向回归发现 Claude 非零退出且空 stderr 的结构化错误仍含合成密钥，已在最终错误文本出口修正，
+原有凭据不泄漏断言与上述最终回归均通过。没有削弱或跳过失败断言。
+
+## 会话环境版本的既有验收证据
 
 - `cargo test -p rovai-core --features extended-tests --lib member_environment::tests`：3 个扩展 owner 通过。
   其中实际 ManagedProcess 子进程并行验证不同凭据、字面量、父进程不变；保存后重开 SQLite 再创建新 PID，

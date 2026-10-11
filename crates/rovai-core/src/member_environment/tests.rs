@@ -145,6 +145,30 @@ fn private_versions_preserve_credentials_and_freeze_retries_across_reopen() {
             .text("failure: fixture-host-a")
             .contains("fixture-host-a")
     );
+    // Editor masking stays conservative; output scrubbing only treats credential
+    // names as secrets, even when a real credential is a short literal.
+    let mut display_env = env.clone();
+    let values = display_env.values.as_mut().unwrap();
+    for (name, value) in [
+        ("AUTH_ENABLED", "1"),
+        ("TOKEN_LIMIT", "2048"),
+        ("KEY_PATH", "/tmp/keys"),
+        ("AUTH_MODE", "bearer"),
+        ("XAI_API_KEY", "x"),
+    ] {
+        values.insert(name.into(), value.into());
+    }
+    let redactor = display_env.redactor();
+    let original = json!({"sessionId":"session-1", "flag":"1", "limit":"2048",
+        "path":"/tmp/keys", "mode":"bearer", "secret":"x", "known":"fixture-host-a"});
+    let displayed = redactor.redacted_value(&original);
+    for field in ["sessionId", "flag", "limit", "path", "mode"] {
+        assert_eq!(displayed[field], original[field]);
+    }
+    assert_eq!(displayed["secret"], "[redacted]");
+    assert_eq!(displayed["known"], "[redacted]");
+    assert_eq!(original["secret"], "x");
+    assert!(sensitive("AUTH_ENABLED"));
     assert!(!format!("{recovered:?}").contains("fixture-host-a"));
     // Same member in a new Camp gets current values, independently from its old Camp.
     let mut fresh = runtime(AdapterKind::Pi);

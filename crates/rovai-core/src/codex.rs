@@ -488,7 +488,7 @@ impl CodexHost {
             loop {
                 match lines.next_line().await {
                     Ok(Some(line)) if !line.trim().is_empty() => {
-                        let mut message = match serde_json::from_str::<Value>(&line) {
+                        let message = match serde_json::from_str::<Value>(&line) {
                             Ok(message) => message,
                             Err(error) => {
                                 host.broadcast_stderr(format!(
@@ -498,9 +498,6 @@ impl CodexHost {
                                 continue;
                             }
                         };
-                        if let Some(redactor) = &host.credential_redactor {
-                            redactor.value(&mut message);
-                        }
                         // Keep routing and queue insertion atomic with cancellation's
                         // unbind + ingress barrier. Otherwise cancellation could enqueue
                         // its barrier after routing selected an owner but before this
@@ -512,11 +509,12 @@ impl CodexHost {
                             let id = message["id"].as_u64().expect("checked above");
                             if let Some(pending) = host.pending.lock().await.remove(&id) {
                                 let mut response = if let Some(error) = message.get("error") {
-                                    Err(error
-                                        .get("message")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("Codex request failed")
-                                        .to_string())
+                                    Err(host.redact_text(
+                                        error
+                                            .get("message")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or("Codex request failed"),
+                                    ))
                                 } else {
                                     Ok(message.get("result").cloned().unwrap_or(Value::Null))
                                 };
@@ -657,15 +655,18 @@ impl CodexHost {
     }
 
     async fn broadcast_stderr(&self, text: String) {
-        let text = self
-            .credential_redactor
-            .as_ref()
-            .map_or_else(|| text.clone(), |redactor| redactor.text(&text));
+        let text = self.redact_text(&text);
         for owner in self.owners().await {
             let _ = self
                 .incoming
                 .send(owner.stderr(&self.host_instance_id, text.clone()));
         }
+    }
+
+    fn redact_text(&self, text: &str) -> String {
+        self.credential_redactor
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |redactor| redactor.text(text))
     }
 
     pub(crate) fn host_instance_id(&self) -> &str {
@@ -853,6 +854,17 @@ pub struct CodexAgentThreadOptions<'a> {
 }
 
 impl CodexRuntime {
+    pub(crate) fn redact_output(&self, value: &Value) -> Value {
+        self.host
+            .credential_redactor
+            .as_ref()
+            .map_or_else(|| value.clone(), |redactor| redactor.redacted_value(value))
+    }
+
+    pub(crate) fn redact_text(&self, text: &str) -> String {
+        self.host.redact_text(text)
+    }
+
     fn from_host(
         owner: CodexRuntimeOwner,
         camp_id: Option<String>,
@@ -1196,10 +1208,10 @@ impl CodexRuntime {
 
     pub async fn final_agent_message(&self) -> Option<String> {
         if let Some(message) = self.completed_agent_message.read().await.clone() {
-            return Some(message);
+            return Some(self.redact_text(&message));
         }
         let streamed = self.streamed_agent_text.lock().await.trim().to_string();
-        (!streamed.is_empty()).then_some(streamed)
+        (!streamed.is_empty()).then(|| self.redact_text(&streamed))
     }
 
     pub fn agent_run_epoch(&self) -> Option<i64> {

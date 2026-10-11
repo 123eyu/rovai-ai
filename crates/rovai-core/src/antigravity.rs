@@ -1295,11 +1295,8 @@ async fn process_antigravity_stream_line(
     capture: &mut AntigravityStreamCapture,
     log_path: &Path,
 ) -> Result<()> {
-    let mut event: Value =
+    let event: Value =
         serde_json::from_slice(line).context("Antigravity emitted invalid stream JSON")?;
-    if let Some(redactor) = &capture.credential_redactor {
-        redactor.value(&mut event);
-    }
     match event.get("event").and_then(Value::as_str) {
         Some("init") => {
             let conversation_id = antigravity_event_conversation_id(&event, "init")?;
@@ -1389,7 +1386,11 @@ async fn process_antigravity_stream_line(
                         payload: serde_json::to_value(images)?,
                     });
                 }
-                let _ = sender.send(runtime_event);
+                let mut public_event = runtime_event;
+                if let Some(redactor) = &capture.credential_redactor {
+                    public_event.payload = redactor.redacted_value(&public_event.payload);
+                }
+                let _ = sender.send(public_event);
             }
         }
         Some("result") => {

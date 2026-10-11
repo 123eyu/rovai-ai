@@ -187,14 +187,20 @@ impl CredentialRedactor {
             .filter(|key| !key.is_empty())
             .fold(text.to_owned(), |text, key| text.replace(key, "[redacted]"))
     }
-    pub fn value(&self, value: &mut Value) {
+    /// Produce a display/log copy. Protocol routing and execution must keep the original value.
+    pub fn redacted_value(&self, value: &Value) -> Value {
+        let mut copy = value.clone();
+        self.scrub_value(&mut copy);
+        copy
+    }
+    fn scrub_value(&self, value: &mut Value) {
         match value {
             Value::String(text) => *text = self.text(text),
-            Value::Array(items) => items.iter_mut().for_each(|item| self.value(item)),
+            Value::Array(items) => items.iter_mut().for_each(|item| self.scrub_value(item)),
             Value::Object(object) => {
                 let old = std::mem::take(object);
                 for (name, mut item) in old {
-                    self.value(&mut item);
+                    self.scrub_value(&mut item);
                     object.insert(self.text(&name), item);
                 }
             }

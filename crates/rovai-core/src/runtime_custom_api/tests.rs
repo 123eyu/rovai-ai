@@ -70,8 +70,9 @@ fn native_sources_are_read_only_and_keep_secrets_out_of_snapshots() {
             let restored: CustomApiSnapshot = serde_json::from_str(&encoded).unwrap();
             assert_eq!(snapshot.identity().unwrap(), restored.identity().unwrap());
             if let Some(key) = key {
-                let mut echo = json!({key:[format!("prefix {key} suffix")]});
-                snapshot.redactor().unwrap().value(&mut echo);
+                let original = json!({key:[format!("prefix {key} suffix")]});
+                let echo = snapshot.redactor().unwrap().redacted_value(&original);
+                assert_eq!(original, json!({key:[format!("prefix {key} suffix")]}));
                 assert!(!echo.to_string().contains(key));
                 assert!(echo.to_string().contains("[redacted]"));
                 let changed = if contents.contains(key) {

@@ -145,6 +145,25 @@ pub fn sensitive(name: &str) -> bool {
         .iter()
         .any(|word| name.contains(word))
 }
+
+// Mask the editor conservatively, but only credential-bearing names contribute
+// values to output scrubbing. AUTH_ENABLED, TOKEN_LIMIT and KEY_PATH are settings,
+// not secrets; their values must not become global replacement patterns.
+fn credential_variable(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    [
+        "KEY",
+        "TOKEN",
+        "SECRET",
+        "PASSWORD",
+        "CREDENTIAL",
+        "CREDENTIALS",
+        "AUTHORIZATION",
+    ]
+    .iter()
+    .any(|suffix| name == *suffix || name.ends_with(&format!("_{suffix}")))
+        || name.ends_with("_ACCESS_KEY_ID")
+}
 fn context(member: &str, kind: AdapterKind, revision: i64) -> String {
     format!("member:{member}:{}:{revision}", kind.as_str())
 }
@@ -592,7 +611,7 @@ impl FrozenEnvironment {
             self.values
                 .iter()
                 .flat_map(|values| values.iter())
-                .filter(|(name, _)| sensitive(name))
+                .filter(|(name, _)| credential_variable(name))
                 .map(|(_, value)| value.clone())
                 .collect(),
         )

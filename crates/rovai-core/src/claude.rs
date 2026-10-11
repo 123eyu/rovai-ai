@@ -1082,7 +1082,12 @@ impl ClaudeCodeCliRuntimeAdapter {
             }
         }
         let status = status.expect("Claude Code root status was collected");
-        let stdout = stdout.expect("Claude Code stdout was collected");
+        let mut stdout = stdout.expect("Claude Code stdout was collected");
+        // Only final display/error text is scrubbed. Session IDs and parsed
+        // protocol state have already been consumed unchanged.
+        if let Some(output) = stdout.final_result.as_mut() {
+            output.result = protocol.redact_text(&output.result);
+        }
         let stderr = stderr.expect("Claude Code stderr was collected");
         if !status.success() {
             let raw_stderr = protocol.redact_text(&String::from_utf8_lossy(&stderr.bytes));
@@ -1558,9 +1563,8 @@ fn process_claude_protocol_line(
         if protocol.route(&event)? {
             return Ok(());
         }
-        let public_line = protocol.redact_frame(&event)?;
         process_claude_stream_line(
-            &public_line,
+            line,
             expected_session_id,
             native_turn_id,
             input_accepted,

@@ -6169,6 +6169,7 @@ impl Core {
         &self,
         source: &AgentRunExecution,
         payload: &Value,
+        output_redactor: &rovai_core::runtime_custom_api::CredentialRedactor,
     ) -> Result<()> {
         let execution = {
             let database = self.database.lock().await;
@@ -6232,6 +6233,7 @@ impl Core {
                 preparation.result.code
             );
         }
+        let reason = reason.as_deref().map(|text| output_redactor.text(text));
         emit(
             &self.output,
             "action.prepared",
@@ -15963,6 +15965,26 @@ impl Core {
         let (runtime_event_sender, mut runtime_event_receiver) = mpsc::unbounded_channel();
         let (launch_handoff_sender, mut launch_handoff_receiver) = oneshot::channel();
         let (input_ready_sender, mut input_ready_receiver) = mpsc::unbounded_channel();
+        // Keep the display scrubber with the consumer until its queue is drained,
+        // including events delivered after the CLI process has already exited.
+        let output_redactor = execution
+            .runtime
+            .environment
+            .as_ref()
+            .map(|env| env.redactor())
+            .unwrap_or_else(|| {
+                rovai_core::runtime_custom_api::CredentialRedactor::from_values(Vec::new())
+            })
+            .extend(
+                execution
+                    .runtime
+                    .custom_api
+                    .as_ref()
+                    .and_then(|api| api.redactor().ok())
+                    .unwrap_or_else(|| {
+                        rovai_core::runtime_custom_api::CredentialRedactor::from_values(Vec::new())
+                    }),
+            );
         let run = self.claude_code_cli.run(ClaudeCodeRunRequest {
             agent_run_id: execution.agent_run_id.clone(),
             execution_epoch: execution.execution_epoch,
@@ -16186,7 +16208,7 @@ impl Core {
                             continue;
                         };
                         if let Err(error) = self.process_claude_runtime_event(
-                            execution, output, builtin_tools.run_tmp(), &runtime_event,
+                            execution, output, builtin_tools.run_tmp(), &runtime_event, &output_redactor,
                         ).await {
                             eprintln!(
                                 "failed to persist Claude Code Runtime Evidence for AgentRun {}: {error:#}",
@@ -16199,7 +16221,7 @@ impl Core {
             };
             while let Ok(runtime_event) = runtime_event_receiver.try_recv() {
                 if let Err(error) = self.process_claude_runtime_event(
-                    execution, output, builtin_tools.run_tmp(), &runtime_event,
+                    execution, output, builtin_tools.run_tmp(), &runtime_event, &output_redactor,
                 ).await {
                     eprintln!(
                         "failed to persist queued Claude Code Runtime Evidence for AgentRun {}: {error:#}",
@@ -16367,6 +16389,7 @@ impl Core {
         output: &mpsc::UnboundedSender<String>,
         managed_output_root: &Path,
         event: &claude::ClaudeCodeRuntimeEvent,
+        output_redactor: &rovai_core::runtime_custom_api::CredentialRedactor,
     ) -> Result<()> {
         if event.event_type == "runtime.fast.initialized" {
             record_runtime_fast_default(
@@ -16396,7 +16419,7 @@ impl Core {
         }
         if event.event_type == "claude.permission_request" {
             if let Err(error) = self
-                .prepare_claude_permission_action(execution, &event.payload)
+                .prepare_claude_permission_action(execution, &event.payload, output_redactor)
                 .await
             {
                 if let Some(runtime) = self
@@ -16435,6 +16458,7 @@ impl Core {
             },
             event.event_type,
             &event.payload,
+            Some(output_redactor),
         )
         .await
     }
@@ -17001,6 +17025,7 @@ impl Core {
                             },
                             runtime_event.event_type,
                             &runtime_event.payload,
+                            None,
                         ).await {
                             eprintln!(
                                 "failed to persist Antigravity Runtime Evidence for AgentRun {}: {error:#}",
@@ -17024,6 +17049,7 @@ impl Core {
                     },
                     runtime_event.event_type,
                     &runtime_event.payload,
+                    None,
                 )
                 .await
                 {
@@ -19741,6 +19767,7 @@ struct AcpRuntimeDeltaMessage {
 
 fn prepare_codex_delta_batch(
     messages: &[Value],
+    redact_output: impl Fn(&Value) -> Value,
 ) -> Result<Option<Vec<PreparedRuntimeDeltaMessage>>> {
     let mut total_bytes = 0_usize;
     let mut prepared = Vec::with_capacity(messages.len());
@@ -19761,7 +19788,7 @@ fn prepare_codex_delta_batch(
             return Ok(None);
         }
         let Some(evidence) =
-            ExecutionEvidenceService.prepare_runtime_event(event_type, &payload)?
+            ExecutionEvidenceService.prepare_runtime_event(event_type, &redact_output(&payload))?
         else {
             return Ok(None);
         };
@@ -19787,6 +19814,7 @@ fn prepare_codex_delta_batch(
 fn prepare_acp_delta_batch(
     adapter_kind: AdapterKind,
     messages: &[AcpRuntimeDeltaMessage],
+    redact_output: impl Fn(&Value) -> Value,
 ) -> Result<Option<Vec<PreparedRuntimeDeltaMessage>>> {
     let mut total_bytes = 0_usize;
     let mut prepared = Vec::with_capacity(messages.len());
@@ -19803,7 +19831,7 @@ fn prepare_acp_delta_batch(
             return Ok(None);
         }
         let Some(evidence) =
-            ExecutionEvidenceService.prepare_runtime_event(event_type, &payload)?
+            ExecutionEvidenceService.prepare_runtime_event(event_type, &redact_output(&payload))?
         else {
             return Ok(None);
         };
@@ -20243,6 +20271,7 @@ async fn process_agent_run_pi_message(
         .await;
     }
     for (event_type, payload) in runtime.normalize_events(&message).await {
+        let payload = runtime.redact_output(&payload);
         if event_type != "runtime.usage" {
             let evidence = persist_runtime_evidence(
                 core,
@@ -20919,10 +20948,14 @@ async fn process_acp_events(
                 execution_epoch,
                 registration,
                 message,
+                redactor,
             } => {
                 let params = &message["params"];
                 let (_, mut payload) =
                     normalize_acp_event(AdapterKind::ZcodeApp, "session/update", params);
+                if let Some(redactor) = redactor {
+                    payload = redactor.redacted_value(&payload);
+                }
                 let mut identity = params["background"].clone();
                 let status = identity.as_object_mut().and_then(|v| v.remove("status"));
                 let result = async {
@@ -21285,7 +21318,20 @@ async fn process_agent_run_acp_delta_batch(
     messages: Vec<AcpRuntimeDeltaMessage>,
     runtime_route_permit: &mut rovai_core::planned_shutdown::RuntimeRoutePermit,
 ) {
-    let prepared = match prepare_acp_delta_batch(adapter_kind, &messages) {
+    let Some(runtime) = acp_runtime_on_host(
+        core,
+        adapter_kind,
+        host_instance_id,
+        agent_run_id,
+        execution_epoch,
+    )
+    .await
+    else {
+        return;
+    };
+    let prepared = match prepare_acp_delta_batch(adapter_kind, &messages, |value| {
+        runtime.redact_output(value)
+    }) {
         Ok(Some(prepared)) => prepared,
         Ok(None) => {
             for incoming in messages {
@@ -21330,17 +21376,6 @@ async fn process_agent_run_acp_delta_batch(
             }
             return;
         }
-    };
-    let Some(runtime) = acp_runtime_on_host(
-        core,
-        adapter_kind,
-        host_instance_id,
-        agent_run_id,
-        execution_epoch,
-    )
-    .await
-    else {
-        return;
     };
     let Some(first) = messages.first() else {
         return;
@@ -21656,7 +21691,7 @@ async fn process_agent_run_acp_message(
                 execution_epoch,
                 None,
                 "agent.thinking.title",
-                &intent,
+                &runtime.redact_output(&intent),
             )
             .await
             {
@@ -21729,6 +21764,7 @@ async fn process_agent_run_acp_message(
     if event_type == "runtime.usage" {
         return;
     }
+    let payload = runtime.redact_output(&payload);
     let evidence = match persist_runtime_evidence(
         core,
         agent_run_id,
@@ -22245,6 +22281,7 @@ async fn process_runtime_event(
     scope: RuntimeEventScope<'_>,
     event_type: &str,
     payload: &Value,
+    output_redactor: Option<&rovai_core::runtime_custom_api::CredentialRedactor>,
 ) -> Result<()> {
     let Some(_runtime_route_permit) = core.planned_shutdown.enter_runtime_route().await else {
         return Ok(());
@@ -22331,13 +22368,19 @@ async fn process_runtime_event(
         .await?;
         return Ok(());
     }
+    // Routing, native observations and image ingestion above consume raw data.
+    // Only this independently stored/displayed evidence payload is redacted.
+    let public_payload = output_redactor.map_or_else(
+        || payload.clone(),
+        |redactor| redactor.redacted_value(payload),
+    );
     let Some(evidence) = persist_runtime_evidence(
         core,
         scope.agent_run_id,
         scope.execution_epoch,
         scope.managed_output_root,
         event_type,
-        payload,
+        &public_payload,
     )
     .await?
     else {
@@ -22809,7 +22852,7 @@ async fn process_agent_run_acp_approval_request(
             "agentRunId": agent_run_id,
             "executionEpoch": execution_epoch,
             "nativeMethod": "session/request_permission",
-            "reason": request_reason,
+            "reason": request_reason.as_deref().map(|text| runtime.redact_text(text)),
             "result": preparation.result,
             "replayed": preparation.replayed,
         }),
@@ -22837,7 +22880,7 @@ async fn reject_acp_request(
             "agentRunId": agent_run_id,
             "executionEpoch": execution_epoch,
             "nativeMethod": "session/request_permission",
-            "reason": reason,
+            "reason": runtime.redact_text(reason),
         }),
     );
     Ok(())
@@ -23656,7 +23699,15 @@ async fn process_agent_run_codex_delta_batch(
     messages: Vec<Value>,
     runtime_route_permit: &mut rovai_core::planned_shutdown::RuntimeRoutePermit,
 ) {
-    let prepared = match prepare_codex_delta_batch(&messages) {
+    let Some(runtime) = core
+        .codex_cli
+        .get_agent_run_on_host(host_instance_id, agent_run_id, execution_epoch)
+        .await
+    else {
+        return;
+    };
+    let prepared = match prepare_codex_delta_batch(&messages, |value| runtime.redact_output(value))
+    {
         Ok(Some(prepared)) => prepared,
         Ok(None) => {
             for message in messages {
@@ -23691,13 +23742,6 @@ async fn process_agent_run_codex_delta_batch(
             }
             return;
         }
-    };
-    let Some(runtime) = core
-        .codex_cli
-        .get_agent_run_on_host(host_instance_id, agent_run_id, execution_epoch)
-        .await
-    else {
-        return;
     };
     let evidence = match persist_prepared_runtime_evidence_batch(
         core,
@@ -23901,6 +23945,7 @@ async fn process_agent_run_codex_message(
                 },
                 "runtime.fast.observed",
                 &json!({"state": state, "observedServiceTier": tier}),
+                None,
             )
             .await;
         }
@@ -23944,6 +23989,7 @@ async fn process_agent_run_codex_message(
     }
     let (event_type, payload) = codex::normalize_event(&method, &params);
     runtime.observe_agent_message(&method, &params).await;
+    let payload = runtime.redact_output(&payload);
     let evidence = match persist_runtime_evidence(
         core,
         agent_run_id,
@@ -24109,7 +24155,7 @@ async fn process_agent_run_codex_message(
                     &ManagedBlobStore::new(&core.data_dir),
                     agent_run_id,
                     execution_epoch,
-                    &payload,
+                    &runtime.redact_output(&payload),
                     runtime
                         .builtin_tool_process_config()
                         .map(BuiltinToolProcessConfig::run_tmp),
@@ -24143,10 +24189,14 @@ async fn process_agent_run_codex_message(
     {
         eprintln!("failed to flush Codex monitoring for AgentRun {agent_run_id}: {error:#}");
     }
-    let missing_send_recovery_candidate = completed.final_agent_message.clone().map(|body| {
+    let completed_message = completed
+        .final_agent_message
+        .as_deref()
+        .map(|text| runtime.redact_text(text));
+    let missing_send_recovery_candidate = completed_message.clone().map(|body| {
         MissingSendRecoveryCandidate::new(MissingSendRecoveryBoundary::CodexCompletedTurn, body)
     });
-    let final_agent_message = match completed.final_agent_message.clone() {
+    let final_agent_message = match completed_message {
         Some(message) => Some(message),
         None => runtime.final_agent_message().await,
     };
@@ -24182,7 +24232,8 @@ async fn process_agent_run_codex_message(
             completed.turn_id, completed.status
         ),
     };
-    let public_failure = (planned_outcome == RuntimeTerminalOutcome::Failed).then(|| {
+    let error_detail = runtime.redact_text(&error_detail);
+    let mut public_failure = (planned_outcome == RuntimeTerminalOutcome::Failed).then(|| {
         if completed.status == "failed" {
             rovai_core::runtime_failure::public_codex_terminal_failure(
                 &base_error_code,
@@ -24201,6 +24252,12 @@ async fn process_agent_run_codex_message(
             )
         }
     });
+    if let Some(failure) = &mut public_failure {
+        failure.detail = failure
+            .detail
+            .as_deref()
+            .map(|detail| runtime.redact_text(detail));
+    }
     let error_code = public_failure
         .as_ref()
         .map(|failure| failure.code.clone())
@@ -24635,7 +24692,7 @@ async fn process_agent_run_approval_request(
             "agentRunId": server_request.agent_run_id,
             "executionEpoch": server_request.execution_epoch,
             "nativeMethod": server_request.method,
-            "reason": request_reason,
+            "reason": request_reason.as_deref().map(|text| runtime.redact_text(text)),
             "result": preparation.result,
             "replayed": preparation.replayed,
         }),
@@ -24748,7 +24805,7 @@ async fn reject_agent_run_approval_request(
             "agentRunId": request.agent_run_id,
             "executionEpoch": request.execution_epoch,
             "nativeMethod": request.method,
-            "reason": reason,
+            "reason": runtime.redact_text(reason),
         }),
     );
     Ok(())
@@ -28743,7 +28800,7 @@ done
             &id_bearing_output_delta
         ));
         assert!(
-            prepare_codex_delta_batch(std::slice::from_ref(&command_output_message))
+            prepare_codex_delta_batch(std::slice::from_ref(&command_output_message), Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28880,19 +28937,23 @@ done
         let CodexIncoming::Message { message, .. } = codex_delta else {
             unreachable!()
         };
-        assert!(prepare_codex_delta_batch(&[message]).unwrap().is_none());
+        assert!(
+            prepare_codex_delta_batch(&[message], Value::clone)
+                .unwrap()
+                .is_none()
+        );
         let mut item_bounded_batch = vec![
             json!({"method":"item/plan/delta","params":{"delta":"step"}});
             RUNTIME_EVIDENCE_DELTA_BATCH_MAX_ITEMS
         ];
         assert!(
-            prepare_codex_delta_batch(&item_bounded_batch)
+            prepare_codex_delta_batch(&item_bounded_batch, Value::clone)
                 .unwrap()
                 .is_some()
         );
         item_bounded_batch.push(item_bounded_batch[0].clone());
         assert!(
-            prepare_codex_delta_batch(&item_bounded_batch)
+            prepare_codex_delta_batch(&item_bounded_batch, Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28905,7 +28966,7 @@ done
             }
         });
         assert!(
-            prepare_codex_delta_batch(&[oversized_delta])
+            prepare_codex_delta_batch(&[oversized_delta], Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28917,7 +28978,7 @@ done
             unreachable!()
         };
         assert!(
-            prepare_codex_delta_batch(&[terminal_message])
+            prepare_codex_delta_batch(&[terminal_message], Value::clone)
                 .unwrap()
                 .is_none()
         );
@@ -28942,7 +29003,8 @@ done
                     delivery_id,
                     sequence,
                     message,
-                }]
+                }],
+                Value::clone,
             )
             .unwrap()
             .is_none()
@@ -28967,7 +29029,8 @@ done
                     delivery_id,
                     sequence,
                     message,
-                }]
+                }],
+                Value::clone,
             )
             .unwrap()
             .is_none()

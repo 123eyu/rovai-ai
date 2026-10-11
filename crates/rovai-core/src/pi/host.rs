@@ -633,7 +633,7 @@ impl PiHost {
                         break;
                     }
                 };
-                let mut message = match serde_json::from_slice::<Value>(&record) {
+                let message = match serde_json::from_slice::<Value>(&record) {
                     Ok(message) if message.is_object() => message,
                     _ => {
                         if !protocol_started {
@@ -672,9 +672,6 @@ impl PiHost {
                 };
                 protocol_started = true;
                 consecutive_malformed = 0;
-                if let Some(redactor) = &host.credential_redactor {
-                    redactor.value(&mut message);
-                }
                 if message.get("type").and_then(Value::as_str) == Some("response") {
                     let Some(id) = message.get("id").and_then(value_id) else {
                         host.emit_diagnostic("running", "Pi RPC response omitted its request id")
@@ -710,10 +707,13 @@ impl PiHost {
                     {
                         Ok(message)
                     } else {
-                        Err(message
-                            .get("error")
-                            .and_then(Value::as_str)
-                            .unwrap_or("Pi RPC command failed")
+                        Err(host
+                            .redact_text(
+                                message
+                                    .get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Pi RPC command failed"),
+                            )
                             .chars()
                             .take(2_000)
                             .collect())
@@ -779,13 +779,14 @@ impl PiHost {
             agent_run_id: owner.as_ref().map(|value| value.agent_run_id.clone()),
             execution_epoch: owner.as_ref().map(|value| value.execution_epoch),
             phase: phase.to_string(),
-            message: redact_pi_diagnostic(
-                &self
-                    .credential_redactor
-                    .as_ref()
-                    .map_or_else(|| message.to_string(), |redactor| redactor.text(message)),
-            ),
+            message: redact_pi_diagnostic(&self.redact_text(message)),
         });
+    }
+
+    fn redact_text(&self, text: &str) -> String {
+        self.credential_redactor
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |redactor| redactor.text(text))
     }
 
     async fn route_message(&self, message: Value) {
@@ -1364,6 +1365,13 @@ pub struct PiRuntime {
 }
 
 impl PiRuntime {
+    pub(crate) fn redact_output(&self, value: &Value) -> Value {
+        self.host
+            .credential_redactor
+            .as_ref()
+            .map_or_else(|| value.clone(), |redactor| redactor.redacted_value(value))
+    }
+
     fn from_host(
         owner: PiRuntimeOwner,
         camp_id: String,
@@ -1585,7 +1593,11 @@ impl PiRuntime {
 
     pub async fn terminal(&self) -> (Option<String>, Option<String>) {
         (
-            self.final_message.read().await.clone(),
+            self.final_message
+                .read()
+                .await
+                .as_ref()
+                .map(|text| self.host.redact_text(text)),
             self.final_stop_reason.read().await.clone(),
         )
     }

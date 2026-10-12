@@ -41,6 +41,8 @@ Pi locator 在既有 Camp/队员私有目录内按完整原生 Session UUID 分�
 ACP 保留既有 `AcpRpcError` 的机器字段与脱敏诊断至请求调用处。只有实际 `session/resume` / `session/load`
 返回的 `-32601` 表明该恢复方法不可用；若还有广告且 Adapter 支持的 load 方式，先以相同 ID 尝试一次。
 全部可用恢复方式均明确不可用时才给出降级结论；初始化、模型、MCP 或目录请求的同一码不获得该结论。
+用于判断的机器字段在内存中保留原值，凭据脱敏不能修改原因码、资源标识、Session ID 或项目路径。
+仅展示诊断脱敏；错误的 Debug 不输出原始机器字段，避免短凭据碰撞改变恢复结论或泄露字段内容。
 
 已验证的 Adapter 恢复拒绝保留机器信息：Copilot / Qwen 的对应恢复请求返回 ACP ResourceNotFound
 （`-32002`），且 `data.uri` 完整等于该 CLI 为请求 Session 定义的资源标识；URI 缺失或指向其他资源时

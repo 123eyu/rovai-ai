@@ -145,3 +145,14 @@ Spec / Standards 静态复核无剩余核心发现；未宣称执行完整 exten
 TRAE 核验精确 ID 与原生 cwd；Antigravity 核验精确原生数据库 ID 与本轮 fixture 绑定/启动来源；
 错目标、错目录、软链接均拒绝，不按 ID 子串递归删除共享目录。
 本轮未安装或重启日常 App，也未验证 Windows 真机、Renderer 或全部历史内容的完整性。
+
+### PR #721：结构化字段与展示脱敏分离
+
+User 对 `c9c106bd` 的审查指出：短凭据可能是原因码、Session ID、URI 或项目路径的子串，
+`complete_pending()` 先脱敏这些字段会破坏后续精确匹配。本次保留内存中的原生机器字段，仅脱敏
+message / provider detail；自定义 Debug 只保留数值错误码，不输出原始机器字段。
+扩展既有协议传递 owner，在修复前复现 Qoder 的目标拒绝被误判，覆盖凭据 `test` 与
+`/work/test/project`、Session / URI 的碰撞，以及原因码碰撞与各种错误格式化的脱敏。
+本次是错误传递链的确定性补正，未重新运行五类真实 CLI，不改写此前的实测结果。
+补正后 ACP 67 项、ZCode 桥接 4 项、默认 Rust 465 项通过（1 项既有人工测试忽略），
+定向 owner 在 `RUST_BACKTRACE=1` 下通过；格式及文档门禁通过。

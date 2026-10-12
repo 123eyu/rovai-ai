@@ -1243,7 +1243,7 @@ async fn cleanup_acp_client_terminals(
     settled
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct AcpRpcError {
     pub(crate) code: Option<i64>,
     structured_code: Option<String>,
@@ -1252,6 +1252,17 @@ pub(crate) struct AcpRpcError {
     project_root: Option<String>,
     message: String,
     provider_detail: Option<String>,
+}
+
+impl std::fmt::Debug for AcpRpcError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Machine fields retain native values for exact target comparison. They
+        // must never enter diagnostics, even through anyhow's alternate Debug.
+        formatter
+            .debug_struct("AcpRpcError")
+            .field("code", &self.code)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AcpRpcError {
@@ -2362,17 +2373,15 @@ impl AcpHost {
                 // Keep the machine-readable rejection through the correlated RPC.
                 // Diagnostic fields still cross the same credential redaction boundary.
                 let response = match response_error {
-                    Some(error) => Err(anyhow::Error::new(AcpRpcError {
-                        code: error.code,
-                        structured_code: error.structured_code.map(|code| self.redact_text(&code)),
-                        resource_uri: error.resource_uri.map(|uri| self.redact_text(&uri)),
-                        session_id: error.session_id.map(|id| self.redact_text(&id)),
-                        project_root: error.project_root.map(|path| self.redact_text(&path)),
-                        message: self.redact_text(&error.message),
-                        provider_detail: error
+                    Some(mut error) => {
+                        // Redaction is for presentation, not classification: a
+                        // credential can also occur inside a native ID or path.
+                        error.message = self.redact_text(&error.message);
+                        error.provider_detail = error
                             .provider_detail
-                            .map(|detail| self.redact_text(&detail)),
-                    })),
+                            .map(|detail| self.redact_text(&detail));
+                        Err(anyhow::Error::new(error))
+                    }
                     None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
                 };
                 let _ = sender.send(response);
@@ -9429,6 +9438,8 @@ while IFS= read -r ignored; do :; done
                 ("PATH".into(), "/usr/bin:/bin".into()),
                 ("AUTH_ENABLED".into(), "1".into()),
                 ("XAI_API_KEY".into(), "wire-stdout".into()),
+                ("OPENAI_API_KEY".into(), "test".into()),
+                ("ANTHROPIC_API_KEY".into(), "IDENTIFIER".into()),
             ])),
             overlay: None,
         });
@@ -9488,7 +9499,7 @@ while IFS= read -r ignored; do :; done
         host.send_host_diagnostic("test failure: wire-stdout; retry 1".into());
         let diagnostic = receiver.recv().await.unwrap();
         assert!(
-            matches!(diagnostic, AcpIncoming::HostDiagnostic { ref text, .. } if text == "test failure: [redacted]; retry 1")
+            matches!(diagnostic, AcpIncoming::HostDiagnostic { ref text, .. } if text == "[redacted] failure: [redacted]; retry 1")
         );
         runtime
             .start_prompt(
@@ -9541,23 +9552,69 @@ while IFS= read -r ignored; do :; done
                 .await
         );
 
-        let (sender, error_response) = oneshot::channel();
-        host.complete_pending(
-            999,
-            PendingRpc::Response {
-                sender,
-                method: "fixture/error".into(),
-            },
-            json!({"id":999,"error":{"code":-32602,"message":"wire-stdout failure 1",
-                "data":{"code":"INVALID_SESSION_IDENTIFIER","sessionId":"session-old","projectRoot":"/fixture"}}}),
-        )
-        .await;
-        let detail = error_response.await.unwrap().unwrap_err();
-        let typed = detail.downcast_ref::<AcpRpcError>().unwrap();
-        assert_eq!(typed.code, Some(-32602));
-        assert!(typed.rejects_restore_target(AdapterKind::QoderCli, "session-old", "/fixture"));
-        assert!(!detail.to_string().contains("wire-stdout"));
-        assert!(detail.to_string().contains("failure 1"));
+        // Classification needs the original machine fields even when a short
+        // credential is also a substring of the target, path or reason code.
+        for (kind, method, code, mut data) in [
+            (
+                AdapterKind::QoderCli,
+                "session/resume",
+                -32602,
+                json!({"code":"INVALID_SESSION_IDENTIFIER","sessionId":"session-test","projectRoot":"/work/test/project"}),
+            ),
+            (
+                AdapterKind::CopilotCli,
+                "session/load",
+                -32002,
+                json!({"uri":"Session session-test not found"}),
+            ),
+            (
+                AdapterKind::QwenCode,
+                "session/resume",
+                -32002,
+                json!({"uri":"session:session-test"}),
+            ),
+        ] {
+            data["error"] = json!("test provider detail IDENTIFIER");
+            let (sender, error_response) = oneshot::channel();
+            host.complete_pending(
+                999,
+                PendingRpc::Response { sender, method: method.into() },
+                json!({"id":999,"error":{"code":code,"message":"wire-stdout test IDENTIFIER failure 1","data":data}}),
+            ).await;
+            let detail = error_response.await.unwrap().unwrap_err();
+            let typed = detail.downcast_ref::<AcpRpcError>().unwrap();
+            assert_eq!(typed.code, Some(code));
+            assert!(typed.rejects_restore_target(kind, "session-test", "/work/test/project"));
+            assert!(!typed.rejects_restore_target(kind, "session-other", "/work/other/project"));
+            assert!(detail.to_string().contains("failure 1"));
+            assert!(detail.to_string().contains("[redacted]"));
+            for secret in ["wire-stdout", "test", "IDENTIFIER"] {
+                assert!(!detail.to_string().contains(secret));
+            }
+            for formatted in [
+                typed.to_string(),
+                format!("{typed:?}"),
+                format!("{typed:#?}"),
+                detail.to_string(),
+                format!("{detail:#}"),
+                format!("{detail:?}"),
+                format!("{detail:#?}"),
+            ] {
+                // Anyhow may append a backtrace with Rust's `tests` namespace.
+                // Check the actual native values rather than that unrelated word.
+                for secret in [
+                    "wire-stdout",
+                    "IDENTIFIER",
+                    "session-test",
+                    "/work/test/project",
+                ] {
+                    assert!(
+                        !formatted.contains(secret),
+                        "RPC error formatting leaked a credential"
+                    );
+                }
+            }
+        }
 
         runtime.detach().await;
         host.shutdown().await;

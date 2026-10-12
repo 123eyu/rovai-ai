@@ -1450,6 +1450,10 @@ ACP 原终端协议 owner 在相同脱敏断言之外检查结构化错误码仍
 真实 CLI 审计后的修复继续扩展错误字段 owner `acp_rpc_error_keeps_only_allowlisted_bounded_fields`，
 覆盖 Copilot / Qwen / Qoder / ZCode 的 Adapter 范围、精确目标、错误文本反例和字段长度上限。
 原 ACP 终端 wire owner 同时检查 Qoder 所需的机器字段经过响应通道后仍可用，保留脱敏断言。
+PR #721 的 P2 补正继续扩展同一 `kimi_038_fixture_uses_the_standard_terminal_wire_lifecycle` owner：
+配置短凭据 `test`，令 Session ID、URI 和 `/work/test/project` 路径包含该值，另覆盖原因码与凭据碰撞。
+实际经过 `complete_pending()` 和 oneshot 响应通道后，Qoder/Copilot/Qwen 仍能识别精确目标，
+Display / Debug / anyhow 的普通及 alternate 格式均不暴露凭据；不新增 Rust 测试函数或真实 CLI 调用。
 新增两个扩展层 owner，均有独立的修复前失败语义：
 
 - `codebuddy_restore_verifies_only_the_exact_file_in_the_launch_environment`：最小临时文件夹验证缺少精确

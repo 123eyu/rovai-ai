@@ -1815,6 +1815,14 @@ Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 
 
 ## 同类 CLI 优先恢复原生会话（2026-10-12）
 
+后续真实 CLI 审计与修复基于 `d41778bfcc71d0223e70cbbdd442c3e500eb3559`，分支
+`codex/runtime-resume-audit`。15 类真实 Runtime 均完成原 ID 冷恢复；缺历史时发现五类明确缺口，
+User 授权一并修复：CodeBuddy 精确文件核验，Copilot/Qwen 资源目标匹配，Qoder 结构化目标拒绝，
+ZCode 原生 resume 错误跨桥接保留。其余未知错误保持原 ID，不扩大自动降级。
+没有新增数据库/迁移、摘要或上下文资格门槛；五款修复后的实际恢复、输入与提示计数见
+[独立审计及复测](../../research/runtime-monitoring/native-session-resume-2026-10-12.md#五类-runtime-修复与复测)。
+测试 owner 与新增测试理由见[测试指南](../../development/testing.md#原生会话恢复-owner2026-10-12)。
+
 基线 `bab6034df3459269a4a15628dc436d660716f1ac`；分支 `codex/native-session-resume`。
 User 明确要求整套已确认方案一并完成。规范见 [Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)，
 取舍见 [V1.72-D37](decisions.md#v1-72-d37)。

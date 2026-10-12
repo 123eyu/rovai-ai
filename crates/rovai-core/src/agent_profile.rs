@@ -5724,8 +5724,8 @@ mod slow_tests {
             vec![
                 AdapterKind::OpencodeCli,
                 AdapterKind::CopilotCli,
-                AdapterKind::CommandCodeCli,
                 AdapterKind::ClineCli,
+                AdapterKind::CommandCodeCli,
                 AdapterKind::KiroCli,
                 AdapterKind::QoderCli,
                 AdapterKind::CodebuddyCli,

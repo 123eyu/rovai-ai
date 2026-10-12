@@ -7,7 +7,8 @@ import { ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph } from './ExecutionStatusGlyph'
 import { ToolCallIcon } from './ExecutionToolGroup'
 import { MemberAvatar } from './MemberAvatar'
-import { conversationRunPresence, runPresencePreview } from './conversation-run-presence'
+import { RunningText } from './RunningText'
+import { runPresencePreview, type ConversationRunPresenceSlot } from './conversation-run-presence'
 import { identityColorToken } from './theme'
 import { uiAttribute, useInterfaceLanguage } from './interface-language'
 import { buildLiveExecutionProgress, type LiveRuntimeEvent } from './ui-model'
@@ -16,11 +17,9 @@ import { useExecutionWindow } from './useExecutionWindow'
 import type { AgentRunStopViewState } from './ThreadWorkspace'
 import './conversation-run-presence.css'
 
-export function ConversationRunPresence({ snapshot, snapshotReady, messages, precedingOutputRunId, profiles, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
+export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
   snapshot: ThreadSnapshot
-  snapshotReady: boolean
-  messages: ThreadSnapshot['messages']
-  precedingOutputRunId?: string | null
+  slot: ConversationRunPresenceSlot
   profiles: readonly AgentProfile[]
   eventsByRunId: ReadonlyMap<string, LiveRuntimeEvent[]>
   windowedEvidence: boolean
@@ -37,11 +36,7 @@ export function ConversationRunPresence({ snapshot, snapshotReady, messages, pre
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const submitting = useRef(false)
   const stopTrigger = useRef<HTMLButtonElement | null>(null)
-  const slots = useMemo(() => conversationRunPresence(snapshot.agentRuns, messages, continuedRunIds, precedingOutputRunId)
-    // A cached entry preview can predate the accepted Delivery. Do not briefly
-    // revive an actionable failure while the authoritative open is pending.
-    .filter(slot => snapshotReady || slot.run.status !== 'failed'),
-    [snapshot.agentRuns, snapshotReady, messages, continuedRunIds, precedingOutputRunId])
+  const slots = continuedRunIds.has(slot.run.id) ? [] : [slot]
   const target = snapshot.agentRuns.find(run => run.id === stopId)
   const canConfirm = Boolean(target && stopState(target) === 'available')
   const memberName = (run: AgentRunView): string => snapshot.members.find(member => member.agentId === run.agentId)?.displayName
@@ -142,11 +137,12 @@ function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, e
     return buildLiveExecutionProgress(merged.get(run.id) ?? [], run.id, { includePublicResults: false })
   }, [tail.evidence, events, run.id, windowedEvidence])
   const preview = runPresencePreview(run, progress)
+  const running = run.status === 'running' && !run.cancelRequestedAt
   return <button className={`run-presence-open is-${preview.kind}`} type="button" data-preview-kind={preview.kind}
     title={uiAttribute('查看执行过程')} aria-label={`${name}，${preview.text}，${description}`}
     onClick={event => onOpen(run.agentId, event.currentTarget, { runId: run.id })}>
-    <span className={`run-presence-status is-${run.status}`} aria-hidden="true"><ExecutionStatusGlyph status={run.status} /></span>
+    {!running && <span className={`run-presence-status is-${run.status}`} aria-hidden="true"><ExecutionStatusGlyph status={run.status} /></span>}
     {preview.iconKind && <ToolCallIcon iconKind={preview.iconKind} />}
-    <span className={`run-presence-preview is-${preview.kind}`} aria-hidden="true">{preview.text}</span>
+    <RunningText className={`run-presence-preview is-${preview.kind}`} text={preview.text} active={running} />
   </button>
 }

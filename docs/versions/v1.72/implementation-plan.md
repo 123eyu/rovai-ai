@@ -1774,3 +1774,23 @@ UI 仅修改已确认文案；设计扫描提示的旧 surface 路径与平台�
 
 摘要/权限矩阵扩展原 `discovered_entry_configures_and_freezes_without_health_evidence` owner 并通过；
 Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 归属见上述测试指南。
+
+
+## 执行行固定位置、原文逐行与 RunCard 高亮（2026-10-12）
+
+User 确认 v12 并要求实施；基线为 `1edacb5348ae22f9a34d404b4a0f18adde197de1`，
+分支 `rovai/conversation-presence-stability`。Renderer 增量，不改变 Core、数据库或模型上下文；
+当前边界见 [Run Process Detail Surface v50](../../contracts/run-process-detail-surface-v50.md)。
+
+- 每 Run 使用既有已领取输入锚点，只有自己的已提交公开消息推进位置；消息／产物顺序保持。
+  分页与切群使用现有投影恢复，行组件按 Run ID 保持身份，停止确认和读取窗口不因移动重建。
+- 正文只按原文换行在一个物理行内推进，保留空行间的最后非空内容；完整原文仍在执行详情。
+- 复用 RunningText 扫光并去掉左侧运行圈，保留工具图标、停止区和失败／等待状态；
+  减少动态效果和强制颜色仍显示实时文字。时间线预留滚动条空间，避免停止目标横向移动。
+- 更新已有浏览器夹具与 owner 测试，没有引入演示依赖或新的动画库。
+
+已通过类型检查、7 项投影／正文单测及 30 项既有产物测试，生产组件浏览器回归通过 37 个阶段、
+原始 LF／CRLF／空行、单行几何、高亮、停止／重试、草稿、重入读取和 6 组主题尺寸、
+200% 等效布局及粗指针检查。截图位于本地忽略目录 `docs/prototypes/run-presence-v12-implementation/`。
+完整测试首次被 checkout 中旧的本地原型 Markdown 坏链接阻断；将以干净检出运行相同门禁，
+不修改或删除用户本地原型。完整测试、桌面包及隔离桌面验收结果待本轮记录补齐。

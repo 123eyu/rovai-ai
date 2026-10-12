@@ -28,12 +28,12 @@ Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持
 
 ## 会话内队员占位（2026-10-11）
 
-按 User 确认的 v10「停止区分隔」及后续 v8 默认色修正，在公开会话末尾投影正在执行的队员：
-单行正文／命令、Run 身份衔接、确认停止及中断重试。停止按钮默认中性色，悬浮变红。
+按 User 确认的 v12，在公开会话按每次 Run 的输入／自身公开回复锚点投影正在执行的队员：
+原文按已有换行在单行内推进，运行中复用 RunCard 高亮；保留命令图标、Run 身份衔接、确认停止及中断重试。停止按钮默认中性色，悬浮变红。
 复用现有 Evidence、精确 Run Stop 和独立续做命令；Core 从持久化续做 Delivery 派生受理事实，
 切群／刷新后旧失败入口保持收起。单行预览首次读取失败可随更新／重连恢复，慢请求保留更新并补拉；
 旧恢复记录与实时事件按版本合并，不覆盖新正文。排队不占位，不创建公开消息，不改变模型上下文或数据库结构。
-当前边界见 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)，验证与交付见
+当前边界见 [Run Process Detail Surface v50](../../contracts/run-process-detail-surface-v50.md)，验证与交付见
 [实施记录](implementation-plan.md#会话内队员占位)。
 
 ## Windows Web 凭据可用性（2026-10-11）

@@ -11,6 +11,13 @@ last_updated: 2026-10-12
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 内部实现减重（2026-10-12）
+
+按 User 确认一次实施数据库准入、输入快照、工具结果、工具目录和命令结果五项精简。
+模型输入与当前功能保持，取消重复证明摘要和中间副本；原结果查询、旧历史与原生恢复保留。
+范围和直接授权见[变更说明](model-context-change-input-snapshot-simplification.md)，
+实现与验证见[实施记录](implementation-plan.md#内部实现减重2026-10-12)，取舍见 [V1.72-D38](decisions.md#v1-72-d38)。
+
 ## Charter 与 Memory 入口精简（2026-10-12）
 
 按 User 确认的 [R2 完整前后对照](model-context-change-charter-memory-concision.md)，精简公共和

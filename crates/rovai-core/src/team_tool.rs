@@ -4870,20 +4870,18 @@ mod tests {
             .next()
             .unwrap();
         assert!(active_tasks.contains(&task_id));
-        let (manifest_payload, manifest_digest): (String, String) = fixture
+        let legacy_copies: (Option<String>, Option<String>) = fixture
             .database
             .connection()
             .query_row(
-                "SELECT run_fact_payload_json, run_fact_digest FROM context_manifest WHERE id=?1",
+                "SELECT run_fact_payload_json,run_fact_digest FROM context_manifest WHERE id=?1",
                 [&context.manifest_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(run_fact_section, manifest_payload);
-        assert_eq!(
-            manifest_digest,
-            format!("sha256:{:x}", Sha256::digest(manifest_payload.as_bytes()))
-        );
+        assert_eq!(legacy_copies, (None, None));
+        let facts: Value = serde_json::from_str(run_fact_section).unwrap();
+        assert!(facts.is_object());
         let ContextMaterialization::Ready(replayed) = ContextService
             .materialize(
                 &mut fixture.database,

@@ -6,6 +6,8 @@ last_updated: 2026-10-12
 
 # 当前规范与决定理由导航
 
+内部减重当前规范：[输入快照/数据库准入](../contracts/input-snapshot-storage-v1.md)、[Built-in Tool Transport v38](../contracts/builtin-tool-transport-v38.md)、[Domain Command Result v2](../contracts/domain-command-result-v2.md)；取舍见 [V1.72-D38](../versions/v1.72/decisions.md#v1-72-d38)。
+
 Send 正文文件与旧调用兼容：当前规范为 [Built-in Tool Transport v37](../contracts/builtin-tool-transport-v37.md)和
 [Built-in 运输不变量](../architecture/foundational-invariants.md#skills-builtin-transport)；单入口与精简教学的取舍见
 [V1.72-D33](../versions/v1.72/decisions.md#v1-72-d33)。

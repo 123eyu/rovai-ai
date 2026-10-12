@@ -103,7 +103,7 @@ use rovai_core::{
         BuiltinToolInvocationEnvelope, BuiltinToolIpcRequest, BuiltinToolIpcRequestBody,
         BuiltinToolIpcResponse, COMPACTION_HOOK_IPC_PROTOCOL_VERSION,
         COMPACTION_OBSERVATION_IPC_KIND, CompactionHookIpcRequest, CompactionHookIpcResponse,
-        builtin_tool_catalog_digest, builtin_tool_description, recovery_for_operation_error,
+        builtin_tool_description, recovery_for_operation_error,
     },
     camp_attachment::{
         ThreadAttachmentStore, desktop_target_for_source_attachment,
@@ -11479,7 +11479,6 @@ impl Core {
                         "readModelSchema": READ_MODEL_SCHEMA_VERSION,
                         "builtinToolContractVersion": BUILTIN_TOOL_CONTRACT_VERSION,
                         "builtinToolIpcProtocolVersion": BUILTIN_TOOL_IPC_PROTOCOL_VERSION,
-                        "builtinToolCatalogDigest": builtin_tool_catalog_digest()?,
                         "builtinToolEvidenceProjectionVersion":
                             BUILTIN_TOOL_EVIDENCE_PROJECTION_SCHEMA_VERSION,
                     },
@@ -23524,12 +23523,12 @@ async fn flush_runtime_usage(
         }
         batches
     };
-    if batches.is_empty() {
-        return Ok(0);
-    }
     let persistence = {
         let mut database = core.database.lock().await;
-        MonitoringService::record_usage_batches(&mut database, &batches)
+        MonitoringService::record_usage_batches(&mut database, &batches).and_then(|inserted| {
+            MonitoringService::finalize_settled_runs(&mut database)?;
+            Ok(inserted)
+        })
     };
     match persistence {
         Ok(inserted) => {

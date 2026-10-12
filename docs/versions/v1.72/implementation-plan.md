@@ -1861,3 +1861,17 @@ Node 脚本 339 项通过、2 项平台跳过，文档与 Skill 门禁通过。�
 点击命中与主题色断言，改为等实际布局／主题传播完成后检查；紧凑窗口按当前 Run 的真实锚点
 定位。验收发现的滚动条 6px 中心偏差已通过两侧对称预留消除；首次发送前的中间产物、
 未加载输入锚点与时钟倒退均不会把执行行带到新消息后。
+
+
+## 内部实现减重（2026-10-12）
+
+独立 worktree `context-tool-simplification`，分支 `codex/context-tool-simplification`，基线
+`07ca89ec5f9dea8c27bf15602bc076c7cf200f73`。User 已授权 1—5 一起实施并提交 PR。
+
+当前实现：Migration 196/schema 146；当前 DB 结构准入；Context 使用最终输入并停止重复证明材料写入；
+Transport/CLI 38、IPC 3、Envelope 2 删除工具结果与目录摘要；Domain Command 以 ID 和归属返回首次结果。
+Usage summary 在现有后台 worker 收尾；原生输入、授权、租约、消息与结果查询保持。
+
+测试 owner：Context 的实际输入/重启/预算、Domain Command 的结果/回滚/归属、DB 的迁移/准入、
+工具协议及调用方 Node 测试。摘要自证和生成版本组合专属断言随生产路径退役；对应实际结果和历史恢复
+由原 owner 保留。实施中，最终命令与结果在提交前补录；没有使用日常 App 或日常数据库验收。

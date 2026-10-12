@@ -1858,7 +1858,7 @@ mod tests {
             .database
             .connection()
             .query_row(
-                "SELECT rendered_payload_digest FROM context_manifest WHERE id=?1",
+                "SELECT 'sha256:' || blob.sha256 FROM context_manifest JOIN managed_blob AS blob ON blob.id=rendered_payload_blob_id WHERE context_manifest.id=?1",
                 [&frozen_source.manifest_id],
                 |r| r.get(0),
             )

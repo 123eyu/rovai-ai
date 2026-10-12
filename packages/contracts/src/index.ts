@@ -3416,7 +3416,11 @@ export interface NavigationThreadReadState {
 }
 
 export interface NavigationPreferencesSnapshot {
-  schemaVersion: 5
+  schemaVersion: 6
+  registeredProjects: string[]
+  legacyProjectsSynced: boolean
+  /** Read degradation only; never persisted. */
+  readError?: string
   pins: NavigationPin[]
   removedProjects: RemovedNavigationProject[]
   projectOrder: string[] | null
@@ -3425,11 +3429,11 @@ export interface NavigationPreferencesSnapshot {
 }
 
 export interface NavigationPreferencesApi {
+  registerProjects(projectPaths: string[], completeLegacy?: boolean): Promise<NavigationPreferencesSnapshot>
   get(): Promise<NavigationPreferencesSnapshot>
   setThreadReadState(threadId: string, state: NavigationThreadReadState | null): Promise<NavigationPreferencesSnapshot>
   onChanged(listener: (snapshot: NavigationPreferencesSnapshot) => void): () => void
   replacePins(pins: NavigationPin[]): Promise<NavigationPreferencesSnapshot>
-  synchronizeProjectOrder(projectKeys: string[]): Promise<NavigationPreferencesSnapshot>
   setProjectName(targetKey: string, name: string | null): Promise<NavigationPreferencesSnapshot>
   removeProject(targetKey: string, relatedThreadIds: string[]): Promise<NavigationPreferencesSnapshot>
   restoreProject(targetKey: string): Promise<NavigationPreferencesSnapshot>

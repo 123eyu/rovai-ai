@@ -8,6 +8,36 @@ last_updated: 2026-10-12
 
 # v1.72 实施与验收
 
+## 项目目录 JSON 保存（2026-10-12）
+
+基线主线 `bab6034df3459269a4a15628dc436d660716f1ac`，分支 `rovai/json-project-navigation`，复用原隔离
+worktree `rovai-ai-sqlite-project-registry`。User 明确撤回未发布的 SQLite 登记方案，不保留实验表迁移或读取兼容。
+旧分支的项目建表／迁移、Core 接口、Web 身份、业务事务自动登记、持续观察与补登全部退出；生产数据库代码
+与所接入主线一致，保留主线现有 schema 与支持来源。实验 schema 不作为发布过的升级来源，日常数据不作修改。
+
+schema 6 导航偏好保存规范路径集合与 `legacyProjectsSynced`。成功完整启动读取只尝试一次补齐；晚到结果在
+统一写入入口重新应用最新移除记录。实际写入后才更新内存，失败不误标记、不覆盖损坏文件；目录选择失败可临时使用。
+完成后直接使用登记清单，普通导航刷新不再补缺、重读偏好或写目录。目录增删与别名等共用原安全写入口。
+Web 复用现有 IndexedDB 的短事务串行保护原 localStorage JSON，没有新目录库、持久队列、锁轮询或自动重试。
+
+Rust 测试退役：实验生产合同同时退出，删除 `project_registry::tests` 三项（目录生命周期、初始化失败、
+登记附加事务故障）及 `db::project_registry::tests` 一项实验迁移 owner；原业务事务、路径权限、Main 项目访问恢复、
+主线数据库准入／升级测试保留。目录持久化语义由真实文件 `navigation-preferences.test.ts`、Web 偏好 owner、
+真实双窗口导航 fixture 与生产 App 启动 fixture 接替；不以降低测试数量为目标。
+
+验证结果：
+
+- `pnpm test`：242 个 Vitest 文件、2,643 项通过；后续 Node 339 项通过、2 项平台跳过；文档、Skill 与 Electron 能力门禁通过。
+- `pnpm test:rust:pr`：465 项通过、1 项既有 ignored。首次运行的 detached child 回收测试超时，定向重跑及第二次完整 workspace 均通过；未修改该测试。
+- Main 真实文件、Web 与目录投影定向 32 项通过。生产 App 目录专项 4 组通过：空目录切换／重启、完成后零补齐、主动移除后的空清单、失败降级／显式重试与后续保存失败不重置标记。
+- 真实 Electron 双窗口并发登记／别名写入与移除优先通过；普通导航原生操作及 contextBridge 回归通过。
+- `pnpm typecheck`、`pnpm build:desktop`（含 Web）、带上述 base 的文档 CI 门禁与 diff 检查通过；前端机械扫描无发现，截图修正并复核失败提示栏。
+- 完整启动 fixture 仍在 `Leaving the loaded empty Camp must initiate cleanup before the race is tested` 失败。
+  在 `bab6034df` 独立临时 checkout 上复现相同失败；双方仅把 darwin fixture 的 Windows-only `windowClose` 能力按真实 preload 设为 undefined，基线生产代码未改。
+  该既有空会话清理断言未删除或跳过；目录专项另外执行并通过，不把完整启动套件记为通过。
+
+未安装日常 App、不启动真实 Runtime、不操作用户数据库；临时基线 checkout 已清理，任务 worktree 保留供评审。
+
 ## CJK Markdown 与引用投影（2026-10-11）
 
 基线 `4522057d5e5af503647a5f883902c6babb98f314`，分支 `rovai/cjk-markdown-quotes`。

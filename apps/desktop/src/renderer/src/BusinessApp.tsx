@@ -1,3 +1,4 @@
+import { EMPTY_SNAPSHOT, isProjectPath } from '../../shared/navigation-preferences-model'
 import { useThreadUserAnchorCache } from './useThreadUserAnchors'
 import { hasPendingThreadDraftInput } from './pending-thread-draft'
 import { memberCreationHelper, memberCreationInitialDraft, navigationWithMemberCreationDrafts, type MemberCreationDraft } from './member-creation-flow'
@@ -156,7 +157,7 @@ import {
   currentProjectGroup,
   currentProjectWorkspace,
   navigationIncludingCurrentWorkspace,
-  navigationWithProjectAuthority,
+  navigationWithProjectDirectories,
   navigationWithProjectNames,
   navigationWithProjectOrder,
   persistCurrentProject,
@@ -1065,7 +1066,14 @@ export function BusinessApp({
   const [removedProjectAuthorityReady, setRemovedProjectAuthorityReady] = useState(false)
   const [projectOrder, setProjectOrder] = useState<string[] | null>(null)
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
-  const projectNamesGeneration = useRef(0)
+  const [navigationPreferences, setNavigationPreferences] = useState<NavigationPreferencesSnapshot | null>(null)
+  const navigationPreferencesRef = useRef<NavigationPreferencesSnapshot | null>(null)
+  const navigationPreferencesRead = useRef<Promise<NavigationPreferencesSnapshot> | null>(null)
+  const legacyProjectAttempted = useRef(false)
+  // Capture before startup restoration can overwrite the old empty selection.
+  const [legacySelectedProject] = useState(() => readCurrentProject())
+  const [temporaryProjectPaths, setTemporaryProjectPaths] = useState<string[]>([])
+  const [projectSaveIssue, setProjectSaveIssue] = useState<{ retry: () => void } | null>(null)
   const [threadReadStates, setThreadReadStates] = useState<NavigationPreferencesSnapshot['threadReadStates']>({})
   const threadReadStatesRef = useRef(threadReadStates)
   const threadReadGeneration = useRef(0)
@@ -1074,7 +1082,7 @@ export function BusinessApp({
     threadReadStatesRef.current = snapshot.threadReadStates ?? {}
     setThreadReadStates(threadReadStatesRef.current)
   }, [])
-  useEffect(() => uiPreferences.navigationPreferences.onChanged?.(acceptThreadReadStates), [uiPreferences, acceptThreadReadStates])
+
   const [pinnedThreadItems, setPinnedThreadItems] = useState<NavigationThreadItem[]>([])
   const [pendingMemoryCount, setPendingMemoryCount] = useState(0)
   const [memoryReviewNotice, setMemoryReviewNotice] = useState(false)
@@ -1193,7 +1201,6 @@ export function BusinessApp({
   const navigationSnapshotRef = useRef<NavigationSnapshot | null>(null)
   const deletingThreadIdsRef = useRef(new Set<string>())
   const shownDeletionIssuesRef = useRef(new Set<string>())
-  const projectOrderSyncGeneration = useRef(0)
   const overviewRequest = useRef<Promise<boolean> | null>(null)
   const startupSnapshotRequest = useRef<Promise<void> | null>(null)
   const onboardingSnapshotRequest = useRef<Promise<void> | null>(null)
@@ -1556,6 +1563,71 @@ export function BusinessApp({
     return request
   }, [])
 
+  const applyNavigationPreferences = useCallback((snapshot: NavigationPreferencesSnapshot): void => {
+    navigationPreferencesRef.current = snapshot
+    setNavigationPreferences(snapshot)
+    setNavigationPins(snapshot.pins)
+    setRemovedProjectKeys(current => {
+      const next = new Set(snapshot.removedProjects.map(project => project.targetKey))
+      return current.size === next.size && [...current].every(key => next.has(key)) ? current : next
+    })
+    setProjectOrder(snapshot.projectOrder)
+    setProjectNames(snapshot.projectNames)
+    acceptThreadReadStates(snapshot)
+    setRemovedProjectAuthorityReady(true)
+  }, [acceptThreadReadStates])
+
+  useEffect(() => uiPreferences.navigationPreferences.onChanged?.(applyNavigationPreferences), [uiPreferences, applyNavigationPreferences])
+
+  const registerProject = useCallback(async (projectPath: string, explicit = false): Promise<void> => {
+    const current = navigationPreferencesRef.current
+    const key = projectTargetKey(projectPath)
+    if (current?.registeredProjects.includes(projectPath) && !current.removedProjects.some(p => p.targetKey === key)) return
+    if (current?.removedProjects.some(p => p.targetKey === key)) {
+      if (!explicit) return
+      // An explicit access restoration still owns its normal permission checks.
+      applyNavigationPreferences(await uiPreferences.navigationPreferences.restoreProject(key))
+      return
+    }
+    try {
+      const saved = await uiPreferences.navigationPreferences.registerProjects([projectPath])
+      applyNavigationPreferences(saved)
+      setTemporaryProjectPaths(paths => paths.filter(path => path !== projectPath))
+    } catch {
+      setTemporaryProjectPaths(paths => [...new Set([...paths, projectPath])])
+      setProjectSaveIssue({ retry: () => {
+        setProjectSaveIssue(null)
+        void registerProject(projectPath, explicit).catch(error => notifyError(errorMessage(error)))
+      } })
+    }
+  }, [uiPreferences, applyNavigationPreferences, notifyError])
+  const restoreNavigationProject = useCallback((path: string) => registerProject(path, true), [registerProject])
+
+  const completeLegacyProjects = useCallback(async (fullNavigation: NavigationSnapshot): Promise<void> => {
+    if (legacyProjectAttempted.current || navigationPreferencesRef.current?.legacyProjectsSynced) return
+    legacyProjectAttempted.current = true
+    try {
+      const current = navigationPreferencesRef.current
+      if (!current || current.readError) throw new Error('Project preferences are unavailable')
+      const paths = fullNavigation.projects.map(project => project.projectPath)
+      if (legacySelectedProject.kind === 'directory' && isProjectPath(legacySelectedProject.projectPath)) paths.push(legacySelectedProject.projectPath)
+      applyNavigationPreferences(await uiPreferences.navigationPreferences.registerProjects(paths, true))
+    } catch {
+      const retry = (): void => {
+        setProjectSaveIssue(null)
+        void uiPreferences.navigationPreferences.get().then(async snapshot => {
+          applyNavigationPreferences(snapshot)
+          if (snapshot.readError) throw new Error(snapshot.readError)
+          if (snapshot.legacyProjectsSynced) return
+          const full = await loadNavigation()
+          legacyProjectAttempted.current = false
+          await completeLegacyProjects(full)
+        }).catch(() => setProjectSaveIssue({ retry }))
+      }
+      setProjectSaveIssue({ retry })
+    }
+  }, [uiPreferences, applyNavigationPreferences, legacySelectedProject, loadNavigation])
+
   const loadOverview = useCallback((showLoading = false): Promise<boolean> => {
     if (showLoading) setState('loading')
     if (overviewRequest.current) return overviewRequest.current
@@ -1581,45 +1653,26 @@ export function BusinessApp({
             )
             return nextMemoryReviewItems
           })
-        const namesGeneration = projectNamesGeneration.current
-        const readGeneration = threadReadGeneration.current
-        const nextNavigationPreferencesPromise = uiPreferences.navigationPreferences.get()
-
+        const nextNavigationPreferencesPromise = navigationPreferencesRead.current ??= uiPreferences.navigationPreferences.get()
+          .catch(() => ({ ...structuredClone(EMPTY_SNAPSHOT), readError: '导航偏好暂时无法读取。' }))
+        // Apply the snapshot independently: failed optional persistence cannot hide
+        // a successful Core navigation read or disable normal conversation actions.
+        const preferencesReady = nextNavigationPreferencesPromise.then(snapshot => {
+          if (!navigationPreferencesRef.current) applyNavigationPreferences(snapshot)
+          return navigationPreferencesRef.current!
+        })
         const navigationOverviewPromise = (async (): Promise<void> => {
-          const [nextNavigation, nextNavigationPreferences] = await Promise.all([
-            nextNavigationPromise,
-            nextNavigationPreferencesPromise
-          ])
-          const resolvedPins = await resolveNavigationPins(
-            nextNavigation,
-            nextNavigationPreferences.pins, client
-          )
-          let resolvedNavigationPreferences = nextNavigationPreferences
-          if (resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
-            resolvedNavigationPreferences = await uiPreferences.navigationPreferences.replacePins(
-              resolvedPins.pins
-            )
+          const nextNavigation = await nextNavigationPromise
+          const preferences = await preferencesReady
+          void completeLegacyProjects(nextNavigation)
+          const projection = navigationWithProjectDirectories(nextNavigation, preferences)!
+          const resolvedPins = await resolveNavigationPins(projection, preferences.pins, client)
+          // Only prune against a complete, saved directory projection.
+          if (preferences.legacyProjectsSynced && !preferences.readError && resolvedPins.pins.length !== preferences.pins.length) {
+            void uiPreferences.navigationPreferences.replacePins(resolvedPins.pins)
+              .then(applyNavigationPreferences).catch(() => undefined)
           }
-          const removedProjectKeySet = new Set(
-            resolvedNavigationPreferences.removedProjects.map((project) => project.targetKey)
-          )
-          resolvedNavigationPreferences = await uiPreferences.navigationPreferences
-            .synchronizeProjectOrder(
-              nextNavigation.projects
-                .map((project) => project.projectKey)
-                .filter((projectKey) => !removedProjectKeySet.has(projectKey))
-            )
-          setNavigationPins(resolvedPins.pins)
-          setRemovedProjectKeys(removedProjectKeySet)
-          setProjectOrder(resolvedNavigationPreferences.projectOrder)
-          if (namesGeneration === projectNamesGeneration.current) {
-            setProjectNames(resolvedNavigationPreferences.projectNames)
-          }
-          if (readGeneration === threadReadGeneration.current) acceptThreadReadStates(resolvedNavigationPreferences)
-          setRemovedProjectAuthorityReady(true)
-          setPinnedThreadItems(
-            resolvedPins.threads.filter((thread) => !deletingThreadIdsRef.current.has(thread.id))
-          )
+          setPinnedThreadItems(resolvedPins.threads.filter(thread => !deletingThreadIdsRef.current.has(thread.id)))
         })()
         const results = await Promise.allSettled([
           navigationOverviewPromise,
@@ -1645,7 +1698,7 @@ export function BusinessApp({
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadNavigation])
+  }, [loadAgents, loadNavigation, applyNavigationPreferences, completeLegacyProjects])
 
   const loadHealth = useCallback((): Promise<HealthStatus> => {
     if (healthRequest.current) return healthRequest.current
@@ -1703,58 +1756,6 @@ export function BusinessApp({
   const loadMemberData = useCallback(async (): Promise<void> => {
     await Promise.all([loadAgents(), loadInstallations()])
   }, [loadAgents, loadInstallations])
-
-  const applyNavigationPreferences = useCallback((
-    snapshot: NavigationPreferencesSnapshot
-  ): void => {
-    setNavigationPins(snapshot.pins)
-    const nextRemovedProjectKeys = new Set(
-      snapshot.removedProjects.map((project) => project.targetKey)
-    )
-    setRemovedProjectKeys((current) => (
-      current.size === nextRemovedProjectKeys.size
-      && [...current].every((projectKey) => nextRemovedProjectKeys.has(projectKey))
-    ) ? current : nextRemovedProjectKeys)
-    setProjectOrder((current) => {
-      const next = snapshot.projectOrder
-      if (current === null || next === null) return current === next ? current : next
-      return current.length === next.length
-        && current.every((projectKey, index) => projectKey === next[index])
-        ? current
-        : next
-    })
-    setRemovedProjectAuthorityReady(true)
-  }, [])
-
-  useEffect(() => {
-    if (!navigation || !removedProjectAuthorityReady) return
-    const generation = ++projectOrderSyncGeneration.current
-    const projectKeys = navigation.projects
-      .map((project) => project.projectKey)
-      .filter((projectKey) => !removedProjectKeys.has(projectKey))
-    void uiPreferences.navigationPreferences.synchronizeProjectOrder(projectKeys)
-      .then((snapshot) => {
-        if (generation === projectOrderSyncGeneration.current) {
-          applyNavigationPreferences(snapshot)
-        }
-      })
-      .catch((nextError) => {
-        if (generation === projectOrderSyncGeneration.current) {
-          setError(uiAttribute("项目顺序暂时无法保存：{0}", String(errorMessage(nextError))))
-        }
-      })
-  }, [applyNavigationPreferences, navigation, removedProjectAuthorityReady, removedProjectKeys])
-
-  const restoreNavigationProject = useCallback(async (projectPath: string): Promise<void> => {
-    const targetKey = projectTargetKey(projectPath)
-    try {
-      const snapshot = await uiPreferences.navigationPreferences.restoreProject(targetKey)
-      applyNavigationPreferences(snapshot)
-    } catch (nextError) {
-      setError(uiAttribute("项目访问状态未能恢复，已停止后续目录检查：{0}", String(errorMessage(nextError))))
-      throw nextError
-    }
-  }, [applyNavigationPreferences])
 
   const loadStartupSnapshot = useCallback((): Promise<void> => {
     if (!desktop) return Promise.resolve()
@@ -2131,14 +2132,10 @@ export function BusinessApp({
     : null
   const visibleNavigation = useMemo(
     () => navigationWithProjectNames(navigationWithProjectOrder(
-      navigationWithProjectAuthority(
-        navigation,
-        removedProjectKeys,
-        removedProjectAuthorityReady
-      ),
+      navigationWithProjectDirectories(navigation, navigationPreferences, temporaryProjectPaths),
       projectOrder
     ), projectNames),
-    [navigation, projectOrder, projectNames, removedProjectAuthorityReady, removedProjectKeys]
+    [navigation, navigationPreferences, temporaryProjectPaths, projectOrder, projectNames]
   )
   const currentProjectAccess = currentProjectAccessDecision({
     currentProject,
@@ -2672,6 +2669,7 @@ export function BusinessApp({
     : null
   const selectedCurrentProject = currentProjectGroup(displayNavigation, currentProject)
   const shellOnlyCurrentProjectPath = selectedCurrentProject
+    && !navigationPreferences?.registeredProjects.includes(selectedCurrentProject.projectPath)
     && !currentProjectGroup(navigation, currentProject)
     ? selectedCurrentProject.projectPath
     : null
@@ -2871,7 +2869,6 @@ export function BusinessApp({
   }
 
   const openProject = async (): Promise<void> => {
-    if (!removedProjectAuthorityReady) return
     setError(null)
     try {
       await selectProjectDirectory(
@@ -3392,10 +3389,8 @@ export function BusinessApp({
   }
 
   const renameProject = async (project: ProjectNavigationGroup, name: string | null): Promise<void> => {
-    // Invalidate older Overview reads; order/pin responses never own display names.
-    ++projectNamesGeneration.current
     const snapshot = await uiPreferences.navigationPreferences.setProjectName(project.projectKey, name)
-    setProjectNames(snapshot.projectNames)
+    applyNavigationPreferences(snapshot)
     notify(uiAttribute('项目名称已保存'))
   }
 
@@ -3425,6 +3420,9 @@ export function BusinessApp({
     setBusy(`delete-camp-${thread.id}`)
     setError(null)
     try {
+      if (thread.projectBindingKind === 'directory' && !navigationPreferencesRef.current?.legacyProjectsSynced) {
+        await registerProject(thread.projectPath)
+      }
       const result = await client.request<StoredCommandResult>('threads.delete', {
         commandId: newCommandId(),
         command: campDeleteCommand(thread)
@@ -3685,8 +3683,8 @@ export function BusinessApp({
     cancelPendingThreadActivation()
     setBusy('create-camp')
     try {
-      if (draft.workspace) {
-        await restoreNavigationProject(draft.workspace.projectPath)
+      if (draft.workspace && !navigationPreferencesRef.current?.legacyProjectsSynced) {
+        await registerProject(draft.workspace.projectPath)
       }
       const result = await client.request<StoredCommandResult>('threads.create', {
         commandId: newCommandId(),
@@ -4160,7 +4158,7 @@ export function BusinessApp({
     : startupRoutePending?.kind ?? startupRouteTarget?.kind ?? 'location'
   const inlineNotices = memoryReviewNotice
     || memoryAutoNotice.count > 0
-    || (!shuttingDown && (error || locationSaveError))
+    || (!shuttingDown && (error || projectSaveIssue || locationSaveError))
     ? (
         <>
           {memoryReviewNotice && (
@@ -4173,6 +4171,13 @@ export function BusinessApp({
             <div className="memory-review-notice memory-auto-applied-notice" role="status" aria-live="polite">
               <div><strong><UiText zh={"已自动形成 "} />{memoryAutoNotice.count}<UiText zh={" 条"} />{memoryAutoNotice.count === 1 ? memoryAutoNotice.scope === 'relationship' ? uiAttribute("队员间记忆") : memoryAutoNotice.scope === 'companion' ? uiAttribute("队员记忆") : uiAttribute("共同记忆") : uiAttribute("记忆")}</strong><span><UiText zh={"已立即用于后续协作，你可以随时查看、修订、停止沿用或遗忘。"} /></span></div>
               <div><button className="quiet-button compact" type="button" onClick={openAutomaticMemory}><UiText zh={"查看"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("关闭自动形成提示")} onClick={() => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })}>×</button></div>
+            </div>
+          )}
+          {!shuttingDown && projectSaveIssue && (
+            <div className="error-banner" role="status">
+              <div className="error-icon" aria-hidden="true">!</div>
+              <div><strong><UiText zh="项目列表暂未保存" /></strong><span><UiText zh="仍可继续使用；新添加的空目录可能无法在重启后保留。" /></span></div>
+              <div className="error-actions"><button className="quiet-button" onClick={projectSaveIssue.retry}><UiText zh="重试" /></button><button className="icon-button" aria-label={uiAttribute("关闭提示")} onClick={() => setProjectSaveIssue(null)}>×</button></div>
             </div>
           )}
           {!shuttingDown && error && (

@@ -3698,5 +3698,7 @@
   "该队员尚未建立会话。": "This teammate has no session yet.",
   "会话已发生变化，请关闭后重新打开。": "The session has changed. Close this dialog and open it again.",
   "已重置{0}的会话。": "{0}’s session was reset.",
-  "重置会话": "Reset session"
+  "重置会话": "Reset session",
+  "项目目录未保存，请重新添加。": "The project folder was not saved. Please add it again.",
+  "项目目录未保存，现有会话仍可正常使用。": "Project folders were not saved. Existing conversations remain available."
 }

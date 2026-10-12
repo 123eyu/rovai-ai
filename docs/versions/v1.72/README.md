@@ -11,6 +11,13 @@ last_updated: 2026-10-12
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 项目目录保存简化（2026-10-12）
+
+未发布的 SQLite 目录登记实验按 User 要求完全撤回，建表、迁移、接口、业务自动登记与专属恢复代码退出。
+目录清单改存现有客户端导航偏好 JSON，一次性旧项目补齐完成后不再执行兼容扫描。保持当前主线数据库
+版本及受支持升级链，不迁移实验登记、不回退或改写日常数据库。当前合同见
+[Navigation Read v1](../../contracts/navigation-read-v1.md#client-directory-preferences)，验收见[实施记录](implementation-plan.md#项目目录-json-保存2026-10-12)。
+
 ## Charter 与 Memory 入口精简（2026-10-12）
 
 按 User 确认的 [R2 完整前后对照](model-context-change-charter-memory-concision.md)，精简公共和

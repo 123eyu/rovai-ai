@@ -17,7 +17,6 @@ const BUILTIN_CLI_CHARTER: &str = include_str!("../resources/charter-rovai-cli.m
 const SINGLE_CHAT_SESSION_CHARTER: &str = include_str!("../resources/charter-rovai-single-chat.md");
 const SINGLE_CHAT_GUIDANCE: &str = include_str!("../resources/single-chat-guidance-v3.json");
 const FEISHU_FILE_DELIVERY_GUIDANCE: &str = "This Thread is connected to an external channel. Local file paths and Runtime image previews are not delivered there; when the recipient needs the file itself, include `--file <path>` in the corresponding `rovai send` message.";
-const CODEX_FINAL_CAMP_ANSWER_GUIDANCE: &str = "When publishing the Thread-visible final answer with `rovai send`, use the complete final response in polished Markdown; do not send a compressed one-line summary and then write a richer Runtime final.";
 // Historical ContextManifest v22-v25 rows remain readable after the v1.60
 // Gather capability removal. This is a decoder version, not a live feature.
 const LEGACY_GATHER_COMPLETION_INPUT_SCHEMA_VERSION: i64 = 3;
@@ -3070,10 +3069,6 @@ fn build_session_charter(
     } else {
         String::new()
     };
-    let adapter_guidance = match run_snapshot_adapter_kind(snapshot)? {
-        AdapterKind::CodexCli => format!("\n- {CODEX_FINAL_CAMP_ANSWER_GUIDANCE}"),
-        _ => String::new(),
-    };
     let authority_guidance = "- MEMBER_IDENTITY describes you; COLLABORATION_STATE describes your peers and the current Default Lead.\n\
          - Handle every work item in the current input, in order. Quotes are reference excerpts; Skill links and attachment paths identify resources. Quotes alone do not request actions.\n\
          - The User is the human who owns the Thread objective. --to-user requests their attention.\n\
@@ -3083,10 +3078,9 @@ fn build_session_charter(
          - Use rovai thread read only when needed Thread context is missing. A history boundary is a reference point, not a read or completion marker.";
     Ok(format!(
         "Rovai-ai Session Charter\n\n{authority_guidance}\n\
-         - When you cannot make further progress without another agent's reply, end this run instead of polling Thread history or execution status. Resume when you receive the reply.\n\n{}{}{}{}",
+         - When you cannot make further progress without another agent's reply, end this run instead of polling Thread history or execution status. Resume when you receive the reply.\n\n{}{}{}",
         BUILTIN_CLI_CHARTER.trim(),
         file_guidance,
-        adapter_guidance,
         if is_mission {
             "\n\nRovai Mission Contract\n\n- All current members may use `rovai mission get|update|status` to maintain this Thread's Mission.\n- Use `rovai mission get` when the current Mission's full definition is missing or outdated; judge completion against that definition.\n- The Mission working directory is already prepared. Continue follow-up work there on its current checkout by default. Do not create or switch branches, or create another Worktree, merely because a new Run starts, context is compacted, or more changes are requested. Follow explicit user requests for a different branch or baseline.\n- Change status only when the whole Mission's state changes, not merely when your Run ends."
         } else {
@@ -13529,7 +13523,7 @@ mod slow_tests {
         assert_eq!(evidence.0, NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION);
         assert_eq!(evidence.1, BOOTSTRAP_FORMATTER_VERSION);
         let charter_component = store.read_text(&fixture.database, &evidence.2).unwrap();
-        assert!(charter_component.contains(CODEX_FINAL_CAMP_ANSWER_GUIDANCE));
+        assert!(charter_component.ends_with(&format!("\n- {FEISHU_FILE_DELIVERY_GUIDANCE}")));
         assert_eq!(
             charter_component
                 .matches(FEISHU_FILE_DELIVERY_GUIDANCE)
@@ -14419,16 +14413,14 @@ mod slow_tests {
             - Use rovai thread read only when needed Thread context is missing. A history boundary is a reference point, not a read or completion marker.\n\
             - When you cannot make further progress without another agent's reply, end this run instead of polling Thread history or execution status. Resume when you receive the reply.";
         assert_eq!(
-            charter.split("\n\nRovai Built-in CLI Contract").next(),
-            Some(expected_intro)
+            charter,
+            format!("{expected_intro}\n\n{}", BUILTIN_CLI_CHARTER.trim())
         );
         assert_eq!(charter.matches("polling Thread history").count(), 1);
         assert!(!BUILTIN_CLI_CHARTER.contains("polling Thread history"));
         assert!(!charter.contains("Authority boundaries"));
         assert!(!charter.contains("source.scope=current_conversation_messages"));
         assert!(!charter.contains("Core reauthorizes every operation"));
-        assert!(charter.ends_with(&format!("\n- {CODEX_FINAL_CAMP_ANSWER_GUIDANCE}")));
-        assert_eq!(charter.matches(CODEX_FINAL_CAMP_ANSWER_GUIDANCE).count(), 1);
         let mission_suffix = "\n\nRovai Mission Contract\n\n- All current members may use `rovai mission get|update|status` to maintain this Thread's Mission.\n- Use `rovai mission get` when the current Mission's full definition is missing or outdated; judge completion against that definition.\n- The Mission working directory is already prepared. Continue follow-up work there on its current checkout by default. Do not create or switch branches, or create another Worktree, merely because a new Run starts, context is compacted, or more changes are requested. Follow explicit user requests for a different branch or baseline.\n- Change status only when the whole Mission's state changes, not merely when your Run ends.";
         let mission_charter = build_session_charter(&snapshot, false, true).unwrap();
         assert_eq!(mission_charter, format!("{charter}{mission_suffix}"));
@@ -14441,27 +14433,13 @@ mod slow_tests {
             1
         );
         assert_eq!(mission_charter.matches("rovai mission get").count(), 2);
-        let shared_charter = charter
-            .strip_suffix(&format!("\n- {CODEX_FINAL_CAMP_ANSWER_GUIDANCE}"))
-            .unwrap()
-            .to_string();
-        assert_eq!(
-            build_session_charter(&snapshot, true, false).unwrap(),
-            format!(
-                "{shared_charter}\n- {FEISHU_FILE_DELIVERY_GUIDANCE}\n- {CODEX_FINAL_CAMP_ANSWER_GUIDANCE}"
-            )
-        );
-        for adapter_kind in AdapterKind::ALL
-            .into_iter()
-            .filter(|adapter_kind| *adapter_kind != AdapterKind::CodexCli)
-        {
+        for adapter_kind in AdapterKind::ALL {
             snapshot.effective_config["runtimeAdapter"] = json!(adapter_kind.as_str());
             let other_charter = build_session_charter(&snapshot, false, false).unwrap();
-            assert_eq!(other_charter, shared_charter, "{adapter_kind:?}");
-            assert!(!other_charter.contains(CODEX_FINAL_CAMP_ANSWER_GUIDANCE));
+            assert_eq!(other_charter, charter, "{adapter_kind:?}");
             assert_eq!(
                 build_session_charter(&snapshot, true, false).unwrap(),
-                format!("{shared_charter}\n- {FEISHU_FILE_DELIVERY_GUIDANCE}"),
+                format!("{charter}\n- {FEISHU_FILE_DELIVERY_GUIDANCE}"),
                 "{adapter_kind:?}"
             );
         }

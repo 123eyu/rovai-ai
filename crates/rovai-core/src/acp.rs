@@ -28,7 +28,7 @@ use rovai_core::{
         AcpClientTerminalMode, AgentRuntimeAdapterRegistry, acp_model_catalog_for_adapter,
         acp_runtime_model_id_from_session, write_kiro_additive_agent_config,
     },
-    builtin_tool_transport::{BUILTIN_TOOL_CONTRACT_VERSION, builtin_tool_catalog_digest},
+    builtin_tool_transport::BUILTIN_TOOL_CONTRACT_VERSION,
     command::canonical_json_digest,
     compaction::{CompactionDetectorPolicy, CompactionObserverLease},
     managed_process::{
@@ -6001,7 +6001,6 @@ pub(crate) fn runtime_compatibility_digest(
         "workspace": workspace,
         "permissionSemantics": permission_semantics,
         "builtinToolContractVersion": BUILTIN_TOOL_CONTRACT_VERSION,
-        "builtinToolCatalogDigest": builtin_tool_catalog_digest()?,
         "externalMcpServers": external_mcp_servers,
         "attachmentOutputRoot": attachment_authorization.output_root,
     });
@@ -13733,7 +13732,6 @@ while IFS= read -r ignored; do :; done
             "workspace": workspace,
             "permissionSemantics": PermissionSemantics::RuntimeManagedV2,
             "builtinToolContractVersion": BUILTIN_TOOL_CONTRACT_VERSION,
-            "builtinToolCatalogDigest": builtin_tool_catalog_digest().unwrap(),
             "externalMcpServers": BTreeMap::<String, McpServerDefinition>::new(),
             "attachmentOutputRoot": attachment_authorization.output_root,
         }))

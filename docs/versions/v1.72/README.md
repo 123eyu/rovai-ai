@@ -11,6 +11,21 @@ last_updated: 2026-10-12
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Charter 与 Memory 入口精简（2026-10-12）
+
+按 User 确认的 [R2 完整前后对照](model-context-change-charter-memory-concision.md)，精简公共和
+Single Chat Charter，移除常驻命令目录、Core／Native Session 内部术语及重复解释，
+Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持共享 Binding compatibility 16；
+旧 Bootstrap 不改写，新 Binding 才使用新文案。发送成功说明保留在 send help，权限和动态 Context 不变。
+本次也带入此前已完成的 Codex 专属提示删除；其独立兼容性影响见原说明。
+实施与验证见[实施记录](implementation-plan.md#charter-与-memory-入口精简2026-10-12)。
+
+## 删除 Codex 专属最终答复提示（2026-10-12）
+
+按 User 明确要求删除 Codex 最终答复补充句、Adapter 追加分支及专属 binding compatibility 字段，
+公共发送规则与 `--input-file` 教学保持。新 Codex Binding 使用共享 Charter，旧证据不重写；
+精确前后文本、授权、兼容影响和验证见[上下文变更说明](model-context-change-remove-codex-final-answer-guidance.md)。
+
 ## 会话内队员占位（2026-10-11）
 
 按 User 确认的 v10「停止区分隔」及后续 v8 默认色修正，在公开会话末尾投影正在执行的队员：

@@ -78,7 +78,23 @@ app.whenReady().then(async () => {
     assert.deepEqual(state.submissions[0].content, state.submissions[1].content)
     assert.deepEqual(state.draft.content.segments, [])
     assert.equal(state.draft.continuationIntent.recipient.agentId, 'outside')
+    assert.deepEqual(state.publishedMentions, [{ label: '@爱丽丝', unavailable: false, interactive: false }], '受理先于名册投影时，已知身份不应显示为不可用队员')
     assert.deepEqual(state.errors, [])
+    assert.deepEqual(state.memberIds, ['lead'])
+    const acceptedDraft = state.stored
+    await evaluate(`document.querySelector('.message-mention-token[data-agent-id="outside"]').click()`)
+    assert.equal(await evaluate(`!!document.querySelector('.mention-profile-popover')`), false)
+    await evaluate(`document.querySelector('.message-copy-button').click()`)
+    await wait('invitationTest.state().clipboardWrites.length === 1')
+    state = await evaluate('invitationTest.state()')
+    assert.equal(state.clipboardWrites[0].text, '@爱丽丝 ')
+    const encodedContent = state.clipboardWrites[0].html.match(/data-rovai-structured-camp-message-v1="([^"]+)"/)[1]
+    assert.equal(JSON.parse(Buffer.from(encodedContent, 'base64').toString('utf8')).content[0].agentId, 'outside')
+    assert.equal(state.stored, acceptedDraft)
+    for (const theme of ['day', 'night']) {
+      await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+      writeFileSync(join(evidence, `accepted-before-roster-${theme}.png`), (await window.webContents.capturePage()).toPNG())
+    }
     // The accepted receipt precedes the roster projection. Core now rejects
     // Pending presence, including during clear/restore, and must not be called.
     const presenceCalls = state.calls.filter(call => call === 'threads.pendingDraft.setPresence').length
@@ -102,6 +118,10 @@ app.whenReady().then(async () => {
     assert.equal(state.calls.filter(call => call === 'threads.pendingDraft.setPresence').length, presenceCalls)
     await evaluate('invitationTest.projectActivation()')
     await wait('invitationTest.state().continuation && !invitationTest.state().button')
+    state = await evaluate('invitationTest.state()')
+    assert.deepEqual(state.publishedMentions, [{ label: '@爱丽丝', unavailable: false, interactive: true }], '名册到达后恢复在队成员交互')
+    assert.equal(state.draft.continuationIntent.recipient.agentId, 'outside')
+    assert.deepEqual(state.memberIds, ['lead', 'outside'])
     await evaluate('invitationTest.submit()')
     await wait('invitationTest.state().submissions.length === 3 && invitationTest.state().text === ""')
     state = await evaluate('invitationTest.state()')
@@ -118,7 +138,7 @@ app.whenReady().then(async () => {
     state = await evaluate('invitationTest.state()')
     assert.ok(state.calls.indexOf('add:outside') < state.calls.indexOf('send'))
     assert.deepEqual(state.errors, [])
-    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send'], userData }))
+    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send'], userData }))
     app.exit(0)
   } catch (error) { console.error(error); app.exit(1) }
 })

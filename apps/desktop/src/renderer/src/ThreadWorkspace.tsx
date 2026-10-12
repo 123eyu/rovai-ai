@@ -10623,6 +10623,7 @@ function RunExecutionContent({
       {cancelling && nonTerminal && (
         <div className="process-action cancelling" role="status"><UiText zh={"正在提交停止请求，完成后即可继续发送。"} /></div>
       )}
+      {run.nativeSessionReplaced && <p className="process-copy" role="status"><UiText zh="原生会话未能恢复，已新建会话继续。Camp 中的消息保留。" /></p>}
       {publicFailure && <RuntimeFailureNotice failure={publicFailure} presentation="agent-run" />}
     </div>
     </ExecutionContentContext.Provider>

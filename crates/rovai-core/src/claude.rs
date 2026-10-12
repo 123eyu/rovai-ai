@@ -945,16 +945,9 @@ impl ClaudeCodeCliRuntimeAdapter {
                     }
                     _ => protocol.redact_text(&format!("{error:#}")),
                 };
-                // This diagnostic is only considered before send_prompt. A
-                // later error, even with identical text, cannot authorize retry.
-                let missing = request
-                    .resumable_native_session_id
-                    .as_ref()
-                    .is_some_and(|id| {
-                        detail.lines().any(|line| {
-                            line.trim() == format!("No conversation found with session ID: {id}")
-                        })
-                    });
+                // This CLI has no qualified machine-readable unavailable-target
+                // result here. Initialization/stderr text cannot authorize replacement.
+                let missing = false;
                 let failure = claude_public_failure(
                     request,
                     private_runtime_dir,
@@ -3245,7 +3238,7 @@ mod tests {
                     .downcast_ref::<ClaudeCodeInputNotSent>()
                     .unwrap()
                     .session_unavailable,
-                missing
+                false
             );
             assert!(
                 format!("{error:#}").contains("Claude Code stdin")

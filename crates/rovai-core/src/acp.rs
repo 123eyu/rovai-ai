@@ -697,7 +697,7 @@ pub struct ObservedAcpToolContext {
 enum PendingRpc {
     Response {
         method: String,
-        sender: oneshot::Sender<std::result::Result<Value, String>>,
+        sender: oneshot::Sender<Result<Value>>,
     },
     Prompt {
         owner: AcpRuntimeOwner,
@@ -1294,6 +1294,14 @@ impl AcpRpcError {
         )
     }
 }
+
+impl std::fmt::Display for AcpRpcError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.diagnostic())
+    }
+}
+
+impl std::error::Error for AcpRpcError {}
 
 #[derive(Clone)]
 struct ZcodeBackgroundRoute {
@@ -2219,7 +2227,7 @@ impl AcpHost {
         self.shutdown_and_reap().await;
         for (_, pending) in self.pending.lock().await.drain() {
             if let PendingRpc::Response { sender, .. } = pending {
-                let _ = sender.send(Err("ACP Host exited".to_string()));
+                let _ = sender.send(Err(anyhow::anyhow!("ACP Host exited")));
             }
         }
         for owner in self.owners().await {
@@ -2254,6 +2262,19 @@ impl AcpHost {
         };
         match pending {
             PendingRpc::Response { sender, .. } => {
+                // Keep the machine-readable rejection through the correlated RPC.
+                // Diagnostic fields still cross the same credential redaction boundary.
+                let response = match response_error {
+                    Some(error) => Err(anyhow::Error::new(AcpRpcError {
+                        code: error.code,
+                        structured_code: error.structured_code.map(|code| self.redact_text(&code)),
+                        message: self.redact_text(&error.message),
+                        provider_detail: error
+                            .provider_detail
+                            .map(|detail| self.redact_text(&detail)),
+                    })),
+                    None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
+                };
                 let _ = sender.send(response);
             }
             PendingRpc::Prompt {
@@ -3112,7 +3133,7 @@ impl AcpHost {
         };
         for request in rejected {
             if let PendingRpc::Response { sender, .. } = request {
-                let _ = sender.send(Err(reason.clone()));
+                let _ = sender.send(Err(anyhow::anyhow!("{reason}")));
             }
         }
     }
@@ -3690,7 +3711,10 @@ impl AcpHost {
                 bail!("ACP request timed out: {method}");
             }
         };
-        response.map_err(|message| anyhow::anyhow!("{method}: {message}"))
+        response.map_err(|error| {
+            let diagnostic = format!("{method}: {error}");
+            error.context(diagnostic)
+        })
     }
 
     async fn prepare_prompt(
@@ -4463,41 +4487,64 @@ impl AcpRuntime {
                     )
                     .await
                     .context(AcpSessionRestoreError)?;
-                let method = if continuation == AcpSessionContinuation::Resume {
+                let mut method = if continuation == AcpSessionContinuation::Resume {
                     "session/resume"
                 } else {
                     "session/load"
                 };
-                let params = if continuation == AcpSessionContinuation::Resume {
-                    build_acp_resume_session_params(
-                        self.host.adapter_kind,
-                        existing_session_id,
-                        &cwd,
-                        &mcp_servers,
-                        &additional_directories,
-                    )
-                } else {
-                    let mut params = json!({
-                        "sessionId": existing_session_id,
-                        "cwd": cwd,
-                        "mcpServers": mcp_servers,
-                    });
-                    if self.host.adapter_kind != AdapterKind::CursorAgent {
-                        params["additionalDirectories"] = json!(additional_directories);
-                    }
-                    params
-                };
-                let result = match self
-                    .host
-                    .rpc_with_timeout(method, params, ACP_HISTORY_RESTORE_TIMEOUT)
-                    .await
-                {
-                    Ok(result) => result,
-                    Err(error) => {
-                        self.host
-                            .unbind_session(existing_session_id, &self.owner)
-                            .await;
-                        return Err(error.context(AcpSessionRestoreError));
+                let result = loop {
+                    let params = if method == "session/resume" {
+                        build_acp_resume_session_params(
+                            self.host.adapter_kind,
+                            existing_session_id,
+                            &cwd,
+                            &mcp_servers,
+                            &additional_directories,
+                        )
+                    } else {
+                        let mut params = json!({
+                            "sessionId": existing_session_id,
+                            "cwd": cwd,
+                            "mcpServers": mcp_servers,
+                        });
+                        if self.host.adapter_kind != AdapterKind::CursorAgent {
+                            params["additionalDirectories"] = json!(additional_directories);
+                        }
+                        params
+                    };
+                    match self
+                        .host
+                        .rpc_with_timeout(method, params, ACP_HISTORY_RESTORE_TIMEOUT)
+                        .await
+                    {
+                        Ok(result) => break result,
+                        Err(error) => {
+                            // -32601 on this exact restore request means the advertised
+                            // method is unavailable. Try an advertised, supported load
+                            // alternative once before declaring that no restore method exists.
+                            let method_unavailable = error
+                                .downcast_ref::<AcpRpcError>()
+                                .is_some_and(|error| error.code == Some(-32601));
+                            if method_unavailable
+                                && method == "session/resume"
+                                && capabilities.can_load_history
+                                && history_restore_allowed(self.host.adapter_kind)
+                            {
+                                method = "session/load";
+                                continue;
+                            }
+                            self.host
+                                .unbind_session(existing_session_id, &self.owner)
+                                .await;
+                            let error = if method_unavailable {
+                                error.context(
+                                    rovai_core::runtime::NativeSessionResumeFailure::Incompatible,
+                                )
+                            } else {
+                                error
+                            };
+                            return Err(error.context(AcpSessionRestoreError));
+                        }
                     }
                 };
                 if let Some(returned_session_id) = result.get("sessionId").and_then(Value::as_str)
@@ -9254,8 +9301,12 @@ while IFS= read -r ignored; do :; done
         )
         .await;
         let detail = error_response.await.unwrap().unwrap_err();
-        assert!(!detail.contains("wire-stdout"));
-        assert!(detail.contains("failure 1"));
+        assert_eq!(
+            detail.downcast_ref::<AcpRpcError>().unwrap().code,
+            Some(-32000)
+        );
+        assert!(!detail.to_string().contains("wire-stdout"));
+        assert!(detail.to_string().contains("failure 1"));
 
         runtime.detach().await;
         host.shutdown().await;

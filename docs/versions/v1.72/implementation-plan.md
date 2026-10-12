@@ -1775,6 +1775,61 @@ UI 仅修改已确认文案；设计扫描提示的旧 surface 路径与平台�
 摘要/权限矩阵扩展原 `discovered_entry_configures_and_freezes_without_health_evidence` owner 并通过；
 Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 归属见上述测试指南。
 
+## 同类 CLI 优先恢复原生会话（2026-10-12）
+
+基线 `bab6034df3459269a4a15628dc436d660716f1ac`；分支 `codex/native-session-resume`。
+User 明确要求整套已确认方案一并完成。规范见 [Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)，
+取舍见 [V1.72-D37](decisions.md#v1-72-d37)。
+
+- 当前 Conversation 的类型由既有安装/历史 Run 解析；同类 CLI 保留 exact-ID Resume 资格，历史摘要、安装代次和受控恢复记录不提前否决。
+- Adapter 在恢复调用处提供可靠结论；退役全局文本及 Claude/Antigravity/Pi 的日志猜测。Command Code 继续精确核验完整目录，Pi 区分精确目标不存在与普通 IO 错误。
+- 新建前保留旧目标，当前输入 dispatch/accepted/unknown、取消与 epoch 仍阻止自动降级。成功替换与提示事件在绑定事务一同提交；公开/私聊执行详情显示一句提示。
+- 新 Run 正常装配 Bootstrap，不依赖旧 Blob。Migration 195/schema 145 保留所有历史行与引用，仅解除 Binding/generation 唯一约束；同一 Run 已准备输入保持不可变。
+- 进程丢失或重启时，未知输入正常失败并保留清理/防重证据，同时保留原生目标。用户显式续做的未知执行隔离机制不变。
+
+验收 owner 扩展现有 `scripts/smoke-member-environment-upgrade.mjs`：从 `7973c7ffd1b0a360dea02c936458fb69f591c11e`
+构建 schema 142 Core，正式建立 Claude/Codex 原生绑定与队员 env；在隔离 fixture 中改变旧安装/连接/上下文元数据、
+破坏旧 Bootstrap digest，然后用候选 Core 重启。实际 `--resume`/`thread/resume` 携带原 ID，新进程读取当前
+Host＋队员环境，第二条输入只提交一次，两个 Run 均成功。TRAE 模拟 ACP 验证能力缺失的一次新建、
+新建失败保留旧目标、初始化/恢复/模型误导文本报错、真实取消与恢复超时，输入后进程退出只提交一次并保留原 ID。
+Codex 的 MCP / 认证反例分别触发实际 `config/read` / `account/read` RPC 错误，并验证零新建、零业务输入；
+成功提示只随已绑定替代会话出现。
+所有目录、Home、MCP 和凭据均为临时 fixture，无真实模型调用。
+
+Rust owner 与准入说明见[测试记录](../../development/testing.md#原生会话恢复-owner2026-10-12)。
+审查已修复 Claude 重复绑定、Pi 缺目录分类、迁移外键/索引准入与提示原子性；两个审查轴复核无剩余核心发现。
+
+本机 macOS 验证结果：
+
+- `cargo test --workspace`：465 项通过、1 项既有人工测试忽略；`cargo check --workspace` 和格式检查通过。
+- `slow-tests` 定向恢复、Bootstrap、替换回滚、Pi 精确目标、主动重置、启动恢复、坏配置调度隔离和 Warm
+  环境 owner 通过。曾启动完整扩展/慢速组合，发现未修改的 `acp_runtime_classification_covers_every_acp_backed_adapter`
+  中 Command Code/Cline 顺序断言失败后停止该整套运行；本次不宣称完整 slow suite 通过，也未禁用该测试。
+- `pnpm typecheck`、Vitest 全部 242 文件 / 2639 项通过；文档测试 10 项及相对上述基线的通用治理门禁通过。
+- 上述跨版本 + 合成 CLI 执行验收通过，包括旧 ID 的实际恢复请求、当前启动环境、有界降级、错误来源和输入次数。
+
+验证范围为隔离 Core/合成 CLI，未运行真实 Provider/模型或 Windows 真机，未安装或重启日常 App。
+状态：保留 `codex/native-session-resume` worktree 供 PR 评审，未合并。
+
+### Pi 定位范围与 ACP 恢复拒绝接线（PR #714 补充审查）
+
+以 `896b4d55e980901c5f3e5ef74a5fd9ad7b9cc5ac` 二进制运行新增的正式 Core 协议场景，复现两项遗漏：
+同 Camp/队员的 Pi 公聊 S1 → 单聊 S2 → 公聊 S1 在第三步报 locator 身份错配；ACP 广告支持 load、
+实际返回 `-32601` 后没有调用一次新建。前者是已有定位文件范围过粗，后者是 RPC 传递时丢弃结构化错误。
+
+修复仍在现有 Adapter 内：Pi 按 canonical Session UUID 保存独立定位文件，旧 locator 仅在 ID 匹配时回读，
+不把错配改判为缺历史；ACP 用原 `AcpRpcError` 跨请求通道传递脱敏机器字段，只在恢复调用处解释 `-32601`。
+resume 方法不可用时，若广告且 Adapter 允许 load，则以原 ID 尝试一次 load；可用恢复方式均明确不可用
+才回到既有的一次新建。初始化/模型/目录请求错误不获得该结论，没有新数据库状态、迁移或历史扫描。
+
+回归复用原 Core smoke 和 Rust owner，详见[测试说明](../../development/testing.md#原生会话恢复-owner2026-10-12)。
+Spec 与 Standards 静态复核均无剩余核心问题。
+
+修复后的 `--adapter-regressions` 执行验收通过：Pi 在 Warm/重启两轮交替恢复公聊、单聊的原 ID 和文件路径，
+8 条输入各提交一次；ACP 覆盖 load 拒绝后新建成功/失败、resume 拒绝后 load 成功及两者都不支持的有界降级，
+并验证初始化/模型同码、取消、超时和输入未知不会降级或重复发送。ACP/Pi 定向扩展测试分别 66/14 项通过，
+各有 2/1 项既有人工测试忽略；`cargo test --workspace` 重新通过 465 项、1 项既有人工测试忽略。
+格式、生产编译及文档治理门禁通过。验收仍使用隔离 Core 与合成 CLI。
 
 ## 执行行固定位置、原文逐行与 RunCard 高亮（2026-10-12）
 

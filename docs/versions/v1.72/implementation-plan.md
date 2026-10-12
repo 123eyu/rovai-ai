@@ -8,6 +8,20 @@ last_updated: 2026-10-12
 
 # v1.72 实施与验收
 
+## Charter 与 Memory 入口精简（2026-10-12）
+
+User 消息 `ed8ae499-ebbe-44ae-a6ba-e0b588e04912` 已确认
+[R2 文案及兼容边界](model-context-change-charter-memory-concision.md)并授权 PR 合入 main。
+分支 `rovai/charter-concision-r2` 从 `bab6034df3459269a4a15628dc436d660716f1ac` 创建，
+先合入此前尚未进入 main 的 Codex 专属提示删除，再实施共享精简。
+本次只替换固定文案、维护 revision 与既有测试；共享兼容摘要不变，无数据库或动态 Context 变化。
+
+实施已完成。生产文案与确认 R2 逐字一致；复用既有 Charter／Bootstrap／Single Chat／Binding／Codex
+Adapter owner，定向 29 项通过，未新增、删除或禁用独立 Rust 测试。
+`pnpm test:rust:pr` 465 项通过、1 项既有 ignored；文档 10 项测试、普通及基于上述 base 的
+diff-aware 文档门禁、Rust 格式和 diff 检查通过。未运行真实模型行为评测，
+不把字符缩减或确定性测试表述为模型行为改善。
+
 ## CJK Markdown 与引用投影（2026-10-11）
 
 基线 `4522057d5e5af503647a5f883902c6babb98f314`，分支 `rovai/cjk-markdown-quotes`。

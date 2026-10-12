@@ -3,7 +3,7 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-10
+last_updated: 2026-10-12
 ---
 
 # v1.72 版本决定
@@ -756,3 +756,65 @@ User 要求删除自有 env 与变量注入，正式运行、检查和目录探�
 只在旧 env 中配置的 Provider 必须由用户在 Kimi 原生配置中提供；历史 Run/Session 保留。
 拒绝把旧 env 保留为隐式 fallback，因为这会继续形成两个配置来源；也不把旧字段自动合并进官方 TOML，
 避免覆盖用户已经配置的 Provider。MCP、权限与原生 Session 延续继续使用已有合同。
+
+<a id="v1-72-d34"></a>
+## V1.72-D34：Windows Web 凭据采用目录信任与可用性优先
+
+- 状态：accepted
+- 日期：2026-10-11
+- 确认：User 消息 `83d8555f-36b5-4d12-875d-304bc654c792` 与 `6d0d31b5-12f3-46bf-ab60-149d18a18d64`
+- 当前权威：[Host Web v4](../../contracts/host-web-v4.md#windows-web-凭据可用性)、[Windows Private Storage v2](../../contracts/windows-private-storage-v2.md#windows-web-credential-exception)、[统一 Rust Host](../../architecture/unified-rust-host.md#身份与控制面)
+
+### 背景与选择
+
+备份恢复可保留有效凭据内容，却把单文件 protected DACL 变成正常目录继承。精确权限模板检查
+因此拒绝操作系统允许读取的凭据，连查看 Token 也失败。User 明确选择在已准入数据目录内接受
+正常继承，以操作系统读写能力为基础；额外文件权限加固尽力完成，不是使用远程连接的前置条件。
+
+### 后果与替代方案
+
+不再承诺每个 Windows Web 凭据文件独立受保护或精确匹配 ACL 模板；承诺普通文件/路径检查、
+内容验证与原子持久化。通用私有存储、数据目录准入和其他平台保持原合同。
+拒绝先自动修 ACL 再允许连接，因其仍要求用户拥有额外改权能力；拒绝全局放宽私有文件规则，
+因为本次可用性决策仅属于 Web 凭据。读取失败不生成替代 Token，实际保存失败不能报告成功。
+
+<a id="v1-72-d35"></a>
+## V1.72-D35：队员环境回归 CLI 启动配置
+
+- 状态：accepted
+- 日期：2026-10-12
+- 当前权威：[Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)、[本机启动设置](../../architecture/runtime-catalog-boundaries.md#本机启动设置)
+
+### 背景与选择
+
+会话环境快照要求升级前已有原生 Session 找回历史环境，缺失时拒绝执行；领取事务中的单会话错误
+又使无关 Camp 一起等待。User 明确选择方案 A，以已有聊天可继续、错误隔离和简单配置行为为优先。
+队员配置负责保存，真正创建 CLI 时读取；存活进程自然保持原环境。复用健康进程不读取最新配置。
+
+### 后果与替代方案
+
+原生 Session 的历史续接与环境配置分离，冷恢复使用当前配置，不承诺历史环境可复现。
+拒绝补齐/恢复历史快照，因为其读取与解密仍会成为旧会话门槛；拒绝保存后驱逐 Warm 或强制重置，
+因为保存不应中断正常工作。旧表由普通迁移退役，保留当前配置密钥与所有聊天数据，不另建迁移或生效追踪系统。
+
+<a id="v1-72-d36"></a>
+## V1.72-D36：业务完成独立于过程文本和用量收尾
+
+- 状态：accepted
+- 日期：2026-10-12
+- 确认：User 在本次会话限定第 1–4 项并要求完成后提交 PR；第 3、4 项使用现有停止与继续
+- 当前权威：[统一 Rust Host](../../architecture/unified-rust-host.md#组件和唯一权威)、[Runtime Monitoring](../../architecture/runtime-monitoring.md)、[Usage v9](../../contracts/runtime-usage-monitoring-v9.md)
+
+### 背景与选择
+
+协作命令已经提交，却因正文定稿失败返回错误；用量刷盘和原生尾读也曾成为 Run 结算的等待项。
+选择业务可用性：文本交给既有维护任务，用量由周期采集补充，接受统计缺失与每轮切分不完全。
+
+### 后果与替代方案
+
+不再保证命令成功时过程文本已定稿，或 Run 结束时用量已齐全。迟到统计依赖短期去重基线，迁移保留
+该状态直到现有过期清理。拒绝继续以统计完整性阻塞执行，也不增加强制放行、自动重放或对账体系。
+完成回包缺失的具体原因仍需诊断；本改动只移除已确认的辅助收尾耦合，并验收手动停止与继续。
+
+正常退出在 writer fence 之后提供不超过剩余 hard deadline 的 `1s` 最终正文落盘机会；渠道只在正文
+定稿后封存终态快照。接受异步保存不等于允许正常退出直接丢弃缓冲或永久封存流式占位；两者不回到普通命令路径。

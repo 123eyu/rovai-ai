@@ -2,7 +2,7 @@
 
 Installation links and agent-specific account, model and tool settings. For Rovai’s interface and field descriptions, see [Agents and model configuration](https://rovai.dev/docs/agents.html).
 
-This guide covers **Rovai v0.4.7**. Install and authenticate agents on the host running Rovai Desktop or Server.
+This guide uses **Rovai v0.4.7** as its baseline; selecting Pi thinking levels in Rovai requires **v0.4.8 or later**. Install and authenticate agents on the host running Rovai Desktop or Server.
 
 After configuring the agent’s account and models, find it in Settings → Agents, then select it for a teammate. Existing native credentials and configuration are reused. Browser access uses the installation on the server host.
 
@@ -70,11 +70,43 @@ These agents use their native sign-in, provider and model configuration. Rovai�
 
 With multiple installations or configuration directories, Rovai should launch the one you authenticated. If the terminal finds the program but Rovai does not, set its absolute executable path in startup settings.
 
-## Pi models and tools {#pi}
+## Pi: model and thinking-level configuration {#pi}
 
-Pi’s model catalog comes from its configured providers. Add providers or models in Pi, then select them in Rovai. The extension shipped with Rovai loads during execution; there are no extension files to copy manually.
+### Configure models
 
-The current Pi adapter does not provide external MCP assignment. Native Skills, extensions and Rovai collaboration tools retain their respective entry points. See [Skills](https://rovai.dev/docs/skills.html) and [MCP](https://rovai.dev/docs/mcp.html).
+For Pi’s built-in providers, run `/login` in Pi’s terminal interface to sign in, then use `/model` to select a model. Configure custom services such as sub2api in `~/.pi/agent/models.json` on the host running Rovai.
+
+This example uses GPT-6.1 Sol. Replace the gateway URL and API key. If the file already exists, merge the relevant provider and model fields while retaining the rest of your configuration.
+
+```json
+{
+  "providers": {
+    "sub2api": {
+      "api": "openai-responses",
+      "baseUrl": "https://gateway.example/v1",
+      "apiKey": "YOUR_API_KEY",
+      "models": [{
+        "id": "gpt-6.1-sol",
+        "reasoning": true,
+        "thinkingLevelMap": {
+          "off": null, "minimal": null,
+          "low": "low", "medium": "medium",
+          "high": "high", "xhigh": "xhigh",
+          "max": "max"
+        }
+      }]
+    }
+  }
+}
+```
+
+### Configure thinking levels
+
+`reasoning: true` declares that the model supports thinking. In `thinkingLevelMap`, keys are Pi levels, values are sent to the upstream API, and `null` disables a level. This example offers **low / medium / high / xhigh / max**. For other models, use the levels they actually support.
+
+After saving, reopen `/model` in Pi to load the configuration; use `/thinking` to choose a level. In Rovai, open **Teammates → Agent configuration**, open the model picker to refresh the catalog, select a specific model and thinking level, then save. With **Model default**, Rovai does not explicitly set a thinking level.
+
+The Pi commands refer to version 1.1.0. [Pi model configuration](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/models.md) · [GPT-6.1 Sol reasoning levels](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
 
 ## Adding a new agent {#adding-agents}
 

@@ -3,10 +3,75 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-10
+last_updated: 2026-10-12
 ---
 
 # v1.72 实施与验收
+
+## CJK Markdown 与引用投影（2026-10-11）
+
+基线 `4522057d5e5af503647a5f883902c6babb98f314`，分支 `rovai/cjk-markdown-quotes`。
+SafeMarkdown 与两处正文解析辅助函数使用 remark 的现成 CJK 扩展；Core 改用启用同等扩展的
+Comrak 0.48（满足 workspace 的 Rust 1.85 下限）。保留单波浪线字面值、隐藏任务框后的正文空格和既有段落边界。
+新引用沿用 locator 的 projectionVersion=2；快照仍为 version 1，不迁移消息或引用。
+旧摘要失配只影响高亮，完整引用继续展示与进入模型输入；不新增服务、队列或模糊定位。
+
+复用现有 Rust 纯投影、SQLite capture owner 与隔离 Electron 引用 owner，共读
+`packages/contracts/fixtures/message-quote-projection-v2.json`，保留全部旧例并增加原问题片段、中文标点、
+嵌套、代码、转义、流式未闭合、GFM 和结构化 Mention。SQLite owner 同时验证旧快照字节不变与捕获摘要。
+Electron 继续验证原生选文、复制关闭、v1/v2 回跳、旧定位失败后的完整展示、移除与重排、私聊视口和高亮重排。
+共享用例增加后，回跳验收改为在有限时间内等待行进入视口，避免将原固定 400ms 误当滚动完成。
+未新增、删除或停用 Rust 测试函数；复用现有最小内存 schema，不启动 Core 或模型。
+
+当前权威同步到 Message Quotes 合同、架构与会话区 UI。此为可逆的解析器适配，现有投影版本和不可变快照
+已拥有兼容边界，不满足新 Version Decision 的高变更成本准入，不新增决定或修改版本指针。
+
+验证结果：共享用例 55 组（全部保留原 21 组），Core 投影/capture 的 3 个既有 owner 与真实 Electron
+引用交互均通过；包含日夜主题截图、CJK 原生选文、代码字面量、引用复用与失配反馈。
+`pnpm test` 通过：Vitest 2,625 项，后续 Node 339 项通过、2 项平台专属跳过；文档 10 项、Skill 3 项与
+Electron 能力分类 7 项通过。`pnpm test:rust:pr` 465 项通过、1 项既有 ignored。
+最终空代码块边界修正与旧快照用例完善后，Core 定向 3 项再次通过；55 组 Electron 用例通过。
+`pnpm typecheck`、包含 Web/执行台构建的 `pnpm build:desktop`、带上述 base 的 `pnpm docs:check:ci`、
+Rust 格式与 diff 检查通过；前端机械设计扫描无发现。未安装日常 App，未启动真实 Runtime。
+
+## Windows Web 凭据可用性（2026-10-11）
+
+基线 `70510b3fa43a7fe845e339fd5dbbe8391ad20e39`，分支 `rovai/windows-web-auth-availability`。
+`rovai-web/auth.rs` 的读取和持久化在 Windows 改用凭据专用平台入口，非 Windows 继续调用原私有文件接口。
+平台例外只生成/读取固定 `web-auth.json`，同目录新 sibling 保留原子替换；加固只操作新空文件的既有句柄。
+Host 生命周期与 HTTP 保存失败传递安全分类，Desktop 使用已有失败 envelope，Web 登录/注销显示保存原因。
+不更改 schema、协议版本、存储格式、位置或正常认证逻辑，不涉及模型上下文。
+
+### 测试归属与复现
+
+- 扩展既有 `authentication_reopen_preserves_renewals_and_never_resurrects_revocation`：
+  Windows 有效继承文件在修复前因缺少 protected DACL 失败；修复后读不改内容/ACL，后续登录、续期、
+  回收、注销、关闭、轮换、重开和失败时保留 registry 沿用同一 owner。无数据库、网络或 Runtime。
+- 新增最低成本平台 owner `web_auth_hardening_failure_preserves_atomic_io_and_path_checks`：
+  真实临时 NTFS 文件验证定向注入的额外 DACL 加固失败不阻断创建/替换，而原子替换 I/O 失败仍保留旧字节并清理 sibling。
+  同时验证非普通文件拒绝、通用私有接口仍严格；既有通用 private JSON owner 不能注入凭据专用加固边界。
+- 扩展既有 Host pipe/HTTP owner，使用隔离 Core 和合成凭据检查内容异常、真实拒读、继承/额外 ACE/
+  无 WRITE_DAC 的读取，以及保存失败的 503/具体原因/零 Session；沿用该 owner 的完整 Host 重启验证。
+  已准入 Core 目录暂时拒绝创建文件时，Token 查询仍可读取；初版重复父目录 DACL 门禁的红测失败已复现，
+  最终实现只在凭据 I/O 重验路径/卷/身份，Core/Server 的初次目录准入不变。
+- 扩展真实 Electron contextBridge owner 与 Web client 失败重试 owner，检查错误文案传递及失败不清空有效客户端会话。
+
+### 验证记录
+
+- 修复前 Windows 定向 auth 回归：1 项失败，错误为文件 DACL 未保护；未读取或记录日常 Token。
+- Windows `rovai-web` 全部 11 项通过；平台 private-storage 全部 7 项通过；真实 Electron bridge 1 项通过。
+- 完整 Host pipe/HTTP owner 通过，包括目录拒绝新建文件时的首次 Token 查询与进程重启；Web client 23 项通过。
+  TypeScript、Web 构建、Rust 格式、文档 10 项测试、普通及 diff-aware 文档门禁通过。
+- Windows 全量 Vitest：2597 通过、16 跳过、11 失败。失败均为原有六个文件预览/评测/分析测试模块的
+  符号链接创建 `EPERM`；在未修改的同基线 main checkout 重跑六个模块，复现相同 11 项失败。
+  不将本轮全量结果记为通过，不修改这些独立模块或提升系统权限；PR Linux CI 单独验证跨平台门禁。
+- 未测试实际磁盘耗尽、断电、杀毒软件特定拦截或网络共享；目录准入不扩展至这些场景。
+  加固失败为专用闭包注入，未伪称本机操作系统出现该故障。macOS/Linux 的运行结果由实际 CI/测试另记。
+
+最小命令：`cargo test -p rovai-web auth::tests::`、
+`cargo test -p rovai-core --lib platform::private_storage::tests::`、
+`cargo build -p rovai-host` 后 `node --test --test-name-pattern='Desktop and Web share one Core' scripts/lib/host-web.test.mjs`、
+`pnpm test:desktop-bridge` 与 `pnpm exec vitest run apps/web/src/client.test.ts`。
 
 ## Send 正文文件输入
 
@@ -1565,3 +1630,133 @@ Rust workspace（460 通过、1 既有忽略）、continuation 扩展 5 项、th
 最终页脚调整的既有 App owner 181 项、生产继续按钮交互与基于 main 的文档治理均通过。
 真实 Runtime 与安装产物证据随 PR 交付记录；缺少固定 snapshot Judge 配置，未完成通用 12 Case
 基线／候选语义 Gate，专项验证不替代该 Gate。
+
+
+## 会话内队员占位
+
+初版在 User 确认 v5 HTML 后授权独立 worktree 实现。下列保留初版验证记录；后续增量见本节「停止区分隔与重试恢复」及「单行进度读取恢复」。基线 `f9acc2395283d49f0ce247dc0af2207c155f6eb6`；
+分支 `rovai/teammate-presence-v5`，worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-teammate-presence-v5`。
+初版为 Renderer 增量，无需治理文档主线前置，不修改 Core 或模型上下文。
+状态 `ready`；验证后提交、推送上述分支，按 User 偏好不自动创建 PR，保留 worktree 供后续验收。
+
+- `ConversationRunPresence` 作为消息时间线末尾独立节点，消费同一 Evidence/live progress；复制／回复、消息分组和产物布局不变。
+- 轻量 open/re-entry 复用 `ExecutionWindow` 的 blocks API，单块恢复最新正文/命令，并以既有变化水位更新；缓存窗口与 Drawer 历史阅读隔离，不读全文 Blob、不增加轮询。
+- `conversationRunPresence` 只投影实际运行／已开始等待及每位队员最新公开 batch 失败；顺序服从公开消息 sequence，头像是否重复按精确 Run 判断。
+- 消息区确认停止使用原回调及 Run version；`ContinueAgentRunButton` 增加内联重试外观，共享原请求身份与未知回执核对。
+- CSS 复用 v5 的 30px 行、14px 状态/工具图标、26px 停止按钮和单行省略；粗指针 44px，日夜主题及 reduced-motion 共用语义 token。
+
+验证：
+
+- `pnpm typecheck`、`pnpm test` 通过（240 个 Vitest 文件、2621 项用例；另有 339 项 Node 测试通过、2 项平台跳过）；新增 5 项占位投影、8 项 ExecutionWindow 及原有产物渲染回归通过。
+- `pnpm test:run-presence-ui` 覆盖 8 类场景、37 个阶段、真实增量 Evidence 模拟、交错消息、原按钮显隐、停止确认、重试拒绝／未知回执及草稿保留；额外验证轻量 open 无 Evidence 时单块恢复命令、增量正文且不读 Blob。
+- 与 User 确认的 v5 原文件逐项比对行高、间距、字体、颜色及停止按钮：日夜主题 × 1040×700、1440×920、2560×1440 共 6 组通过；另通过 200% 等效布局、44px 粗指针目标及 reduced-motion。
+- 原有 `pnpm test:run-continuation-ui` 及 `execution-state-transition` 浏览器回归通过；`pnpm test:rust:pr` 为 465 passed、1 ignored；`pnpm package:mac` 成功。
+- `pnpm accept:runtime-activity-ui` 完整通过：隔离桌面包/Core 的 13 类结构化 Runtime 夹具、冷启动命令恢复、紧凑消息尾占位、执行台三种位置、工具正文阅读恢复、停止、日夜主题与 200% 等效布局均通过。浏览器和桌面验收使用受控证据与命令回执，不代表真实模型执行。
+- 验收同时复现并修复底部执行台高度测量晚于阅读位置恢复的问题：等待高度边界提交后恢复，原 3% 精度断言保留；底部往返前后外层比例均为 `0.3715415`，正文比例均为 `0.5297483`。最终修复再通过类型检查、执行台浏览器回归与完整桌面包验收。
+
+验收维护：主线 Built-in transport 的断言仍为 36，已在未改动的基线重现并与当前 37 同步；
+通用桌面夹具的 Manifest 32 更新为 33，按当前 Accepted Input Recovery v8 检查结果不明 Run 的失败终态和主动继续，
+并使用当前带数量的标签结构、“智能体默认”文案、执行台统一背景及重入总览契约；Runtime 断言按成员身份定位，已停止步骤计入收口总数。浏览器关闭等待拥有的进程退出，解除 Crashpad 继承日志管道导致的悬挂；
+缺少浏览器时保留清晰的未执行提示，额外验证启动失败能够释放资源。未修改 Core 恢复规则或模型上下文。
+
+本地证据保存在 worktree 的 `docs/prototypes/run-presence-implementation/`（忽略的生成物），含浏览器逐项
+对照、桌面验收 JSON 与截图。最终隔离 `userData` 为
+`/private/var/folders/pm/zmpfxggd0glcm8vx3p3y3mmr0000gq/T/rovai-presence-native-layout-4c6zdmds/user-data`，
+Skill Library 为其 `managed-skill-library/`；未安装、重启或改写日常 App。
+
+### 停止区分隔与重试恢复（2026-10-11）
+
+在 `2890a04251774e348f01444f60eb9bc4bf777ccf` 上继续使用原 worktree 和分支，按 User 选定的 v10
+「停止区分隔」实现；随后按 User 修正恢复 v8 默认中性色、悬浮红色的停止按钮。
+该次合同为 [Run Process Detail Surface v48](../../contracts/run-process-detail-surface-v48.md)。
+
+- 透明行内增加 1px × 16px 操作区分隔，36px 行高、34px 内容入口、26px 停止按钮；粗指针扩大为 44px 目标。
+  进行中图标使用执行台颜色与动画，停止图标提取为共用组件。保留单行流式省略、消息顺序和原复制／回复显隐。
+- `AgentRunView.hasAcceptedContinuation` 从 `camp_run_continuation` 与真实 Delivery 派生；同一读取覆盖
+  完整快照和轻量打开。受理后收起旧失败入口，切群／刷新可恢复，不依赖组件 Set 或有界 Delivery 列表。
+  切群先展示缓存时暂不呈现中断行，权威读取完成后再判断，避免缓存短暂复活旧入口。
+  旧 Run 状态/version 不变；新 Run 失败只重试新 Run，执行台仍允许对历史 Run 多次主动授权。
+- 消息区提交中显示「正在提交…」，回执丢失只保留普通重试，内部继续复用同一 commandId；没有新增结果未知状态。
+  数据库结构、调度、授权命令和模型上下文均不变。
+
+验证证据：
+
+- `pnpm typecheck`、`pnpm test` 通过：240 个 Vitest 文件、2621 项用例；339 项 Node 测试通过、2 项平台跳过。
+- `pnpm test:run-presence-ui` 通过 37 个场景阶段、19 项交互记录、6 组主题/尺寸，以及 v10 原文件的 6 组几何/排版对照；
+  单独验证双主题的默认中性色、悬浮红色、鼠标移开恢复、200% 等效布局、粗指针与 reduced-motion。
+  暂缓调度领取后实际点击侧栏切群再返回（含旧缓存预览）、完整刷新，旧失败行均不复活且只有一条等待 Delivery；
+  后继失败点击指向新 Run；执行台两次主动继续分别产生独立授权，返回消息区仍收起旧提示。
+- 扩展既有 Rust owner `user_continuation_preserves_source_and_claims_independent_fifo_batches`，覆盖事务回滚未受理、
+  已受理但尚无新 Run、SQLite 重开与轻量投影恢复、source version 不变、后继 Run 不继承源 Run 的受理标记。
+  使用真实 SQLite 验证持久化边界；未新增重复测试 owner。
+- `pnpm test:rust:pr` 通过 465 项，1 项忽略；定向扩展 owner 通过。`pnpm test:run-continuation-ui`、
+  `pnpm build:desktop` 与文档通用门禁通过；最终定向 App、界面语言与占位测试通过。
+
+截图与浏览器报告保存在 worktree 的 `docs/prototypes/run-presence-divider-implementation/`（忽略的生成物）。
+浏览器使用生产 React 组件和模拟服务端记录；Core 测试使用隔离数据库。这次未运行真实 Runtime，未安装或重启日常 App。
+完成后提交并推送原分支，按 User 偏好不自动创建 PR，保留 worktree。
+
+### 单行进度读取恢复（2026-10-11）
+
+在固定提交 `63c3f2be1dea1be0b5de729a53f033dbdc2033fc` 上复现：首次 page 失败后，连续三次
+refresh 不再请求；首次 page 在途期间收到更新也被丢弃。User 随后授权在原 worktree 修复。
+当前边界为 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)。
+
+- `ExecutionWindow` 先记录在途失效，再判断是否已有数据。活动尾窗首次失败可由新更新或连接
+  resync 重新读取；多个在途更新合并为一次补拉，持续失败不自行循环。未读取窗口保持冷态，
+  执行台历史分页仍保留显式重试及方向／游标，释放窗口清除待刷新并隔离迟到回执。
+- 单行预览与 Thread 复用同一 Evidence 合并函数，先按身份／版本／流式增长合并，再投影内容；
+  移除旧恢复结果优先于全部实时进度的选择，避免正文回退，并拒绝旧版本流式事件覆盖新恢复记录。
+- 没有 CSS、按钮或 Core 改动；排队、完成展示、已受理重试收起及 v8 默认停止色保持。
+
+验证：`pnpm typecheck` 通过；`pnpm test` 为 241 个 Vitest 文件、2627 项用例通过，另有
+339 项 Node 测试通过、2 项平台跳过。新增读取类测试覆盖失败后恢复、慢首读补拉、持续失败不循环
+和释放后不补拉；Evidence 合并测试覆盖新旧版本两种方向及同版本流式增长。
+
+`pnpm test:run-presence-ui` 使用生产 React 组件和受控服务读取，验证无 Run 字段变化的重连原位恢复、
+慢首读后无须新通知即可追上、补拉延迟时新实时正文不回退；原 37 个场景阶段与按钮／重试回归通过。
+`execution-state-transition` 浏览器回归、`pnpm build:desktop` 及文档通用门禁通过。
+本次没有运行桌面包或真实 Runtime；验证不依赖启动或修改日常 App。
+
+## 队员环境按进程启动读取（2026-10-12）
+
+按 User 方案 A 实施。领取/执行准备不再读取历史环境；现有 Fleet 创建分支携带私有配置读取来源，
+创建 CLI 时组装一次内存映射，Warm 命中不读取配置。Codex/ACP/Pi 使用既有 native binding 身份限制
+会话复用；Claude/Antigravity 在独立进程启动路径读取。派生工具进程保持 ManagedProcess 的父 CLI 环境。
+新环境映射不序列化入 Run，不改变既有 Run 身份、执行代次或输入确认。Migration 193/schema 143
+无需旧密钥/快照解密即退役两张历史环境表；队员配置与原生历史保留。
+
+单队员配置解析失败接入现有 lane 失败结算，SQL/数据库错误仍返回外层。环境读取错误发生于新 CLI
+创建，沿既有单 Run 失败路径展示；保存 env 不引入停止、重置或环境版本失效行为。
+界面采用约定的一句进程启动说明，重置文案仅解释原生上下文重启。
+
+测试归属、旧测试退役理由与命令见[测试指南](../../development/testing.md#队员运行环境-owner2026-10-11)。
+本机 macOS 验证结果：
+
+- `pnpm test:rust:pr`：workspace 465 项通过，1 项已有人工测试忽略。
+- `cargo test -p rovai-core --features extended-tests --lib` 按上述 owner、Codex/ACP/Pi/Claude/Antigravity、
+  Fleet、Runtime startup、Delivery queue、迁移准入、v163/continuation 迁移过滤运行：212 项通过。
+  加强后的 193 历史消息/原生 Session 保留案例通过；既有原生会话重置 slow owner 1 项通过。
+- `cargo check --workspace`、`cargo fmt --all --check`、`pnpm typecheck` 通过；Vitest 242 文件、2639 项通过。
+- `node scripts/smoke-member-environment.mjs` 与 `node scripts/smoke-member-environment-ui.mjs` 通过，
+  覆盖 Core 私有接口、重启/加密/并发写保护和双语界面；数据、Skill Library 与 MCP 均使用临时目录。
+- `pnpm docs:test`、`pnpm docs:check` 与基于 PR base 的 `pnpm docs:check:ci` 通过。
+
+未安装或重启日用 App，未修改真实聊天数据库；未运行真实 Provider/模型或 Windows 真机验收。
+UI 仅修改已确认文案；设计扫描提示的旧 surface 路径与平台元数据漂移不属于本次改动。
+
+### 升级后原生绑定续接修正（2026-10-12）
+
+已有 Session 的绑定摘要与当前安装、协议、Session 权限投影精确一致时，保持原先未纳入默认 Host
+连接的身份；不为决定 Warm/续接资格读取队员 env 或历史环境。原先包含默认连接身份的绑定仍执行
+连接兼容检查；未知摘要、安装与权限不兼容仍按既有规则处理。
+
+从 PR 之前的 `7973c7ffd1b0a360dea02c936458fb69f591c11e` 构建 Core，使用正式私有配置与消息执行
+建立 schema 142 的 Claude/Codex 原生绑定，再通过新 Core 重启升级至 schema 143。
+`smoke-member-environment-upgrade.mjs` 在 `d8726819` 复现两者错误地发送 `start`/`thread/start`；
+修复后实际发送 `--resume`/`thread/resume` 并携带原 ID，绑定身份/代次保持，前后两个 Run 均成功。
+两次启动之间只改变 Host 继承值，队员配置未修改；新 CLI 收到当前 Host 值与原队员覆盖，证明未恢复旧环境。
+此验收使用两个实际 Core 版本与合成原生 CLI，不代表真实 Provider 恢复成功率。
+
+摘要/权限矩阵扩展原 `discovered_entry_configures_and_freezes_without_health_evidence` owner 并通过；
+Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 归属见上述测试指南。

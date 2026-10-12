@@ -6,10 +6,28 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 会话内队员占位（2026-10-11）
+
+按 User 确认的 v10「停止区分隔」及后续 v8 默认色修正，在公开会话末尾投影正在执行的队员：
+单行正文／命令、Run 身份衔接、确认停止及中断重试。停止按钮默认中性色，悬浮变红。
+复用现有 Evidence、精确 Run Stop 和独立续做命令；Core 从持久化续做 Delivery 派生受理事实，
+切群／刷新后旧失败入口保持收起。单行预览首次读取失败可随更新／重连恢复，慢请求保留更新并补拉；
+旧恢复记录与实时事件按版本合并，不覆盖新正文。排队不占位，不创建公开消息，不改变模型上下文或数据库结构。
+当前边界见 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)，验证与交付见
+[实施记录](implementation-plan.md#会话内队员占位)。
+
+## Windows Web 凭据可用性（2026-10-11）
+
+在已准入 Core 数据目录内，Windows `web-auth.json` 接受正常继承权限；只对新建的原子写入临时文件
+尽力加固，不再以精确文件 ACL 模板阻断远程连接。保留目录/路径/内容检查、先落盘再更新状态与显式重置语义。
+Host、HTTP 与 Desktop 使用脱敏的读取、保存、内容和路径错误；正常继承不产生修复流程或警告。
+当前合同见 [Host Web v4](../../contracts/host-web-v4.md#windows-web-凭据可用性)，取舍见
+[V1.72-D34](decisions.md#v1-72-d34)，验证与未测范围见[实施记录](implementation-plan.md#windows-web-凭据可用性2026-10-11)。
 
 ## 已实现：Send 正文文件输入
 
@@ -19,6 +37,21 @@ last_updated: 2026-10-11
 User 消息 19 已授权独立 worktree 实施。当前合同为 [Built-in Tool Transport v37](../../contracts/builtin-tool-transport-v37.md)，
 代码与确定性验证已完成；真实模型 Gate、旧 Session 连续发送和回滚实测尚未运行。
 具体结果、测试准入与限制见[实施记录](implementation-plan.md#send-正文文件输入)。
+
+## 队员运行环境（2026-10-11）
+
+环境配置从 Agents 移至 Teammates，按队员实例与 Runtime 保存 Host 私有 JSON 覆盖。R4 紧凑双语编辑器
+沿用保存/放弃，移除旧 Agents 编辑区域及活动环境层；旧值以只读归档在“需要处理的问题”提示手动迁移。
+Migration 191 保留队员私有配置；方案 A 通过 193/schema 143 退役 192 引入的会话快照，不解密旧数据。
+环境只在真正创建 CLI 时读取；Warm 及其工具子进程保持启动环境。保存不驱逐进程，旧会话正常尝试原生续接。
+真实队员配置错误只失败对应任务，其他 Camp 继续领取；数据库整体故障仍上报。
+实现与测试记录见[方案 A](implementation-plan.md#队员环境按进程启动读取2026-10-12)。
+Pi、ZCode、Fleet 收窄到同一 Camp/队员/当前会话，保留各 Adapter 的恢复、停止与后台消息机制。
+合同见 [Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)；
+测试归属见[队员环境 owner](../../development/testing.md#队员运行环境-owner2026-10-11)。
+可重复命令、实测结果和边界见[验收记录](../../research/member-runtime-environment-acceptance.md)。
+真实 Claude Code 2.1.287 已用两个 loopback 接口、不同假凭据/模型及冲突原生设置验证并行路由。
+其他 Runtime 不由这项测试推断 Provider 兼容性，Warm 与字面量子进程边界另由自动化测试覆盖。
 
 ## 并行交付：OpenCode V1/V2
 
@@ -37,7 +70,7 @@ Windows V1 已补齐原生压缩监听插件的安装路径，复用平台私有
 
 按 User 要求退役 Rovai 专属 `kimi-code.env`、`ROVAI_KIMI_CONFIG` 与模型变量注入。
 正式运行、健康检查和模型目录探测由 Kimi 读取官方配置；旧文件不再影响启动或 Host 复用，
-不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v56](../../contracts/runtime-launch-and-verification-v56.md)，
+不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)，
 理由见 [V1.72-D32](decisions.md#v1-72-d32)，验证记录见[实施计划](implementation-plan.md#2026-10-10-kimi-官方-provider-配置)。
 
 ## Claude Code / Codex 原生自动记忆（2026-10-10）
@@ -547,3 +580,10 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 主干原 Migration 187/schema 137 只扩展现有格式约束；本分支合流后由 189/schema 139 保留或补齐。当前合同见 [Mention v1](../../contracts/message-mentions-v1.md)、
 [ContextManifest v33](../../contracts/context-manifest-evidence-v33.md)、[History v12](../../contracts/camp-history-v12.md)。
 状态与证据见[确认稿实施记录](model-context-change-message-mentions.md#实施与验证记录)。
+
+## 异步执行收尾（2026-10-12）
+
+正文定稿和 Usage 不再作为业务命令或 Run 终态的同步前置。Migration 194 发布 schema 144，保留
+终态后的短期 Usage checkpoint。停止／继续复用既有授权与清理流程，不增加强制放行或自动重试。
+范围、测试归属与验收状态见[实施记录](async-run-finalization.md)；当前统计合同为
+[Usage v9](../../contracts/runtime-usage-monitoring-v9.md)。

@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: unified-rust-host
-last_updated: 2026-09-25
+last_updated: 2026-10-12
 ---
 
 # 统一 Rust Host
@@ -28,6 +28,10 @@ last_updated: 2026-09-25
 
 Host 独占 data-dir lease、SQLite 准入、执行、恢复与后台驱动。普通业务命令保留串行入口和已有独立通道；
 HTTP 并发不改变领域调度，SSE 不占命令队列，取消与审批不等待长 Runtime 执行。
+业务事务提交成功后，正文定稿只向既有文本维护任务发出唤醒；命令及回执 replay 不同步读 Run、
+保存正文 Blob 或更新正文 revision。运行期首次定稿及失败重试均由该后台任务拥有，沿用有界退避并发布
+正文更新。正常退出另由[关闭监督器](planned-shutdown.md#6-deadline-与-runtime-reap)提供有界末次落盘机会。正文暂未完成不改变已提交命令或 Run 的结果；执行结束也不等待 Usage 刷盘，详见
+[Usage v9](../contracts/runtime-usage-monitoring-v9.md)与[V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。
 默认新对话队伍、队长和一键创建开关由 Core 在当前数据根统一保存；Desktop 的旧值只导入一次，
 两端经共享偏好适配读取，窗口、外观与导航展示偏好继续各端保存。细节见 [Host Web v2](../contracts/host-web-v2.md#shared-creation-preferences)。
 Desktop-only 窗口、原生交互与更新保留 Electron；基础 Server 不要求 Electron 或 Node。
@@ -55,7 +59,10 @@ Host 在准入的 Core data-dir 内持久保存私有认证文档，浏览器 In
 扫码登录的一次性 fragment 票据按下述短期例外处理。
 
 长期登录 Token 使用 256-bit 系统随机数，本机入口初始化、重复查看/复制或显式重置。
-Desktop 与 Server 使用同一私有 `web-auth.json` 持久实现，原独立 `server-token` 仅作首次导入；Token 命令优先读取统一文档。
+Desktop 与 Server 使用同一 `web-auth.json` 持久实现，原独立 `server-token` 仅作首次导入；Token 命令优先读取统一文档。
+Windows 以已准入数据目录的操作系统权限为信任基础，凭据文件接受正常继承 ACL，不承诺独立受保护的精确权限模板。
+平台适配器只为该文件提供保留路径/身份检查的读取与原子保存，额外 DACL 加固尽力完成；其他私有存储规则不变。
+具体读写与失败语义见 [Host Web v4](../contracts/host-web-v4.md#windows-web-凭据可用性)。
 Host 保存 Bearer 的带类型摘要、编辑 ID、绝对到期时间和最近认证时间，认证使用恒定时间比较。
 Session 上限保持 32；容量满时回收最久未使用且没有在途请求或 SSE 的记录，保护在线标签页与派生请求的父 Session。
 回收与新建原子持久化，具体准入与失败边界由 [Host Web v2](../contracts/host-web-v2.md#bounded-session-admission) 拥有。

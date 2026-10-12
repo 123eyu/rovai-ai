@@ -1390,7 +1390,7 @@ export interface MessageQuoteSnapshot {
   capturedAt: string
   sourceContentDigest: string
   /** Internal, immutable selection anchor. Never projected into model input. */
-  locator?: { projectionVersion: 1; startScalar: number; endScalar: number; projectionDigest: string }
+  locator?: { projectionVersion: 1 | 2; startScalar: number; endScalar: number; projectionDigest: string }
   snapshotDigest: string
 }
 
@@ -1864,6 +1864,8 @@ export interface AgentRunView {
   anchorMessageId?: string | null
   /** Core-rendered title source, independent of the loaded conversation page. */
   inputSummary?: string | null
+  /** At least one continuation Delivery was accepted for this Run; not an execution-eligibility lock. */
+  hasAcceptedContinuation?: boolean
   conversationId: string
   agentId: string
   taskId: string | null
@@ -4051,6 +4053,10 @@ export type CoreMethod =
   | 'runtime.product.ensure'
   | 'runtime.product.check'
   | 'runtime.startup.get'
+  | 'member.runtimeEnvironment.get'
+  | 'runtime.environmentLegacy.list'
+  | 'runtime.environmentLegacy.get'
+  | 'runtime.environmentLegacy.acknowledge'
   | 'runtime.startup.inspect'
   | 'runtime.startup.check'
   | 'runtime.startup.save'
@@ -4145,6 +4151,7 @@ export type CoreMethod =
   | 'mcp.servers.delete'
   | 'mcp.import.scan'
   | 'mcp.import.commit'
+  | 'conversations.memberSession.get'
   | 'conversations.restartNativeSession'
   | 'channels.credentials.get'
   | 'channels.credentials.listPublished'

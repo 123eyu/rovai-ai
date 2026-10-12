@@ -1,7 +1,7 @@
 {
   "name": "rovai-ai",
   "productName": "Rovai AI",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "type": "module",
   "description": "A desktop workspace for long-lived agent teams, shared Camps, visible execution, and collaborative memory.",
@@ -72,7 +72,7 @@
     "test:file-preview-layout": "node --test scripts/lib/file-preview-layout.test.mjs",
     "test:file-reference-navigation": "node --test scripts/lib/file-reference-navigation.test.mjs",
     "test:runtime-model-picker": "node --test scripts/lib/runtime-model-picker.test.mjs",
-    "test:desktop:integration": "pnpm test:desktop-bridge && pnpm test:window-close && pnpm test:windows-close && pnpm test:composer-input && pnpm test:startup-presentation && pnpm test:navigation-shell && pnpm test:file-preview-layout && pnpm test:html-preview && pnpm test:file-reference-navigation && pnpm test:camp-fast-layout && pnpm test:camp-open-projection && pnpm test:single-chat-pending && pnpm test:execution-avatar-rail && pnpm test:approval-dock && pnpm test:notification-attention && pnpm test:capability-workspace && pnpm test:settings-workspace && pnpm test:release-notes-ui && pnpm test:runtime-model-picker && pnpm test:mission-board && pnpm test:message-anchors && pnpm test:member-runtime-apply",
+    "test:desktop:integration": "pnpm test:desktop-bridge && pnpm test:window-close && pnpm test:windows-close && pnpm test:composer-input && pnpm test:startup-presentation && pnpm test:navigation-shell && pnpm test:file-preview-layout && pnpm test:html-preview && pnpm test:file-reference-navigation && pnpm test:camp-fast-layout && pnpm test:camp-open-projection && pnpm test:single-chat-pending && pnpm test:execution-avatar-rail && pnpm test:approval-dock && pnpm test:notification-attention && pnpm test:capability-workspace && pnpm test:settings-workspace && pnpm test:release-notes-ui && pnpm test:runtime-model-picker && pnpm test:mission-board && pnpm test:message-anchors && pnpm test:member-runtime-apply && pnpm test:run-presence-ui",
     "test:zcode-owner": "node --test scripts/test-zcode-owner.mjs",
     "smoke:zcode-background": "node scripts/smoke-zcode-background.mjs",
     "test:core-startup": "cargo build -p rovai-core --bins && node --test scripts/lib/core-startup-availability.test.mjs",
@@ -174,7 +174,8 @@
     "test:host-web-mobile": "node --test scripts/lib/host-web-mobile.test.mjs",
     "test:member-creation": "node --test scripts/lib/member-creation.test.mjs",
     "test:mission-board": "node --test scripts/lib/mission-board.test.mjs",
-    "test:member-runtime-apply": "node --test scripts/lib/member-runtime-apply.test.mjs"
+    "test:member-runtime-apply": "node --test scripts/lib/member-runtime-apply.test.mjs",
+    "test:run-presence-ui": "node --test scripts/lib/run-presence.test.mjs"
   },
   "dependencies": {
     "@codemirror/language": "6.12.4",
@@ -206,6 +207,8 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
+    "remark-cjk-friendly": "2.3.2",
+    "remark-cjk-friendly-gfm-strikethrough": "2.3.1",
     "remark-gfm": "^4.0.1",
     "remark-stringify": "^11.0.0",
     "style-mod": "4.1.3",

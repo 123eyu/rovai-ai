@@ -1508,6 +1508,10 @@ mod tests {
         // A failed transaction does not consume the authorization or publish an operation.
         fixture.database.connection().execute_batch("CREATE TRIGGER fail_continuation BEFORE INSERT ON camp_run_continuation BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
         assert!(continue_agent_run(&mut fixture.database, &first).is_err());
+        let unaccepted = crate::read_model::ReadModelService
+            .camp_snapshot(&mut fixture.database, &fixture.camp_id)
+            .unwrap();
+        assert!(!unaccepted.agent_runs[0].has_accepted_continuation);
         let orphan: i64 = fixture
             .database
             .connection()
@@ -1570,6 +1574,18 @@ mod tests {
         let projected = crate::read_model::ReadModelService
             .camp_snapshot(&mut fixture.database, &fixture.camp_id)
             .unwrap();
+        assert_eq!(
+            projected.agent_runs.len(),
+            1,
+            "the scheduler has not created a successor"
+        );
+        assert_eq!(projected.agent_runs[0].id, source);
+        assert_eq!(projected.agent_runs[0].status, "failed");
+        assert!(projected.agent_runs[0].has_accepted_continuation);
+        assert_eq!(
+            serde_json::to_value(&projected.agent_runs[0]).unwrap()["hasAcceptedContinuation"],
+            true
+        );
         assert_eq!(
             projected
                 .message_deliveries
@@ -1647,6 +1663,16 @@ mod tests {
             .unwrap();
         // The requests remain durable across a database reopen before the first claim.
         fixture.database = Database::open(&fixture._directory).unwrap();
+        let reopened = crate::read_model::ReadModelService
+            .camp_open_projection(&mut fixture.database, &fixture.camp_id)
+            .unwrap();
+        assert_eq!(reopened.agent_runs.len(), 1);
+        assert!(reopened.agent_runs[0].has_accepted_continuation);
+        assert_eq!(reopened.agent_runs[0].status, "failed");
+        assert_eq!(
+            reopened.agent_runs[0].version,
+            projected.agent_runs[0].version
+        );
         let legacy: (String, Option<String>, i64) = fixture.database.connection().query_row(
             "SELECT body,tombstoned_at,version FROM camp_message WHERE id='legacy-continuation'",
             [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
@@ -1800,6 +1826,12 @@ mod tests {
             run_ids.push(run.clone());
         }
         assert_ne!(run_ids[1], run_ids[2]);
+        let after_claims = crate::read_model::ReadModelService
+            .camp_open_projection(&mut fixture.database, &fixture.camp_id)
+            .unwrap();
+        for run in &after_claims.agent_runs {
+            assert_eq!(run.has_accepted_continuation, run.id == source);
+        }
         let source_after:serde_json::Value=fixture.database.connection().query_row("SELECT json_object('status',status,'version',version,'endedAt',ended_at,'epoch',execution_epoch,'workspace',workspace_json) FROM agent_run WHERE id=?1",[&source],|r|r.get::<_,String>(0)).map(|s|serde_json::from_str(&s).unwrap()).unwrap();
         assert_eq!(source_before, source_after);
         let old_delivery_after: (String, Option<String>, i64) = fixture
@@ -2889,6 +2921,67 @@ mod tests {
             )
             .unwrap();
         assert_eq!(recall_state, "recallable");
+    }
+
+    // Regression owner for lane isolation. The existing query-failure owner
+    // above continues to require whole-transaction rollback for storage faults.
+    #[cfg(feature = "extended-tests")]
+    #[test]
+    fn malformed_member_configuration_fails_its_lane_without_blocking_other_camps() {
+        let mut fixture = Fixture::with_members(&["agent_1", "agent_2"]);
+        let other = fixture.add_camp_lane("healthy");
+        fixture.enqueue("bad-member", "must fail visibly");
+        fixture.database.connection().execute("UPDATE camp_message_delivery SET recipient_agent_id='agent_2' WHERE message_id='bad-member'", []).unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET selected_runtime_adapter_kind='codex-cli',
+            default_runtime_installation_id='adapter-test-codex', default_model_selection_json='{}',
+            default_permission_config_json='{}' WHERE id='agent_2'",
+                [],
+            )
+            .unwrap();
+        fixture.enqueue_for(&other, "healthy-member", "must still run");
+        // Upgrade-era native Sessions have no environment record. They should
+        // continue through normal native recovery, without changing context here.
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE conversation SET native_session_id='native-existing' WHERE camp_id=?1",
+                [&other],
+            )
+            .unwrap();
+        let claimed = claim_waiting_delivery_batches(&mut fixture.database, 100).unwrap();
+        assert_eq!(claimed.len(), 2);
+        let row = |message: &str| {
+            fixture.database.connection().query_row(
+            "SELECT r.status,r.last_error_code FROM agent_run r JOIN camp_message_delivery d ON d.claimed_agent_run_id=r.id WHERE d.message_id=?1",
+            [message], |r| Ok((r.get::<_, String>(0)?,r.get::<_, Option<String>>(1)?))).unwrap()
+        };
+        assert_eq!(
+            row("bad-member"),
+            (
+                "failed".into(),
+                Some("runtime_configuration_invalid".into())
+            )
+        );
+        assert_eq!(row("healthy-member"), ("queued".into(), None));
+        assert_eq!(
+            fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT native_session_id FROM conversation WHERE camp_id=?1",
+                    [&other],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "native-existing"
+        );
+        let snapshots: i64 = fixture.database.connection().query_row("SELECT COUNT(*) FROM agent_run WHERE json_type(effective_config_json,'$.runtime.environment') IS NOT NULL", [], |r|r.get(0)).unwrap();
+        assert_eq!(snapshots, 0);
     }
 
     #[test]

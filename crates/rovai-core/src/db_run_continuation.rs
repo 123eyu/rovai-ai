@@ -131,7 +131,7 @@ pub(super) fn migrate_requests(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
-                DatabaseContractClassification::Current(_)
+                DatabaseContractClassification::SupportedMigrationSource(_)
             ),
             "Continuation request schema admission failed"
         );
@@ -146,6 +146,7 @@ pub(super) fn migrate_requests(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_requests_for_test(connection: &Connection) {
+    member_environment::downgrade_for_test(connection);
     if !connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=190)",
@@ -389,6 +390,7 @@ mod tests {
             database.connection().execute_batch(
                 "UPDATE schema_migration SET applied_at='2026-10-01T00:00:00Z' WHERE version=188;").unwrap();
             if main_source {
+                member_environment::downgrade_for_test(database.connection());
                 database
                     .connection()
                     .execute_batch("PRAGMA foreign_keys=OFF")

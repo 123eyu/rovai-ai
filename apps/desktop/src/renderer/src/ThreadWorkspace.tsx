@@ -1,4 +1,8 @@
+import { groupExecutionEventsByRunId } from './execution-events'
+export { groupExecutionEventsByRunId } from './execution-events'
+import { MemberSessionReset } from './MemberSessionReset'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
+import { ConversationRunPresence } from './ConversationRunPresence'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
 import { memberRuntimeConfigurationPresentation, modelSummary, runtimeAdapterLabel } from './runtime-model-presentation'
@@ -142,7 +146,7 @@ import {
 import { MemberAvatar } from './MemberAvatar'
 import { ImageGallery, partitionMessageAttachments, type GalleryImage } from './ImageGallery'
 import { ExecutionAvatarRail } from './ExecutionAvatarRail'
-import { ExecutionIcon, ExecutionOverviewMark } from './ExecutionIcons'
+import { ExecutionIcon, ExecutionOverviewMark, ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph, type ExecutionStatusShape } from './ExecutionStatusGlyph'
 import { AgentRunDeliveryRecipients } from './AgentRunDeliveryRecipients'
 import { MemberPortrait } from './MemberPortrait'
@@ -385,6 +389,24 @@ function restoreExecutionConsoleReadingPosition(
       Math.max(0, result.scrollHeight - result.clientHeight) * ratio
     )
   }
+}
+
+function scheduleExecutionConsoleReadingRestore(
+  portal: HTMLElement,
+  position: ExecutionConsoleReadingPosition
+): () => void {
+  // Bottom placement measures its height bounds after the portal moves. Two
+  // frames alone can restore against the temporary CSS height before that
+  // measurement commits, shifting the reader when the final height is applied.
+  const restoreWhenReady = (): void => {
+    const drawer = portal.querySelector<HTMLElement>('.execution-drawer')
+    if (!drawer) return
+    frame = window.requestAnimationFrame(drawer.dataset.layoutReady === 'false'
+      ? restoreWhenReady
+      : () => restoreExecutionConsoleReadingPosition(drawer, position))
+  }
+  let frame = window.requestAnimationFrame(restoreWhenReady)
+  return () => window.cancelAnimationFrame(frame)
 }
 
 export function canStopAgentRun(
@@ -738,57 +760,6 @@ export function executionDisclosureIsLiveOpen(
   cancelling: boolean
 ): boolean {
   return NON_TERMINAL_RUNS.has(status) && focused && !cancelling
-}
-
-export function groupExecutionEventsByRunId(
-  runs: readonly Pick<AgentRunView, 'id'>[],
-  executionEvidence: readonly AgentRunExecutionEvidenceView[],
-  liveRuntimeEvents: readonly LiveRuntimeEvent[]
-): Map<string, LiveRuntimeEvent[]> {
-  const currentRunIds = new Set(runs.map((run) => run.id))
-  const grouped = new Map<string, Map<string, LiveRuntimeEvent>>()
-  const blockState = (value: unknown): Record<string, unknown> =>
-    value !== null && typeof value === 'object' ? value as Record<string, unknown> : {}
-
-  const append = (event: LiveRuntimeEvent, authoritative: boolean): void => {
-    if (!currentRunIds.has(event.agentRunId)) return
-
-    let eventsById = grouped.get(event.agentRunId)
-    if (!eventsById) {
-      eventsById = new Map<string, LiveRuntimeEvent>()
-      grouped.set(event.agentRunId, eventsById)
-    }
-
-    const previous = eventsById.get(event.id)
-    const previousRevision = previous?.revision ?? 0
-    const incomingRevision = event.revision ?? 0
-    const previousChange = previous?.changeSequence ?? 0
-    const incomingChange = event.changeSequence ?? 0
-    const newer = Boolean(previous) && (incomingRevision > previousRevision
-      || (incomingRevision === previousRevision && incomingChange > previousChange))
-    const older = Boolean(previous) && (incomingRevision < previousRevision
-      || (incomingRevision === previousRevision && incomingChange < previousChange))
-    const blockUpdate = event.eventType === 'agent.text.block' && previous
-      && (blockState(previous.payload).status === 'streaming')
-      && (blockState(event.payload).status !== 'streaming'
-        || Number(blockState(event.payload).textLength) >= Number(blockState(previous.payload).textLength))
-    if (!previous || newer || blockUpdate || (authoritative && !older)) {
-      eventsById.set(event.id, event)
-    }
-  }
-
-  for (const evidence of executionEvidence) {
-    append(liveRuntimeEventFromExecutionEvidence(evidence), true)
-  }
-  for (const event of liveRuntimeEvents) {
-    append(event, false)
-  }
-
-  return new Map([...grouped.entries()].map(([runId, eventsById]) => {
-    const events = [...eventsById.values()]
-    events.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    return [runId, events]
-  }))
 }
 
 export function firstSubmittedAgentRun(
@@ -2051,7 +2022,7 @@ export function ThreadWorkspace({
   const executionReadingPosition = useRef<ExecutionConsoleReadingPosition | null>(null)
   const executionPlacementMenuReadingPosition = useRef<ExecutionConsoleReadingPosition | null>(null)
   const pendingExecutionReadingPosition = useRef<ExecutionConsoleReadingPosition | null>(null)
-  const executionReadingRestoreFrames = useRef<[number, number] | null>(null)
+  const cancelExecutionReadingRestore = useRef<(() => void) | null>(null)
   const executionReadingCaptureFrames = useRef<[number, number] | null>(null)
   const executionPlacementRequest = useRef(false)
   const executionPlacementMounted = useRef(true)
@@ -2111,30 +2082,16 @@ export function ThreadWorkspace({
     const readingPosition = pendingExecutionReadingPosition.current
     if (!readingPosition) return
     pendingExecutionReadingPosition.current = null
-    if (executionReadingRestoreFrames.current) {
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[0])
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[1])
-    }
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
-        executionReadingRestoreFrames.current = null
-        restoreExecutionConsoleReadingPosition(
-          executionDrawerPortal.querySelector<HTMLElement>('.execution-drawer'),
-          readingPosition
-        )
-      })
-      executionReadingRestoreFrames.current = [firstFrame, secondFrame]
-    })
-    executionReadingRestoreFrames.current = [firstFrame, firstFrame]
+    cancelExecutionReadingRestore.current?.()
+    cancelExecutionReadingRestore.current = scheduleExecutionConsoleReadingRestore(
+      executionDrawerPortal, readingPosition
+    )
   }, [executionDrawerPortal, executionPlacement, executionPreviewHost, inspectorVisible])
   useEffect(() => {
     executionPlacementMounted.current = true
     return () => {
       executionPlacementMounted.current = false
-      if (executionReadingRestoreFrames.current) {
-        window.cancelAnimationFrame(executionReadingRestoreFrames.current[0])
-        window.cancelAnimationFrame(executionReadingRestoreFrames.current[1])
-      }
+      cancelExecutionReadingRestore.current?.()
       if (executionReadingCaptureFrames.current) {
         window.cancelAnimationFrame(executionReadingCaptureFrames.current[0])
         window.cancelAnimationFrame(executionReadingCaptureFrames.current[1])
@@ -2179,6 +2136,7 @@ export function ThreadWorkspace({
   useEffect(() => {
     executionReadingPosition.current = null
     pendingExecutionReadingPosition.current = null
+    cancelExecutionReadingRestore.current?.()
   }, [executionDrawerAgentId, snapshot.thread.id])
   useEffect(() => {
     if (!showingFirstRunWelcome
@@ -4367,21 +4325,10 @@ export function ThreadWorkspace({
     position: ExecutionConsoleReadingPosition | null
   ): void => {
     if (!position || !executionDrawerPortal) return
-    if (executionReadingRestoreFrames.current) {
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[0])
-      window.cancelAnimationFrame(executionReadingRestoreFrames.current[1])
-    }
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
-        executionReadingRestoreFrames.current = null
-        restoreExecutionConsoleReadingPosition(
-          executionDrawerPortal.querySelector<HTMLElement>('.execution-drawer'),
-          position
-        )
-      })
-      executionReadingRestoreFrames.current = [firstFrame, secondFrame]
-    })
-    executionReadingRestoreFrames.current = [firstFrame, firstFrame]
+    cancelExecutionReadingRestore.current?.()
+    cancelExecutionReadingRestore.current = scheduleExecutionConsoleReadingRestore(
+      executionDrawerPortal, position
+    )
   }
 
   const captureExecutionPlacementMenuReadingPosition = (): void => {
@@ -5508,6 +5455,23 @@ export function ThreadWorkspace({
                   if (hasAnchorGap) items.push(<div className="camp-history-gap" role="status" key="anchor-history-gap">{uiAttribute('中间消息尚未加载')}</div>)
                   if (historyLoader) items.push(historyLoader)
                 }
+                const precedingOutput = conversationTimeline.at(-1)
+                const precedingOutputRunId = precedingOutput?.kind === 'run_artifacts' ? precedingOutput.run.id
+                  : precedingOutput?.kind === 'run_file_changes' ? precedingOutput.changes.agentRunId
+                  : precedingOutput?.kind === 'run_images' ? precedingOutput.images.agentRunId
+                  : precedingOutput?.kind === 'member_joined' ? precedingOutput.receipt.sourceAgentRunId
+                  : precedingOutput?.kind === 'camp_message' ? undefined : null
+                items.push(<ConversationRunPresence key={`run-presence:${snapshot.thread.id}`} snapshot={snapshot}
+                  snapshotReady={workspaceEntrySnapshotReady}
+                  precedingOutputRunId={precedingOutputRunId}
+                  messages={visibleThreadMessages} profiles={agents} eventsByRunId={executionEventsByRunId}
+                  windowedEvidence={openCoverage !== null}
+                  stopState={run => agentRunStopViewState(run, snapshot.turns.find(turn => turn.id === run.threadTurnId) ?? null, {
+                    cancelling: cancellingRunIds.has(run.id) || run.cancelRequestedAt !== null,
+                    confirming: confirmingRunIds.has(run.id),
+                    turnCancelling: run.threadTurnId !== null && cancellingTurnIds.has(run.threadTurnId)
+                  })}
+                  onStop={onCancelAgentRun} onOpen={openExecutionProcess} onError={notifyError} />)
                 return items
               })()}
               {!missionBoard && conversationTimeline.length === 0 && snapshot.agentRuns.length === 0 && (
@@ -6788,12 +6752,6 @@ function ExecutionCardChevron({ expanded }: { expanded: boolean }): JSX.Element 
   </svg>
 }
 
-function ExecutionStopIcon(): JSX.Element {
-  return <svg viewBox="0 0 24 24" aria-hidden="true">
-    <rect x="5" y="5" width="14" height="14" rx="1.5" fill="currentColor" stroke="none" />
-  </svg>
-}
-
 function ExecutionBatchIcon(): JSX.Element {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 17l10 5 10-5" />
@@ -7606,6 +7564,7 @@ function ExecutionDrawer({
       aria-labelledby="execution-drawer-title"
       tabIndex={-1}
       data-placement={placement}
+      data-layout-ready={placement !== 'bottom' || heightBounds !== null ? 'true' : 'false'}
       data-user-sized={preferredHeight !== null && placement === 'bottom' ? 'true' : 'false'}
       style={drawerStyle}
     >
@@ -8337,6 +8296,7 @@ function ThreadMembersPanel({
   onRemoveMember?(preview: ThreadMemberRemovalPreview): Promise<ThreadMemberRemoveOutcome>
   onNotify(message: string): void
 }): JSX.Element {
+  const [sessionResetMember, setSessionResetMember] = useState<{ agentId: string; displayName: string } | null>(null)
   const mobile = useMobileLayout()
   const members = campInspectorMembers(snapshot.members)
   const presentCount = members.filter(campMemberIsLeadEligible).length
@@ -8521,6 +8481,7 @@ function ThreadMembersPanel({
 
   return (
     <section aria-label={uiAttribute("当前会话队员")}>
+      {sessionResetMember && <MemberSessionReset key={sessionResetMember.agentId} campId={snapshot.thread.id} member={sessionResetMember} onClose={() => setSessionResetMember(null)} onNotify={onNotify}/>}
       <div className="camp-members-summary">
         <div className="camp-members-summary-line">
           <div>
@@ -8602,6 +8563,7 @@ function ThreadMembersPanel({
                 <strong>{presenceLabel}</strong>
                 {runtimeTone === 'attention' && profile && <small className="runtime-attention">{runtimeReadinessLabel(profile.runtimeReadiness.status)}</small>}
               </span>
+              {mobile && <button type="button" className="quiet-button" disabled={busy} onClick={() => setSessionResetMember(member)}>{uiAttribute('重置队员会话')}</button>}
               {!mobile && <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button
@@ -8642,6 +8604,9 @@ function ThreadMembersPanel({
                       <strong><UiText zh={"模型信息"} /></strong>
                       {!runtimeConfiguration && <small><UiText zh={"请先配置智能体"} /></small>}
                     </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="camp-member-menu-separator" />
+                    <DropdownMenu.Item className="camp-member-menu-item" disabled={busy}
+                      onSelect={() => setSessionResetMember(member)}><strong><UiText zh={"重置队员会话"}/></strong></DropdownMenu.Item>
                     <DropdownMenu.Separator className="camp-member-menu-separator" />
                     <DropdownMenu.Item
                       className="camp-member-menu-item is-danger"

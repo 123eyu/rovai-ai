@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-member-identity
 status: accepted
-last_updated: 2026-10-10
+last_updated: 2026-10-12
 ---
 
 # 队员身份与图像
@@ -87,6 +87,18 @@ DeepSeek Harness 的两个权限字段以原生名称作为主标签：`sandbox_
 触发器、菜单、持久化值与最终 Host 配置使用同一个原生 value，不重命名为“安全模式”“自动模式”或其他
 Rovai 概念。该表单由 Desktop 与 Mobile 共用；版本不兼容也复用同一状态投影，并明确显示最低版本
 `0.1.5-rc.2`，不建立移动端专属文案分支。
+
+### 队员环境变量
+
+运行设置在模型和权限下方提供紧凑折叠的“环境变量 / Environment Variables”入口，使用 JSON 对象编辑。
+placeholder 展示 Claude 的 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_API_KEY` 示例；初始高度 104px，随内容增长，
+上限为 360px 或视口高度的 45%。点击无边框高亮或阴影；移动端字号为 16px。
+沿用表单保存、放弃更改和离页草稿保护，不提供检查连接。
+默认用 `<saved>` 保留已存凭据，显式查看才读取原值；不进行地址与凭据配对确认。
+固定提示“环境变量在智能体进程启动时读取。保存不会影响已运行的进程，后续新启动的进程使用最新配置。”
+Camp 队员操作中的“重置队员会话”复用原生会话重置；不清空 Camp 消息，活动任务期间拒绝。
+值归 Host 私有存储，不进入普通队员资料或“应用到其他队员”。精确行为见
+[Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)。
 
 ### 应用运行配置到其他队员
 

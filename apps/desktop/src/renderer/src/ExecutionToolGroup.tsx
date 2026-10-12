@@ -934,7 +934,7 @@ export function RuntimeRetryNotice({ diagnostic }: {
   )
 }
 
-function ToolCallIcon({ iconKind }: { iconKind: ActivityIconKind }): JSX.Element {
+export function ToolCallIcon({ iconKind }: { iconKind: ActivityIconKind }): JSX.Element {
   const icon = ({
     terminal: (
       <>

@@ -11,6 +11,12 @@ last_updated: 2026-10-12
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 删除 Codex 专属最终答复提示（2026-10-12）
+
+按 User 明确要求删除 Codex 最终答复补充句、Adapter 追加分支及专属 binding compatibility 字段，
+公共发送规则与 `--input-file` 教学保持。新 Codex Binding 使用共享 Charter，旧证据不重写；
+精确前后文本、授权、兼容影响和验证见[上下文变更说明](model-context-change-remove-codex-final-answer-guidance.md)。
+
 ## 会话内队员占位（2026-10-11）
 
 按 User 确认的 v10「停止区分隔」及后续 v8 默认色修正，在公开会话末尾投影正在执行的队员：

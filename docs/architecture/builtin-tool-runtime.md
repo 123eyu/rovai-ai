@@ -3,7 +3,7 @@ document_type: architecture
 architecture: builtin-tool-runtime
 authority: builtin-tool-component-boundaries
 status: accepted
-last_updated: 2026-10-07
+last_updated: 2026-10-12
 ---
 
 # Built-in Tool Runtime Architecture
@@ -477,8 +477,11 @@ Session Charter 只说明：
 - public `RUN_FACTS` v5 字段化表达附件输出位置以及可选 Mission、Task、Session continuity 和真实
   external effect；不包含 Gather、delegation 或替代预算字段。命令特定教学不回填 Charter。
 
+公开 Charter 使用各 Runtime 共用的发送规则，不按 Adapter 追加最终答复提示。Codex binding compatibility
+不再包含专属最终答复指导版本字段；历史冻结 evidence 保持原样。
+
 创建 Bootstrap evidence 时，Core 仅为存在 active 飞书 conversation binding 的 Camp，在静态 CLI Charter
-最后一条后、Adapter 指导前追加一条文件交付提示。Quick Chat/Project 共用该 Camp 级判断；普通、钉钉、
+最后一条后、可选 Mission 约定前追加一条文件交付提示。Quick Chat/Project 共用该 Camp 级判断；普通、钉钉、
 closed 或尚未绑定的会话不追加。已有 Binding 从 Blob 复用冻结 Charter，不重新查询渠道，因此关闭绑定或
 从本地继续聊天不改写提示，也不触发 Session rotation。下一次正常新 Binding 才读取当前关系。
 精确文本见 [Send v22](../contracts/camp-message-send-v22.md)。

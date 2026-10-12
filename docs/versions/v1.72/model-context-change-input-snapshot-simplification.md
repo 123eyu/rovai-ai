@@ -9,7 +9,7 @@ confirmed_by: User
 confirmed_at: 2026-10-12
 authority: confirmed-model-input-change-statement
 implementation_baseline: 07ca89ec5f9dea8c27bf15602bc076c7cf200f73
-implementation_status: in_progress
+implementation_status: implemented
 last_updated: 2026-10-12
 ---
 
@@ -105,6 +105,11 @@ Formatter/Profile 与 RunInput 的模型格式版本不变；存储精简通过�
 - Worktree：`context-tool-simplification/rovai-ai`
 - Branch：`codex/context-tool-simplification`
 - Base：`07ca89ec5f9dea8c27bf15602bc076c7cf200f73`
+- 同步主线：`d41778bfcc71d0223e70cbbdd442c3e500eb3559`。
 - Governance：本次 PR 一并更新；无单独主线文档先行要求。
-- Status：active
-- Validation：实施后补充结果。
+- Status：ready，等待 PR 评审。
+- Validation：默认 Rust 460 项通过、1 项既有人工测试忽略；Vitest 2645 项、Node 339 项通过，
+  另有 2 项平台跳过；typecheck、Desktop/Web 构建、真实 CLI 文件输入 IPC 与通用文档门禁通过。
+  Context、迁移、命令归属和恢复定向回归通过。完整慢测首轮 1329 通过、25 失败、8 忽略；其中
+  22 项已修正或独立复跑通过，剩余 3 项 CampOpen 的 event_log 读取拒绝在未修改的上述 main
+  同样复现。没有禁用测试，也不宣称完整慢测通过；详见[实施记录](implementation-plan.md#内部实现减重2026-10-12)。

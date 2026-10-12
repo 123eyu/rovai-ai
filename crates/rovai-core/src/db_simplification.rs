@@ -36,6 +36,7 @@ pub(super) fn current_structure_matches(connection: &Connection) -> rusqlite::Re
         "SELECT id,agent_run_id,rendered_payload_blob_id,bootstrap_evidence_id,collaboration_state_digest FROM context_manifest LIMIT 0",
         "SELECT id,status,agent_run_id,context_manifest_id,accepted_at FROM runtime_input_delivery LIMIT 0",
         "SELECT id,sha256,storage_relative_path FROM managed_blob LIMIT 0",
+        "SELECT client_id,owner_id,proof_digest FROM web_editor_identity LIMIT 0",
     ] {
         if connection.prepare(query).is_err() {
             return Ok(false);
@@ -55,6 +56,12 @@ pub(super) fn current_structure_matches(connection: &Connection) -> rusqlite::Re
 }
 
 pub(super) fn schema_matches(connection: &Connection) -> rusqlite::Result<bool> {
+    if connection
+        .prepare("SELECT command_client_id FROM event_log LIMIT 0")
+        .is_err()
+    {
+        return Ok(false);
+    }
     for column in RETIRED_CONTEXT_COLUMNS {
         let nullable: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('context_manifest') WHERE name=?1 AND [notnull]=0)",
@@ -120,6 +127,13 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             &[],
             &[],
         )?;
+        let has_client: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('event_log') WHERE name='command_client_id')",
+            [], |row| row.get(0),
+        )?;
+        if !has_client {
+            tx.execute_batch("ALTER TABLE event_log ADD COLUMN command_client_id TEXT;")?;
+        }
         // Derived statistics must not execute inside a business status update.
         tx.execute_batch("DROP TRIGGER IF EXISTS runtime_usage_agent_run_terminal;
             INSERT INTO schema_migration VALUES(196,datetime('now'));
@@ -197,6 +211,8 @@ mod tests {
             .execute_batch("PRAGMA foreign_keys=OFF")
             .unwrap();
         let tx = database.connection().unchecked_transaction().unwrap();
+        tx.execute_batch("ALTER TABLE event_log DROP COLUMN command_client_id;")
+            .unwrap();
         for (table, columns) in [
             ("context_manifest", RETIRED_CONTEXT_COLUMNS),
             (

@@ -23,7 +23,7 @@ text, Self Active Task/A2A proof objects or Additional Skills text. Their legacy
 nullable; historical rows are preserved and the read model exposes absent legacy values as NULL.
 The final input continues containing these sections and can be recovered without rerendering.
 
-New manifests omit the independent profile, shared-message, Run Facts, attachment-reference,
+New manifests omit per-message projected-body/input hashes and the independent profile, shared-message, Run Facts, attachment-reference,
 Skill exposure/resolution, MCP exposure/projection, Self Active Task, A2A and rendered-payload
 proof digests. Already frozen inputs do not need their generation-version combinations or
 intermediate copies revalidated. Necessary JSON parsing, source/binding checks and payload
@@ -44,8 +44,8 @@ required operational columns and command identity index. It does not compare CRE
 or require every historical migration receipt. Historical source recognition stays inside the
 supported upgrade chain; missing required structures and future schemas are still rejected.
 
-Usage tables are derived data, excluded from whole-database admission. Their errors stay in
-the Usage module. Finalizing summary rows uses the existing Usage worker, so absent or invalid
+Usage and notification projections are excluded from whole-database admission; their diagnostics
+belong to those modules. Finalizing summary rows uses the existing Usage worker, so absent or invalid
 statistics structures cannot roll back a business Run status transition. No startup replacement
 of the database, data deletion, additional reconciliation worker or automatic repair is added.
 

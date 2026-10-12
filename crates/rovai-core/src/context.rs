@@ -467,7 +467,7 @@ impl ContextService {
             let persisted_snapshot: SkillExposureSnapshot = serde_json::from_str(&snapshot_json)
                 .context("stored ContextManifest Skill exposure is invalid")?;
             if persisted_snapshot.schema_version != 2 {
-                anyhow::bail!("stored ContextManifest Skill exposure digest is invalid");
+                anyhow::bail!("stored ContextManifest Skill exposure schema is invalid");
             }
             return Ok(PreparedSkillExposure {
                 digest: canonical_json_digest(&serde_json::to_value(&persisted_snapshot)?)?,
@@ -972,7 +972,7 @@ impl ContextService {
             shared_conversation.projection_evidence()
         };
         let current_input_source = if let Some(batch) = batch_model_context.as_ref() {
-            let mut evidence = batch.run_input_evidence(&current_input_skill_resolution.links);
+            let mut evidence = batch.run_input_evidence();
             evidence["invocationKind"] = json!(snapshot.invocation_kind);
             evidence
         } else {
@@ -981,7 +981,6 @@ impl ContextService {
                 "sourceCampMessageId": current_input.source_camp_message_id,
                 "conversationMessageId": current_input.source_conversation_message_id,
                 "sourceContentDigest": current_input.source_content_digest,
-                "projectedBodyDigest": current_input.projected_body_digest,
                 "missionStart": mission_start_evidence(database.context_connection(),&snapshot,&current_input)?,
 
                 "quotedInputEvidence": current_input.quote_evidence(),
@@ -1577,7 +1576,6 @@ impl ContextService {
                 "sourceCampMessageId": current_input.source_camp_message_id,
                 "conversationMessageId": current_input.source_conversation_message_id,
                 "sourceContentDigest": current_input.source_content_digest,
-                "projectedBodyDigest": current_input.projected_body_digest,
             "missionStart": mission_start_evidence(transaction,&snapshot,&current_input)?,
 
             "quotedInputEvidence": current_input.quote_evidence(),
@@ -4102,7 +4100,7 @@ impl BatchModelContext {
             .collect()
     }
 
-    fn run_input_evidence(&self, _skill_links: &[CurrentInputSkillLink]) -> Value {
+    fn run_input_evidence(&self) -> Value {
         json!({
             "inputMessageIds": self
                 .run_input_messages
@@ -4730,7 +4728,6 @@ struct SharedMessageAttachmentEvidence {
 #[serde(rename_all = "camelCase")]
 struct SharedMessageProjectionEvidence {
     quoted_input_evidence: Vec<Value>,
-    projected_input_digest: String,
     quote_scalar_count: usize,
     selection_kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4747,7 +4744,6 @@ struct SharedMessageProjectionEvidence {
     default_recipient_mention: Option<DefaultRecipientMention>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_to_message_id: Option<String>,
-    projected_body_digest: String,
     mentions_current_user: bool,
     body_length: usize,
     body_truncated: bool,
@@ -4765,7 +4761,6 @@ impl SharedMessageProjectionEvidence {
         Self {
             quoted_input_evidence: message.quotes.iter().map(|quote| json!({"quoteId":quote.quote_id,"source":quote.source,
                 "sourceContentDigest":quote.source_content_digest,"snapshotDigest":quote.snapshot_digest})).collect(),
-            projected_input_digest: sha256_text(&serde_json::to_string(&message.model_projection()).expect("serializable shared message")),
             quote_scalar_count: quote_scalar_count(&message.quotes),
             selection_kind,
             reference_distance,
@@ -4778,7 +4773,6 @@ impl SharedMessageProjectionEvidence {
             content_digest: message.content_digest.clone(),
             default_recipient_mention: message.default_recipient_mention.clone(),
             reply_to_message_id: message.reply_to_message_id.clone(),
-            projected_body_digest: sha256_text(&message.body),
             mentions_current_user: message.mentions_current_user,
             body_length: message.body_length,
             body_truncated: message.body_truncated,
@@ -5755,7 +5749,6 @@ struct CurrentInput {
     source_camp_message_id: Option<String>,
     source_conversation_message_id: Option<String>,
     source_content_digest: String,
-    projected_body_digest: String,
     mentions_current_user: bool,
 }
 
@@ -6157,7 +6150,6 @@ fn load_current_input_body<R: ContextReadConnection>(
             source_camp_message_id: Some(message_id),
             source_conversation_message_id: None,
             source_content_digest: content_digest,
-            projected_body_digest: sha256_text(&body),
             mentions_current_user,
         });
     }
@@ -6305,7 +6297,6 @@ fn load_current_input_body<R: ContextReadConnection>(
             source_camp_message_id: Some(row.2),
             source_conversation_message_id: None,
             source_content_digest: row.5.clone(),
-            projected_body_digest: row.5,
             mentions_current_user: false,
         });
     }
@@ -6327,7 +6318,6 @@ fn load_current_input_body<R: ContextReadConnection>(
                         source_camp_message_id: Some(camp_message_id.to_string()),
                         source_conversation_message_id: None,
                         source_content_digest: camp_message.content_digest,
-                        projected_body_digest: canonical_json_digest(&payload)?,
                         mentions_current_user: false,
                     });
                 }
@@ -6337,7 +6327,6 @@ fn load_current_input_body<R: ContextReadConnection>(
                 camp_message.stored_body,
                 camp_message.structured_content_json,
             )?;
-            let projected_body_digest = sha256_text(&body);
             Ok(CurrentInput {
                 quotes: Vec::new(),
                 id: camp_message.id,
@@ -6349,7 +6338,6 @@ fn load_current_input_body<R: ContextReadConnection>(
                 source_camp_message_id: Some(camp_message_id.to_string()),
                 source_conversation_message_id: None,
                 source_content_digest: camp_message.content_digest,
-                projected_body_digest,
                 mentions_current_user,
             })
         }
@@ -6412,7 +6400,6 @@ fn load_current_input_body<R: ContextReadConnection>(
                     source_camp_message_id: None,
                     source_conversation_message_id: Some(conversation_message_id.to_string()),
                     source_content_digest: body_digest.clone(),
-                    projected_body_digest: body_digest,
                     mentions_current_user: false,
                 });
             }
@@ -6452,7 +6439,6 @@ fn load_current_input_body<R: ContextReadConnection>(
                 source_camp_message_id: None,
                 source_conversation_message_id: Some(conversation_message_id.to_string()),
                 source_content_digest: body_digest.clone(),
-                projected_body_digest: body_digest,
                 mentions_current_user: false,
             })
         }
@@ -8723,7 +8709,6 @@ mod slow_tests {
             source_camp_message_id: Some("message-1".to_string()),
             source_conversation_message_id: None,
             source_content_digest: "sha256:content".to_string(),
-            projected_body_digest: "sha256:body".to_string(),
             mentions_current_user: false,
         };
         let payload = direct.as_payload(
@@ -14169,9 +14154,15 @@ mod slow_tests {
             )
             .map(|value| serde_json::from_str(&value).unwrap())
             .unwrap();
-        assert_eq!(
-            run_input_evidence["messages"][0]["projectedBodyDigest"],
-            sha256_text(projected_body.as_str())
+        assert!(
+            run_input_evidence["messages"][0]
+                .get("projectedBodyDigest")
+                .is_none()
+        );
+        assert!(
+            run_input_evidence["messages"][0]
+                .get("projectedInputDigest")
+                .is_none()
         );
         assert!(run_input_evidence.get("projectedInputDigest").is_none());
         assert_eq!(

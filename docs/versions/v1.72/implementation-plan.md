@@ -1905,6 +1905,7 @@ Node 脚本 339 项通过、2 项平台跳过，文档与 Skill 门禁通过。�
 
 独立 worktree `context-tool-simplification`，分支 `codex/context-tool-simplification`，基线
 `07ca89ec5f9dea8c27bf15602bc076c7cf200f73`。User 已授权 1—5 一起实施并提交 PR。
+已合入最新主线 `d41778bfcc71d0223e70cbbdd442c3e500eb3559`，保留同 CLI 类型原生恢复的行为。
 
 当前实现：Migration 196/schema 146；当前 DB 结构准入；Context 使用最终输入并停止重复证明材料写入；
 Transport/CLI 38、IPC 3、Envelope 2 删除工具结果与目录摘要；Domain Command 以 ID 和归属返回首次结果。
@@ -1912,4 +1913,38 @@ Usage summary 在现有后台 worker 收尾；原生输入、授权、租约、�
 
 测试 owner：Context 的实际输入/重启/预算、Domain Command 的结果/回滚/归属、DB 的迁移/准入、
 工具协议及调用方 Node 测试。摘要自证和生成版本组合专属断言随生产路径退役；对应实际结果和历史恢复
-由原 owner 保留。实施中，最终命令与结果在提交前补录；没有使用日常 App 或日常数据库验收。
+由原 owner 保留。没有使用日常 App 或日常数据库验收。
+
+新增 `db::simplification::tests::upgrade_preserves_legacy_results_and_blob_bytes_and_rolls_back_atomically`
+拥有 schema 145→146 的 DDL/事务边界：旧 NOT NULL 与命令 CHECK 在取消摘要后会拒绝新写入；测试保留
+真实旧结果和 Blob，注入迁移记录失败，验证整次回滚、再次升级与重开。既有迁移 owner 属于不同来源步骤，
+纯函数不能证明 DDL 和业务行原子性，因此建立一个 `extended-tests` owner。
+
+随生产合同退出删除五个独立测试：工具 `receipt_is_stable_and_covers_the_outcome`、
+`receipt_v1_keeps_the_existing_canonical_digest_goldens`、`catalog_digest_changes_with_agent_facing_send_teaching`，
+命令 `execution_epoch_fences_processing_without_changing_command_semantics` 的请求摘要不变性，以及
+Context `dispatch_admission_accepts_current_and_frozen_predecessor_contracts` 的证据版本组合门禁。
+工具字段/错误/输出由原 Envelope 与 CLI projection owner 继续覆盖；命令结果、epoch 处理、只读查询和
+事务回滚仍由原 Command/Runtime owner 负责；历史输入与原生恢复仍由原 Context owner 验证。
+同 ID 内容变化改为返回首次结果，跨 actor/Camp/来源 Run 仍拒绝；私有草稿和上传直接记录已有编辑器 ID，
+保持编辑器隔离。旧记录没有单独编辑器 ID，继续按原有 actor/Camp 查询，不重建指纹。
+最低定向命令为 `cargo test -p rovai-core --all-features --lib -- <owner filters>`；默认 PR 与进程 IPC 另验。
+
+本机 macOS 验证结果：
+
+- `pnpm test:rust:pr`：460 项通过、1 项既有人工测试忽略。
+- `pnpm test`：Vitest 242 文件 / 2645 项通过；Node 339 项通过、2 项平台跳过。
+- `cargo check --workspace`、`pnpm typecheck`、`pnpm build:desktop`（含 Web）、`pnpm test:send-input-file` 通过。
+- Context、Usage、数据库准入/升级、Web reconcile 的 71 项定向回归通过；旧迁移、私有编辑器、
+  同 ID 结果查询、停止/继续和原生恢复等补充失败场景修正后分别复跑通过。
+- `cargo test --workspace --all-features` 首轮：1329 通过、25 失败、8 忽略。该轮暴露的 22 项失败
+  已修正或独立复跑通过；包括退出的摘要断言、降级迁移夹具，以及主线同 CLI 恢复后的旧期望。
+  未重复执行整套慢测，不把定向通过描述为全量通过。
+- 剩余 3 项 `read_model::camp_open_slow_tests`（业务状态、分页标题、与历史规模无关）均报
+  `event_log.entity_type access denied`。在干净的上述 main 上执行
+  `cargo test -p rovai-core --features slow-tests --lib read_model::camp_open_slow_tests::`，
+  同样 2 通过 / 3 失败；本次不修改无关的 CampOpen 投影，也不删除或忽略这些测试。
+- 相对上述主线的 `pnpm docs:check:ci`、文档测试和格式检查通过。
+
+状态：实现完成，保留当前 worktree 供 PR 评审。验证仅使用隔离数据库和合成 CLI，未调用真实模型、
+安装或重启日常 App。

@@ -2939,6 +2939,20 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
             },
         )
         .optional();
+    if marker
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .is_some_and(|(contract, schema, _)| {
+            contract == CURRENT_DATA_CONTRACT_VERSION && matches!(schema, 145 | 146)
+        })
+    {
+        return Ok(matches!(
+            classify_database_contract(connection)?,
+            DatabaseContractClassification::Current(_)
+                | DatabaseContractClassification::SupportedMigrationSource(_)
+        ));
+    }
     let projection_exists: rusqlite::Result<bool> = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'canonical_runtime_activity')",
         [],
@@ -5443,28 +5457,10 @@ fn automation_v145_schema_matches(connection: &Connection) -> rusqlite::Result<b
 
 #[cfg(test)]
 fn connection_has_current_data_contract(connection: &Connection) -> rusqlite::Result<bool> {
-    if !connection_has_admissible_data_contract(connection)? {
-        return Ok(false);
-    }
-    connection.query_row(
-        r#"
-        SELECT contract_version = ?1
-               AND projection_schema_version = ?2
-               AND classifier_version = ?3
-               AND EXISTS(SELECT 1 FROM schema_migration WHERE version = 146)
-               AND EXISTS(SELECT 1 FROM schema_migration WHERE version = 147)
-               AND EXISTS(SELECT 1 FROM schema_migration WHERE version = 148)
-               AND EXISTS(SELECT 1 FROM schema_migration WHERE version = 168)
-        FROM rovai_data_contract
-        WHERE singleton = 1
-        "#,
-        params![
-            CURRENT_DATA_CONTRACT_VERSION,
-            CURRENT_PROJECTION_SCHEMA_VERSION,
-            V147_CLASSIFIER_VERSION,
-        ],
-        |row| row.get(0),
-    )
+    Ok(matches!(
+        classify_database_contract(connection)?,
+        DatabaseContractClassification::Current(_)
+    ))
 }
 
 fn load_current_migration_state(
@@ -6512,7 +6508,7 @@ fn run_bootstrap_schema_matches(connection: &Connection) -> rusqlite::Result<boo
 }
 
 #[cfg(test)]
-fn downgrade_run_bootstrap_for_test(connection: &Connection) {
+pub(crate) fn downgrade_run_bootstrap_for_test(connection: &Connection) {
     if !connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=195)",
@@ -43008,7 +43004,43 @@ mod tests {
         assert!(!connection_has_admissible_data_contract(database.connection()).unwrap());
         assert!(!connection_has_current_data_contract(database.connection()).unwrap());
 
+        database
+            .connection()
+            .execute(
+                "UPDATE rovai_data_contract SET contract_version=?1 WHERE singleton=1",
+                [CURRENT_DATA_CONTRACT_VERSION],
+            )
+            .unwrap();
+        database
+            .connection()
+            .execute_batch(
+                "DELETE FROM schema_migration WHERE version<196;
+             DROP TABLE runtime_usage_run_summary;",
+            )
+            .unwrap();
         drop(database);
+        // Exercise the production opening seam: missing historical receipts
+        // and optional statistics must not invoke old migrations or reset data.
+        let lease = crate::core_data_dir_lock::CoreDataDirLease::acquire(&directory).unwrap();
+        let crate::database_admission::AdmissionAssessment::AdmittedExisting(ticket) =
+            crate::database_admission::DatabaseAdmission::assess(&lease).unwrap()
+        else {
+            panic!(
+                "current business data must open without optional statistics or historical receipts"
+            );
+        };
+        let reopened = Database::open_admitted(*ticket).unwrap();
+        assert!(connection_has_current_data_contract(reopened.connection()).unwrap());
+        assert_eq!(
+            reopened
+                .connection()
+                .query_row("SELECT COUNT(*) FROM schema_migration", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        drop(reopened);
+        drop(lease);
         std::fs::remove_dir_all(directory).expect("temporary database should be removable");
     }
 
@@ -43374,25 +43406,14 @@ mod tests {
         project: String,
         tags: &[&str],
     ) -> (String, String) {
-        let created = crate::collaboration::CollaborationService::default()
-            .create_camp(
-                database,
-                &crate::command::CommandEnvelope {
-                    command_id: Uuid::new_v4().to_string(),
-                    actor: crate::command::ActorRef::User {
-                        user_id: "local_user".into(),
-                    },
-                    camp_id: None,
-                    expected_versions: vec![],
-                    execution_epoch: None,
-                    payload: crate::collaboration::CreateThreadCommand::for_test(project),
-                },
-            )
-            .unwrap();
-        let camp = created.result.payload["threadId"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        // Seed literal legacy state, including its Camp, without running the
+        // current command-result writer against an unupgraded schema.
+        let camp = crate::camp_id::ThreadId::new().to_string();
+        database.connection().execute(
+            "INSERT INTO camp(id,title,project_binding_kind,project_path,last_message_sequence,version,created_at,updated_at)
+             VALUES(?1,'Legacy mission','directory',?2,0,1,datetime('now'),datetime('now'))",
+            params![camp, project],
+        ).unwrap();
         let mission = format!("rvm_{}", Uuid::now_v7().simple());
         let connection = database.connection();
         connection
@@ -49255,12 +49276,12 @@ mod tests {
             .execute("DELETE FROM schema_migration WHERE version = 115", [])
             .unwrap();
         assert!(
-            !connection_has_admissible_data_contract(database.connection()).unwrap(),
-            "a generic current store missing v115 must still fail closed"
+            connection_has_admissible_data_contract(database.connection()).unwrap(),
+            "a current store does not need every historical migration receipt"
         );
         assert!(matches!(
             classify_database_contract(database.connection()).unwrap(),
-            DatabaseContractClassification::Unknown(_)
+            DatabaseContractClassification::Current(_)
         ));
         database
             .connection()
@@ -50204,6 +50225,13 @@ mod tests {
                 params![accepted_run_id, Uuid::new_v4().to_string()],
             )
             .unwrap();
+        // This source predates compact snapshots and did persist these values.
+        // Seed them explicitly instead of depending on the current writer.
+        database.connection().execute(
+            "UPDATE context_manifest SET rendered_payload_digest=(SELECT 'sha256:' || sha256 FROM managed_blob WHERE id=rendered_payload_blob_id),
+             run_fact_payload_json='{\"legacy\":true}' WHERE id=?1",
+            [&manifest_id],
+        ).unwrap();
         let legacy_manifest: (i64, String, String, String, String) = database
             .connection()
             .query_row(
@@ -51007,6 +51035,23 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+        // Restore the literal pre-simplification column declarations before
+        // constructing this empty v90 source; new snapshots leave them nullable.
+        let current_schema = current_schema
+            .lines()
+            .map(|line| match line.trim().split_whitespace().next() {
+                Some(column) if simplification::RETIRED_CONTEXT_COLUMNS.contains(&column) => {
+                    let comma = if line.trim_end().ends_with(',') {
+                        ","
+                    } else {
+                        ""
+                    };
+                    format!("                    {column} TEXT NOT NULL{comma}")
+                }
+                _ => line.to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         let v90_schema = current_schema
             .replacen(
                 "CREATE TABLE context_manifest",
@@ -51573,8 +51618,9 @@ mod tests {
             .unwrap();
         assert!(manifest_schema.contains("formatter_version = 20"));
         assert!(manifest_schema.contains("message_projection_audience TEXT NOT NULL"));
-        assert!(manifest_schema.contains("a2a_guidance_evidence_json TEXT NOT NULL"));
-        assert!(manifest_schema.contains("a2a_guidance_evidence_digest TEXT NOT NULL"));
+        assert!(manifest_schema.contains("a2a_guidance_evidence_json TEXT"));
+        assert!(manifest_schema.contains("a2a_guidance_evidence_digest TEXT"));
+        assert!(simplification::schema_matches(database.connection()).unwrap());
         drop(database);
 
         let reopened = Database::open(&directory).expect("v79 database should reopen");

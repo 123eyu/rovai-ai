@@ -2296,7 +2296,7 @@ mod tests {
                 "agent_run.continuation_unavailable"
             );
             fixture.database.connection().execute("UPDATE camp_member SET leave_requested_at=NULL,leave_request_command_id=NULL WHERE camp_id=?1 AND agent_id='agent_1'",[&fixture.camp_id]).unwrap();
-            // Known incompatibility is accepted directly; only claim clears the binding.
+            // Configuration drift does not prevent trying the same CLI Session.
             fixture.database.connection().execute("UPDATE conversation SET native_session_id='old-session',native_adapter_installation_id='adapter-test-codex',native_binding_compatibility_digest='incompatible' WHERE id='delivery-queue-agent-1'",[]).unwrap();
             request = command.clone();
             request.command_id = "automatic-new-session".into();
@@ -2339,7 +2339,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 execution.native_session_resume_disposition(),
-                crate::runtime::NativeSessionResumeDisposition::New
+                crate::runtime::NativeSessionResumeDisposition::Compatible
             );
             assert!(
                 crate::run_continuation::can_replace_session_before_dispatch(
@@ -2368,7 +2368,7 @@ mod tests {
                     .unwrap();
                 assert_eq!(
                     current.native_session_resume_disposition(),
-                    crate::runtime::NativeSessionResumeDisposition::Controlled
+                    crate::runtime::NativeSessionResumeDisposition::Compatible
                 );
             }
             let context = fixture.materialize_run(&run);

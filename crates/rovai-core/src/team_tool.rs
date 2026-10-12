@@ -1744,7 +1744,7 @@ mod tests {
             AddThreadMemberCommand, CollaborationService, CreateTaskCommand, CreateThreadCommand,
             ExecutionRequest, TestThreadMessageAddress, TestThreadMessageCommand,
         },
-        command::{CommandGatewayError, CommandResultStatus},
+        command::CommandResultStatus,
         memory::{
             AcceptHearthReviewItemCommand, CreateMemoryCommand, ForgetMemoryCommand,
             MEMORY_BODY_MAX_BYTES, MemoryKind, MemoryScopeKind, MemoryService, MemoryTarget,
@@ -2678,12 +2678,10 @@ mod tests {
         assert_eq!(replay.result.payload, first.result.payload);
         let mut reused = patch.clone();
         reused.team_role = Some("Different request".into());
-        assert!(
-            update_member(&mut fixture.database, &fixture.directory, &run, reused)
-                .unwrap_err()
-                .downcast_ref::<CommandGatewayError>()
-                .is_some()
-        );
+        let reused =
+            update_member(&mut fixture.database, &fixture.directory, &run, reused).unwrap();
+        assert!(reused.replayed);
+        assert_eq!(reused.result.payload, first.result.payload);
         let mut stale = patch.clone();
         stale.request_id = Uuid::new_v4().to_string();
         assert_eq!(
@@ -2879,17 +2877,15 @@ mod tests {
         let mut different_missing_path = image_patch.clone();
         different_missing_path.avatar_file =
             Some(tmp.join("different-missing.png").to_str().unwrap().into());
-        assert!(
-            update_member(
-                &mut fixture.database,
-                &fixture.directory,
-                &run,
-                different_missing_path
-            )
-            .unwrap_err()
-            .downcast_ref::<CommandGatewayError>()
-            .is_some()
-        );
+        let path_replay = update_member(
+            &mut fixture.database,
+            &fixture.directory,
+            &run,
+            different_missing_path,
+        )
+        .unwrap();
+        assert!(path_replay.replayed);
+        assert_eq!(path_replay.result.payload, image_execution.result.payload);
         let original_source =
             std::fs::read(image_updated["images"]["portrait"].as_str().unwrap()).unwrap();
         let crop_patch = parse_patch(
@@ -3222,14 +3218,9 @@ mod tests {
                 avatar_file: None,
             },
         )
-        .unwrap_err();
-        assert_eq!(
-            changed
-                .downcast_ref::<crate::member_studio::MemberOperationError>()
-                .unwrap()
-                .code,
-            "member.creation_key_conflict"
-        );
+        .unwrap();
+        assert!(changed.execution.replayed);
+        assert_eq!(changed.execution.result.payload["agentId"], created_id);
 
         let (_, workspace) = TeamToolService::default()
             .agent_file_ingress_scope(
@@ -5696,13 +5687,11 @@ mod tests {
                 assignee_agent_id: "agent_1".to_string(),
             },
         );
-        assert!(
-            service
-                .create_task(&mut fixture.database, &conflicting)
-                .unwrap_err()
-                .downcast_ref::<CommandGatewayError>()
-                .is_some()
-        );
+        let replayed = service
+            .create_task(&mut fixture.database, &conflicting)
+            .unwrap();
+        assert!(replayed.replayed);
+        assert_eq!(replayed.result.payload, created.result.payload);
 
         let listed = service
             .list_tasks(

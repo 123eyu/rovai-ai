@@ -20,6 +20,11 @@ pub(crate) mod sealed {
 pub trait DomainCommand: sealed::Sealed + Serialize {
     const TYPE: &'static str;
     const ALLOWED_WHILE_CAMP_DELETING: bool = false;
+
+    /// Existing private draft commands belong to a Host-verified editor.
+    fn draft_client(&self) -> Option<&crate::draft_client::DraftClient> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +186,8 @@ pub struct StoredCommandResult {
     #[serde(skip)]
     source_agent_run_id: Option<String>,
     #[serde(skip)]
+    command_client_id: Option<String>,
+    #[serde(skip)]
     camp_id: Option<String>,
 }
 
@@ -288,6 +295,10 @@ impl DomainCommandGateway {
             actor_type: envelope.actor.actor_type().to_string(),
             actor_id: envelope.actor.actor_id().to_string(),
             source_agent_run_id: envelope.actor.source_agent_run_id().map(str::to_string),
+            command_client_id: envelope
+                .payload
+                .draft_client()
+                .map(|client| client.id().to_owned()),
             camp_id: envelope.camp_id.clone(),
         };
         append_command_result(&transaction, envelope, &stored_result)?;
@@ -424,6 +435,12 @@ where
         && result.actor_type == envelope.actor.actor_type()
         && result.actor_id == envelope.actor.actor_id()
         && result.source_agent_run_id.as_deref() == envelope.actor.source_agent_run_id()
+        && result.command_client_id.as_deref().is_none_or(|client_id| {
+            envelope
+                .payload
+                .draft_client()
+                .is_some_and(|client| client.id() == client_id)
+        })
         && result.camp_id == envelope.camp_id
     {
         crate::thread_compat::project_command_result(C::TYPE, &mut result.payload)?;
@@ -447,7 +464,7 @@ fn load_stored_result(
         .query_row(
             "SELECT command_id, command_type, result_status, result_code, result_payload_json,
                 result_entity_type, result_entity_id, created_at, actor_type, actor_id,
-                source_agent_run_id, camp_id
+                source_agent_run_id, camp_id, command_client_id
          FROM event_log WHERE event_type = 'command.result' AND command_id = ?1",
             [command_id],
             |row| {
@@ -464,6 +481,7 @@ fn load_stored_result(
                     row.get::<_, String>(9)?,
                     row.get::<_, Option<String>>(10)?,
                     row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
                 ))
             },
         )
@@ -482,6 +500,7 @@ fn load_stored_result(
             actor_id,
             source_agent_run_id,
             camp_id,
+            command_client_id,
         )| {
             Ok(StoredCommandResult {
                 command_id,
@@ -501,6 +520,7 @@ fn load_stored_result(
                 actor_id,
                 source_agent_run_id,
                 camp_id,
+                command_client_id,
             })
         },
     )
@@ -585,13 +605,13 @@ where
             payload_json, camp_id, entity_type, entity_id, actor_type, actor_id,
             source_agent_run_id, execution_epoch, command_id, command_type,
             result_status, result_code,
-            result_payload_json, result_entity_type, result_entity_id, created_at
+            result_payload_json, result_entity_type, result_entity_id, created_at, command_client_id
         ) VALUES (
             ?1, NULL, NULL, NULL, 'command.result', NULL,
             ?2, ?3, ?4, ?5, ?6, ?7,
             ?8, ?9, ?10, ?11,
             ?12, ?13, ?14, ?15,
-            ?16, ?17
+            ?16, ?17, ?18
         )
         "#,
         params![
@@ -612,6 +632,7 @@ where
             result_entity_type,
             result_entity_id,
             result.recorded_at,
+            result.command_client_id,
         ],
     )?;
     Ok(())

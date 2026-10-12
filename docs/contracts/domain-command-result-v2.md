@@ -18,6 +18,11 @@ only within the same command type, actor type/ID, Camp and source AgentRun. Thes
 compared directly. Changed payload, expected versions or execution epoch under that same
 identity do not create a second operation; a new operation needs a new command ID.
 
+Private draft commands also store the existing Host-verified editor ID in `command_client_id`
+and compare it directly on replay. This preserves the existing editor boundary without hashing
+the body. Historical rows have no separately stored editor ID and use their stored actor/Camp
+scope; migration does not reconstruct identity from retired digests.
+
 New commands still pass the handler's current permissions, epoch and domain checks. Applied,
 accepted and rejected results remain queryable through `commands.reconcile`; handler errors
 roll back. Stored status, code, payload, result entity and timestamp are unchanged. The result

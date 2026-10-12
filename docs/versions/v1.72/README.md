@@ -18,14 +18,29 @@ last_updated: 2026-10-12
 版本及受支持升级链，不迁移实验登记、不回退或改写日常数据库。当前合同见
 [Navigation Read v1](../../contracts/navigation-read-v1.md#client-directory-preferences)，验收见[实施记录](implementation-plan.md#项目目录-json-保存2026-10-12)。
 
+## Charter 与 Memory 入口精简（2026-10-12）
+
+按 User 确认的 [R2 完整前后对照](model-context-change-charter-memory-concision.md)，精简公共和
+Single Chat Charter，移除常驻命令目录、Core／Native Session 内部术语及重复解释，
+Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持共享 Binding compatibility 16；
+旧 Bootstrap 不改写，新 Binding 才使用新文案。发送成功说明保留在 send help，权限和动态 Context 不变。
+本次也带入此前已完成的 Codex 专属提示删除；其独立兼容性影响见原说明。
+实施与验证见[实施记录](implementation-plan.md#charter-与-memory-入口精简2026-10-12)。
+
+## 删除 Codex 专属最终答复提示（2026-10-12）
+
+按 User 明确要求删除 Codex 最终答复补充句、Adapter 追加分支及专属 binding compatibility 字段，
+公共发送规则与 `--input-file` 教学保持。新 Codex Binding 使用共享 Charter，旧证据不重写；
+精确前后文本、授权、兼容影响和验证见[上下文变更说明](model-context-change-remove-codex-final-answer-guidance.md)。
+
 ## 会话内队员占位（2026-10-11）
 
-按 User 确认的 v10「停止区分隔」及后续 v8 默认色修正，在公开会话末尾投影正在执行的队员：
-单行正文／命令、Run 身份衔接、确认停止及中断重试。停止按钮默认中性色，悬浮变红。
+按 User 确认的 v12，在公开会话按每次 Run 的输入／自身公开回复锚点投影正在执行的队员：
+原文按已有换行在单行内推进，运行中复用 RunCard 高亮；保留命令图标、Run 身份衔接、确认停止及中断重试。停止按钮默认中性色，悬浮变红。
 复用现有 Evidence、精确 Run Stop 和独立续做命令；Core 从持久化续做 Delivery 派生受理事实，
 切群／刷新后旧失败入口保持收起。单行预览首次读取失败可随更新／重连恢复，慢请求保留更新并补拉；
 旧恢复记录与实时事件按版本合并，不覆盖新正文。排队不占位，不创建公开消息，不改变模型上下文或数据库结构。
-当前边界见 [Run Process Detail Surface v49](../../contracts/run-process-detail-surface-v49.md)，验证与交付见
+当前边界见 [Run Process Detail Surface v50](../../contracts/run-process-detail-surface-v50.md)，验证与交付见
 [实施记录](implementation-plan.md#会话内队员占位)。
 
 ## Windows Web 凭据可用性（2026-10-11）
@@ -54,7 +69,7 @@ Migration 191 保留队员私有配置；方案 A 通过 193/schema 143 退役 1
 真实队员配置错误只失败对应任务，其他 Camp 继续领取；数据库整体故障仍上报。
 实现与测试记录见[方案 A](implementation-plan.md#队员环境按进程启动读取2026-10-12)。
 Pi、ZCode、Fleet 收窄到同一 Camp/队员/当前会话，保留各 Adapter 的恢复、停止与后台消息机制。
-合同见 [Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)；
+合同见 [Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)；
 测试归属见[队员环境 owner](../../development/testing.md#队员运行环境-owner2026-10-11)。
 可重复命令、实测结果和边界见[验收记录](../../research/member-runtime-environment-acceptance.md)。
 真实 Claude Code 2.1.287 已用两个 loopback 接口、不同假凭据/模型及冲突原生设置验证并行路由。
@@ -77,7 +92,7 @@ Windows V1 已补齐原生压缩监听插件的安装路径，复用平台私有
 
 按 User 要求退役 Rovai 专属 `kimi-code.env`、`ROVAI_KIMI_CONFIG` 与模型变量注入。
 正式运行、健康检查和模型目录探测由 Kimi 读取官方配置；旧文件不再影响启动或 Host 复用，
-不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)，
+不自动迁移、覆盖配置或删除历史。当前合同为 [Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)，
 理由见 [V1.72-D32](decisions.md#v1-72-d32)，验证记录见[实施计划](implementation-plan.md#2026-10-10-kimi-官方-provider-配置)。
 
 ## Claude Code / Codex 原生自动记忆（2026-10-10）
@@ -594,3 +609,10 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 终态后的短期 Usage checkpoint。停止／继续复用既有授权与清理流程，不增加强制放行或自动重试。
 范围、测试归属与验收状态见[实施记录](async-run-finalization.md)；当前统计合同为
 [Usage v9](../../contracts/runtime-usage-monitoring-v9.md)。
+
+## 同类 CLI 优先恢复原生会话（2026-10-12）
+
+按 User 确认的可用性方案，历史配置和上下文摘要退出 Resume 资格；Adapter 的可靠恢复证据决定一次
+新建降级，绑定成功前保留旧目标，输入接收/取消/执行代次保护不变。当前边界见
+[Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)，实施与验收见
+[实施记录](implementation-plan.md#同类-cli-优先恢复原生会话2026-10-12)。

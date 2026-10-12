@@ -12851,14 +12851,6 @@ impl Core {
                     &mut launch_permit,
                 )
                 .await;
-            if launch_result.is_err() {
-                let mut database = core.database.lock().await;
-                if let Err(error) = ExecutionRuntimeService::default()
-                    .retain_session_after_failed_replacement(&mut database, &execution)
-                {
-                    eprintln!("failed to retain previous Native Session reference: {error:#}");
-                }
-            }
             launch_permit.finish_launch();
             let launch_cancelled = launch_permit.check_cancelled().is_err();
             // New Runs carry only a Camp-scoped root proof. Their terminal path may wake legacy
@@ -14506,13 +14498,13 @@ impl Core {
                         agent_run_id: execution.agent_run_id.clone(),
                         expected_conversation_version: credential.conversation_version,
                         expected_execution_epoch: execution.execution_epoch,
-                        previous_adapter_installation_id: Some(
-                            credential.adapter_installation_id.clone(),
-                        ),
-                        previous_native_session_id: credential.native_session_id.clone(),
-                        previous_binding_compatibility_digest: Some(
-                            credential.binding_compatibility_digest.clone(),
-                        ),
+                        previous_adapter_installation_id: credential
+                            .previous_adapter_installation_id
+                            .clone(),
+                        previous_native_session_id: credential.previous_native_session_id.clone(),
+                        previous_binding_compatibility_digest: credential
+                            .previous_binding_compatibility_digest
+                            .clone(),
                         proposed_binding_id: Some(credential.native_binding_id.clone()),
                         adapter_installation_id: credential.adapter_installation_id.clone(),
                         native_session_id: native_session_id.to_string(),
@@ -15391,7 +15383,7 @@ impl Core {
         let thread_id = match thread {
             Ok(thread_id) => thread_id,
             Err(error) => {
-                let failure = classify_native_resume_failure(&error);
+                let failure = native_resume_failure(&error);
                 let may_replace = {
                     let mut database = self.database.lock().await;
                     if resumable_session_id.is_some()
@@ -15404,6 +15396,7 @@ impl Core {
                         )?;
                     }
                     resumable_session_id.is_some()
+                        && failure == NativeSessionResumeFailure::Incompatible
                         && crate::run_continuation::can_replace_session_before_dispatch(
                             database.connection(),
                             &execution.agent_run_id,
@@ -15418,15 +15411,6 @@ impl Core {
                 // User's new continuation permits one replacement, never a replay
                 // after turn/start or an unbounded retry on the replacement error.
                 launch_permit.check_cancelled()?;
-                {
-                    let mut database = self.database.lock().await;
-                    ExecutionRuntimeService::default().record_native_session_continuity_lost(
-                        &mut database,
-                        execution,
-                        "codex_thread_resume",
-                        failure,
-                    )?;
-                }
                 binding_credential = self.prepare_builtin_tool_binding(execution, true).await?;
                 let replacement_bootstrap = {
                     let mut database = self.database.lock().await;
@@ -15668,7 +15652,19 @@ impl Core {
                     && pi::activation_failure_kind(&error)
                         == Some(pi::PiActivationFailureKind::ResumeContinuityLost) =>
             {
-                let failure = classify_native_resume_failure(&error);
+                let failure = NativeSessionResumeFailure::Incompatible;
+                launch_permit.check_cancelled()?;
+                {
+                    let database = self.database.lock().await;
+                    anyhow::ensure!(
+                        crate::run_continuation::can_replace_session_before_dispatch(
+                            database.connection(),
+                            &execution.agent_run_id,
+                            execution.execution_epoch,
+                        )?,
+                        "Pi replacement cannot replay an input whose delivery has started"
+                    );
+                }
                 {
                     let mut database = self.database.lock().await;
                     if resume_disposition == NativeSessionResumeDisposition::Controlled {
@@ -15678,12 +15674,6 @@ impl Core {
                             failure,
                         )?;
                     }
-                    ExecutionRuntimeService::default().record_native_session_continuity_lost(
-                        &mut database,
-                        execution,
-                        "pi_exact_session_file",
-                        failure,
-                    )?;
                 }
                 launch_permit.check_cancelled()?;
                 let replacement_binding =
@@ -16038,15 +16028,6 @@ impl Core {
                     return Err(error).context(
                         "Claude Code cleanup is not confirmed; replacement was not started",
                     );
-                }
-                {
-                    let mut database = self.database.lock().await;
-                    ExecutionRuntimeService::default().record_native_session_continuity_lost(
-                        &mut database,
-                        execution,
-                        "claude_session_initialize",
-                        NativeSessionResumeFailure::Incompatible,
-                    )?;
                 }
                 return Box::pin(self.launch_claude_code_agent_run(PreparedRuntimeLaunch {
                     execution,
@@ -16844,15 +16825,6 @@ impl Core {
                         "Antigravity cleanup is not confirmed; replacement was not started",
                     );
                 }
-                {
-                    let mut database = self.database.lock().await;
-                    ExecutionRuntimeService::default().record_native_session_continuity_lost(
-                        &mut database,
-                        execution,
-                        "antigravity_session_initialize",
-                        NativeSessionResumeFailure::Incompatible,
-                    )?;
-                }
                 return Box::pin(self.launch_antigravity_agent_run(PreparedRuntimeLaunch {
                     execution,
                     resume_disposition: NativeSessionResumeDisposition::New,
@@ -17317,6 +17289,18 @@ impl Core {
         if binding_credential.native_session_id.is_some()
             && session_continuation == acp::AcpSessionContinuation::New
         {
+            launch_permit.check_cancelled()?;
+            {
+                let database = self.database.lock().await;
+                anyhow::ensure!(
+                    crate::run_continuation::can_replace_session_before_dispatch(
+                        database.connection(),
+                        &execution.agent_run_id,
+                        execution.execution_epoch,
+                    )?,
+                    "ACP capability fallback cannot replay a dispatched input"
+                );
+            }
             binding_credential = self.prepare_builtin_tool_binding(execution, true).await?;
             if execution.runtime.adapter_kind == AdapterKind::ClineCli {
                 let digest = acp::runtime_compatibility_digest(
@@ -17394,15 +17378,22 @@ impl Core {
             Ok(session_id) => session_id,
             Err(error)
                 if resumable_session_id.is_some()
-                    && error
-                        .downcast_ref::<acp::AcpSessionRestoreError>()
-                        .is_some()
-                    && error
-                        .downcast_ref::<AcpLiveModelValidationError>()
-                        .is_none()
-                    && error.downcast_ref::<RuntimeFailureError>().is_none() =>
+                    && native_resume_failure(&error)
+                        == NativeSessionResumeFailure::Incompatible =>
             {
-                let failure = classify_native_resume_failure(&error);
+                let failure = native_resume_failure(&error);
+                launch_permit.check_cancelled()?;
+                {
+                    let database = self.database.lock().await;
+                    anyhow::ensure!(
+                        crate::run_continuation::can_replace_session_before_dispatch(
+                            database.connection(),
+                            &execution.agent_run_id,
+                            execution.execution_epoch,
+                        )?,
+                        "ACP replacement cannot replay an input whose delivery has started"
+                    );
+                }
                 eprintln!(
                     "{} Native Session {:?} failed for AgentRun {}; continuity is lost and a new Session will be created: {error:#}",
                     execution.runtime.adapter_kind.as_str(),
@@ -17418,20 +17409,6 @@ impl Core {
                             failure,
                         )?;
                     }
-                }
-                {
-                    let mut database = self.database.lock().await;
-                    ExecutionRuntimeService::default().record_native_session_continuity_lost(
-                        &mut database,
-                        execution,
-                        match session_continuation {
-                            acp::AcpSessionContinuation::ReuseSameHost => "same_host_reuse",
-                            acp::AcpSessionContinuation::Resume => "acp_session_resume",
-                            acp::AcpSessionContinuation::HistoryRestore => "acp_history_restore",
-                            acp::AcpSessionContinuation::New => "new_session",
-                        },
-                        failure,
-                    )?;
                 }
                 adapter
                     .forget_agent_run(&execution.agent_run_id, execution.execution_epoch)
@@ -18236,33 +18213,11 @@ fn runtime_attempt_precedes(attempt: &AdapterProbeAttempt, timestamp: &str) -> b
     attempted_at < last_successful_at
 }
 
-fn classify_native_resume_failure(error: &anyhow::Error) -> NativeSessionResumeFailure {
-    let diagnostic = error
-        .chain()
-        .map(|cause| cause.to_string().to_ascii_lowercase())
-        .collect::<Vec<_>>()
-        .join(" ");
-    const EXPLICIT_INCOMPATIBILITY_MARKERS: [&str; 8] = [
-        "unknown session",
-        "session not found",
-        "thread not found",
-        "invalid session",
-        "invalid thread",
-        "session/load is not supported",
-        "method not found",
-        "incompatible",
-    ];
-    if EXPLICIT_INCOMPATIBILITY_MARKERS
-        .iter()
-        .any(|marker| diagnostic.contains(marker))
-    {
-        NativeSessionResumeFailure::Incompatible
-    } else {
-        // A timeout, transport failure, malformed reply, or other uncertain
-        // outcome may have delivered input. The persistent fence prevents a
-        // second controlled Resume for the same Installation generation.
-        NativeSessionResumeFailure::Ambiguous
-    }
+fn native_resume_failure(error: &anyhow::Error) -> NativeSessionResumeFailure {
+    error
+        .downcast_ref::<NativeSessionResumeFailure>()
+        .copied()
+        .unwrap_or(NativeSessionResumeFailure::Ambiguous)
 }
 
 fn probe_authentication_status(status: health::AgentRuntimeProbeStatus) -> &'static str {
@@ -29911,7 +29866,7 @@ done
     }
 
     #[test]
-    fn controlled_native_resume_classifies_only_explicit_rejection_as_incompatible() {
+    fn native_resume_consumes_only_adapter_evidence() {
         let missing = crate::command_code_acp::verify_restore_target(
             &json!({"sessions": []}),
             "missing-session",
@@ -29919,7 +29874,7 @@ done
         )
         .unwrap_err();
         assert_eq!(
-            classify_native_resume_failure(&missing),
+            native_resume_failure(&missing),
             NativeSessionResumeFailure::Incompatible
         );
         let invalid = crate::command_code_acp::verify_restore_target(
@@ -29929,21 +29884,23 @@ done
         )
         .unwrap_err();
         assert_eq!(
-            classify_native_resume_failure(&invalid),
+            native_resume_failure(&invalid),
             NativeSessionResumeFailure::Ambiguous
         );
-        assert_eq!(
-            classify_native_resume_failure(&anyhow::anyhow!("session not found")),
-            NativeSessionResumeFailure::Incompatible
-        );
-        assert_eq!(
-            classify_native_resume_failure(&anyhow::anyhow!("resume timed out")),
-            NativeSessionResumeFailure::Ambiguous
-        );
-        assert_eq!(
-            classify_native_resume_failure(&anyhow::anyhow!("malformed provider reply")),
-            NativeSessionResumeFailure::Ambiguous
-        );
+        for detail in [
+            "session not found",
+            "initialize: incompatible",
+            "set_model: method not found",
+            "MCP: incompatible method not found",
+            "cancelled",
+            "resume timed out",
+            "malformed provider reply",
+        ] {
+            assert_eq!(
+                native_resume_failure(&anyhow::anyhow!(detail)),
+                NativeSessionResumeFailure::Ambiguous
+            );
+        }
     }
 
     #[test]
@@ -31952,7 +31909,7 @@ for line in sys.stdin:
                 .unwrap();
             let host_id = runtime.host_instance_id().to_string();
             core.database.lock().await.connection().execute(
-                "UPDATE conversation SET native_session_id = 'native-fixture' WHERE id = (SELECT conversation_id FROM agent_run WHERE id = ?1)", [&run_id],
+                "UPDATE conversation SET native_session_id = 'native-fixture', native_adapter_installation_id = (SELECT runtime_installation_id FROM agent_run WHERE id=?1) WHERE id = (SELECT conversation_id FROM agent_run WHERE id = ?1)", [&run_id],
             ).unwrap();
             // Intermediate error notifications cannot release even willRetry=false.
             for will_retry in [true, false] {

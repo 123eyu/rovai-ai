@@ -922,6 +922,7 @@ export interface SingleChatMessageView {
 
 export interface SingleChatRunView {
   id: string
+  nativeSessionReplaced?: boolean
   threadTurnId: string
   triggerConversationMessageId: string
   status: 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled'
@@ -1866,6 +1867,8 @@ export interface AgentRunView {
   inputSummary?: string | null
   /** At least one continuation Delivery was accepted for this Run; not an execution-eligibility lock. */
   hasAcceptedContinuation?: boolean
+  /** Native replacement succeeded; never emitted for an attempted or failed fallback. */
+  nativeSessionReplaced?: boolean
   conversationId: string
   agentId: string
   taskId: string | null

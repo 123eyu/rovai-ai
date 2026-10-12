@@ -19,6 +19,8 @@ export type CurrentProjectAccessDecision =
   | 'wait'
   | 'fallback'
   | 'clear_hint'
+  | 'keep_hint'
+  | 'inspect'
 
 export interface CurrentProjectAccessInput {
   currentProject: CurrentProject
@@ -141,9 +143,14 @@ export function navigationWithProjectNames(
 export function navigationWithProjectAuthority(
   navigation: NavigationSnapshot | null,
   removedProjectKeys: ReadonlySet<string>,
-  _removedProjectAuthorityReady: boolean
+  removedProjectAuthorityReady: boolean
 ): NavigationSnapshot | null {
   if (!navigation) return null
+  if (!removedProjectAuthorityReady) {
+    return navigation.projects.length === 0
+      ? navigation
+      : { ...navigation, projects: [] }
+  }
   return navigationWithoutRemovedProjects(navigation, removedProjectKeys)
 }
 
@@ -173,15 +180,44 @@ export function currentProjectWorkspace(
 
 export function currentProjectAccessDecision({
   currentProject,
+  currentWorkspaceHint,
   navigation,
   removedProjectKeys,
-  removedProjectAuthorityReady: _removedProjectAuthorityReady
+  removedProjectAuthorityReady
 }: CurrentProjectAccessInput): CurrentProjectAccessDecision {
-  if (!navigation) return 'wait'
+  if (!navigation || !removedProjectAuthorityReady) return 'wait'
   if (currentProject.kind === 'quick_chat') return 'clear_hint'
   if (removedProjectKeys.has(projectTargetKey(currentProject.projectPath))) return 'fallback'
   if (currentProjectGroup(navigation, currentProject)) return 'clear_hint'
-  return 'fallback'
+  if (currentWorkspaceHint?.projectPath === currentProject.projectPath) return 'keep_hint'
+  return 'inspect'
+}
+
+export function navigationIncludingCurrentWorkspace(
+  navigation: NavigationSnapshot | null,
+  currentProject: CurrentProject,
+  currentWorkspace: WorkspaceSelection | null
+): NavigationSnapshot | null {
+  if (
+    !navigation
+    || currentProject.kind !== 'directory'
+    || currentProjectGroup(navigation, currentProject)
+    || currentWorkspace?.projectPath !== currentProject.projectPath
+  ) return navigation
+
+  const emptyProject: ProjectNavigationGroup = {
+    projectKey: projectTargetKey(currentWorkspace.projectPath),
+    name: currentWorkspace.name,
+    projectPath: currentWorkspace.projectPath,
+    lastActivityAt: '',
+    lastActivityGlobalSequence: 0,
+    totalCount: 0,
+    recentThreads: []
+  }
+  return {
+    ...navigation,
+    projects: [...navigation.projects, emptyProject]
+  }
 }
 
 export function resolveNewConversationDefaults(

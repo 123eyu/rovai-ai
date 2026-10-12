@@ -1,8 +1,4 @@
 {
-  "项目列表暂未保存，仍可继续使用；新添加的空目录可能无法在重启后保留。": "The project list could not be saved. You can keep working; new empty projects may not survive a restart.",
-  "项目显示状态暂未完整恢复。": "Project visibility settings have not fully recovered yet.",
-  "关闭项目列表提示": "Dismiss project list notice",
-  "项目列表暂时无法刷新：{0}": "Project list could not be refreshed: {0}",
   "已保存": "Saved",
   "启动设置已保存，连接更改尚未保存。": "Startup settings saved; connection changes are still unsaved.",
   "待邀请": "Pending invitation",
@@ -2133,9 +2129,6 @@
   "已选 {0}": "{0} selected",
   "选择工作目录后，对话会在这里成组显示。": "Choose a workspace to group its chats here.",
   "还没有对话": "No chats yet",
-  "正在读取对话…": "Loading chats…",
-  "对话暂时无法读取，请刷新重试": "Could not load chats. Refresh to try again.",
-  "项目目录未能保存，请重试：{0}": "Could not save the project directory. Try again: {0}",
   "对话": "Chat",
   "设置与应用更新": "Settings and app updates",
   "设置，打开上次保留的设置页面": "Settings, return to the last settings page",

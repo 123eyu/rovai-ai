@@ -1,4 +1,3 @@
-import { navigationWithRegisteredProjects } from './project-registry'
 import { describe, expect, it } from 'vitest'
 import type {
   AgentProfile,
@@ -11,6 +10,7 @@ import {
   currentProjectForThread,
   currentProjectWorkspace,
   defaultsNeedInvalidation,
+  navigationIncludingCurrentWorkspace,
   navigationWithProjectAuthority,
   navigationWithProjectOrder,
   navigationWithoutRemovedProjects,
@@ -38,7 +38,7 @@ describe('new conversation preferences', () => {
       .toEqual({ kind: 'quick_chat' })
   })
 
-  it('keeps a registered workspace visible when it has no navigable Threads', () => {
+  it('keeps a validated current workspace visible when it has no navigable Threads', () => {
     const navigation: NavigationSnapshot = {
       schemaVersion: 3,
       throughGlobalSequence: 7,
@@ -46,8 +46,9 @@ describe('new conversation preferences', () => {
       projects: []
     }
     const currentProject = { kind: 'directory', projectPath: '/repo/empty-project' } as const
-    const displayed = navigationWithRegisteredProjects(navigation, {
-      initialized: true, revision: 1, projects: [{ projectPath: currentProject.projectPath, removed: false, version: 1 }]
+    const displayed = navigationIncludingCurrentWorkspace(navigation, currentProject, {
+      name: 'empty-project',
+      projectPath: '/repo/empty-project'
     })
 
     expect(displayed).not.toBe(navigation)
@@ -64,7 +65,10 @@ describe('new conversation preferences', () => {
       name: 'empty-project',
       projectPath: '/repo/empty-project'
     })
-    expect(navigationWithRegisteredProjects(navigation, { initialized: true, revision: 1, projects: [] })?.projects).toEqual([])
+    expect(navigationIncludingCurrentWorkspace(navigation, currentProject, {
+      name: 'other',
+      projectPath: '/repo/other'
+    })).toBe(navigation)
   })
 
   it('removes only explicitly hidden directory Projects from the Renderer navigation', () => {
@@ -108,16 +112,18 @@ describe('new conversation preferences', () => {
     expect(navigationWithProjectOrder(navigation, null)).toBe(navigation)
   })
 
-  it('keeps registered empty Projects independently of the selection', () => {
+  it('appends a newly selected empty Project after the existing Project order', () => {
     const navigation: NavigationSnapshot = {
       schemaVersion: 3,
       throughGlobalSequence: 7,
       quickChat: { totalCount: 0, recentThreads: [] },
       projects: [project('/repo/existing')]
     }
-    const displayed = navigationWithRegisteredProjects(navigation, {
-      initialized: true, revision: 1, projects: ['/repo/existing', '/repo/new'].map(projectPath => ({ projectPath, removed: false, version: 1 }))
-    })
+    const displayed = navigationIncludingCurrentWorkspace(
+      navigation,
+      { kind: 'directory', projectPath: '/repo/new' },
+      { name: 'new', projectPath: '/repo/new' }
+    )
 
     expect(displayed?.projects.map((candidate) => candidate.projectPath))
       .toEqual(['/repo/existing', '/repo/new'])
@@ -131,7 +137,7 @@ describe('new conversation preferences', () => {
       projects: [project('/repo/a'), project('/repo/b')]
     }
 
-    expect(navigationWithProjectAuthority(navigation, new Set(), false)?.projects).toEqual(navigation.projects)
+    expect(navigationWithProjectAuthority(navigation, new Set(), false)?.projects).toEqual([])
     expect(navigationWithProjectAuthority(
       navigation,
       new Set([projectTargetKey('/repo/a')]),
@@ -139,7 +145,7 @@ describe('new conversation preferences', () => {
     )?.projects.map((candidate) => candidate.projectPath)).toEqual(['/repo/b'])
   })
 
-  it('uses available navigation and known removals while registry authority is unavailable', () => {
+  it('does not inspect a cached Project until removed-Project authority is ready', () => {
     const navigation: NavigationSnapshot = {
       schemaVersion: 3,
       throughGlobalSequence: 7,
@@ -154,7 +160,7 @@ describe('new conversation preferences', () => {
       navigation,
       removedProjectKeys: new Set(),
       removedProjectAuthorityReady: false
-    })).toBe('fallback')
+    })).toBe('wait')
     expect(currentProjectAccessDecision({
       currentProject,
       currentWorkspaceHint: null,
@@ -168,14 +174,14 @@ describe('new conversation preferences', () => {
       navigation,
       removedProjectKeys: new Set(),
       removedProjectAuthorityReady: true
-    })).toBe('fallback')
+    })).toBe('inspect')
     expect(currentProjectAccessDecision({
       currentProject,
       currentWorkspaceHint: { name: 'Downloads', projectPath: currentProject.projectPath },
       navigation,
       removedProjectKeys: new Set(),
       removedProjectAuthorityReady: true
-    })).toBe('fallback')
+    })).toBe('keep_hint')
   })
 
   it('ignores runtime readiness but latches missing, away, removed, and invalid Lead configurations', () => {

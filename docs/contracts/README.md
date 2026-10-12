@@ -21,8 +21,6 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## Navigation
 
-- [Project Directory Registry v1（当前）](project-directory-registry-v1.md)：SQLite 目录登记、客户端作用域、主动移除和一次性初始化；会话数量不决定项目存在。
-
 - [Navigation Read v1（当前）](navigation-read-v1.md)：单会话、单分组、完整摘要快照，观察水位内已读确认与局部失效。
 
 ## Mission

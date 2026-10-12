@@ -3084,10 +3084,10 @@ describe('task event projections', () => {
     expect(markup).not.toContain('Horizonward')
   })
 
-  it.each(['ready', 'error', 'loading'] as const)('renders a registered empty project with accurate %s feedback', state => {
+  it('renders the current empty workspace without inventing a pinnable Core project', () => {
     const markup = renderToStaticMarkup(createElement(ThreadNavigation, {
       view: 'camp',
-      state,
+      state: 'ready',
       navigation: {
         schemaVersion: 3,
         throughGlobalSequence: 1,
@@ -3104,6 +3104,7 @@ describe('task event projections', () => {
       },
       activeThreadId: null,
       currentProjectKey: 'directory:/repo/empty-project',
+      shellOnlyProjectPath: '/repo/empty-project',
       onNewConversation: () => undefined,
       onMembers: () => undefined,
       onMemory: () => undefined,
@@ -3120,8 +3121,7 @@ describe('task event projections', () => {
     expect(markup).toContain('data-group="directory:/repo/empty-project"')
     expect(markup).toContain('aria-current="true"')
     expect(markup).toContain('empty-project')
-    expect(markup).toContain(state === 'ready' ? '还没有对话' : state === 'error' ? '对话暂时无法读取，请刷新重试' : '正在读取对话…')
-    if (state !== 'ready') expect(markup).not.toContain('还没有对话')
+    expect(markup).toContain('还没有对话')
     expect(markup).toContain('管理项目“empty-project”')
   })
 

@@ -138,6 +138,7 @@ export function ThreadNavigation({
   firstRunThreadId = null,
   openingThreadId = null,
   currentProjectKey = 'quick-chat',
+  shellOnlyProjectPath = null,
   creatingConversation = false,
   pins = [],
   pinnedThreadItems = [],
@@ -185,6 +186,7 @@ export function ThreadNavigation({
   firstRunThreadId?: string | null
   openingThreadId?: string | null
   currentProjectKey?: string
+  shellOnlyProjectPath?: string | null
   creatingConversation?: boolean
   pins?: NavigationPin[]
   pinnedThreadItems?: NavigationThreadItem[]
@@ -249,7 +251,6 @@ export function ThreadNavigation({
   const pinnedThreads = pins
     .filter((pin) => pin.kind === 'camp')
     .flatMap((pin) => campById.get(pin.targetKey) ?? [])
-    .filter(thread => thread.projectBindingKind === 'quick_chat' || projectByKey.has(`directory:${thread.projectPath}`))
   const pinnedProjects = pins
     .filter((pin) => pin.kind === 'project')
     .flatMap((pin) => projectByKey.get(pin.targetKey) ?? [])
@@ -480,7 +481,6 @@ export function ThreadNavigation({
               const groupKey = projectKey(project)
               const window = groupWindow(groupKey, project)
               return <ThreadGroup
-                readState={state}
                 key={`pinned-${project.projectKey}`}
                 groupKey={groupKey}
                 pinTargetKey={project.projectKey}
@@ -501,7 +501,9 @@ export function ThreadNavigation({
                 onToggleExpanded={() => toggleProjectGroup(groupKey)}
                 onSelectProject={() => onSelectProject(project)}
                 onCreate={() => onCreateInProject(project)}
-                onTogglePin={() => void togglePin('project', project.projectKey)}
+                onTogglePin={project.projectPath === shellOnlyProjectPath
+                  ? undefined
+                  : () => void togglePin('project', project.projectKey)}
                 onRenameProject={onRenameProject ? () => setRenameProject(project) : undefined}
                 onRemoveProject={() => openProjectRemoval(project)}
                 onToggleThreadPin={(thread) => void togglePin('camp', thread.id, thread)}
@@ -525,7 +527,6 @@ export function ThreadNavigation({
             const window = groupWindow(groupKey, project)
             return (
               <ThreadGroup
-                readState={state}
                 key={project.projectKey}
                 groupKey={groupKey}
                 pinTargetKey={project.projectKey}
@@ -546,7 +547,9 @@ export function ThreadNavigation({
                 onToggleExpanded={() => toggleProjectGroup(groupKey)}
                 onSelectProject={() => onSelectProject(project)}
                 onCreate={() => onCreateInProject(project)}
-                onTogglePin={() => void togglePin('project', project.projectKey)}
+                onTogglePin={project.projectPath === shellOnlyProjectPath
+                  ? undefined
+                  : () => void togglePin('project', project.projectKey)}
                 onRenameProject={onRenameProject ? () => setRenameProject(project) : undefined}
                 onRemoveProject={() => openProjectRemoval(project)}
                 onToggleThreadPin={(thread) => void togglePin('camp', thread.id, thread)}
@@ -563,7 +566,6 @@ export function ThreadNavigation({
           })}
           {navigation && navigation.projects.length === 0 && <p className="sidebar-empty"><UiText zh={"选择工作目录后，对话会在这里成组显示。"} /></p>}
           {navigation && <ThreadGroup
-            readState={state}
             groupKey="quick-chat"
             label={uiAttribute("快速对话")}
             totalCount={quickChatTotalCount}
@@ -926,7 +928,6 @@ function CommandPalette({
 }
 
 function ThreadGroup({
-  readState,
   groupKey,
   pinTargetKey,
   label,
@@ -959,7 +960,6 @@ function ThreadGroup({
   onThread,
   onAction
 }: {
-  readState: 'loading' | 'ready' | 'error'
   groupKey: string
   pinTargetKey?: string
   label: string
@@ -1081,7 +1081,7 @@ function ThreadGroup({
             onAction={onAction}
           />
         ))}
-        {projectExpanded && threads.length === 0 && totalCount === 0 && <p className="sidebar-empty"><UiText zh={readState === 'ready' ? '还没有对话' : readState === 'error' ? '对话暂时无法读取，请刷新重试' : '正在读取对话…'} /></p>}
+        {projectExpanded && threads.length === 0 && totalCount === 0 && <p className="sidebar-empty"><UiText zh={"还没有对话"} /></p>}
         {projectExpanded && (paginationControls.showMore || paginationControls.showCollapse) && (
           <div className="camp-pagination-actions">
             {paginationControls.showMore && <button className="show-more-camps" type="button" onClick={onShowMore} disabled={loadingMore}>{loadingMore ? uiAttribute("正在读取…") : uiAttribute("查看更多")}</button>}

@@ -11,13 +11,6 @@ last_updated: 2026-10-11
 
 # Rovai-ai v1.72：Lark 独立渠道
 
-## 项目目录独立登记
-
-按 User 确认的 SQLite 方案实施 [Project Directory Registry v1](../../contracts/project-directory-registry-v1.md)：
-空项目与删光会话后的项目独立保留，主动移除和恢复由同一登记事务拥有，Desktop/Web 作用域保持隔离。
-Migration 191 / schema 141 只创建轻量登记表，旧项目由各作用域成功读取后初始化。
-具体修改与验证见[实施记录](implementation-plan.md#项目目录独立登记)。
-
 ## 已实现：Send 正文文件输入
 
 [已确认正文文件方案与模型上下文对照 r5](model-context-change-send-input-file.md)在同一 `--input-file`

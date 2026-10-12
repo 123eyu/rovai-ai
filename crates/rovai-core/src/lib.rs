@@ -95,7 +95,6 @@ pub mod notification;
 pub mod pending_thread_draft;
 pub mod planned_shutdown;
 pub mod platform;
-pub mod project_registry;
 pub mod read_model;
 pub mod run_continuation;
 pub mod runtime;

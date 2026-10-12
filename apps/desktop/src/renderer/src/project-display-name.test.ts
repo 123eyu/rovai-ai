@@ -1,7 +1,6 @@
-import { navigationWithRegisteredProjects } from './project-registry'
 import { describe, expect, it } from 'vitest'
 import type { NavigationSnapshot } from '@contracts'
-import { navigationWithProjectNames } from './new-conversation-preferences'
+import { navigationIncludingCurrentWorkspace, navigationWithProjectNames } from './new-conversation-preferences'
 import { displayProjectPath, projectDirectoryName } from '../../shared/project-display-name'
 
 describe('project display names', () => {
@@ -27,8 +26,8 @@ describe('project display names', () => {
 
   it('applies saved names to a selected empty directory without creating a Thread', () => {
     const core: NavigationSnapshot = { schemaVersion: 3, throughGlobalSequence: 0, projects: [], quickChat: { totalCount: 0, recentThreads: [] } }
-    const display = navigationWithProjectNames(navigationWithRegisteredProjects(core,
-      { initialized: true, revision: 1, projects: [{ projectPath: '/empty/frontend', removed: false, version: 1 }] }
+    const display = navigationWithProjectNames(navigationIncludingCurrentWorkspace(core,
+      { kind: 'directory', projectPath: '/empty/frontend' }, { projectPath: '/empty/frontend', name: 'frontend' }
     ), { 'directory:/empty/frontend': '试验前端' })!
     expect(display.projects[0]).toMatchObject({ name: '试验前端', projectPath: '/empty/frontend', projectKey: 'directory:/empty/frontend', totalCount: 0, recentThreads: [] })
     expect(core.projects).toEqual([])

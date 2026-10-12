@@ -7223,11 +7223,3 @@ mod slow_tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
-
-/// Complete directory metadata for the one-time, client-scoped registry import.
-pub(crate) fn navigation_project_paths(
-    tx: &Transaction<'_>,
-    client: &crate::draft_client::DraftClient,
-) -> Result<Vec<String>> {
-    navigation::project_paths(tx, client)
-}

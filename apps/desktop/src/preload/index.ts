@@ -348,9 +348,6 @@ const api: RovaiApi = {
     get() {
       return ipcRenderer.invoke('rovai:navigation-preferences-get') as Promise<NavigationPreferencesSnapshot>
     },
-    getProjectInitialization() {
-      return ipcRenderer.invoke('rovai:navigation-preferences-project-initialization')
-    },
     replacePins(pins: NavigationPin[]) {
       return ipcRenderer.invoke('rovai:navigation-preferences-replace-pins', pins) as Promise<NavigationPreferencesSnapshot>
     },
@@ -365,6 +362,19 @@ const api: RovaiApi = {
         'rovai:navigation-preferences-set-project-name',
         targetKey,
         name
+      ) as Promise<NavigationPreferencesSnapshot>
+    },
+    removeProject(targetKey: string, relatedThreadIds: string[]) {
+      return ipcRenderer.invoke(
+        'rovai:navigation-preferences-remove-project',
+        targetKey,
+        relatedThreadIds
+      ) as Promise<NavigationPreferencesSnapshot>
+    },
+    restoreProject(targetKey: string) {
+      return ipcRenderer.invoke(
+        'rovai:navigation-preferences-restore-project',
+        targetKey
       ) as Promise<NavigationPreferencesSnapshot>
     }
   },

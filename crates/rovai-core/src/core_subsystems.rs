@@ -279,12 +279,13 @@ impl super::Core {
                     Err(error) => eprintln!("managed Skill resources unavailable: {error:#}"),
                 }
                 let mut database = self.database.lock().await;
-                // SQLite registration owns Desktop access; legacy preferences are
-                // imported once by the client, never re-applied during startup.
-                if !matches!(self.removed_skill_project_roots.get(), Ok([])) {
-                    eprintln!("legacy removed-project startup options ignored; SQLite registration owns project access");
-                }
-                rovai_core::project_registry::restore_desktop_access(&mut database)?;
+                // Project access is owned by Navigation. A previous startup
+                // cleanup marked observed projects removed, so synchronize the
+                // persisted access state without touching project files.
+                SkillProjectionReconciler.synchronize_removed_execution_roots(
+                    &mut database,
+                    self.removed_skill_project_roots.get()?,
+                )?;
                 eprintln!(
                     "[startup] stage=managed_skills_ready duration_ms={}",
                     started.elapsed().as_millis()

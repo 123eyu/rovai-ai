@@ -5,7 +5,6 @@ import type { FilePreviewApi } from '@contracts'
 /** Only dependencies the production business shell uses; never a replacement window.rovai. */
 export interface BusinessEnvironment {
   navigationHistory?: import('./desktop-navigation').NavigationHistory
-  projects: import('./project-registry').ProjectRegistry
   client: ThreadClient
   files: FilePreviewApi
   preferences: Pick<RovaiApi, 'appearance' | 'generalPreferences' | 'navigationPreferences'>

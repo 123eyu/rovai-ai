@@ -5,7 +5,7 @@ import { DEFAULT_CURRENT_USER_PROFILE, currentUserNameError, isThreadId } from '
 import type { BusinessEnvironment } from '../../desktop/src/renderer/src/business-environment'
 import { DEFAULT_APPEARANCE, parseAppearancePatch } from '../../desktop/src/shared/appearance'
 import { DEFAULT_GENERAL_PREFERENCES, parseGeneralPreferences } from '../../desktop/src/shared/general-preferences-model'
-import { EMPTY_SNAPSHOT, legacyProjectDirectories, sanitizeSnapshot, sourceMatchesSupportedSnapshot, isNavigationThreadReadState } from '../../desktop/src/shared/navigation-preferences-model'
+import { sanitizeSnapshot, isNavigationThreadReadState } from '../../desktop/src/shared/navigation-preferences-model'
 import { normalizeProjectDisplayName, projectDisplayNameError } from '../../desktop/src/shared/project-display-name'
 
 /** Browser presentation preferences only. No drafts, domain facts or credentials enter storage. */
@@ -20,23 +20,9 @@ export function browserPreferences(scope: string, transport: ConsoleClient): {
   const write = (name: string, value: unknown): void => localStorage.setItem(`${key}:${name}`, JSON.stringify(value))
   let general = { ...(parseGeneralPreferences(read('general', DEFAULT_GENERAL_PREFERENCES)) ?? structuredClone(DEFAULT_GENERAL_PREFERENCES)), newConversationDefaults: null, newConversationDefaultsRequireConfirmation: false, oneClickNewConversationEnabled: false } as GeneralPreferencesSnapshot
   let navigation = sanitizeSnapshot(read('navigation', null))
-  let navigationSource: unknown
-  let navigationWriteError: Error | null = null
   const navigationListeners = new Set<(snapshot: NavigationPreferencesSnapshot) => void>()
   const publishNavigation = (): void => { for (const listener of navigationListeners) listener(structuredClone(navigation)) }
-  const refreshNavigation = (writing = false): void => {
-    try {
-      const raw = localStorage.getItem(`${key}:navigation`)
-      navigationSource = raw === null ? EMPTY_SNAPSHOT : JSON.parse(raw) as unknown
-      navigation = sanitizeSnapshot(navigationSource)
-      navigationWriteError = sourceMatchesSupportedSnapshot(navigationSource, navigation)
-        ? null : new Error('导航偏好暂时无法保存，原记录已保留。')
-    } catch {
-      navigationSource = undefined
-      navigationWriteError = new Error('导航偏好暂时无法读取，原记录已保留。')
-    }
-    if (writing && navigationWriteError) throw navigationWriteError
-  }
+  const refreshNavigation = (): void => { navigation = sanitizeSnapshot(read('navigation', null)) }
   const storageChanged = (event: StorageEvent): void => {
     if (event.storageArea !== localStorage || event.key !== `${key}:navigation`) return
     refreshNavigation(); publishNavigation()
@@ -48,7 +34,7 @@ export function browserPreferences(scope: string, transport: ConsoleClient): {
     return structuredClone(next)
   }
   const commitNavigation = async (patch: Partial<NavigationPreferencesSnapshot>): Promise<NavigationPreferencesSnapshot> => {
-    refreshNavigation(true)
+    refreshNavigation()
     const next = sanitizeSnapshot({ ...navigation, ...patch })
     write('navigation', next); navigation = next; publishNavigation()
     return structuredClone(next)
@@ -98,7 +84,6 @@ export function browserPreferences(scope: string, transport: ConsoleClient): {
       }, (method, params) => transport.request(method, params)),
       navigationPreferences: {
         get: async () => { refreshNavigation(); return structuredClone(navigation) },
-        getProjectInitialization: async () => { refreshNavigation(); return legacyProjectDirectories(navigationSource) },
         onChanged: listener => {
           navigationListeners.add(listener)
           if (navigationListeners.size === 1) window.addEventListener('storage', storageChanged)
@@ -117,17 +102,15 @@ export function browserPreferences(scope: string, transport: ConsoleClient): {
           return commitNavigation({ threadReadStates })
         },
         replacePins: pins => commitNavigation({ pins }),
-        synchronizeProjectOrder: async projectKeys => {
-          refreshNavigation()
-          if (navigationWriteError) return structuredClone(navigation)
-          return commitNavigation({ projectOrder: [...new Set([...(navigation.projectOrder ?? []).filter(key => projectKeys.includes(key)), ...projectKeys])] })
-        },
+        synchronizeProjectOrder: projectKeys => commitNavigation({ projectOrder: [...new Set([...(navigation.projectOrder ?? []).filter(key => projectKeys.includes(key)), ...projectKeys])] }),
         setProjectName: (key, name) => {
           if (name !== null && projectDisplayNameError(name)) return Promise.reject(new Error(projectDisplayNameError(name)!))
           const names = { ...navigation.projectNames }
           if (name === null) delete names[key]; else names[key] = normalizeProjectDisplayName(name)
           return commitNavigation({ projectNames: names })
         },
+        removeProject: (key, threadIds) => commitNavigation({ pins: navigation.pins.filter(pin => !(pin.kind === 'project' ? pin.targetKey === key : threadIds.includes(pin.targetKey))), removedProjects: [...navigation.removedProjects.filter(p => p.targetKey !== key), { targetKey: key, removedAt: new Date().toISOString() }] }),
+        restoreProject: key => commitNavigation({ removedProjects: navigation.removedProjects.filter(p => p.targetKey !== key) })
       }
     }
   }

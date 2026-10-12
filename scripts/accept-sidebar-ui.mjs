@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
@@ -1268,9 +1267,8 @@ async function removeAndRestoreProject(cdp, projectTarget, campTarget) {
   assert(await evaluate(cdp, `document.activeElement?.dataset.sidebarFocusTarget !== 'project-row:quick-chat'`), 'Project removal must not refocus the Quick Chat entry')
 
   const afterPreferences = await evaluate(cdp, 'window.rovai.navigationPreferences.get()', true)
-  const afterRegistry = await request(cdp, 'projects.get', {})
-  assert(afterRegistry.projects.some((project) => `directory:${project.projectPath}` === targetKey && project.removed),
-    `Project removal was not persisted: ${JSON.stringify(afterRegistry)}`)
+  assert(afterPreferences.removedProjects.some((project) => project.targetKey === targetKey),
+    `Project removal was not persisted: ${JSON.stringify(afterPreferences)}`)
   assert(!afterPreferences.pins.some((pin) => (
     pin.targetKey === targetKey || pin.targetKey === threadId
   )), `Project removal left a Project/Camp pin behind: ${JSON.stringify(afterPreferences)}`)
@@ -1294,14 +1292,14 @@ async function removeAndRestoreProject(cdp, projectTarget, campTarget) {
 async function assertRemovedProjectPersists(cdp, projectTarget) {
   const targetKey = projectTarget.slice('project:'.length)
   const state = await evaluate(cdp, `(async () => ({
-    registry: await window.rovai.request('projects.get', {}),
+    preferences: await window.rovai.navigationPreferences.get(),
     startup: await window.rovai.desktopSession.getStartupSnapshot(),
     visible: [...document.querySelectorAll('[data-sidebar-menu-target]')]
       .some((element) => element.dataset.sidebarMenuTarget === ${JSON.stringify(projectTarget)}),
     quickChatCurrent: document.querySelector('[data-sidebar-focus-target="project-row:quick-chat"]')
       ?.getAttribute('aria-current') === 'true'
   }))()`, true)
-  assert(state.registry.projects.some((project) => `directory:${project.projectPath}` === targetKey && project.removed)
+  assert(state.preferences.removedProjects.some((project) => project.targetKey === targetKey)
       && !state.visible
       && state.startup.restorableLocation?.kind === 'quick_chat'
       && state.quickChatCurrent,
@@ -1310,12 +1308,11 @@ async function assertRemovedProjectPersists(cdp, projectTarget) {
 
 async function restoreRemovedProject(cdp, projectTarget) {
   const targetKey = projectTarget.slice('project:'.length)
-  const projectPath = targetKey.slice('directory:'.length)
-  const current = await request(cdp, 'projects.get', {})
-  const version = current.projects.find(project => project.projectPath === projectPath)?.version ?? 0
-  const restored = await request(cdp, 'projects.set', { commandId: randomUUID(), command: { projectPath, removed: false, expectedVersion: version } })
-  assert(restored.status === 'applied' && restored.payload.projects.some(project => project.projectPath === projectPath && !project.removed),
-    `Project restore failed: ${JSON.stringify(restored)}`)
+  const restored = await evaluate(cdp,
+    `window.rovai.navigationPreferences.restoreProject(${JSON.stringify(targetKey)})`,
+    true)
+  assert(!restored.removedProjects.some((project) => project.targetKey === targetKey),
+    `Project restore left a hidden-project record: ${JSON.stringify(restored)}`)
   await cdp.send('Page.reload', { ignoreCache: true })
   await waitForExpression(cdp,
     `Boolean(window.rovai && document.querySelector('.app-shell'))`, 45_000)

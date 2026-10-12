@@ -9243,9 +9243,6 @@ fn create_channel_camp(
         .pop_first()
         .context("channel Camp requires a Default Lead")?;
     unique_targets.insert(default_lead.clone());
-    if binding.binding_kind == "directory" {
-        crate::project_registry::register_introduced(transaction, &binding.canonical_path)?;
-    }
     let camp_id = ThreadId::new().to_string();
     transaction.execute(
         r#"

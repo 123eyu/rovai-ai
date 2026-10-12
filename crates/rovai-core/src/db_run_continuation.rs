@@ -131,8 +131,7 @@ pub(super) fn migrate_requests(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
-                DatabaseContractClassification::SupportedMigrationSource(ref marker)
-                    if marker.contract_version == "v1.72" && marker.projection_schema_version == 140
+                DatabaseContractClassification::Current(_)
             ),
             "Continuation request schema admission failed"
         );
@@ -147,7 +146,6 @@ pub(super) fn migrate_requests(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_requests_for_test(connection: &Connection) {
-    project_registry::downgrade_for_test(connection);
     if !connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=190)",
@@ -359,7 +357,6 @@ pub(crate) fn assert_legacy_request_upgrade(database: &mut Database, sources: &[
         })
         .unwrap();
     migrate_requests(database).unwrap();
-    project_registry::migrate(database).unwrap();
     let connection = database.connection();
     assert_eq!(messages(connection), old_messages);
     assert_eq!(
@@ -399,7 +396,7 @@ mod tests {
                 let tx = database.connection().unchecked_transaction().unwrap();
                 rewrite_command_code_runtime_closed_sets(&tx, true).unwrap();
                 rewrite_cline_runtime_closed_sets(&tx, true).unwrap();
-                tx.execute_batch("DROP TABLE IF EXISTS project_directory_registry; DELETE FROM schema_migration WHERE version=191; DELETE FROM schema_migration WHERE version IN (189,190);
+                tx.execute_batch("DELETE FROM schema_migration WHERE version IN (189,190);
                     UPDATE rovai_data_contract SET projection_schema_version=138 WHERE singleton=1;").unwrap();
                 tx.commit().unwrap();
                 database
@@ -499,7 +496,6 @@ mod tests {
                 .execute_batch("DROP TRIGGER reject_request_receipt")
                 .unwrap();
             migrate_requests(&mut database).unwrap();
-            project_registry::migrate(&mut database).unwrap();
             assert!(request_schema_matches(database.connection()).unwrap());
             assert!(command_code_runtime_v185_schema_matches(database.connection()).unwrap());
             assert_eq!(

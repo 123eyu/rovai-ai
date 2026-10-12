@@ -11,10 +11,6 @@ Rovai Desktop 把“窗口可用”与“权威工作区可用”拆成两个明
 SQLite 阻断时继续工作；SQLite authority 仍然 fail closed。这个拆分不建立第二套业务状态，也不允许空库或空列表
 冒充原工作区。
 
-目录登记属于可隔离的附加功能。已准入且仍可安全读写的 Core 会话不以登记成功为前置；
-登记缓存、临时导航、错误分类和 savepoint 边界见 [Project Directory Registry v1](../contracts/project-directory-registry-v1.md)。
-这不改变主数据库准入与业务事务完整性要求。
-
 ## Component authority
 
 | Component | Owns | Does not own |

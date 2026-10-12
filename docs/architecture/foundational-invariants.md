@@ -117,7 +117,7 @@ last_updated: 2026-10-10
   durable Evidence ingress 前排除；该边界不扩大到应用 data dir、其他进程临时目录、同名前缀目录或普通 root 外
   用户文件，也不打开文件、不改变 ACP Client FS/Terminal 的 Runtime-owned 权限模型。
 - AgentRun 仍冻结 workspace 路径及起止 Git capability、HEAD 与 branch observation 作为既有终态审计事实；历史 boolean dirty 保留读取，新 observation 不采集 dirty。这些 per-Run audit facts 不参与
-  文件变化卡片归约，也不成为 Project/导航身份。导航继续按规范目录路径分组；轻量目录登记不成为 Project 领域实体或 Repository
+  文件变化卡片归约，也不成为 Project/导航身份。导航继续按规范目录路径分组，不引入 Project 表或 Repository
   Scope。
 - Mission 累计 Git Diff 与读取/写入权限由独立的 [Mission v10](../contracts/mission-v10.md) 拥有：首个 preparing 读取源工作树当时的本地分支与 HEAD，持久 Worktree 的固定 `base_sha` 与当前文件内容形成单一净变化，使用临时 index 纳入未跟踪文件并保持真实暂存区。受管分支是清理资源身份，当前 checkout 是不持久化的展示观测；分支变化、受管分支缺失、detached HEAD、checkout 读取失败或 Diff 基准不可用都不单独构成执行门禁。它不读取 Runtime 的 per-Run 文件变化 Evidence。所有有效 AgentRun 可用内部 `rvm_...` ID 全局发现/读取 Mission，但 `update/status` 仍只作用于当前公共 Mission；`M-xxx` 只在用户界面展示。状态更新不依赖消息发布；来源消息对所有状态均可省略，显式提供时继续验证，省略时清除旧关联。启动入口由 Mission start Delivery 与 Camp 非终态 Run 的 Core 投影控制，只有 queued/running/waiting Run 才呈现为执行中。显式清理先提交持久意图，再由独立后台 owner 按双检查点分别处理 Worktree 目录和受管分支：目录只按路径、注册与 owner marker 归属，非受管具名 checkout 的分支保留；受管分支只按记录的 expected OID 条件删除。脏现场和没有其他持久引用的 detached 提交拒绝清理，正式 Worktree 删除不使用 `--force`；确认没有发生删除的失败恢复为 `ready`，部分或未知结果保留原检查点。分支仍在时的恢复保留基准，两个资源都不存在时下一次 preparing 从源项目当前 HEAD 重建并更新基准。删除 Mission 默认原地保留资源；明确选择 cleanup 时，保存清理意图与删除聚合同事务提交，后续失败只保留可恢复的 orphan cleanup，不恢复 Mission。
 - **Quick Chat / 快速对话** 是应用受管 workspace 的规范领域与产品分组术语，不是 Camp 或 Project。Rust variant 使用 `QuickChat`，存储与 IPC 值使用 `quick_chat`，JavaScript/TypeScript property 使用 `quickChat`，CSS/test identifier 与受管目录名使用 `quick-chat`。旧称只允许存在于历史快照和迁移证据；当前代码、合同与投影不保留 alias、deprecated field、dual read 或旧 wire value 翻译。
@@ -602,8 +602,8 @@ last_updated: 2026-10-10
 ### 产品与导航
 
 - 正式产品名是 **Rovai-ai**，仓库/package slug 为 `rovai-ai`，普通内部命名使用 `rovai`，Rust package/crate/executable 使用 `rovai-core` / `rovai_core`。旧 namespace 只在受控迁移或外部兼容边界保留。
-- 普通导航使用“置顶 / 项目”投影：directory-backed Project 来自按客户端作用域独立保存的 [SQLite 目录登记](../contracts/project-directory-registry-v1.md)，会话与 Quick Chat 内容来自 Camp workspace read model。登记功能故障时允许按该合同临时显示 Core 授权会话与未保存目录，可靠移除优先，临时显示不授予访问或改写登记。设置在同一侧栏槽位以显式模式覆盖，不创造第二导航真源。
-- Core 拥有目录登记和 Project 内 Camp 最近用户消息顺序和活动字段；只有已发布的 `user` / `external_principal` 消息（含飞书、钉钉等渠道用户）推进 Camp 排序，队员消息和运行状态不推进；无用户消息时固定使用创建时间，草稿编辑不推进。运行中和完成未读标记独立刷新。当前设备的 Sidecar Project 行顺序由 Main-owned `navigation.json` nullable `projectOrder` 拥有。schema 2 用户第一次进入时按当时 Core Project 数组冻结，之后只保留既有项相对顺序、追加新项并清理主动移除项；空项目、删除最后一个会话与普通刷新均保留登记，消息活动不得移动 Project。
+- 普通导航使用“置顶 / 项目”投影：directory-backed Project 与 Quick Chat 分组来自 Camp workspace read model。设置在同一侧栏槽位以显式模式覆盖，不创造第二导航真源。
+- Core 拥有 Project 聚合、Project 内 Camp 最近用户消息顺序和活动字段；只有已发布的 `user` / `external_principal` 消息（含飞书、钉钉等渠道用户）推进 Camp 排序，队员消息和运行状态不推进；无用户消息时固定使用创建时间，草稿编辑不推进。运行中和完成未读标记独立刷新。当前设备的 Sidecar Project 行顺序由 Main-owned `navigation.json` nullable `projectOrder` 拥有。schema 2 用户第一次进入时按当时 Core Project 数组冻结，之后只保留既有项相对顺序、追加新项并清理消失项；消息活动不得移动 Project。
 - Navigation 新鲜度采用事件驱动为主、前台约 20 秒安全刷新兜底；隐藏时暂停周期与后台 retry，focus 后立即重读。并发、trailing generation 与失败退避由 [Desktop Navigation Refresh](desktop-navigation-refresh.md) 统一拥有。
 - Sidebar wordmark 是展示资产，不定义产品领域身份；Core 健康和诊断只从诊断入口读取，不常驻普通导航制造伪状态。
 

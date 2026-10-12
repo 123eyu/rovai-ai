@@ -3,8 +3,6 @@ import type { ThreadCreationPreflight, CoreEvent, DesktopStartupSnapshot, Health
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { App } from '../../../apps/desktop/src/renderer/src/App'
-import { desktopBusinessEnvironment } from '../../../apps/desktop/src/renderer/src/desktop-business-environment'
-import { captureLegacyProjectInitialization, createProjectRegistry } from '../../../apps/desktop/src/renderer/src/project-registry'
 import { NewConversationDialog } from '../../../apps/desktop/src/renderer/src/NewConversationDialog'
 import { STARTUP_LOADING_EXIT_MS, StartupLoadingCanvas } from '../../../apps/desktop/src/renderer/src/StartupLoadingCanvas'
 import { DEFAULT_APPEARANCE } from '../../../apps/desktop/src/shared/appearance'
@@ -128,14 +126,13 @@ async function advance(milliseconds: number) {
   await flush()
 }
 
-async function reset(target: RestorableLocation | null = { kind: 'camp', threadId }, resolveSupervisor = true, setup?: () => void) {
+async function reset(target: RestorableLocation | null = { kind: 'camp', threadId }, resolveSupervisor = true) {
   if (root) flushSync(() => root!.unmount())
   timers.clear()
   listeners.clear()
   coreListeners.clear()
   navigationPreferenceListeners.clear()
   responses.clear()
-  responses.set('projects.get', { initialized: true, revision: 1, projects: [] })
   requestHandlers.clear()
   calls.length = 0
   errors.length = 0
@@ -145,7 +142,6 @@ async function reset(target: RestorableLocation | null = { kind: 'camp', threadI
   initialSupervisor = deferred()
   onboarding = deferred()
   Object.assign(window, { rovai: api() as RovaiApi })
-  setup?.()
   if (target) localSession.resolve(session(target))
   if (resolveSupervisor) initialSupervisor.resolve(supervisor)
   root = createRoot(document.getElementById('root')!)
@@ -203,150 +199,12 @@ function recoveryFrame(kind: string) {
 }
 
 function noAuthority() {
-  // Window-close preferences, session state, interface language and preview retention are Main-owned
+  // Session state, interface language and preview retention are Main-owned
   // local reads; none enter Core authority before admission.
-  check(calls.every(call => ['windowClose.get', 'desktopSession.getStartupSnapshot', 'desktopSession.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
+  check(calls.every(call => ['desktopSession.getStartupSnapshot', 'desktopSession.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
 }
 
 Object.assign(window, { startupTest: {
-  async registryRegressions() {
-    const original = desktopBusinessEnvironment.projects
-    let legacy = deferred<{ projectPaths: string[]; removedPaths: string[] }>()
-    const stamp = '2026-10-11T00:00:00Z'
-    const preferences = { schemaVersion: 5, pins: [], projectOrder: [], projectNames: {}, removedProjects: [], threadReadStates: {} }
-    const coverage = { loadedCount: 0, totalCount: 0, omittedCount: 0, complete: true }
-    let initialized = false
-    let unavailable = false
-    let stalled: ReturnType<typeof deferred<any>> | null = null
-    let revision = 1
-    let imported: { projectPaths: string[]; removedPaths: string[] } | undefined
-    const registry = () => ({ initialized, revision: initialized ? revision : 0, projects: initialized ? [
-      { projectPath: '/old-empty', removed: false, version: 1 },
-      { projectPath: '/restored', removed: false, version: 1 },
-      { projectPath: '/removed', removed: true, version: 1 }
-    ] : [] })
-    const row = (path: string, title: string) => ({ id: path === '/restored' ? threadId : 'removed-thread', title,
-      activationState: 'active', projectBindingKind: 'directory', projectPath: path, defaultLead: null, marker: 'none',
-      lastActivityAt: stamp, lastActivityGlobalSequence: revision, latestCompletionGlobalSequence: 0, version: revision })
-    const navigation = () => ({ schemaVersion: 3, throughGlobalSequence: revision, quickChat: { totalCount: 0, recentThreads: [] },
-      projects: ['/restored', '/removed'].map(path => ({ projectKey: `directory:${path}`, projectPath: path,
-        name: path.slice(1), totalCount: 1, recentThreads: [row(path, path === '/restored' ? `会话版本 ${revision}` : '已移除的会话')],
-        lastActivityAt: stamp, lastActivityGlobalSequence: revision })) })
-    const mount = async () => {
-      await reset({ kind: 'camp', threadId }, true, () => {
-        localStorage.setItem('rovai.current-project.v1', JSON.stringify({ kind: 'directory', projectPath: '/old-empty' }))
-        desktopBusinessEnvironment.projects = createProjectRegistry(
-          (method, params) => window.rovai.request(method, params),
-          captureLegacyProjectInitialization(() => legacy.promise))
-        requestHandlers.set('projects.get', () => { if (stalled) return stalled.promise; if (unavailable) throw new Error('registry read unavailable'); return registry() })
-        requestHandlers.set('projects.initialize', params => { imported = params; initialized = true; return registry() })
-        responses.set('navigationPreferences.get', preferences)
-        responses.set('navigationPreferences.synchronizeProjectOrder', preferences)
-        responses.set('health.check', { core: { ok: true, version: 'fixture', dataDir: '/isolated/fixture' },
-          database: { ok: true, path: '/isolated/fixture/rovai.sqlite' }, git: { installed: true, version: 'fixture' },
-          hostPlatform: 'macos-arm64', runtimeCatalog: [], runtimePlatformAdmission: [], runtimeAvailability: [],
-          searchEnvironment: { generation: 1, createdAt: stamp, pathEntryCount: 0,
-            shell: { status: 'unavailable', interactive: false, shellName: null, entryCount: 0, elapsedMillis: 0 } } })
-        responses.set('members.list', [{ agentId: 'agent-A', displayName: '验收队员', avatarRef: null, accent: null,
-          teamRole: '测试', professionalResponsibilities: '', personalityTraits: [], workingPrinciples: '', growthTopic: '',
-          defaultCapabilities: [], presence: 'present', removedAt: null, memberOrder: 0, version: 1, createdAt: stamp, updatedAt: stamp,
-          runtimeConfiguration: { adapterKind: 'codex-cli', model: { mode: 'runtime_default' },
-            permissions: { adapterKind: 'codex-cli', schemaVersion: 1, values: {} } }, runtimeReadiness: { status: 'ready', blockers: [] } }])
-        responses.set('generalPreferences.get', { oneClickNewConversationEnabled: true,
-          newConversationDefaults: { memberAgentIds: ['agent-A'], defaultLeadAgentId: 'agent-A' } })
-        requestHandlers.set('projects.set', () => { throw Object.assign(new Error('registry unavailable'), { code: 'project_registry_unavailable' }) })
-        requestHandlers.set('threads.create', () => { throw new Error('Business validation failed; retain the input') })
-        responses.set('runtime.installations.list', [])
-        responses.set('memory.hearthReviewItems.list', [])
-        responses.set('threads.exists', true)
-        const projection = { schemaVersion: 8, throughGlobalSequence: 0,
-          thread: { id: threadId, title: '恢复的会话', activationState: 'active', projectBindingKind: 'directory', projectPath: '/restored',
-            defaultLeadAgentId: null, membershipGeneration: 1, version: 1, createdAt: stamp, updatedAt: stamp },
-          members: [], membershipReconciliations: [], tasks: [], messages: [], messageDeliveries: [], turns: [], agentRuns: [],
-          executionEvidence: [], approvals: [], agentRunFileChanges: [], coverage: { tasks: coverage,
-            messages: { ...coverage, hasEarlier: false, oldestLoadedSequence: null, newestLoadedSequence: null },
-            messageDeliveries: coverage, turns: coverage, agentRuns: coverage, approvals: coverage } }
-        responses.set('threads.enter', projection)
-        responses.set('threads.open', projection)
-        responses.set('thread.composerDraft.get', { threadId, body: '', content: { version: 2, segments: [] }, revision: 1,
-          attachments: [], replyIntent: null, continuationIntent: null, updatedAt: stamp, expiresAt: null })
-        responses.set('thread.pendingInputs.get', { threadId, executionActive: false, editSession: null, items: [] })
-        requestHandlers.set('navigation.snapshot', navigation)
-        requestHandlers.set('navigation.threads', () => ({ throughGlobalSequence: revision,
-          groupKeys: ['directory:/restored'], threads: [row('/restored', `会话版本 ${revision}`)] }))
-        responses.set('navigation.threadViewed', { changed: false,
-          navigation: { throughGlobalSequence: 0, groupKeys: [], threads: [] } })
-      })
-      onboarding.resolve({ schemaVersion: 2, status: 'completed', origin: 'existing_installation', completedAt: stamp,
-        selectedMemberRole: null, memberAgentId: null, quickChatThreadId: null })
-      publish({ runtimeMode: 'full_core', fullCoreState: 'ready', startupPhase: null, authorityState: { kind: 'current', origin: 'existing' },
-        capabilities: { ...supervisor.capabilities, authoritativeWorkspace: true, coreRequests: true } })
-      await flush(); await advance(500); await flush()
-    }
-    try {
-      await mount()
-      check(document.querySelector('.camp-topbar h1')?.textContent === '恢复的会话', 'Pending legacy initialization must not block startup restoration')
-      check(JSON.parse(localStorage.getItem('rovai.current-project.v1')!).projectPath === '/restored', 'Restoration must exercise the selected-directory overwrite')
-      check(!imported, 'Legacy input is still pending after session restoration')
-      await advance(500); await flush()
-      check(document.querySelector('.unified-sidebar')?.textContent?.includes('会话版本 1'), 'A bounded initialization wait must show old navigation')
-      legacy.resolve({ projectPaths: [], removedPaths: ['/removed'] })
-      await flush(); await flush()
-      check(imported?.projectPaths.includes('/old-empty'), 'Import must preserve the selection from before startup restoration')
-      const sidebar = () => document.querySelector('.unified-sidebar')?.textContent ?? ''
-      check(sidebar().includes('old-empty') && !sidebar().includes('已移除的会话'), 'Show the registered empty directory and filter the removed group')
-      unavailable = true
-      revision = 2
-      coreListeners.forEach(listener => listener({ method: 'navigation.invalidated', params: {} } as CoreEvent))
-      await advance(500); await flush()
-      check(sidebar().includes('会话版本 2'), 'Registry refresh failure must not discard a successful newer Thread window')
-      check(sidebar().includes('old-empty') && !sidebar().includes('已移除的会话'), 'The reliable registry snapshot must retain empty directories and removal filtering')
-      check(document.body.textContent?.includes('项目列表暂未保存'), 'Registry refresh failure must remain visible independently')
-      const create = () => [...document.querySelectorAll<HTMLButtonElement>('.unified-primary-nav button')].find(button => button.textContent?.includes('新对话'))!.click()
-      create(); await flush(); await flush()
-      check(calls.filter(call => call === 'threads.create').length === 1, 'A registered directory must reach the business request even when projects.set fails')
-      check(!calls.includes('projects.set'), 'Known registered directories must not perform a redundant registration write')
-
-      unavailable = false
-      revision = 3
-      coreListeners.forEach(listener => listener({ method: 'navigation.invalidated', params: {} } as CoreEvent))
-      await advance(500); await flush()
-      check(sidebar().includes('会话版本 3') && !document.body.textContent?.includes('项目列表暂未保存'), 'A successful registry reread clears only its error')
-      stalled = deferred()
-      revision = 4
-      coreListeners.forEach(listener => listener({ method: 'navigation.invalidated', params: {} } as CoreEvent))
-      await advance(500); await flush()
-      check(sidebar().includes('会话版本 4'), 'A stalled registry refresh must not delay an available Thread result')
-      check(!sidebar().includes('已移除的会话'), 'Cached removals still apply during a stalled refresh')
-      stalled.resolve(registry()); stalled = null
-      await flush()
-
-      // A new controller represents a genuinely cold launch: no reliable snapshot.
-      initialized = false; unavailable = true; imported = undefined
-      legacy = deferred()
-      legacy.resolve({ projectPaths: [], removedPaths: ['/removed'] })
-      await mount(); await advance(500); await flush()
-      check(sidebar().includes('会话版本 4') && !sidebar().includes('已移除的会话'), 'Cold registry failure must retain old groups and reliable legacy removals')
-      check(!imported && !calls.includes('projects.set'), 'Fallback must never persist a restore')
-      const add = document.querySelector<HTMLButtonElement>('button[aria-label="选择工作目录"]')!
-      check(add && !add.disabled, 'The add-directory entry remains available')
-      responses.set('selectWorkspaceDirectory', { name: '临时目录', projectPath: '/temporary' })
-      add.click(); await flush(); await flush()
-      check(sidebar().includes('temporary'), 'An unsaved selected directory remains usable in the current window')
-      check(document.body.textContent?.includes('项目列表暂未保存'), 'Temporary use must disclose the unsaved state')
-      create(); await flush(); await flush()
-      check(calls.filter(call => call === 'threads.create').length === 1, 'Cold registration failure must permit the original create request for the temporary directory')
-      return { ok: true, cases: ['Startup restores without waiting for registry initialization',
-        'Initialization preserves the pre-restoration empty selection',
-        'Registry failure retains successful Thread refresh and removal filtering', 'Registry retry rereads and recovers',
-        'Stalled registry refresh does not delay cached navigation', 'Cold registry failure keeps legacy navigation, removals and directory selection', 'Registration failure permits existing and temporary directory creation requests'] }
-    } finally {
-      if (root) flushSync(() => root!.unmount())
-      root = null
-      desktopBusinessEnvironment.projects = original
-      localStorage.removeItem('rovai.current-project.v1')
-    }
-  },
   captureNavigation: (theme: 'day' | 'night', collapsed: boolean) => captureNavigation(theme, collapsed),
   async run() {
     const cases: string[] = []
@@ -553,7 +411,6 @@ Object.assign(window, { startupTest: {
     responses.set('health.check', health)
     responses.set('members.list', [])
     responses.set('runtime.installations.list', [])
-    responses.set('projects.get', { initialized: true, revision: 1, projects: [] })
     responses.set('navigation.snapshot', { schemaVersion: 3, projects: [], quickChat: { recentThreads: [], totalCount: 0 } })
     const navPreferences: NavigationPreferencesSnapshot = { schemaVersion: 5, pins: [], removedProjects: [], projectOrder: [], projectNames: {}, threadReadStates: {} }
     responses.set('navigationPreferences.get', navPreferences)

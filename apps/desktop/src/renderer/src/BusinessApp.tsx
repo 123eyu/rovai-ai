@@ -1,4 +1,3 @@
-import { navigationWithRegisteredProjects, type ProjectRegistryView } from './project-registry'
 import { useThreadUserAnchorCache } from './useThreadUserAnchors'
 import { hasPendingThreadDraftInput } from './pending-thread-draft'
 import { memberCreationHelper, memberCreationInitialDraft, navigationWithMemberCreationDrafts, type MemberCreationDraft } from './member-creation-flow'
@@ -156,6 +155,7 @@ import {
   currentProjectForThread,
   currentProjectGroup,
   currentProjectWorkspace,
+  navigationIncludingCurrentWorkspace,
   navigationWithProjectAuthority,
   navigationWithProjectNames,
   navigationWithProjectOrder,
@@ -982,6 +982,7 @@ export function navigationWithoutDeletedThreads(
     quickChat: filterGroup(snapshot.quickChat),
     projects: snapshot.projects
       .map(filterGroup)
+      .filter((project) => project.totalCount > 0)
   }
 }
 
@@ -1020,7 +1021,7 @@ export function BusinessApp({
   startupStartedAtMs?: number
   startupFeedbackDelayElapsed?: boolean
 }): React.JSX.Element {
-  const { client, preferences: uiPreferences, desktop, projects: projectRegistry } = environment
+  const { client, preferences: uiPreferences, desktop } = environment
   const userAnchorNavigationFor = useThreadUserAnchorCache(client)
   const interfaceLanguage = useInterfaceLanguage()
   const onboardingLanguageRequest = useRef(0)
@@ -1060,17 +1061,8 @@ export function BusinessApp({
   const [navigationGroupLimits, setNavigationGroupLimits] = useState<NavigationGroupLimits>({})
   const [navigationState, setNavigationState] = useState<LoadState>('loading')
   const [navigationPins, setNavigationPins] = useState<NavigationPin[]>([])
-  const [projectView, setProjectView] = useState<ProjectRegistryView>(() => projectRegistry.current())
-  const registeredProjects = projectView.snapshot
-  const [projectNoticeDismissed, setProjectNoticeDismissed] = useState(false)
-  const projectRegistryNotice = projectView.unavailable && !projectNoticeDismissed
-  // Registration readiness is not an access gate. Core remains the authority for
-  // permissions; every removal we can reliably read still filters presentation.
-  const removedProjectAuthorityReady = true
-  const removedProjectKeys = useMemo(() => new Set(projectView.removedPaths.map(projectTargetKey)), [projectView])
-  useEffect(() => projectRegistry.subscribe(setProjectView), [projectRegistry])
-  useEffect(() => { if (!projectView.unavailable) setProjectNoticeDismissed(false) }, [projectView.unavailable])
-  const refreshProjectRegistry = useCallback(() => projectRegistry.refresh(), [projectRegistry])
+  const [removedProjectKeys, setRemovedProjectKeys] = useState<Set<string>>(() => new Set())
+  const [removedProjectAuthorityReady, setRemovedProjectAuthorityReady] = useState(false)
   const [projectOrder, setProjectOrder] = useState<string[] | null>(null)
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const projectNamesGeneration = useRef(0)
@@ -1482,13 +1474,7 @@ export function BusinessApp({
 
   const navigationRefreshCoordinator = useMemo(
     () => createNavigationWindowReader(
-      async (request) => {
-        const registryReady = refreshProjectRegistry()
-        const snapshot = await client.request<NavigationSnapshot>('navigation.snapshot', request)
-        await registryReady
-        projectRegistry.observe(snapshot)
-        return snapshot
-      },
+      (request) => client.request<NavigationSnapshot>('navigation.snapshot', request),
       commitNavigation,
       {
         initiallyVisible: document.visibilityState !== 'hidden',
@@ -1503,7 +1489,7 @@ export function BusinessApp({
         onError: () => setNavigationState('error')
       }
     ),
-    [client, projectRegistry, refreshProjectRegistry, commitNavigation]
+    [client, commitNavigation]
   )
 
   const loadNavigation = useCallback(async (
@@ -1605,22 +1591,35 @@ export function BusinessApp({
             nextNavigationPreferencesPromise
           ])
           const resolvedPins = await resolveNavigationPins(
-            navigationWithRegisteredProjects(nextNavigation, projectRegistry.current().snapshot, projectRegistry.current())!,
+            nextNavigation,
             nextNavigationPreferences.pins, client
           )
-          setNavigationPins(resolvedPins.pins)
-          setProjectOrder(nextNavigationPreferences.projectOrder)
-          if (namesGeneration === projectNamesGeneration.current) {
-            setProjectNames(nextNavigationPreferences.projectNames)
+          let resolvedNavigationPreferences = nextNavigationPreferences
+          if (resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
+            resolvedNavigationPreferences = await uiPreferences.navigationPreferences.replacePins(
+              resolvedPins.pins
+            )
           }
-          if (readGeneration === threadReadGeneration.current) acceptThreadReadStates(nextNavigationPreferences)
+          const removedProjectKeySet = new Set(
+            resolvedNavigationPreferences.removedProjects.map((project) => project.targetKey)
+          )
+          resolvedNavigationPreferences = await uiPreferences.navigationPreferences
+            .synchronizeProjectOrder(
+              nextNavigation.projects
+                .map((project) => project.projectKey)
+                .filter((projectKey) => !removedProjectKeySet.has(projectKey))
+            )
+          setNavigationPins(resolvedPins.pins)
+          setRemovedProjectKeys(removedProjectKeySet)
+          setProjectOrder(resolvedNavigationPreferences.projectOrder)
+          if (namesGeneration === projectNamesGeneration.current) {
+            setProjectNames(resolvedNavigationPreferences.projectNames)
+          }
+          if (readGeneration === threadReadGeneration.current) acceptThreadReadStates(resolvedNavigationPreferences)
+          setRemovedProjectAuthorityReady(true)
           setPinnedThreadItems(
             resolvedPins.threads.filter((thread) => !deletingThreadIdsRef.current.has(thread.id))
           )
-          if (!projectRegistry.current().unavailable && projectRegistry.current().snapshot?.initialized && resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
-            void uiPreferences.navigationPreferences.replacePins(resolvedPins.pins)
-              .catch(nextError => setError(errorMessage(nextError)))
-          }
         })()
         const results = await Promise.allSettled([
           navigationOverviewPromise,
@@ -1646,7 +1645,7 @@ export function BusinessApp({
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadNavigation, projectRegistry])
+  }, [loadAgents, loadNavigation])
 
   const loadHealth = useCallback((): Promise<HealthStatus> => {
     if (healthRequest.current) return healthRequest.current
@@ -1709,6 +1708,13 @@ export function BusinessApp({
     snapshot: NavigationPreferencesSnapshot
   ): void => {
     setNavigationPins(snapshot.pins)
+    const nextRemovedProjectKeys = new Set(
+      snapshot.removedProjects.map((project) => project.targetKey)
+    )
+    setRemovedProjectKeys((current) => (
+      current.size === nextRemovedProjectKeys.size
+      && [...current].every((projectKey) => nextRemovedProjectKeys.has(projectKey))
+    ) ? current : nextRemovedProjectKeys)
     setProjectOrder((current) => {
       const next = snapshot.projectOrder
       if (current === null || next === null) return current === next ? current : next
@@ -1717,13 +1723,15 @@ export function BusinessApp({
         ? current
         : next
     })
+    setRemovedProjectAuthorityReady(true)
   }, [])
 
   useEffect(() => {
-    if (!registeredProjects?.initialized || projectView.unavailable) return
+    if (!navigation || !removedProjectAuthorityReady) return
     const generation = ++projectOrderSyncGeneration.current
-    const projectKeys = registeredProjects.projects.filter(project => !project.removed)
-      .map(project => projectTargetKey(project.projectPath))
+    const projectKeys = navigation.projects
+      .map((project) => project.projectKey)
+      .filter((projectKey) => !removedProjectKeys.has(projectKey))
     void uiPreferences.navigationPreferences.synchronizeProjectOrder(projectKeys)
       .then((snapshot) => {
         if (generation === projectOrderSyncGeneration.current) {
@@ -1735,16 +1743,18 @@ export function BusinessApp({
           setError(uiAttribute("项目顺序暂时无法保存：{0}", String(errorMessage(nextError))))
         }
       })
-  }, [applyNavigationPreferences, registeredProjects, projectView.unavailable, uiPreferences])
+  }, [applyNavigationPreferences, navigation, removedProjectAuthorityReady, removedProjectKeys])
 
   const restoreNavigationProject = useCallback(async (projectPath: string): Promise<void> => {
+    const targetKey = projectTargetKey(projectPath)
     try {
-      await projectRegistry.prepare(projectPath, true)
+      const snapshot = await uiPreferences.navigationPreferences.restoreProject(targetKey)
+      applyNavigationPreferences(snapshot)
     } catch (nextError) {
-      setError(uiAttribute("项目目录未能保存，请重试：{0}", String(errorMessage(nextError))))
+      setError(uiAttribute("项目访问状态未能恢复，已停止后续目录检查：{0}", String(errorMessage(nextError))))
       throw nextError
     }
-  }, [projectRegistry])
+  }, [applyNavigationPreferences])
 
   const loadStartupSnapshot = useCallback((): Promise<void> => {
     if (!desktop) return Promise.resolve()
@@ -2122,18 +2132,18 @@ export function BusinessApp({
   const visibleNavigation = useMemo(
     () => navigationWithProjectNames(navigationWithProjectOrder(
       navigationWithProjectAuthority(
-        navigationWithRegisteredProjects(navigation, registeredProjects, projectView),
+        navigation,
         removedProjectKeys,
         removedProjectAuthorityReady
       ),
       projectOrder
     ), projectNames),
-    [navigation, registeredProjects, projectView, projectOrder, projectNames, removedProjectAuthorityReady, removedProjectKeys]
+    [navigation, projectOrder, projectNames, removedProjectAuthorityReady, removedProjectKeys]
   )
   const currentProjectAccess = currentProjectAccessDecision({
     currentProject,
     currentWorkspaceHint,
-    navigation: navigation ? visibleNavigation : null,
+    navigation: visibleNavigation,
     removedProjectKeys,
     removedProjectAuthorityReady
   })
@@ -2151,7 +2161,22 @@ export function BusinessApp({
       setCurrentWorkspaceHint(null)
       return undefined
     }
+    if (currentProjectAccess === 'keep_hint') return undefined
+    if (currentProject.kind !== 'directory') return undefined
 
+    let cancelled = false
+    void client.request<WorkspaceInspection>('workspaces.inspect', {
+      path: currentProject.projectPath
+    }).then((workspace) => {
+      if (!cancelled) setCurrentWorkspaceHint(workspace)
+    }).catch(() => {
+      if (cancelled) return
+      const fallback: CurrentProject = { kind: 'quick_chat' }
+      setCurrentProject(fallback)
+      setCurrentWorkspaceHint(null)
+      persistCurrentProject(fallback)
+    })
+    return () => { cancelled = true }
   }, [
     currentProjectAccess,
     currentProject.kind,
@@ -2637,11 +2662,19 @@ export function BusinessApp({
     setConfirmingRunIds((current) => reconcileRunCancellationIds(current, campSnapshot))
   }, [campSnapshot])
 
-  const displayNavigation = navigationWithMemberCreationDrafts(visibleNavigation, memberCreationDrafts)
+  const displayNavigation = navigationWithProjectNames(navigationIncludingCurrentWorkspace(
+    navigationWithMemberCreationDrafts(visibleNavigation, memberCreationDrafts),
+    currentProject,
+    currentWorkspaceHint
+  ), projectNames)
   const activeThread = navigation
     ? allNavigationThreads(navigation).find((thread) => thread.id === activeThreadId) ?? null
     : null
   const selectedCurrentProject = currentProjectGroup(displayNavigation, currentProject)
+  const shellOnlyCurrentProjectPath = selectedCurrentProject
+    && !currentProjectGroup(navigation, currentProject)
+    ? selectedCurrentProject.projectPath
+    : null
   const currentProjectKey = selectedCurrentProject?.projectKey ?? 'quick-chat'
   const currentProjectLabel = selectedCurrentProject?.name ?? uiAttribute('快速对话')
   const activeProjectPath = activeThread?.projectBindingKind === 'directory'
@@ -2838,6 +2871,7 @@ export function BusinessApp({
   }
 
   const openProject = async (): Promise<void> => {
+    if (!removedProjectAuthorityReady) return
     setError(null)
     try {
       await selectProjectDirectory(
@@ -3317,12 +3351,11 @@ export function BusinessApp({
             && thread.projectPath === project.projectPath
           ))
           .map((thread) => thread.id)
-        await projectRegistry.change(project.projectPath, true)
-        // Presentation cleanup cannot roll back an already committed removal.
-        const pins = navigationPins.filter(pin => pin.kind === 'project'
-          ? pin.targetKey !== project.projectKey : !relatedPinnedThreadIds.includes(pin.targetKey))
-        void uiPreferences.navigationPreferences.replacePins(pins).then(applyNavigationPreferences)
-          .catch(nextError => setError(errorMessage(nextError)))
+        const snapshot = await uiPreferences.navigationPreferences.removeProject(
+          project.projectKey,
+          relatedPinnedThreadIds
+        )
+        applyNavigationPreferences(snapshot)
         setPinnedThreadItems((current) => current.filter((thread) => !(
           thread.projectBindingKind === 'directory'
           && thread.projectPath === project.projectPath
@@ -3653,7 +3686,7 @@ export function BusinessApp({
     setBusy('create-camp')
     try {
       if (draft.workspace) {
-        await projectRegistry.prepare(draft.workspace.projectPath)
+        await restoreNavigationProject(draft.workspace.projectPath)
       }
       const result = await client.request<StoredCommandResult>('threads.create', {
         commandId: newCommandId(),
@@ -4127,7 +4160,7 @@ export function BusinessApp({
     : startupRoutePending?.kind ?? startupRouteTarget?.kind ?? 'location'
   const inlineNotices = memoryReviewNotice
     || memoryAutoNotice.count > 0
-    || (!shuttingDown && (error || projectRegistryNotice || locationSaveError))
+    || (!shuttingDown && (error || locationSaveError))
     ? (
         <>
           {memoryReviewNotice && (
@@ -4140,14 +4173,6 @@ export function BusinessApp({
             <div className="memory-review-notice memory-auto-applied-notice" role="status" aria-live="polite">
               <div><strong><UiText zh={"已自动形成 "} />{memoryAutoNotice.count}<UiText zh={" 条"} />{memoryAutoNotice.count === 1 ? memoryAutoNotice.scope === 'relationship' ? uiAttribute("队员间记忆") : memoryAutoNotice.scope === 'companion' ? uiAttribute("队员记忆") : uiAttribute("共同记忆") : uiAttribute("记忆")}</strong><span><UiText zh={"已立即用于后续协作，你可以随时查看、修订、停止沿用或遗忘。"} /></span></div>
               <div><button className="quiet-button compact" type="button" onClick={openAutomaticMemory}><UiText zh={"查看"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("关闭自动形成提示")} onClick={() => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })}>×</button></div>
-            </div>
-          )}
-          {!shuttingDown && projectRegistryNotice && (
-            <div className="memory-review-notice" role="status" aria-live="polite">
-              <div><span><UiText zh={"项目列表暂未保存，仍可继续使用；新添加的空目录可能无法在重启后保留。"} /></span>
-                {projectView.visibilityIncomplete && <small><UiText zh={"项目显示状态暂未完整恢复。"} /></small>}</div>
-              <div><button className="quiet-button compact" type="button" onClick={() => void refreshProjectRegistry()}><UiText zh={"重试"} /></button>
-                <button className="icon-button" type="button" aria-label={uiAttribute("关闭项目列表提示")} onClick={() => setProjectNoticeDismissed(true)}>×</button></div>
             </div>
           )}
           {!shuttingDown && error && (
@@ -4257,6 +4282,7 @@ export function BusinessApp({
     firstRunThreadId={firstRunThreadId}
     openingThreadId={openingThreadId}
     currentProjectKey={currentProjectKey}
+    shellOnlyProjectPath={shellOnlyCurrentProjectPath}
     creatingConversation={busy === 'create-camp'}
     pins={navigationPins}
     pinnedThreadItems={pinnedThreadItems}

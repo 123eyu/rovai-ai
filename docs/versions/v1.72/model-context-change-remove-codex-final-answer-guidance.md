@@ -9,7 +9,7 @@ confirmed_by: User
 confirmed_at: 2026-10-12T03:10:52+00:00
 authority: confirmed-model-input-change-statement
 implementation_baseline: 7973c7ffd1b0a360dea02c936458fb69f591c11e
-implementation_status: in_progress
+implementation_status: implemented
 last_updated: 2026-10-12
 ---
 
@@ -172,4 +172,18 @@ Rovai Mission Contract
   不改写生产校验或删除测试来绕过。
 
 `pnpm test:rust:pr` 通过：默认 workspace 共 465 passed，1 项既有人工 Smoke ignored，0 failed。
-daily 打包、隔离 App 验收与安装结果将在完成后追加。
+
+安装源码为 `7d045e7b78e1f9d15f2442a789ac0a490530aac8`，基于上述最新 main；任务分支已推送。
+`pnpm package:mac:daily` 完成 Release、Web/Desktop 构建与 arm64 ad-hoc 签名验证。
+产物中的 `rovai-core`、`rovai-host`、`rovai` 均不含退役提示或专属 compatibility key。
+
+隔离 `accept-app-updates-ui.mjs` 通过，验证 App/Core ready、独立数据库、版本 0.4.8、内置发布信息、
+日夜与紧凑布局；未调用真实模型。验收 userData 为
+`/private/tmp/rovai-codex-guidance-accept-yyo0nbef/user-data`，Skill Library 为其中的
+`managed-skill-library`，截图保存在同级 `captures`。验收 App 已退出。
+
+`pnpm install:mac:daily` 已安装到 `/Applications/Rovai AI.app`，保留备份
+`/Applications/Rovai AI.backup-before-codex-guidance-removal-20261012-112337.app`。
+安装脚本在源、暂存、目标三处验签；另外逐字比较三个已安装二进制与验收源完全相同。
+当前 App/Host/Helper 七个 PID 均仍存活（主 App 9730，Host 9737）；未退出、重启或另开日常实例。
+新代码在 User 稍后从规范安装路径启动时生效。

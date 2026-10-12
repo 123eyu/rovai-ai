@@ -111,7 +111,7 @@ pub(super) fn migrate_sessions(database: &mut Database) -> Result<()> {
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
-            DatabaseContractClassification::Current(_)
+            DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 142
         ),
         "Session environment schema admission failed"
     );
@@ -122,8 +122,8 @@ pub(super) fn migrate_sessions(database: &mut Database) -> Result<()> {
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
     connection.execute_batch("DROP TABLE IF EXISTS conversation_runtime_environment;
-        DELETE FROM schema_migration WHERE version=192;
-        UPDATE rovai_data_contract SET projection_schema_version=141 WHERE singleton=1 AND projection_schema_version=142;").unwrap();
+        DELETE FROM schema_migration WHERE version IN (192,193);
+        UPDATE rovai_data_contract SET projection_schema_version=141 WHERE singleton=1 AND projection_schema_version IN (142,143);").unwrap();
     if !connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=191)",

@@ -30,7 +30,6 @@ const RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 pub(crate) struct ExecutionTextBuffer {
     blocks: BTreeMap<String, TextBlock>,
     retry: Option<FlushRetry>,
-    pending_notifications: Vec<AgentRunExecutionEvidence>,
     #[cfg(test)]
     fail_next_settled_finishes: usize,
 }
@@ -598,27 +597,18 @@ fn attempt_flush_settled(
     }
 }
 
-pub(crate) fn flush_settled(database: &mut Database) -> Result<()> {
-    // Once a post-commit flush fails, only the text retry worker owns timing. Command
-    // replay and unrelated terminal commands must not bypass the backoff or rescan Runs.
-    if database.execution_text.retry.is_some() {
-        return Ok(());
+pub(crate) fn request_settlement(database: &mut Database) {
+    // Commands only enqueue maintenance. The worker owns all finalization I/O
+    // and retry timing, including the first attempt after a successful commit.
+    let buffer = &mut database.execution_text;
+    if buffer.blocks.is_empty() || buffer.retry.is_some() {
+        return;
     }
-    if database.execution_text.blocks.is_empty() {
-        return Ok(());
-    }
-    let mut buffer = std::mem::take(&mut database.execution_text);
-    let attempt = attempt_flush_settled(database, &mut buffer);
-    let result = if let Some(error) = attempt.error {
-        buffer.pending_notifications.extend(attempt.finalized);
-        schedule_retry(&mut buffer);
-        database.execution_wake.text.notify_one();
-        Err(error)
-    } else {
-        Ok(())
-    };
-    database.execution_text = buffer;
-    result
+    buffer.retry = Some(FlushRetry {
+        failures: 0,
+        retry_not_before: Instant::now(),
+    });
+    database.execution_wake.text.notify_one();
 }
 
 pub(crate) fn retry_deadline(database: &Database) -> Option<Instant> {
@@ -638,24 +628,22 @@ pub(crate) fn maintain_settled(database: &mut Database) -> ExecutionTextMaintena
     if !due {
         return ExecutionTextMaintenanceOutcome {
             attempted: false,
-            finalized: std::mem::take(&mut database.execution_text.pending_notifications),
+            finalized: Vec::new(),
             error: None,
         };
     }
 
     let mut buffer = std::mem::take(&mut database.execution_text);
-    let mut finalized = std::mem::take(&mut buffer.pending_notifications);
     if buffer.blocks.is_empty() {
         buffer.retry = None;
         database.execution_text = buffer;
         return ExecutionTextMaintenanceOutcome {
             attempted: false,
-            finalized,
+            finalized: Vec::new(),
             error: None,
         };
     }
     let attempt = attempt_flush_settled(database, &mut buffer);
-    finalized.extend(attempt.finalized);
     if attempt.error.is_some() {
         schedule_retry(&mut buffer);
     } else {
@@ -664,7 +652,7 @@ pub(crate) fn maintain_settled(database: &mut Database) -> ExecutionTextMaintena
     database.execution_text = buffer;
     ExecutionTextMaintenanceOutcome {
         attempted: true,
-        finalized,
+        finalized: attempt.finalized,
         error: attempt.error,
     }
 }
@@ -904,6 +892,8 @@ mod slow_tests {
         runtime
             .settle_controlled_shutdown_runs(&mut database, "block-shutdown", true, (0, 0))
             .unwrap();
+        let maintenance = maintain_settled(&mut database);
+        assert!(maintenance.error.is_none());
         assert!(database.execution_text.blocks.is_empty());
         let tail_id = tail.payload["blockId"].as_str().unwrap();
         let interrupted = ExecutionEvidenceService
@@ -1078,8 +1068,13 @@ mod slow_tests {
         }
         assert!(retry_deadline(&database).is_none());
         database.execution_text.fail_next_settled_finishes = 1;
-        let failure = runtime.fail_agent_run(&mut database, &command).unwrap_err();
-        assert!(format!("{failure:#}").contains("injected Execution text finalization failure"));
+        let applied = runtime.fail_agent_run(&mut database, &command).unwrap();
+        assert_eq!(applied.result.code, "agent_run.failed");
+        assert!(!applied.replayed);
+        assert_eq!(
+            database.execution_text.fail_next_settled_finishes, 1,
+            "business commit must not attempt optional text I/O"
+        );
         for notify in [
             &hints.runs,
             &hints.automation,
@@ -1091,6 +1086,12 @@ mod slow_tests {
                 "a committed terminal must wake owners even when finalization fails"
             );
         }
+        let maintenance = maintain_settled(&mut database);
+        assert!(maintenance.attempted);
+        assert!(
+            format!("{:#}", maintenance.error.unwrap())
+                .contains("injected Execution text finalization failure")
+        );
         assert!(retry_deadline(&database).is_some());
         let status: String = database
             .connection()

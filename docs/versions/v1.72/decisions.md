@@ -3,7 +3,7 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # v1.72 版本决定
@@ -777,3 +777,22 @@ User 要求删除自有 env 与变量注入，正式运行、检查和目录探�
 内容验证与原子持久化。通用私有存储、数据目录准入和其他平台保持原合同。
 拒绝先自动修 ACL 再允许连接，因其仍要求用户拥有额外改权能力；拒绝全局放宽私有文件规则，
 因为本次可用性决策仅属于 Web 凭据。读取失败不生成替代 Token，实际保存失败不能报告成功。
+
+<a id="v1-72-d35"></a>
+## V1.72-D35：业务完成独立于过程文本和用量收尾
+
+- 状态：accepted
+- 日期：2026-10-12
+- 确认：User 在本次会话限定第 1–4 项并要求完成后提交 PR；第 3、4 项使用现有停止与继续
+- 当前权威：[统一 Rust Host](../../architecture/unified-rust-host.md#组件和唯一权威)、[Runtime Monitoring](../../architecture/runtime-monitoring.md)、[Usage v9](../../contracts/runtime-usage-monitoring-v9.md)
+
+### 背景与选择
+
+协作命令已经提交，却因正文定稿失败返回错误；用量刷盘和原生尾读也曾成为 Run 结算的等待项。
+选择业务可用性：文本交给既有维护任务，用量由周期采集补充，接受统计缺失与每轮切分不完全。
+
+### 后果与替代方案
+
+不再保证命令成功时过程文本已定稿，或 Run 结束时用量已齐全。迟到统计依赖短期去重基线，迁移保留
+该状态直到现有过期清理。拒绝继续以统计完整性阻塞执行，也不增加强制放行、自动重放或对账体系。
+完成回包缺失的具体原因仍需诊断；本改动只移除已确认的辅助收尾耦合，并验收手动停止与继续。

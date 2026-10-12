@@ -4130,7 +4130,7 @@ pub struct AcpRuntime {
     session_permissions: AcpSessionPermissions,
     dsh_model_source: Option<rovai_core::agent_profile::DshModelSource>,
     active_observation: Mutex<Option<AcpPromptObservation>>,
-    native_usage: Mutex<Option<Arc<std::sync::Mutex<NativeUsageReader>>>>,
+    native_usage: Arc<Mutex<Option<Arc<std::sync::Mutex<NativeUsageReader>>>>>,
 }
 
 pub(crate) use rovai_core::agent_runtime_adapter::LiveModelValidationError as AcpLiveModelValidationError;
@@ -4293,7 +4293,7 @@ impl AcpRuntime {
             session_permissions,
             dsh_model_source,
             active_observation: Mutex::new(None),
-            native_usage: Mutex::new(None),
+            native_usage: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -4888,47 +4888,42 @@ impl AcpRuntime {
             .host
             .prepare_prompt(&session_id, &self.owner, delivery_id)
             .await?;
-        let kind = self.adapter_kind();
-        let workspace = self.execution_root.clone();
-        let native_session = session_id.clone();
-        let context_model = match kind {
-            AdapterKind::CodebuddyCli => self
-                .session_result
-                .read()
+        if self.native_usage_selected().await {
+            let kind = self.adapter_kind();
+            let workspace = self.execution_root.clone();
+            let native_session = session_id.clone();
+            let session_result = self.session_result.read().await.clone();
+            let model_id = self.observed_model_id().await;
+            let executable_path = self.host.executable_path.clone();
+            let native_usage = self.native_usage.clone();
+            // Optional journal baseline I/O cannot delay dispatch or a successor.
+            // An initialization that finishes late may omit early usage.
+            tokio::spawn(async move {
+                let context_model = match kind {
+                    AdapterKind::CodebuddyCli => {
+                        session_result.as_ref().and_then(codebuddy_context_model)
+                    }
+                    AdapterKind::QoderCli => {
+                        model_id.and_then(crate::native_usage::qoder_context_model)
+                    }
+                    AdapterKind::TraeCnCli => match model_id {
+                        Some(id) => {
+                            Some(trae_context_model(&executable_path, &workspace, id).await)
+                        }
+                        None => None,
+                    },
+                    _ => None,
+                };
+                let reader = tokio::task::spawn_blocking(move || {
+                    NativeUsageReader::for_prompt(kind, &workspace, &native_session, context_model)
+                        .map(|reader| Arc::new(std::sync::Mutex::new(reader)))
+                })
                 .await
-                .as_ref()
-                .and_then(codebuddy_context_model),
-            AdapterKind::QoderCli => {
-                if let Some(model_id) = self.observed_model_id().await {
-                    crate::native_usage::qoder_context_model(model_id)
-                } else {
-                    None
-                }
-            }
-            AdapterKind::TraeCnCli => {
-                if let Some(model_id) = self.observed_model_id().await {
-                    Some(trae_context_model(&self.host.executable_path, &workspace, model_id).await)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        let terminal_usage = kind == AdapterKind::OpencodeCli
-            && crate::opencode_compat::Generation::from_version(
-                self.host.reported_version.as_deref(),
-            ) == Some(crate::opencode_compat::Generation::V2);
-        *self.native_usage.lock().await = if terminal_usage {
-            None
-        } else {
-            tokio::task::spawn_blocking(move || {
-                NativeUsageReader::for_prompt(kind, &workspace, &native_session, context_model)
-                    .map(|reader| Arc::new(std::sync::Mutex::new(reader)))
-            })
-            .await
-            .ok()
-            .flatten()
-        };
+                .ok()
+                .flatten();
+                *native_usage.lock().await = reader;
+            });
+        }
         if self.host.adapter_kind == AdapterKind::ClineCli {
             if let Err(error) = crate::cline::bind_prompt(
                 self.host
@@ -5314,7 +5309,18 @@ impl AcpRuntime {
     }
 
     pub(crate) async fn native_usage_selected(&self) -> bool {
-        self.native_usage.lock().await.is_some()
+        match self.adapter_kind() {
+            AdapterKind::CodebuddyCli
+            | AdapterKind::KimiCodeCli
+            | AdapterKind::QoderCli
+            | AdapterKind::TraeCnCli => true,
+            AdapterKind::OpencodeCli => {
+                crate::opencode_compat::Generation::from_version(
+                    self.host.reported_version.as_deref(),
+                ) != Some(crate::opencode_compat::Generation::V2)
+            }
+            _ => false,
+        }
     }
 
     pub(crate) async fn observed_context_window(&self) -> Option<i64> {
@@ -5336,7 +5342,7 @@ impl AcpRuntime {
         }
     }
 
-    pub(crate) async fn poll_native_usage(&self, prompt_end: bool) -> Vec<NativeUsageObservation> {
+    pub(crate) async fn poll_native_usage(&self) -> Vec<NativeUsageObservation> {
         if self.adapter_kind() == AdapterKind::ClineCli {
             let Some(session) = self.session_id().await else {
                 return Vec::new();
@@ -5349,13 +5355,7 @@ impl AcpRuntime {
         tokio::task::spawn_blocking(move || {
             reader
                 .lock()
-                .map(|mut reader| {
-                    if prompt_end {
-                        reader.poll_prompt_end()
-                    } else {
-                        reader.poll()
-                    }
-                })
+                .map(|mut reader| reader.poll())
                 .unwrap_or_default()
         })
         .await
@@ -10914,7 +10914,7 @@ while IFS= read -r ignored; do :; done
                 ));
             }
             if message["params"]["update"]["sessionUpdate"] == "tool_call" {
-                let samples = runtime.poll_native_usage(false).await;
+                let samples = runtime.poll_native_usage().await;
                 for item in samples {
                     eprintln!(
                         "CLINE_LIVE_METRICS {}",
@@ -10923,7 +10923,7 @@ while IFS= read -r ignored; do :; done
                     live_usage.push(item.usage);
                 }
                 assert!(
-                    runtime.poll_native_usage(false).await.is_empty(),
+                    runtime.poll_native_usage().await.is_empty(),
                     "same native calls sampled twice"
                 );
             }

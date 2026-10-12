@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -578,3 +578,10 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 主干原 Migration 187/schema 137 只扩展现有格式约束；本分支合流后由 189/schema 139 保留或补齐。当前合同见 [Mention v1](../../contracts/message-mentions-v1.md)、
 [ContextManifest v33](../../contracts/context-manifest-evidence-v33.md)、[History v12](../../contracts/camp-history-v12.md)。
 状态与证据见[确认稿实施记录](model-context-change-message-mentions.md#实施与验证记录)。
+
+## 异步执行收尾（2026-10-12）
+
+正文定稿和 Usage 不再作为业务命令或 Run 终态的同步前置。Migration 193 发布 schema 143，保留
+终态后的短期 Usage checkpoint。停止／继续复用既有授权与清理流程，不增加强制放行或自动重试。
+范围、测试归属与验收状态见[实施记录](async-run-finalization.md)；当前统计合同为
+[Usage v9](../../contracts/runtime-usage-monitoring-v9.md)。

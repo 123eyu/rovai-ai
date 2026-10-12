@@ -6544,7 +6544,7 @@ impl ChannelService {
         let provider = channel_host_provider(actor)
             .context("Channel Host actor does not identify a supported provider")?;
         // Sealed cards must capture settled text, not the streaming position placeholder.
-        crate::execution_text::flush_settled(database)?;
+        crate::execution_text::request_settlement(database);
         // Even an empty response can expire, settle or admit work. Keep all
         // maintenance and delivery claims atomic, but never journal the poll.
         let mut settled_run_ids = Vec::new();

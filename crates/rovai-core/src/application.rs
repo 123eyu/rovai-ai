@@ -16562,19 +16562,8 @@ impl Core {
         cleanup_required: bool,
         output: &mpsc::UnboundedSender<String>,
     ) -> Result<()> {
-        if let Err(error) = flush_runtime_monitoring_run(
-            self,
-            &execution.agent_run_id,
-            execution.execution_epoch,
-            "terminal_flush",
-        )
-        .await
-        {
-            eprintln!(
-                "failed to flush Runtime monitoring before terminal settlement for AgentRun {}: {error:#}",
-                execution.agent_run_id
-            );
-        }
+        finish_runtime_monitoring_run(self, &execution.agent_run_id, execution.execution_epoch)
+            .await;
         let mut runtime_route_permit = self
             .planned_shutdown
             .enter_runtime_route()
@@ -17742,19 +17731,8 @@ impl Core {
             // routed Runtime file event waiting in Core's ingress queue.
             None => true,
         };
-        if let Err(flush_error) = flush_runtime_monitoring_run(
-            self,
-            &execution.agent_run_id,
-            execution.execution_epoch,
-            "terminal_flush",
-        )
-        .await
-        {
-            eprintln!(
-                "failed to flush Runtime monitoring before failing AgentRun {}: {flush_error:#}",
-                execution.agent_run_id
-            );
-        }
+        finish_runtime_monitoring_run(self, &execution.agent_run_id, execution.execution_epoch)
+            .await;
         let ending_git_observation = self
             .observe_run_git(&execution.project_binding_kind, &execution.project_path)
             .await;
@@ -20326,12 +20304,7 @@ async fn process_agent_run_pi_message(
         .await?;
     }
     if message_type == "agent_settled" {
-        if let Err(error) =
-            flush_runtime_monitoring_run(core, agent_run_id, execution_epoch, "terminal_flush")
-                .await
-        {
-            eprintln!("failed to flush Pi monitoring for AgentRun {agent_run_id}: {error:#}");
-        }
+        finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
         persist_pi_prompt_completion(
             core,
             output,
@@ -20637,13 +20610,7 @@ async fn process_pi_agent_run_exit(
     if core.planned_shutdown.shutdown_started() {
         return;
     }
-    if let Err(error) =
-        flush_runtime_monitoring_run(core, agent_run_id, execution_epoch, "host_exit_flush").await
-    {
-        eprintln!(
-            "failed to flush Pi monitoring after Host exit for AgentRun {agent_run_id}: {error:#}"
-        );
-    }
+    finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     if core
         .pi
         .get_agent_run_on_host(host_instance_id, agent_run_id, execution_epoch)
@@ -21850,11 +21817,7 @@ async fn process_agent_run_acp_message(
     if method != "rovai/acp_prompt_completed" {
         return;
     }
-    if let Err(error) =
-        flush_runtime_monitoring_run(core, agent_run_id, execution_epoch, "terminal_flush").await
-    {
-        eprintln!("failed to flush ACP monitoring for AgentRun {agent_run_id}: {error:#}");
-    }
+    finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     if let Err(error) = persist_acp_prompt_completion(
         core,
         output,
@@ -23483,13 +23446,7 @@ async fn process_acp_agent_run_exit(
     {
         return;
     }
-    if let Err(error) =
-        flush_runtime_monitoring_run(core, agent_run_id, execution_epoch, "host_exit_flush").await
-    {
-        eprintln!(
-            "failed to flush ACP monitoring after Host exit for AgentRun {agent_run_id}: {error:#}"
-        );
-    }
+    finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     if acp_runtime_on_host(
         core,
         adapter_kind,
@@ -23550,11 +23507,11 @@ async fn flush_runtime_usage(
     target: RuntimeUsageFlushTarget,
     reason: &'static str,
 ) -> Result<usize> {
-    // A terminal flush must observe the result of any periodic flush that
-    // already drained this Run before deciding that its bookkeeping is idle.
+    // Only background collection and shutdown serialize here. Run settlement
+    // only marks an in-memory owner finished and never waits for this lock.
     let _flush_guard = core.runtime_usage_flush.lock().await;
-    // Poll under the same serialization as drain/persist. A terminal cannot
-    // finish this Run between advancing the native cursor and buffering it.
+    // Discard a native read that overlaps completion: a successor may already
+    // be appending to the same journal. Missing tail metrics are acceptable.
     for kind in [
         AdapterKind::CodebuddyCli,
         AdapterKind::ClineCli,
@@ -23567,25 +23524,26 @@ async fn flush_runtime_usage(
             continue;
         };
         for (agent_run_id, execution_epoch, runtime) in adapter.native_usage_runs().await {
-            if let RuntimeUsageFlushTarget::Run {
-                agent_run_id: target_id,
-                execution_epoch: target_epoch,
-            } = &target
-                && (&agent_run_id != target_id || execution_epoch != *target_epoch)
+            if !core
+                .runtime_usage
+                .lock()
+                .await
+                .accepts_native_poll(&agent_run_id, execution_epoch)
             {
                 continue;
             }
-            let prompt_end =
-                reason == "terminal_flush" && matches!(target, RuntimeUsageFlushTarget::Run { .. });
-            for item in runtime.poll_native_usage(prompt_end).await {
-                buffer_runtime_usage(
-                    core,
-                    &agent_run_id,
-                    execution_epoch,
-                    &item.source_identity,
-                    &[item.usage],
-                )
-                .await?;
+            let observations = runtime.poll_native_usage().await;
+            let mut usage = core.runtime_usage.lock().await;
+            if usage.accepts_native_poll(&agent_run_id, execution_epoch) {
+                for item in observations {
+                    usage.observe_registered_run(
+                        &agent_run_id,
+                        execution_epoch,
+                        &item.source_identity,
+                        &[item.usage],
+                        Instant::now(),
+                    )?;
+                }
             }
         }
     }
@@ -23628,21 +23586,11 @@ async fn flush_runtime_usage(
     }
 }
 
-async fn flush_runtime_monitoring_run(
-    core: &Core,
-    agent_run_id: &str,
-    execution_epoch: i64,
-    reason: &'static str,
-) -> Result<usize> {
-    flush_runtime_usage(
-        core,
-        RuntimeUsageFlushTarget::Run {
-            agent_run_id: agent_run_id.to_string(),
-            execution_epoch,
-        },
-        reason,
-    )
-    .await
+async fn finish_runtime_monitoring_run(core: &Core, agent_run_id: &str, execution_epoch: i64) {
+    core.runtime_usage
+        .lock()
+        .await
+        .finish_run(agent_run_id, execution_epoch);
 }
 
 async fn process_runtime_usage_flusher(core: Arc<Core>, mut shutdown: oneshot::Receiver<()>) {
@@ -24184,11 +24132,7 @@ async fn process_agent_run_codex_message(
             "failed to persist interrupted Runtime Activities for AgentRun {agent_run_id}: {error:#}"
         );
     }
-    if let Err(error) =
-        flush_runtime_monitoring_run(core, agent_run_id, execution_epoch, "terminal_flush").await
-    {
-        eprintln!("failed to flush Codex monitoring for AgentRun {agent_run_id}: {error:#}");
-    }
+    finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     let completed_message = completed
         .final_agent_message
         .as_deref()
@@ -24821,13 +24765,7 @@ async fn process_agent_run_exit(
     if core.planned_shutdown.shutdown_started() {
         return;
     }
-    if let Err(error) =
-        flush_runtime_monitoring_run(core, agent_run_id, execution_epoch, "host_exit_flush").await
-    {
-        eprintln!(
-            "failed to flush Codex monitoring after Host exit for AgentRun {agent_run_id}: {error:#}"
-        );
-    }
+    finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     if core
         .codex_cli
         .get_agent_run_on_host(host_instance_id, agent_run_id, execution_epoch)
@@ -31959,6 +31897,12 @@ for line in sys.stdin:
 "#,
             );
             let mut frozen = execution.runtime.clone();
+            frozen
+                .environment
+                .as_mut()
+                .unwrap()
+                .hydrate(core.database.lock().await.connection())
+                .unwrap();
             frozen.executable_path = executable.to_string_lossy().into_owned();
             let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
                 path: root.join("builtin.sock").to_string_lossy().into_owned(),
@@ -32019,16 +31963,23 @@ for line in sys.stdin:
                 "error": if native_status == "failed" { json!({"message":"opaque","codexErrorInfo":"unauthorized"}) } else { Value::Null }
             }}});
             let mut route = core.planned_shutdown.enter_runtime_route().await.unwrap();
-            process_agent_run_codex_message(
-                &core,
-                &core.output,
-                &host_id,
-                &run_id,
-                epoch,
-                terminal.clone(),
-                &mut route,
+            // Simulate a periodic collector stuck in native I/O. Terminal
+            // settlement and the successor lease must be independent of it.
+            let usage_flush = core.runtime_usage_flush.lock().await;
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                process_agent_run_codex_message(
+                    &core,
+                    &core.output,
+                    &host_id,
+                    &run_id,
+                    epoch,
+                    terminal.clone(),
+                    &mut route,
+                ),
             )
-            .await;
+            .await
+            .expect("Usage cannot gate native completion");
             drop(route);
             {
                 let database = core.database.lock().await;
@@ -32082,6 +32033,7 @@ for line in sys.stdin:
                 .await
                 .unwrap();
             assert_eq!(next.host_instance_id() == host_id, reusable);
+            drop(usage_flush);
             // A duplicate old terminal cannot change or stop the successor lease.
             let mut route = core.planned_shutdown.enter_runtime_route().await.unwrap();
             process_agent_run_codex_message(

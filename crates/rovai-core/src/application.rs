@@ -2361,7 +2361,7 @@ struct ClaudeInputAcceptanceTarget<'a> {
 struct Core {
     execution_wake: crate::execution_wake::ExecutionWake,
     non_batch_retry_at: Mutex<Option<tokio::time::Instant>>,
-    database: Mutex<Database>,
+    database: Arc<Mutex<Database>>,
     subsystems: CoreSubsystems,
     subsystem_initialization: Mutex<SubsystemInitialization>,
     removed_skill_project_roots: RemovedSkillProjectRoots,
@@ -14738,32 +14738,6 @@ impl Core {
         runtime: FrozenAgentRuntimeConfig,
         workspace: &AgentRunWorkspace,
     ) -> std::result::Result<(FrozenAgentRuntimeConfig, i64), RuntimeDispatchFailure> {
-        let mut runtime = runtime;
-        let environment = runtime.environment.as_mut().ok_or_else(|| RuntimeDispatchFailure {
-            code: "runtime_environment_unavailable".into(),
-            error: anyhow::anyhow!("The session environment is unavailable; reset this member's session to use the current configuration"),
-            effective_version: None,
-        })?;
-        environment
-            .hydrate(self.database.lock().await.connection())
-            .map_err(|error| RuntimeDispatchFailure {
-                code: "runtime_environment_unavailable".into(),
-                error,
-                effective_version: None,
-            })?;
-        rovai_core::runtime_discovery::with_frozen_environment(
-            runtime.environment.clone(),
-            self.prepare_runtime_for_dispatch_in_environment(candidate, runtime, workspace),
-        )
-        .await
-    }
-
-    async fn prepare_runtime_for_dispatch_in_environment(
-        &self,
-        candidate: &rovai_core::runtime::QueuedAgentRunCandidate,
-        runtime: FrozenAgentRuntimeConfig,
-        workspace: &AgentRunWorkspace,
-    ) -> std::result::Result<(FrozenAgentRuntimeConfig, i64), RuntimeDispatchFailure> {
         if let Some(blocker) = current_runtime_platform_blocker(runtime.adapter_kind) {
             return Err(RuntimeDispatchFailure {
                 code: blocker.code,
@@ -15147,14 +15121,14 @@ impl Core {
         output: &mpsc::UnboundedSender<String>,
         launch_permit: &mut ExecutionLaunchPermit,
     ) -> Result<()> {
-        let mut resolved = execution.clone();
-        resolved.runtime.environment.as_mut().context("The session environment is unavailable; reset this member's session to use the current configuration")?
-            .hydrate(self.database.lock().await.connection())?;
-        let environment = resolved.runtime.environment.clone();
-        rovai_core::runtime_discovery::with_frozen_environment(
-            environment,
+        rovai_core::member_environment::with_launch_source(
+            rovai_core::member_environment::LaunchEnvironmentSource {
+                database: self.database.clone(),
+                member_id: execution.agent_id.clone(),
+                kind: execution.runtime.adapter_kind,
+            },
             self.launch_agent_run_in_environment(
-                &resolved,
+                execution,
                 attachment_admission,
                 attachment_authorization,
                 output,
@@ -15313,6 +15287,7 @@ impl Core {
                 execution_epoch: execution.execution_epoch,
                 camp_id: &execution.camp_id,
                 agent_id: &execution.agent_id,
+                native_binding_id: &initial_binding.native_binding_id,
                 cwd: &execution_root,
                 frozen_runtime: &execution.runtime,
                 runtime_compatibility_digest: &runtime_compatibility_digest,
@@ -15965,6 +15940,18 @@ impl Core {
         let (runtime_event_sender, mut runtime_event_receiver) = mpsc::unbounded_channel();
         let (launch_handoff_sender, mut launch_handoff_receiver) = oneshot::channel();
         let (input_ready_sender, mut input_ready_receiver) = mpsc::unbounded_channel();
+        let mut launch_execution = execution.clone();
+        launch_execution.runtime.environment =
+            rovai_core::member_environment::load_for_launch().await?;
+        if launch_execution
+            .runtime
+            .environment
+            .as_ref()
+            .is_some_and(|env| env.has_overlay())
+        {
+            launch_execution.runtime.custom_api = None;
+        }
+        let execution = &launch_execution;
         // Keep the display scrubber with the consumer until its queue is drained,
         // including events delivered after the CLI process has already exited.
         let output_redactor = execution
@@ -16782,6 +16769,18 @@ impl Core {
         let (runtime_event_sender, mut runtime_event_receiver) = mpsc::unbounded_channel();
         let (launch_handoff_sender, mut launch_handoff_receiver) = oneshot::channel();
         let (input_ready_sender, mut input_ready_receiver) = mpsc::unbounded_channel();
+        let mut launch_execution = execution.clone();
+        launch_execution.runtime.environment =
+            rovai_core::member_environment::load_for_launch().await?;
+        if launch_execution
+            .runtime
+            .environment
+            .as_ref()
+            .is_some_and(|env| env.has_overlay())
+        {
+            launch_execution.runtime.custom_api = None;
+        }
+        let execution = &launch_execution;
         let run = self.antigravity_app.run(AntigravityRunRequest {
             agent_run_id: execution.agent_run_id.clone(),
             execution_epoch: execution.execution_epoch,
@@ -17294,6 +17293,7 @@ impl Core {
                 execution.execution_epoch,
                 &execution.camp_id,
                 &execution.agent_id,
+                &initial_binding.native_binding_id,
                 &execution.workspace,
                 execution.permission_semantics,
                 &execution.runtime,
@@ -17342,6 +17342,7 @@ impl Core {
                             execution.execution_epoch,
                             &execution.camp_id,
                             &execution.agent_id,
+                            &binding_credential.native_binding_id,
                             &execution.workspace,
                             execution.permission_semantics,
                             &execution.runtime,
@@ -17464,6 +17465,7 @@ impl Core {
                         execution.execution_epoch,
                         &execution.camp_id,
                         &execution.agent_id,
+                        &replacement_binding.native_binding_id,
                         &execution.workspace,
                         execution.permission_semantics,
                         &execution.runtime,
@@ -18727,7 +18729,7 @@ async fn run_core(
         delivery_batch_scheduler_notify: database.execution_wake.delivery.clone(),
         agent_run_cancellation_notify: database.execution_wake.cancellation.clone(),
         non_batch_retry_at: Mutex::new(None),
-        database: Mutex::new(database),
+        database: Arc::new(Mutex::new(database)),
         subsystems: CoreSubsystems::new(),
         subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
         removed_skill_project_roots,
@@ -26775,7 +26777,7 @@ mod tests {
             delivery_batch_scheduler_notify: database.execution_wake.delivery.clone(),
             agent_run_cancellation_notify: database.execution_wake.cancellation.clone(),
             non_batch_retry_at: Mutex::new(None),
-            database: Mutex::new(database),
+            database: Arc::new(Mutex::new(database)),
             automation_scheduler_control: RwLock::new(None),
             subsystems: CoreSubsystems::ready_for_test(),
             subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
@@ -31915,6 +31917,7 @@ for line in sys.stdin:
                     execution_epoch: epoch,
                     camp_id: &camp_id,
                     agent_id: &execution.agent_id,
+                    native_binding_id: "fixture-binding",
                     cwd: &workspace,
                     frozen_runtime: &frozen,
                     runtime_compatibility_digest: "fixture",
@@ -32025,6 +32028,7 @@ for line in sys.stdin:
                     execution_epoch: 1,
                     camp_id: &camp_id,
                     agent_id: &execution.agent_id,
+                    native_binding_id: "fixture-binding",
                     cwd: &workspace,
                     frozen_runtime: &frozen,
                     runtime_compatibility_digest: "fixture",
@@ -32456,6 +32460,7 @@ for line in sys.stdin:
                     execution_epoch: 1,
                     camp_id: "cleanup-camp",
                     agent_id: "cleanup-agent",
+                    native_binding_id: "fixture-binding",
                     cwd: &root,
                     frozen_runtime: &runtime_config,
                     runtime_compatibility_digest: "cleanup-compatible",

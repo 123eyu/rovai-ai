@@ -339,7 +339,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 143;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 144;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -807,6 +807,7 @@ struct CurrentMigrationState {
     v191: bool,
     v192: bool,
     v193: bool,
+    v194: bool,
 }
 
 impl CurrentMigrationState {
@@ -828,11 +829,19 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v194 {
+            let mut previous = *self;
+            previous.v194 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+                && self.v193
+                && previous.admits("v1.72", 143, classifier);
+        }
         if self.v193 {
             let mut previous = *self;
             previous.v193 = false;
             return contract == CURRENT_DATA_CONTRACT_VERSION
-                && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+                && schema == 143
                 && self.v192
                 && previous.admits("v1.72", 142, classifier);
         }
@@ -3438,9 +3447,12 @@ pub(crate) fn classify_database_contract(
                 || (!command_code_runtime_v185_schema_matches(connection)?
                     && (!message_mentions::schema_matches(connection)?
                         || !run_continuation::request_schema_matches(connection)?))))
-        || (migrations.v191 && !member_environment::schema_matches(connection)?)
-        || (migrations.v192 && !member_environment::session_schema_matches(connection)?)
-        || (migrations.v193 && !crate::monitoring::async_settlement_schema_matches(connection)?)
+        || (migrations.v191 && !member_environment::schema_matches(connection, migrations.v193)?)
+        || (migrations.v192
+            && !migrations.v193
+            && !member_environment::session_schema_matches(connection)?)
+        || (migrations.v193 && !member_environment::retired_schema_matches(connection)?)
+        || (migrations.v194 && !crate::monitoring::async_settlement_schema_matches(connection)?)
         || (migrations.v190
             && (!run_continuation::request_schema_matches(connection)?
                 || !command_code_runtime_v185_schema_matches(connection)?))
@@ -5535,7 +5547,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 190),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 191),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 192),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 193)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 193),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 194)
         "#,
         [],
         |row| {
@@ -5664,6 +5677,7 @@ fn load_current_migration_state(
                 v191: row.get(121)?,
                 v192: row.get(122)?,
                 v193: row.get(123)?,
+                v194: row.get(124)?,
             })
         },
     )
@@ -8841,7 +8855,10 @@ impl Database {
                 migration_step!("migration_192", member_environment::migrate_sessions(self));
             }
             if !self.schema_migration_applied(193)? {
-                migration_step!("migration_193", self.migrate_async_usage_settlement());
+                migration_step!("migration_193", member_environment::retire_snapshots(self));
+            }
+            if !self.schema_migration_applied(194)? {
+                migration_step!("migration_194", self.migrate_async_usage_settlement());
             }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
@@ -9639,7 +9656,10 @@ impl Database {
             migration_step!("migration_192", member_environment::migrate_sessions(self));
         }
         if !self.schema_migration_applied(193)? {
-            migration_step!("migration_193", self.migrate_async_usage_settlement());
+            migration_step!("migration_193", member_environment::retire_snapshots(self));
+        }
+        if !self.schema_migration_applied(194)? {
+            migration_step!("migration_194", self.migrate_async_usage_settlement());
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -9656,13 +9676,13 @@ impl Database {
         anyhow::ensure!(
             matches!(classify_database_contract(&tx)?,
             DatabaseContractClassification::SupportedMigrationSource(ref marker)
-            if marker.contract_version == "v1.72" && marker.projection_schema_version == 142),
-            "Async Usage settlement requires v1.72/schema 142"
+            if marker.contract_version == "v1.72" && marker.projection_schema_version == 143),
+            "Async Usage settlement requires v1.72/schema 143"
         );
         tx.execute_batch("DROP TRIGGER runtime_usage_agent_run_terminal;")?;
         tx.execute_batch(crate::monitoring::ASYNC_SETTLEMENT_TRIGGER)?;
-        tx.execute_batch("INSERT INTO schema_migration VALUES(193,datetime('now'));
-            UPDATE rovai_data_contract SET projection_schema_version=143,updated_at=datetime('now') WHERE singleton=1;")?;
+        tx.execute_batch("INSERT INTO schema_migration VALUES(194,datetime('now'));
+            UPDATE rovai_data_contract SET projection_schema_version=144,updated_at=datetime('now') WHERE singleton=1;")?;
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
@@ -40782,6 +40802,7 @@ mod tests {
         run_continuation::migrate_requests(&mut database).unwrap();
         member_environment::migrate(&mut database).unwrap();
         member_environment::migrate_sessions(&mut database).unwrap();
+        member_environment::retire_snapshots(&mut database).unwrap();
         let successor_run_id = claim_waiting_delivery_batches(&mut database, 1)
             .unwrap()
             .pop()
@@ -41348,6 +41369,7 @@ mod tests {
             v191: version >= 191,
             v192: version >= 192,
             v193: version >= 193,
+            v194: version >= 194,
         }
     }
 
@@ -41542,10 +41564,16 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
+                194,
+            ),
+            (
+                "v1.72/schema 143 before async Usage settlement",
+                "v1.72",
+                143,
                 193,
             ),
             (
-                "v1.72/schema 142 before async Usage settlement",
+                "v1.72/schema 142 before launch environments",
                 "v1.72",
                 142,
                 192,
@@ -42106,7 +42134,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(193);
+        let current = migration_state_through(194);
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;
@@ -42647,8 +42675,8 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version=193;
-             UPDATE rovai_data_contract SET projection_schema_version=142 WHERE singleton=1;
+                "DELETE FROM schema_migration WHERE version=194;
+             UPDATE rovai_data_contract SET projection_schema_version=143 WHERE singleton=1;
              DROP TRIGGER runtime_usage_agent_run_terminal;",
             )
             .unwrap();
@@ -42658,17 +42686,17 @@ mod tests {
              SELECT collection_epoch,'retained','codex-cli',5,127,'unknown',datetime('now') FROM runtime_usage_collection_state;
              INSERT INTO runtime_usage_checkpoint(collection_epoch,agent_run_id,execution_epoch,checkpoint_key,runtime_kind,parser_version,source_kind,counter_mode,last_event_digest,prompt_input_total_baseline,updated_at,expires_at)
              SELECT collection_epoch,'retained',1,'source','codex-cli',5,'runtime_event','cumulative','event',123,datetime('now'),datetime('now','+3 days') FROM runtime_usage_collection_state;
-             CREATE TEMP TRIGGER fail_async_usage_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=193
+             CREATE TEMP TRIGGER fail_async_usage_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=194
              BEGIN SELECT RAISE(ABORT,'fixture receipt failure'); END;",
         ).unwrap();
         assert!(database.migrate_async_usage_settlement().is_err());
-        assert!(!database.schema_migration_applied(193).unwrap());
+        assert!(!database.schema_migration_applied(194).unwrap());
         assert!(
             !crate::monitoring::async_settlement_schema_matches(database.connection()).unwrap()
         );
         assert!(
             matches!(classify_database_contract(database.connection()).unwrap(),
-            DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 142)
+            DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 143)
         );
         database
             .connection()
@@ -42703,7 +42731,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(193));
+        assert_eq!(state, migration_state_through(194));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")

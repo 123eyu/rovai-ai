@@ -226,9 +226,11 @@ impl AntigravityAppRuntimeAdapter {
         // Keep process ownership when the caller is cancelled during the input
         // handoff. Cleanup continues through this registered Run, as for Claude.
         tokio::spawn(async move {
-            let result = adapter
-                .run_process(&request, interrupted, launch_handoff, &control)
-                .await;
+            let result = rovai_core::runtime_discovery::with_launch_environment(
+                request.runtime.environment.clone(),
+                adapter.run_process(&request, interrupted, launch_handoff, &control),
+            )
+            .await;
             if control.pending_cleanup.lock().await.is_none() {
                 let mut active = adapter.active.lock().await;
                 if active

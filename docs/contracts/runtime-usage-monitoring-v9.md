@@ -28,7 +28,7 @@ Run 的成功、失败、取消及后继执行不等待 Usage Flush、原生日�
 
 ## 迟到批次与清理
 
-Migration 193 将 projection schema 142 升到 143，只替换终态触发器并保留原数据。Run 结束后不再
+Migration 194 将 projection schema 143 升到 144，只替换终态触发器并保留原数据。Run 结束后不再
 删除 checkpoint；迟到的 cumulative/delta 批次继续沿用既有基线和幂等键，不重复累计已提交观察。
 现有低频清理任务分批删除超过 72 小时、且所属 Run 非活动态的 checkpoint。长期 summary/hourly
 保留规则不变，不增加永久逐调用日志或新的结果对账任务。

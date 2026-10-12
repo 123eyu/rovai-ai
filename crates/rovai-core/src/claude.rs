@@ -383,12 +383,15 @@ impl ClaudeCodeCliRuntimeAdapter {
         let (result_sender, result_receiver) = oneshot::channel();
         let tracked_control = control.clone();
         let worker = tokio::spawn(async move {
-            let result = Self::run_process(
-                &private_runtime_dir,
-                &tracked_control,
-                &request,
-                interrupted,
-                launch_handoff,
+            let result = rovai_core::runtime_discovery::with_launch_environment(
+                request.runtime.environment.clone(),
+                Self::run_process(
+                    &private_runtime_dir,
+                    &tracked_control,
+                    &request,
+                    interrupted,
+                    launch_handoff,
+                ),
             )
             .await;
             tracked_control
@@ -3818,10 +3821,7 @@ mod tests {
                 values.insert("CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST".into(), "1".into());
                 request.runtime.reported_version = Some("2.1.287".into());
                 request.runtime.environment =
-                    Some(rovai_core::member_environment::FrozenEnvironment {
-                        plan_id: "fixture".into(),
-                        revision: 1,
-                        legacy_identity: None,
+                    Some(rovai_core::member_environment::LaunchEnvironment {
                         values: Some(values),
                         overlay: Some(overlay),
                     });

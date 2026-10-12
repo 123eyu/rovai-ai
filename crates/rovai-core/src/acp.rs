@@ -1244,15 +1244,18 @@ async fn cleanup_acp_client_terminals(
 }
 
 #[derive(Debug, Clone)]
-struct AcpRpcError {
-    code: Option<i64>,
+pub(crate) struct AcpRpcError {
+    pub(crate) code: Option<i64>,
     structured_code: Option<String>,
+    resource_uri: Option<String>,
+    session_id: Option<String>,
+    project_root: Option<String>,
     message: String,
     provider_detail: Option<String>,
 }
 
 impl AcpRpcError {
-    fn from_response(value: &Value) -> Self {
+    pub(crate) fn from_response(value: &Value) -> Self {
         let message = value
             .get("message")
             .and_then(Value::as_str)
@@ -1265,6 +1268,21 @@ impl AcpRpcError {
             .filter(|detail| detail != &message);
         Self {
             code: value.get("code").and_then(Value::as_i64),
+            resource_uri: value
+                .pointer("/data/uri")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 1024)
+                .map(str::to_owned),
+            session_id: value
+                .pointer("/data/sessionId")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 256)
+                .map(str::to_owned),
+            project_root: value
+                .pointer("/data/projectRoot")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 32768)
+                .map(str::to_owned),
             structured_code: value
                 .pointer("/data/code")
                 .or_else(|| value.pointer("/data/error/code"))
@@ -1280,6 +1298,36 @@ impl AcpRpcError {
                 .map(str::to_string),
             message,
             provider_detail,
+        }
+    }
+
+    // Called only for a correlated session/resume or session/load response.
+    // These are Adapter protocol codes, never diagnostic text classifications.
+    fn rejects_restore_target(&self, kind: AdapterKind, session_id: &str, cwd: &str) -> bool {
+        match kind {
+            // Match the entire native resource identifier, not error.message or
+            // substrings. Copilot's data.uri is phrase-shaped; an absent or changed
+            // URI is unknown, including a different resource missing during restore.
+            AdapterKind::CopilotCli => {
+                self.code == Some(-32002)
+                    && self.resource_uri.as_deref()
+                        == Some(format!("Session {session_id} not found").as_str())
+            }
+            AdapterKind::QwenCode => {
+                self.code == Some(-32002)
+                    && self.resource_uri.as_deref()
+                        == Some(format!("session:{session_id}").as_str())
+            }
+            AdapterKind::QoderCli => {
+                self.code == Some(-32602)
+                    && self.structured_code.as_deref() == Some("INVALID_SESSION_IDENTIFIER")
+                    && self.session_id.as_deref() == Some(session_id)
+                    && self.project_root.as_deref() == Some(cwd)
+            }
+            // The official bridge emits this only for the native resume call,
+            // not a later subscribe, model, permission or MCP operation.
+            AdapterKind::ZcodeApp => self.code == Some(-32004),
+            _ => false,
         }
     }
 
@@ -1352,6 +1400,7 @@ pub(crate) struct AcpHost {
     executable_path: PathBuf,
     builtin_tools: Option<BuiltinToolProcessConfig>,
     grok_context_windows: BTreeMap<String, i64>,
+    codebuddy_config_dir: Option<PathBuf>,
 }
 
 fn enrich_paired_tool_message(
@@ -1433,6 +1482,50 @@ fn enrich_paired_tool_message(
         enrich(update, Some(initial));
     }
     Ok(true)
+}
+
+fn codebuddy_config_dir(spec: &ManagedProcessLaunchSpec) -> Result<PathBuf> {
+    let value = |key: &str| spec.environment_value(key).filter(|v| !v.is_empty());
+    let configured = value("CODEBUDDY_CONFIG_DIR").map(PathBuf::from);
+    let home = if cfg!(windows) {
+        value("USERPROFILE")
+    } else {
+        value("HOME")
+    };
+    let root = configured
+        .or_else(|| home.map(|home| PathBuf::from(home).join(".codebuddy")))
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codebuddy")))
+        .context("CodeBuddy native configuration directory unavailable")?;
+    Ok(if root.is_absolute() {
+        root
+    } else {
+        spec.working_directory().join(root)
+    })
+}
+
+async fn verify_codebuddy_restore_target(root: &Path, session_id: &str, cwd: &str) -> Result<()> {
+    // CodeBuddy 2.133.1 returns success for load of a nonexistent transcript.
+    // Its session/list is unsupported. Check only its exact native file; never
+    // scan other sessions or read the latest member environment for a live Host.
+    ensure!(
+        uuid::Uuid::parse_str(session_id).is_ok(),
+        "CodeBuddy restore target is not a UUID"
+    );
+    let path = crate::native_usage::codebuddy_session_path(root, cwd, session_id);
+    match tokio::fs::metadata(path).await {
+        Ok(metadata) => {
+            ensure!(
+                metadata.is_file(),
+                "CodeBuddy restore target is not a regular file"
+            );
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(anyhow::anyhow!(
+            "CodeBuddy native Session history is missing"
+        )
+        .context(rovai_core::runtime::NativeSessionResumeFailure::Incompatible)),
+        Err(error) => Err(error).context("CodeBuddy native Session history cannot be inspected"),
+    }
 }
 
 impl AcpHost {
@@ -1579,6 +1672,9 @@ impl AcpHost {
             ManagedWindowsArgvDialect::MicrosoftCrt,
             format!("runtime-host:{}", frozen_runtime.adapter_kind.as_str()),
         )?;
+        let codebuddy_config_dir = (frozen_runtime.adapter_kind == AdapterKind::CodebuddyCli)
+            .then(|| codebuddy_config_dir(&spec))
+            .transpose()?;
         let client_terminal_mode = AgentRuntimeAdapterRegistry::default()
             .acp_client_terminal_mode(frozen_runtime.adapter_kind);
         let client_terminal_bridge = if client_terminal_mode.is_available() {
@@ -1650,6 +1746,7 @@ impl AcpHost {
                 None
             },
             client_terminal_mode,
+            codebuddy_config_dir,
             client_terminal_bridge,
             host_instance_id,
             child: Mutex::new(child),
@@ -2268,6 +2365,9 @@ impl AcpHost {
                     Some(error) => Err(anyhow::Error::new(AcpRpcError {
                         code: error.code,
                         structured_code: error.structured_code.map(|code| self.redact_text(&code)),
+                        resource_uri: error.resource_uri.map(|uri| self.redact_text(&uri)),
+                        session_id: error.session_id.map(|id| self.redact_text(&id)),
+                        project_root: error.project_root.map(|path| self.redact_text(&path)),
                         message: self.redact_text(&error.message),
                         provider_detail: error
                             .provider_detail
@@ -4461,6 +4561,9 @@ impl AcpRuntime {
             AcpSessionContinuation::Resume | AcpSessionContinuation::HistoryRestore => {
                 let existing_session_id =
                     existing_session_id.context("cross-Host ACP continuation has no Session ID")?;
+                if let Some(root) = &self.host.codebuddy_config_dir {
+                    verify_codebuddy_restore_target(root, existing_session_id, &cwd).await?;
+                }
                 if self.host.adapter_kind == AdapterKind::CommandCodeCli {
                     // Command Code 1.74.1 silently opens an empty Session when
                     // resume/load names missing history. Its official catalog
@@ -4536,7 +4639,15 @@ impl AcpRuntime {
                             self.host
                                 .unbind_session(existing_session_id, &self.owner)
                                 .await;
-                            let error = if method_unavailable {
+                            let target_unavailable =
+                                error.downcast_ref::<AcpRpcError>().is_some_and(|error| {
+                                    error.rejects_restore_target(
+                                        self.host.adapter_kind,
+                                        existing_session_id,
+                                        &cwd,
+                                    )
+                                });
+                            let error = if method_unavailable || target_unavailable {
                                 error.context(
                                     rovai_core::runtime::NativeSessionResumeFailure::Incompatible,
                                 )
@@ -8572,6 +8683,146 @@ mod tests {
             unlisted_detail.diagnostic(),
             "ACP error -32603: Internal error"
         );
+
+        for (kind, code, data, expected) in [
+            (
+                AdapterKind::CopilotCli,
+                -32002,
+                json!({"uri":"Session old not found"}),
+                true,
+            ),
+            (
+                AdapterKind::QwenCode,
+                -32002,
+                json!({"uri":"session:old"}),
+                true,
+            ),
+            (AdapterKind::CopilotCli, -32002, json!({}), false),
+            (AdapterKind::QwenCode, -32002, json!({}), false),
+            (
+                AdapterKind::CopilotCli,
+                -32002,
+                json!({"uri":"Session another not found"}),
+                false,
+            ),
+            (
+                AdapterKind::QwenCode,
+                -32002,
+                json!({"uri":"session:another"}),
+                false,
+            ),
+            (
+                AdapterKind::QwenCode,
+                -32002,
+                json!({"uri":"file:///missing-config"}),
+                false,
+            ),
+            (AdapterKind::KimiCodeCli, -32002, json!({}), false),
+            (AdapterKind::QwenCode, -32602, json!({}), false),
+            (AdapterKind::CopilotCli, -32603, json!({}), false),
+            (AdapterKind::ZcodeApp, -32004, json!({}), true),
+            (AdapterKind::ZcodeApp, -32000, json!({}), false),
+            (
+                AdapterKind::QoderCli,
+                -32602,
+                json!({"code":"INVALID_SESSION_IDENTIFIER","sessionId":"old","projectRoot":"/project"}),
+                true,
+            ),
+            (
+                AdapterKind::QoderCli,
+                -32603,
+                json!({"code":"INVALID_SESSION_IDENTIFIER","sessionId":"old","projectRoot":"/project"}),
+                false,
+            ),
+            (
+                AdapterKind::QoderCli,
+                -32602,
+                json!({"code":"INVALID_SESSION_IDENTIFIER","sessionId":"another","projectRoot":"/project"}),
+                false,
+            ),
+            (
+                AdapterKind::QoderCli,
+                -32602,
+                json!({"code":"INVALID_SESSION_IDENTIFIER","sessionId":"old","projectRoot":"/another"}),
+                false,
+            ),
+            (
+                AdapterKind::QoderCli,
+                -32602,
+                json!({"sessionId":"old","projectRoot":"/project"}),
+                false,
+            ),
+        ] {
+            let error = AcpRpcError::from_response(&json!({
+                "code":code,"message":"incompatible not found method not found","data":data
+            }));
+            assert_eq!(
+                error.rejects_restore_target(kind, "old", "/project"),
+                expected,
+                "{kind:?}: {error:?}"
+            );
+        }
+        let oversized = AcpRpcError::from_response(&json!({"data":{
+            "code":"x".repeat(65), "uri":"x".repeat(1025), "sessionId":"x".repeat(257), "projectRoot":"x".repeat(32769)
+        }}));
+        assert!(oversized.structured_code.is_none());
+        assert!(oversized.resource_uri.is_none());
+        assert!(oversized.session_id.is_none());
+        assert!(oversized.project_root.is_none());
+    }
+
+    // Owns CodeBuddy's false-success filesystem boundary. Protocol parser tests
+    // cannot prove that a different Session file is not accepted as this target.
+    #[tokio::test]
+    async fn codebuddy_restore_verifies_only_the_exact_file_in_the_launch_environment() {
+        let root =
+            std::env::temp_dir().join(format!("rovai-codebuddy-restore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut command = Command::new("/bin/sh");
+        command
+            .current_dir(&root)
+            .env("HOME", root.join("unrelated-home"))
+            .env("CODEBUDDY_CONFIG_DIR", "native");
+        let spec = ManagedProcessLaunchSpec::capture(
+            &command,
+            ManagedProcessPurpose::RuntimeHost,
+            ManagedStdinPolicy::Null,
+            ManagedWindowsArgvDialect::MicrosoftCrt,
+            "codebuddy-restore-test",
+        )
+        .unwrap();
+        command.env("CODEBUDDY_CONFIG_DIR", "new-config");
+        let native = codebuddy_config_dir(&spec).unwrap();
+        assert_eq!(native, root.join("native"));
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let cwd = root.to_str().unwrap();
+        let path = crate::native_usage::codebuddy_session_path(&native, cwd, &session_id);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path.with_file_name("another-session.jsonl"), "{}").unwrap();
+        let missing = verify_codebuddy_restore_target(&native, &session_id, cwd)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            missing.downcast_ref::<crate::runtime::NativeSessionResumeFailure>(),
+            Some(&crate::runtime::NativeSessionResumeFailure::Incompatible)
+        );
+        std::fs::write(&path, "{}").unwrap();
+        verify_codebuddy_restore_target(&native, &session_id, cwd)
+            .await
+            .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        for target in [&session_id, "../../unrelated"] {
+            let error = verify_codebuddy_restore_target(&native, target, cwd)
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .downcast_ref::<crate::runtime::NativeSessionResumeFailure>()
+                    .is_none()
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
     use crate::runtime_fleet::AgentRuntimeFleetConfig;
     use rovai_core::agent_profile::{AdapterPermissionConfig, ResolvedModelSelection};
@@ -9297,14 +9548,14 @@ while IFS= read -r ignored; do :; done
                 sender,
                 method: "fixture/error".into(),
             },
-            json!({"id":999,"error":{"code":-32000,"message":"wire-stdout failure 1"}}),
+            json!({"id":999,"error":{"code":-32602,"message":"wire-stdout failure 1",
+                "data":{"code":"INVALID_SESSION_IDENTIFIER","sessionId":"session-old","projectRoot":"/fixture"}}}),
         )
         .await;
         let detail = error_response.await.unwrap().unwrap_err();
-        assert_eq!(
-            detail.downcast_ref::<AcpRpcError>().unwrap().code,
-            Some(-32000)
-        );
+        let typed = detail.downcast_ref::<AcpRpcError>().unwrap();
+        assert_eq!(typed.code, Some(-32602));
+        assert!(typed.rejects_restore_target(AdapterKind::QoderCli, "session-old", "/fixture"));
         assert!(!detail.to_string().contains("wire-stdout"));
         assert!(detail.to_string().contains("failure 1"));
 

@@ -225,8 +225,6 @@ pub(crate) struct DeliveryContextPreview<'a> {
     pub trigger_message_delivery_id: &'a str,
     pub effective_config: Value,
     pub workspace: Value,
-    pub runtime_installation_id: Option<&'a str>,
-    pub runtime_binding_compatibility_digest: Option<&'a str>,
     pub charter_delivery_mode: CharterDeliveryMode,
     pub max_payload_bytes: usize,
 }
@@ -588,11 +586,8 @@ impl ContextService {
                     crate::mcp_projection::LEGACY_EMPTY_MCP_PROJECTION_DIGEST,
                 )
             };
-        let binding_identity_compatible = snapshot.native_binding_id.is_some()
-            && snapshot.native_binding_generation >= 1
-            && snapshot.native_adapter_installation_id == snapshot.runtime_installation_id
-            && snapshot.native_binding_compatibility_digest
-                == snapshot.runtime_binding_compatibility_digest;
+        let binding_identity_compatible =
+            snapshot.native_binding_id.is_some() && snapshot.native_binding_generation >= 1;
         let requires_new_native_session =
             !binding_identity_compatible || snapshot.native_session_id.is_none();
         let expected_binding_generation = if binding_identity_compatible {
@@ -1370,11 +1365,8 @@ impl ContextService {
         let members = load_collaboration_projection_members(transaction, &snapshot.camp_id)?;
         let collaboration_state = build_collaboration_state(&members, &snapshot.agent_id);
         let collaboration_state_digest = canonical_json_digest(&collaboration_state)?;
-        let binding_identity_compatible = snapshot.native_binding_id.is_some()
-            && snapshot.native_binding_generation >= 1
-            && snapshot.native_adapter_installation_id == snapshot.runtime_installation_id
-            && snapshot.native_binding_compatibility_digest
-                == snapshot.runtime_binding_compatibility_digest;
+        let binding_identity_compatible =
+            snapshot.native_binding_id.is_some() && snapshot.native_binding_generation >= 1;
         let previous_boundary = if binding_identity_compatible {
             snapshot.last_accepted_public_boundary_sequence
         } else {
@@ -2822,11 +2814,7 @@ struct RunSnapshot {
     trigger_conversation_message_id: Option<String>,
     effective_config: Value,
     workspace: Value,
-    runtime_installation_id: Option<String>,
-    runtime_binding_compatibility_digest: Option<String>,
-    native_adapter_installation_id: Option<String>,
     native_session_id: Option<String>,
-    native_binding_compatibility_digest: Option<String>,
     native_binding_id: Option<String>,
     native_binding_generation: i64,
     last_accepted_public_boundary_sequence: i64,
@@ -2895,13 +2883,9 @@ fn prospective_delivery_snapshot(
         trigger_conversation_message_id: None,
         effective_config: request.effective_config.clone(),
         workspace: request.workspace.clone(),
-        runtime_installation_id: request.runtime_installation_id.map(str::to_string),
-        runtime_binding_compatibility_digest: request
-            .runtime_binding_compatibility_digest
-            .map(str::to_string),
-        native_adapter_installation_id: conversation.0,
+
         native_session_id: conversation.1,
-        native_binding_compatibility_digest: conversation.2,
+
         native_binding_id: conversation.3,
         native_binding_generation: conversation.4,
         last_accepted_public_boundary_sequence: conversation.5,
@@ -3010,11 +2994,9 @@ fn load_run_snapshot<R: ContextReadConnection>(
                             Box::new(error),
                         )
                     })?,
-                    runtime_installation_id: row.get(18)?,
-                    runtime_binding_compatibility_digest: row.get(19)?,
-                    native_adapter_installation_id: row.get(20)?,
+
                     native_session_id: row.get(21)?,
-                    native_binding_compatibility_digest: row.get(22)?,
+
                     native_binding_id: row.get(23)?,
                     native_binding_generation: row.get(24)?,
                     last_accepted_public_boundary_sequence: row.get(25)?,
@@ -3113,6 +3095,12 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
     native_binding_generation: i64,
     delivery_mode: CharterDeliveryMode,
 ) -> Result<PreparedBootstrapEvidence> {
+    // A fresh Run assembles its own startup instructions. Only this Run's
+    // prepared bytes are reused; old Session Bootstrap records are audit data.
+    let run_evidence_id = format!(
+        "bootstrap:{}:{}:{}",
+        snapshot.agent_run_id, native_binding_id, native_binding_generation
+    );
     let existing = database
         .connection()
         .query_row(
@@ -3126,9 +3114,9 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
             FROM native_session_bootstrap_evidence AS bootstrap
             LEFT JOIN native_session_platform_skills_evidence AS platform
               ON platform.bootstrap_evidence_id = bootstrap.id
-            WHERE bootstrap.native_binding_id = ?1 AND bootstrap.native_binding_generation = ?2
+            WHERE bootstrap.id = ?1
             "#,
-            params![native_binding_id, native_binding_generation],
+            [&run_evidence_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -3249,7 +3237,7 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
         "text/plain; charset=utf-8",
         "sensitive",
     )?;
-    let evidence_id = Uuid::new_v4().to_string();
+    let evidence_id = run_evidence_id;
     let created_at = chrono::Utc::now().to_rfc3339();
     let transaction = database.connection_mut().transaction()?;
     transaction.execute(
@@ -3455,49 +3443,13 @@ fn bootstrap_evidence_digest_for(
 }
 
 fn bootstrap_required_for_snapshot<R: ContextReadConnection>(
-    database: &R,
+    _database: &R,
     snapshot: &RunSnapshot,
     requires_new_native_session: bool,
 ) -> Result<bool> {
-    if requires_new_native_session {
-        return Ok(true);
-    }
-    let Some(native_binding_id) = snapshot.native_binding_id.as_deref() else {
-        return Ok(true);
-    };
-    let evidence = database
-        .context_connection()
-        .query_row(
-            r#"
-            SELECT bootstrap.contract_version, bootstrap.session_charter_digest,
-                   platform.section_digest, bootstrap.memory_entrypoint_digest
-            FROM native_session_bootstrap_evidence AS bootstrap
-            LEFT JOIN native_session_platform_skills_evidence AS platform
-              ON platform.bootstrap_evidence_id = bootstrap.id
-            WHERE bootstrap.native_binding_id = ?1 AND bootstrap.native_binding_generation = ?2
-            "#,
-            params![native_binding_id, snapshot.native_binding_generation],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some((contract_version, charter_digest, platform_digest, entrypoint_digest)) = evidence
-    else {
-        return Ok(true);
-    };
-    let evidence_digest = bootstrap_evidence_digest_for(
-        &contract_version,
-        &charter_digest,
-        platform_digest.as_deref(),
-        &entrypoint_digest,
-    )?;
-    Ok(snapshot.native_charter_digest.as_deref() != Some(evidence_digest.as_str()))
+    // Preflight does not open historical Bootstrap evidence. Materialization
+    // assembles the actual instructions and decides normal first-payload delivery.
+    Ok(requires_new_native_session || snapshot.native_charter_digest.is_none())
 }
 
 fn build_memory_entrypoint(
@@ -9149,11 +9101,9 @@ mod tests {
             trigger_conversation_message_id: None,
             effective_config: json!({}),
             workspace: json!({}),
-            runtime_installation_id: None,
-            runtime_binding_compatibility_digest: None,
-            native_adapter_installation_id: None,
+
             native_session_id: None,
-            native_binding_compatibility_digest: None,
+
             native_binding_id: None,
             native_binding_generation: 0,
             last_accepted_public_boundary_sequence: 0,
@@ -9533,11 +9483,9 @@ mod slow_tests {
             trigger_conversation_message_id: None,
             effective_config: json!({}),
             workspace: json!({}),
-            runtime_installation_id: None,
-            runtime_binding_compatibility_digest: None,
-            native_adapter_installation_id: None,
+
             native_session_id: None,
-            native_binding_compatibility_digest: None,
+
             native_binding_id: None,
             native_binding_generation: 0,
             last_accepted_public_boundary_sequence: 0,
@@ -13752,10 +13700,11 @@ mod slow_tests {
         else {
             panic!("managed system prompt follow-up should materialize")
         };
-        assert_eq!(
-            next_context.bootstrap_evidence_id,
-            first_bootstrap.evidence_id
+        assert_ne!(
+            next_context.bootstrap_evidence_id, first_bootstrap.evidence_id,
+            "a fresh Run keeps its own normal Bootstrap audit"
         );
+        assert!(!next_context.requires_new_native_session);
         assert!(!next_context.bootstrap_in_runtime_payload);
         managed_fixture.cleanup();
     }
@@ -15815,18 +15764,27 @@ mod slow_tests {
                 .unwrap();
             assert_eq!(
                 run_state,
-                ("waiting".to_string(), Some("delivery_unknown".to_string()))
+                if active_execution {
+                    ("waiting".to_string(), Some("delivery_unknown".to_string()))
+                } else {
+                    ("failed".to_string(), None)
+                }
             );
-            let marker: i64 = fixture
+            let (marker, native_session): (i64, Option<String>) = fixture
                 .database
                 .connection()
                 .query_row(
-                    "SELECT last_accepted_public_boundary_sequence FROM conversation WHERE id = ?1",
+                    "SELECT last_accepted_public_boundary_sequence, native_session_id FROM conversation WHERE id = ?1",
                     [&execution.conversation_id],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .unwrap();
             assert_eq!(marker, 0);
+            assert_eq!(
+                native_session.as_deref(),
+                Some("native-session-1"),
+                "unknown input fences the Run without discarding its native history"
+            );
             if active_execution {
                 service
                     .acknowledge_active_input_delivery(
@@ -15865,11 +15823,15 @@ mod slow_tests {
                     if active_execution {
                         "running"
                     } else {
-                        "waiting"
+                        "failed"
                     }
                     .to_string(),
-                    (!active_execution).then(|| "runtime_recovery".to_string()),
-                    prepared.camp_message_boundary_sequence,
+                    None,
+                    if active_execution {
+                        prepared.camp_message_boundary_sequence
+                    } else {
+                        0
+                    },
                 )
             );
             if network_recovery {

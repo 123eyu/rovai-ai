@@ -1430,3 +1430,31 @@ Runtime 的合并与检查强度不变；DSH 原生计数和配置变更屏障�
 `scripts/smoke-dsh-model-availability.mjs`，使用合成凭据和本地接收服务。60 秒过期场景仅在隔离数据库
 将对应成功时间调旧，不通过睡眠拖慢验收，不修改日常数据库。生产参数控件继续由
 `node --test scripts/lib/runtime-model-picker.test.mjs` 验证默认模型零查询、历史显示及迟到结果保护。
+
+## 原生会话恢复 owner（2026-10-12）
+
+扩展既有跨版本 owner `smoke-member-environment-upgrade.mjs`，覆盖生产 Core 的 exact-ID 恢复、当前启动
+环境、旧安装/上下文摘要和坏 Bootstrap，不只检查数据库留存。复用同一隔离 harness 增加模拟 ACP 的
+一次新建成功/失败、误导错误文本、模型请求错误、取消、超时和输入后进程退出，并断言真实 prompt 次数和成功提示。
+Codex 另以真实 `config/read` / `account/read` 请求注入 MCP / 认证错误，要求零新建、零业务输入并保留原 ID。
+最小命令：`node scripts/smoke-member-environment-upgrade.mjs /absolute/schema142/rovai-core`。
+旧二进制可从 `7973c7ffd1b0a360dea02c936458fb69f591c11e` 构建，旁边需配套 `rovai`；候选为当前 debug binaries。
+
+Rust 复用原 owner 并保持所有仍有效的保护：
+
+- `runtime::tests` 的摘要资格矩阵改为同类型恢复，历史 attempted/ambiguous/incompatible 不挡新 Run；
+  `failed_session_replacement_retains_reference_without_reviving_old_binding` 保留 stale epoch、unknown 和取消，
+  扩展为旧目标留存与绑定/提示事务回滚。主动重置、网络恢复、防重 owner 保留。
+- `context::slow_tests::newly_bound_session_bootstraps_on_its_current_generation` 保留同 Run 冻结字节，后续 Run
+  使用独立审计证据且不换 Session；unknown 输入 owner 按当前重启失败合同验证迟到 ACK 不复活 Run、不推进水位，原 Session 仍保留。
+- Claude/Antigravity 未发送输入 owner 不再把 stderr 文字当缺历史证据；保留精确 ID、实际发送 gate 与取消。
+  Pi 原 session-header owner 合并真实 locator 指向缺文件和缺父目录，普通文本/超时仍属未知。
+- 新增 `db::tests::run_bootstrap_migration_keeps_audit_and_rolls_back_its_schema_change`（扩展层）：拥有 195
+  的 FK-off rebuild、入站引用、DDL/receipt 回滚和错误唯一索引拒绝。此前没有移除 Bootstrap 唯一约束的 owner，
+  纯函数不足以证明 SQLite 回滚后旧审计仍在，因此使用最小真实数据库 fixture。既有 async Usage/环境降级
+  fixture 先逆转 195，不放宽生产 schema 分类。
+
+定向命令使用 `cargo test -p rovai-core --features slow-tests --lib`，分别过滤 `resume`、`bootstrap`、
+`failed_session_replacement`、`uncertain_input_acknowledgement`、`session_header_scan`、`manual_native_session_restart`。
+PR 默认层仍为 `cargo test --workspace`；Renderer 复用 `SingleChatPanel.test.ts`、`App.test.ts` 与 typecheck。
+不新增真实模型调用、常驻验证进程或永久禁用测试。

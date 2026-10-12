@@ -149,6 +149,18 @@ ACP 的 `command_code_acp.rs`、System Mod、Cline、共享 ACP、文件证据�
 Skill Library、MCP 全隔离，CLI 与凭据均为 fixture。`node scripts/smoke-member-environment-ui.mjs`
 使用生产组件验证保存回读、重置 CAS/活动任务拒绝、进程启动文案与双语移动布局，不启动 Core 或真实 Runtime。
 
+升级后原生续接使用 `node scripts/smoke-member-environment-upgrade.mjs /absolute/previous/rovai-core`
+（可加第二个候选 Core 路径，默认 `target/debug/rovai-core`）。旧 Core 必须是 schema 142 且旁边具有其
+配套 `rovai` CLI；候选 Core 从当前源码构建。该 owner 用两个实际版本的 Core 与模拟 Claude/Codex，
+通过正式保存、发送、执行与重启路径生成旧绑定，默认 Host 同时具有可读取的原生连接。它检查升级后的
+实际 `--resume`/`thread/resume` 携带旧 Session ID、绑定代次保持，以及进程读取当前 Host＋队员配置。
+私有 RPC smoke 没有执行消息，单元/迁移测试只检查记录，均不能替代此跨版本进程边界。
+无需真实账号或模型；数据、Home、Skill Library 与 MCP 均使用自动清理的临时目录。
+
+摘要选择的输入矩阵扩展既有 `agent_profile::slow_tests::discovered_entry_configures_and_freezes_without_health_evidence`，
+覆盖两种 Runtime 的旧绑定、默认 Host 绑定、未知摘要与原权限语义；不新增 Rust fixture owner。
+最小命令为 `cargo test -p rovai-core --lib --features slow-tests discovered_entry_configures_and_freezes_without_health_evidence`。
+
 ## 主干 / Preview Migration 合流（2026-10-08）
 
 扩展既有 `runtime_catalog_migrations_preserve_rows_and_roll_back_with_their_receipts`，保留 schema 133

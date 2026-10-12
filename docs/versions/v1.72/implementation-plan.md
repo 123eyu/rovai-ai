@@ -1744,3 +1744,19 @@ refresh 不再请求；首次 page 在途期间收到更新也被丢弃。User �
 
 未安装或重启日用 App，未修改真实聊天数据库；未运行真实 Provider/模型或 Windows 真机验收。
 UI 仅修改已确认文案；设计扫描提示的旧 surface 路径与平台元数据漂移不属于本次改动。
+
+### 升级后原生绑定续接修正（2026-10-12）
+
+已有 Session 的绑定摘要与当前安装、协议、Session 权限投影精确一致时，保持原先未纳入默认 Host
+连接的身份；不为决定 Warm/续接资格读取队员 env 或历史环境。原先包含默认连接身份的绑定仍执行
+连接兼容检查；未知摘要、安装与权限不兼容仍按既有规则处理。
+
+从 PR 之前的 `7973c7ffd1b0a360dea02c936458fb69f591c11e` 构建 Core，使用正式私有配置与消息执行
+建立 schema 142 的 Claude/Codex 原生绑定，再通过新 Core 重启升级至 schema 143。
+`smoke-member-environment-upgrade.mjs` 在 `d8726819` 复现两者错误地发送 `start`/`thread/start`；
+修复后实际发送 `--resume`/`thread/resume` 并携带原 ID，绑定身份/代次保持，前后两个 Run 均成功。
+两次启动之间只改变 Host 继承值，队员配置未修改；新 CLI 收到当前 Host 值与原队员覆盖，证明未恢复旧环境。
+此验收使用两个实际 Core 版本与合成原生 CLI，不代表真实 Provider 恢复成功率。
+
+摘要/权限矩阵扩展原 `discovered_entry_configures_and_freezes_without_health_evidence` owner 并通过；
+Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 归属见上述测试指南。

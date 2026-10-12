@@ -2161,7 +2161,7 @@ export function ThreadWorkspace({
     ))
     // 受理回执先于名册投影时，只补展示资料，不推断成员资格。
     return agents.filter((agent) => mentionedIds.has(agent.agentId)
-      && !memberById.has(agent.agentId) && agent.presence === 'present')
+      && !memberById.has(agent.agentId) && agent.presence !== 'removed')
   }, [optimisticMessages, agents, memberById])
   const messageMentionNames = useMemo(
     () => [...snapshot.members, ...pendingMemberProfiles],

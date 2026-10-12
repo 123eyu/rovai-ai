@@ -139,9 +139,9 @@ describe('受理先于名册投影时的 Member Mention', () => {
     renderMessage(content, 'NON_AUTHORITATIVE_BODY_CACHE', 'user', campMembers,
       DEFAULT_CURRENT_USER_PROFILE, { addressMode: 'explicit', addressedAgentIds: ['agent_reviewer'] }, agents, pending)
 
-  it('保留已知姓名，但不伪造成员资格或可操作人物卡', () => {
+  it.each(['present', 'away'] as const)('%s 资料保留已知姓名，但不伪造成员资格或可操作人物卡', (presence) => {
     const source = JSON.stringify(content)
-    const markup = renderPending()
+    const markup = renderPending([members[0]], [{ ...reviewerProfile, presence }])
     expect(markup).toContain('class="message-mention-token" data-agent-id="agent_reviewer"')
     expect(markup).toContain('title="正在同步队员名册"')
     expect(markup).toContain('aria-label="队员 沐瓦 的名册正在同步"')

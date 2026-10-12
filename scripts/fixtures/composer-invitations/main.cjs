@@ -82,6 +82,13 @@ app.whenReady().then(async () => {
     assert.deepEqual(state.errors, [])
     assert.deepEqual(state.memberIds, ['lead'])
     const acceptedDraft = state.stored
+    await evaluate('invitationTest.presence("away")')
+    await wait('invitationTest.state().outsidePresence === "away"')
+    state = await evaluate('invitationTest.state()')
+    assert.deepEqual(state.publishedMentions, [{ label: '@爱丽丝', unavailable: false, interactive: false }], '名册未到时刷新为 away 仍保留姓名并保持静态')
+    assert.deepEqual(state.memberIds, ['lead'])
+    assert.equal(state.stored, acceptedDraft)
+    assert.equal(state.submissions.length, 2)
     await evaluate(`document.querySelector('.message-mention-token[data-agent-id="outside"]').click()`)
     assert.equal(await evaluate(`!!document.querySelector('.mention-profile-popover')`), false)
     await evaluate(`document.querySelector('.message-copy-button').click()`)
@@ -95,6 +102,14 @@ app.whenReady().then(async () => {
       await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
       writeFileSync(join(evidence, `accepted-before-roster-${theme}.png`), (await window.webContents.capturePage()).toPNG())
     }
+    await evaluate('invitationTest.presence("removed")')
+    await wait('invitationTest.state().outsidePresence === "removed"')
+    state = await evaluate('invitationTest.state()')
+    assert.deepEqual(state.publishedMentions, [{ label: '@不可用队员', unavailable: true, interactive: false }], '已移除资料不能保持待投影的可用外观')
+    assert.equal(state.stored, acceptedDraft)
+    await evaluate('invitationTest.presence("present")')
+    await wait('invitationTest.state().outsidePresence === "present"')
+    assert.deepEqual((await evaluate('invitationTest.state()')).publishedMentions, [{ label: '@爱丽丝', unavailable: false, interactive: false }])
     // The accepted receipt precedes the roster projection. Core now rejects
     // Pending presence, including during clear/restore, and must not be called.
     const presenceCalls = state.calls.filter(call => call === 'threads.pendingDraft.setPresence').length
@@ -138,7 +153,7 @@ app.whenReady().then(async () => {
     state = await evaluate('invitationTest.state()')
     assert.ok(state.calls.indexOf('add:outside') < state.calls.indexOf('send'))
     assert.deepEqual(state.errors, [])
-    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send'], userData }))
+    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'away refresh keeps pending name static', 'removed profile remains unavailable', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send'], userData }))
     app.exit(0)
   } catch (error) { console.error(error); app.exit(1) }
 })

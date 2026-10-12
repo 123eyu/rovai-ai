@@ -4,6 +4,7 @@ import type {
   GeneralPreferencesSnapshot,
   NavigationThreadItem,
   NavigationSnapshot,
+  NavigationPreferencesSnapshot,
   NewConversationDefaults,
   ProjectNavigationGroup,
   WorkspaceSelection
@@ -87,19 +88,6 @@ export function projectTargetKey(projectPath: string): string {
   return `directory:${projectPath}`
 }
 
-export function navigationWithoutRemovedProjects(
-  navigation: NavigationSnapshot | null,
-  removedProjectKeys: ReadonlySet<string>
-): NavigationSnapshot | null {
-  if (!navigation || removedProjectKeys.size === 0) return navigation
-  const projects = navigation.projects.filter(
-    (project) => !removedProjectKeys.has(project.projectKey)
-  )
-  return projects.length === navigation.projects.length
-    ? navigation
-    : { ...navigation, projects }
-}
-
 export function navigationWithProjectOrder(
   navigation: NavigationSnapshot | null,
   projectOrder: readonly string[] | null
@@ -138,20 +126,6 @@ export function navigationWithProjectNames(
   return projects.every((project, index) => project === navigation.projects[index])
     ? navigation
     : { ...navigation, projects }
-}
-
-export function navigationWithProjectAuthority(
-  navigation: NavigationSnapshot | null,
-  removedProjectKeys: ReadonlySet<string>,
-  removedProjectAuthorityReady: boolean
-): NavigationSnapshot | null {
-  if (!navigation) return null
-  if (!removedProjectAuthorityReady) {
-    return navigation.projects.length === 0
-      ? navigation
-      : { ...navigation, projects: [] }
-  }
-  return navigationWithoutRemovedProjects(navigation, removedProjectKeys)
 }
 
 export function currentProjectGroup(
@@ -274,4 +248,25 @@ export function shouldInvalidateNewConversationDefaults(
   overviewReady: boolean
 ): boolean {
   return overviewReady && defaultsNeedInvalidation(preferences, agents)
+}
+
+/** Saved directories own membership after the single legacy import. Before it,
+ * ordinary Core groups remain visible. */
+export function navigationWithProjectDirectories(
+  navigation: NavigationSnapshot | null,
+  preferences: NavigationPreferencesSnapshot | null
+): NavigationSnapshot | null {
+  if (!navigation && !preferences?.registeredProjects.length) return null
+  const source = navigation ?? { schemaVersion: 3, throughGlobalSequence: 0, quickChat: { totalCount: 0, recentThreads: [] }, projects: [] }
+  const groups = new Map(source.projects.map(project => [project.projectPath, project]))
+  const removed = new Set(preferences?.removedProjects.map(project => project.targetKey) ?? [])
+  const paths = new Set([
+    ...(preferences?.registeredProjects ?? []),
+    ...(!preferences?.legacyProjectsSynced || preferences.readError ? groups.keys() : [])
+  ])
+  return { ...source, projects: [...paths].filter(path => !removed.has(projectTargetKey(path))).map(projectPath => groups.get(projectPath) ?? {
+    projectKey: projectTargetKey(projectPath), projectPath,
+    name: projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? projectPath,
+    totalCount: 0, recentThreads: [], lastActivityAt: '', lastActivityGlobalSequence: 0
+  }) }
 }

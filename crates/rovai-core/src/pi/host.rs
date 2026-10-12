@@ -2469,13 +2469,28 @@ fn scope_key(kind: &str, id: &str) -> Result<String> {
     canonical_json_digest(&json!({"kind": kind, "id": id}))
 }
 
-fn locator_path(root: &Path) -> PathBuf {
-    root.join("locator.json")
+fn locator_path(root: &Path, session_id: &str) -> Result<PathBuf> {
+    let id =
+        uuid::Uuid::parse_str(session_id).context("Pi locator Session ID is not a full UUID")?;
+    anyhow::ensure!(
+        id.hyphenated().to_string() == session_id,
+        "Pi locator Session ID is not canonical"
+    );
+    Ok(root.join(format!("{session_id}.json")))
 }
 
 fn read_session_locator(root: &Path, expected_id: &str, cwd: &Path) -> Result<PiSessionLocator> {
-    let path = locator_path(root);
-    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+    let mut path = locator_path(root, expected_id)?;
+    let metadata = match std::fs::symlink_metadata(&path) {
+        // Older versions kept one locator per member. Only a matching exact ID
+        // below can admit it; another Conversation's locator is never borrowed.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            path = root.join("locator.json");
+            std::fs::symlink_metadata(&path)
+        }
+        result => result,
+    }
+    .map_err(|error| {
         let missing = error.kind() == std::io::ErrorKind::NotFound;
         let error = anyhow::Error::new(error).context("Pi exact-resume locator is unavailable");
         if missing {
@@ -2504,7 +2519,7 @@ fn write_session_locator(
 ) -> Result<()> {
     validate_native_session_file(file, id, cwd, must_exist)?;
     write_private_json(
-        &locator_path(root),
+        &locator_path(root, id)?,
         &PiSessionLocator {
             schema_version: 2,
             session_id: id.to_string(),
@@ -3537,14 +3552,48 @@ done
         validate_native_session_file(&session, id, &root, true).unwrap();
         let locator_root = root.join("locator");
         std::fs::create_dir_all(&locator_root).unwrap();
+        write_private_json(
+            &locator_root.join("locator.json"),
+            &PiSessionLocator {
+                schema_version: 2,
+                session_id: id.into(),
+                session_file: session.to_string_lossy().into_owned(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read_session_locator(&locator_root, id, &root)
+                .unwrap()
+                .session_id,
+            id
+        );
+        let other_id = "00000000-0000-4000-8000-000000000088";
+        let wrong_legacy = read_session_locator(&locator_root, other_id, &root).unwrap_err();
+        assert!(
+            !switch_target_is_explicitly_unavailable(&wrong_legacy),
+            "another Conversation's legacy locator does not prove this target is missing"
+        );
+        assert!(locator_path(&locator_root, "../locator").is_err());
         write_session_locator(&locator_root, id, &session, &root, true).unwrap();
+        std::fs::write(
+            locator_root.join("locator.json"),
+            "unreadable legacy locator",
+        )
+        .unwrap();
+        assert_eq!(
+            read_session_locator(&locator_root, id, &root)
+                .unwrap()
+                .session_id,
+            id,
+            "the scoped locator takes precedence over legacy data"
+        );
         std::fs::remove_file(&session).unwrap();
         assert!(switch_target_is_explicitly_unavailable(
             &read_session_locator(&locator_root, id, &root).unwrap_err()
         ));
         let absent_parent = root.join("removed-directory").join("session.jsonl");
         write_private_json(
-            &locator_path(&locator_root),
+            &locator_path(&locator_root, id).unwrap(),
             &PiSessionLocator {
                 schema_version: 2,
                 session_id: id.into(),

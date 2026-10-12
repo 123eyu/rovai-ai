@@ -34,6 +34,14 @@ AdapterKind 与本次 Runtime 相同，就交给该 Adapter 的原生恢复方�
 或已有精确目标核验确认目标不存在/历史无法加载。Command Code 保留完整目录的 exact ID/cwd 核验；
 目录不完整、分页或损坏不证明目标消失。Pi 既有完整 locator/目标文件的确定不存在可作为证据。
 
+Pi locator 在既有 Camp/队员私有目录内按完整原生 Session UUID 分文件，公聊与单聊不能互相覆盖。
+旧单文件 locator 只在请求的完整 ID 匹配时作为回读来源；已有该 Session 的独立 locator 优先，错配不作为历史丢失证据。
+不扫描或猜测其他原生历史来替换目标。
+
+ACP 保留既有 `AcpRpcError` 的机器字段与脱敏诊断至请求调用处。只有实际 `session/resume` / `session/load`
+返回的 `-32601` 表明该恢复方法不可用；若还有广告且 Adapter 支持的 load 方式，先以相同 ID 尝试一次。
+全部可用恢复方式均明确不可用时才给出降级结论；初始化、模型、MCP 或目录请求的同一码不获得该结论。
+
 没有稳定机器证据的 CLI 按未知错误处理。不能对 error.to_string()、stderr 或日志匹配 incompatible、
 not found、method not found 等文本；普通内部/参数错误、进程退出、超时、取消、认证、网络或临时锁
 不触发降级。初始化、模型设置和 MCP 请求失败不能冒充会话恢复失败。

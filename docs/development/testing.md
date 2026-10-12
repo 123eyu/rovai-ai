@@ -1440,6 +1440,13 @@ Codex 另以真实 `config/read` / `account/read` 请求注入 MCP / 认证错�
 最小命令：`node scripts/smoke-member-environment-upgrade.mjs /absolute/schema142/rovai-core`。
 旧二进制可从 `7973c7ffd1b0a360dea02c936458fb69f591c11e` 构建，旁边需配套 `rovai`；候选为当前 debug binaries。
 
+PR #714 补充审查继续扩展同一 owner：Pi 用正式公聊/单聊发送接口交替建立与恢复 S1/S2，在 Warm 和 Core
+重启后检查实际 `switch_session` 路径、Session ID、每条 prompt 次数及各 Conversation 的进程复用。
+ACP 覆盖广告 load 后实际返回 `-32601` 的新建成功/失败、resume 不可用后的 load 替代，以及初始化/模型
+同码不得降级。定向重跑可用 `node scripts/smoke-member-environment-upgrade.mjs --adapter-regressions`，不冒充跨版本验收。
+Pi 原 session-header owner 保留缺文件/父目录矩阵，增加旧 locator 精确 ID 回读、错 ID 拒绝及新文件优先；
+ACP 原终端协议 owner 在相同脱敏断言之外检查结构化错误码仍存在。不新增 Rust 测试函数或平行 Core harness。
+
 Rust 复用原 owner 并保持所有仍有效的保护：
 
 - `runtime::tests` 的摘要资格矩阵改为同类型恢复，历史 attempted/ambiguous/incompatible 不挡新 Run；

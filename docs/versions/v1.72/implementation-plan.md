@@ -1796,3 +1796,23 @@ Rust owner 与准入说明见[测试记录](../../development/testing.md#原生�
 
 验证范围为隔离 Core/合成 CLI，未运行真实 Provider/模型或 Windows 真机，未安装或重启日常 App。
 状态：保留 `codex/native-session-resume` worktree 供 PR 评审，未合并。
+
+### Pi 定位范围与 ACP 恢复拒绝接线（PR #714 补充审查）
+
+以 `896b4d55e980901c5f3e5ef74a5fd9ad7b9cc5ac` 二进制运行新增的正式 Core 协议场景，复现两项遗漏：
+同 Camp/队员的 Pi 公聊 S1 → 单聊 S2 → 公聊 S1 在第三步报 locator 身份错配；ACP 广告支持 load、
+实际返回 `-32601` 后没有调用一次新建。前者是已有定位文件范围过粗，后者是 RPC 传递时丢弃结构化错误。
+
+修复仍在现有 Adapter 内：Pi 按 canonical Session UUID 保存独立定位文件，旧 locator 仅在 ID 匹配时回读，
+不把错配改判为缺历史；ACP 用原 `AcpRpcError` 跨请求通道传递脱敏机器字段，只在恢复调用处解释 `-32601`。
+resume 方法不可用时，若广告且 Adapter 允许 load，则以原 ID 尝试一次 load；可用恢复方式均明确不可用
+才回到既有的一次新建。初始化/模型/目录请求错误不获得该结论，没有新数据库状态、迁移或历史扫描。
+
+回归复用原 Core smoke 和 Rust owner，详见[测试说明](../../development/testing.md#原生会话恢复-owner2026-10-12)。
+Spec 与 Standards 静态复核均无剩余核心问题。
+
+修复后的 `--adapter-regressions` 执行验收通过：Pi 在 Warm/重启两轮交替恢复公聊、单聊的原 ID 和文件路径，
+8 条输入各提交一次；ACP 覆盖 load 拒绝后新建成功/失败、resume 拒绝后 load 成功及两者都不支持的有界降级，
+并验证初始化/模型同码、取消、超时和输入未知不会降级或重复发送。ACP/Pi 定向扩展测试分别 66/14 项通过，
+各有 2/1 项既有人工测试忽略；`cargo test --workspace` 重新通过 465 项、1 项既有人工测试忽略。
+格式、生产编译及文档治理门禁通过。验收仍使用隔离 Core 与合成 CLI。

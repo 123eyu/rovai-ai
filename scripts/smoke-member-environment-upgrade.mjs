@@ -1,6 +1,7 @@
 // Cross-version acceptance owner: the previous Core must create the native binding
 // itself. A stored-ID-only unit fixture cannot prove that the next CLI resumes it.
 // Usage: node scripts/smoke-member-environment-upgrade.mjs /absolute/old/rovai-core [candidate-core]
+// Adapter-only regressions: replace the old Core path with --adapter-regressions.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
@@ -13,14 +14,15 @@ import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 import { coreDataDirectoryArguments, removeEphemeralRuntimeCampFilesRoot } from './lib/runtime-camp-files-root.mjs'
 
 const previousCore = process.argv[2]
-assert.ok(previousCore && isAbsolute(previousCore), 'Supply the absolute pre-upgrade Core path (with its adjacent rovai CLI)')
+const adapterRegressionsOnly = previousCore === '--adapter-regressions'
+assert.ok(adapterRegressionsOnly || (previousCore && isAbsolute(previousCore)), 'Supply the absolute pre-upgrade Core path (with its adjacent rovai CLI) or --adapter-regressions')
 assert.notEqual(process.platform, 'win32', 'This synthetic Python CLI fixture requires macOS or Linux')
 const candidateCore = resolve(process.argv[3] ?? join(import.meta.dirname, '../target/debug/rovai-core'))
 const fixture = await realpath(await mkdtemp(join(tmpdir(), 'rovai-env-upgrade-')))
 const results = []
 const failures = []
 try {
-  for (const kind of ['claude-code-cli', 'codex-cli']) {
+  for (const kind of adapterRegressionsOnly ? [] : ['claude-code-cli', 'codex-cli']) {
     const directory = join(fixture, kind)
     const data = join(directory, 'core'), home = join(directory, 'home')
     await mkdir(data, { recursive: true })
@@ -174,6 +176,7 @@ try {
     }
   }
   try { results.push(await acpFallbackAcceptance(fixture, candidateCore)) } catch (error) { failures.push(error) }
+  try { results.push(await piConversationAcceptance(fixture, candidateCore)) } catch (error) { failures.push(error) }
   if (failures.length) throw new AggregateError(failures, 'Native session upgrade acceptance failed')
   console.log(JSON.stringify({ ok: true, results }))
 } finally {
@@ -293,26 +296,31 @@ for line in sys.stdin:
     method, params = request['method'], request.get('params', {})
     with open(${JSON.stringify(log)}, 'a') as output:
         output.write(json.dumps(dict(stage=stage, method=method, params=params)) + '\\n')
-    error = None
+    error, error_code = None, -32603
     if method == 'initialize':
         result = {'protocolVersion':1,'agentCapabilities':{'loadSession':not stage.startswith('unsupported')}}
+        if stage.startswith('resume-'): result['agentCapabilities']['sessionCapabilities'] = {'resume':{}}
         if stage == 'initialize-error': error = 'initialize: incompatible method not found'
-    elif method in ('session/new','session/load'):
+        if stage == 'initialize-method-missing': error, error_code = 'initialize unavailable', -32601
+    elif method in ('session/new','session/load','session/resume'):
         sid = params.get('sessionId', str(uuid.uuid4()))
         result = {'sessionId':sid, 'models':{'currentModelId':'model-a','availableModels':[{'modelId':'model-a','name':'A'},{'modelId':'model-b','name':'B'}]}, 'modes':{'currentModeId':'default','availableModes':[{'id':'default','name':'Default'}]}}
-        if stage == 'unsupported-new-fails' and method == 'session/new': error = 'replacement failed'
+        if stage in ('unsupported-new-fails','load-unsupported-new-fails') and method == 'session/new': error = 'replacement failed'
+        if (stage.startswith('load-unsupported') and method == 'session/load') or (stage.startswith('resume-') and method == 'session/resume') or (stage == 'resume-and-load-unsupported' and method == 'session/load'):
+            error, error_code = 'unavailable', -32601
         if stage in ('restore-error','mcp-error') and method == 'session/load': error = stage + ': incompatible method not found'
         if stage in ('cancel','timeout') and method == 'session/load': time.sleep(90)
     elif method in ('session/set_model','session/set_config_option'):
         result = {}
         if stage == 'model-error': error = 'model: incompatible method not found'
+        if stage == 'model-method-missing': error, error_code = 'model unavailable', -32601
     elif method == 'session/prompt':
         print(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':params['sessionId'],'update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'fallback fixture complete'}}}}), flush=True)
         if stage == 'input-unknown': sys.exit(1)
         result = {'stopReason':'end_turn'}
     else: result = {}
     reply = {'jsonrpc':'2.0','id':request['id']}
-    reply['error' if error else 'result'] = {'code':-32603,'message':error} if error else result
+    reply['error' if error else 'result'] = {'code':error_code,'message':error} if error else result
     print(json.dumps(reply), flush=True)
 `)
   await chmod(executable, 0o700)
@@ -358,7 +366,9 @@ for line in sys.stdin:
       workspace: { projectPath: directory }, memberAgentIds: ['agent_1'], defaultLeadAgentId: 'agent_1', collaborationMode: 'peer' })
     campId = created.payload.threadId
     await send('SEED_INPUT'); await settle('succeeded'); await core.stop()
-    for (const stage of ['unsupported-new-fails','unsupported','initialize-error','restore-error','model-error','mcp-error','cancel','timeout','input-unknown']) {
+    const replacements = ['unsupported-new-fails','unsupported','load-unsupported-new-fails','load-unsupported','resume-and-load-unsupported']
+    const successful = ['unsupported','load-unsupported','resume-and-load-unsupported','resume-unsupported-load-success']
+    for (const stage of [...replacements, 'resume-unsupported-load-success','initialize-method-missing','model-method-missing','initialize-error','restore-error','model-error','mcp-error','cancel','timeout','input-unknown']) {
       const before = query('SELECT native_session_id FROM conversation WHERE camp_id=?', campId).native_session_id
       assert.ok(before)
       core = start(stage); await core.request('health.check')
@@ -369,19 +379,154 @@ for line in sys.stdin:
         const cancelled = await core.request('agentRuns.cancel', { commandId: crypto.randomUUID(), command: { campId, agentRunId: run.id, expectedVersion: run.version } })
         assert.equal(cancelled.status, 'applied', JSON.stringify(cancelled))
       }
-      const run = await settle(stage === 'unsupported' ? 'succeeded' : stage === 'cancel' ? 'cancelled' : 'failed')
+      const run = await settle(successful.includes(stage) ? 'succeeded' : stage === 'cancel' ? 'cancelled' : 'failed')
       await core.stop()
       const actual = (await records()).filter(r => r.stage === stage)
       const after = query('SELECT native_session_id FROM conversation WHERE camp_id=?', campId).native_session_id
-      assert.equal(actual.filter(r => r.method === 'session/new').length, stage.startsWith('unsupported') ? 1 : 0, stage)
-      assert.equal(actual.filter(r => r.method === 'session/prompt').length, ['unsupported','input-unknown'].includes(stage) ? 1 : 0, stage)
-      if (stage === 'unsupported') assert.notEqual(after, before)
+      assert.equal(actual.filter(r => r.method === 'session/new').length, replacements.includes(stage) ? 1 : 0, stage)
+      assert.equal(actual.filter(r => r.method === 'session/prompt').length, successful.includes(stage) || stage === 'input-unknown' ? 1 : 0, stage)
+      const replaced = replacements.includes(stage) && successful.includes(stage)
+      if (replaced) assert.notEqual(after, before)
       else assert.equal(after, before, `${stage}: retain the old target`)
-      for (const restored of actual.filter(r => r.method === 'session/load')) assert.equal(restored.params.sessionId, before)
+      for (const restored of actual.filter(r => ['session/load','session/resume'].includes(r.method))) assert.equal(restored.params.sessionId, before)
+      if (stage.startsWith('load-') || stage.startsWith('resume-')) assert.equal(actual.filter(r => r.method === 'session/load').length, 1, stage)
+      if (stage.startsWith('resume-')) assert.equal(actual.filter(r => r.method === 'session/resume').length, 1, stage)
       if (stage === 'input-unknown') assert.ok(['accepted','delivery_unknown'].includes(query('SELECT status FROM runtime_input_delivery WHERE agent_run_id=?', run.id).status))
       const notice = query("SELECT COUNT(*) AS total FROM event_log WHERE entity_id=? AND event_type='agent_run.native_session_continuity_lost' AND json_extract(payload_json,'$.continuation')='native_session_replaced'", run.id)
-      assert.equal(notice.total, stage === 'unsupported' ? 1 : 0, stage)
+      assert.equal(notice.total, replaced ? 1 : 0, stage)
     }
     return { kind: 'trae-cn-cli', fallbackOnce: true, replacementFailureKeepsTarget: true, unknownErrorsDoNotFallback: true, noDuplicateInput: true }
+  } finally { await core?.stop(); await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home }) }
+}
+
+// Exercise both Conversation kinds through Core's normal send/bind/Fleet paths.
+// The mock retains native files and logs real switch_session targets and inputs.
+async function piConversationAcceptance(root, binary) {
+  const directory = join(root, 'pi-conversations'), data = join(directory, 'core'), home = join(directory, 'home')
+  await mkdir(home, { recursive: true })
+  const executable = join(directory, 'pi'), log = join(directory, 'requests.jsonl')
+  await writeFile(executable, `#!/usr/bin/python3
+import json, os, sys, uuid
+if '--version' in sys.argv:
+    print('0.84.4'); sys.exit(0)
+native_root = os.path.join(os.path.dirname(__file__), 'native-sessions')
+os.makedirs(native_root, exist_ok=True)
+sid, session_file = None, None
+def emit(value): print(json.dumps(value), flush=True)
+def new_session():
+    global sid, session_file
+    sid = str(uuid.uuid4())
+    session_file = os.path.join(native_root, sid + '.jsonl')
+    with open(session_file, 'w') as output: output.write(json.dumps({'type':'session','id':sid,'cwd':os.getcwd()}) + '\\n')
+def managed_state():
+    with open(os.environ['ROVAI_PI_HOST_BINDING_FILE']) as source: binding = json.load(source)
+    state = {'schemaVersion':3,'extensionVersion':'rovai-pi-host-v8','hostInstanceId':binding['hostInstanceId'],'hostBindingGeneration':binding['hostBindingGeneration'],'sessionId':sid,'sessionFile':session_file,'cwd':os.getcwd()}
+    emit({'type':'extension_ui_request','method':'setStatus','statusKey':'rovai-managed-session-state','statusText':json.dumps(state)})
+new_session()
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request['type']
+    result = {}
+    if method == 'new_session': new_session(); result = {'cancelled':False}
+    elif method == 'switch_session':
+        session_file = request['sessionPath']
+        with open(session_file) as source: sid = json.loads(source.readline())['id']
+        result = {'cancelled':False}
+    elif method == 'get_state':
+        managed_state()
+        result = {'sessionId':sid,'sessionFile':session_file,'model':{'provider':'fixture','id':'fixture-model','input':['text']},'thinkingLevel':'off'}
+    elif method == 'get_available_models': result = {'models':[{'provider':'fixture','id':'fixture-model','name':'Fixture'}]}
+    with open(${JSON.stringify(log)}, 'a') as output:
+        output.write(json.dumps({'method':method,'request':request,'sessionId':sid,'sessionFile':session_file,'pid':os.getpid()}) + '\\n')
+    emit({'type':'response','id':request['id'],'success':True,'command':method,'data':result})
+    if method == 'prompt':
+        emit({'type':'agent_start'})
+        emit({'type':'message_end','message':{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':'conversation fixture complete'}]}})
+        emit({'type':'agent_settled'})
+`)
+  await chmod(executable, 0o700)
+  const query = (sql, ...params) => {
+    const db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
+    try { return db.prepare(sql).get(...params) } finally { db.close() }
+  }
+  const records = async () => {
+    try { return (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse) }
+    catch (error) { if (error.code === 'ENOENT') return []; throw error }
+  }
+  const start = () => connectCore(binary, [...coreDataDirectoryArguments(data, { homeDirectory: home }),
+    '--skill-library-root', join(data, 'skills'), '--mcp-config-path', join(data, 'mcp.json')], directory,
+    { HOME: home, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', TMPDIR: directory, ROVAI_PI_BIN: executable,
+      PI_CODING_AGENT_DIR: join(home, 'pi'), ROVAI_CODEX_BIN: '/nonexistent/codex', ROVAI_CLAUDE_CODE_BIN: '/nonexistent/claude' })
+  let core, campId, privateConversationId, total = 0
+  const latestRun = () => query('SELECT id,status,wait_reason,last_error_code,conversation_id FROM agent_run WHERE conversation_id IN (SELECT id FROM conversation WHERE camp_id=?) ORDER BY rowid DESC LIMIT 1', campId)
+  const sessions = new Map(), hosts = new Map()
+  try {
+    core = start(); await core.request('health.check')
+    await core.request('runtime.discovery.rescan', { interactiveShell: false })
+    const profile = await core.request('members.get', { agentId: 'agent_1' })
+    const configured = await core.request('members.runtime.set', { commandId: crypto.randomUUID(), command: {
+      agentId: 'agent_1', expectedVersion: profile.version, adapterKind: 'pi', model: { mode: 'runtime_default' },
+      permissions: { adapterKind: 'pi', schemaVersion: 1, values: {} }
+    } })
+    assert.equal(configured.status, 'applied', JSON.stringify(configured))
+    const created = await core.request('threads.create', { commandId: crypto.randomUUID(), name: 'Pi conversation isolation',
+      workspace: { projectPath: directory }, memberAgentIds: ['agent_1'], defaultLeadAgentId: 'agent_1', collaborationMode: 'peer' })
+    campId = created.payload.threadId
+    for (const generation of ['warm', 'restarted']) {
+      if (generation === 'restarted') { await core.stop(); core = start(); await core.request('health.check') }
+      for (const [index, kind] of ['public', 'private', 'public', 'private'].entries()) {
+        const offset = (await records()).length
+        const body = `PI_INPUT_${generation}_${index}_${kind}`
+        if (kind === 'public') {
+          const result = await core.request('thread.messages.send', { commandId: crypto.randomUUID(), threadId: campId,
+            content: composerDocumentForAddress({ mode: 'default' }, body), sourceAttachments: [], quotes: [], replyToThreadMessageId: null,
+            execution: { taskId: null, purpose: 'Verify exact Pi Conversation resume', completionRole: 'required' } })
+          assert.equal(result.commandResult.status, 'accepted', JSON.stringify(result))
+        } else {
+          if (!privateConversationId) {
+            const opened = await core.request('singleChat.open', { commandId: crypto.randomUUID(), command: { threadId: campId, agentId: 'agent_1' } })
+            privateConversationId = opened.payload.conversationId
+          }
+          const snapshot = await core.request('singleChat.get', { conversationId: privateConversationId })
+          const sent = await core.request('singleChat.send', { commandId: crypto.randomUUID(), command: {
+            threadId: campId, conversationId: privateConversationId, body, draftRevision: snapshot.draft.revision
+          } })
+          assert.ok(['applied','accepted'].includes(sent.status), JSON.stringify(sent))
+        }
+        total++
+        await waitFor(() => {
+          const state = query("SELECT COUNT(*) AS total, SUM(status IN ('succeeded','failed','cancelled')) AS settled FROM agent_run WHERE conversation_id IN (SELECT id FROM conversation WHERE camp_id=?)", campId)
+          return state.total === total && state.settled === total
+        }, () => `${generation}/${index}/${kind}: ${JSON.stringify(latestRun())}; ${core.diagnostics()}`)
+        const run = latestRun()
+        assert.equal(run.status, 'succeeded', `${generation}/${index}/${kind}: ${JSON.stringify(run)} ${core.diagnostics()}`)
+        const actual = (await records()).slice(offset)
+        const prompt = actual.filter(r => r.method === 'prompt')
+        assert.equal(prompt.length, 1, `${generation}/${kind}: exactly one input`)
+        assert.ok(prompt[0].request.message.includes(body))
+        const bound = query('SELECT native_session_id FROM conversation WHERE id=?', run.conversation_id).native_session_id
+        assert.equal(bound, prompt[0].sessionId)
+        if (sessions.has(kind)) {
+          const previous = sessions.get(kind)
+          const restored = actual.filter(r => r.method === 'switch_session')
+          assert.equal(restored.length, 1, `${generation}/${kind}: actual native restore`)
+          assert.equal(restored[0].request.sessionPath, previous.sessionFile)
+          assert.equal(restored[0].sessionId, previous.sessionId)
+          assert.equal(bound, previous.sessionId)
+          assert.equal(actual.filter(r => r.method === 'new_session').length, 0)
+        } else sessions.set(kind, prompt[0])
+        const hostKey = `${generation}/${kind}`
+        if (hosts.has(hostKey)) assert.equal(prompt[0].pid, hosts.get(hostKey), 'reuse each Conversation own Warm process')
+        else {
+          if (generation === 'restarted') assert.notEqual(prompt[0].pid, hosts.get(`warm/${kind}`), 'restart creates a new CLI')
+          hosts.set(hostKey, prompt[0].pid)
+        }
+      }
+    }
+    assert.notEqual(sessions.get('public').sessionId, sessions.get('private').sessionId)
+    const prompts = (await records()).filter(r => r.method === 'prompt')
+    assert.equal(prompts.length, 8)
+    assert.equal(query("SELECT COUNT(*) AS total FROM event_log WHERE event_type='agent_run.native_session_continuity_lost'").total, 0)
+    return { kind: 'pi', publicAndPrivateExactResume: true, warmAndRestarted: true, inputs: prompts.length }
   } finally { await core?.stop(); await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home }) }
 }

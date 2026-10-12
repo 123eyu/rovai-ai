@@ -10,7 +10,7 @@ last_updated: 2026-10-12
 第 5、6 项不实施，不增加强制放行、自动重试、空闲超时或结果对账。CLI 原生 turn_end 不足以确认
 Core 收到了 ACP prompt response，本改动不宣称已定位或彻底修复报告中的完成回包缺失。
 
-分支 `rovai/async-run-finalization`，基线 `7973c7ffd1b0a360dea02c936458fb69f591c11e`，worktree 为
+分支 `rovai/async-run-finalization`，初始基线 `7973c7ffd1b0a360dea02c936458fb69f591c11e`（评审修订已合入 main `cc33bc149`），worktree 为
 `/Users/murray.xue/.codex/worktrees/async-run-finalization/rovai-ai`。无前置治理分支、无模型输入变化。
 
 ## 测试归属
@@ -45,10 +45,44 @@ Smoke 前执行 `cargo build -p rovai-core --bins`。没有删除原 owner；原
   继续产生一条新 prompt，新 Run succeeded/accepted。旧 Run cancelled 与旧 delivery_unknown 保持原值。
 - `DOCS_BASE_REF=7973c7ffd1b0a360dea02c936458fb69f591c11e pnpm docs:check:ci`：通过。
 
-验收修正两项旧假设：Codex 原生终态 fixture 补上当前冻结环境 hydrate；合成 Runtime 使用公开检查和
+验收修正旧假设：合成 Runtime 使用公开检查和
 成员配置命令，不依赖旧辅助函数将所有成员就绪状态限定为 ready。没有修改生产停止／继续策略。
 
 本地 journal 的早期/尾部统计可能缺失，短于 4 秒周期的 Run 可能没有这些统计；正常 wire 上报仍会
 后台保存。本次没有复现原报告的 route/owner 竞态，不宣称自动消除了完成回包缺失。
 
-Status：ready（待 PR review）；Next：按 PR review 修订，保留 worktree。
+## PR #713 评审修订
+
+- 正常退出：writer fence 和最终取消事务之后，监督器给正文一次最多 1s、受现有 hard deadline 约束的
+  落盘机会；阻塞工作线程执行 I/O，忽略后台退避。失败只记日志；复用既有 400ms 后显示的安全退出弹窗。
+- 渠道：已有 console 与首次发现的终态 console 都检查正文块是否仍为 streaming，未定稿保持
+  terminal_pending；定稿后再保存 immutable snapshot，原有事件和 watchdog 负责后续刷新。
+- 与 main 的合并保留队员 CLI 启动环境迁移 193/schema 143，本 PR 的 Usage 迁移顺延为 194/schema 144，
+  当前 Version Decision 顺延为 D36；不复活已退役的环境快照和 hydrate 流程。
+
+复用测试 owner，不新增 Rust test 函数：
+
+- `channel::tests::terminal_execution_console_recovers_after_completed_request_and_restart` 在现有
+  terminal_pending/restart 夹具内暂停正文维护，跨过 quiet window，先断言未封存，再执行维护并重开，
+  最终快照包含完整 Blob 正文。旧实现会提前 terminal_sealed。最低命令同名 `--features extended-tests --lib`。
+- 既有 execution_text owner 增加已过期 shutdown budget 不写入、未到普通重试时间仍能末次落盘的断言。
+- 复用 `scripts/smoke-stop-continue.mjs --shutdown-text`（内存正文）及 `--shutdown-text --spooled`
+  （超过 64 KiB 的临时文件正文）。真实 Core + 合成 ACP，公开 RPC 正常关闭，等待自然退出，重新启动，
+  通过公开 Evidence content 读取完整 interrupted 正文。只读取 SQLite；没有手工调用维护函数、改库或
+  借助强杀制造成功。原来的无重启停止→继续仍由默认参数单独验收。
+
+评审修订验证：
+
+- 退出验收在修订前构建失败：正常 shutdown/reopen 后正文内容为 `""`，证明它覆盖生产退出链路。
+- 渠道延迟定稿／重开 owner、正文退出预算／退避 owner、Usage 迁移 owner、当前 schema 准入 owner：通过。
+- main 环境迁移与配置 owner：4 passed；Codex 原生终态不等待 Usage 锁 owner：1 passed。
+- `pnpm typecheck`、`pnpm test`：通过；242 个 Vitest 文件、2,639 个断言；Node 339 passed、2 skipped。
+
+- 修复后真实 Core 正常退出／重开：512 字节内存正文、160,000 字节 spool 正文均完整保留；
+  关闭耗时分别 38ms、56ms（单次夹具观察，不作为性能承诺）。1s 为上限，不固定等待。
+- 默认停止→继续 Smoke：通过，无 App 重启、无数据库修复；旧 Run/input 状态保持不变。
+- 文档治理与格式检查：通过。
+
+- 修订后 `pnpm test:rust:pr`：465 passed、1 ignored；`cargo check --workspace` 与 `cargo fmt --all --check`：通过。
+
+Status：ready；Next：PR #713 等待仓库 CI/review 后合入。

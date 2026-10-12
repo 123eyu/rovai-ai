@@ -10,7 +10,7 @@ last_updated: 2026-10-12
 # Runtime Usage Monitoring v9
 
 继承 [v8](runtime-usage-monitoring-v8.md) 的数值语义、去重、归属和读取 wire；以下规则替代同步
-terminal Flush、400ms 尾读和终态删除 checkpoint。取舍见 [V1.72-D35](../versions/v1.72/decisions.md#v1-72-d35)。
+terminal Flush、400ms 尾读和终态删除 checkpoint。取舍见 [V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。
 
 ## Run 与后台统计
 

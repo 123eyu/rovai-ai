@@ -185,6 +185,6 @@ reader 不被查询阻塞。live、terminal 和 background snapshot 串行读取
 只把数值投递到 Core；旧 input 的回读丢弃。无通用新定时器或正文保存。Pi/Antigravity 的独立
 used/window 不再互为入口条件。支持时机与真实 App 范围见[可用性验收](../research/runtime-monitoring/live-context-usability-2026-10-04.md)。
 
-Run 终态只确认业务已结束，`finalized_at` 不代表统计冻结。Migration 193（schema 143）保留终态去重
+Run 终态只确认业务已结束，`finalized_at` 不代表统计冻结。Migration 194（schema 144）保留终态去重
 checkpoint，不改写已有数值；失败的后台批次保留待重试。此取舍与正文后台收尾见
-[V1.72-D35](../versions/v1.72/decisions.md#v1-72-d35)。
+[V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。

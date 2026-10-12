@@ -8,6 +8,8 @@ if (process.argv.includes('--version')) {
   process.exit(0)
 }
 const journal = process.argv[process.argv.indexOf('--fixture-journal') + 1]
+const textArgument = process.argv.indexOf('--fixture-text')
+const unfinishedText = textArgument === -1 ? null : readFileSync(process.argv[textArgument + 1], 'utf8')
 const sessionId = `missing-completion-${process.pid}`
 const send = (value) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...value })}\n`)
 for await (const line of createInterface({ input: process.stdin })) {
@@ -25,10 +27,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     appendFileSync(journal, JSON.stringify({ pid: process.pid, sessionId, prompt: message.params }) + '\n')
     send({ method: 'session/update', params: { sessionId, update: {
-      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: previous.length
-        ? 'Continuation finished successfully.' : 'Work performed; completion response deliberately missing.' }
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: unfinishedText ?? (previous.length
+        ? 'Continuation finished successfully.' : 'Work performed; completion response deliberately missing.') }
     } } })
-    if (previous.length) send({ id: message.id, result: { stopReason: 'end_turn' } })
+    if (previous.length && unfinishedText === null) send({ id: message.id, result: { stopReason: 'end_turn' } })
   } else if (message.method !== 'session/cancel' && message.id != null) {
     send({ id: message.id, result: {} })
   }

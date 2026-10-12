@@ -541,12 +541,17 @@ fn schedule_retry(buffer: &mut ExecutionTextBuffer) {
 fn attempt_flush_settled(
     database: &mut Database,
     buffer: &mut ExecutionTextBuffer,
+    deadline: Option<Instant>,
 ) -> FlushAttempt {
     let mut finalized = Vec::new();
     let result = (|| -> Result<()> {
         let store = ManagedBlobStore::new(database.path().parent().context("database directory")?);
         let mut close = Vec::new();
         for (k, b) in &buffer.blocks {
+            anyhow::ensure!(
+                deadline.is_none_or(|deadline| Instant::now() < deadline),
+                "Execution text shutdown persistence exceeded its deadline"
+            );
             let state = database
                 .connection()
                 .query_row(
@@ -580,6 +585,10 @@ fn attempt_flush_settled(
             }
         }
         for (k, status) in close {
+            anyhow::ensure!(
+                deadline.is_none_or(|deadline| Instant::now() < deadline),
+                "Execution text shutdown persistence exceeded its deadline"
+            );
             #[cfg(test)]
             if buffer.fail_next_settled_finishes > 0 {
                 buffer.fail_next_settled_finishes -= 1;
@@ -620,12 +629,28 @@ pub(crate) fn retry_deadline(database: &Database) -> Option<Instant> {
 }
 
 pub(crate) fn maintain_settled(database: &mut Database) -> ExecutionTextMaintenanceOutcome {
+    maintain_settled_until(database, None)
+}
+
+// The shutdown supervisor calls this once after writers stop. A retry backoff
+// must not skip the last chance to persist bytes that only live in this process.
+pub(crate) fn settle_before_shutdown(
+    database: &mut Database,
+    deadline: Instant,
+) -> ExecutionTextMaintenanceOutcome {
+    maintain_settled_until(database, Some(deadline))
+}
+
+fn maintain_settled_until(
+    database: &mut Database,
+    deadline: Option<Instant>,
+) -> ExecutionTextMaintenanceOutcome {
     let due = database
         .execution_text
         .retry
         .as_ref()
         .is_some_and(|retry| retry.retry_not_before <= Instant::now());
-    if !due {
+    if !due && deadline.is_none() {
         return ExecutionTextMaintenanceOutcome {
             attempted: false,
             finalized: Vec::new(),
@@ -643,7 +668,7 @@ pub(crate) fn maintain_settled(database: &mut Database) -> ExecutionTextMaintena
             error: None,
         };
     }
-    let attempt = attempt_flush_settled(database, &mut buffer);
+    let attempt = attempt_flush_settled(database, &mut buffer, deadline);
     if attempt.error.is_some() {
         schedule_retry(&mut buffer);
     } else {
@@ -892,7 +917,20 @@ mod slow_tests {
         runtime
             .settle_controlled_shutdown_runs(&mut database, "block-shutdown", true, (0, 0))
             .unwrap();
-        let maintenance = maintain_settled(&mut database);
+        database
+            .execution_text
+            .retry
+            .as_mut()
+            .unwrap()
+            .retry_not_before = Instant::now() + Duration::from_secs(60);
+        // The final shutdown attempt bypasses retry backoff, but an exhausted
+        // budget must retain the buffer without starting another persistence.
+        let expired = settle_before_shutdown(&mut database, Instant::now());
+        assert!(expired.error.is_some());
+        assert!(expired.finalized.is_empty());
+        assert!(!database.execution_text.blocks.is_empty());
+        let maintenance =
+            settle_before_shutdown(&mut database, Instant::now() + Duration::from_secs(1));
         assert!(maintenance.error.is_none());
         assert!(database.execution_text.blocks.is_empty());
         let tail_id = tail.payload["blockId"].as_str().unwrap();

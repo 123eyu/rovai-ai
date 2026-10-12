@@ -328,6 +328,7 @@ const PLANNED_SHUTDOWN_GUARD_GRACE: Duration = Duration::from_millis(250);
 const PLANNED_SHUTDOWN_FENCE_SETTLEMENT_RESERVE: Duration = Duration::from_secs(1);
 const PLANNED_SHUTDOWN_INTERRUPT_GRACE: Duration = Duration::from_millis(600);
 const PLANNED_SHUTDOWN_RUNTIME_REAP_GRACE: Duration = Duration::from_secs(2);
+const PLANNED_SHUTDOWN_TEXT_GRACE: Duration = Duration::from_secs(1);
 const RUNTIME_USAGE_FLUSH_INTERVAL: Duration = Duration::from_secs(4);
 const RUNTIME_EVIDENCE_DELTA_BATCH_WINDOW: Duration = Duration::from_millis(25);
 const RUNTIME_EVIDENCE_DELTA_BATCH_MAX_ITEMS: usize = 32;
@@ -19547,6 +19548,17 @@ async fn run_core(
             }
         }
 
+        if fence_prerequisites_quiesced {
+            execution_drivers::persist_shutdown_text(
+                core.database.clone(),
+                std::cmp::min(
+                    output_deadline,
+                    tokio::time::Instant::now() + PLANNED_SHUTDOWN_TEXT_GRACE,
+                ),
+            )
+            .await;
+        }
+
         deadline_expired |= tokio::time::Instant::now() >= deadline
             || !launch_quiesced
             || !terminal_drained
@@ -31899,12 +31911,6 @@ for line in sys.stdin:
 "#,
             );
             let mut frozen = execution.runtime.clone();
-            frozen
-                .environment
-                .as_mut()
-                .unwrap()
-                .hydrate(core.database.lock().await.connection())
-                .unwrap();
             frozen.executable_path = executable.to_string_lossy().into_owned();
             let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
                 path: root.join("builtin.sock").to_string_lossy().into_owned(),

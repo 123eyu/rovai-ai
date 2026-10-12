@@ -1,3 +1,4 @@
+import { EMPTY_SNAPSHOT } from '../../shared/navigation-preferences-model'
 import { describe, expect, it } from 'vitest'
 import type {
   AgentProfile,
@@ -11,9 +12,8 @@ import {
   currentProjectWorkspace,
   defaultsNeedInvalidation,
   navigationIncludingCurrentWorkspace,
-  navigationWithProjectAuthority,
+  navigationWithProjectDirectories,
   navigationWithProjectOrder,
-  navigationWithoutRemovedProjects,
   parseCurrentProject,
   projectTargetKey,
   resolveNewConversationDefaults,
@@ -82,9 +82,9 @@ describe('new conversation preferences', () => {
       ]
     }
 
-    const displayed = navigationWithoutRemovedProjects(
+    const displayed = navigationWithProjectDirectories(
       navigation,
-      new Set([projectTargetKey('/repo/a')])
+      { ...EMPTY_SNAPSHOT, removedProjects: [{ targetKey: projectTargetKey('/repo/a'), removedAt: '2026-10-01T00:00:00Z' }] }
     )
 
     expect(displayed?.quickChat).toBe(navigation.quickChat)
@@ -129,7 +129,7 @@ describe('new conversation preferences', () => {
       .toEqual(['/repo/existing', '/repo/new'])
   })
 
-  it('keeps Project navigation hidden until removed authority is ready', () => {
+  it('keeps legacy projects visible until preferences load and honors known removals', () => {
     const navigation: NavigationSnapshot = {
       schemaVersion: 3,
       throughGlobalSequence: 7,
@@ -137,11 +137,10 @@ describe('new conversation preferences', () => {
       projects: [project('/repo/a'), project('/repo/b')]
     }
 
-    expect(navigationWithProjectAuthority(navigation, new Set(), false)?.projects).toEqual([])
-    expect(navigationWithProjectAuthority(
+    expect(navigationWithProjectDirectories(navigation, null)?.projects).toEqual(navigation.projects)
+    expect(navigationWithProjectDirectories(
       navigation,
-      new Set([projectTargetKey('/repo/a')]),
-      true
+      { ...EMPTY_SNAPSHOT, removedProjects: [{ targetKey: projectTargetKey('/repo/a'), removedAt: '2026-10-01T00:00:00Z' }] }
     )?.projects.map((candidate) => candidate.projectPath)).toEqual(['/repo/b'])
   })
 
@@ -288,3 +287,13 @@ function project(projectPath: string): NavigationSnapshot['projects'][number] {
     recentThreads: []
   }
 }
+
+it('uses the saved directory list after completion and legacy groups only before completion', () => {
+  const group = (path: string) => ({ projectKey: `directory:${path}`, projectPath: path, name: path, totalCount: 0, recentThreads: [], lastActivityAt: '', lastActivityGlobalSequence: 0 })
+  const navigation: NavigationSnapshot = { schemaVersion: 3, throughGlobalSequence: 0, quickChat: { totalCount: 0, recentThreads: [] }, projects: [group('/old'), group('/removed')] }
+  const preferences = { ...EMPTY_SNAPSHOT, registeredProjects: ['/empty'], removedProjects: [{ targetKey: 'directory:/removed', removedAt: '2026-10-01T00:00:00Z' }] }
+  expect(navigationWithProjectDirectories(navigation, preferences)?.projects.map(p => p.projectPath)).toEqual(['/empty', '/old'])
+  preferences.legacyProjectsSynced = true
+  expect(navigationWithProjectDirectories(navigation, preferences)?.projects.map(p => p.projectPath)).toEqual(['/empty'])
+  expect(navigationWithProjectDirectories(navigation, { ...preferences, registeredProjects: [] })?.projects).toEqual([])
+})

@@ -8,6 +8,44 @@ last_updated: 2026-10-12
 
 # v1.72 实施与验收
 
+## 项目目录 JSON 保存（2026-10-12）
+
+基线主线 `bab6034df3459269a4a15628dc436d660716f1ac`，分支 `rovai/json-project-navigation`，复用原隔离
+worktree `rovai-ai-sqlite-project-registry`。User 明确撤回未发布的 SQLite 登记方案，不保留实验表迁移或读取兼容。
+旧分支的项目建表／迁移、Core 接口、Web 身份、业务事务自动登记、持续观察与补登全部退出；生产数据库代码
+与所接入主线一致，保留主线现有 schema 与支持来源。实验 schema 不作为发布过的升级来源，日常数据不作修改。
+
+schema 6 导航偏好保存规范路径集合与 `legacyProjectsSynced`。成功完整启动读取只尝试一次补齐；晚到结果在
+统一写入入口重新应用最新移除记录。实际写入后才更新内存并展示新目录，失败不误标记、不覆盖损坏文件。
+完成后直接使用登记清单，普通导航刷新不再补缺、重读偏好或写目录。目录增删与别名等共用原安全写入口。
+Web 复用现有 IndexedDB 的短事务串行保护原 localStorage JSON，没有新目录库、持久队列、锁轮询或自动重试。
+
+按 User 后续要求，从 `4b1fae539` 收敛保存失败反馈：删除专属横幅、重试闭包与临时路径状态，失败只走已有
+短提示／表单错误，不改变当前目录；再次添加即可重新保存。旧补齐失败等下次启动，可选登记失败不阻止会话。
+
+Rust 测试退役：实验生产合同同时退出，删除 `project_registry::tests` 三项（目录生命周期、初始化失败、
+登记附加事务故障）及 `db::project_registry::tests` 一项实验迁移 owner；原业务事务、路径权限、Main 项目访问恢复、
+主线数据库准入／升级测试保留。目录持久化语义由真实文件 `navigation-preferences.test.ts`、Web 偏好 owner、
+真实双窗口导航 fixture 与生产 App 启动 fixture 接替；不以降低测试数量为目标。
+
+初版验证结果（反馈收敛后的定向结果另记）：
+
+- `pnpm test`：242 个 Vitest 文件、2,643 项通过；后续 Node 339 项通过、2 项平台跳过；文档、Skill 与 Electron 能力门禁通过。
+- `pnpm test:rust:pr`：465 项通过、1 项既有 ignored。首次运行的 detached child 回收测试超时，定向重跑及第二次完整 workspace 均通过；未修改该测试。
+- Main 真实文件、Web 与目录投影定向 32 项通过。生产 App 目录专项 4 组通过：空目录切换／重启、完成后零补齐、主动移除后的空清单、失败降级／显式重试与后续保存失败不重置标记。
+- 真实 Electron 双窗口并发登记／别名写入与移除优先通过；普通导航原生操作及 contextBridge 回归通过。
+- `pnpm typecheck`、`pnpm build:desktop`（含 Web）、带上述 base 的文档 CI 门禁与 diff 检查通过；前端机械扫描无发现，截图修正并复核失败提示栏。
+- 完整启动 fixture 仍在 `Leaving the loaded empty Camp must initiate cleanup before the race is tested` 失败。
+  在 `bab6034df` 独立临时 checkout 上复现相同失败；双方仅把 darwin fixture 的 Windows-only `windowClose` 能力按真实 preload 设为 undefined，基线生产代码未改。
+  该既有空会话清理断言未删除或跳过；目录专项另外执行并通过，不把完整启动套件记为通过。
+
+反馈收敛验证：类型检查及目录专项 4 组通过，验证失败不显示／选中目录、普通提示自动消失、再次添加成功、
+下次启动补齐以及完成标记保持。`pnpm test` 重跑 2,643 项 Vitest 和后续 Node 339 项通过、2 项平台跳过。
+首次全量中 CoreClient 的 Supervisor 等待超时，其文件 21 项定向及完整重跑均通过，未改该测试。
+前端机械扫描无发现，截图确认使用普通短提示。持久化、并发与 Rust 代码未修改，沿用初版验证。
+
+未安装日常 App、不启动真实 Runtime、不操作用户数据库；临时基线 checkout 已清理，任务 worktree 保留供评审。
+
 ## Charter 与 Memory 入口精简（2026-10-12）
 
 User 消息 `ed8ae499-ebbe-44ae-a6ba-e0b588e04912` 已确认
@@ -1777,6 +1815,14 @@ Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 
 
 ## 同类 CLI 优先恢复原生会话（2026-10-12）
 
+后续真实 CLI 审计与修复基于 `d41778bfcc71d0223e70cbbdd442c3e500eb3559`，分支
+`codex/runtime-resume-audit`。15 类真实 Runtime 均完成原 ID 冷恢复；缺历史时发现五类明确缺口，
+User 授权一并修复：CodeBuddy 精确文件核验，Copilot/Qwen 资源目标匹配，Qoder 结构化目标拒绝，
+ZCode 原生 resume 错误跨桥接保留。其余未知错误保持原 ID，不扩大自动降级。
+没有新增数据库/迁移、摘要或上下文资格门槛；五款修复后的实际恢复、输入与提示计数见
+[独立审计及复测](../../research/runtime-monitoring/native-session-resume-2026-10-12.md#五类-runtime-修复与复测)。
+测试 owner 与新增测试理由见[测试指南](../../development/testing.md#原生会话恢复-owner2026-10-12)。
+
 基线 `bab6034df3459269a4a15628dc436d660716f1ac`；分支 `codex/native-session-resume`。
 User 明确要求整套已确认方案一并完成。规范见 [Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)，
 取舍见 [V1.72-D37](decisions.md#v1-72-d37)。
@@ -1861,3 +1907,69 @@ Node 脚本 339 项通过、2 项平台跳过，文档与 Skill 门禁通过。�
 点击命中与主题色断言，改为等实际布局／主题传播完成后检查；紧凑窗口按当前 Run 的真实锚点
 定位。验收发现的滚动条 6px 中心偏差已通过两侧对称预留消除；首次发送前的中间产物、
 未加载输入锚点与时钟倒退均不会把执行行带到新消息后。
+
+
+## 内部实现减重（2026-10-12）
+
+独立 worktree `context-tool-simplification`，分支 `codex/context-tool-simplification`，基线
+`07ca89ec5f9dea8c27bf15602bc076c7cf200f73`。User 已授权 1—5 一起实施并提交 PR。
+已合入最新主线 `d41778bfcc71d0223e70cbbdd442c3e500eb3559`，保留同 CLI 类型原生恢复的行为。
+
+当前实现：Migration 196/schema 146；当前 DB 结构准入；Context 使用最终输入并停止重复证明材料写入；
+Transport/CLI 38、IPC 3、Envelope 2 删除工具结果与目录摘要；Domain Command 以 ID 和归属返回首次结果。
+Usage summary 在现有后台 worker 收尾；原生输入、授权、租约、消息与结果查询保持。
+
+测试 owner：Context 的实际输入/重启/预算、Domain Command 的结果/回滚/归属、DB 的迁移/准入、
+工具协议及调用方 Node 测试。摘要自证和生成版本组合专属断言随生产路径退役；对应实际结果和历史恢复
+由原 owner 保留。没有使用日常 App 或日常数据库验收。
+
+新增 `db::simplification::tests::upgrade_preserves_legacy_results_and_blob_bytes_and_rolls_back_atomically`
+拥有 schema 145→146 的 DDL/事务边界：旧 NOT NULL 与命令 CHECK 在取消摘要后会拒绝新写入；测试保留
+真实旧结果和 Blob，注入迁移记录失败，验证整次回滚、再次升级与重开。既有迁移 owner 属于不同来源步骤，
+纯函数不能证明 DDL 和业务行原子性，因此建立一个 `extended-tests` owner。
+
+随生产合同退出删除五个独立测试：工具 `receipt_is_stable_and_covers_the_outcome`、
+`receipt_v1_keeps_the_existing_canonical_digest_goldens`、`catalog_digest_changes_with_agent_facing_send_teaching`，
+命令 `execution_epoch_fences_processing_without_changing_command_semantics` 的请求摘要不变性，以及
+Context `dispatch_admission_accepts_current_and_frozen_predecessor_contracts` 的证据版本组合门禁。
+工具字段/错误/输出由原 Envelope 与 CLI projection owner 继续覆盖；命令结果、epoch 处理、只读查询和
+事务回滚仍由原 Command/Runtime owner 负责；历史输入与原生恢复仍由原 Context owner 验证。
+同 ID 内容变化改为返回首次结果，跨 actor/Camp/来源 Run 仍拒绝；私有草稿和上传直接记录已有编辑器 ID，
+保持编辑器隔离。旧记录没有单独编辑器 ID，继续按原有 actor/Camp 查询，不重建指纹。
+最低定向命令为 `cargo test -p rovai-core --all-features --lib -- <owner filters>`；默认 PR 与进程 IPC 另验。
+
+本机 macOS 验证结果：
+
+- `pnpm test:rust:pr`：460 项通过、1 项既有人工测试忽略。
+- `pnpm test`：Vitest 242 文件 / 2645 项通过；Node 339 项通过、2 项平台跳过。
+- `cargo check --workspace`、`pnpm typecheck`、`pnpm build:desktop`（含 Web）、`pnpm test:send-input-file` 通过。
+- Context、Usage、数据库准入/升级、Web reconcile 的 71 项定向回归通过；旧迁移、私有编辑器、
+  同 ID 结果查询、停止/继续和原生恢复等补充失败场景修正后分别复跑通过。
+- `cargo test --workspace --all-features` 首轮：1329 通过、25 失败、8 忽略。该轮暴露的 22 项失败
+  已修正或独立复跑通过；包括退出的摘要断言、降级迁移夹具，以及主线同 CLI 恢复后的旧期望。
+  未重复执行整套慢测，不把定向通过描述为全量通过。
+- 剩余 3 项 `read_model::camp_open_slow_tests`（业务状态、分页标题、与历史规模无关）均报
+  `event_log.entity_type access denied`。在干净的上述 main 上执行
+  `cargo test -p rovai-core --features slow-tests --lib read_model::camp_open_slow_tests::`，
+  同样 2 通过 / 3 失败；本次不修改无关的 CampOpen 投影，也不删除或忽略这些测试。
+- 相对上述主线的 `pnpm docs:check:ci`、文档测试和格式检查通过。
+
+状态：实现完成，保留当前 worktree 供 PR 评审。验证仅使用隔离数据库和合成 CLI，未调用真实模型、
+安装或重启日常 App。
+
+### MCP 同 Run 重复准备与诊断读取
+
+以 PR #720 的 `94b62c6b` 为修复基线，扩展既有 Context MCP owner，使用正式 Manifest writer
+生成 NULL 摘要后再次准备同一个 Run，实测复现 `mcp_exposure_digest` 的 NULL/String 类型错误。
+MCP 恢复现在只读取保留的 exposure JSON 和私有配置文件，移除冻结摘要比较及无人消费的
+exposure digest 计算；保留文件权限、Run/Adapter 归属、原生同名选择和进程复用所需文件标记。
+
+同一夹具继续经过数据库关闭/重开、同 epoch 准备、新 epoch 重派发，检查原配置与文件字节；
+没有新增独立 Rust 测试或平行夹具。该 owner 更名为
+`context::slow_tests::context_manifest_recovers_redacted_frozen_mcp_exposure_without_digests`，
+保留原有凭据不入 SQLite 的断言。顺沿读取方还复现了 Run 诊断对 `rendered_payload_digest` 的
+同类错误；退役字段现按已有 Option 类型返回 NULL，同一完整快照夹具覆盖诊断读取。
+
+最小命令：`cargo test -p rovai-core --features slow-tests --lib -- context_manifest_recovers_redacted_frozen_mcp_exposure_without_digests mcp_projection::tests:: agent_run_diagnostic_projects_only_safe_frozen_and_public_facts`。
+结果：上述 10 项全部通过；`cargo check --workspace`、格式检查、相对 `d41778bf` 的通用文档门禁通过。
+本轮未重复无关的完整慢测，前述 3 项 main 已有 CampOpen 失败的结论不变。

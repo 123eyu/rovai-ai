@@ -2321,7 +2321,7 @@ describe('task event projections', () => {
     const snapshot = { agentRuns: [activeRun, { ...activeRun, id: 'unrelated' }],
       turns: [{ id: 'turn', status: 'running' }] } as ThreadSnapshot
     const result: StoredCommandResult = { commandId: 'stop', commandType: 'agent_run.cancel',
-      requestDigest: 'sha256:test', requestDigestVersion: 1, recordedAt: '2026-09-01T00:00:00Z',
+      recordedAt: '2026-09-01T00:00:00Z',
       resultEntity: null, status: 'applied', code: 'agent_run.cancelled',
       payload: { agentRunId: activeRun.id, status: 'cancelled', threadTurnId: 'turn', threadTurnStatus: 'running' }
     }
@@ -3686,8 +3686,6 @@ describe('task event projections', () => {
     const result = {
       commandId: 'command-runtime-recovery',
       commandType: 'thread.message.send',
-      requestDigest: 'digest',
-      requestDigestVersion: 1,
       status: 'rejected' as const,
       code: 'agent_run.runtime_not_ready',
       payload: {
@@ -3838,8 +3836,6 @@ describe('task event projections', () => {
     expect(commandFailureMessage({
       commandId: 'command-1',
       commandType: 'thread.message.send',
-      requestDigest: 'digest',
-      requestDigestVersion: 1,
       status: 'rejected',
       code: 'camp_message.no_addressable_member',
       payload: { message: 'Execution request requires at least one addressable Agent' },

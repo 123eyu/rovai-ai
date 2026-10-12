@@ -1830,3 +1830,34 @@ Spec 与 Standards 静态复核均无剩余核心问题。
 并验证初始化/模型同码、取消、超时和输入未知不会降级或重复发送。ACP/Pi 定向扩展测试分别 66/14 项通过，
 各有 2/1 项既有人工测试忽略；`cargo test --workspace` 重新通过 465 项、1 项既有人工测试忽略。
 格式、生产编译及文档治理门禁通过。验收仍使用隔离 Core 与合成 CLI。
+
+## 执行行固定位置、原文逐行与 RunCard 高亮（2026-10-12）
+
+User 确认 v12 并要求实施；基线为 `1edacb5348ae22f9a34d404b4a0f18adde197de1`，
+分支 `rovai/conversation-presence-stability`。Renderer 增量，不改变 Core、数据库或模型上下文；
+当前边界见 [Run Process Detail Surface v50](../../contracts/run-process-detail-surface-v50.md)。
+
+- 每 Run 使用既有已领取输入锚点，只有自己的已提交公开消息推进位置；消息／产物顺序保持。
+  分页与切群使用现有投影恢复，行组件按 Run ID 保持身份，停止确认和读取窗口不因移动重建。
+- 正文只按原文换行在一个物理行内推进，保留空行间的最后非空内容；完整原文仍在执行详情。
+- 复用 RunningText 扫光并去掉左侧运行圈，保留工具图标、停止区和失败／等待状态；
+  减少动态效果和强制颜色仍显示实时文字。时间线预留滚动条空间，避免停止目标横向移动。
+- 更新已有浏览器夹具与 owner 测试，没有引入演示依赖或新的动画库。
+
+已通过类型检查、7 项投影／正文单测及 30 项既有产物测试，生产组件浏览器回归通过 37 个阶段、
+原始 LF／CRLF／空行、单行几何、高亮、停止／重试、草稿、重入读取和 6 组主题尺寸、
+200% 等效布局及粗指针检查。截图位于本地忽略目录 `docs/prototypes/run-presence-v12-implementation/`。
+完整 `pnpm test` 已在提交 `4709bf3b` 的干净检出通过：242 个 Vitest 文件／2641 项用例，
+Node 脚本 339 项通过、2 项平台跳过，文档与 Skill 门禁通过。主 checkout 的旧本地原型 Markdown
+坏链接保持原样；验证检出只复用同一锁定依赖，关闭 pnpm 自动重装，不跳过任何测试。
+
+`pnpm package:mac` 与 `pnpm accept:runtime-activity-ui` 通过。后者为生产桌面包／Core 的
+13 Runtime 受控数据验收，覆盖执行行恢复、三种执行台位置、两主题、2K 居中、紧凑窗口、
+200% 布局、滚动、工具详情与停止。App 使用一次性 `userData` 和独立 Skill Library／MCP config；
+不代表真实 Provider 请求验收。最终报告在上述目录的 `native/runtime-activity-acceptance.json`，
+隔离路径与代码提交记在 `isolation.json`。
+
+浏览器补充验证自己发送后 DOM／焦点保持，以及完整重载确实进入新文档。桌面验收保持原有
+点击命中与主题色断言，改为等实际布局／主题传播完成后检查；紧凑窗口按当前 Run 的真实锚点
+定位。验收发现的滚动条 6px 中心偏差已通过两侧对称预留消除；首次发送前的中间产物、
+未加载输入锚点与时钟倒退均不会把执行行带到新消息后。

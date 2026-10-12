@@ -21,7 +21,7 @@ it('isolates optional preference damage from initialization, protects the source
   expect(entries.get(key)).toBe(original)
   await expect(api.replacePins([])).rejects.toThrow('原记录已保留')
   entries.set(key, '{unreadable')
-  await expect(api.getProjectInitialization()).rejects.toThrow()
+  await expect(api.getProjectInitialization()).resolves.toMatchObject({ complete: false })
   await expect(api.get()).resolves.toMatchObject({ projectOrder: ['directory:/kept'] })
   entries.set(key, JSON.stringify({ schemaVersion: 5, pins: [], removedProjects: [], projectOrder: [], projectNames: {}, threadReadStates: {} }))
   await expect(api.getProjectInitialization()).resolves.toEqual({ projectPaths: [], removedPaths: [] })

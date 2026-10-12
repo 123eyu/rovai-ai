@@ -157,21 +157,74 @@ fn insert_missing(tx: &Transaction<'_>, scope: &str, path: &str, removed: bool) 
     )? != 0)
 }
 
-/// Newly introduced Thread directories become durable in initialized presentation
-/// scopes. Tombstones survive imports/automation/background writes. No navigation
-/// refresh rebuilds the directory list from the remaining Threads.
+/// Only a registry-local constraint failure is eligible for optional-write
+/// degradation. Busy/I/O/full/corruption/authorization/schema errors retain their
+/// normal failure semantics. Even a constraint may ROLLBACK the outer transaction.
+#[derive(Debug)]
+pub struct Unavailable;
+impl std::fmt::Display for Unavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Project directory registration is temporarily unavailable"
+        )
+    }
+}
+impl std::error::Error for Unavailable {}
+
+fn isolated_constraint(error: &anyhow::Error) -> bool {
+    matches!(error.downcast_ref::<rusqlite::Error>(),
+        Some(rusqlite::Error::SqliteFailure(code, _)) if code.code == rusqlite::ErrorCode::ConstraintViolation)
+}
+fn registration_error(error: rusqlite::Error) -> anyhow::Error {
+    let error = anyhow::Error::from(error);
+    if isolated_constraint(&error) {
+        error.context(Unavailable)
+    } else {
+        error
+    }
+}
+
+/// Registration is auxiliary to the business transaction. A savepoint rolls back
+/// ALL registry scopes together, while the gateway still commits business rows,
+/// events and the receipt atomically. Tombstones are never restored here.
 pub(crate) fn register_introduced(tx: &Transaction<'_>, path: &str) -> Result<()> {
-    let mut query =
-        tx.prepare("SELECT scope FROM project_directory_registry WHERE project_path=''")?;
-    let scopes = query
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for scope in scopes {
-        if insert_missing(tx, &scope, path, false)? {
-            advance(tx, &scope)?;
+    validate_path(path)?;
+    ensure!(!tx.is_autocommit(), "Business transaction is not active");
+    tx.execute_batch("SAVEPOINT introduced_project")?;
+    let registration = (|| -> Result<()> {
+        let mut query =
+            tx.prepare("SELECT scope FROM project_directory_registry WHERE project_path=''")?;
+        let scopes = query
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for scope in scopes {
+            if insert_missing(tx, &scope, path, false)? {
+                advance(tx, &scope)?;
+            }
+        }
+        Ok(())
+    })();
+    match registration {
+        Ok(()) => {
+            tx.execute_batch("RELEASE introduced_project")?;
+            Ok(())
+        }
+        Err(error) => {
+            // RAISE(ROLLBACK), SQLITE_FULL and some I/O errors can already have
+            // aborted the enclosing transaction. Never continue in autocommit.
+            if tx.is_autocommit() || !isolated_constraint(&error) {
+                return Err(error);
+            }
+            tx.execute_batch("ROLLBACK TO introduced_project; RELEASE introduced_project")?;
+            ensure!(
+                !tx.is_autocommit(),
+                "Business transaction was lost during project registration"
+            );
+            eprintln!("project registration deferred; business transaction retained: {error:#}");
+            Ok(())
         }
     }
-    Ok(())
 }
 
 fn advance(tx: &Transaction<'_>, scope: &str) -> Result<()> {
@@ -214,11 +267,13 @@ pub fn set(
         }
         let current = before.projects.iter().find(|p| p.project_path == input.project_path);
         let version = current.map_or(0, |p| p.version);
-        if input.expected_version != version {
-            return Ok(CommandHandlerResult::rejected("projects.version_conflict", json!({"message":"项目状态已变化，请刷新后重新操作。"})));
-        }
+        // An already satisfied target is a no-op even with an old version. A
+        // stale ADD facing a newer removal still reaches the conflict check.
         if current.is_some_and(|p| p.removed == input.removed) {
             return Ok(CommandHandlerResult::applied("projects.unchanged", serde_json::to_value(before)?, None));
+        }
+        if input.expected_version != version {
+            return Ok(CommandHandlerResult::rejected("projects.version_conflict", json!({"message":"项目状态已变化，请重新操作。"})));
         }
         if !input.removed {
             // Explicit add/restore validates once. Reads/imports never touch the filesystem.
@@ -229,8 +284,8 @@ pub fn set(
         }
         tx.execute("INSERT INTO project_directory_registry VALUES(?1,?2,?3,1)
             ON CONFLICT(scope,project_path) DO UPDATE SET removed=excluded.removed,revision=revision+1",
-            params![input.scope, input.project_path, input.removed])?;
-        advance(tx, &input.scope)?;
+            params![input.scope, input.project_path, input.removed]).map_err(registration_error)?;
+        advance(tx, &input.scope).map_err(|error| if isolated_constraint(&error) { error.context(Unavailable) } else { error })?;
         if input.scope == "desktop" {
             synchronize_desktop_access(tx)?;
             if input.removed {
@@ -361,6 +416,13 @@ mod tests {
                 .unwrap()
                 .projects
                 .is_empty()
+        );
+        assert_eq!(
+            set(&mut db, &envelope(a, false, 0, "desktop"))
+                .unwrap()
+                .result
+                .code,
+            "projects.unchanged"
         );
         let service = crate::collaboration::CollaborationService::default();
         let create_thread = |db: &mut Database, path: &str| {
@@ -604,6 +666,178 @@ mod tests {
                 .iter()
                 .any(|p| p.project_path == failed_path)
         );
+        drop(db);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    // Owns auxiliary-write isolation at the real CommandGateway boundary. Pure
+    // mocks cannot prove savepoint recovery, outer rollback, or commit failure.
+    #[test]
+    fn optional_registration_cannot_block_business_or_mask_a_lost_transaction() {
+        use crate::collaboration::{
+            CollaborationService, CreateThreadCommand, TestThreadMessageAddress,
+            TestThreadMessageCommand, ThreadActivationState,
+        };
+        let (mut db, directory) = crate::test_support::seeded_runtime_database();
+        init(&mut db, "desktop", vec![], vec![]);
+        init(&mut db, "web:test", vec![], vec![]);
+        let path =
+            crate::runtime_discovery::runtime_visible_path(directory.canonicalize().unwrap());
+        let path = path.to_str().unwrap();
+        let service = CollaborationService::default();
+        let count = |db: &Database, table: &str| -> i64 {
+            db.connection()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap()
+        };
+        for fault in ["ABORT", "ROLLBACK", "COMMIT"] {
+            // Fail the second scope, after the first registry write has happened.
+            db.connection().execute_batch(&format!("CREATE TEMP TRIGGER registry_failure BEFORE INSERT ON project_directory_registry WHEN NEW.scope='web:test' AND NEW.project_path!='' BEGIN SELECT RAISE({},'registry-only failure'); END;", if fault == "COMMIT" { "ABORT" } else { fault })).unwrap();
+            for pending in [false, true] {
+                let mut command = CreateThreadCommand::for_test(path.into());
+                if pending {
+                    command.activation_state = ThreadActivationState::Pending;
+                }
+                let create = user_command(command, None);
+                let before_camps = count(&db, "camp");
+                let mut camp_id = None;
+                let mut send = None;
+                if pending {
+                    let created = service.create_camp(&mut db, &create).unwrap();
+                    let id = created.result.payload["threadId"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned();
+                    let draft = crate::camp_attachment::ThreadAttachmentStore::new(&directory)
+                        .save_body(&mut db, &id, "preserve this input")
+                        .unwrap();
+                    send = Some(user_command(
+                        TestThreadMessageCommand {
+                            camp_id: id.clone(),
+                            draft_revision: Some(draft.revision),
+                            body: String::new(),
+                            prepared_attachment_ids: vec![],
+                            address: TestThreadMessageAddress::Default,
+                            reply_to_camp_message_id: None,
+                            execution: None,
+                        },
+                        Some(id.clone()),
+                    ));
+                    camp_id = Some(id);
+                }
+                let before_messages = count(&db, "camp_message");
+                let before_events = count(&db, "event_log");
+                if fault == "COMMIT" {
+                    db.connection().commit_hook(Some(|| true)).unwrap();
+                }
+                let result = if let Some(send) = &send {
+                    service.send_test_camp_message(&mut db, send)
+                } else {
+                    service.create_camp(&mut db, &create)
+                };
+                db.connection().commit_hook(None::<fn() -> bool>).unwrap();
+                if fault == "ABORT" {
+                    assert_eq!(result.unwrap().result.status, CommandResultStatus::Applied);
+                    let events = count(&db, "event_log");
+                    let replay = if let Some(send) = &send {
+                        service.send_test_camp_message(&mut db, send)
+                    } else {
+                        service.create_camp(&mut db, &create)
+                    }
+                    .unwrap();
+                    assert!(replay.replayed);
+                    assert_eq!(count(&db, "event_log"), events);
+                    assert_eq!(count(&db, "camp"), before_camps + 1);
+                    assert_eq!(
+                        count(&db, "camp_message"),
+                        before_messages + i64::from(pending)
+                    );
+                } else {
+                    assert!(result.is_err(), "{fault}: cannot report business success");
+                    assert_eq!(count(&db, "camp"), before_camps + i64::from(pending));
+                    assert_eq!(count(&db, "camp_message"), before_messages);
+                    assert_eq!(count(&db, "event_log"), before_events);
+                    if let Some(id) = camp_id {
+                        assert_eq!(
+                            db.connection()
+                                .query_row(
+                                    "SELECT activation_state FROM camp WHERE id=?1",
+                                    [&id],
+                                    |r| r.get::<_, String>(0)
+                                )
+                                .unwrap(),
+                            "pending"
+                        );
+                        assert_eq!(
+                            db.connection()
+                                .query_row(
+                                    "SELECT body FROM camp_composer_draft WHERE camp_id=?1",
+                                    [&id],
+                                    |r| r.get::<_, String>(0)
+                                )
+                                .unwrap(),
+                            "preserve this input"
+                        );
+                    }
+                }
+                assert!(
+                    snapshot(db.connection(), "desktop")
+                        .unwrap()
+                        .projects
+                        .is_empty()
+                );
+                assert!(
+                    snapshot(db.connection(), "web:test")
+                        .unwrap()
+                        .projects
+                        .is_empty()
+                );
+            }
+            db.connection()
+                .execute_batch("DROP TRIGGER registry_failure")
+                .unwrap();
+        }
+        // Never open an independent savepoint/transaction after an outer abort.
+        let tx = db.connection_mut().transaction().unwrap();
+        tx.execute_batch("ROLLBACK").unwrap();
+        assert!(register_introduced(&tx, path).is_err());
+        assert!(tx.is_autocommit());
+        drop(tx);
+        // Recovery fills missing records without replacing a scope's removal.
+        set(&mut db, &envelope(path, true, 0, "desktop")).unwrap();
+        let tx = db.connection_mut().transaction().unwrap();
+        register_introduced(&tx, path).unwrap();
+        tx.commit().unwrap();
+        assert!(snapshot(db.connection(), "desktop").unwrap().projects[0].removed);
+        assert!(!snapshot(db.connection(), "web:test").unwrap().projects[0].removed);
+        // Access/DB errors are never converted to optional registration success.
+        db.connection()
+            .authorizer(Some(|ctx: rusqlite::hooks::AuthContext<'_>| {
+                if matches!(
+                    ctx.action,
+                    rusqlite::hooks::AuthAction::Read {
+                        table_name: "project_directory_registry",
+                        ..
+                    }
+                ) {
+                    rusqlite::hooks::Authorization::Deny
+                } else {
+                    rusqlite::hooks::Authorization::Allow
+                }
+            }))
+            .unwrap();
+        assert!(
+            service
+                .create_camp(
+                    &mut db,
+                    &user_command(CreateThreadCommand::for_test(path.into()), None)
+                )
+                .is_err()
+        );
+        db.connection()
+            .authorizer(
+                None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>,
+            )
+            .unwrap();
         drop(db);
         std::fs::remove_dir_all(directory).unwrap();
     }

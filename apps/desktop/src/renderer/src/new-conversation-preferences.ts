@@ -141,14 +141,9 @@ export function navigationWithProjectNames(
 export function navigationWithProjectAuthority(
   navigation: NavigationSnapshot | null,
   removedProjectKeys: ReadonlySet<string>,
-  removedProjectAuthorityReady: boolean
+  _removedProjectAuthorityReady: boolean
 ): NavigationSnapshot | null {
   if (!navigation) return null
-  if (!removedProjectAuthorityReady) {
-    return navigation.projects.length === 0
-      ? navigation
-      : { ...navigation, projects: [] }
-  }
   return navigationWithoutRemovedProjects(navigation, removedProjectKeys)
 }
 
@@ -180,9 +175,9 @@ export function currentProjectAccessDecision({
   currentProject,
   navigation,
   removedProjectKeys,
-  removedProjectAuthorityReady
+  removedProjectAuthorityReady: _removedProjectAuthorityReady
 }: CurrentProjectAccessInput): CurrentProjectAccessDecision {
-  if (!navigation || !removedProjectAuthorityReady) return 'wait'
+  if (!navigation) return 'wait'
   if (currentProject.kind === 'quick_chat') return 'clear_hint'
   if (removedProjectKeys.has(projectTargetKey(currentProject.projectPath))) return 'fallback'
   if (currentProjectGroup(navigation, currentProject)) return 'clear_hint'

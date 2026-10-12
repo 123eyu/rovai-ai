@@ -21,7 +21,7 @@ const data = assertUserDataIsIsolated(join(root, 'user-data'))
 const sockets = await mkdtemp('/tmp/rvreg-')
 seedCompletedOnboardingForAcceptance(data)
 await mkdir(join(data, 'managed-skill-library'))
-const paths = Object.fromEntries(['legacy-empty', 'restored', 'removed', 'empty-a', 'empty-b', 'optional'].map(name => [name, join(root, name)]))
+const paths = Object.fromEntries(['legacy-empty', 'restored', 'removed', 'empty-a', 'empty-b', 'optional', 'fault-created'].map(name => [name, join(root, name)]))
 for (const path of Object.values(paths)) await mkdir(path)
 const report = { oldApp, newApp, userData: data, skillLibrary: join(data, 'managed-skill-library'), sockets,
   startedAt: new Date().toISOString(), cases: [], binaries: {} }
@@ -61,6 +61,7 @@ try {
   await close()
   assert.equal(await sql("SELECT count(*) FROM sqlite_master WHERE name='project_directory_registry'"), '0', 'Old fixture must genuinely predate registry schema')
   report.oldSchema = await sql('SELECT projection_schema_version FROM rovai_data_contract WHERE singleton=1')
+  assert.equal(report.oldSchema, '140', 'Use a frozen schema-140 baseline App; a newer installed App is not a supported upgrade fixture')
   const legacy = { schemaVersion: 5, pins: [], projectOrder: [null, `directory:${paths.restored}`],
     projectNames: { [`directory:${paths.optional}`]: 42 }, threadReadStates: {},
     removedProjects: [{ targetKey: `directory:${paths.removed}`, removedAt: stamp }] }
@@ -143,8 +144,38 @@ try {
   await access(paths['empty-b'])
   await screenshot('04-second-restart')
   record('Removal survives restart without deleting directories or Threads; explicit re-add restores one entry; stale restore is rejected')
+  await close()
+  // Real Core fault injection, confined to the closed acceptance database. A
+  // registry trigger must not prevent an otherwise valid Thread transaction.
+  const faultPath = paths['fault-created']
+  const quoteSql = value => "'" + value.replaceAll("'", "''") + "'"
+  await runProcess('/usr/bin/sqlite3', [join(data, 'rovai.sqlite'), `CREATE TRIGGER acceptance_registry_failure BEFORE INSERT ON project_directory_registry WHEN NEW.project_path=${quoteSql(faultPath)} BEGIN SELECT RAISE(ABORT,'acceptance registry failure'); END;`])
+  app = await launch(newApp, 'registry-write-failure')
+  const saveFailure = await evaluate(`window.rovai.request('projects.set', { commandId: ${q(randomUUID())}, command: { projectPath: ${q(faultPath)}, removed: false, expectedVersion: 0 } }).then(() => null, error => ({code: error.code, kind: error.kind}))`)
+  assert.equal(saveFailure?.code, 'project_registry_unavailable', q(saveFailure))
+  const faultThreadId = await create('登记故障期间的会话', faultPath)
+  assert.equal(await request('threads.exists', { threadId: faultThreadId }), true)
+  assert(!(await request('projects.get')).projects.some(project => project.projectPath === faultPath))
+  await visible('fault-created')
+  await until(`document.body.innerText.includes('项目列表暂未保存')`)
+  assert(!await sidebarHas('移除后仍存在的会话'))
+  await screenshot('05-registration-fault')
+  record('Packaged Core registry constraint failure does not block Thread creation; Renderer shows the temporary project and unsaved notice with removals filtered')
+  await close()
+  await runProcess('/usr/bin/sqlite3', [join(data, 'rovai.sqlite'), 'DROP TRIGGER acceptance_registry_failure'])
+  app = await launch(newApp, 'registry-recovered')
+  await visible('fault-created')
+  await until(`window.rovai.request('projects.get').then(value => value.projects.some(project => project.projectPath === ${q(faultPath)} && !project.removed))`)
+  registry = await request('projects.get')
+  assert.equal(entry(registry, paths.removed).removed, true)
+  assert.equal(entry(registry, paths['empty-b']).removed, true)
+  assert.equal(await request('threads.exists', { threadId: faultThreadId }), true)
+  assert.equal(registry.projects.filter(project => project.projectPath === faultPath).length, 1)
+  await screenshot('06-registration-recovered')
   report.registry = registry
   await close()
+  assert.equal(await sql(`SELECT count(*) FROM camp WHERE project_path=${quoteSql(faultPath)}`), '1')
+  record('Recovery after normal restart registers the missing directory once, preserves removals and does not duplicate the Thread')
   report.newSchema = await sql('SELECT projection_schema_version FROM rovai_data_contract WHERE singleton=1')
   report.registryRows = JSON.parse(await sql('SELECT scope,project_path,removed,revision FROM project_directory_registry ORDER BY scope,project_path', true))
   report.ok = true

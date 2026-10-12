@@ -56,7 +56,8 @@ const registerStartupTest = registryOnly => test(registryOnly ? 'the production 
     if (registryOnly) {
       assert.deepEqual(report.cases, ['Startup restores without waiting for registry initialization',
         'Initialization preserves the pre-restoration empty selection',
-        'Registry failure retains successful Thread refresh and removal filtering', 'Registry retry rereads and recovers'])
+        'Registry failure retains successful Thread refresh and removal filtering', 'Registry retry rereads and recovers',
+        'Stalled registry refresh does not delay cached navigation', 'Cold registry failure keeps legacy navigation, removals and directory selection', 'Registration failure permits existing and temporary directory creation requests'])
       return
     }
     assert.ok(report.cases.length >= 8)

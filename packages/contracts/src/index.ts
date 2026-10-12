@@ -3439,6 +3439,8 @@ export interface NavigationPreferencesApi {
 }
 
 export interface LegacyProjectDirectories {
+  /** false: reliable identities only; never complete persistent initialization. */
+  complete?: false
   projectPaths: string[]
   removedPaths: string[]
 }

@@ -87,6 +87,57 @@ Windows 真机、远端 Web HTTP 或真实模型。用户提到的 `rovai-5557c9
 本机约定附件目录未找到，未声称运行该包；同类时序与失败传播由新增生产 Renderer 集成夹具覆盖。
 保留独立 worktree 和任务分支，未合入、未替换或重启日常 App。
 
+
+### 可用性优先纠正（2026-10-12，User 15/17）
+
+保留 SQLite 表、作用域、初始化与移除版本保护，在 `14ee2a601` 上修正四个边界：
+
+- 共享登记客户端拥有可靠快照、仅运行时的未保存路径与降级提示。缓存导航不等待刷新；首次最多等待
+  500ms 后采用旧会话分组，保留已知移除过滤。旧偏好不完整时返回可识别身份及 `complete: false`，不写初始化完成。
+- 添加/创建入口不以登记就绪为门槛；正常已登记目录跳过重复写入，新目录在可隔离故障时临时使用。
+  主要业务请求仍执行原权限、路径和保存检查；失败不消费输入。启动尚未取得会话导航时不提前清除选中目录。
+- Core 自动登记使用局部 savepoint，只有登记约束错误且外层事务完好、局部回滚成功才可继续。
+  外层已回滚、主库错误和最终提交失败仍使业务失败。恢复只用缺失版本 0 补缺，不重放业务或覆盖移除。
+- 重复目标已满足时无操作成功，真正的移除冲突仍拒绝。迟到的旧读取/添加回执不能替换更新登记。
+  降级状态只占既有通知槽，关闭后自动刷新不反复提示；正常初始化期间不闪出故障提示。
+
+验证证据由本轮定向 owner、全量前端测试、生产 Renderer 夹具和独立 macOS 打包应用分别承担，
+不把模拟 API 的执行顺序等同于真实 Core 故障，也不以 SQLite 约束故障冒充真实磁盘满或 I/O 实验。
+
+| 本轮验证 | 结果 |
+| --- | --- |
+| `pnpm exec vitest run` / `pnpm typecheck` | 239 文件、2632 项通过；类型检查通过 |
+| `pnpm test:rust:pr` | 465 通过、1 个既有 ignored；随后补入“入口事务已失效”检查，定向扩展 owner 再次通过 |
+| `cargo test -p rovai-core --features extended-tests --lib project_registry::` | 4 项通过；包括创建/首次发送的 ABORT 放行、ROLLBACK/提交钩子失败拒绝、草稿/回执原子性、重放不重复和移除恢复 |
+| 生产 Renderer 登记启动 owner | 7 组断言通过：首次失败、延迟初始化、慢刷新、缓存、新选目录、创建请求继续和移除过滤；没有真实 Core/Runtime |
+| `pnpm test:navigation-shell` / `pnpm test:desktop-bridge` | 通过；隔离 Electron 与真实 contextBridge |
+| 文档 / 格式 / UI 检测 | 文档测试、当前规范和以 `14ee2a601` 为 base 的治理通过；Impeccable detector 无发现；截图已查看 |
+
+新增 Rust owner 为 `optional_registration_cannot_block_business_or_mask_a_lost_transaction`：独立合同是
+登记附加失败不能阻断原会话、也不能掩盖事务失效。修复前真实创建和 Pending 首次发送遇到登记 ABORT
+均失败；原生命周期/初始化 owner 不拥有会话事务与草稿提交语义，故没有将此矩阵混入其中。
+选择 extended-tests 的实际 SQLite/CommandGateway fixture；纯函数无法证明 savepoint、外层回滚与 commit-hook。
+未删除或永久禁用 Rust 测试；最小命令即上述 project_registry 过滤。
+
+打包验收复用 `scripts/accept-project-registry.mjs`，旧 `/Applications/Rovai AI.app` 仅作只读启动来源，
+候选为本 worktree 的 macOS ARM64 dir 产物。独立 `user-data` 和 `managed-skill-library`，schema 140→141，
+七组场景包括原五组升级/重启、登记表真实触发器拒绝时创建成功并提示临时目录、撤除故障正常重启后
+补登一次且旧移除/会话不覆盖、不重复。触发器只修改关闭后的隔离数据库，不作用于日常数据。
+首轮证据：`/private/tmp/rovai-registry-availability-20261012-01/report.json`、六张截图及逐轮日志。
+最终产物复验：`/private/tmp/rovai-registry-availability-20261012-03/report.json` 同样七组通过。
+复验中日常安装版被外部更新到 schema 142，`-02` 因不支持的较新数据合同拒绝启动候选；没有降级数据或绕过准入。
+随后只读复制 `/Applications/Rovai AI.backup-before-20261012-105021.app` 到固定验收路径，
+Host 与 app.asar SHA-256 均与 `-01` 的 schema-140 来源一致，再用最终候选完成 `-03`。
+验收脚本现在明确检查来源为 schema 140，防止将移动中的安装版误当旧版夹具。
+
+本轮完整 `pnpm test:startup-presentation` 仍为登记 owner 通过、原 loader owner 在
+`Leaving the loaded empty Camp must initiate cleanup before the race is tested` 失败，与此前基线一致；
+没有跳过或弱化该断言。未执行真实 Runtime、Windows 真机、物理磁盘满或 I/O 故障实验。
+局部 ABORT、外层 ROLLBACK、commit-hook 和权限拒绝是可重复的 SQLite 注入，不能替代物理故障验证。
+本分支尚未合并日常版所在的新主线，不支持直接升级其 schema 142；上述结论限定 schema 140→141，
+不作为当前日常安装包的升级结论。候选未安装，不涉及主线合并或签名发布。
+
+
 ## Send 正文文件输入
 
 按 User 消息 19 确认的 [r5](model-context-change-send-input-file.md)实施：Send 文件按现有 Schema

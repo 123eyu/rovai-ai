@@ -160,14 +160,13 @@ export function sourceMatchesSupportedSnapshot(source: unknown, snapshot: Naviga
  * removal decisions prevent the one-time import from completing. */
 export function legacyProjectDirectories(source: unknown): LegacyProjectDirectories {
   if (!isRecord(source) || ![1, 2, 3, 4, 5].includes(source.schemaVersion as number)) {
-    throw new Error('项目偏好暂时无法读取，请重试。')
+    return { projectPaths: [], removedPaths: [], complete: false }
   }
   const pathFromKey = (key: unknown): string | null => typeof key === 'string' && key.startsWith('directory:')
     && isLegacyProjectPath(key.slice(10)) ? key.slice(10) : null
   const removed = source.schemaVersion === 1 ? [] : source.removedProjects
-  if (!Array.isArray(removed) || removed.some(value => !isRecord(value) || !pathFromKey(value.targetKey))) {
-    throw new Error('已移除项目的记录暂时无法读取，请重试。')
-  }
+  const complete = Array.isArray(removed) && removed.every(value => isRecord(value) && pathFromKey(value.targetKey))
+  const removedPaths = Array.isArray(removed) ? removed.flatMap(value => isRecord(value) ? pathFromKey(value.targetKey) ?? [] : []) : []
   const candidates = [
     ...(Array.isArray(source.projectOrder) ? source.projectOrder : []),
     ...(isRecord(source.projectNames) ? Object.keys(source.projectNames) : []),
@@ -175,7 +174,8 @@ export function legacyProjectDirectories(source: unknown): LegacyProjectDirector
   ]
   return {
     projectPaths: [...new Set(candidates.flatMap(key => pathFromKey(key) ?? []))],
-    removedPaths: [...new Set(removed.map(value => pathFromKey(value.targetKey)!))]
+    removedPaths: [...new Set(removedPaths)],
+    ...(!complete ? { complete: false as const } : {})
   }
 }
 

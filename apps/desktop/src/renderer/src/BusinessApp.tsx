@@ -1,4 +1,4 @@
-import { navigationWithRegisteredProjects } from './project-registry'
+import { navigationWithRegisteredProjects, type ProjectRegistryView } from './project-registry'
 import { useThreadUserAnchorCache } from './useThreadUserAnchors'
 import { hasPendingThreadDraftInput } from './pending-thread-draft'
 import { memberCreationHelper, memberCreationInitialDraft, navigationWithMemberCreationDrafts, type MemberCreationDraft } from './member-creation-flow'
@@ -57,7 +57,6 @@ import type {
   NavigationPreferencesSnapshot,
   NavigationSnapshot,
   ProjectNavigationGroup,
-  ProjectRegistrySnapshot,
   RestorableLocation,
   RovaiApi,
   HearthReviewItem,
@@ -1061,29 +1060,17 @@ export function BusinessApp({
   const [navigationGroupLimits, setNavigationGroupLimits] = useState<NavigationGroupLimits>({})
   const [navigationState, setNavigationState] = useState<LoadState>('loading')
   const [navigationPins, setNavigationPins] = useState<NavigationPin[]>([])
-  const [registeredProjects, setRegisteredProjects] = useState<ProjectRegistrySnapshot | null>(null)
-  const registeredProjectsRef = useRef<ProjectRegistrySnapshot | null>(null)
-  const [projectRegistryError, setProjectRegistryError] = useState<string | null>(null)
-  const removedProjectAuthorityReady = registeredProjects?.initialized === true
-  const removedProjectKeys = useMemo(() => new Set(registeredProjects?.projects.filter(project => project.removed).map(project => projectTargetKey(project.projectPath)) ?? []), [registeredProjects])
-  useEffect(() => projectRegistry.subscribe(snapshot => {
-    registeredProjectsRef.current = snapshot
-    setRegisteredProjects(snapshot)
-  }), [projectRegistry])
-  const refreshProjectRegistry = useCallback(async (): Promise<ProjectRegistrySnapshot> => {
-    try {
-      const snapshot = await projectRegistry.get()
-      setProjectRegistryError(null)
-      return snapshot
-    } catch (nextError) {
-      setProjectRegistryError(uiAttribute("项目列表暂时无法刷新：{0}", String(errorMessage(nextError))))
-      // A reliable registry still owns visibility, including every tombstone.
-      // Its read failure must not discard a successful, newer Thread window.
-      const previous = registeredProjectsRef.current
-      if (!previous?.initialized) throw nextError
-      return previous
-    }
-  }, [projectRegistry])
+  const [projectView, setProjectView] = useState<ProjectRegistryView>(() => projectRegistry.current())
+  const registeredProjects = projectView.snapshot
+  const [projectNoticeDismissed, setProjectNoticeDismissed] = useState(false)
+  const projectRegistryNotice = projectView.unavailable && !projectNoticeDismissed
+  // Registration readiness is not an access gate. Core remains the authority for
+  // permissions; every removal we can reliably read still filters presentation.
+  const removedProjectAuthorityReady = true
+  const removedProjectKeys = useMemo(() => new Set(projectView.removedPaths.map(projectTargetKey)), [projectView])
+  useEffect(() => projectRegistry.subscribe(setProjectView), [projectRegistry])
+  useEffect(() => { if (!projectView.unavailable) setProjectNoticeDismissed(false) }, [projectView.unavailable])
+  const refreshProjectRegistry = useCallback(() => projectRegistry.refresh(), [projectRegistry])
   const [projectOrder, setProjectOrder] = useState<string[] | null>(null)
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const projectNamesGeneration = useRef(0)
@@ -1496,9 +1483,10 @@ export function BusinessApp({
   const navigationRefreshCoordinator = useMemo(
     () => createNavigationWindowReader(
       async (request) => {
-        const [snapshot] = await Promise.all([
-          client.request<NavigationSnapshot>('navigation.snapshot', request), refreshProjectRegistry()
-        ])
+        const registryReady = refreshProjectRegistry()
+        const snapshot = await client.request<NavigationSnapshot>('navigation.snapshot', request)
+        await registryReady
+        projectRegistry.observe(snapshot)
         return snapshot
       },
       commitNavigation,
@@ -1515,7 +1503,7 @@ export function BusinessApp({
         onError: () => setNavigationState('error')
       }
     ),
-    [client, refreshProjectRegistry, commitNavigation]
+    [client, projectRegistry, refreshProjectRegistry, commitNavigation]
   )
 
   const loadNavigation = useCallback(async (
@@ -1612,13 +1600,12 @@ export function BusinessApp({
         const nextNavigationPreferencesPromise = uiPreferences.navigationPreferences.get()
 
         const navigationOverviewPromise = (async (): Promise<void> => {
-          const [nextNavigation, nextNavigationPreferences, registry] = await Promise.all([
+          const [nextNavigation, nextNavigationPreferences] = await Promise.all([
             nextNavigationPromise,
-            nextNavigationPreferencesPromise,
-            refreshProjectRegistry()
+            nextNavigationPreferencesPromise
           ])
           const resolvedPins = await resolveNavigationPins(
-            navigationWithRegisteredProjects(nextNavigation, registry)!,
+            navigationWithRegisteredProjects(nextNavigation, projectRegistry.current().snapshot, projectRegistry.current())!,
             nextNavigationPreferences.pins, client
           )
           setNavigationPins(resolvedPins.pins)
@@ -1630,7 +1617,7 @@ export function BusinessApp({
           setPinnedThreadItems(
             resolvedPins.threads.filter((thread) => !deletingThreadIdsRef.current.has(thread.id))
           )
-          if (resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
+          if (!projectRegistry.current().unavailable && projectRegistry.current().snapshot?.initialized && resolvedPins.pins.length !== nextNavigationPreferences.pins.length) {
             void uiPreferences.navigationPreferences.replacePins(resolvedPins.pins)
               .catch(nextError => setError(errorMessage(nextError)))
           }
@@ -1659,7 +1646,7 @@ export function BusinessApp({
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadNavigation, refreshProjectRegistry])
+  }, [loadAgents, loadNavigation, projectRegistry])
 
   const loadHealth = useCallback((): Promise<HealthStatus> => {
     if (healthRequest.current) return healthRequest.current
@@ -1733,7 +1720,7 @@ export function BusinessApp({
   }, [])
 
   useEffect(() => {
-    if (!registeredProjects?.initialized) return
+    if (!registeredProjects?.initialized || projectView.unavailable) return
     const generation = ++projectOrderSyncGeneration.current
     const projectKeys = registeredProjects.projects.filter(project => !project.removed)
       .map(project => projectTargetKey(project.projectPath))
@@ -1748,11 +1735,11 @@ export function BusinessApp({
           setError(uiAttribute("项目顺序暂时无法保存：{0}", String(errorMessage(nextError))))
         }
       })
-  }, [applyNavigationPreferences, registeredProjects, uiPreferences])
+  }, [applyNavigationPreferences, registeredProjects, projectView.unavailable, uiPreferences])
 
   const restoreNavigationProject = useCallback(async (projectPath: string): Promise<void> => {
     try {
-      await projectRegistry.change(projectPath, false)
+      await projectRegistry.prepare(projectPath, true)
     } catch (nextError) {
       setError(uiAttribute("项目目录未能保存，请重试：{0}", String(errorMessage(nextError))))
       throw nextError
@@ -2135,18 +2122,18 @@ export function BusinessApp({
   const visibleNavigation = useMemo(
     () => navigationWithProjectNames(navigationWithProjectOrder(
       navigationWithProjectAuthority(
-        navigationWithRegisteredProjects(navigation, registeredProjects),
+        navigationWithRegisteredProjects(navigation, registeredProjects, projectView),
         removedProjectKeys,
         removedProjectAuthorityReady
       ),
       projectOrder
     ), projectNames),
-    [navigation, registeredProjects, projectOrder, projectNames, removedProjectAuthorityReady, removedProjectKeys]
+    [navigation, registeredProjects, projectView, projectOrder, projectNames, removedProjectAuthorityReady, removedProjectKeys]
   )
   const currentProjectAccess = currentProjectAccessDecision({
     currentProject,
     currentWorkspaceHint,
-    navigation: visibleNavigation,
+    navigation: navigation ? visibleNavigation : null,
     removedProjectKeys,
     removedProjectAuthorityReady
   })
@@ -2851,7 +2838,6 @@ export function BusinessApp({
   }
 
   const openProject = async (): Promise<void> => {
-    if (!removedProjectAuthorityReady) return
     setError(null)
     try {
       await selectProjectDirectory(
@@ -3667,7 +3653,7 @@ export function BusinessApp({
     setBusy('create-camp')
     try {
       if (draft.workspace) {
-        await restoreNavigationProject(draft.workspace.projectPath)
+        await projectRegistry.prepare(draft.workspace.projectPath)
       }
       const result = await client.request<StoredCommandResult>('threads.create', {
         commandId: newCommandId(),
@@ -4141,7 +4127,7 @@ export function BusinessApp({
     : startupRoutePending?.kind ?? startupRouteTarget?.kind ?? 'location'
   const inlineNotices = memoryReviewNotice
     || memoryAutoNotice.count > 0
-    || (!shuttingDown && (error || projectRegistryError || locationSaveError))
+    || (!shuttingDown && (error || projectRegistryNotice || locationSaveError))
     ? (
         <>
           {memoryReviewNotice && (
@@ -4156,11 +4142,19 @@ export function BusinessApp({
               <div><button className="quiet-button compact" type="button" onClick={openAutomaticMemory}><UiText zh={"查看"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("关闭自动形成提示")} onClick={() => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })}>×</button></div>
             </div>
           )}
-          {!shuttingDown && (error || projectRegistryError) && (
+          {!shuttingDown && projectRegistryNotice && (
+            <div className="memory-review-notice" role="status" aria-live="polite">
+              <div><span><UiText zh={"项目列表暂未保存，仍可继续使用；新添加的空目录可能无法在重启后保留。"} /></span>
+                {projectView.visibilityIncomplete && <small><UiText zh={"项目显示状态暂未完整恢复。"} /></small>}</div>
+              <div><button className="quiet-button compact" type="button" onClick={() => void refreshProjectRegistry()}><UiText zh={"重试"} /></button>
+                <button className="icon-button" type="button" aria-label={uiAttribute("关闭项目列表提示")} onClick={() => setProjectNoticeDismissed(true)}>×</button></div>
+            </div>
+          )}
+          {!shuttingDown && error && (
             <div className="error-banner" role="alert">
               <span className="error-icon" aria-hidden="true">!</span>
-              <div><strong><UiText zh={"操作未完成"} /></strong><span>{error || projectRegistryError}</span><small><UiText zh={"项目文件和已经写入的审计记录不会因此丢失。"} /></small></div>
-              <div className="error-actions"><button className="quiet-button" onClick={() => void loadOverview()}><UiText zh={"刷新状态"} /></button><button className="icon-button" aria-label={uiAttribute("关闭错误")} onClick={() => { setError(null); setProjectRegistryError(null) }}>×</button></div>
+              <div><strong><UiText zh={"操作未完成"} /></strong><span>{error}</span><small><UiText zh={"项目文件和已经写入的审计记录不会因此丢失。"} /></small></div>
+              <div className="error-actions"><button className="quiet-button" onClick={() => void loadOverview()}><UiText zh={"刷新状态"} /></button><button className="icon-button" aria-label={uiAttribute("关闭错误")} onClick={() => setError(null)}>×</button></div>
             </div>
           )}
           {!shuttingDown && locationSaveError && (

@@ -131,7 +131,7 @@ describe('new conversation preferences', () => {
       projects: [project('/repo/a'), project('/repo/b')]
     }
 
-    expect(navigationWithProjectAuthority(navigation, new Set(), false)?.projects).toEqual([])
+    expect(navigationWithProjectAuthority(navigation, new Set(), false)?.projects).toEqual(navigation.projects)
     expect(navigationWithProjectAuthority(
       navigation,
       new Set([projectTargetKey('/repo/a')]),
@@ -139,7 +139,7 @@ describe('new conversation preferences', () => {
     )?.projects.map((candidate) => candidate.projectPath)).toEqual(['/repo/b'])
   })
 
-  it('does not inspect a cached Project until removed-Project authority is ready', () => {
+  it('uses available navigation and known removals while registry authority is unavailable', () => {
     const navigation: NavigationSnapshot = {
       schemaVersion: 3,
       throughGlobalSequence: 7,
@@ -154,7 +154,7 @@ describe('new conversation preferences', () => {
       navigation,
       removedProjectKeys: new Set(),
       removedProjectAuthorityReady: false
-    })).toBe('wait')
+    })).toBe('fallback')
     expect(currentProjectAccessDecision({
       currentProject,
       currentWorkspaceHint: null,

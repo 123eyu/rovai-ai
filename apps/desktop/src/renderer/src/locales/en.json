@@ -1,4 +1,7 @@
 {
+  "项目列表暂未保存，仍可继续使用；新添加的空目录可能无法在重启后保留。": "The project list could not be saved. You can keep working; new empty projects may not survive a restart.",
+  "项目显示状态暂未完整恢复。": "Project visibility settings have not fully recovered yet.",
+  "关闭项目列表提示": "Dismiss project list notice",
   "项目列表暂时无法刷新：{0}": "Project list could not be refreshed: {0}",
   "已保存": "Saved",
   "启动设置已保存，连接更改尚未保存。": "Startup settings saved; connection changes are still unsaved.",

@@ -560,6 +560,18 @@ struct ErrorBody {
 }
 
 fn request_error_body(error: &anyhow::Error) -> ErrorBody {
+    if error
+        .downcast_ref::<crate::project_registry::Unavailable>()
+        .is_some()
+    {
+        return ErrorBody {
+            kind: "infrastructure_failure",
+            code: "project_registry_unavailable".to_owned(),
+            message: error.to_string(),
+            retryable: true,
+            details: json!({}),
+        };
+    }
     if let Some(error) = error.downcast_ref::<LocalAttachmentFailure>() {
         return ErrorBody {
             kind: "domain_rejection",

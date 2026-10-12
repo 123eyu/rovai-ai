@@ -183,7 +183,7 @@ describe('navigation preferences', () => {
     await writeFile(filePath, '{unreadable')
     const store = await NavigationPreferencesStore.load(filePath)
     await expect(store.get()).resolves.toMatchObject({ projectNames: {} })
-    await expect(store.getProjectInitialization()).rejects.toThrow()
+    await expect(store.getProjectInitialization()).resolves.toMatchObject({ complete: false })
     expect(await readFile(filePath, 'utf8')).toBe('{unreadable')
     const repaired = JSON.stringify({ schemaVersion: 5, pins: [],
       removedProjects: [{ targetKey: 'directory:/removed', removedAt: 'invalid optional date' }],
@@ -194,7 +194,11 @@ describe('navigation preferences', () => {
     await store.synchronizeProjectOrder(['/kept', '/empty'].map(path => 'directory:' + path))
     expect(await readFile(filePath, 'utf8')).toBe(repaired)
     await writeFile(filePath, JSON.stringify({ schemaVersion: 5, pins: [], removedProjects: 'unreadable', projectOrder: [], projectNames: {}, threadReadStates: {} }))
-    await expect(store.getProjectInitialization()).rejects.toThrow('已移除项目')
+    await expect(store.getProjectInitialization()).resolves.toMatchObject({ complete: false })
+    await writeFile(filePath, JSON.stringify({ schemaVersion: 5, pins: [], removedProjects: [
+      { targetKey: 'directory:/known-removed', removedAt: 'invalid optional date' }, { targetKey: 'unknown' }
+    ], projectOrder: [], projectNames: {}, threadReadStates: {} }))
+    await expect(store.getProjectInitialization()).resolves.toEqual({ projectPaths: [], removedPaths: ['/known-removed'], complete: false })
     await writeFile(filePath, JSON.stringify({ schemaVersion: 5, pins: [], removedProjects: [], projectOrder: [], projectNames: {}, threadReadStates: {} }))
     await expect(store.getProjectInitialization()).resolves.toEqual({ projectPaths: [], removedPaths: [] })
     await store.setProjectName('directory:/kept', 'Recovered')

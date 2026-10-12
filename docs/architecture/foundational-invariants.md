@@ -602,7 +602,7 @@ last_updated: 2026-10-10
 ### 产品与导航
 
 - 正式产品名是 **Rovai-ai**，仓库/package slug 为 `rovai-ai`，普通内部命名使用 `rovai`，Rust package/crate/executable 使用 `rovai-core` / `rovai_core`。旧 namespace 只在受控迁移或外部兼容边界保留。
-- 普通导航使用“置顶 / 项目”投影：directory-backed Project 来自按客户端作用域独立保存的 [SQLite 目录登记](../contracts/project-directory-registry-v1.md)，会话与 Quick Chat 内容来自 Camp workspace read model。设置在同一侧栏槽位以显式模式覆盖，不创造第二导航真源。
+- 普通导航使用“置顶 / 项目”投影：directory-backed Project 来自按客户端作用域独立保存的 [SQLite 目录登记](../contracts/project-directory-registry-v1.md)，会话与 Quick Chat 内容来自 Camp workspace read model。登记功能故障时允许按该合同临时显示 Core 授权会话与未保存目录，可靠移除优先，临时显示不授予访问或改写登记。设置在同一侧栏槽位以显式模式覆盖，不创造第二导航真源。
 - Core 拥有目录登记和 Project 内 Camp 最近用户消息顺序和活动字段；只有已发布的 `user` / `external_principal` 消息（含飞书、钉钉等渠道用户）推进 Camp 排序，队员消息和运行状态不推进；无用户消息时固定使用创建时间，草稿编辑不推进。运行中和完成未读标记独立刷新。当前设备的 Sidecar Project 行顺序由 Main-owned `navigation.json` nullable `projectOrder` 拥有。schema 2 用户第一次进入时按当时 Core Project 数组冻结，之后只保留既有项相对顺序、追加新项并清理主动移除项；空项目、删除最后一个会话与普通刷新均保留登记，消息活动不得移动 Project。
 - Navigation 新鲜度采用事件驱动为主、前台约 20 秒安全刷新兜底；隐藏时暂停周期与后台 retry，focus 后立即重读。并发、trailing generation 与失败退避由 [Desktop Navigation Refresh](desktop-navigation-refresh.md) 统一拥有。
 - Sidebar wordmark 是展示资产，不定义产品领域身份；Core 健康和诊断只从诊断入口读取，不常驻普通导航制造伪状态。

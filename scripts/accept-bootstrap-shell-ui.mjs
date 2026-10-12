@@ -440,7 +440,7 @@ async function inspectBootstrap(cdp) {
       title: document.querySelector('.bootstrap-authority-card h1')?.textContent?.trim() ?? '',
       body: document.querySelector('.bootstrap-authority-card')?.textContent ?? '',
       authoritativeTree: Boolean(document.querySelector('.app-shell')),
-      camps: document.querySelectorAll('.camp-nav-row').length,
+      threads: document.querySelectorAll('.camp-nav-row').length,
       members: document.querySelectorAll('.member-sidebar-row').length,
       memory: document.querySelectorAll('.memory-library').length,
       retryFocused: document.activeElement === retry,

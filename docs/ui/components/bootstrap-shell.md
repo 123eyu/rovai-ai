@@ -56,6 +56,6 @@ tokens、自然换行和有界滚动，在最小窗口与放大视口下保留�
 
 ## References
 
-- [Desktop Runtime Availability v2](../../contracts/desktop-runtime-availability-v2.md)
+- [Desktop Runtime Availability v3](../../contracts/desktop-runtime-availability-v3.md)
 - [Availability-first Runtime](../../architecture/availability-first-runtime.md)
 - [全局设计系统](../../../DESIGN.md)

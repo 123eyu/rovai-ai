@@ -4,7 +4,7 @@ contract: desktop-runtime-availability-v2
 authority: desktop-bootstrap-supervisor-authority-admission-and-request-transport
 status: accepted
 version: 2
-last_updated: 2026-10-12
+last_updated: 2026-09-20
 ---
 
 # Desktop Runtime Availability v2 Contract
@@ -50,10 +50,10 @@ interface SupervisorSnapshot {
 并且只接受大于当前 revision 的快照。只有 `authoritativeWorkspace && coreRequests` 为真时，Renderer 才能挂载
 Camp、成员、Memory、Navigation 或其他权威查询树；阻断期间不得发起这些查询，也不得用合成空集合替代。
 
-这里的门禁约束权威查询/操作，不禁止只包含既有导航 chrome 与候选目标标题的非权威页面框架；Renderer 从首帧起
-在该框架之上挂载不透明整窗品牌画布，但画布本身不得触发权威请求。
+这里的门禁约束权威查询/操作，不禁止只包含既有导航 chrome 与候选目标标题的非权威页面框架；超过反馈门槛后，Renderer
+可在该框架之上挂载不透明整窗品牌画布，但画布本身不得触发权威请求。
 本机 Main Window Session snapshot 不依赖 Core ready；框架不代表 Camp 已存在、已进入或已读，也不能提交下次恢复位置。
-正常启动的首帧品牌反馈与明确阻断后的恢复面由 [App Shell 冷启动反馈](../ui/components/app-shell-navigation.md#冷启动反馈)
+正常启动的 400ms 反馈与明确阻断后的恢复面由 [App Shell 冷启动反馈](../ui/components/app-shell-navigation.md#冷启动反馈)
 和 [Bootstrap Shell](../ui/components/bootstrap-shell.md)规定；本段不改变 capability、请求或数据库准入语义。
 
 ## 2. Core startup frames
@@ -255,8 +255,8 @@ Main 在 Runtime storage 准备之前就接收准确的 admitted/migration_requi
 若原 authority 消失，返回非重试 `authority_required_existing_missing`，不得把自动/手动重试或 crash restart 变成空库初始化。
 首次已确认 absence 的非瞬时 Runtime preparation 失败不伪装成 existing authority，显式修复后仍能正常首次初始化。
 
-产品从 Renderer 首帧起以不透明整窗纯色画布遮住既有 rail/顶行/内容区 DOM，Core ready、Onboarding admission 与目标
-读取交接期间持续显示。画布中央只显示完整 Rovai horizon 标记；可见层不显示文案、Spinner、进度、骨架、模糊背景或阶段，辅助技术
+产品保持同一个 400ms 截止时间与既有 rail/顶行/内容区 DOM：不足 400ms 不显示启动提示，超过后以不透明整窗纯色画布
+遮住框架。画布中央只显示完整 Rovai horizon 标记；可见层不显示文案、Spinner、进度、骨架、模糊背景或阶段，辅助技术
 通过 polite busy status 获得“正在打开会话”。普通动效为 1600ms 轻呼吸，`prefers-reduced-motion` 下静止；ready 且
 真实目标可用后以 180ms 淡出并释放交互。Renderer 不按 migration/internal phase 切换文案，不显示 SQLite、数据库、
 合同、备份、原库、schema、staging、页数或阶段。

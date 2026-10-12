@@ -162,7 +162,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Pending Camp Input v2（历史）](pending-camp-input-v2.md) | v1 FIFO/edit token 不变；原生保存 source refs，working refs 支持添加/删除/排序与附件-only，发布失败精确 needs-repair；content wire 由 v3 替代 |
 | [Pending Camp Input v1（历史）](pending-camp-input-v1.md) | 私有下一轮输入、FIFO、编辑 token、暂停、原子发布与无附件边界 |
 | [Camp Identity v1（当前）](camp-identity-v1.md) | 唯一 `rvcamp_` UUIDv7/Crockford 主键、strict boundary、SQLite/JSON/path 使用与 Native Session identity 分离 |
-| [Desktop Runtime Availability v2（当前）](desktop-runtime-availability-v2.md) | 严格 lease/ticket 后原位逐版本事务、receipt 续跑、旧 manifest 恢复、独立瞬时重试与统一会话启动反馈；generation/capability 不变 |
+| [Desktop Runtime Availability v3（当前）](desktop-runtime-availability-v3.md) | 继承 v2 的权威与恢复边界；冷启动首帧即显示整窗加载画布，删除启动反馈 400ms 延迟 |
+| [Desktop Runtime Availability v2（历史）](desktop-runtime-availability-v2.md) | 严格 lease/ticket 后原位逐版本事务、receipt 续跑、旧 manifest 恢复及独立瞬时重试；启动呈现延迟由 v3 替代 |
 | [Desktop Runtime Availability v1（历史）](desktop-runtime-availability-v1.md) | Bootstrap/Full Core、SQLite 准入、copy/switch 与结构化 failure；旧 manifest 恢复仍保留，普通升级执行策略由 v2 替代 |
 | [First-run Onboarding v6（当前）](first-run-onboarding-v6.md) | schema 3；训练营自动复制所选 Runtime、模型与权限到其余未配置内置队员，逐人冻结、恢复与冲突保护；已完成用户不补写 |
 | [First-run Onboarding v5（历史）](first-run-onboarding-v5.md) | v4 admission/provisioning 不变；Active Camp starter 进入可恢复的 Desktop-local Composer snapshot |

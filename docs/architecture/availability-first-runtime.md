@@ -191,7 +191,7 @@ missing 使用默认；损坏或不可读使用内存默认/规范化结果、�
 
 ## References
 
-- [Desktop Runtime Availability v2](../contracts/desktop-runtime-availability-v2.md)
+- [Desktop Runtime Availability v3](../contracts/desktop-runtime-availability-v3.md)
 - [First-run Onboarding](first-run-onboarding.md)
 - [Bootstrap Shell UI](../ui/components/bootstrap-shell.md)
 - [V1.31 Decisions](../versions/v1.31/decisions.md)

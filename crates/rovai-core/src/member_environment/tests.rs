@@ -333,7 +333,7 @@ fn legacy_archive_is_inert_read_only_and_acknowledgment_survives_path_edits() {
     // Exercise the actual upgrade: schema, archive, old source and receipt are atomic.
     database.connection().execute_batch("DROP TABLE IF EXISTS conversation_runtime_environment; DROP TABLE member_runtime_environment;
         DROP TABLE IF EXISTS runtime_environment_plan; DROP TABLE runtime_environment_legacy;
-        DELETE FROM schema_migration WHERE version IN (191,192,193);
+        DELETE FROM schema_migration WHERE version IN (191,192,193,194);
         UPDATE rovai_data_contract SET projection_schema_version=140 WHERE singleton=1;
         CREATE TRIGGER fail_member_environment_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=191
         BEGIN SELECT RAISE(ABORT,'fixture environment receipt failure'); END;").unwrap();

@@ -144,7 +144,7 @@ pub(super) fn retire_snapshots(database: &mut Database) -> Result<()> {
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
-            DatabaseContractClassification::Current(_)
+            DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 143
         ),
         "Environment snapshot retirement admission failed"
     );
@@ -155,8 +155,8 @@ pub(super) fn retire_snapshots(database: &mut Database) -> Result<()> {
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
     connection.execute_batch("DROP TABLE IF EXISTS conversation_runtime_environment;
-        DELETE FROM schema_migration WHERE version IN (192,193);
-        UPDATE rovai_data_contract SET projection_schema_version=141 WHERE singleton=1 AND projection_schema_version IN (142,143);").unwrap();
+        DELETE FROM schema_migration WHERE version IN (192,193,194);
+        UPDATE rovai_data_contract SET projection_schema_version=141 WHERE singleton=1 AND projection_schema_version IN (142,143,144);").unwrap();
     if !connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=191)",
@@ -215,7 +215,7 @@ mod tests {
         connection.execute_batch(SESSION_SQL).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version=193;
+                "DELETE FROM schema_migration WHERE version IN (193,194);
             UPDATE rovai_data_contract SET projection_schema_version=142 WHERE singleton=1;
             INSERT INTO runtime_environment_plan VALUES('broken','broken',x'00');
             INSERT INTO conversation_runtime_environment VALUES('with-broken-snapshot','codex-cli','broken',1);",

@@ -93,7 +93,7 @@ try {
       // Changing this inherited value proves the old environment was not restored.
       core = startCore(candidateCore, 'after')
       await core.request('health.check')
-      assert.equal(query('SELECT projection_schema_version AS version FROM rovai_data_contract').version, 143)
+      assert.equal(query('SELECT projection_schema_version AS version FROM rovai_data_contract').version, 144)
       assert.equal(query("SELECT COUNT(*) AS total FROM sqlite_master WHERE name IN ('conversation_runtime_environment','runtime_environment_plan')").total, 0)
       await send('UPGRADE_SECOND_INPUT')
       await settled(2)

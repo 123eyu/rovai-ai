@@ -4572,7 +4572,7 @@ impl ExecutionRuntimeService {
             if database.connection().total_changes() != changes_before {
                 database.execution_wake.execution_changed();
             }
-            crate::execution_text::flush_settled(database)?;
+            crate::execution_text::request_settlement(database);
             return Ok(ControlledShutdownCycleSettlement {
                 core_generation: core_generation.to_string(),
                 fenced_agent_runs: Vec::new(),
@@ -4699,7 +4699,7 @@ impl ExecutionRuntimeService {
         if database.connection().total_changes() != changes_before {
             database.execution_wake.execution_changed();
         }
-        crate::execution_text::flush_settled(database)?;
+        crate::execution_text::request_settlement(database);
         Ok(ControlledShutdownCycleSettlement {
             core_generation: core_generation.to_string(),
             fenced_agent_runs,
@@ -4756,7 +4756,7 @@ impl ExecutionRuntimeService {
             if database.connection().total_changes() != changes_before {
                 database.execution_wake.execution_changed();
             }
-            crate::execution_text::flush_settled(database)?;
+            crate::execution_text::request_settlement(database);
             return Ok(PlannedShutdownTerminalSettlement {
                 agent_run_id: target.agent_run_id,
                 camp_turn_id: target.camp_turn_id,
@@ -4889,7 +4889,7 @@ impl ExecutionRuntimeService {
         if database.connection().total_changes() != changes_before {
             database.execution_wake.execution_changed();
         }
-        crate::execution_text::flush_settled(database)?;
+        crate::execution_text::request_settlement(database);
         pump_target_after_run_terminal(database, &terminal.agent_run_id)?;
         Ok(PlannedShutdownTerminalSettlement {
             agent_run_id: target.agent_run_id,

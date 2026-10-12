@@ -113,7 +113,7 @@ Migration 177 接受经核验的 v1.72/schema 126，升级到 schema 127，新�
 不建目录登记表，不在业务事务自动补登，不增加登记服务、轮询或恢复队列。
 
 Renderer 在启动成功取得完整导航后只尝试一次旧目录补齐，同时保留启动恢复前的旧选中空目录。
-完成标记与目录一起原子提交；失败继续展示可靠旧分组，并保留明确重试。成功后内存标记直接关闭整个
+完成标记与目录一起原子提交；失败继续展示可靠旧分组，只提示一次，下一次启动再尝试。成功后内存标记直接关闭整个
 旧补齐分支，不随刷新、切换或会话活动做集合扫描和同步。真正的目录选择／移除继续调用统一偏好写入口。
 
 `projectOrder` 保留原相对顺序，登记新路径时追加，主动移除时清理；消息、Run 或会话归零不改变
@@ -133,7 +133,7 @@ Main-owned `navigationPreferences.setProjectName(targetKey, name)` 接受字符�
 合并连续空白，非空且最多 80 个 Unicode scalar；`null` 删除覆盖、恢复目录名。名称可重复，同名不同路径独立保存。
 移除项目、会话刷新或无 Camp 的空目录均不删除名称；重新选择相同目录后恢复该名称。
 
-Renderer 在 Core 原始 Navigation Snapshot 之外建立名称展示投影，并在加入已登记和临时空目录后应用覆盖。
+Renderer 在 Core 原始 Navigation Snapshot 之外建立名称展示投影，并在加入已登记空目录后应用覆盖。
 侧栏/置顶、顶部、搜索、新建对话和定时任务项目选择共用该投影；Workspace inspection 返回的目录名称不会覆盖
 已保存的显示名称。重命名不调用 Core mutation、Workspace inspection 或 Runtime；不修改项目路径、Camp ID、
 消息、队员、记忆、Native Session、执行状态、活动时间或排序。渠道项目目录仍由既有 Core 投影拥有，本机别名不进入

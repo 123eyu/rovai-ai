@@ -1072,8 +1072,6 @@ export function BusinessApp({
   const legacyProjectAttempted = useRef(false)
   // Capture before startup restoration can overwrite the old empty selection.
   const [legacySelectedProject] = useState(() => readCurrentProject())
-  const [temporaryProjectPaths, setTemporaryProjectPaths] = useState<string[]>([])
-  const [projectSaveIssue, setProjectSaveIssue] = useState<{ retry: () => void } | null>(null)
   const [threadReadStates, setThreadReadStates] = useState<NavigationPreferencesSnapshot['threadReadStates']>({})
   const threadReadStatesRef = useRef(threadReadStates)
   const threadReadGeneration = useRef(0)
@@ -1592,13 +1590,9 @@ export function BusinessApp({
     try {
       const saved = await uiPreferences.navigationPreferences.registerProjects([projectPath])
       applyNavigationPreferences(saved)
-      setTemporaryProjectPaths(paths => paths.filter(path => path !== projectPath))
     } catch {
-      setTemporaryProjectPaths(paths => [...new Set([...paths, projectPath])])
-      setProjectSaveIssue({ retry: () => {
-        setProjectSaveIssue(null)
-        void registerProject(projectPath, explicit).catch(error => notifyError(errorMessage(error)))
-      } })
+      if (explicit) throw new Error(uiAttribute('项目目录未保存，请重新添加。'))
+      notifyError(uiAttribute('项目目录未保存，现有会话仍可正常使用。'))
     }
   }, [uiPreferences, applyNavigationPreferences, notifyError])
   const restoreNavigationProject = useCallback((path: string) => registerProject(path, true), [registerProject])
@@ -1613,20 +1607,9 @@ export function BusinessApp({
       if (legacySelectedProject.kind === 'directory' && isProjectPath(legacySelectedProject.projectPath)) paths.push(legacySelectedProject.projectPath)
       applyNavigationPreferences(await uiPreferences.navigationPreferences.registerProjects(paths, true))
     } catch {
-      const retry = (): void => {
-        setProjectSaveIssue(null)
-        void uiPreferences.navigationPreferences.get().then(async snapshot => {
-          applyNavigationPreferences(snapshot)
-          if (snapshot.readError) throw new Error(snapshot.readError)
-          if (snapshot.legacyProjectsSynced) return
-          const full = await loadNavigation()
-          legacyProjectAttempted.current = false
-          await completeLegacyProjects(full)
-        }).catch(() => setProjectSaveIssue({ retry }))
-      }
-      setProjectSaveIssue({ retry })
+      notifyError(uiAttribute('项目目录未保存，现有会话仍可正常使用。'))
     }
-  }, [uiPreferences, applyNavigationPreferences, legacySelectedProject, loadNavigation])
+  }, [uiPreferences, applyNavigationPreferences, legacySelectedProject, notifyError])
 
   const loadOverview = useCallback((showLoading = false): Promise<boolean> => {
     if (showLoading) setState('loading')
@@ -2132,10 +2115,10 @@ export function BusinessApp({
     : null
   const visibleNavigation = useMemo(
     () => navigationWithProjectNames(navigationWithProjectOrder(
-      navigationWithProjectDirectories(navigation, navigationPreferences, temporaryProjectPaths),
+      navigationWithProjectDirectories(navigation, navigationPreferences),
       projectOrder
     ), projectNames),
-    [navigation, navigationPreferences, temporaryProjectPaths, projectOrder, projectNames]
+    [navigation, navigationPreferences, projectOrder, projectNames]
   )
   const currentProjectAccess = currentProjectAccessDecision({
     currentProject,
@@ -2877,7 +2860,7 @@ export function BusinessApp({
         chooseCurrentProject
       )
     } catch (nextError) {
-      setError(errorMessage(nextError))
+      notifyError(errorMessage(nextError))
     }
   }
 
@@ -4158,7 +4141,7 @@ export function BusinessApp({
     : startupRoutePending?.kind ?? startupRouteTarget?.kind ?? 'location'
   const inlineNotices = memoryReviewNotice
     || memoryAutoNotice.count > 0
-    || (!shuttingDown && (error || projectSaveIssue || locationSaveError))
+    || (!shuttingDown && (error || locationSaveError))
     ? (
         <>
           {memoryReviewNotice && (
@@ -4171,13 +4154,6 @@ export function BusinessApp({
             <div className="memory-review-notice memory-auto-applied-notice" role="status" aria-live="polite">
               <div><strong><UiText zh={"已自动形成 "} />{memoryAutoNotice.count}<UiText zh={" 条"} />{memoryAutoNotice.count === 1 ? memoryAutoNotice.scope === 'relationship' ? uiAttribute("队员间记忆") : memoryAutoNotice.scope === 'companion' ? uiAttribute("队员记忆") : uiAttribute("共同记忆") : uiAttribute("记忆")}</strong><span><UiText zh={"已立即用于后续协作，你可以随时查看、修订、停止沿用或遗忘。"} /></span></div>
               <div><button className="quiet-button compact" type="button" onClick={openAutomaticMemory}><UiText zh={"查看"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("关闭自动形成提示")} onClick={() => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })}>×</button></div>
-            </div>
-          )}
-          {!shuttingDown && projectSaveIssue && (
-            <div className="error-banner" role="status">
-              <div className="error-icon" aria-hidden="true">!</div>
-              <div><strong><UiText zh="项目列表暂未保存" /></strong><span><UiText zh="仍可继续使用；新添加的空目录可能无法在重启后保留。" /></span></div>
-              <div className="error-actions"><button className="quiet-button" onClick={projectSaveIssue.retry}><UiText zh="重试" /></button><button className="icon-button" aria-label={uiAttribute("关闭提示")} onClick={() => setProjectSaveIssue(null)}>×</button></div>
             </div>
           )}
           {!shuttingDown && error && (

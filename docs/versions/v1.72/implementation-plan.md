@@ -16,16 +16,19 @@ worktree `rovai-ai-sqlite-project-registry`。User 明确撤回未发布的 SQLi
 与所接入主线一致，保留主线现有 schema 与支持来源。实验 schema 不作为发布过的升级来源，日常数据不作修改。
 
 schema 6 导航偏好保存规范路径集合与 `legacyProjectsSynced`。成功完整启动读取只尝试一次补齐；晚到结果在
-统一写入入口重新应用最新移除记录。实际写入后才更新内存，失败不误标记、不覆盖损坏文件；目录选择失败可临时使用。
+统一写入入口重新应用最新移除记录。实际写入后才更新内存并展示新目录，失败不误标记、不覆盖损坏文件。
 完成后直接使用登记清单，普通导航刷新不再补缺、重读偏好或写目录。目录增删与别名等共用原安全写入口。
 Web 复用现有 IndexedDB 的短事务串行保护原 localStorage JSON，没有新目录库、持久队列、锁轮询或自动重试。
+
+按 User 后续要求，从 `4b1fae539` 收敛保存失败反馈：删除专属横幅、重试闭包与临时路径状态，失败只走已有
+短提示／表单错误，不改变当前目录；再次添加即可重新保存。旧补齐失败等下次启动，可选登记失败不阻止会话。
 
 Rust 测试退役：实验生产合同同时退出，删除 `project_registry::tests` 三项（目录生命周期、初始化失败、
 登记附加事务故障）及 `db::project_registry::tests` 一项实验迁移 owner；原业务事务、路径权限、Main 项目访问恢复、
 主线数据库准入／升级测试保留。目录持久化语义由真实文件 `navigation-preferences.test.ts`、Web 偏好 owner、
 真实双窗口导航 fixture 与生产 App 启动 fixture 接替；不以降低测试数量为目标。
 
-验证结果：
+初版验证结果（反馈收敛后的定向结果另记）：
 
 - `pnpm test`：242 个 Vitest 文件、2,643 项通过；后续 Node 339 项通过、2 项平台跳过；文档、Skill 与 Electron 能力门禁通过。
 - `pnpm test:rust:pr`：465 项通过、1 项既有 ignored。首次运行的 detached child 回收测试超时，定向重跑及第二次完整 workspace 均通过；未修改该测试。
@@ -35,6 +38,11 @@ Rust 测试退役：实验生产合同同时退出，删除 `project_registry::t
 - 完整启动 fixture 仍在 `Leaving the loaded empty Camp must initiate cleanup before the race is tested` 失败。
   在 `bab6034df` 独立临时 checkout 上复现相同失败；双方仅把 darwin fixture 的 Windows-only `windowClose` 能力按真实 preload 设为 undefined，基线生产代码未改。
   该既有空会话清理断言未删除或跳过；目录专项另外执行并通过，不把完整启动套件记为通过。
+
+反馈收敛验证：类型检查及目录专项 4 组通过，验证失败不显示／选中目录、普通提示自动消失、再次添加成功、
+下次启动补齐以及完成标记保持。`pnpm test` 重跑 2,643 项 Vitest 和后续 Node 339 项通过、2 项平台跳过。
+首次全量中 CoreClient 的 Supervisor 等待超时，其文件 21 项定向及完整重跑均通过，未改该测试。
+前端机械扫描无发现，截图确认使用普通短提示。持久化、并发与 Rust 代码未修改，沿用初版验证。
 
 未安装日常 App、不启动真实 Runtime、不操作用户数据库；临时基线 checkout 已清理，任务 worktree 保留供评审。
 

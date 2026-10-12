@@ -294,6 +294,6 @@ it('uses the saved directory list after completion and legacy groups only before
   const preferences = { ...EMPTY_SNAPSHOT, registeredProjects: ['/empty'], removedProjects: [{ targetKey: 'directory:/removed', removedAt: '2026-10-01T00:00:00Z' }] }
   expect(navigationWithProjectDirectories(navigation, preferences)?.projects.map(p => p.projectPath)).toEqual(['/empty', '/old'])
   preferences.legacyProjectsSynced = true
-  expect(navigationWithProjectDirectories(navigation, preferences, ['/temporary'])?.projects.map(p => p.projectPath)).toEqual(['/empty', '/temporary'])
+  expect(navigationWithProjectDirectories(navigation, preferences)?.projects.map(p => p.projectPath)).toEqual(['/empty'])
   expect(navigationWithProjectDirectories(navigation, { ...preferences, registeredProjects: [] })?.projects).toEqual([])
 })

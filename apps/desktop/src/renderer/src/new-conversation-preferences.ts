@@ -251,20 +251,18 @@ export function shouldInvalidateNewConversationDefaults(
 }
 
 /** Saved directories own membership after the single legacy import. Before it,
- * ordinary Core groups remain visible. Temporary selections never imply saving. */
+ * ordinary Core groups remain visible. */
 export function navigationWithProjectDirectories(
   navigation: NavigationSnapshot | null,
-  preferences: NavigationPreferencesSnapshot | null,
-  temporaryPaths: readonly string[] = []
+  preferences: NavigationPreferencesSnapshot | null
 ): NavigationSnapshot | null {
-  if (!navigation && !preferences?.registeredProjects.length && !temporaryPaths.length) return null
+  if (!navigation && !preferences?.registeredProjects.length) return null
   const source = navigation ?? { schemaVersion: 3, throughGlobalSequence: 0, quickChat: { totalCount: 0, recentThreads: [] }, projects: [] }
   const groups = new Map(source.projects.map(project => [project.projectPath, project]))
   const removed = new Set(preferences?.removedProjects.map(project => project.targetKey) ?? [])
   const paths = new Set([
     ...(preferences?.registeredProjects ?? []),
-    ...(!preferences?.legacyProjectsSynced || preferences.readError ? groups.keys() : []),
-    ...temporaryPaths
+    ...(!preferences?.legacyProjectsSynced || preferences.readError ? groups.keys() : [])
   ])
   return { ...source, projects: [...paths].filter(path => !removed.has(projectTargetKey(path))).map(projectPath => groups.get(projectPath) ?? {
     projectKey: projectTargetKey(projectPath), projectPath,

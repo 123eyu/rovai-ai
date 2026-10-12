@@ -329,7 +329,7 @@ pub(crate) struct PiHost {
 }
 
 struct PiHostLaunch<'a> {
-    environment: Option<&'a rovai_core::member_environment::FrozenEnvironment>,
+    environment: Option<&'a rovai_core::member_environment::LaunchEnvironment>,
     executable: &'a Path,
     cwd: &'a Path,
     private_runtime_dir: &'a Path,
@@ -520,7 +520,7 @@ fn configure_host_working_directory(command: &mut Command, cwd: &Path) -> Result
 
 impl PiHost {
     async fn spawn(launch: PiHostLaunch<'_>) -> Result<Arc<Self>> {
-        rovai_core::runtime_discovery::with_frozen_environment(
+        rovai_core::runtime_discovery::with_launch_environment(
             launch.environment.cloned(),
             Self::spawn_in_environment(launch),
         )
@@ -1786,6 +1786,7 @@ impl PiRpcRuntimeAdapter {
         let spawn_incoming = self.incoming.clone();
         let spawn_builtin_tools = request.builtin_tools.clone();
         let spawn_environment = request.frozen_runtime.environment.clone();
+        let spawn_environment_source = rovai_core::member_environment::launch_source();
         let lease = self
             .fleet
             .acquire(
@@ -1796,15 +1797,16 @@ impl PiRpcRuntimeAdapter {
                     compatibility: RuntimeCompatibilityKey::member_session(
                         request.camp_id,
                         request.agent_id,
-                        request
-                            .frozen_runtime
-                            .environment
-                            .as_ref()
-                            .map(|env| env.plan_id.as_str()),
+                        Some(request.native_binding_id),
                         request.runtime_compatibility_digest,
                     ),
                 },
                 move || async move {
+                    let spawn_environment = rovai_core::member_environment::resolve_for_launch(
+                        spawn_environment_source,
+                        spawn_environment,
+                    )
+                    .await?;
                     let host = PiHost::spawn(PiHostLaunch {
                         environment: spawn_environment.as_ref(),
                         executable: &spawn_executable,

@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # v1.72 实施与验收
@@ -1717,3 +1717,46 @@ refresh 不再请求；首次 page 在途期间收到更新也被丢弃。User �
 慢首读后无须新通知即可追上、补拉延迟时新实时正文不回退；原 37 个场景阶段与按钮／重试回归通过。
 `execution-state-transition` 浏览器回归、`pnpm build:desktop` 及文档通用门禁通过。
 本次没有运行桌面包或真实 Runtime；验证不依赖启动或修改日常 App。
+
+## 队员环境按进程启动读取（2026-10-12）
+
+按 User 方案 A 实施。领取/执行准备不再读取历史环境；现有 Fleet 创建分支携带私有配置读取来源，
+创建 CLI 时组装一次内存映射，Warm 命中不读取配置。Codex/ACP/Pi 使用既有 native binding 身份限制
+会话复用；Claude/Antigravity 在独立进程启动路径读取。派生工具进程保持 ManagedProcess 的父 CLI 环境。
+新环境映射不序列化入 Run，不改变既有 Run 身份、执行代次或输入确认。Migration 193/schema 143
+无需旧密钥/快照解密即退役两张历史环境表；队员配置与原生历史保留。
+
+单队员配置解析失败接入现有 lane 失败结算，SQL/数据库错误仍返回外层。环境读取错误发生于新 CLI
+创建，沿既有单 Run 失败路径展示；保存 env 不引入停止、重置或环境版本失效行为。
+界面采用约定的一句进程启动说明，重置文案仅解释原生上下文重启。
+
+测试归属、旧测试退役理由与命令见[测试指南](../../development/testing.md#队员运行环境-owner2026-10-11)。
+本机 macOS 验证结果：
+
+- `pnpm test:rust:pr`：workspace 465 项通过，1 项已有人工测试忽略。
+- `cargo test -p rovai-core --features extended-tests --lib` 按上述 owner、Codex/ACP/Pi/Claude/Antigravity、
+  Fleet、Runtime startup、Delivery queue、迁移准入、v163/continuation 迁移过滤运行：212 项通过。
+  加强后的 193 历史消息/原生 Session 保留案例通过；既有原生会话重置 slow owner 1 项通过。
+- `cargo check --workspace`、`cargo fmt --all --check`、`pnpm typecheck` 通过；Vitest 242 文件、2639 项通过。
+- `node scripts/smoke-member-environment.mjs` 与 `node scripts/smoke-member-environment-ui.mjs` 通过，
+  覆盖 Core 私有接口、重启/加密/并发写保护和双语界面；数据、Skill Library 与 MCP 均使用临时目录。
+- `pnpm docs:test`、`pnpm docs:check` 与基于 PR base 的 `pnpm docs:check:ci` 通过。
+
+未安装或重启日用 App，未修改真实聊天数据库；未运行真实 Provider/模型或 Windows 真机验收。
+UI 仅修改已确认文案；设计扫描提示的旧 surface 路径与平台元数据漂移不属于本次改动。
+
+### 升级后原生绑定续接修正（2026-10-12）
+
+已有 Session 的绑定摘要与当前安装、协议、Session 权限投影精确一致时，保持原先未纳入默认 Host
+连接的身份；不为决定 Warm/续接资格读取队员 env 或历史环境。原先包含默认连接身份的绑定仍执行
+连接兼容检查；未知摘要、安装与权限不兼容仍按既有规则处理。
+
+从 PR 之前的 `7973c7ffd1b0a360dea02c936458fb69f591c11e` 构建 Core，使用正式私有配置与消息执行
+建立 schema 142 的 Claude/Codex 原生绑定，再通过新 Core 重启升级至 schema 143。
+`smoke-member-environment-upgrade.mjs` 在 `d8726819` 复现两者错误地发送 `start`/`thread/start`；
+修复后实际发送 `--resume`/`thread/resume` 并携带原 ID，绑定身份/代次保持，前后两个 Run 均成功。
+两次启动之间只改变 Host 继承值，队员配置未修改；新 CLI 收到当前 Host 值与原队员覆盖，证明未恢复旧环境。
+此验收使用两个实际 Core 版本与合成原生 CLI，不代表真实 Provider 恢复成功率。
+
+摘要/权限矩阵扩展原 `discovered_entry_configures_and_freezes_without_health_evidence` owner 并通过；
+Rust 测试函数数量不变。最小命令、隔离目录和跨版本 fixture 归属见上述测试指南。

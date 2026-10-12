@@ -1792,5 +1792,17 @@ User 确认 v12 并要求实施；基线为 `1edacb5348ae22f9a34d404b4a0f18adde1
 已通过类型检查、7 项投影／正文单测及 30 项既有产物测试，生产组件浏览器回归通过 37 个阶段、
 原始 LF／CRLF／空行、单行几何、高亮、停止／重试、草稿、重入读取和 6 组主题尺寸、
 200% 等效布局及粗指针检查。截图位于本地忽略目录 `docs/prototypes/run-presence-v12-implementation/`。
-完整测试首次被 checkout 中旧的本地原型 Markdown 坏链接阻断；将以干净检出运行相同门禁，
-不修改或删除用户本地原型。完整测试、桌面包及隔离桌面验收结果待本轮记录补齐。
+完整 `pnpm test` 已在提交 `4709bf3b` 的干净检出通过：242 个 Vitest 文件／2641 项用例，
+Node 脚本 339 项通过、2 项平台跳过，文档与 Skill 门禁通过。主 checkout 的旧本地原型 Markdown
+坏链接保持原样；验证检出只复用同一锁定依赖，关闭 pnpm 自动重装，不跳过任何测试。
+
+`pnpm package:mac` 与 `pnpm accept:runtime-activity-ui` 通过。后者为生产桌面包／Core 的
+13 Runtime 受控数据验收，覆盖执行行恢复、三种执行台位置、两主题、2K 居中、紧凑窗口、
+200% 布局、滚动、工具详情与停止。App 使用一次性 `userData` 和独立 Skill Library／MCP config；
+不代表真实 Provider 请求验收。最终报告在上述目录的 `native/runtime-activity-acceptance.json`，
+隔离路径与代码提交记在 `isolation.json`。
+
+浏览器补充验证自己发送后 DOM／焦点保持，以及完整重载确实进入新文档。桌面验收保持原有
+点击命中与主题色断言，改为等实际布局／主题传播完成后检查；紧凑窗口按当前 Run 的真实锚点
+定位。验收发现的滚动条 6px 中心偏差已通过两侧对称预留消除；首次发送前的中间产物、
+未加载输入锚点与时钟倒退均不会把执行行带到新消息后。

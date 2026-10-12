@@ -461,8 +461,10 @@ pub struct ResolvedModelSelection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FrozenAgentRuntimeConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment: Option<crate::member_environment::FrozenEnvironment>,
+    // Historical environment references are ignored, including malformed ones.
+    // The in-memory launch map never participates in Run or Fleet identity.
+    #[serde(skip)]
+    pub environment: Option<crate::member_environment::LaunchEnvironment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_api: Option<crate::runtime_custom_api::CustomApiSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4455,12 +4457,24 @@ pub fn resolve_frozen_runtime(
             )));
         }
     };
-    let binding = ResolvedRuntimeBinding {
-        adapter_kind: AdapterKind::from_str(&selected_runtime_adapter_kind)?,
-        installation_id: installation_id.clone(),
-        model: serde_json::from_str(&model_json).context("invalid saved model selection")?,
-        permissions: serde_json::from_str(&permissions_json)
-            .context("invalid saved permission configuration")?,
+    // A malformed member record is a lane failure; SQL/storage errors above
+    // remain outer errors so a database outage cannot be mistaken for bad input.
+    let binding = (|| -> Result<ResolvedRuntimeBinding> {
+        Ok(ResolvedRuntimeBinding {
+            adapter_kind: AdapterKind::from_str(&selected_runtime_adapter_kind)?,
+            installation_id: installation_id.clone(),
+            model: serde_json::from_str(&model_json)?,
+            permissions: serde_json::from_str(&permissions_json)?,
+        })
+    })();
+    let binding = match binding {
+        Ok(binding) => binding,
+        Err(_) => {
+            return Ok(Err(runtime_blocker(
+                "runtime_configuration_invalid",
+                json!({"agentId": agent_id}),
+            )));
+        }
     };
     if binding.permissions.adapter_kind != binding.adapter_kind {
         return Ok(Err(runtime_blocker(
@@ -4471,29 +4485,8 @@ pub fn resolve_frozen_runtime(
             }),
         )));
     }
-    let member_environment = crate::member_environment::session_has_values(
-        transaction,
-        conversation_id,
-        agent_id,
-        binding.adapter_kind,
-    )?;
-    let mut result = if member_environment {
-        resolve_frozen_runtime_binding_with_snapshot(transaction, &binding, Some(None))?
-    } else {
-        let environment = crate::member_environment::session_values(
-            transaction,
-            conversation_id,
-            binding.adapter_kind,
-        )?;
-        let snapshot = crate::runtime_startup::snapshot_from_connection_with_environment(
-            transaction,
-            binding.adapter_kind,
-            environment.as_ref(),
-        )?;
-        resolve_frozen_runtime_binding_with_snapshot(transaction, &binding, Some(snapshot))?
-    };
+    let mut result = resolve_frozen_runtime_binding_with_snapshot(transaction, &binding, None)?;
     if let Ok(runtime) = &mut result {
-        crate::member_environment::freeze(transaction, conversation_id, agent_id, runtime)?;
         crate::camp_fast::freeze(transaction, conversation_id, agent_id, runtime)?;
     }
     Ok(result)

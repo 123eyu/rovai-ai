@@ -1442,7 +1442,7 @@ impl AcpHost {
         private_runtime_dir: &Path,
         attachment_access_root: Option<&Path>,
     ) -> Result<Arc<Self>> {
-        rovai_core::runtime_discovery::with_frozen_environment(
+        rovai_core::runtime_discovery::with_launch_environment(
             frozen_runtime.environment.clone(),
             Self::spawn_in_environment(
                 cwd,
@@ -5540,6 +5540,7 @@ impl AcpCliRuntimeAdapter {
         execution_epoch: i64,
         camp_id: &str,
         agent_id: &str,
+        native_binding_id: &str,
         workspace: &AgentRunWorkspace,
         permission_semantics: PermissionSemantics,
         frozen_runtime: &FrozenAgentRuntimeConfig,
@@ -5575,7 +5576,8 @@ impl AcpCliRuntimeAdapter {
         let execution_root = PathBuf::from(&workspace.execution_root);
         let spawn_execution_root = execution_root.clone();
         let spawn_workspace = workspace.clone();
-        let spawn_frozen_runtime = frozen_runtime.clone();
+        let mut spawn_frozen_runtime = frozen_runtime.clone();
+        let spawn_environment_source = rovai_core::member_environment::launch_source();
         let spawn_builtin_tools = builtin_tools.clone();
         let spawn_external_mcp_servers = external_mcp_servers.clone();
         let spawn_attachment_access_root = attachment_access_root.to_path_buf();
@@ -5585,10 +5587,7 @@ impl AcpCliRuntimeAdapter {
         let compatibility = RuntimeCompatibilityKey::member_session(
             camp_id,
             agent_id,
-            frozen_runtime
-                .environment
-                .as_ref()
-                .map(|env| env.plan_id.as_str()),
+            Some(native_binding_id),
             runtime_compatibility_digest,
         );
         if self.kind == AdapterKind::DeepseekHarness {
@@ -5610,6 +5609,19 @@ impl AcpCliRuntimeAdapter {
                     compatibility,
                 },
                 move || async move {
+                    spawn_frozen_runtime.environment =
+                        rovai_core::member_environment::resolve_for_launch(
+                            spawn_environment_source,
+                            spawn_frozen_runtime.environment,
+                        )
+                        .await?;
+                    if spawn_frozen_runtime
+                        .environment
+                        .as_ref()
+                        .is_some_and(|env| env.has_overlay())
+                    {
+                        spawn_frozen_runtime.custom_api = None;
+                    }
                     let host = AcpHost::spawn(
                         &spawn_execution_root,
                         &spawn_workspace,
@@ -9114,10 +9126,7 @@ while IFS= read -r ignored; do :; done
 
         let mut frozen = frozen_kimi_runtime(&executable);
         frozen.reported_version = Some("0.38.0".to_string());
-        frozen.environment = Some(rovai_core::member_environment::FrozenEnvironment {
-            plan_id: "protocol-fixture".into(),
-            revision: 1,
-            legacy_identity: None,
+        frozen.environment = Some(rovai_core::member_environment::LaunchEnvironment {
             values: Some(BTreeMap::from([
                 ("PATH".into(), "/usr/bin:/bin".into()),
                 ("AUTH_ENABLED".into(), "1".into()),
@@ -9963,14 +9972,11 @@ done
             if let Some(value) = added_key {
                 values.insert("GROK_CODE_XAI_API_KEY".into(), value.into());
             }
-            let snapshot = rovai_core::member_environment::FrozenEnvironment {
-                plan_id: "grok-session-fixture".into(),
-                revision: 1,
-                legacy_identity: None,
+            let snapshot = rovai_core::member_environment::LaunchEnvironment {
                 values: Some(values),
                 overlay: None,
             };
-            rovai_core::runtime_discovery::with_frozen_environment(Some(snapshot), async {
+            rovai_core::runtime_discovery::with_launch_environment(Some(snapshot), async {
                 let mut command = Command::new("/bin/sh");
                 command.args(["-c", "printf '%s\\0%s\\0%s' \"$XAI_API_KEY\" \"${GROK_CODE_XAI_API_KEY-absent}\" \"$MINIMAX_API_KEY\""]);
                 rovai_core::runtime_discovery::configure_runtime_command(AdapterKind::GrokBuild, &mut command);
@@ -11900,6 +11906,7 @@ while IFS= read -r ignored; do :; done
                 1,
                 "camp-one",
                 "agent-one",
+                "fixture-binding",
                 &workspace,
                 PermissionSemantics::RuntimeManagedV2,
                 &frozen,
@@ -11936,6 +11943,7 @@ while IFS= read -r ignored; do :; done
                 1,
                 "camp-one",
                 "agent-one",
+                "fixture-binding",
                 &workspace,
                 PermissionSemantics::RuntimeManagedV2,
                 &frozen,
@@ -12066,6 +12074,7 @@ while IFS= read -r ignored; do :; done
                 1,
                 "camp-one",
                 "agent-one",
+                "fixture-binding",
                 &workspace,
                 PermissionSemantics::RuntimeManagedV2,
                 &frozen,
@@ -12140,6 +12149,7 @@ while IFS= read -r ignored; do :; done
                 1,
                 "camp-one",
                 "agent-one",
+                "fixture-binding",
                 &workspace,
                 PermissionSemantics::RuntimeManagedV2,
                 &next_frozen,

@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-10
+last_updated: 2026-10-12
 ---
 
 # 测试与 Smoke Test
@@ -121,26 +121,33 @@ ACP 的 `command_code_acp.rs`、System Mod、Cline、共享 ACP、文件证据�
 
 ## 队员运行环境 owner（2026-10-11）
 
-复用 `runtime_startup::tests::environment_validation_preserves_values_and_rejects_ambiguous_or_reserved_names`
-拥有变量边界和智能体旧入口关闭，`runtime_fleet::tests::member_sessions_reuse_only_within_their_camp_and_current_session`
-拥有同会话复用、跨 Camp/成员/会话拒绝及工作目录兼容分支；原宽范围共享政策退出。新增 `member_environment::tests` 扩展层 owner：私有版本事务、密钥遮蔽与加密、
-会话快照重开、保存后旧会话不变、显式重置、新 Camp、缺失快照失败、真实子进程并行环境、旧配置确认与迁移失败回滚。这些涉及 SQLite、私有文件或进程，
-现有纯解析/内存 fleet fixture 无法证明这些失败路径，全部进入 `extended-tests`。
-最小命令：`cargo test -p rovai-core --features extended-tests --lib member_environment::tests`、
-`cargo test -p rovai-core --features extended-tests --lib runtime_startup::tests`、
-`cargo test -p rovai-core --features extended-tests --lib member_sessions_reuse_only`。
-不删除原有 owner，数据库当前 admission 矩阵继续覆盖完整 receipt 和未知未来 schema。
-用户退役 Agents 环境编辑后，旧 `runtime_custom_api::tests::startup_saves_preserve_native_files_and_merge_only_local_preferences`
-与 `application::runtime_check_environment::tests` 的可写环境断言改为拒绝；程序路径 CAS、回滚、原生文件不变、
-草稿隔离和旧检查不能覆盖新检查继续由这些 owner 负责。后者使用 `--features slow-tests --lib runtime_check_environment::tests`。
-完整 Core 私有 RPC seam 使用 `node scripts/smoke-member-environment.mjs`（先构建 Core）；临时 Host/Skill Library/MCP
-全隔离，凭据与 CLI 都是合成 fixture，不触达真实账号。191 与 192 分别注入 receipt 失败，证明两次迁移各自原子提交。
-原生绑定重置与 generation 语义复验既有 slow owner `manual_native_session_restart_keeps_conversation_identity_and_generation`。
-`v163_requeues_unfrozen_public_work_and_retires_the_legacy_run_placeholder` 在重新 claim 前补齐 191/192；
-`pending_picker_upgrade_keeps_history_rolls_back_failure_and_reuses_the_old_card` 先用当前 schema 创建服务事实再降级，
-避免新版服务调用不存在的字段。两者的历史数据保留、失败回滚与恢复断言不变。
-`node scripts/smoke-member-environment-ui.mjs` 通过生产组件验证保存回读与资料刷新竞态、重置 CAS/活动任务拒绝、
-中英文和移动布局；Electron 数据与 Skill Library 全隔离，不启动 Core 或 Runtime。
+2026-10-12 方案 A 改写既有 `member_environment::tests`：会话快照固定、缺快照拒绝和重置才生效
+随生产机制退出，原 `private_versions_preserve_credentials_and_freeze_retries_across_reopen` 改为
+`private_versions_preserve_credentials_and_new_launches_read_current_configuration`；原并行进程 owner
+改为 `parallel_child_processes_inherit_their_cli_environment_without_changing_parent`。
+保留私有版本 CAS、事务回滚、加密、遮蔽、短凭据脱敏、重开与并行隔离矩阵，增加派生工具继承父 CLI
+环境和删除覆盖恢复 Host 的断言。旧 Agents 归档 owner 保留，191/192 的 receipt 回滚保留并扩展至 193。
+
+新增三个 `extended-tests` regression owner，分别拥有不能由纯函数覆盖的事务/进程边界：
+
+- `codex::tests::warm_host_ignores_unreadable_environment_and_new_process_loads_latest`：真实合成 CLI
+  经 Fleet 的创建任务读取配置；Warm A 不读取已损坏的新配置，新建失败不阻断其他 Camp，创建前保存的新值被读取。
+  既有 Host 兼容测试不读取私有数据库，不能证明解密依赖是否仍在 Warm 路径。
+- `delivery_queue::tests::malformed_member_configuration_fails_its_lane_without_blocking_other_camps`：
+  坏队员配置失败结算、其他 Camp 同批领取、已有原生 Session 无快照继续。既有 SQL 故障 owner
+  `history_query_failure_rolls_back_every_claim_in_the_transaction` 继续要求整体回滚，防止吞掉数据库错误。
+- `db::member_environment::tests::retirement_needs_no_old_ciphertext_or_key_and_preserves_member_configuration`：
+  schema 142 损坏快照及缺 key 仍能退役；私有队员配置和业务数据保留，密钥恢复后原配置可读。
+
+最小命令先 `cargo test -p rovai-core --features extended-tests --lib -- --list` 确认 owner，再以对应
+模块或完整函数名过滤运行。`runtime_startup::tests` 继续负责变量输入规则；`runtime_fleet::tests`
+继续负责同 Camp/成员/当前会话隔离和工作目录兼容；`codex::tests` 的未知输入/原生恢复 owner 不变。
+原生绑定重置复验 slow owner `manual_native_session_restart_keeps_conversation_identity_and_generation`。
+历史 v163 fixture 在重新 claim 前补齐 191/192/193，旧迁移数据保留与回滚断言不变。
+
+完整私有 RPC seam 使用 `node scripts/smoke-member-environment.mjs`（先构建 Core）；Host 数据、
+Skill Library、MCP 全隔离，CLI 与凭据均为 fixture。`node scripts/smoke-member-environment-ui.mjs`
+使用生产组件验证保存回读、重置 CAS/活动任务拒绝、进程启动文案与双语移动布局，不启动 Core 或真实 Runtime。
 
 ## 主干 / Preview Migration 合流（2026-10-08）
 

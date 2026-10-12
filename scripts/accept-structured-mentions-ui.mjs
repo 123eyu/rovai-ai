@@ -1591,9 +1591,11 @@ try {
   await capture(running.cdp, sentReplyCapture)
 
   // Exercise the production minimum window at effective 200% desktop zoom.
-  // Replying to the just-sent user message creates a normal quote without
-  // adding a recipient, so the dock and the accepted parent quote are visible
-  // together in the narrow CSS viewport.
+  // User-authored messages have no Reply action. Reply to an available Agent
+  // while keeping the accepted parent quote in the narrow CSS viewport.
+  assert(!(await evaluate(running.cdp,
+    `Boolean(document.querySelector('[data-message-id=${JSON.stringify(sentReplyMessage.id)}] .message-reply-button'))`)),
+  'User-authored messages unexpectedly expose a Reply action')
   const detailClose = 'button[aria-label="收起会话详情"]'
   if (await evaluate(running.cdp,
     `Boolean(document.querySelector(${JSON.stringify(detailClose)})?.getClientRects().length)`)) {
@@ -1602,13 +1604,15 @@ try {
       `!document.querySelector(${JSON.stringify(detailClose)})?.getClientRects().length`)
   }
   await moveMouseToElement(running.cdp,
-    `[data-message-id=${JSON.stringify(sentReplyMessage.id)}] .message-bubble`)
+    `[data-message-id=${JSON.stringify(agentMemberMentionMessageId)}] .message-surface`)
   await mouseClick(running.cdp,
-    `[data-message-id=${JSON.stringify(sentReplyMessage.id)}] .message-reply-button`)
+    `[data-message-id=${JSON.stringify(agentMemberMentionMessageId)}] .message-reply-button`)
   await waitForValue(async () => readComposerDraft(running.cdp, threadId),
-    (draft) => draft.replyIntent?.replyToThreadMessageId === sentReplyMessage.id
-      && draft.replyIntent.author?.authorType === 'user'
-      && draft.replyIntent.recipientSelectionRequired === false, 10_000)
+    (draft) => draft.replyIntent?.replyToThreadMessageId === agentMemberMentionMessageId
+      && draft.replyIntent.author?.authorType === 'agent'
+      && draft.replyIntent.author.authorId === targetMemberIds[1]
+      && draft.replyIntent.recipientSelectionRequired === false
+      && composerHasMember(draft.content, targetMemberIds[1]), 10_000)
   await emulateDesktopZoom(running.cdp, 1040, 700, 2)
   await waitForExpression(running.cdp, `(() => Boolean(
     document.querySelector('.composer:has(#camp-message) .composer-box')
@@ -1618,6 +1622,10 @@ try {
       )
       && document.querySelector('.composer:has(#camp-message) .composer-primary-action.is-send, .composer:has(#camp-message) .composer-stop')
   ))()`)
+  await evaluate(running.cdp, `document.querySelector(
+    '[data-message-id=${JSON.stringify(sentReplyMessage.id)}] .reply-parent-quote'
+  ).scrollIntoView({ block: 'center', inline: 'nearest' })`)
+  await wait(80)
   const zoom200ReplyInspection = await evaluate(running.cdp, `(() => {
     const box = document.querySelector('.composer:has(#camp-message) .composer-box')
     const line = document.querySelector('.composer:has(#camp-message) .composer-reply-line')
@@ -1626,16 +1634,20 @@ try {
       '[data-message-id=${JSON.stringify(sentReplyMessage.id)}] .reply-parent-quote'
     )
     const action = document.querySelector('.composer:has(#camp-message) .composer-primary-action.is-send, .composer:has(#camp-message) .composer-stop')
+    const timeline = document.querySelector('.camp-timeline')
     if (
       !(box instanceof HTMLElement)
       || !(line instanceof HTMLElement)
       || !(excerpt instanceof HTMLElement)
       || !(parentQuote instanceof HTMLElement)
       || !(action instanceof HTMLElement)
+      || !(timeline instanceof HTMLElement)
     ) return null
     const boxRect = box.getBoundingClientRect()
     const lineRect = line.getBoundingClientRect()
     const actionRect = action.getBoundingClientRect()
+    const quoteRect = parentQuote.getBoundingClientRect()
+    const timelineRect = timeline.getBoundingClientRect()
     return {
       cssViewport: [innerWidth, innerHeight],
       physicalViewport: [innerWidth * devicePixelRatio, innerHeight * devicePixelRatio],
@@ -1647,6 +1659,8 @@ try {
       excerptEllipsizes: getComputedStyle(excerpt).textOverflow === 'ellipsis'
         && getComputedStyle(excerpt).whiteSpace === 'nowrap',
       parentQuoteOneLine: getComputedStyle(parentQuote).whiteSpace === 'nowrap',
+      parentQuoteVisible: quoteRect.left >= 0 && quoteRect.right <= innerWidth + 1
+        && quoteRect.top >= timelineRect.top && quoteRect.bottom <= timelineRect.bottom + 1,
       actionVisible: actionRect.left >= 0 && actionRect.right <= innerWidth + 1
         && actionRect.top >= 0 && actionRect.bottom <= innerHeight + 1
     }
@@ -1661,6 +1675,7 @@ try {
       && zoom200ReplyInspection.lineFits
       && zoom200ReplyInspection.excerptEllipsizes
       && zoom200ReplyInspection.parentQuoteOneLine
+      && zoom200ReplyInspection.parentQuoteVisible
       && zoom200ReplyInspection.actionVisible,
     `200% zoom hid or overflowed reply functionality: ${JSON.stringify(zoom200ReplyInspection)}`
   )
@@ -1681,7 +1696,7 @@ try {
   await running.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   const keyboardReplyFocused = await evaluate(running.cdp, `(() => {
     const button = document.querySelector(
-      '[data-message-id=${JSON.stringify(sentReplyMessage.id)}] .message-reply-button'
+      '[data-message-id=${JSON.stringify(agentMemberMentionMessageId)}] .message-reply-button'
     )
     if (!(button instanceof HTMLButtonElement)) return false
     button.focus()

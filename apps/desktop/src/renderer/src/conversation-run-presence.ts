@@ -63,19 +63,21 @@ export function conversationRunPresenceTimeline(
     const inputAnchor = messages.find(message => message.id === run.anchorMessageId)
     // Current batch Runs have an immutable claimed-input anchor. Older/direct
     // Runs without one recover from their start boundary, never the latest tail.
-    const startAnchor = inputAnchor ?? messages.filter(message => !message.id.startsWith('optimistic:')
+    const startAnchor = inputAnchor ?? (run.anchorMessageId ? null : messages.filter(message => !message.id.startsWith('optimistic:')
       && message.createdAt <= (run.startedAt ?? run.createdAt))
-      .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null)
+      .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null))
     const anchor = ownMessage ?? startAnchor
     let index = anchor ? timeline.findIndex(item => item.kind === 'camp_message' && item.id === anchor.id) : -1
     // Keep a published message and its attached artifacts together. A failed
     // silent Run may instead have a standalone artifact group.
-    if (!ownMessage) {
+    if (!ownMessage && run.status === 'failed') {
       const artifactIndex = timeline.findLastIndex(item => item.kind !== 'camp_message' && outputRunId(item) === run.id)
       if (artifactIndex >= 0) index = artifactIndex
     }
-    while (index + 1 < timeline.length && timeline[index + 1].kind !== 'camp_message'
-      && outputRunId(timeline[index + 1]) === run.id) index += 1
+    if (ownMessage || run.status === 'failed') {
+      while (index + 1 < timeline.length && timeline[index + 1].kind !== 'camp_message'
+        && outputRunId(timeline[index + 1]) === run.id) index += 1
+    }
     groups.set(index, [...(groups.get(index) ?? []), { run, continuation: false }])
   }
   const result: ConversationPresenceTimelineItem[] = []

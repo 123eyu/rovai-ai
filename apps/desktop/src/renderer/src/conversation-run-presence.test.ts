@@ -54,6 +54,7 @@ describe('conversation Run presence', () => {
     const later = message(2,'peer',{createdAt:'2026-10-10T12:05:00Z'})
     expect(order([a],[message(1,null),later,message(3,null)])).toEqual(['message-1','run-presence:a','message-2','message-3'])
     expect(order([a],[later])).toEqual(['run-presence:a','message-2'])
+    expect(order([a],[message(2,'peer',{createdAt:'2000-01-01T00:00:00Z'})])).toEqual(['run-presence:a','message-2'])
     expect(order([a],[message(1,null),later])).toEqual(['message-1','run-presence:a','message-2'])
     expect(order([run('legacy','alice',{anchorMessageId:null})],[message(1,null),later])).toEqual(['message-1','run-presence:legacy','message-2'])
   })
@@ -66,6 +67,13 @@ describe('conversation Run presence', () => {
     const files = {kind:'run_file_changes',id:'files-a',createdAt:a.createdAt,changes:{agentRunId:'a'}} as ThreadConversationTimelineItem
     expect(order([a],[message(1,null),message(2,'a'),files,message(3,'peer')])).toEqual(['message-1','message-2','files-a','run-presence:a','message-3'])
     expect(slots([a],[message(2,'a'),files])).toEqual([['a',true]])
+    // Publishing an intermediate artifact alone does not move a running row.
+    expect(order([{...a,status:'running'}],[message(1,null),message(2,'peer'),files])).toEqual([
+      'message-1','run-presence:a','message-2','files-a'
+    ])
+    expect(order([{...a,status:'running'}],[message(1,null),files,message(2,'peer')])).toEqual([
+      'message-1','run-presence:a','files-a','message-2'
+    ])
   })
 
   it('omits queues, private and terminal Runs; preserves started approval waits', () => {

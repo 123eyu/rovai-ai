@@ -14170,7 +14170,7 @@ impl Core {
             )
             .await
             .context("failed to discover effective Grok native MCP names")?;
-            projection.finalize_native_name_conflicts(&native_names)?;
+            projection.finalize_native_name_conflicts(&native_names);
         }
         if execution.runtime.adapter_kind == AdapterKind::CommandCodeCli
             && !projection.servers.is_empty()
@@ -14180,7 +14180,7 @@ impl Core {
                 &execution_root,
             )
             .await?;
-            projection.finalize_native_name_conflicts(&native_names)?;
+            projection.finalize_native_name_conflicts(&native_names);
         }
         Ok(projection)
     }
@@ -15291,7 +15291,7 @@ impl Core {
                 .discover_native_mcp_server_names(&execution_root)
                 .await
                 .context("failed to discover effective Codex native MCP names")?;
-            mcp_projection.finalize_native_name_conflicts(&native_mcp_server_names)?;
+            mcp_projection.finalize_native_name_conflicts(&native_mcp_server_names);
         }
         let permission_values = execution
             .runtime

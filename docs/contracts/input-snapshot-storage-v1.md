@@ -29,6 +29,13 @@ proof digests. Already frozen inputs do not need their generation-version combin
 intermediate copies revalidated. Necessary JSON parsing, source/binding checks and payload
 limits remain. Unmaterialized historical RunInput still uses its original serializer.
 
+Preparing an already materialized Run, including after reopening the database or advancing its
+execution epoch, recovers MCP from the retained exposure JSON and private configuration file.
+It does not read or validate the retired MCP digest columns. Existing file permissions,
+Run/adapter identity and native-name conflict handling remain; the file identity used for
+Runtime process reuse is independent of these retired manifest fields. Run diagnostics expose
+missing legacy digests as NULL rather than requiring a non-null string.
+
 Managed Blob content addressing remains its existing storage responsibility; Context reuses
 that identity for Runtime delivery correlation. Charter, collaboration and workspace change
 markers still determine whether those materials are sent. Accepted/unknown inputs are not

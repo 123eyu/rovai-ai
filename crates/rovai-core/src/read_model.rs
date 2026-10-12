@@ -1733,13 +1733,13 @@ impl ReadModelService {
                 |manifest| {
                     Ok(AgentRunDiagnosticContextManifestView {
                         manifest_id: Some(manifest.get(0)?),
-                        rendered_payload_digest: Some(manifest.get(1)?),
+                        rendered_payload_digest: manifest.get(1)?,
                         charter_delivery_mode: Some(manifest.get(2)?),
                         camp_message_boundary_sequence: Some(manifest.get(3)?),
-                        skill_exposure_digest: Some(manifest.get(4)?),
-                        mcp_exposure_digest: Some(manifest.get(5)?),
-                        mcp_projection_digest: Some(manifest.get(6)?),
-                        attachment_digest: Some(manifest.get(7)?),
+                        skill_exposure_digest: manifest.get(4)?,
+                        mcp_exposure_digest: manifest.get(5)?,
+                        mcp_projection_digest: manifest.get(6)?,
+                        attachment_digest: manifest.get(7)?,
                     })
                 },
             )

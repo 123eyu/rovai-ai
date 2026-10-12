@@ -1948,3 +1948,20 @@ Context `dispatch_admission_accepts_current_and_frozen_predecessor_contracts` �
 
 状态：实现完成，保留当前 worktree 供 PR 评审。验证仅使用隔离数据库和合成 CLI，未调用真实模型、
 安装或重启日常 App。
+
+### MCP 同 Run 重复准备与诊断读取
+
+以 PR #720 的 `94b62c6b` 为修复基线，扩展既有 Context MCP owner，使用正式 Manifest writer
+生成 NULL 摘要后再次准备同一个 Run，实测复现 `mcp_exposure_digest` 的 NULL/String 类型错误。
+MCP 恢复现在只读取保留的 exposure JSON 和私有配置文件，移除冻结摘要比较及无人消费的
+exposure digest 计算；保留文件权限、Run/Adapter 归属、原生同名选择和进程复用所需文件标记。
+
+同一夹具继续经过数据库关闭/重开、同 epoch 准备、新 epoch 重派发，检查原配置与文件字节；
+没有新增独立 Rust 测试或平行夹具。该 owner 更名为
+`context::slow_tests::context_manifest_recovers_redacted_frozen_mcp_exposure_without_digests`，
+保留原有凭据不入 SQLite 的断言。顺沿读取方还复现了 Run 诊断对 `rendered_payload_digest` 的
+同类错误；退役字段现按已有 Option 类型返回 NULL，同一完整快照夹具覆盖诊断读取。
+
+最小命令：`cargo test -p rovai-core --features slow-tests --lib -- context_manifest_recovers_redacted_frozen_mcp_exposure_without_digests mcp_projection::tests:: agent_run_diagnostic_projects_only_safe_frozen_and_public_facts`。
+结果：上述 10 项全部通过；`cargo check --workspace`、格式检查、相对 `d41778bf` 的通用文档门禁通过。
+本轮未重复无关的完整慢测，前述 3 项 main 已有 CampOpen 失败的结论不变。

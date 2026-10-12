@@ -11777,7 +11777,7 @@ mod slow_tests {
     }
 
     #[test]
-    fn context_manifest_persists_only_redacted_frozen_mcp_exposure() {
+    fn context_manifest_recovers_redacted_frozen_mcp_exposure_without_digests() {
         let mut fixture = fixture();
         let config_store = McpConfigStore::new(fixture.directory.join("home/.rovai/mcp.json"));
         let known = ["agent_1".to_string()].into_iter().collect();
@@ -11830,19 +11830,17 @@ mod slow_tests {
                 .unwrap(),
             McpMutationResult::Ok { .. }
         ));
-        let projection = McpProjectionService::new(&fixture.directory)
-            .prepare(
-                &fixture.database,
-                &config_store,
-                &McpProjectionRequest {
-                    agent_run_id: &fixture.run_id,
-                    execution_epoch: fixture.execution_epoch,
-                    agent_id: "agent_1",
-                    adapter_kind: AdapterKind::CodexCli,
-                    reported_runtime_version: None,
-                    execution_root: &fixture.directory,
-                },
-            )
+        let projection_service = McpProjectionService::new(&fixture.directory);
+        let projection_request = McpProjectionRequest {
+            agent_run_id: &fixture.run_id,
+            execution_epoch: fixture.execution_epoch,
+            agent_id: "agent_1",
+            adapter_kind: AdapterKind::CodexCli,
+            reported_runtime_version: None,
+            execution_root: &fixture.directory,
+        };
+        let projection = projection_service
+            .prepare(&fixture.database, &config_store, &projection_request)
             .unwrap();
         let skill_snapshot = SkillExposureSnapshot::default();
         let skill_exposure = PreparedSkillExposure {
@@ -11883,6 +11881,50 @@ mod slow_tests {
         assert_eq!(persisted.1, None);
         assert_eq!(persisted.2, None);
         assert!(!persisted.0.contains("must-not-enter-sqlite"));
+
+        // The real Manifest writer leaves both retired digests NULL. The next
+        // prepare must still recover the original private configuration.
+        let repeated = projection_service
+            .prepare(&fixture.database, &config_store, &projection_request)
+            .unwrap();
+        assert_eq!(repeated.snapshot, projection.snapshot);
+        assert_eq!(repeated.servers, projection.servers);
+
+        drop(fixture.database);
+        fixture.database = Database::open(&fixture.directory).unwrap();
+        let reopened_service = McpProjectionService::new(&fixture.directory);
+        let reopened = reopened_service
+            .prepare(&fixture.database, &config_store, &projection_request)
+            .unwrap();
+        assert_eq!(reopened.snapshot, projection.snapshot);
+        assert_eq!(reopened.servers, projection.servers);
+
+        // A new execution epoch copies the same Run's original projection.
+        let redispatched = reopened_service
+            .prepare(
+                &fixture.database,
+                &config_store,
+                &McpProjectionRequest {
+                    execution_epoch: fixture.execution_epoch + 1,
+                    ..projection_request
+                },
+            )
+            .unwrap();
+        assert_eq!(redispatched.snapshot, projection.snapshot);
+        assert_eq!(redispatched.servers, projection.servers);
+        assert_eq!(
+            std::fs::read(&redispatched.canonical_path).unwrap(),
+            std::fs::read(&projection.canonical_path).unwrap()
+        );
+        let diagnostic = ReadModelService
+            .agent_run_diagnostic(&mut fixture.database, &fixture.run_id)
+            .unwrap();
+        assert!(diagnostic.context_manifest.manifest_id.is_some());
+        assert_eq!(diagnostic.context_manifest.rendered_payload_digest, None);
+        assert_eq!(diagnostic.context_manifest.skill_exposure_digest, None);
+        assert_eq!(diagnostic.context_manifest.mcp_exposure_digest, None);
+        assert_eq!(diagnostic.context_manifest.mcp_projection_digest, None);
+        assert_eq!(diagnostic.context_manifest.attachment_digest, None);
         fixture.cleanup();
     }
 

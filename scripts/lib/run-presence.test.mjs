@@ -311,6 +311,7 @@ try {
   await b.evaluate('document.querySelector(".run-presence-stop-dialog .danger-button").click()')
   await b.key('Escape');assert.equal(await b.evaluate('!!document.querySelector(".run-presence-stop-dialog")'),true)
   assert.equal(await b.evaluate('__presence.controls.stopAttempts.length'),stopCount+1)
+  assert.equal(await b.evaluate('document.querySelectorAll(\"[data-presence-run=run-alice] .running-text-highlight\").length'),0,'stop submission pauses the activity highlight')
   assert.deepEqual(await b.evaluate('__presence.controls.stopAttempts.at(-1)'),await b.evaluate('({id:"run-alice",version:__presence.getState().snapshot.agentRuns[0].version})'))
   await b.evaluate('__presence.controls.stopError=true;__presence.controls.holdStop=false')
   await b.wait('!document.querySelector(".run-presence-stop-dialog .danger-button").disabled')

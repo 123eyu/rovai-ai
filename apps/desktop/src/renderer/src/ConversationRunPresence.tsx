@@ -82,7 +82,8 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
             {!continuation && <div className="bubble-meta"><strong>{name}</strong></div>}
             <div className="run-presence-line">
               <RunPresenceOpen threadId={snapshot.thread.id} run={run} name={name} description={description}
-                windowedEvidence={windowedEvidence} events={eventsByRunId.get(run.id)} onOpen={onOpen} />
+                windowedEvidence={windowedEvidence} events={eventsByRunId.get(run.id)}
+                stopping={state === 'stopping' || state === 'confirming'} onOpen={onOpen} />
               {(canStop || canRetry) && <span className="run-presence-guide" aria-hidden="true" />}
               {canStop && <button className="run-presence-stop" type="button" disabled={state !== 'available'}
                 title={state === 'confirming' ? uiAttribute('正在确认停止结果') : uiAttribute('停止{0}的本次执行', name)}
@@ -120,13 +121,14 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
   </>
 }
 
-function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, events, onOpen }: {
+function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, events, stopping, onOpen }: {
   threadId: string
   run: AgentRunView
   name: string
   description: string
   windowedEvidence: boolean
   events?: LiveRuntimeEvent[]
+  stopping: boolean
   onOpen(agentId: string, trigger: HTMLButtonElement, options: { runId: string }): void
 }): React.JSX.Element {
   const tail = useExecutionWindow(windowedEvidence && run.status === 'running', threadId, run, events, null, true)
@@ -137,7 +139,7 @@ function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, e
     return buildLiveExecutionProgress(merged.get(run.id) ?? [], run.id, { includePublicResults: false })
   }, [tail.evidence, events, run.id, windowedEvidence])
   const preview = runPresencePreview(run, progress)
-  const running = run.status === 'running' && !run.cancelRequestedAt
+  const running = run.status === 'running' && !run.cancelRequestedAt && !stopping
   return <button className={`run-presence-open is-${preview.kind}`} type="button" data-preview-kind={preview.kind}
     title={uiAttribute('查看执行过程')} aria-label={`${name}，${preview.text}，${description}`}
     onClick={event => onOpen(run.agentId, event.currentTarget, { runId: run.id })}>

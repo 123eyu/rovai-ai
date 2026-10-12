@@ -154,6 +154,7 @@ pub(super) fn retire_snapshots(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
+    super::downgrade_run_bootstrap_for_test(connection);
     connection.execute_batch("DROP TABLE IF EXISTS conversation_runtime_environment;
         DELETE FROM schema_migration WHERE version IN (192,193,194);
         UPDATE rovai_data_contract SET projection_schema_version=141 WHERE singleton=1 AND projection_schema_version IN (142,143,144);").unwrap();

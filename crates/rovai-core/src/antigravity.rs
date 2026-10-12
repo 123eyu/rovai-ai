@@ -632,9 +632,9 @@ impl AntigravityAppRuntimeAdapter {
                     if let Some(expected) = request.resumable_native_session_id.as_deref()
                         && expected != observed
                     {
-                        let missing = std::fs::read_to_string(&log_path).ok().is_some_and(|log| {
-                            log.lines().any(|line| line.ends_with(&format!("Conversation {expected} not found, ignoring --conversation flag")))
-                        });
+                        // A different ID is not proof that the requested history is
+                        // absent. Do not infer restore eligibility from diagnostic logs.
+                        let missing = false;
                         return Err(anyhow::anyhow!("Antigravity initialized a different conversation before input dispatch")
                             .context(AntigravityInputNotSent { session_unavailable: missing }));
                     }
@@ -2569,7 +2569,7 @@ printf '%s\n' '{{"event":"result","result":{{"conversation_id":"{session}","stat
                         .downcast_ref::<AntigravityInputNotSent>()
                         .unwrap()
                         .session_unavailable,
-                    mode == "missing"
+                    false
                 );
                 assert!(received.recv().await.is_none());
                 assert!(!root.join("input.json").exists());

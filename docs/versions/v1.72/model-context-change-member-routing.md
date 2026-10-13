@@ -2,7 +2,7 @@
 document_type: model-context-change
 version: v1.72
 change_id: member-routing
-revision: 3
+revision: 4
 confirmation_status: pending
 authority: proposed-model-input-change-statement
 implementation_status: not_started
@@ -10,7 +10,7 @@ review_baseline: 39bf1eb09a208ea9abd98b737d6ed7c669ed7cbf
 last_updated: 2026-10-13
 ---
 
-# 成员路由信息精简与专业职责扩容：R3 逐项前后对照
+# 成员路由信息精简与专业职责扩容：R4 逐项前后对照
 
 本方案把团队角色用于快速识别分工，把专业职责用于详细描述。自动协作名单与 `member list`
 只提供路由信息；需要详细身份时读取相关队员的 `member get`。本人身份继续完整投递。
@@ -20,9 +20,11 @@ last_updated: 2026-10-13
 老会话保留原生历史正常续聊，不迁移、不重建、不要求用户处理。
 
 本工作对应 [Issue #706](https://github.com/murray17/rovai-ai/issues/706) 第 2 项中的身份字段容量问题；
-Pi 提问交互、对话分类和 Skills 安装不在本方案范围。R3 保留 R2 的方案内容，把每个修改点的
-**变更前、变更后、改动说明放在一起**；代码和文案逐项紧邻展示，规则和数值采用同行对照。
-保留事项也注明原因，不把现有行为写成本次新增改动。
+Pi 提问交互、对话分类和 Skills 安装不在本方案范围。R4 撤回 member-studio 的用户原文处理和
+专业职责写法两处改动，保留原文；补充协作摘要切换、成员 version 存储语义与各 Runtime 容量边界，
+并补列上一版遗漏的 Cline Bootstrap 32 KiB 限制。
+每个修改点仍把**变更前、变更后、改动说明放在一起**；代码和文案逐项紧邻展示，规则和数值采用同行对照。
+保留事项注明原因，不把现有行为写成本次新增改动。
 
 基线为上方不可变 SHA；当前版本由[版本索引](../README.md)解析。
 现行权威包括 [Collaboration State v3](../../contracts/collaboration-state-v3.md)、
@@ -92,10 +94,16 @@ Pi 提问交互、对话分类和 Skills 安装不在本方案范围。R3 保留
 | 修改名称或团队角色 | 最终投影变化时刷新 | 保持 | 保留分工识别信息的正常更新 |
 | 成员关系或 Lead 变化 | 最终投影变化时刷新 | 保持原选择规则 | 关系变化是否刷新仍由最终投影决定 |
 | 按既有规则需要 Bootstrap | 提供完整当前名单 | 提供完整当前三字段名单 | Bootstrap 的出现条件不变 |
-| 投影版本切换 | 已接受摘要可能对应旧四字段投影 | 后续新 Run 可按既有摘要比较自然投递一次 | 不扫描或回填旧会话；仍仅由 accepted ACK 推进 |
+| 投影版本切换 | 已接受摘要可能对应旧四字段投影 | 有 peer 时，删除职责字段改变最终 JSON，后续新 Run 按原摘要比较投递新名单 | accepted ACK 后保存新摘要；后续不再因本次删字段重发，不扫描或回填旧会话 |
+| peers 为空，其他投影值也未变 | 没有 peer 职责字段参与摘要 | 删除字段不改变空名单的 JSON | 不因本次字段删除强制发送；原有 Bootstrap 条件仍适用 |
 
 **改动说明：** 摘要继续从最终投影计算，inclusion 与 accepted ACK 机制保持。
 专业职责更新仍可触发正常的管理 UI 失效通知；管理界面重读资料与模型重收名单分别判断。
+
+这里的“自然投递一次”来自**删除字段后最终 JSON 变化**，不是 Profile version 增加，也不是新增迁移或
+resume 操作。[当前代码](../../../crates/rovai-core/src/context.rs)对最终投影计算 canonical JSON
+摘要，并与 Conversation 上次 accepted 的摘要比较。新名单受理后记住新摘要；未受理、unknown 和
+重试继续遵守原 ACK 规则，不能承诺物理发送恰好一次。已有 Session ID、冻结输入和原生历史均不重写。
 
 ## 3. `rovai member list`
 
@@ -235,6 +243,21 @@ type MemberGetResult = {
 
 **改动说明：** 队友的完整身份仍可按需读取。返回值是目标队员的配置资料，不能重包装为调用者的
 身份指令。团队角色不足以判断分工时再读取相关候选人；不默认逐个 get 所有人。
+
+### version 的含义与存储（保持）
+
+| 内容 | 变更前 | 变更后 | 改动说明 |
+| --- | --- | --- | --- |
+| 当前成员资料 | agent_profile 每名队员维护一条当前记录 | 相同 | 不按每个 version 追加一整份 Profile |
+| member get 的 version | 当前 Profile 的并发控制版本号 | 相同 | 与 Context/CLI 协议版本、Delivery Profile 版本是不同概念 |
+| member update | expectedVersion 必须等于当前 version；内容有变更时原地更新并递增 | 相同 | 防止旧读取覆盖其他已完成的修改；无实际变化不递增 |
+| 历史运行资料 | 按现有生命周期冻结实际运行输入、Bootstrap 或创建回执等必要证据 | 相同 | 这些记录不组成每次成员编辑的完整版本历史，也不是 get 按旧版本查询接口 |
+
+**改动说明：** 例如读到 version 6，更新时携带 expectedVersion 6；如果别人已更新到 7，
+本次返回版本冲突，重新读取后再决定如何修改。实现依据是
+[member_tool.rs](../../../crates/rovai-core/src/member_tool.rs)中的当前资料查询、expectedVersion
+检查和原地 UPDATE。
+本次不新增成员版本库、历史回滚或历史 Profile 重算。
 
 ## 5. 专业职责长度与写入
 
@@ -430,7 +453,7 @@ create/update 的其余 summary、字段、错误恢复和示例保持原文。�
 **改动说明：** 职责由 300 扩为 10,000，明确 trim、scalar 计数与内部格式保留。
 团队角色仍为 120 字符，只补充其简短分工说明用途。
 
-### `member-studio` 的用户原文处理
+### `member-studio` 的用户原文处理（保留原文）
 
 #### 变更前
 
@@ -441,11 +464,11 @@ Preserve explicit user meaning; edit only for valid format and length unless ask
 #### 变更后
 
 ```text
-Preserve explicit user meaning and supplied detail. Normalize format without silently truncating or summarizing text to fit a limit. If the draft exceeds a field's limit, report the limit and retain the draft for revision. Turn fragments into clear sentences, remove duplication when appropriate, and ask about at most one ambiguity that blocks drafting. Label substantive additions as suggestions.
+Preserve explicit user meaning; edit only for valid format and length unless asked otherwise. Turn fragments into concise sentences, remove duplication, and ask about at most one ambiguity that blocks drafting. Label substantive additions as suggestions.
 ```
 
-**改动说明：** 明确保留用户提供的细节，超限时报告并保留草稿，禁止静默截断或摘要。
-“简洁句子”改为“清楚句子”，避免把详细职责自动压缩。
+**改动说明：** 按用户意见撤回本段改动，变更前后逐字相同。专业职责扩容只调整相关字段上限、
+校验与投递能力，不修改本段的用户原文处理指导。
 
 ### `member-studio` 的团队角色写法
 
@@ -464,7 +487,7 @@ Preserve explicit user meaning and supplied detail. Normalize format without sil
 **改动说明：** 团队角色用于一句话识别分工；不自动截取职责，也不擅自重写历史角色。
 它不赋予级别或默认 Lead 权限的边界保持。
 
-### `member-studio` 的专业职责写法
+### `member-studio` 的专业职责写法（保留原文）
 
 #### 变更前
 
@@ -475,11 +498,11 @@ Preserve explicit user meaning and supplied detail. Normalize format without sil
 #### 变更后
 
 ```text
-- **Responsibilities:** describe the problem or object, recurring actions, expected deliverables and responsibility boundaries at the detail the User needs. Preserve supplied long-form structure within the limit; do not pad the field to reach the limit. Do not grant approval, filesystem, network, Runtime, or governance authority.
+- **Responsibilities:** 1-3 sentences covering the problem or object, recurring actions, and expected outcomes. Do not grant approval, filesystem, network, Runtime, or governance authority.
 ```
 
-**改动说明：** 去掉 1～3 句限制，按用户需要描述工作、交付和职责边界，保留长文结构。
-不为凑上限扩写，不通过身份描述授予额外权限。
+**改动说明：** 按用户意见撤回本段改动，保留 1～3 句的生成建议与原权限边界。
+字段可以保存 10,000 字符，不要求身份生成技能默认写成长篇。
 
 技能文件仍在原有发现/读取路径生效，不把技能正文或队友职责复制到其他动态 section。
 
@@ -512,14 +535,22 @@ Preserve explicit user meaning and supplied detail. Normalize format without sil
 
 ## 9. 完整上下文与外围容量
 
-R3 沿用以下容量提案，确认后实现并以真实投递验收；这不是已验证的 Runtime 能力声明。
+R4 保留原有容量提案，并补列 Cline 的独立限制。确认后实现并以真实投递验收；这不是已验证的
+Runtime 能力声明。
+
+### 9.1 共享预算与已确认的局部限制
+
+Core 的组包预算有共享入口，各 Adapter 的 Bootstrap、绑定文件与外部 CLI 限制仍分别存在。
+[共享预算函数](../../../crates/rovai-core/src/context.rs)对所有 Runtime 使用默认值或显式
+maxContextPayloadBytes；Bootstrap 是否计入同一个 payload，则取决于它实际从哪个通道投递。
 
 | 检查点 | 变更前 | 变更后 | 改动说明 |
 | --- | --- | --- | --- |
-| 无显式 capability 的完整 Runtime payload 默认上限 | 96 KiB | 256 KiB（262,144 bytes） | 提高完整包额度，容纳长身份与原有业务输入 |
+| Core Runtime payload 默认预算，无显式覆盖时 | 96 KiB | 256 KiB（262,144 bytes） | 提高共享组包额度；实际同包的 Bootstrap 一并计入，独立系统提示另核验 |
 | 既有 FirstPayload preflight 的 Bootstrap 预留 | 32 KiB | 128 KiB 正文预算，加实算分隔符/补发 wrapper；只计实际同包内容 | 使领取批次前的预留覆盖长身份和实际封装 |
 | Command Code Bootstrap 正文，Rust/JS 两端 | 32 KiB | 128 KiB，两端相同字节口径 | 去掉阻碍 10,000 字符投递的局部瓶颈 |
 | Command Code 绑定 JSON 文件 | 64 KiB | 256 KiB，按实际外层序列化结果校验 | 外层字符串转义可能比正文占用更多字节 |
+| Cline Bootstrap 正文 | 32 KiB | 128 KiB；同时核验规则文件和绑定 JSON 的实际字节 | R4 补列同样会阻碍长职责的独立校验，不沿用旧 32 KiB 瓶颈 |
 | 显式 maxContextPayloadBytes | 覆盖默认值 | 保持既有显式配置 | 提高默认值不等于底层真实限制已放宽 |
 | 工具结果、IPC、其他 Adapter 限制 | 各自当前规则 | 完整链路核验，只调整实际阻碍新长度的局部限制 | 不盲目放大所有全局限制 |
 
@@ -531,7 +562,29 @@ R3 沿用以下容量提案，确认后实现并以真实投递验收；这不�
 不能让 claim 把 256 KiB 全部用作 RUN_INPUT，最终再追加 Bootstrap 导致失败。
 FIFO、原子完整消息、可选项优先级保持；提高容量可能让一个新批次容纳更多完整消息，这是预期效果。
 
-本轮做了以下离线序列化测算。输入均为 10,000 个 scalar，JSON 使用 UTF-8 非 ASCII 原样输出，
+### 9.2 各 Runtime 的适用边界
+
+下面按[当前投递模式映射](../../../crates/rovai-core/src/context.rs)说明共享规则与独立路径。
+这些是代码静态核对结果，不是 10,000 字符端到端投递通过记录。
+
+| Runtime / 路径 | 变更前 | 变更后 | 改动说明 |
+| --- | --- | --- | --- |
+| Codex CLI、Claude Code、Grok Build（NativeAppend） | 动态 payload 走共享预算，Bootstrap 通过独立系统指令入口传递 | 共享默认预算提高；逐项核验独立入口及真实 Runtime | 不能把动态 payload 的额度直接当作独立 Bootstrap 或模型窗口额度 |
+| Pi、Deepseek Harness（ManagedSystemPrompt） | 共享组包预算之外，Bootstrap 经托管系统提示/绑定读取；已读绑定实现未设置与 Command Code 相同的 32 KiB 正文检查 | 提高共享默认值，核验托管 Host、绑定、系统提示拼接及外围传输 | 不据此宣称无其他限制；本轮未启动真实 Runtime |
+| Command Code（ManagedSystemPrompt） | 共享预算之外，Rust/JS 正文 32 KiB，JS 绑定 JSON 64 KiB | 正文 128 KiB，绑定 JSON 256 KiB | 同时调整两层、两端校验，不能只放宽 Core |
+| Cline（ManagedSystemPrompt） | 共享预算之外，Rust 正文 32 KiB，写入规则文件及绑定 JSON | 正文 128 KiB，核验规则 wrapper 与外层 JSON | 上一版只写 Command Code 漏列了这一独立限制；仍保持既有非公开准入状态 |
+| OpenCode、Copilot、Antigravity、ZCode、Kiro、Qoder、CodeBuddy、Qwen Code、TRAE、Cursor、Kimi（FirstPayload） | Bootstrap 需要投递时与动态内容合包，既有 preflight 预留 32 KiB | 共享默认 256 KiB，既有预留改为 128 KiB 正文加实算 wrapper，按实际同包内容核算 | 这些入口共享组包规则，但各自 CLI/协议/模型上限仍须逐项验收 |
+
+**改动说明：** 共用 Core 预算不代表整条投递链路只有同一个限制。
+Command Code 的检查见 [Rust 绑定](../../../crates/rovai-core/src/command_code_acp.rs)与
+[JS 读取](../../../crates/rovai-core/src/command_code/bootstrap.mjs)；
+Cline 的遗漏依据是 [bind_bootstrap](../../../crates/rovai-core/src/cline.rs)中的 32 KiB 检查。
+Pi / Deepseek 的静态核对覆盖托管绑定读入，但不替代外部 Runtime、IPC 和模型的实际投递验收。
+真实模型上下文仍按各自 Token 窗口限制；本次提高的是 Rovai 内部字节预算。
+
+### 9.3 字节测算依据
+
+本方案已完成以下离线序列化测算。输入均为 10,000 个 scalar，JSON 使用 UTF-8 非 ASCII 原样输出，
 第一层是仅含职责字段的紧凑对象，第二层是 `{"bootstrap": 第一层字符串}`；数值不是整份 Bootstrap。
 
 | 文本样例 | 正文 UTF-8 bytes | 第一层 JSON bytes | 第二层 JSON bytes |
@@ -614,7 +667,7 @@ FIFO、原子完整消息、可选项优先级保持；提高容量可能让一�
 
 ## 涉及文件与实施顺序
 
-本分支的文档交付只涉及本说明及版本概览入口；R3 在既有文件中重排对照并补充说明。
+本分支的文档交付只涉及本说明及版本概览入口；R4 修订技能变更范围并补充摘要、版本与容量说明。
 确认实施后预计修改下列范围；最终以实际 diff 为准。
 
 | 文件/范围 | 修改目的 |
@@ -622,11 +675,11 @@ FIFO、原子完整消息、可选项优先级保持；提高容量可能让一�
 | `crates/rovai-core/src/agent_profile.rs`、`member_studio.rs`、`member_tool.rs` | 专业职责共享规范化、独立上限、输入 Schema、窄 list 查询、封闭结果 |
 | `apps/desktop/src/renderer/src/member-identity-draft.ts` 及既有创建/编辑/复制/导入消费点 | Unicode 校验、计数、错误和草稿保留；不改其他身份字段 |
 | `crates/rovai-core/src/context.rs`、`context_delivery.rs`、`context_contract.rs`、`delivery_queue.rs` | peers 窄投影/摘要、完整字节预算、版本化新生成路径与旧冻结恢复 |
-| `crates/rovai-core/src/command_code_acp.rs`、`command_code/bootstrap.mjs` | 同步 Bootstrap 与外层文件局部容量，保持绑定身份/不可变性检查 |
+| `crates/rovai-core/src/command_code_acp.rs`、`command_code/bootstrap.mjs`、`cline.rs` | 同步已确认的 Bootstrap 局部容量，核验外层文件与规则 wrapper，保持绑定身份/不可变性检查 |
 | `crates/rovai-core/src/team_tool_catalog.rs`、`bin/rovai.rs`、`builtin_tool_cli_output.rs`、`builtin_tool_transport.rs` | 统一帮助、新结果校验及匹配的协议版本 |
 | `crates/rovai-core/src/builtin_tool_evidence_projection.rs`、`packages/contracts` 对应 DTO/fixtures/tests | 新投影证据与合同校验；历史 fixture 不改写成新格式 |
 | 既有数据库版本约束迁移与对应恢复测试 | 增量准入新版本，旧冻结状态继续可读可恢复 |
-| `skills/cli-operations/SKILL.md`、`skills/member-studio/references/identity-generation.md` | 上述完整替换文本与生成规则 |
+| `skills/cli-operations/SKILL.md`、`skills/member-studio/references/identity-generation.md` | 上述确认范围的文本；用户原文处理与专业职责写法两段保持原文 |
 | `docs/contracts`、`docs/architecture`、当前版本实施记录与必要版本决定 | 更新当前权威/路由，保存历史理由，记录真实验证范围 |
 
 顺序：确认本 revision → 共享字段校验与窄结果 → 上下文/容量/历史兼容 → help/技能/合同同步
@@ -644,9 +697,9 @@ FIFO、原子完整消息、可选项优先级保持；提高容量可能让一�
 | 范围与权限 | self/away/leave-requested/left/removed、无 Lead、创建者例外、跨 Thread 拒绝；list 与 peers 差异保持 |
 | 摘要与 ACK | 只改职责/人格等摘要不变；名称/角色/有效关系变动会变；未 accepted/unknown 不推进水位 |
 | 本人身份 | 10,000 字符首中尾与完整字节一致；不进 peers，不重复进入动态 section；沿用资格边界 |
-| 容量 | 全身份、条件段、最坏 JSON 转义、业务输入与外层封装合计校验；claim 与实际组包边界一致 |
+| 容量 | 全身份、条件段、最坏 JSON 转义、业务输入与外层封装合计校验；claim 与实际组包边界一致；覆盖 Command Code/Cline 独立限制及所有其他 Runtime 入口 |
 | 恢复 | 旧 frozen 字节不变；旧待 materialize 输入维持版本路径；新 Run 采用新版本且继续相同原生 ID；历史 Bootstrap 缺失不新增续聊障碍 |
-| 帮助与教学 | Catalog/list/get help、职责参数、技能文本符合本对照；没有默认逐个 get 全队、隐式扩权或旧 300 说明 |
+| 帮助与教学 | Catalog/list/get help、职责参数、技能文本符合本对照；两段明确保留的 member-studio 原文不变；没有默认逐个 get 全队、隐式扩权或旧职责 300 说明 |
 
 优先扩展现有测试 owner；增加或退役 Rust 测试前执行
 [测试准入规则](../../development/testing.md#rust-测试准入与退役门槛)。
@@ -709,21 +762,30 @@ R3 同日复核：`pnpm docs:test` 10/10 通过；相对同一 base 的
 `pnpm docs:check` 和 `pnpm docs:check:ci` 仍仅因 R3 未确认的四项记录阻断；未修改门禁。
 `git diff --check` 通过，产品实现与当前合同未改动。
 
+R4 同日复核：`pnpm docs:test` 10/10 通过；相对同一 base 的
+`check-doc-decisions.mjs --require-base` 通过。两段撤回的技能文案在变更前后均与基线原文逐字相同，
+4 个 JSON 示例可解析，`git diff --check` 通过。代码只读核对确认了最终投影摘要比较、
+member get 当前行读取、member update 原地更新与版本检查，以及共享预算和 Cline 独立 32 KiB 校验。
+`pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因 R4 未确认的四项记录阻断。
+此次仍只改本说明与版本概览；真实 Runtime 未运行，未把静态核对记为投递通过。
+
 ## 二次确认
 
-R3 尚未获得用户阅读本文件后的实施确认；`confirmation_status: pending`。
+R4 尚未获得用户阅读本文件后的实施确认；`confirmation_status: pending`。
 Thread `rvcamp_01m4r7rvjff0svehpr9s78zc16` 中用户已确定需求、resume 边界与提高完整上限，
 消息 `c3403579-8f3c-40d6-b705-ccae198fea70` 要求“开启 wt”并先提供上下文、CLI、CLI-help 前后方案。
 该消息授权创建本 worktree 与本方案。随后消息 `c10f4185-c894-4eed-a50c-acc41901fc94`
 要求精简 help、解释 `default`、把技能前后文案放在一起；消息
 `1a19808b-ee83-4f65-b815-6887010a32ff` 进一步要求每项内容的变更前、变更后紧邻，并解释每项改动。
 R3 据此统一整份说明的对照格式，保留 R2 的方案内容，不把审阅意见记为实施确认。
+随后消息 `4b828ecd-3df8-4355-b52e-a5d8b15e1b04` 撤回两段 member-studio 改写，并询问摘要、
+成员版本存储及 Runtime 限制；R4 落实撤回、补充事实说明并补列 Cline 容量检查，不视为实施确认。
 R1、R2 原文分别保留在 Git 提交 `158b333001ba13ed313d9b5f431a69142ef9e50c`、
-`454755395c65965976b2faa9c5813613cecf6067`。
+`454755395c65965976b2faa9c5813613cecf6067`；R3 保留在提交 `5e50c96f1`。
 
 按[上下文变更治理](../../development/model-context-change-governance.md)：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
-因此本轮交付停在可审阅方案。阅读后若明确同意实施 R3，再记录真实的确认人、时间、消息和相等的
+因此本轮交付停在可审阅方案。阅读后若明确同意实施 R4，再记录真实的确认人、时间、消息和相等的
 `confirmed_revision`；语义改变则递增 revision。文档版本门禁在 pending 状态下应保持阻断，不能
 伪造确认字段或为此增加 checker 例外。
 
@@ -734,8 +796,8 @@ Work item: 成员路由精简、专业职责扩容与模型上下文/CLI/help �
 Worktree: /Users/murray.xue/VSCodeProjects/opensource/rovai-ai-member-routing-context
 Branch: rovai/member-routing-context
 Base: origin/main @ 39bf1eb09a208ea9abd98b737d6ed7c669ed7cbf
-Governance: none（本 R3 为提案，尚未确认或合入）
+Governance: none（本 R4 为提案，尚未确认或合入）
 Status: ready（方案待审，保留该 worktree 供后续复用）
 Validation: 见本文件“本轮文档验证记录”
-Next: 审阅 R3；确认后按同一工作区继续实施
+Next: 审阅 R4；确认后按同一工作区继续实施
 ```

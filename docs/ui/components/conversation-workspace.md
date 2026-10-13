@@ -489,13 +489,14 @@ Shell 结果、Diff 与其他结构化 Evidence 继续使用各自专用样式�
 该 Agent 的独立 Run stage、状态、收件人与证据；这只是 Renderer grouping，不创建 Process
 领域对象，也不合并 AgentRun。
 
-每个 Run 的“协作投递”只显示 `public_a2a` 且 `sourceAgentRunId` 精确匹配该 Run 的收件人；不能从接收方
+每个 Run 的“协作”只显示 `public_a2a` 且 `sourceAgentRunId` 精确匹配该 Run 的收件人；不能从接收方
 Run、target parent、return target 或同一 CampTurn 推断发送归属。投递来源由
 [Camp Open Projection v14](../../contracts/camp-open-projection-v14.md#public-a2a-投递来源)提供；缺少来源时不展示猜测结果。
 同一队员的多次消息或重试按 `recipientAgentId` 去重，按首次消息时间、消息 ID 和消息内 canonical position
 保留稳定顺序，不随投递状态变化重排；底层投递、失败和恢复事实不合并、不修改。
 
-保留“协作投递”标签，对象仅以 24px 头像展示，焦点槽位 28px、间距 4px。底部和浮层共用单行布局，
+标签显示“协作”，悬浮提示为“本次执行向这些队员发送了消息。”，行的可访问名称为“本次执行的消息接收队员”。
+对象仅以 24px 头像展示，焦点槽位 28px、间距 4px。底部和浮层共用单行布局，
 按实际可用宽度为 `+N` 预留完整位置；不换行、不横滑、不裁掉半个头像。Hover 或键盘 Focus 显示完整姓名，
 `+N` 是可操作入口，以非模态名单展示其余头像与完整姓名，缺失头像使用既有身份回退。Escape 先收起姓名提示
 或名单，不连带收起执行详情；名单关闭后焦点回到入口。没有公开投递对象时隐藏整行。

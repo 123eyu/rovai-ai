@@ -28,44 +28,50 @@ markdown.core.ruler.push('guide_heading_ids', state => {
   }
 })
 
-const agentSetup = { title: [], lead: [], description: [], sections: [{ kind: 'markdown', body: [] }] }
-for (const lang of ['en', 'zh']) {
-  const text = await readFile(join(source, 'guides', `agent-setup.${lang}.md`), 'utf8')
-  const dom = new JSDOM(`<article>${markdown.render(text)}</article>`)
-  const doc = dom.window.document
-  const article = doc.querySelector('article')
-  const title = article.querySelector('h1')
-  const lead = title.nextElementSibling
-  agentSetup.title.push(title.textContent)
-  agentSetup.lead.push(lead.innerHTML)
-  agentSetup.description.push(lead.textContent)
-  title.remove()
-  lead.remove()
-  article.querySelector('p').classList.add('guide-version')
-  for (const pre of article.querySelectorAll('pre')) {
-    const wrapper = doc.createElement('div')
-    wrapper.className = 'doc-prompt doc-code'
-    pre.replaceWith(wrapper)
-    wrapper.append(pre)
-    const button = doc.createElement('button')
-    button.type = 'button'
-    button.className = 'prompt-copy'
-    button.textContent = lang === 'zh' ? '复制代码' : 'Copy code'
-    wrapper.append(button)
+async function loadMarkdownGuide(id, { versionNote = false } = {}) {
+  const guide = { title: [], lead: [], description: [], sections: [{ kind: 'markdown', body: [] }] }
+  for (const lang of ['en', 'zh']) {
+    const text = await readFile(join(source, 'guides', `${id}.${lang}.md`), 'utf8')
+    const dom = new JSDOM(`<article>${markdown.render(text)}</article>`)
+    const doc = dom.window.document
+    const article = doc.querySelector('article')
+    const title = article.querySelector('h1')
+    const lead = title.nextElementSibling
+    guide.title.push(title.textContent)
+    guide.lead.push(lead.innerHTML)
+    guide.description.push(lead.textContent)
+    title.remove()
+    lead.remove()
+    if (versionNote) article.querySelector('p').classList.add('guide-version')
+    for (const pre of article.querySelectorAll('pre')) {
+      const wrapper = doc.createElement('div')
+      wrapper.className = 'doc-prompt doc-code'
+      pre.replaceWith(wrapper)
+      wrapper.append(pre)
+      const button = doc.createElement('button')
+      button.type = 'button'
+      button.className = 'prompt-copy'
+      button.textContent = lang === 'zh' ? '复制代码' : 'Copy code'
+      wrapper.append(button)
+    }
+    for (const table of article.querySelectorAll('table')) {
+      const wrapper = doc.createElement('div')
+      wrapper.className = 'doc-table-wrap'
+      wrapper.setAttribute('role', 'region')
+      wrapper.setAttribute('tabindex', '0')
+      wrapper.setAttribute('aria-label', table.previousElementSibling.textContent)
+      table.replaceWith(wrapper)
+      wrapper.append(table)
+      for (const th of table.querySelectorAll('th')) th.setAttribute('scope', 'col')
+    }
+    guide.sections[0].body.push(article.innerHTML)
+    dom.window.close()
   }
-  for (const table of article.querySelectorAll('table')) {
-    const wrapper = doc.createElement('div')
-    wrapper.className = 'doc-table-wrap'
-    wrapper.setAttribute('role', 'region')
-    wrapper.setAttribute('tabindex', '0')
-    wrapper.setAttribute('aria-label', table.previousElementSibling.textContent)
-    table.replaceWith(wrapper)
-    wrapper.append(table)
-    for (const th of table.querySelectorAll('th')) th.setAttribute('scope', 'col')
-  }
-  agentSetup.sections[0].body.push(article.innerHTML)
-  dom.window.close()
+  return guide
 }
+
+const agentSetup = await loadMarkdownGuide('agent-setup', { versionNote: true })
+const multipleProviders = await loadMarkdownGuide('multiple-providers')
 
 function makeWindow(page, lang, topic = '') {
   const prefix = lang === 'zh' ? '/zh' : ''
@@ -84,10 +90,12 @@ function makeWindow(page, lang, topic = '') {
   }
   const { topics, groups } = dom.window.RovaiDocs
   topics['agent-setup'] = agentSetup
+  topics['multiple-providers'] = multipleProviders
   const agentGroup = groups.find(group => group.ids.includes('agents'))
-  agentGroup.ids.splice(agentGroup.ids.indexOf('agents') + 1, 0, 'agent-setup')
+  agentGroup.ids.splice(agentGroup.ids.indexOf('agents') + 1, 0, 'agent-setup', 'multiple-providers')
   const related = topics.agents.sections.findLast(section => section.kind === 'links')
   related.links.push({ id: 'agent-setup', label: agentSetup.title })
+  related.links.push({ id: 'multiple-providers', label: multipleProviders.title })
   dom.window.eval(scripts['site.js'])
   return dom
 }

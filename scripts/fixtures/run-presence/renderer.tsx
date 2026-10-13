@@ -105,7 +105,8 @@ function Workbench() {
         ...['消息投递与恢复', '会话工作区优化', '发布前检查'].map((title, i) => ({ ...current, id: `demo-thread-${i}`, title, marker: 'none' }))] }] }
   useEffect(() => {
     Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal,
-      getState: model.get, showNarration: model.showNarration, showStartupStatus: model.showStartupStatus, controls: model.controls, resync: model.resync, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
+      getState: model.get, setRunModel: model.setRunModel, setMemberAvailability: model.setMemberAvailability,
+      showNarration: model.showNarration, showStartupStatus: model.showStartupStatus, controls: model.controls, resync: model.resync, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
         const s = model.get().snapshot
         const ids = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].map(e => e.dataset.messageId)
         const positions = ids.map(id => s.messages.findIndex((m: any) => m.id === id)).filter(i => i >= 0)
@@ -121,7 +122,7 @@ function Workbench() {
           uniqueRuns: rows.length === new Set(rows.map(e => e.dataset.presenceRun)).size,
           anchoredOrder: JSON.stringify(actualOrder) === JSON.stringify(expectedOrder),
           independentActivityRows: rows.every(e => !e.closest('.message-actions')),
-          compactRows: rows.every((e, i) => e.querySelectorAll('button').length === (slots[i].run.status === 'failed' && slots[i].run.failure?.retryable === false ? 1 : 2) && !e.querySelector('.presence-elapsed')),
+          compactRows: rows.every((e, i) => e.querySelectorAll('.run-presence-line button').length === (slots[i].run.status === 'failed' && slots[i].run.failure?.retryable === false ? 1 : 2) && !e.querySelector('.presence-elapsed')),
           commandIconsMatchContent: rows.every(e => Boolean(e.querySelector('.tool-call-icon')) === (e.querySelector('.run-presence-open')?.getAttribute('data-preview-kind') === 'command')),
           retryOnlyOnFailure: rows.every(e => !e.querySelector('.run-presence-retry') || e.dataset.presenceState === 'failed'),
           identityMatchesRun: rows.every((e, i) => Boolean(e.querySelector('.member-avatar')) === !slots[i].continuation),

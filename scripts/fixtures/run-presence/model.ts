@@ -54,7 +54,7 @@ function makeRun(id: string, agent = 0, status = 'running', inputs = ['request-m
   return { ...structuredClone(runTemplate), id, agentId: aid(agent), status, inputMessageIds: inputs,
     anchorMessageId: inputs.at(-1), publicTailSequenceAtStart: 3, inputSummary: '按现在的界面做一版队员占位，保留群聊的消息顺序。',
     purpose: '核对队员占位方案', threadTurnId: null, invocationKind: 'batch',
-    a2aRootAgentRunId: id, runtimeModel: { modelId: null },
+    a2aRootAgentRunId: id, runtimeModel: { adapterKind: 'codex-cli', modelId: 'frozen-run-model', reasoningEffort: 'high' },
     createdAt: at(31), startedAt: at(34), updatedAt: at(seconds), endedAt: ['succeeded', 'failed', 'cancelled'].includes(status) ? at(seconds) : null,
     executionEvidenceCount: 3, executionEvidenceChangeSequence: 3,
     failure: status === 'failed' ? { code: 'runtime_disconnected', message: 'Runtime 连接中断。', retryable: true } : null }
@@ -264,6 +264,16 @@ export const model = {
   },
   get: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   note: (note: string) => update({ note }),
+  setRunModel(runtimeModel: any) {
+    update({ streamPaused: true, snapshot: { ...state.snapshot,
+      agentRuns: state.snapshot.agentRuns.map((run: any) => run.id === 'run-alice' ? { ...run, runtimeModel } : run)
+    } })
+  },
+  setMemberAvailability(membershipStatus: string, profilePresence: string) {
+    update({ streamPaused: true, snapshot: { ...state.snapshot,
+      members: state.snapshot.members.map((member: any) => member.agentId === aid(0) ? { ...member, membershipStatus, profilePresence } : member)
+    } })
+  },
   showStartupStatus(waitReason: 'runtime_initializing' | null, preserveEvidence = false) {
     update({ streamPaused: true, snapshot: { ...state.snapshot,
       agentRuns: state.snapshot.agentRuns.map((run: any) => run.id === 'run-alice' ? { ...run, waitReason } : run),

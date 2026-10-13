@@ -25,7 +25,7 @@ const native = await launchAcceptanceBrowser({executable:chrome,
 await native.send('Emulation.setFocusEmulationEnabled',{enabled:true})
 const b = {...native,
   click:selector=>native.click(`document.querySelector(${JSON.stringify(selector)})`),
-  async key(key) {await native.send('Input.dispatchKeyEvent',{type:'keyDown',key,code:key,windowsVirtualKeyCode:key==='Enter'?13:27,...(key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{})});await native.send('Input.dispatchKeyEvent',{type:'keyUp',key,code:key})}
+  async key(key) {const code=key===' '?'Space':key;await native.send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:key==='Enter'?13:key===' '?32:27,...(key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{})});await native.send('Input.dispatchKeyEvent',{type:'keyUp',key,code})}
 }, report = { scenarios:[], interactions:[], viewports:[] }
 const settle = () => pause(220)
 const stage = async n => { await b.evaluate(`__presence.setStage(${n})`); await settle() }
@@ -46,6 +46,58 @@ try {
     }
     console.log(`PASS ${name}: ${total} stages`)
   }
+
+  // Run identity uses the same profile card and frozen model disclosure as messages.
+  await scenario('stream',1)
+  const avatarTrigger = `${row} .message-author-avatar-trigger`
+  const nameTrigger = `${row} .message-author-name-trigger`
+  const modelTrigger = `${row} .thread-model-summary`
+  const profileCard = '.mention-profile-popover'
+  await b.click(avatarTrigger); await settle()
+  assert.match(await b.evaluate(`document.querySelector('${profileCard}').textContent`),/爱丽丝/)
+  assert.equal(await b.evaluate(`document.querySelector('${avatarTrigger}').getAttribute('aria-expanded')`),'true')
+  assert.equal(await b.evaluate('!!document.querySelector(".camp-detail-popover:not([hidden])")'),false)
+  await b.capture(join(out,'run-member-card.png')); await b.key('Escape'); await settle()
+  assert.equal(await b.evaluate(`document.activeElement.matches('${avatarTrigger}')`),true)
+  await b.key(' '); await settle()
+  assert.equal(await b.evaluate(`document.activeElement.closest('${profileCard}') !== null`),true)
+  await b.click('[contenteditable=true]'); await settle()
+  assert.equal(await b.evaluate(`!!document.querySelector('${profileCard}')`),false)
+  await b.evaluate(`document.querySelector('${nameTrigger}').focus()`); await b.key('Enter'); await settle()
+  assert.equal(await b.evaluate(`document.activeElement.closest('${profileCard}') !== null`),true)
+  // Profile intentionally uses today's defaults; the running model stays frozen.
+  assert.match(await b.evaluate(`document.querySelector('${profileCard} .mention-profile-model').textContent`),/智能体默认/)
+  await b.key('Escape'); await settle()
+  assert.equal(await b.evaluate(`document.activeElement.matches('${nameTrigger}')`),true)
+  assert.equal(await b.evaluate(`document.querySelector('${modelTrigger}').textContent`),'frozen-run-model · high')
+  await b.click(modelTrigger); await settle()
+  const modelFields = () => b.evaluate('document.querySelector(".thread-model-fields").textContent')
+  assert.match(await modelFields(),/Codex.*模型frozen-run-model.*推理强度high/s)
+  await b.capture(join(out,'run-model-card.png')); await b.key('Escape'); await settle()
+  assert.equal(await b.evaluate(`document.activeElement.matches('${modelTrigger}')`),true)
+  for (const [record,summary,field] of [
+    [{adapterKind:'claude-code-cli',modelId:'claude-run-model',reasoningEffort:'max'},'claude-run-model · max','思考强度max'],
+    [{adapterKind:'pi',modelId:'pi-run-model',reasoningEffort:'medium'},'pi-run-model · medium','思考强度medium'],
+    [{adapterKind:'codex-cli',modelId:null,reasoningEffort:null},'智能体默认','模型智能体默认'],
+    [{adapterKind:'codex-cli',modelId:'observed-model',reasoningEffort:null},'observed-model','模型observed-model'],
+    [{modelId:'legacy-observed'},'legacy-observed','模型legacy-observed'],
+    [null,'模型未记录',null]
+  ]) {
+    await b.evaluate(`__presence.setRunModel(${JSON.stringify(record)})`); await settle()
+    assert.equal(await b.evaluate(`document.querySelector('${modelTrigger}').textContent`),summary)
+    await b.click(modelTrigger); await settle()
+    if (field) assert.ok((await modelFields()).includes(field))
+    else assert.equal(await b.evaluate('document.querySelector(".thread-model-unrecorded").textContent'),'模型未记录')
+    await b.key('Escape'); await settle()
+  }
+  for (const [membership,presence] of [['active','removed'],['left','present']]) {
+    await b.evaluate(`__presence.setMemberAvailability('${membership}','${presence}')`); await settle()
+    assert.equal(await b.evaluate(`document.querySelectorAll('${row} .message-author-trigger').length`),0)
+    assert.equal(await b.evaluate(`!!document.querySelector('${row} .member-avatar')`),true)
+  }
+  await scenario('stream',2)
+  assert.equal(await b.evaluate(`document.querySelectorAll('${row} .bubble-meta, ${row} .message-author-trigger').length`),0)
+  report.interactions.push('Run avatar/name open the shared profile card; keyboard focus restores; model disclosure uses frozen Run facts across adapters/default/legacy/missing records; removed/left members stay static; continuation omits duplicate identity')
 
   // Explicit DOM expectations: do not use the projector itself as the oracle.
   const followupOrder = () => b.evaluate(`Array.from(document.querySelectorAll('[data-message-id],[data-presence-run],.member-joined-card,.run-file-changes-card')).map(e => e.dataset.messageId ?? (e.dataset.presenceRun ? 'run-presence:'+e.dataset.presenceRun : e.classList.contains('member-joined-card') ? 'joined' : 'files'))`)
@@ -270,7 +322,7 @@ try {
   await b.key('Escape');await settle();report.interactions.push('existing Run detail stops only the selected Run; preview disappears')
 
   await scenario('failed',2)
-  assert.equal(await b.evaluate('document.querySelector(".conversation-run-presence").querySelectorAll("button").length'),2)
+  assert.equal(await b.evaluate('document.querySelector(".run-presence-line").querySelectorAll("button").length'),2)
   assert.equal(await b.evaluate('document.querySelector(".run-presence-retry").textContent'),'重试')
   assert.equal(await b.evaluate('Array.from(document.querySelectorAll("button")).some(e=>e.textContent.includes("重新发送"))'),false)
   await b.capture(join(out,'failed.png'));await b.click('.run-presence-open');await settle()
@@ -430,6 +482,7 @@ try {
   for (const [width,height] of [[520,350],[720,460]]) {
     await b.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false,screenWidth:width*2,screenHeight:height*2})
     await scenario('stream',1)
+    await b.evaluate(`__presence.setRunModel({adapterKind:'claude-code-cli',modelId:'long-provider-model-'.repeat(8),reasoningEffort:'max'})`); await settle()
     const zoom=await b.evaluate(`(() => {const timeline=document.querySelector('.camp-timeline'),row=document.querySelector('.run-presence-line'),stop=row.querySelector('.run-presence-stop'),r=row.getBoundingClientRect(),s=stop.getBoundingClientRect();return {overflow:document.documentElement.scrollWidth>innerWidth,timelineOverflow:timeline.scrollWidth>timeline.clientWidth+1,lineHeight:r.height,inside:s.left>=r.left&&s.right<=r.right+1,stopWidth:s.width}})()`)
     assert.equal(zoom.overflow,false);assert.equal(zoom.timelineOverflow,false);assert.equal(zoom.lineHeight,36);assert.equal(zoom.inside,true);assert.equal(zoom.stopWidth,26)
     await b.capture(join(out,`zoom-200-${width*2}x${height*2}.png`))

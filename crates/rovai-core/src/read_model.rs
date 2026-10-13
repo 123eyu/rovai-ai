@@ -357,12 +357,6 @@ pub struct RunWorkspaceView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunRuntimeModelView {
-    pub model_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentRunView {
     pub id: String,
     #[serde(rename = "threadTurnId", alias = "campTurnId")]
@@ -387,7 +381,7 @@ pub struct AgentRunView {
     pub terminal_resolution_source: Option<String>,
     pub terminal_reason_code: Option<String>,
     pub failure: Option<RuntimeFailureView>,
-    pub runtime_model: Option<AgentRunRuntimeModelView>,
+    pub runtime_model: Option<ThreadMessageRuntimeModelView>,
     pub execution_epoch: i64,
     pub permission_semantics: String,
     pub invocation_kind: String,
@@ -3115,7 +3109,7 @@ fn load_agent_runs(
                agent_run.created_at, agent_run.started_at,
                agent_run.ended_at, agent_run.updated_at,
                agent_run.public_runtime_failure_json,
-               json_extract(agent_run.runtime_model_selection_json, '$.source'),
+               agent_run.runtime_model_selection_json,
                agent_run.runtime_observed_model_id,
                COALESCE((
                  SELECT json_group_array(input.message_id)
@@ -3136,7 +3130,8 @@ fn load_agent_runs(
                       THEN camp_turn.trigger_id END
                ),
                continued.source_agent_run_id IS NOT NULL,
-               agent_run.current_public_tail_sequence
+               agent_run.current_public_tail_sequence,
+               agent_run.runtime_adapter_kind
         FROM agent_run
         LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
         JOIN camp ON camp.id = COALESCE(agent_run.camp_id, camp_turn.camp_id)
@@ -3213,6 +3208,7 @@ fn load_agent_runs(
                 row.get::<_, Option<String>>(40)?,
                 row.get::<_, bool>(41)?,
                 row.get::<_, Option<i64>>(42)?,
+                row.get::<_, Option<String>>(43)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -3260,13 +3256,14 @@ fn load_agent_runs(
                 ended_at,
                 updated_at,
                 public_runtime_failure_json,
-                runtime_model_source,
+                runtime_model_selection,
                 runtime_observed_model_id,
                 input_message_ids_json,
                 anchor_message_id,
                 summary_message_id,
                 has_accepted_continuation,
                 public_tail_sequence_at_start,
+                runtime_adapter_kind,
             )| {
                 Ok(AgentRunView {
                     id,
@@ -3296,10 +3293,11 @@ fn load_agent_runs(
                         .map(|value| serde_json::from_str(&value))
                         .transpose()
                         .context("AgentRun public Runtime failure is invalid")?,
-                    runtime_model: (runtime_model_source.as_deref() == Some("runtime_default"))
-                        .then_some(AgentRunRuntimeModelView {
-                            model_id: runtime_observed_model_id,
-                        }),
+                    runtime_model: message_model::project_model(
+                        runtime_adapter_kind.as_deref(),
+                        runtime_model_selection.as_deref(),
+                        runtime_observed_model_id,
+                    ),
                     execution_epoch,
                     permission_semantics,
                     invocation_kind,

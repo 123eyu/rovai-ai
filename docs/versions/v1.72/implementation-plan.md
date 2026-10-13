@@ -2070,3 +2070,29 @@ User 报告远程执行行在公开回复后再次显示连接／处理文案，
 远程探针使用独立临时 data-dir、Skill Library、MCP 配置、Runtime 文件根与 Chrome profile，
 只在合成数据库中注入执行记录，没有调用真实 Runtime；dsh / Trae 的真实模型运行不是本轮验收项。
 未写入日常数据库，未安装或重启日常 App。修改只交付任务分支，待后续发布后生效。
+
+## 执行行队员卡片与模型（2026-10-13）
+
+User 反馈独立执行行缺少头像／姓名卡片入口与模型展示。基线
+`a8704823a219334ac73603bc6bfcc5c7dde16373`，分支 `rovai/run-presence-member`，
+独立 worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-run-presence-member`。
+
+- 将原消息头的队员卡片触发组件提为共享组件，执行行接入同一弹层、键盘与焦点路径；
+  离开／删除队员保留静态身份，同 Run 回复后的执行行省去整组重复身份。
+- 模型摘要与浮层复用消息组件。Run 的模型投影复用公开消息的冻结选择／默认观察函数，
+  补齐适配器与强度；不读取当前队员配置，也不增加查询、数据库字段、事件或配置副本。
+  旧 Host 的仅 modelId、null、未观察默认值分别按已有事实呈现。
+- 当前合同为 [Camp Open Projection v28](../../contracts/camp-open-projection-v28.md) 与
+  [Run Process Detail Surface v54](../../contracts/run-process-detail-surface-v54.md)。
+- 扩展既有 Camp Open 零事件历史访问 owner，核对 Snapshot / Open 的显式选择和默认观察。
+  选项矩阵仍由 `message_model` 纯函数 owner 负责，没有新增独立 Rust 测试或数据库 fixture。
+  最小命令为 `cargo test -p rovai-core --features slow-tests --lib read_model::camp_open_slow_tests`
+  和 `cargo test -p rovai-core --features slow-tests --lib model_metadata_uses_frozen_options_and_default_only_observation`。
+- 生产浏览器 owner 增补头像／姓名点击、Enter／Space、关闭与焦点归还、当前资料与冻结运行模型的区分，
+  以及跨适配器、默认／观察／旧 Host／缺失记录、队员删除／离开和连续回复；原执行行按钮数量断言
+  只统计活动行本身，新增资料入口不计入停止／重试区。缩放窗口使用长模型名检查溢出。
+
+类型检查、242 个 Vitest 文件／2658 项用例、5 项 Camp Open owner、1 项模型投影矩阵、
+Rust 格式检查及文档治理通过。生产浏览器验收通过 38 个阶段、6 组主题尺寸与 29 项交互记录，
+包含新入口及原有顺序、停止、重试、远程记录恢复回归。浏览器使用隔离临时 Chrome profile 与合成投影，Rust 使用隔离数据库；
+没有启动日常 App、Core 或真实 Runtime。

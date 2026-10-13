@@ -1907,7 +1907,8 @@ export interface AgentRunView {
     | 'runtime_adapter_not_implemented'
     | null
   failure: RuntimeFailureView | null
-  runtimeModel: { modelId: string | null } | null
+  /** Frozen Run selection / observed default. Optional display fields support older Hosts. */
+  runtimeModel: { modelId: string | null; adapterKind?: string; reasoningEffort?: string | null } | null
   executionEpoch: number
   permissionSemantics: 'core_enforced_v1' | 'runtime_managed_v2'
   invocationKind: 'direct' | 'a2a' | 'gather_completion' | 'single_chat' | 'batch'

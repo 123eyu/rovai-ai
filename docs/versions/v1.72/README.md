@@ -65,8 +65,10 @@ Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持
 初始化与已受理的空内容按真实状态分别显示连接／处理文案。
 同日修正：输入受理回执晚到时，共享执行行优先展示当前 Run、当前执行轮次的实际活动；
 旧轮次记录仍不能掩盖新一轮连接。公开回复后、慢读取及远程恢复沿用相同规则。
+独立执行行补齐头像／姓名卡片入口与可点击模型摘要，复用消息交互。Run 与公开消息共用冻结模型、
+强度投影，不使用队员当前配置替代运行记录；同 Run 连续回复仍省略重复身份。
 同日修正：新执行初始位置使用已冻结的启动公开消息边界；任何执行行都不拆开回复与附属产物组。
-当前边界见 [Run Process Detail Surface v53](../../contracts/run-process-detail-surface-v53.md)，验证与交付见
+当前边界见 [Run Process Detail Surface v54](../../contracts/run-process-detail-surface-v54.md)，验证与交付见
 [实施记录](implementation-plan.md#会话内队员占位)及[启动状态修正](implementation-plan.md#执行行误回到启动状态2026-10-13)。
 
 ## Windows Web 凭据可用性（2026-10-11）
@@ -598,7 +600,7 @@ Runtime Smoke 为证据，不从合同 accepted 状态推断所有 Provider 都�
 
 按 User 确认的范围，将左侧锚点改为完整用户消息目录，保留正文分页和现有外观。Core 只读取首条有效直接 reply 队员回复，
 预览按需读取；锚点定位窗口独立且有界，分页入口与自动加载跟随正常连续区间。合同见
-[Camp Open Projection v27](../../contracts/camp-open-projection-v27.md)，实现与验证见
+[Camp Open Projection v28](../../contracts/camp-open-projection-v28.md)，实现与验证见
 [用户锚点验收](thread-user-anchors-verification.md)。这是局部读取正确性修复，不增加持久副本、全局缓存框架或时间线重构。
 
 本轮以 `4563d23d` 为修正基线，修复缓存清窗和重同步可信状态，正文先显示再请求目录，格式化移出数据库锁，

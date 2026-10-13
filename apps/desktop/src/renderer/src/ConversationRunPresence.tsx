@@ -1,13 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import type { AgentProfile, AgentRunView, ThreadSnapshot } from '@contracts'
+import type { AdapterInstallation, AgentProfile, AgentRunView, ThreadSnapshot } from '@contracts'
 import { AppDialogContent, AppDialogFooter, AppDialogHeader } from './AppDialog'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
 import { ExecutionIcon, ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph } from './ExecutionStatusGlyph'
 import { ToolCallIcon } from './ExecutionToolGroup'
 import { MemberAvatar } from './MemberAvatar'
+import { MessageAuthorProfileTrigger } from './MessageAuthorProfileTrigger'
+import { RunModelSummary } from './ThreadModelInformation'
 import { NavigationIcon } from './NavigationIcon'
 import { RunningText } from './RunningText'
 import { runPresencePreview, type ConversationRunPresenceSlot } from './conversation-run-presence'
@@ -20,10 +22,12 @@ import { useNavigationPressMenu } from './useNavigationPressMenu'
 import type { AgentRunStopViewState } from './ThreadWorkspace'
 import './conversation-run-presence.css'
 
-export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onOpenMotionSettings, onError }: {
+export function ConversationRunPresence({ snapshot, slot, profiles, installations, onActivateMember, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onOpenMotionSettings, onError }: {
   snapshot: ThreadSnapshot
   slot: ConversationRunPresenceSlot
   profiles: readonly AgentProfile[]
+  installations: AdapterInstallation[]
+  onActivateMember(agentId: string, trigger: HTMLElement, focusPanel: boolean): void
   eventsByRunId: ReadonlyMap<string, LiveRuntimeEvent[]>
   windowedEvidence: boolean
   stopState(run: AgentRunView): AgentRunStopViewState
@@ -72,6 +76,17 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
         const name = memberName(run)
         const member = snapshot.members.find(member => member.agentId === run.agentId)
         const profile = profiles.find(profile => profile.agentId === run.agentId)
+        const avatarRef = member?.avatarRef ?? profile?.avatarRef ?? null
+        const canInspect = Boolean(profile && member?.membershipStatus === 'active' && member.profilePresence !== 'removed')
+        const authorPart = (variant: 'avatar' | 'name'): React.JSX.Element => {
+          const content = variant === 'avatar'
+            ? <MemberAvatar agentId={run.agentId} avatarRef={avatarRef} displayName={name} size="list" decorative />
+            : <strong>{name}</strong>
+          return canInspect
+            ? <MessageAuthorProfileTrigger agentId={run.agentId} displayName={name} variant={variant}
+                onActivate={onActivateMember}>{content}</MessageAuthorProfileTrigger>
+            : content
+        }
         const state = submittingId === run.id ? 'stopping' : stopState(run)
         const canStop = state === 'available' || state === 'stopping' || state === 'confirming'
         const canRetry = run.status === 'failed' && run.invocationKind === 'batch' && (run.inputMessageIds?.length ?? 0) > 0
@@ -80,10 +95,12 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
         return <article key={run.id} className="conversation-bubble agent conversation-run-presence"
           data-presence-run={run.id} data-presence-state={run.status} data-continuation={continuation}
           aria-label={`${name}，${description}`} style={{ '--agent-accent': identityColorToken(run.agentId) } as CSSProperties}>
-          {!continuation && <MemberAvatar agentId={run.agentId} avatarRef={member?.avatarRef ?? profile?.avatarRef ?? null}
-            displayName={name} size="list" decorative />}
+          {!continuation && authorPart('avatar')}
           <div className="message-body">
-            {!continuation && <div className="bubble-meta"><strong>{name}</strong></div>}
+            {!continuation && <div className="bubble-meta">
+              {authorPart('name')}
+              <RunModelSummary run={run} installations={installations} displayName={name} avatarRef={avatarRef} />
+            </div>}
             <div className="run-presence-line">
               <RunPresenceOpen threadId={snapshot.thread.id} run={run} name={name} description={description}
                 windowedEvidence={windowedEvidence} events={eventsByRunId.get(run.id)}

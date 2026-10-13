@@ -7,7 +7,7 @@ import type { LiveRuntimeEvent } from './ui-model'
 const run = (id: string, agentId = id, patch: Partial<AgentRunView> = {}): AgentRunView => ({
   id, agentId, status: 'running', invocationKind: 'batch', createdAt: '2026-10-10T12:00:00Z',
   startedAt: '2026-10-10T12:00:01Z', cancelRequestedAt: null, failure: null, inputMessageIds: ['message-1'],
-  anchorMessageId: 'message-1', executionEpoch: 1, ...patch
+  anchorMessageId: 'message-1', publicTailSequenceAtStart: 1, executionEpoch: 1, ...patch
 } as AgentRunView)
 const message = (sequence: number, sourceAgentRunId: string | null, patch: Partial<ThreadMessageView> = {}): ThreadConversationTimelineItem => ({
   kind: 'camp_message', id: patch.id ?? 'message-' + sequence, createdAt: '2026-10-10T12:00:00Z', runtimeImageGroups: [],
@@ -49,14 +49,50 @@ describe('conversation Run presence', () => {
     ])
   })
 
-  it('restores an unsent Run from its input anchor, including late paged history', () => {
+  it('restores the frozen start boundary across re-entry and late paged history', () => {
     const a = run('a')
     const later = message(2,'peer',{createdAt:'2026-10-10T12:05:00Z'})
     expect(order([a],[message(1,null),later,message(3,null)])).toEqual(['message-1','run-presence:a','message-2','message-3'])
     expect(order([a],[later])).toEqual(['run-presence:a','message-2'])
     expect(order([a],[message(2,'peer',{createdAt:'2000-01-01T00:00:00Z'})])).toEqual(['run-presence:a','message-2'])
     expect(order([a],[message(1,null),later])).toEqual(['message-1','run-presence:a','message-2'])
-    expect(order([run('legacy','alice',{anchorMessageId:null})],[message(1,null),later])).toEqual(['message-1','run-presence:legacy','message-2'])
+    for (const publicTailSequenceAtStart of [null, undefined]) {
+      const legacy = run('legacy','alice',{publicTailSequenceAtStart})
+      expect(order([legacy],[message(1,null),later])).toEqual(['message-1','run-presence:legacy','message-2'])
+      expect(order([{...legacy,anchorMessageId:null}],[message(1,null),later])).toEqual(['message-1','run-presence:legacy','message-2'])
+    }
+  })
+
+  it('starts a queued follow-up after the previous reply, then moves only on its own publication', () => {
+    const next = run('next','alice',{inputMessageIds:['message-2'],anchorMessageId:'message-2',publicTailSequenceAtStart:3})
+    const beforeStart = [message(1,null),message(2,null),message(3,'previous')]
+    expect(order([next],beforeStart)).toEqual(['message-1','message-2','message-3','run-presence:next'])
+    expect(slots([next],beforeStart)).toEqual([['next',false]])
+    // Later messages, including a clock rollback, cannot move the start anchor.
+    const later = [...beforeStart,message(4,null,{createdAt:'2000-01-01T00:00:00Z'}),message(5,'peer')]
+    expect(order([next],later)).toEqual(['message-1','message-2','message-3','run-presence:next','message-4','message-5'])
+    expect(order([structuredClone(next)],later.slice(3))).toEqual(['run-presence:next','message-4','message-5'])
+    expect(order([next],[message(1,null),...later.slice(3)])).toEqual(['message-1','run-presence:next','message-4','message-5'])
+    expect(order([next],[message(3,'previous'),...later.slice(3)])).toEqual(['message-3','run-presence:next','message-4','message-5'])
+    const sent = [...later,message(6,'next'),message(7,'next'),message(8,'peer')]
+    expect(order([next],sent)).toEqual(['message-1','message-2','message-3','message-4','message-5','message-6','message-7','run-presence:next','message-8'])
+    expect(slots([next],sent)).toEqual([['next',true]])
+    expect(order([next],[message(3,null,{id:'optimistic:send'}),message(4,null)])).toEqual(['run-presence:next','optimistic:send','message-4'])
+    expect(order([{...next,publicTailSequenceAtStart:0}],[message(1,null)])).toEqual(['run-presence:next','message-1'])
+  })
+
+  it('never splits another Run reply from its joined, image and Files Changed cards', () => {
+    const a = run('a'), b = run('b','b',{anchorMessageId:'message-2',publicTailSequenceAtStart:2})
+    const joined = {kind:'member_joined',id:'joined-a',createdAt:a.createdAt,receipt:{sourceAgentRunId:'a'}} as ThreadConversationTimelineItem
+    const images = {kind:'run_images',id:'images-a',createdAt:a.createdAt,images:{agentRunId:'a'}} as ThreadConversationTimelineItem
+    const files = {kind:'run_file_changes',id:'files-a',createdAt:a.createdAt,changes:{agentRunId:'a'}} as ThreadConversationTimelineItem
+    const timeline = [message(1,null),message(2,'a'),joined,images,files,message(3,'peer')]
+    expect(order([b],timeline)).toEqual(['message-1','message-2','joined-a','images-a','files-a','run-presence:b','message-3'])
+    expect(slots([b],timeline)).toEqual([['b',false]])
+    expect(order([b,a],timeline)).toEqual(['message-1','message-2','joined-a','images-a','files-a','run-presence:a','run-presence:b','message-3'])
+    expect(slots([b,a],timeline)).toEqual([['a',true],['b',false]])
+    // The old projection's input anchor must respect the same atomic group.
+    expect(order([{...b,publicTailSequenceAtStart:null}],timeline)).toEqual(order([b],timeline))
   })
 
   it('keeps message artifacts together and continues the adjacent Run identity', () => {

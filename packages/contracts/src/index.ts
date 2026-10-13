@@ -1860,6 +1860,8 @@ export interface AgentRunView {
   threadTurnId: string | null
   inputMessageIds?: string[]
   anchorMessageId?: string | null
+  /** Frozen public message boundary captured when Core claimed this Run's inputs. */
+  publicTailSequenceAtStart?: number | null
   /** Core-rendered title source, independent of the loaded conversation page. */
   inputSummary?: string | null
   /** At least one continuation Delivery was accepted for this Run; not an execution-eligibility lock. */

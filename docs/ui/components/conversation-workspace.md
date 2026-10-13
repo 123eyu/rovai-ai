@@ -267,6 +267,10 @@ Agent 公共正文不显示“来自执行”来源条，也不投影 compact �
 精确纯文本，仅对[文件链接](file-preview.md#会话内的文件链接)做展示投影：Markdown label 替代其链接语法，
 文件代码路径保留等宽样式，原始消息及整条消息复制内容不改写；Agent 正文使用清洗后的 GFM；Tool 输出使用结构化证据组件。
 
+Markdown 正文中的代码块提供[与文件预览一致的复制入口](file-preview.md#路径与-viewer)：右上角常驻图标只复制
+当前块内的代码；成功短暂显示对勾，失败可手动复制。该入口与整条消息复制独立，不改变原始 Markdown、
+用户消息的纯文本投影或选文引用范围。
+
 当前用户与通过 Owner 校验的外部 Principal 消息整体右对齐，头像位于消息右侧，作者与时间也在右侧收口；
 正文使用 `--conversation-user-message-surface` / `--conversation-user-message-line` 的浅灰圆角底面。底面按正文
 固有宽度自然收窄，只把同列 Composer 的约三分之二作为最大宽度；短消息不得被拉伸到该上限。宽屏仍受

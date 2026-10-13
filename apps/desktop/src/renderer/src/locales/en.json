@@ -3698,5 +3698,15 @@
   "已处理的旧环境配置": "Handled legacy environment configurations",
   "环境变量总长度超过限制。": "Environment variables exceed the total size limit.",
   "项目目录未保存，请重新添加。": "The project folder was not saved. Please add it again.",
-  "项目目录未保存，现有会话仍可正常使用。": "Project folders were not saved. Existing conversations remain available."
+  "项目目录未保存，现有会话仍可正常使用。": "Project folders were not saved. Existing conversations remain available.",
+  "复制代码": "Copy code",
+  "已复制代码": "Code copied",
+  "正在复制代码": "Copying code",
+  "重试复制代码": "Retry copying code",
+  "代码已复制到剪贴板": "Code copied to clipboard",
+  "自动复制未成功，可手动复制": "Automatic copy failed. You can copy manually.",
+  "请手动复制": "Copy manually",
+  "未能写入剪贴板。选中下面的代码，按 ⌘C 或 Ctrl+C。": "Could not write to the clipboard. Select the code below and press ⌘C or Ctrl+C.",
+  "待复制的完整代码": "Complete code to copy",
+  "重试复制": "Retry copy"
 }

@@ -17,6 +17,7 @@ import { AppDialogBody, AppDialogContent, AppDialogFooter, AppDialogHeader } fro
 import { model, profiles, scenarios, installations } from './model'
 import { conversationRunPresenceTimeline } from '../../../apps/desktop/src/renderer/src/conversation-run-presence'
 import { liveRuntimeEventFromExecutionEvidence } from '../../../apps/desktop/src/renderer/src/ui-model'
+import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
 const projectedTimeline = (snapshot: any) => conversationRunPresenceTimeline(campConversationTimeline(snapshot.messages,
   snapshot.turns, snapshot.agentRuns, snapshot.tasks, snapshot.agentRunFileChanges, snapshot.agentRunImages, snapshot.memberCreations), snapshot.agentRuns)
 const projectedPresence = (snapshot: any) => projectedTimeline(snapshot).flatMap(item => item.kind === 'run_presence' ? [{ ...item.slot, status: item.slot.run.status }] : [])
@@ -58,11 +59,13 @@ function Workbench() {
   const [detailHost, setDetailHost] = useState<HTMLElement | null>(null)
   const [placement, setPlacement] = useState<any>('inspector')
   const [profile, setProfile] = useState({ displayName: '你', avatarDataUrl: null })
+  const [memberName, setMemberName] = useState('爱丽丝')
   const [otherThread, setOtherThread] = useState<{ id: string; title: string } | null>(null)
-  const visibleSnapshot = otherThread ? { ...state.snapshot, thread: { ...state.snapshot.thread, ...otherThread },
+  const namedSnapshot = { ...state.snapshot, members: state.snapshot.members.map((member: any) => member.agentId === profiles[0].agentId ? { ...member, displayName: memberName } : member) }
+  const visibleSnapshot = otherThread ? { ...namedSnapshot, thread: { ...state.snapshot.thread, ...otherThread },
     messages: [], agentRuns: [], messageDeliveries: [], executionEvidence: [] } : model.controls.holdEntrySnapshot
-      ? { ...state.snapshot, agentRuns: state.snapshot.agentRuns.map((r: any) => ({ ...r, hasAcceptedContinuation: false })) }
-      : state.snapshot
+      ? { ...namedSnapshot, agentRuns: state.snapshot.agentRuns.map((r: any) => ({ ...r, hasAcceptedContinuation: false })) }
+      : namedSnapshot
   const sequence = scenarios[state.scenario]
   const navigation = useMemo(() => {
     const nav = createDesktopNavigation(async (target, transaction) => {
@@ -104,7 +107,8 @@ function Workbench() {
       lastActivityGlobalSequence: 10, totalCount: 4, recentThreads: [current,
         ...['消息投递与恢复', '会话工作区优化', '发布前检查'].map((title, i) => ({ ...current, id: `demo-thread-${i}`, title, marker: 'none' }))] }] }
   useEffect(() => {
-    Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal,
+    Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal, setMemberName,
+      setLanguage: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async (interfaceLanguage: string) => ({ interfaceLanguage }) } as any, language),
       getState: model.get, showNarration: model.showNarration, showStartupStatus: model.showStartupStatus, controls: model.controls, resync: model.resync, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
         const s = model.get().snapshot
         const ids = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].map(e => e.dataset.messageId)

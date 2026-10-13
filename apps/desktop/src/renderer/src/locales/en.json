@@ -3645,6 +3645,8 @@
   "停止{0}的本次执行": "Stop {0}’s current run",
   "正在确认停止结果": "Checking the stop result",
   "停止这次执行？": "Stop this run?",
+  "停止{0}的执行？": "Stop {0}’s run?",
+  "停止": "Stop",
   "只停止{0}的这次执行，已经发送的消息会保留。": "Only stop {0}’s current run. Published messages will be kept.",
   "查看执行过程": "View execution details",
   "正在提交停止请求…": "Submitting stop request…",

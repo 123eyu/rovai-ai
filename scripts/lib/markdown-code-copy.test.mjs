@@ -69,6 +69,25 @@ test('production Markdown code copy preserves text, reading controls and recover
   for (const theme of ['day', 'night']) {
     await b.evaluate(`__codeCopy.setTheme('${theme}')`)
     await pause(200)
+    const layers = await b.evaluate(`(() => {
+      const probe=document.createElement('span');
+      probe.style.cssText='background:var(--conversation-code-block-canvas);border:1px solid var(--conversation-code-line)';
+      document.body.append(probe);
+      const expected={background:getComputedStyle(probe).backgroundColor,border:getComputedStyle(probe).borderTopColor};
+      probe.remove();
+      const frames=Array.from(document.querySelectorAll('.conversation-bubble.agent .markdown-code-frame, .file-preview-tab-panel:not([hidden]) .markdown-code-frame'));
+      return frames.map(frame => {
+        const outer=getComputedStyle(frame), inner=getComputedStyle(frame.querySelector('pre'));
+        return {background:outer.backgroundColor===expected.background,border:outer.borderTopColor===expected.border,
+          radius:outer.borderRadius,innerBackground:inner.backgroundColor,innerBorder:inner.borderTopWidth,
+          padding:inner.padding,document:!!frame.closest('.file-preview-markdown')};
+      });
+    })()`)
+    assert.equal(layers.length, 5)
+    for (const layer of layers) {
+      assert.deepEqual(layer, { background:true, border:true, radius:'8px', innerBackground:'rgba(0, 0, 0, 0)',
+        innerBorder:'0px', padding:layer.document ? '13px 14px' : '11px 12px', document:layer.document })
+    }
     await b.capture(join(out, `app-${theme}.png`))
   }
   // Force both available browser paths to fail. This must never show a checkmark.

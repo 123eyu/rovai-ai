@@ -11,6 +11,19 @@ last_updated: 2026-10-13
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 已实现：成员路由与专业职责扩容，语义 Gate 待补（2026-10-13）
+
+[R4 逐项前后对照](model-context-change-member-routing.md)提出将专业职责上限扩为 10,000 个 Unicode
+scalar value，从 `COLLABORATION_STATE` 和 Agent `member list` 移除职责，保留 `member get` 与
+本人身份全文，并同步调整完整上下文容量、CLI help 和平台技能。旧原生会话正常 resume，冻结输入
+保留。R4 保持每项前后对照，撤回 member-studio 用户原文处理与专业职责写法两段改动，
+解释协作摘要切换和 Profile version 的并发控制用途，并补齐共享预算与各 Runtime 独立限制，
+包括上一版漏列的 Cline 32 KiB Bootstrap 检查；延续 R2 的简洁 help 与 update 既有语义。
+User 已在消息 `23b13d59-00b5-4c6c-a6f9-992b59fd32d6` 确认 R4 并要求开始编码。
+实施在独立 worktree `rovai/member-routing-context` 中完成。自动化回归及 Codex、OpenCode、Pi 各三轮
+真实首轮/热续接/冷续接通过；Cline 仍受现有平台准入限制。固定 Judge 配置缺失，12 Case 语义 Gate 未运行。
+详见方案的实施记录与 [真实验收摘要](member-routing-verification.json)；发布另行执行。
+
 ## 空会话与队员移除（2026-10-13）
 
 按 User 确认的同组件交互稿允许移出最后队员，并取消永久移除的 sole-member 阻止条件。

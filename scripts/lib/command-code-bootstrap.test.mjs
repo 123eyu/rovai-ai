@@ -13,14 +13,14 @@ test('Command Code required Mod binds each Session and exits before inference on
     sha256: createHash('sha256').update(bootstrap).digest('hex') });
   try {
     mkdirSync(join(root, 'bindings'));
-    for (const [id, text] of [['session-A', '甲的 Charter'], ['session-B', '乙的 Charter']]) {
+    for (const [id, text] of [['session-A', '甲的 Charter'], ['session-B', '乙的 Charter'], ['long', JSON.stringify({ professionalResponsibilities: '😀\n\"'.repeat(3333) + '终' })]]) {
       writeFileSync(join(root, 'bindings', `${id}.json`), JSON.stringify(binding(id, text)));
     }
     for (const [name, value] of [
       ['wrong-id', binding('session-A', 'private')],
       ['wrong-digest', { ...binding('wrong-digest', 'private'), sha256: 'wrong' }],
       ['empty', binding('empty', '')],
-      ['oversize', binding('oversize', 'x'.repeat(32769))],
+      ['oversize', binding('oversize', 'x'.repeat(128 * 1024 + 1))],
     ]) writeFileSync(join(root, 'bindings', `${name}.json`), JSON.stringify(value));
     const run = (ids, nonce) => {
       rmSync(join(root, 'ready.json'), { force: true });
@@ -38,6 +38,9 @@ test('Command Code required Mod binds each Session and exits before inference on
     assert.equal(valid.status, 0, valid.stderr);
     assert.deepEqual(JSON.parse(valid.stdout.split('\n')[0]), ['甲的 Charter', '乙的 Charter', '甲的 Charter']);
     assert.equal(JSON.parse(readFileSync(join(root, 'ready.json'), 'utf8')).nonce, 'nonce-ok');
+    const long = run(['long'], 'nonce-long');
+    assert.equal(long.status, 0, long.stderr);
+    assert.equal(JSON.parse(JSON.parse(long.stdout.split('\n')[0])[0]).professionalResponsibilities, '😀\n\"'.repeat(3333) + '终');
     for (const id of ['missing', '../session-A', 'wrong-id', 'wrong-digest', 'empty', 'oversize']) {
       const invalid = run([id], 'nonce-negative');
       assert.equal(invalid.status, 78, id);

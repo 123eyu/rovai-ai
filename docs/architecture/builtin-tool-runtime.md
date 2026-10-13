@@ -11,7 +11,7 @@ last_updated: 2026-10-12
 人类用户的主称呼、双别名、结构化搜索与冻结投影边界见 [User Naming v1](../contracts/user-naming-v1.md)。
 
 本文件说明 Rovai built-in operations 的长期组件结构。当前字段与版本以
-[Built-in Tool Transport v38](../contracts/builtin-tool-transport-v38.md)、
+[Built-in Tool Transport v39](../contracts/builtin-tool-transport-v39.md)、
 [Built-in Tool Agent Output Projection v1](../contracts/builtin-tool-agent-output-projection-v1.md)、
 [Camp History v11](../contracts/camp-history-v11.md)、
 [Durable Task v5](../contracts/durable-task-v5.md) 和
@@ -31,7 +31,7 @@ compaction 后的 Bootstrap 补发可靠性见
 完整矩阵见 [Native Session Bootstrap Redelivery](native-session-bootstrap-redelivery.md)。Self/peer
 identity、Collaboration Projection 与输入水位见
 [成员投影不变量](foundational-invariants.md#member-projection)和
-[Collaboration State v3](../contracts/collaboration-state-v3.md)。模型投影、ContextManifest Evidence、
+[Collaboration State v4](../contracts/collaboration-state-v4.md)。模型投影、ContextManifest Evidence、
 Runtime Input Delivery Evidence 与 Profile/Formatter/Manifest 权责见
 [ContextManifest 与 Run Facts 不变量](foundational-invariants.md#context-manifest-run-facts)；whole-history
 omission 的 bounded aggregate 边界见
@@ -211,7 +211,7 @@ CLI、Runtime Adapter、Bootstrap 与 Skill 都不重写正文或教学该 gramm
 [Thread Runs v1](../contracts/thread-runs-v1.md) 复用公开读取范围，用一个事务组合实际 Run 和按队员聚合的等待消息；不进入调度写路径。
 Camp History 当前使用 v11。Charter revision 为 22；Binding compatibility 保持 16 及原冻结 context tuple，
 Antigravity 使用当前工具协议版本，不含目录指纹。当前目录变化不轮换旧 Session；恢复和压缩补发复用原 Bootstrap。
-新 Binding 使用 Bootstrap v5/Formatter 5，新公开批次 Formatter/Manifest 33、非批次 28 保持。
+新 Binding 使用 Bootstrap v5/Formatter 5，新公开批次 Formatter/Manifest 34、非批次 35；原生恢复兼容标识保持。
 Skill 正文与 reference 通过现有受管同步更新原路径；旧、新 Session 后续读取均可使用新版。
 
 Operation-specific errors use the same catalog entry both for discovery and for the emitted invocation recovery.
@@ -684,7 +684,7 @@ Activity。命令文本、时间、cwd 或输出相似度不能建立关联。Sh
 系统不声称能够证明模型主观意图。
 
 - CLI 从 direct flags、JSON stdin/heredoc 或 `--input-file` 构造一个对象。Send 文件按
-  [Transport v38](../contracts/builtin-tool-transport-v38.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
+  [Transport v39](../contracts/builtin-tool-transport-v39.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
   完整请求文件和其他 operation 保持来源互斥。所有来源共用
   catalog canonical input Schema validator，只有通过后才加载 lease/context 并发送 IPC。`camp.read`
   直接发送 `messageId | thread | before | limit` 的合法组合，不补写模式或方向，也不接受旧字段。

@@ -7,8 +7,8 @@ Describe the member's lasting contribution, working habits, and a skill to pract
 | Field | Limit and purpose |
 | --- | --- |
 | Name | 1-80 Unicode characters |
-| Team role | At most 120 characters; contribution, not authority |
-| Professional responsibilities | At most 300 characters; recurring work and outcomes |
+| Team role | At most 120 characters; a brief contribution for teammate routing, not authority |
+| Professional responsibilities | At most 10,000 Unicode scalar values after trimming; recurring work, deliverables and responsibility boundaries; internal formatting is preserved |
 | Personality traits | Ordered, deduplicated; at most 6, each 1-16 characters |
 | Working principles | At most 300 characters; actionable methods and boundaries |
 | Growth topic | At most 300 characters; one trainable direction, no diagnosis or score |
@@ -21,7 +21,7 @@ Fill gaps from the name, role, and stated requirements. Without evidence about a
 
 ## Write each field
 
-- **Team role:** a clear, stable contribution such as research and evidence synthesis. It confers no rank or Default Lead status.
+- **Team role:** one short statement of the member's stable contribution, used by teammates to identify relevant responsibilities. It confers no rank or Default Lead status. Do not derive it by automatically truncating responsibilities or rewrite existing roles without a request.
 - **Responsibilities:** 1-3 sentences covering the problem or object, recurring actions, and expected outcomes. Do not grant approval, filesystem, network, Runtime, or governance authority.
 - **Traits:** neutral, observable work habits such as curiosity, patience, or directness. Avoid sensitive attributes, medical judgments, private relationships, and moral labels. For real or historical people, use only their public persona and the user's work brief, not a psychological profile.
 - **Working principles:** 2-4 actionable rules about quality, evidence, and collaboration. Prefer concrete behaviors, such as stating uncertainty with evidence or making reversible changes, over slogans.

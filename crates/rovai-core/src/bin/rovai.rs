@@ -585,6 +585,11 @@ fn parse_and_validate_operation_input(
     })?;
     let input = rovai_core::thread_compat::normalize_builtin_input(&description.name, input)
         .map_err(|_| CliInputFailure::generic())?;
+    let input = rovai_core::member_studio::normalize_identity_tool_input(&description.name, input)
+        .map_err(|_| CliInputFailure {
+            message: rovai_core::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG.to_owned(),
+            details: None,
+        })?;
     if validate_schema(&input, &description.input_schema).is_err() {
         return Err(explain_input_validation_failure(description, &input));
     }
@@ -1642,6 +1647,14 @@ fn render_flat_input_help(output: &mut String, description: &BuiltinToolDescript
             if argument.required { " required" } else { "" },
         )
         .expect("writing help to a String cannot fail");
+        if matches!(description.name.as_str(), "member.create" | "member.update")
+            && argument.field == "professionalResponsibilities"
+        {
+            write_indented_help(
+                output,
+                "Up to 10,000 Unicode scalar values after trimming. Use \"\" to clear. For long or multiline text, use --input-file with a UTF-8 JSON file.",
+            );
+        }
         if description.name == "member.update" {
             let teaching = match argument.field.as_str() {
                 "agentId" => "A current Thread member, or a member you created in this Thread.",
@@ -2434,6 +2447,39 @@ mod tests {
             assert!(is_family_help(&args));
         }
         assert!(!is_family_help(&["task".to_string(), "--help".to_string()]));
+        for operation in ["member.create", "member.update"] {
+            let description = builtin_tool_description(operation).unwrap();
+            assert!(
+                operation_help_text(&description)
+                    .contains("10,000 Unicode scalar values after trimming")
+            );
+            let mut input = json!({"professionalResponsibilities": format!(" \u{feff}{}\n", "😀".repeat(10_000))});
+            if operation == "member.create" {
+                input["displayName"] = json!("Long member");
+                input["creationKey"] = json!("51d668e1-6dc7-4f39-80b2-0555f823715a");
+            } else {
+                input["agentId"] = json!("agent_1");
+                input["expectedVersion"] = json!(1);
+                input["requestId"] = json!("51d668e1-6dc7-4f39-80b2-0555f823715a");
+            }
+            let path = std::env::temp_dir()
+                .join(format!("rovai-member-input-{}.json", uuid::Uuid::new_v4()));
+            std::fs::write(&path, input.to_string()).unwrap();
+            let normalized = parse_and_validate_operation_input(
+                &description,
+                &["--input-file".into(), path.to_str().unwrap().into()],
+            )
+            .unwrap();
+            std::fs::remove_file(&path).unwrap();
+            assert_eq!(
+                normalized["professionalResponsibilities"]
+                    .as_str()
+                    .unwrap()
+                    .chars()
+                    .count(),
+                10_000
+            );
+        }
         let view = builtin_tool_description("memory.view").unwrap();
         let help = operation_help_text(&view);
         assert!(help.contains("One of: hearth, companion, relationship."));

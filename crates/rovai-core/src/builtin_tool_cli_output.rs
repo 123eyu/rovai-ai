@@ -943,9 +943,9 @@ mod tests {
 
     #[test]
     fn every_operation_has_a_schema_valid_golden_projection() {
-        // v10 changes only normal thread.read Mention metadata.
+        // v11 removes responsibilities from member.list; old fixtures remain historical.
         let golden: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/builtin-tool-agent-output-v10.json"
+            "../tests/fixtures/builtin-tool-agent-output-v11.json"
         ))
         .unwrap();
         // Old results are projected to current names without content receipts.

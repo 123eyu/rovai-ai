@@ -2558,6 +2558,13 @@ mod tests {
         assert_eq!(list["items"][0]["agentId"], "agent_2");
 
         validate_schema(&list, &member_list_output_schema()).unwrap();
+        for item in list["items"].as_array().unwrap() {
+            assert_eq!(item.as_object().unwrap().len(), 4);
+            assert!(item.get("professionalResponsibilities").is_none());
+        }
+        let mut old_list = list.clone();
+        old_list["items"][0]["professionalResponsibilities"] = json!("");
+        assert!(validate_schema(&old_list, &member_list_output_schema()).is_err());
         assert_eq!(list["items"].as_array().unwrap().len(), 3);
         assert!(
             list["items"]
@@ -2603,7 +2610,20 @@ mod tests {
         assert!(
             authorize_member_target(fixture.database.connection(), &run, "agent_4", false).is_err()
         );
+        let full_responsibilities = "😀\n\"中".repeat(2_500);
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_2'",
+                [&full_responsibilities],
+            )
+            .unwrap();
         let before = read(&fixture.database, "agent_2");
+        assert_eq!(
+            before["professionalResponsibilities"],
+            full_responsibilities
+        );
         let unavailable = get_member(
             fixture.database.connection(),
             &fixture.directory,
@@ -2716,6 +2736,36 @@ mod tests {
             read(&fixture.database, "agent_2")["teamRole"],
             "Updated role"
         );
+        let mut oversized = patch.clone();
+        oversized.request_id = Uuid::new_v4().to_string();
+        oversized.expected_version = updated["version"].as_i64().unwrap();
+        oversized.team_role = Some("Must not partially save".into());
+        oversized.professional_responsibilities = Some(format!("{full_responsibilities}中"));
+        let error =
+            update_member(&mut fixture.database, &fixture.directory, &run, oversized).unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<crate::member_studio::MemberOperationError>()
+                .unwrap()
+                .message,
+            crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+        );
+        let after_failure = read(&fixture.database, "agent_2");
+        for field in [
+            "version",
+            "displayName",
+            "teamRole",
+            "professionalResponsibilities",
+            "personalityTraits",
+            "workingPrinciples",
+            "growthTopic",
+            "imageStatus",
+        ] {
+            assert_eq!(
+                after_failure[field], updated[field],
+                "no partial commit: {field}"
+            );
+        }
         let source = execution_root.join("new-source.png");
         image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
             400,
@@ -2944,6 +2994,33 @@ mod tests {
         );
         assert_eq!(cleared["teamRole"], "");
         assert_eq!(cleared["personalityTraits"], json!([]));
+        let legacy_duties = "\u{feff}legacy duties\u{feff}";
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_2'",
+                [legacy_duties],
+            )
+            .unwrap();
+        let legacy_patch = parse_patch(
+            &fixture.database,
+            json!({
+                "agentId":"agent_2","requestId":Uuid::new_v4().to_string(),
+                "expectedVersion":cleared["version"],"teamRole":"Preserve omitted legacy duties"
+            }),
+        );
+        update_member(
+            &mut fixture.database,
+            &fixture.directory,
+            &run,
+            legacy_patch,
+        )
+        .unwrap();
+        assert_eq!(
+            read(&fixture.database, "agent_2")["professionalResponsibilities"],
+            legacy_duties
+        );
         assert!(
             update_member(
                 &mut fixture.database,
@@ -3004,7 +3081,7 @@ mod tests {
             creation_key: creation_key.clone(),
             display_name: "Nova Test Member".to_string(),
             team_role: "Researcher".to_string(),
-            professional_responsibilities: "Synthesize bounded evidence.".to_string(),
+            professional_responsibilities: "😀\n\"中".repeat(2_500),
             personality_traits: vec!["Precise".to_string()],
             working_principles: "State evidence and uncertainty.".to_string(),
             growth_topic: "Shorten feedback loops.".to_string(),
@@ -3062,6 +3139,30 @@ mod tests {
         assert_eq!(first.execution.result.status, CommandResultStatus::Applied);
         assert!(!first.execution.replayed);
         assert!(first.avatar_ref.is_none());
+        let saved: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT professional_responsibilities FROM agent_profile WHERE id=?1",
+                [first.execution.result.payload["agentId"].as_str().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(saved, input.professional_responsibilities);
+        let mut oversized = input.clone();
+        oversized.creation_key = Uuid::new_v4().to_string();
+        oversized.display_name = "Oversize must not exist".into();
+        oversized.professional_responsibilities.push('界');
+        assert!(
+            crate::member_studio::create_member(
+                &mut fixture.database,
+                &fixture.directory,
+                &authenticated_run,
+                oversized
+            )
+            .is_err()
+        );
+        assert_eq!(fixture.database.connection().query_row("SELECT count(*) FROM agent_profile WHERE display_name='Oversize must not exist'", [], |r| r.get::<_,i64>(0)).unwrap(), 0);
         let replay = crate::member_studio::create_member(
             &mut fixture.database,
             &fixture.directory,

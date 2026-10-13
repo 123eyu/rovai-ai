@@ -574,7 +574,7 @@ pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<
         !session_id.is_empty()
             && session_id.len() <= 256
             && !bootstrap.trim().is_empty()
-            && bootstrap.len() <= 32 * 1024,
+            && bootstrap.len() <= crate::context::MAX_SESSION_BOOTSTRAP_BYTES,
         "cline_bootstrap_binding_invalid"
     );
     let rule_path = root.join("config/rules/rovai-managed-bootstrap.md");
@@ -1051,6 +1051,56 @@ pub fn parse_observations(record: &Value) -> Vec<crate::monitoring::ParsedRuntim
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Both adapters formerly rejected valid long identities at 32 KiB. Exercise
+    // the native binding files and immutable retry boundary without a model call.
+    #[test]
+    fn long_bootstrap_bindings_preserve_utf8_and_enforce_body_and_envelope_limits() {
+        let root =
+            std::env::temp_dir().join(format!("rovai-bootstrap-capacity-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("bindings")).unwrap();
+        fs::write(root.join("nonce"), "test-nonce").unwrap();
+        fs::write(root.join("ready.json"), serde_json::to_vec(&json!({"revision":crate::command_code_acp::BOOTSTRAP_REVISION, "nonce":"test-nonce", "pid":1})).unwrap()).unwrap();
+        let text = format!(
+            "[MEMBER_IDENTITY]\n{}\n[/MEMBER_IDENTITY]",
+            serde_json::to_string(&json!({"professionalResponsibilities":"😀".repeat(10_000)}))
+                .unwrap()
+        );
+        assert!(text.len() > 32 * 1024);
+        crate::command_code_acp::bind_bootstrap(&root, "long-session", &text).unwrap();
+        crate::command_code_acp::bind_bootstrap(&root, "long-session", &text).unwrap();
+        let binding: Value =
+            serde_json::from_slice(&fs::read(root.join("bindings/long-session.json")).unwrap())
+                .unwrap();
+        assert_eq!(binding["bootstrap"], text);
+        fs::create_dir_all(root.join("config/rules")).unwrap();
+        fs::create_dir_all(root.join("bootstrap")).unwrap();
+        bind_bootstrap(&root, "long-session", &text).unwrap();
+        bind_bootstrap(&root, "long-session", &text).unwrap();
+        assert!(
+            fs::read_to_string(root.join("config/rules/rovai-managed-bootstrap.md"))
+                .unwrap()
+                .contains(&text)
+        );
+        for invalid in [
+            "x".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES + 1),
+            String::new(),
+        ] {
+            assert!(bind_bootstrap(&root, "invalid", &invalid).is_err());
+            assert!(crate::command_code_acp::bind_bootstrap(&root, "invalid", &invalid).is_err());
+        }
+        assert!(
+            crate::command_code_acp::bind_bootstrap(
+                &root,
+                "escaped",
+                &"\"".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES)
+            )
+            .is_err()
+        );
+        assert!(bind_bootstrap(&root, "long-session", "changed").is_err());
+        assert!(crate::command_code_acp::bind_bootstrap(&root, "long-session", "changed").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn native_refresh_keeps_binding_identity_but_account_and_byok_changes_fence_it() {
         let initial = json!({"lastUsedProvider":"selected","providers":{"selected":{"updatedAt":"before",

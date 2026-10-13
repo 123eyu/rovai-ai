@@ -1238,13 +1238,12 @@ not restore the frozen snapshot or guarantee the same count later.
 _Avoid_: executable sequence range, body continuation, Manifest replay cursor, automatic retrieval request
 
 **Context Delivery Profile**:
-A versioned application configuration for deterministic model-input selection. Current public Profile v8 gives mandatory
-fixed sections and the largest complete FIFO RUN_INPUT prefix priority, defaults an unspecified Runtime payload capability
-to 96 KiB without a common 1 MiB clamp, and uses the same message projection and serializer for claim sizing and final
-delivery. A derived default-recipient Mention is part of the exact body and payload budget. Body, viewer-visible quotes,
-each message's own source attachments and Skills are indivisible; only remaining
-bytes are spent on optional context. Shared history uses at most 15 complete messages and never truncates a message.
-Single Chat retains Profile v6.
+A versioned application configuration for deterministic model-input selection. Current public Profile v11 gives mandatory
+sections and the largest complete FIFO RUN_INPUT prefix priority. An unspecified Runtime payload budget defaults to
+256 KiB; explicit limits keep their existing meaning. Claim sizing uses the complete section formatter and reserves
+128 KiB plus actual separators/redelivery wrappers for a Bootstrap sharing that input. Messages, quotes, attachments
+and Skills remain indivisible; public history stays on demand. Non-batch Profile v12 retains the prior selection rules.
+Historical inputs retain their own frozen Profile and serializer.
 _Avoid_: formatter constants, model DTO schema, Evidence schema, Member Runtime Parameters, mutable user preference, summary model configuration
 
 **Cross-Thread History Search**:

@@ -1,5 +1,5 @@
 import type { AgentRunView, ThreadMessageView } from '@contracts'
-import { agentRunPresentation, type ActivityIconKind, type LiveExecutionProgress } from './ui-model'
+import { agentRunPresentation, buildLiveExecutionProgress, type ActivityIconKind, type LiveRuntimeEvent } from './ui-model'
 import { uiAttribute } from './interface-language'
 import type { ThreadConversationTimelineItem } from './ThreadWorkspace'
 
@@ -105,7 +105,7 @@ function currentNarrationLine(text: string): string {
   return text.replace(/\r\n?/g, '\n').split('\n').findLast(line => line.trim())?.trim() ?? ''
 }
 
-export function runPresencePreview(run: AgentRunView, progress?: LiveExecutionProgress): RunPresencePreview {
+export function runPresencePreview(run: AgentRunView, events: readonly LiveRuntimeEvent[] = []): RunPresencePreview {
   if (run.status === 'failed') {
     const disconnected = run.failure?.code === 'runtime_network_interrupted'
       || run.failure?.code === 'runtime_disconnected'
@@ -113,15 +113,20 @@ export function runPresencePreview(run: AgentRunView, progress?: LiveExecutionPr
   }
   if (run.cancelRequestedAt) return { kind: 'status', text: uiAttribute('正在停止…') }
   if (run.status === 'waiting') return { kind: 'status', text: uiAttribute(agentRunPresentation(run).label) }
-  if (run.status === 'running' && run.waitReason === 'runtime_initializing') {
-    return { kind: 'status', text: uiAttribute('正在连接智能体…') }
-  }
-  const latest = progress?.items.findLast(item => item.kind === 'tool' || item.kind === 'narration' && item.body.trim())
+  const initializing = run.status === 'running' && run.waitReason === 'runtime_initializing'
+  // ACP can acknowledge the input only at prompt completion. Current-epoch
+  // activity already describes what is happening, without changing that ACK.
+  // Older or unscoped evidence must not hide a genuine reconnection.
+  const progress = buildLiveExecutionProgress(events.filter(event =>
+    event.agentRunId === run.id && (!initializing || event.executionEpoch === run.executionEpoch)
+  ), run.id, { includePublicResults: false })
+  const latest = progress.items.findLast(item => item.kind === 'tool' || item.kind === 'narration' && item.body.trim())
   if (latest?.kind === 'tool') return {
     kind: 'command',
     text: singleLine(latest.step.publicCommand || latest.step.currentInstruction || latest.step.title),
     iconKind: latest.step.publicCommand && latest.step.iconKind === 'unknown' ? 'terminal' : latest.step.iconKind
   }
   if (latest?.kind === 'narration') return { kind: 'narration', text: currentNarrationLine(latest.body) }
-  return { kind: 'status', text: progress?.runtimeThinkingTitle || uiAttribute('正在处理你的请求…') }
+  if (initializing) return { kind: 'status', text: uiAttribute('正在连接智能体…') }
+  return { kind: 'status', text: progress.runtimeThinkingTitle || uiAttribute('正在处理你的请求…') }
 }

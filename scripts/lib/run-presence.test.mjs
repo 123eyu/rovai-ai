@@ -100,6 +100,15 @@ try {
   report.interactions.push('authoritative initialization changes to accepted-request fallback in the same row')
 
   await scenario('stream',1)
+  const activeCommand = await b.evaluate('document.querySelector(".run-presence-preview").textContent')
+  assert.match(activeCommand,/rg -n/)
+  await b.evaluate('__presence.showStartupStatus("runtime_initializing",true)'); await settle()
+  assert.equal(await b.evaluate('document.querySelector(".run-presence-preview").textContent'),activeCommand)
+  await b.capture(join(out,'command-before-input-ack.png'))
+  await b.evaluate('__presence.showStartupStatus(null,true)'); await settle()
+  assert.equal(await b.evaluate('document.querySelector(".run-presence-preview").textContent'),activeCommand)
+  report.interactions.push('current-epoch command remains visible before and after a delayed input ACK')
+
   const openContext = async () => {
     const point = await b.evaluate('(() => {const r=document.querySelector(".run-presence-open").getBoundingClientRect();return {x:r.x+80,y:r.y+r.height/2}})()')
     await b.send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'right',clickCount:1})

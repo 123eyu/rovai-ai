@@ -1993,3 +1993,36 @@ User 确认 4.8 秒、执行行右键入口及连接／处理两阶段文案，�
 右键／Shift+F10／长按松手、设置聚焦与保存、减少动态效果、强制颜色和既有锚点／重试回归。
 外观保存使用隔离内存适配器，未启动日常 App、Core 或真实 Runtime；BusinessApp 的设置跳转
 复用既有离开保护与草稿 owner，浏览器夹具只验证组件路径，不替代完整 App 的导航验收。
+
+## 执行行误回到启动状态（2026-10-13）
+
+User 报告远程执行行在公开回复后再次显示连接／处理文案，随后确认 dsh 与 Trae CLI 也有同样现象。
+基线 `50d50d3a46ec409420a9c1382ab5101ba16892bd`，分支 `fix/run-presence-startup`。
+截图对应的只读运行记录显示：GitHub Copilot 已产生工具活动，输入受理却到 prompt 结束才确认。
+共享预览把 `runtime_initializing` 无条件置于实际活动之前，导致同一 Run 被错误呈现为仍在连接。
+
+- 按 [Run Process Detail Surface v52](../../contracts/run-process-detail-surface-v52.md)，在共享预览内部
+  保留原始 Evidence 的 Run / executionEpoch 归属，再投影实际活动；不新增 Adapter 名称分支。
+- 初始化期间只允许当前 Run、当前轮次的公开正文和工具替换连接反馈；旧／缺失／未来轮次、
+  其他 Run、空白正文与原生阶段元数据仍不能覆盖。失败、停止和等待优先级不变。
+- ACP 的 response-only ACK、交付水位及恢复隔离不变；没有 Rust、数据库或模型上下文变更。
+
+测试准入：扩展既有 `conversation-run-presence.test.ts` 的启动反馈 owner 与
+`scripts/lib/run-presence.test.mjs` 的生产组件夹具，没有新增独立测试 owner。
+修复前失败输入是 `runtime_initializing` 与同轮次正文／工具同时存在；单元覆盖选择与轮次隔离，
+浏览器覆盖实际共享组件。完整远程探针补足纯组件无法证明的 HTTP/SSE 读取、公开消息移动与重连。
+
+本机自动验收结果：
+
+- `pnpm exec vitest run apps/desktop/src/renderer/src/conversation-run-presence.test.ts apps/desktop/src/renderer/src/execution-events.test.ts`：2 文件、11 项通过。
+- `pnpm typecheck`、`pnpm build:web` 通过；构建保留既有大 chunk 提示。
+- `pnpm docs:test`（10 项）、`pnpm docs:check` 及相对上述基线的 `pnpm docs:check:ci` 通过。
+- `pnpm test:run-presence-ui`：37 个阶段、6 组主题尺寸、27 项交互记录通过，含回执前后的当前工具、
+  锚点与消息顺序、原文增量、停止／重试、慢读取和恢复。
+- 同一隔离 Host / Chrome 远程探针分别加载已安装旧 Web 和候选 Web：旧版在正文、公开回复、
+  工具和断线恢复后持续显示连接，复现通过；候选版显示当前活动，晚到 ACK 不产生状态回退，
+  完成后执行行移除。包含 700 ms 延迟读取、390 px 窄窗口及主动切断 SSE 后恢复；两组无浏览器错误。
+
+远程探针使用独立临时 data-dir、Skill Library、MCP 配置、Runtime 文件根与 Chrome profile，
+只在合成数据库中注入执行记录，没有调用真实 Runtime；dsh / Trae 的真实模型运行不是本轮验收项。
+未写入日常数据库，未安装或重启日常 App。修改只交付任务分支，待后续发布后生效。

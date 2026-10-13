@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { AgentRunView, ThreadMessageView } from '@contracts'
 import { conversationRunPresenceTimeline, runPresencePreview } from './conversation-run-presence'
 import type { ThreadConversationTimelineItem } from './ThreadWorkspace'
-import { buildLiveExecutionProgress, type LiveRuntimeEvent } from './ui-model'
+import type { LiveRuntimeEvent } from './ui-model'
 
 const run = (id: string, agentId = id, patch: Partial<AgentRunView> = {}): AgentRunView => ({
   id, agentId, status: 'running', invocationKind: 'batch', createdAt: '2026-10-10T12:00:00Z',
   startedAt: '2026-10-10T12:00:01Z', cancelRequestedAt: null, failure: null, inputMessageIds: ['message-1'],
-  anchorMessageId: 'message-1', ...patch
+  anchorMessageId: 'message-1', executionEpoch: 1, ...patch
 } as AgentRunView)
 const message = (sequence: number, sourceAgentRunId: string | null, patch: Partial<ThreadMessageView> = {}): ThreadConversationTimelineItem => ({
   kind: 'camp_message', id: patch.id ?? 'message-' + sequence, createdAt: '2026-10-10T12:00:00Z', runtimeImageGroups: [],
@@ -107,36 +107,47 @@ describe('conversation Run presence', () => {
       ['\r\n第二','第二'],['行','第二行'],['\n  \n','第二行'],['第三行','第三行']
     ]) {
       events.push(event(events.length+1,delta))
-      expect(runPresencePreview(run('a'),buildLiveExecutionProgress(events,'a',{includePublicResults:false}))).toEqual({kind:'narration',text:expected})
+      expect(runPresencePreview(run('a'),events)).toEqual({kind:'narration',text:expected})
     }
     events.push({id:'command',agentRunId:'a',eventType:'activity.started',createdAt:'2026-10-10T12:01:00Z',
       payload:{item:{id:'command',type:'commandExecution',command:'pnpm typecheck',status:'inProgress'}}} as LiveRuntimeEvent)
-    const progress = buildLiveExecutionProgress(events,'a',{includePublicResults:false})
-    expect(runPresencePreview(run('a'),progress)).toMatchObject({kind:'command',text:'pnpm typecheck',iconKind:'terminal'})
-    expect(runPresencePreview(run('a','alice',{status:'failed'}),progress).kind).toBe('error')
-    expect(runPresencePreview(run('a','alice',{cancelRequestedAt:'now'}),progress)).toEqual({kind:'status',text:'正在停止…'})
+    expect(runPresencePreview(run('a'),events)).toMatchObject({kind:'command',text:'pnpm typecheck',iconKind:'terminal'})
+    expect(runPresencePreview(run('a','alice',{status:'failed'}),events).kind).toBe('error')
+    expect(runPresencePreview(run('a','alice',{cancelRequestedAt:'now'}),events)).toEqual({kind:'status',text:'正在停止…'})
   })
 
-  it('uses the accepted-input fence for connecting, then processing until visible evidence arrives', () => {
+  it('shows current-epoch activity before a late ACK while keeping old evidence behind the connection fence', () => {
     const initializing = run('a', 'alice', { waitReason: 'runtime_initializing' })
     const accepted = { ...initializing, waitReason: null }
-    const thinking = buildLiveExecutionProgress([], 'a', { includePublicResults: false })
+    const thinking: LiveRuntimeEvent = { id: 'phase', agentRunId: 'a', executionEpoch: 1,
+      eventType: 'agent_run.runtime_phase_changed', payload: { phase: 'thinking' }, createdAt: '2026-10-10T12:00:00Z' }
     expect(runPresencePreview(initializing)).toEqual({ kind: 'status', text: '正在连接智能体…' })
     expect(runPresencePreview(accepted)).toEqual({ kind: 'status', text: '正在处理你的请求…' })
-    expect(runPresencePreview(accepted, { ...thinking, runtimePhase: 'thinking' as const })).toEqual({ kind: 'status', text: '正在处理你的请求…' })
-    const titled = { ...thinking, runtimePhase: 'thinking' as const, runtimeThinkingTitle: '核对现有边界' }
-    expect(runPresencePreview(accepted, titled).text).toBe('核对现有边界')
-    expect(runPresencePreview(initializing, titled).text).toBe('正在连接智能体…')
+    expect(runPresencePreview(accepted, [thinking])).toEqual({ kind: 'status', text: '正在处理你的请求…' })
+    const titled = { ...thinking, payload: { phase: 'thinking', thinkingTitle: '核对现有边界' } }
+    expect(runPresencePreview(accepted, [titled]).text).toBe('核对现有边界')
+    expect(runPresencePreview(initializing, [titled]).text).toBe('正在连接智能体…')
 
-    const progress = buildLiveExecutionProgress([{
-      id: 'text', agentRunId: 'a', eventType: 'agent.text.delta',
+    const text: LiveRuntimeEvent = {
+      id: 'text', agentRunId: 'a', executionEpoch: 1, eventType: 'agent.text.delta',
       payload: { itemId: 'text', delta: '已经开始处理' }, createdAt: '2026-10-10T12:00:00Z'
-    } as LiveRuntimeEvent], 'a', { includePublicResults: false })
-    expect(runPresencePreview(accepted, progress)).toEqual({ kind: 'narration', text: '已经开始处理' })
+    }
+    const command: LiveRuntimeEvent = { id: 'command', agentRunId: 'a', executionEpoch: 1, eventType: 'activity.started',
+      createdAt: '2026-10-10T12:01:00Z', payload: { item: { id: 'command', type: 'commandExecution', command: 'pnpm typecheck', status: 'inProgress' } } }
+    expect(runPresencePreview(accepted, [text])).toEqual({ kind: 'narration', text: '已经开始处理' })
+    for (const current of [text, command]) {
+      expect(runPresencePreview(initializing, [current])).toEqual(runPresencePreview(accepted, [current]))
+      for (const untrusted of [{ ...current, executionEpoch: 0 }, { ...current, executionEpoch: null },
+        { ...current, executionEpoch: undefined }, { ...current, executionEpoch: 2 }, { ...current, agentRunId: 'another-run' }]) {
+        expect(runPresencePreview(initializing, [untrusted]).text).toBe('正在连接智能体…')
+      }
+    }
+    expect(runPresencePreview(initializing, [text, { ...command, executionEpoch: 0 }])).toEqual({ kind: 'narration', text: '已经开始处理' })
+    expect(runPresencePreview(initializing, [{ ...text, payload: { itemId: 'text', delta: '  ' } }]).text).toBe('正在连接智能体…')
     // A reconnect can still have earlier evidence; it must describe the new initialization.
-    expect(runPresencePreview(initializing, progress).text).toBe('正在连接智能体…')
-    expect(runPresencePreview({ ...initializing, cancelRequestedAt: 'now' }, progress).text).toBe('正在停止…')
-    expect(runPresencePreview({ ...initializing, status: 'failed' }, progress).kind).toBe('error')
-    expect(runPresencePreview({ ...initializing, status: 'waiting', waitReason: 'approval' }, progress).text).toBe('等待审批')
+    expect(runPresencePreview({ ...initializing, executionEpoch: 2 }, [text, command]).text).toBe('正在连接智能体…')
+    expect(runPresencePreview({ ...initializing, cancelRequestedAt: 'now' }, [text, command]).text).toBe('正在停止…')
+    expect(runPresencePreview({ ...initializing, status: 'failed' }, [text, command]).kind).toBe('error')
+    expect(runPresencePreview({ ...initializing, status: 'waiting', waitReason: 'approval' }, [text, command]).text).toBe('等待审批')
   })
 })

@@ -56,8 +56,10 @@ Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持
 旧恢复记录与实时事件按版本合并，不覆盖新正文。排队不占位，不创建公开消息，不改变模型上下文或数据库结构。
 2026-10-13 增补：共享高亮统一为 4.8 秒；执行行右键直达外观“减少动态效果”，
 初始化与已受理的空内容按真实状态分别显示连接／处理文案。
-当前边界见 [Run Process Detail Surface v51](../../contracts/run-process-detail-surface-v51.md)，验证与交付见
-[实施记录](implementation-plan.md#会话内队员占位)。
+同日修正：输入受理回执晚到时，共享执行行优先展示当前 Run、当前执行轮次的实际活动；
+旧轮次记录仍不能掩盖新一轮连接。公开回复后、慢读取及远程恢复沿用相同规则。
+当前边界见 [Run Process Detail Surface v52](../../contracts/run-process-detail-surface-v52.md)，验证与交付见
+[实施记录](implementation-plan.md#会话内队员占位)及[启动状态修正](implementation-plan.md#执行行误回到启动状态2026-10-13)。
 
 ## Windows Web 凭据可用性（2026-10-11）
 

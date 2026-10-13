@@ -84,7 +84,7 @@ pub fn member_create_input_schema() -> Value {
             "growthTopic": {"type": "string", "maxLength": 300, "default": ""},
             "avatarFile": {
                 "type": "string", "minLength": 1, "maxLength": 4096,
-                "description": "Optional run-readable local PNG or JPEG path. Rovai normalizes and imports it; the path is never persisted."
+                "description": "Optional run-readable local PNG, JPEG or GIF path. Rovai normalizes and imports it; the path is never persisted."
             }
         }
     })

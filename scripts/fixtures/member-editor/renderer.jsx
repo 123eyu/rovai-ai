@@ -24,6 +24,7 @@ let selectedSource = null
 let externalAfterUpdate = null
 let delayedReload = false
 let catalogScenario = null
+let removalRunning = false
 let releaseCatalog = null
 const catalogCalls = []
 const catalogDisplayTimings = []
@@ -100,12 +101,18 @@ window.rovai = {
     if (method === 'members.removalPreview')
       return {
         agentId: member.agentId,
+        displayName: member.displayName,
         version: member.version,
-        removable: true,
-        currentCampMembershipCount: 0,
-        openAssignedTaskCount: 0,
-        defaultLeadThreadCount: 0,
-        nonTerminalAgentRunCount: 0
+        removable: !removalRunning,
+        currentThreadMembershipCount: 2,
+        openAssignedTaskCount: 1,
+        defaultLeadThreadCount: 2,
+        soleMemberThreadCount: 1,
+        affectedThreads: [
+          { threadId: 'empty-after-removal', title: '研究资料整理', remainingMemberCount: 0, wasDefaultLead: true, nextDefaultLeadAgentId: null, nextDefaultLeadDisplayName: null },
+          { threadId: 'lead-after-removal', title: '资料归档', remainingMemberCount: 1, wasDefaultLead: true, nextDefaultLeadAgentId: 'successor', nextDefaultLeadDisplayName: '爱丽丝' }
+        ],
+        nonTerminalAgentRunCount: removalRunning ? 1 : 0
       }
     if (method === 'members.reorder') {
       members = command.orderedAgentIds.map((id) =>
@@ -169,6 +176,7 @@ window.rovai = {
   }
 }
 window.memberFixture = {
+  removalRunning: (value) => { removalRunning = value },
   calls,
   catalogCalls,
   catalogDisplayTimings,

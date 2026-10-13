@@ -973,7 +973,19 @@ pub struct MemberRemovalPreview {
     pub default_lead_camp_count: i64,
     #[serde(rename = "soleMemberThreadCount", alias = "soleMemberCampCount")]
     pub sole_member_camp_count: i64,
+    pub affected_threads: Vec<MemberRemovalThreadImpact>,
     pub removable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberRemovalThreadImpact {
+    pub thread_id: String,
+    pub title: String,
+    pub remaining_member_count: i64,
+    pub was_default_lead: bool,
+    pub next_default_lead_agent_id: Option<String>,
+    pub next_default_lead_display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2980,7 +2992,7 @@ impl AgentProfileService {
         database: &Database,
         agent_id: &str,
     ) -> Result<Option<MemberRemovalPreview>> {
-        database
+        let preview = database
             .connection()
             .query_row(
                 r#"
@@ -2991,51 +3003,88 @@ impl AgentProfileService {
                           ON conversation.id = agent_run.conversation_id
                         WHERE conversation.agent_id = profile.id
                           AND agent_run.status IN ('queued', 'running', 'waiting')),
-                       (SELECT COUNT(*) FROM camp_member
-                        WHERE agent_id = profile.id AND status = 'active'
-                          AND leave_requested_at IS NULL),
                        (SELECT COUNT(*) FROM task
                         WHERE assignee_agent_id = profile.id
-                          AND status IN ('pending', 'in_progress', 'blocked')),
-                       (SELECT COUNT(*) FROM camp
-                        WHERE default_lead_agent_id = profile.id),
-                       (SELECT COUNT(*)
-                        FROM camp_member AS own_membership
-                        WHERE own_membership.agent_id = profile.id
-                          AND own_membership.status = 'active'
-                          AND NOT EXISTS(
-                              SELECT 1
-                              FROM camp_member AS peer_membership
-                              JOIN agent_profile AS peer_profile
-                                ON peer_profile.id = peer_membership.agent_id
-                              WHERE peer_membership.camp_id = own_membership.camp_id
-                                AND peer_membership.agent_id <> own_membership.agent_id
-                                AND peer_membership.status = 'active'
-                                AND peer_membership.leave_requested_at IS NULL
-                                AND peer_profile.profile_status <> 'removed'
-                          ))
+                          AND status IN ('pending', 'in_progress', 'blocked'))
                 FROM agent_profile AS profile
                 WHERE profile.id = ?1 AND profile.profile_status <> 'removed'
                 "#,
                 [agent_id],
                 |row| {
                     let non_terminal_agent_run_count = row.get::<_, i64>(3)?;
-                    let sole_member_camp_count = row.get::<_, i64>(7)?;
                     Ok(MemberRemovalPreview {
                         agent_id: row.get(0)?,
                         display_name: row.get(1)?,
                         version: row.get(2)?,
                         non_terminal_agent_run_count,
-                        current_camp_membership_count: row.get(4)?,
-                        open_assigned_task_count: row.get(5)?,
-                        default_lead_camp_count: row.get(6)?,
-                        sole_member_camp_count,
-                        removable: non_terminal_agent_run_count == 0 && sole_member_camp_count == 0,
+                        current_camp_membership_count: 0,
+                        open_assigned_task_count: row.get(4)?,
+                        default_lead_camp_count: 0,
+                        sole_member_camp_count: 0,
+                        affected_threads: Vec::new(),
+                        removable: non_terminal_agent_run_count == 0,
                     })
                 },
             )
             .optional()
-            .context("failed to load member removal preview")
+            .context("failed to load member removal preview")?;
+        let Some(mut preview) = preview else {
+            return Ok(None);
+        };
+        let mut statement = database.connection().prepare(
+            r#"
+            WITH affected AS (
+                SELECT camp.id, camp.title,
+                       COALESCE(camp.default_lead_agent_id = ?1, 0) AS was_lead,
+                       (SELECT COUNT(*)
+                        FROM camp_member AS peer
+                        JOIN agent_profile AS profile ON profile.id = peer.agent_id
+                        WHERE peer.camp_id = camp.id AND peer.agent_id <> ?1
+                          AND peer.status = 'active' AND peer.leave_requested_at IS NULL
+                          AND profile.profile_status <> 'removed') AS remaining,
+                       CASE WHEN camp.default_lead_agent_id = ?1 THEN
+                           (SELECT peer.agent_id
+                            FROM camp_member AS peer
+                            JOIN agent_profile AS profile ON profile.id = peer.agent_id
+                            WHERE peer.camp_id = camp.id AND peer.agent_id <> ?1
+                              AND peer.status = 'active' AND peer.leave_requested_at IS NULL
+                              AND profile.profile_status = 'present'
+                            ORDER BY profile.member_order, profile.id LIMIT 1)
+                       ELSE camp.default_lead_agent_id END AS next_lead
+                FROM camp
+                JOIN camp_member AS own ON own.camp_id = camp.id
+                WHERE own.agent_id = ?1 AND own.status = 'active'
+            )
+            SELECT affected.id, affected.title, affected.remaining, affected.was_lead,
+                   affected.next_lead, profile.display_name
+            FROM affected LEFT JOIN agent_profile AS profile ON profile.id = affected.next_lead
+            ORDER BY affected.id
+            "#,
+        )?;
+        preview.affected_threads = statement
+            .query_map([agent_id], |row| {
+                Ok(MemberRemovalThreadImpact {
+                    thread_id: row.get(0)?,
+                    title: row.get(1)?,
+                    remaining_member_count: row.get(2)?,
+                    was_default_lead: row.get(3)?,
+                    next_default_lead_agent_id: row.get(4)?,
+                    next_default_lead_display_name: row.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        preview.current_camp_membership_count = preview.affected_threads.len() as i64;
+        preview.default_lead_camp_count = preview
+            .affected_threads
+            .iter()
+            .filter(|camp| camp.was_default_lead)
+            .count() as i64;
+        preview.sole_member_camp_count = preview
+            .affected_threads
+            .iter()
+            .filter(|camp| camp.remaining_member_count == 0)
+            .count() as i64;
+        Ok(Some(preview))
     }
 
     pub fn remove_member(
@@ -3104,33 +3153,6 @@ impl AgentProfileService {
                 return Ok(CommandHandlerResult::rejected(
                     "agent_profile.non_terminal_runs",
                     json!({ "count": non_terminal_agent_run_count }),
-                ));
-            }
-            let sole_member_camp_count: i64 = transaction.query_row(
-                r#"
-                SELECT COUNT(*)
-                FROM camp_member AS own_membership
-                WHERE own_membership.agent_id = ?1
-                  AND own_membership.status = 'active'
-                  AND NOT EXISTS(
-                      SELECT 1
-                      FROM camp_member AS peer_membership
-                      JOIN agent_profile AS peer_profile
-                        ON peer_profile.id = peer_membership.agent_id
-                      WHERE peer_membership.camp_id = own_membership.camp_id
-                        AND peer_membership.agent_id <> own_membership.agent_id
-                        AND peer_membership.status = 'active'
-                        AND peer_membership.leave_requested_at IS NULL
-                        AND peer_profile.profile_status <> 'removed'
-                  )
-                "#,
-                [&envelope.payload.agent_id],
-                |row| row.get(0),
-            )?;
-            if sole_member_camp_count > 0 {
-                return Ok(CommandHandlerResult::rejected(
-                    "agent_profile.sole_camp_member",
-                    json!({ "count": sole_member_camp_count }),
                 ));
             }
             let now = chrono::Utc::now().to_rfc3339();

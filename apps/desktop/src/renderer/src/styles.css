@@ -4490,6 +4490,15 @@ details summary { min-height: 28px; padding: 5px 0; color: var(--muted); font-si
 .composer-route-rail .mention-target-summary { display: inline-flex; min-width: 0; align-items: center; gap: 4px; }
 .composer-route-rail .mention-target-summary > svg { width: 12px; height: 12px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.35; }
 .composer-route-rail .mention-target-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-recipient-recovery { min-height: 28px; flex-shrink: 0; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--conversation-action); font-size: 11px; cursor: pointer; }
+.composer-recipient-recovery:hover { text-decoration: underline; }
+.composer-recipient-recovery:disabled { opacity: .5; cursor: default; }
+.composer-recipient-recovery:focus-visible { outline: 2px solid var(--conversation-action); outline-offset: 2px; }
+.member-removal-threads { display: grid; gap: 8px; max-height: 180px; overflow-y: auto; margin: 0 0 16px; }
+.member-removal-threads > div { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
+.member-removal-threads > div > span { min-width: 0; overflow-wrap: anywhere; }
+.member-removal-threads small { flex-shrink: 0; max-width: 55%; overflow-wrap: anywhere; text-align: right; color: var(--muted); font-size: 11px; }
+@media (pointer: coarse) { .composer-recipient-recovery { min-height: 44px; } }
 .pending-invite-summary { display: inline-flex; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
 .pending-invite-summary svg { width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 .pending-invite-summary > span { flex: 0 0 auto; }

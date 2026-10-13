@@ -173,6 +173,7 @@
     "test:host-web-parity": "node --test scripts/lib/host-web-parity.test.mjs",
     "test:host-web-mobile": "node --test scripts/lib/host-web-mobile.test.mjs",
     "test:member-creation": "node --test scripts/lib/member-creation.test.mjs",
+    "test:member-avatar-flow": "tsc --noEmit -p scripts/fixtures/member-avatar-flow/tsconfig.json && node --test scripts/lib/member-avatar-flow.test.mjs",
     "test:mission-board": "node --test scripts/lib/mission-board.test.mjs",
     "test:member-runtime-apply": "node --test scripts/lib/member-runtime-apply.test.mjs",
     "test:run-presence-ui": "node --test scripts/lib/run-presence.test.mjs",

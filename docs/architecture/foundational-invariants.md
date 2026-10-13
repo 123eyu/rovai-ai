@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: current-foundational-invariants
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # 当前基础架构不变量
@@ -172,7 +172,7 @@ last_updated: 2026-10-12
 - `present | away | removed` 是 AgentProfile 的独立生命周期。Runtime 配置、可用性、认证或探测结果不得隐式改变 Presence；`removed` 是不可逆终态。
 - `away` 阻止新 Run，但保留身份、CampMember、Task assignment、Runtime 配置、头像、Memory 和历史；归队只恢复未来活动资格。永久移除只在不存在非终态 Run 时推进 Presence 和审计，不物理删除身份或历史关联。
 - removed 成员从活动名册、寻址、分配、Runtime/Skill/MCP 投影和未来 Memory counterparty 中排除，但历史消息、Task、Run 和审计继续显示原身份。历史配置可以成为不可执行的保留事实，不能阻止当前 Installation 清理。
-- CampMember 表达 Camp 内关系而不是复制全局 Presence。成员顺序稳定，Default Lead 必须是当前有效关系；Camp 至少保留一位 active member。动态添加/移除使用 Camp membership generation 与关系 exact version；曾离开成员再次添加是普通添加但形成新的 membership lifetime，不复活旧授权。对当前 active member（包括 Presence 为 `away`）的相同 capability overrides add 是 no-op，不同 overrides 必须 conflict，不能借 add 静默旋转 lifetime；只有 left/不存在的真实添加要求 Profile 为 `present`。
+- CampMember 表达 Camp 内关系而不是复制全局 Presence。成员顺序稳定，Default Lead 必须是当前有效关系；Camp 允许零位 active member，此时 Default Lead 为 null；历史、工作区和本地草稿保留，邀请首位 present 队员后恢复默认接收者。动态添加/移除使用 Camp membership generation 与关系 exact version；曾离开成员再次添加是普通添加但形成新的 membership lifetime，不复活旧授权。对当前 active member（包括 Presence 为 `away`）的相同 capability overrides add 是 no-op，不同 overrides 必须 conflict，不能借 add 静默旋转 lifetime；只有 left/不存在的真实添加要求 Profile 为 `present`。
 - 移除复用现有定向 membership cutover：结束关系、修复 Lead、释放开放 Task，取消该 membership lifetime 尚未 claim 的 waiting Delivery，并结算其已物化 Run；同一事务完成 reconciliation 审计。重新加入只接受新消息，不能复活旧 waiting/Run/Approval 或历史 Gather 状态。无关 Run 和渠道投递不受影响；外部来源仍受 allowlist、Camp-bound source 与 exact generation 约束。
 
 <a id="member-projection"></a>
@@ -193,7 +193,7 @@ last_updated: 2026-10-12
 ### 协作与执行准入
 
 - Camp、CampMember、Default Lead、Conversation、CampMessage、Message Delivery、AgentRun 和 Task 由 Core 在同一协作边界协调；历史 CampTurn 只读保留。Presence、membership、Runtime readiness、Capability、权限和 fencing 是独立准入轴，不能互相推导。
-- CampMember 只表达 Camp 内关系，不复制全局 Presence。成员顺序使用稳定、不复用的关系序列；Default Lead 必须是当前有效关系且符合领导资格，Camp 至少保留一位 active member。动态关系命令使用 generation/version CAS，Lead successor 与影响预览由 Core 验证。
+- CampMember 只表达 Camp 内关系，不复制全局 Presence。成员顺序使用稳定、不复用的关系序列；Default Lead 必须是当前有效关系且符合领导资格，Camp 允许零位 active member，此时 Default Lead 为 null；历史、工作区和本地草稿保留，邀请首位 present 队员后恢复默认接收者。动态关系命令使用 generation/version CAS，Lead successor 与影响预览由 Core 验证。
 - Camp 只冻结 workspace binding 和成员关系，Git/Project 是可重观测投影。新 Camp 不预创建 Conversation 或 Run；消息发布事务创建 CampMessage、必要的目标 Conversation 路由和每目标 waiting Delivery，但不创建 AgentRun。Scheduler claim 才冻结当前执行配置并创建多输入 AgentRun。
 - 外部渠道完成 transport dedup 和 live binding recheck 后，复用同一 CampMessage + Delivery 发布 seam。尚未绑定或仍在渠道 FIFO 中的内容不是公共消息，也不进入 History、Context 或执行。`ExternalPrincipal` 只表达作者和渠道来源，不继承 `local_user` 能力。
 - Renderer 可以先本地显示待确认的用户消息，但不得把它当成 CampMessage。Core 接受发送时原子持久公共消息与目标 Delivery；workspace、Runtime、Git、exact membership lifetime、permission 和 isolation fence 在 claim/dispatch 边界重验。再次添加同一 Agent 不恢复旧 lifetime 的权限或输入。

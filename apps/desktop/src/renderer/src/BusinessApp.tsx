@@ -4449,6 +4449,7 @@ export function BusinessApp({
             firstRunThread={firstRunThread}
             firstRunThreadId={firstRunThreadId}
             onConfigureRuntime={configureMemberRuntime}
+            onOpenMembers={() => chooseView('members')}
             onOpenMotionSettings={() => { void openMotionSettings() }}
             onDismissRuntimeRecovery={() => setRuntimeRecovery(null)}
             onNotify={notify}
@@ -5184,9 +5185,6 @@ export function commandFailureMessage(result: StoredCommandResult): string {
   }
   if (result.code === 'agent_run.runtime_not_ready') {
     return uiAttribute("目标队员的智能体暂不可用。")
-  }
-  if (result.code === 'camp.last_member_required') {
-    return uiAttribute("会话至少保留 1 位队员。")
   }
   if (membershipConflictCode(result.code)) {
     return uiAttribute("名册已发生变化。请重新读取最新状态后再试。")

@@ -176,7 +176,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [First-run Onboarding v3（历史）](first-run-onboarding-v3.md) | v2 schema/flow 不变；首次安装改用 Full Core authority origin，损坏偏好只在内存降级且保留原文件 |
 | [First-run Onboarding v2（历史）](first-run-onboarding-v2.md) | v1 admission/provisioning 不变；schema 2 增加无可用 Runtime 时无产品副作用的 `runtime_deferred` 终态；其 pre-Core 文件存在性 admission 已由 v3 替代 |
 | [First-run Onboarding v1（历史）](first-run-onboarding-v1.md) | Desktop 首次安装判定、三页 mandatory 状态、幂等 provisioning、`初次集结` 与第四页 Draft-only 入口；不允许无 Runtime 完成 |
-| [Camp Membership v2（当前）](camp-membership-v2.md) | 原定向 lifetime 范围内同事务结算；reconciliation 只保留已完成审计 |
+| [Camp Membership v3（当前）](camp-membership-v3.md) | 零成员会话、可空队长、移出/永久移除影响预览及邀请恢复 |
+| [Camp Membership v2（历史）](camp-membership-v2.md) | 原定向 lifetime 范围内同事务结算；reconciliation 只保留已完成审计 |
 | [Camp Membership v1（历史）](camp-membership-v1.md) | 动态添加/移除、至少一位成员、generation/version、atomic cutover、durable reconciliation、exact lifetime fence 与受信外部来源 |
 | [Channel Message Bridge v1（当前）](channel-message-bridge-v1.md) | 入站在消息与 Delivery 提交后完成；Channel-bound Camp 的 Agent 公共消息默认创建独立 outbox |
 | [Channel Storage v3（当前）](channel-storage-v3.md) | 凭据与存储边界不变；整轮中止使用 nullable retry suppression，迟到 sent 保留证据 |

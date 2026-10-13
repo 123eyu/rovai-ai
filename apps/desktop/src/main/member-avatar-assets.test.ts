@@ -10,11 +10,15 @@ import {
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MEMBER_AVATAR_LIMITS, inspectMemberAvatarUpload } from '@contracts'
+import { browserMemberAvatars } from '../../../web/src/member-avatars'
 import {
+  inspectGif,
   inspectImage,
   inspectJpeg,
   inspectMemberAvatarSourceFile,
+  inspectMemberAvatarUploadPng,
   inspectPng,
   MemberAvatarAssetService
 } from './member-avatar-assets'
@@ -22,6 +26,7 @@ import {
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {
+  vi.unstubAllGlobals()
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true })
@@ -64,6 +69,101 @@ describe('member avatar image inspection', () => {
     await expect(inspectMemberAvatarSourceFile(oversizedPixels)).rejects.toThrow(
       'resource limit'
     )
+  })
+
+  it('accepts vendor metadata after IEND only at the upload boundary', async () => {
+    const png = makePng(582, 584)
+    const tail = new Uint8Array(281).fill(0x41)
+    tail.set(new TextEncoder().encode(JSON.stringify({ vendor: 'vivo', meta: 'screenshot' })))
+    const withTail = concat([png, tail])
+
+    // ① Tolerant entry: same PNG passes and reports the exact canonical boundary.
+    const upload = inspectMemberAvatarUploadPng(withTail)
+    expect(upload.iendOffset).toBe(png.byteLength)
+    expect(inspectMemberAvatarUpload(withTail).bytes).toEqual(png)
+    expect([upload.width, upload.height]).toEqual([582, 584])
+
+    // ② The shared strict parser is unchanged and rejects the same bytes.
+    expect(() => inspectPng(withTail)).toThrow('Invalid PNG member avatar ending')
+    expect(() => inspectImage(withTail)).toThrow('Invalid PNG member avatar ending')
+
+    // ① The upload boundary returns the canonical PNG cropped before it
+    // crosses into the renderer/native decoder.
+    const directory = await temporaryDirectory()
+    const path = join(directory, 'vivo-screenshot.png')
+    await writeFile(path, withTail)
+    const selected = await inspectMemberAvatarSourceFile(path)
+    expect(selected.mediaType).toBe('image/png')
+    expect([selected.inspectedWidth, selected.inspectedHeight]).toEqual([582, 584])
+    expect(selected.byteLength).toBe(png.byteLength)
+    expect(selected.bytes.byteLength).toBe(png.byteLength)
+    expect(Array.from(selected.bytes)).toEqual(Array.from(png))
+  })
+
+  it('keeps the byte cap on the original input including the tail', async () => {
+    const directory = await temporaryDirectory()
+    const path = join(directory, 'oversized-tail.png')
+    const padded = new Uint8Array(MEMBER_AVATAR_LIMITS.selectedFileBytes + 1024)
+    padded.set(makePng(512, 512), 0)
+    await writeFile(path, padded)
+    await expect(inspectMemberAvatarSourceFile(path)).rejects.toThrow('byte limit')
+  })
+
+  it('sniffs animated GIF from bytes with frame and loop metadata', async () => {
+    const gif = makeGif(512, 400, 2, 0)
+    expect(inspectImage(gif)).toEqual({
+      mediaType: 'image/gif',
+      width: 512,
+      height: 400,
+      frameCount: 2,
+      loopCount: 0
+    })
+    expect(inspectGif(makeGif(256, 256, 3, 5)).loopCount).toBe(5)
+    expect(inspectGif(makeGif(256, 256, 1, null)).loopCount).toBeNull()
+    // Browser file MIME is advisory: both clients sniff the same bytes.
+    let changed: (() => void) | undefined
+    const input = {
+      files: [{ name: 'renamed.png', type: 'image/png', size: gif.byteLength, arrayBuffer: async () => gif.buffer }],
+      addEventListener: (type: string, listener: () => void) => { if (type === 'change') changed = listener },
+      click: () => changed?.(), remove: () => undefined
+    }
+    vi.stubGlobal('document', { createElement: () => input, body: { append: () => undefined } })
+    const browser = browserMemberAvatars({ avatar: vi.fn() } as never)
+    const browserImage = await browser.selectSource()
+    expect(browserImage).toMatchObject({ mediaType: 'image/gif', frameCount: 2, loopCount: 0 })
+    expect(browserImage?.bytes).toEqual(gif)
+    const directory = await temporaryDirectory()
+    const path = join(directory, 'animated.gif')
+    await writeFile(path, gif)
+    const selected = await inspectMemberAvatarSourceFile(path)
+    expect(selected.mediaType).toBe('image/gif')
+    expect([selected.inspectedWidth, selected.inspectedHeight]).toEqual([512, 400])
+    expect(selected.frameCount).toBe(2)
+    expect(selected.loopCount).toBe(0)
+    expect(Array.from(selected.bytes)).toEqual(Array.from(gif))
+    expect(selected.byteLength).toBe(gif.byteLength)
+  })
+
+  it('rejects GIF frame, dimension and cumulative decode limit violations', async () => {
+    expect(() =>
+      inspectGif(makeGif(256, 256, MEMBER_AVATAR_LIMITS.maximumGifFrames + 1, 0))
+    ).toThrow('frame limit')
+    expect(() => inspectGif(makeGif(4096, 4096, 10, 0))).toThrow(
+      'cumulative decode resource limit'
+    )
+    expect(() => inspectGif(makeGif(255, 512, 1, 0))).toThrow('below the minimum')
+    expect(() => inspectGif(makeGif(512, 512, 0, 0))).toThrow('contains no frames')
+    const looping = makeGif(256, 256, 1, 3)
+    for (let end = 0; end < looping.byteLength; end++) {
+      expect(() => inspectGif(looping.subarray(0, end))).toThrow()
+    }
+    const outside = makeGif(256, 256, 1, null)
+    writeU16LE(outside, 28, 256)
+    expect(() => inspectGif(outside)).toThrow('canvas bounds')
+    const unknownApp = Uint8Array.from(looping)
+    unknownApp.set(new TextEncoder().encode('VENDOR01abc'), 22)
+    expect(inspectGif(unknownApp)).toMatchObject({ frameCount: 1, loopCount: null })
+    expect(() => inspectGif(makePng(512, 512))).toThrow('Unsupported')
   })
 })
 
@@ -109,9 +209,9 @@ describe('managed member avatar asset service', () => {
     expect(
       (await stat(service.root)).isDirectory()
     ).toBe(true)
-    expect(
+    await expect(
       (await import('node:fs/promises')).readdir(service.root)
-    ).resolves.not.toContain(expect.stringMatching(/^\.tmp-/))
+    ).resolves.not.toContainEqual(expect.stringMatching(/^\.tmp-/))
   })
 
   it('returns a controlled miss for unknown refs, corruption and traversal attempts', async () => {
@@ -229,6 +329,52 @@ function makeJpegHeader(width: number, height: number): Uint8Array {
     0x01,
     0xff, 0xd9
   )
+}
+
+/** Structure-only GIF used to exercise the Main-side GIF walker. */
+function makeGif(
+  width: number,
+  height: number,
+  frameCount: number,
+  loopCount: number | null
+): Uint8Array {
+  const parts: Uint8Array[] = [new TextEncoder().encode('GIF89a')]
+  const lsd = new Uint8Array(7)
+  writeU16LE(lsd, 0, width)
+  writeU16LE(lsd, 2, height)
+  lsd[4] = 0x80 | 0x00 // global color table, 2 entries
+  parts.push(lsd)
+  parts.push(Uint8Array.of(0, 0, 0, 255, 255, 255))
+  if (loopCount !== null) {
+    parts.push(
+      Uint8Array.of(
+        0x21, 0xff, 0x0b,
+        0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30,
+        0x03, 0x01,
+        loopCount & 0xff,
+        (loopCount >>> 8) & 0xff,
+        0x00
+      )
+    )
+  }
+  for (let index = 0; index < frameCount; index += 1) {
+    parts.push(Uint8Array.of(0x21, 0xf9, 0x04, 0x00, 0x0a, 0x00, 0x00, 0x00))
+    const image = new Uint8Array(10)
+    image[0] = 0x2c
+    writeU16LE(image, 1, 0)
+    writeU16LE(image, 3, 0)
+    writeU16LE(image, 5, width)
+    writeU16LE(image, 7, height)
+    parts.push(image)
+    parts.push(Uint8Array.of(0x08, 0x02, 0x00, 0x00, 0x00))
+  }
+  parts.push(Uint8Array.of(0x3b))
+  return concat(parts)
+}
+
+function writeU16LE(target: Uint8Array, offset: number, value: number): void {
+  target[offset] = value & 0xff
+  target[offset + 1] = (value >>> 8) & 0xff
 }
 
 function pngChunk(type: string, data: Uint8Array): Uint8Array {

@@ -26,7 +26,25 @@
 .run-presence-retry svg { width: 14px; height: 14px; }
 .run-presence-retry:hover:not(:disabled) { background: var(--surface-hover); }
 .run-presence-retry:disabled { color: var(--muted); cursor: wait; }
-.run-presence-stop-dialog { max-width: 420px; }
+.run-presence-stop-confirmation { z-index: 300; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; width: max-content; max-width: min(360px, calc(100vw - 32px)); padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-raised); box-shadow: var(--shadow-float); }
+.run-presence-stop-question { flex: 1 1 auto; margin: 0; min-width: 0; max-width: 100%; font: 400 13px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif; letter-spacing: 0; overflow-wrap: anywhere; }
+.run-presence-stop-question > span { white-space: nowrap; }
+.run-presence-stop-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-inline-start: auto; flex: 0 0 auto; }
+:root .run-presence-stop-confirmation :is(.quiet-button, .danger-button) { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; height: 32px; min-width: 46px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font-size: 12.5px; font-weight: 400; line-height: 1.5; white-space: nowrap; background: transparent; box-shadow: none; }
+:root .run-presence-stop-confirmation .quiet-button { color: var(--muted); }
+:root .run-presence-stop-confirmation .quiet-button:hover:not(:disabled) { color: var(--ink); background: var(--surface-hover); }
+:root .run-presence-stop-confirmation .danger-button { color: var(--danger); }
+:root .run-presence-stop-confirmation .danger-button:hover:not(:disabled) { background: var(--danger-soft); }
+:root .run-presence-stop-confirmation .danger-button[aria-busy="true"] { opacity: 1; }
+.run-presence-stop-confirmation [aria-busy="true"] .run-presence-stop-label { visibility: hidden; }
+.run-presence-stop-busy { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
+.run-presence-stop-busy svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; animation: run-presence-stop-turn 900ms linear infinite; }
+@keyframes run-presence-stop-turn { to { transform: rotate(360deg); } }
+.run-presence-stop-arrow { fill: var(--surface-raised); stroke: var(--line-strong); stroke-width: 1; }
+.run-presence-stop-error { flex-basis: 100%; margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .conversation-run-presence button:focus-visible { outline: 2px solid var(--conversation-focus); outline-offset: 2px; }
 @media (pointer: coarse) { .run-presence-line { height: 48px; } .run-presence-open { height: 46px; } .run-presence-stop { width: 44px; flex-basis: 44px; } .run-presence-stop, .run-presence-retry { min-width: 44px; height: 44px; } }
+@media (pointer: coarse) { :root .run-presence-stop-confirmation :is(.quiet-button, .danger-button) { min-height: 44px; height: 44px; } }
 @media (forced-colors: active) { .run-presence-guide { background: CanvasText; } }
+@media (forced-colors: active) { .run-presence-stop-confirmation { background: Canvas; color: CanvasText; border-color: CanvasText; } .run-presence-stop-arrow { fill: Canvas; stroke: CanvasText; } .run-presence-stop-busy { color: CanvasText; } }
+@media (prefers-reduced-motion: reduce), (forced-colors: active) { .run-presence-stop-busy svg { animation: none; } }

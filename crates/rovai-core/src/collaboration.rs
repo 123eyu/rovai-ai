@@ -320,6 +320,7 @@ pub struct ThreadMemberRemovalPreview {
     pub membership_generation: i64,
     pub membership_version: i64,
     pub is_default_lead: bool,
+    pub remaining_member_count: i64,
     pub next_default_lead_agent_id: Option<String>,
     pub non_terminal_agent_run_count: i64,
     pub open_assigned_task_count: i64,
@@ -1663,17 +1664,18 @@ impl CollaborationService {
         else {
             return Ok(None);
         };
-        let active_member_count: i64 = connection.query_row(
+        let remaining_member_count: i64 = connection.query_row(
             r#"
             SELECT COUNT(*)
             FROM camp_member
             JOIN agent_profile ON agent_profile.id = camp_member.agent_id
             WHERE camp_member.camp_id = ?1
+              AND camp_member.agent_id <> ?2
               AND camp_member.status = 'active'
               AND camp_member.leave_requested_at IS NULL
               AND agent_profile.profile_status <> 'removed'
             "#,
-            [camp_id],
+            params![camp_id, agent_id],
             |row| row.get(0),
         )?;
         let next_default_lead_agent_id = if default_lead.as_deref() == Some(agent_id) {
@@ -1759,7 +1761,7 @@ impl CollaborationService {
         )?;
         let pending_delivery_count = legacy_pending_delivery_count + batch_pending_delivery_count;
         let running_delivery_count = legacy_running_delivery_count + batch_running_delivery_count;
-        let removable = status == "active" && active_member_count > 1;
+        let removable = status == "active";
         Ok(Some(ThreadMemberRemovalPreview {
             camp_id: camp_id.to_string(),
             agent_id: agent_id.to_string(),
@@ -1767,19 +1769,14 @@ impl CollaborationService {
             membership_generation,
             membership_version,
             is_default_lead: default_lead.as_deref() == Some(agent_id),
+            remaining_member_count,
             next_default_lead_agent_id,
             non_terminal_agent_run_count,
             open_assigned_task_count,
             pending_delivery_count,
             running_delivery_count,
             removable,
-            blocker_code: (!removable).then(|| {
-                if status != "active" {
-                    "camp.member_not_active".to_string()
-                } else {
-                    "camp.last_member_required".to_string()
-                }
-            }),
+            blocker_code: (!removable).then(|| "camp.member_not_active".to_string()),
         }))
     }
 
@@ -1880,14 +1877,6 @@ impl CollaborationService {
                 return Ok(CommandHandlerResult::rejected(
                     "camp.membership_version_conflict",
                     json!({ "currentMembershipVersion": membership_version }),
-                ));
-            }
-            let current_member_count =
-                current_member_count(transaction, &envelope.payload.camp_id)?;
-            if current_member_count <= 1 {
-                return Ok(rejected(
-                    "camp.last_member_required",
-                    "A Camp must retain at least one member",
                 ));
             }
             if default_lead_agent_id.as_deref() == Some(envelope.payload.agent_id.as_str()) {
@@ -4572,24 +4561,6 @@ fn active_member_count(transaction: &Connection, camp_id: &str) -> Result<i64> {
         .context("failed to count active Camp members")
 }
 
-fn current_member_count(transaction: &Connection, camp_id: &str) -> Result<i64> {
-    transaction
-        .query_row(
-            r#"
-            SELECT COUNT(*)
-            FROM camp_member
-            JOIN agent_profile ON agent_profile.id = camp_member.agent_id
-            WHERE camp_member.camp_id = ?1
-              AND camp_member.status = 'active'
-              AND camp_member.leave_requested_at IS NULL
-              AND agent_profile.profile_status <> 'removed'
-            "#,
-            [camp_id],
-            |row| row.get(0),
-        )
-        .context("failed to count current Camp members")
-}
-
 fn active_address_target(
     transaction: &Connection,
     camp_id: &str,
@@ -6146,10 +6117,6 @@ pub(crate) fn end_camp_membership(
     execution_epoch: Option<i64>,
     now: &str,
 ) -> Result<ThreadMembershipEndOutcome> {
-    let current_member_count = current_member_count(transaction, camp_id)?;
-    if current_member_count <= 1 {
-        anyhow::bail!("camp.last_member_required: a Camp must retain at least one member");
-    }
     let (current_membership_version, membership_generation, current_lead) = transaction
         .query_row(
             r#"
@@ -8290,12 +8257,11 @@ mod slow_tests {
             .camp_member_removal_preview(&database, &camp_id, "agent_1")
             .unwrap()
             .unwrap();
-        assert!(!last_member_preview.removable);
-        assert_eq!(
-            last_member_preview.blocker_code.as_deref(),
-            Some("camp.last_member_required")
-        );
-        let last_member_rejected = service
+        assert!(last_member_preview.removable);
+        assert_eq!(last_member_preview.remaining_member_count, 0);
+        assert!(last_member_preview.blocker_code.is_none());
+        let message_count = row_count(&database, "camp_message");
+        let last_member_removed = service
             .remove_camp_member(
                 &mut database,
                 &user_envelope(
@@ -8314,13 +8280,52 @@ mod slow_tests {
             )
             .unwrap();
         assert_eq!(
-            last_member_rejected.result.status,
-            CommandResultStatus::Rejected
+            last_member_removed.result.status,
+            CommandResultStatus::Accepted
         );
-        assert_eq!(
-            last_member_rejected.result.code,
-            "camp.last_member_required"
+        assert!(last_member_removed.result.payload["nextDefaultLeadAgentId"].is_null());
+        let empty = ReadModelService
+            .camp_snapshot(&mut database, &camp_id)
+            .unwrap();
+        assert!(empty.camp.default_lead_agent_id.is_none());
+        assert!(
+            empty
+                .members
+                .iter()
+                .all(|member| member.membership_status != "active")
         );
+        assert_eq!(row_count(&database, "camp_message"), message_count);
+        // An empty default or broadcast cannot accept work or publish an orphaned input.
+        for (suffix, address) in [
+            ("default", TestThreadMessageAddress::Default),
+            ("all", TestThreadMessageAddress::Broadcast),
+        ] {
+            let rejected = service
+                .send_test_camp_message(
+                    &mut database,
+                    &user_envelope(
+                        &format!("empty-membership-send-{suffix}"),
+                        Some(&camp_id),
+                        TestThreadMessageCommand {
+                            camp_id: camp_id.clone(),
+                            draft_revision: None,
+                            body: "仍需邀请后发送".to_string(),
+                            prepared_attachment_ids: Vec::new(),
+                            address,
+                            reply_to_camp_message_id: None,
+                            execution: Some(ExecutionRequest {
+                                task_id: None,
+                                purpose: "测试空会话".to_string(),
+                                completion_role: "required".to_string(),
+                                budget: None,
+                            }),
+                        },
+                    ),
+                )
+                .unwrap();
+            assert_eq!(rejected.result.code, "camp_message.no_addressable_member");
+            assert_eq!(row_count(&database, "camp_message"), message_count);
+        }
 
         let readded = service
             .add_camp_member(
@@ -8331,14 +8336,22 @@ mod slow_tests {
                     AddThreadMemberCommand {
                         camp_id: camp_id.clone(),
                         agent_id: "agent_2".to_string(),
-                        expected_membership_generation: 2,
+                        expected_membership_generation: 3,
                         capability_overrides: json!({}),
                         source: None,
                     },
                 ),
             )
             .unwrap();
-        assert_eq!(readded.result.payload["membershipGeneration"], 3);
+        assert_eq!(readded.result.payload["membershipGeneration"], 4);
+        let restored = ReadModelService
+            .camp_snapshot(&mut database, &camp_id)
+            .unwrap();
+        assert_eq!(
+            restored.camp.default_lead_agent_id.as_deref(),
+            Some("agent_2")
+        );
+        assert_eq!(row_count(&database, "camp_message"), message_count);
         database
             .connection()
             .execute(
@@ -11746,6 +11759,31 @@ mod slow_tests {
             &directory,
             &["agent_4", "agent_2"],
         );
+        let single = collaboration
+            .create_camp(
+                &mut database,
+                &user_envelope(
+                    "create-sole-member-camp",
+                    None,
+                    CreateThreadCommand::for_test_with_members(
+                        directory.join("workspace").to_string_lossy().to_string(),
+                        &["agent_4"],
+                        "agent_4",
+                    ),
+                ),
+            )
+            .unwrap();
+        let single_id = single.result.payload["threadId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET display_name = '研究员' WHERE id = 'agent_4'",
+                [],
+            )
+            .unwrap();
         let created = collaboration
             .create_task(
                 &mut database,
@@ -11771,9 +11809,87 @@ mod slow_tests {
             .removal_preview(&database, "agent_4")
             .unwrap()
             .unwrap();
-        assert_eq!(preview.current_camp_membership_count, 1);
+        assert!(preview.removable);
+        assert_eq!(preview.display_name, "研究员");
+        assert_eq!(preview.current_camp_membership_count, 2);
         assert_eq!(preview.open_assigned_task_count, 1);
-        assert_eq!(preview.default_lead_camp_count, 1);
+        assert_eq!(preview.default_lead_camp_count, 2);
+        assert_eq!(preview.sole_member_camp_count, 1);
+        let empty_impact = preview
+            .affected_threads
+            .iter()
+            .find(|thread| thread.thread_id == single_id)
+            .unwrap();
+        assert_eq!(empty_impact.remaining_member_count, 0);
+        assert!(empty_impact.next_default_lead_agent_id.is_none());
+        let successor = preview
+            .affected_threads
+            .iter()
+            .find(|thread| thread.thread_id == camp_id)
+            .unwrap();
+        assert_eq!(successor.remaining_member_count, 1);
+        assert_eq!(
+            successor.next_default_lead_agent_id.as_deref(),
+            Some("agent_2")
+        );
+        assert!(successor.next_default_lead_display_name.is_some());
+
+        collaboration
+            .send_test_camp_message(
+                &mut database,
+                &user_envelope(
+                    "sole-member-running-work",
+                    Some(&single_id),
+                    TestThreadMessageCommand {
+                        camp_id: single_id.clone(),
+                        draft_revision: None,
+                        body: "保留历史".to_string(),
+                        prepared_attachment_ids: Vec::new(),
+                        address: TestThreadMessageAddress::Default,
+                        reply_to_camp_message_id: None,
+                        execution: Some(ExecutionRequest {
+                            task_id: None,
+                            purpose: "移除阻止条件".to_string(),
+                            completion_role: "required".to_string(),
+                            budget: None,
+                        }),
+                    },
+                ),
+            )
+            .unwrap();
+        let blocked_preview = profiles
+            .removal_preview(&database, "agent_4")
+            .unwrap()
+            .unwrap();
+        assert!(!blocked_preview.removable);
+        assert_eq!(blocked_preview.non_terminal_agent_run_count, 1);
+        let blocked = profiles
+            .remove_member(
+                &mut database,
+                &user_envelope(
+                    "remove-member-still-running",
+                    None,
+                    RemoveMemberCommand {
+                        agent_id: profile.agent_id.clone(),
+                        expected_version: profile.version,
+                        confirmation_name: profile.display_name.clone(),
+                    },
+                ),
+            )
+            .unwrap();
+        assert_eq!(blocked.result.code, "agent_profile.non_terminal_runs");
+        assert_eq!(
+            profiles
+                .removal_preview(&database, "agent_4")
+                .unwrap()
+                .unwrap()
+                .current_camp_membership_count,
+            2
+        );
+        database.connection().execute(
+            "UPDATE agent_run SET status = 'succeeded', ended_at = datetime('now') WHERE camp_id = ?1",
+            [&single_id],
+        ).unwrap();
         database
             .connection()
             .execute(
@@ -11845,6 +11961,45 @@ mod slow_tests {
             )
             .unwrap();
         assert_eq!(cause, "assignee_membership_ended");
+
+        let empty = ReadModelService
+            .camp_snapshot(&mut database, &single_id)
+            .unwrap();
+        assert!(empty.camp.default_lead_agent_id.is_none());
+        assert_eq!(empty.camp.membership_generation, 2);
+        assert!(
+            empty
+                .members
+                .iter()
+                .all(|member| member.membership_status != "active")
+        );
+        assert_eq!(empty.messages.len(), 1);
+        assert_eq!(empty.messages[0].body, "保留历史");
+        let invited = collaboration
+            .add_camp_member(
+                &mut database,
+                &user_envelope(
+                    "invite-after-global-removal",
+                    Some(&single_id),
+                    AddThreadMemberCommand {
+                        camp_id: single_id.clone(),
+                        agent_id: "agent_2".to_string(),
+                        expected_membership_generation: 2,
+                        capability_overrides: json!({}),
+                        source: None,
+                    },
+                ),
+            )
+            .unwrap();
+        assert_eq!(invited.result.code, "camp.member_added");
+        let restored = ReadModelService
+            .camp_snapshot(&mut database, &single_id)
+            .unwrap();
+        assert_eq!(
+            restored.camp.default_lead_agent_id.as_deref(),
+            Some("agent_2")
+        );
+        assert_eq!(restored.messages.len(), 1);
 
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();

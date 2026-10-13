@@ -101,7 +101,8 @@ placeholder 展示 Claude 的 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_API_KEY` 示�
 沿用表单保存、放弃更改和离页草稿保护，不提供检查连接。
 默认用 `<saved>` 保留已存凭据，显式查看才读取原值；不进行地址与凭据配对确认。
 不展示固定的环境生效说明。
-Camp 队员操作中的“重置队员会话”复用原生会话重置；不清空 Camp 消息，活动任务期间拒绝。
+Camp 队员列表不提供“重置队员会话”入口或确认弹窗，Desktop 与 Mobile 一致。
+队长、模型信息及移出当前会话仍使用既有操作；边界见 [Runtime Launch v61](../../contracts/runtime-launch-and-verification-v61.md)。
 值归 Host 私有存储，不进入普通队员资料或“应用到其他队员”。精确行为见
 [Runtime Launch v59](../../contracts/runtime-launch-and-verification-v59.md)。
 

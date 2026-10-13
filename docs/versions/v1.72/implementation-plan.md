@@ -2097,4 +2097,4 @@ User 在当前 Thread 确认交互稿后，明确要求去掉失效接收者的�
 - `pnpm docs:test`、`pnpm docs:check` 及相对上述基线的 `pnpm docs:check:ci` 通过。
 
 浏览器验收使用独立临时 Electron userData、Skill Library 与闭合 transport，Rust 测试使用隔离 SQLite 数据库；没有调用真实 Runtime 或写入日常数据。
-交付 checkout 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-empty-thread-members`，状态 `ready`，后续沿用该工作树。
+工作树路径与生命周期由当前 Thread 交接记录维护；PR 视觉对照见[生产组件截图](../../../.github/assets/empty-thread-members/README.md)。

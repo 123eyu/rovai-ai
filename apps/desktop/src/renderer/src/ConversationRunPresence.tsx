@@ -1,8 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
-import * as Dialog from '@radix-ui/react-dialog'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import * as Popover from '@radix-ui/react-popover'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import type { AgentProfile, AgentRunView, ThreadSnapshot } from '@contracts'
-import { AppDialogContent, AppDialogFooter, AppDialogHeader } from './AppDialog'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
 import { ExecutionIcon, ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph } from './ExecutionStatusGlyph'
@@ -38,35 +37,50 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
   const [continuedRunIds, setContinuedRunIds] = useState<ReadonlySet<string>>(() => new Set())
   const [stopId, setStopId] = useState<string | null>(null)
   const [submittingId, setSubmittingId] = useState<string | null>(null)
+  const [stopError, setStopError] = useState('')
   const submitting = useRef(false)
   const stopTrigger = useRef<HTMLButtonElement | null>(null)
+  const confirmationId = useId()
   const slots = continuedRunIds.has(slot.run.id) ? [] : [slot]
   const target = snapshot.agentRuns.find(run => run.id === stopId)
   const canConfirm = Boolean(target && stopState(target) === 'available')
   const memberName = (run: AgentRunView): string => snapshot.members.find(member => member.agentId === run.agentId)?.displayName
     ?? profiles.find(profile => profile.agentId === run.agentId)?.displayName ?? run.agentId
+  const question = uiAttribute('停止{0}的执行？', target ? memberName(target) : '')
+  const questionTail = '的执行？'
 
   useEffect(() => {
     if (stopId && !canConfirm && !submittingId) setStopId(null)
   }, [stopId, canConfirm, submittingId])
 
+  useEffect(() => {
+    if (!stopId || !stopTrigger.current) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting && !submitting.current) setStopId(null)
+    })
+    observer.observe(stopTrigger.current)
+    return () => observer.disconnect()
+  }, [stopId, submittingId])
+
   const confirmStop = async (): Promise<void> => {
     if (!target || !canConfirm || submitting.current) return
     submitting.current = true
+    setStopError('')
     setSubmittingId(target.id)
     try {
       // Resolve the same ID against the latest snapshot. The existing command owns CAS and uncertainty.
       await onStop(target)
       setStopId(null)
     } catch {
-      onError(uiAttribute('停止请求未成功，请重试。'))
+      setStopError(uiAttribute('停止请求未成功，请重试。'))
     } finally {
       submitting.current = false
       setSubmittingId(null)
     }
   }
 
-  return <>
+  return <Popover.Root modal={false} open={stopId !== null}
+    onOpenChange={open => { if (!open && !submitting.current) setStopId(null) }}>
     {slots.length > 0 && <div className={`conversation-run-presence-tail${slots[0].continuation ? ' has-continuation' : ''}`}>
       {slots.map(({ run, continuation }) => {
         const name = memberName(run)
@@ -89,14 +103,19 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
                 windowedEvidence={windowedEvidence} events={eventsByRunId.get(run.id)}
                 stopping={state === 'stopping' || state === 'confirming'} onOpen={onOpen} onOpenMotionSettings={onOpenMotionSettings} />
               {(canStop || canRetry) && <span className="run-presence-guide" aria-hidden="true" />}
-              {canStop && <button className="run-presence-stop" type="button" disabled={state !== 'available'}
+              {canStop && <Popover.Anchor asChild><button className="run-presence-stop" type="button" disabled={state !== 'available'}
+                aria-haspopup="dialog" aria-expanded={stopId === run.id} aria-controls={stopId === run.id ? confirmationId : undefined}
                 title={state === 'confirming' ? uiAttribute('正在确认停止结果') : uiAttribute('停止{0}的本次执行', name)}
                 aria-label={state === 'stopping' ? uiAttribute('正在提交停止请求…') : state === 'confirming'
                   ? uiAttribute('正在确认停止结果') : uiAttribute('停止{0}的本次执行', name)}
                 aria-busy={state === 'stopping' || state === 'confirming' || undefined}
-                onClick={event => { stopTrigger.current = event.currentTarget; setStopId(run.id) }}>
+                onClick={event => {
+                  stopTrigger.current = event.currentTarget
+                  setStopError('')
+                  setStopId(stopId === run.id ? null : run.id)
+                }}>
                 <ExecutionStopIcon />
-              </button>}
+              </button></Popover.Anchor>}
               {canRetry &&
                 <ContinueAgentRunButton threadId={snapshot.thread.id} agentRunId={run.id} appearance="retry"
                   onError={onError} onApplied={() => setContinuedRunIds(current => new Set(current).add(run.id))} />}
@@ -105,24 +124,55 @@ export function ConversationRunPresence({ snapshot, slot, profiles, eventsByRunI
         </article>
       })}
     </div>}
-    <Dialog.Root open={stopId !== null} onOpenChange={open => { if (!open && !submitting.current) setStopId(null) }}>
-      <AppDialogContent className="run-presence-stop-dialog" onCloseAutoFocus={event => {
-        event.preventDefault()
-        if (stopTrigger.current?.isConnected) stopTrigger.current.focus()
-      }} onEscapeKeyDown={event => { if (submitting.current) event.preventDefault() }}
-        onPointerDownOutside={event => { if (submitting.current) event.preventDefault() }}>
-        <AppDialogHeader title={uiAttribute('停止这次执行？')}
-          description={uiAttribute('只停止{0}的这次执行，已经发送的消息会保留。', target ? memberName(target) : '')}
-          closeDisabled={submittingId !== null} />
-        <AppDialogFooter>
-          <button className="quiet-button" data-dialog-autofocus disabled={submittingId !== null} onClick={() => setStopId(null)}>{uiAttribute('取消')}</button>
-          <button className="danger-button" disabled={!canConfirm || submittingId !== null} onClick={() => void confirmStop()}>
-            {uiAttribute(submittingId ? '正在提交停止请求…' : '停止执行')}
+    <Popover.Portal>
+      <Popover.Content id={confirmationId} className="run-presence-stop-confirmation"
+        side="top" align="end" sideOffset={7} collisionPadding={16} updatePositionStrategy="always"
+        aria-labelledby={`${confirmationId}-question`} aria-describedby={`${confirmationId}-scope`}
+        aria-busy={submittingId !== null || undefined}
+        onOpenAutoFocus={event => {
+          event.preventDefault()
+          document.getElementById(confirmationId)?.querySelector<HTMLButtonElement>('.quiet-button')?.focus({ preventScroll: true })
+        }}
+        onCloseAutoFocus={event => event.preventDefault()}
+        onKeyDownCapture={event => leaveStopConfirmation(event, stopTrigger.current, () => { if (!submitting.current) setStopId(null) })}
+        onEscapeKeyDown={event => { if (submitting.current) event.preventDefault() }}
+        onInteractOutside={event => {
+          const outside = event.detail.originalEvent.target
+          if (submitting.current || (outside instanceof Node && stopTrigger.current?.contains(outside))) event.preventDefault()
+        }}>
+        <h2 id={`${confirmationId}-question`} className="run-presence-stop-question">
+          {question.endsWith(questionTail) ? <>{question.slice(0, -questionTail.length)}<span>{questionTail}</span></> : question}
+        </h2>
+        <p id={`${confirmationId}-scope`} className="sr-only">{uiAttribute('只停止{0}的这次执行，已经发送的消息会保留。', target ? memberName(target) : '')}</p>
+        <div className="run-presence-stop-actions">
+          <button type="button" className="quiet-button" disabled={submittingId !== null} onClick={() => setStopId(null)}>{uiAttribute('取消')}</button>
+          <button type="button" className="danger-button" disabled={!canConfirm || submittingId !== null}
+            aria-busy={submittingId !== null || undefined}
+            aria-label={uiAttribute(submittingId ? '正在提交停止请求…' : '停止{0}的本次执行', target ? memberName(target) : '')}
+            onClick={() => void confirmStop()}>
+            <span className="run-presence-stop-label" aria-hidden="true">{uiAttribute('停止')}</span>
+            {submittingId !== null && <span className="run-presence-stop-busy" aria-hidden="true"><ExecutionStatusGlyph status="cancelling" /></span>}
           </button>
-        </AppDialogFooter>
-      </AppDialogContent>
-    </Dialog.Root>
-  </>
+        </div>
+        {stopError && <p className="run-presence-stop-error" role="alert">{stopError}</p>}
+        <Popover.Arrow className="run-presence-stop-arrow" width={12} height={6} aria-hidden="true" />
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>
+}
+
+// Radix loops Tab even in a non-modal Popover. Continue the conversation's tab
+// order at the anchor when leaving this temporary confirmation's two actions.
+function leaveStopConfirmation(event: KeyboardEvent<HTMLElement>, anchor: HTMLButtonElement | null, onLeave: () => void): void {
+  if (event.key !== 'Tab' || event.nativeEvent.isComposing || !anchor) return
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+  const edge = event.shiftKey ? buttons[0] : buttons.at(-1)
+  if (edge && document.activeElement !== edge) return
+  const outside = [...document.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [contenteditable="true"], [tabindex]')]
+    .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !event.currentTarget.contains(element)
+      && !element.closest('[inert], [aria-hidden="true"]') && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
+  const next = event.shiftKey ? anchor : outside[outside.indexOf(anchor) + 1] ?? outside[0]
+  if (next) { event.preventDefault(); next.focus(); onLeave() }
 }
 
 function RunPresenceOpen({ threadId, run, name, description, windowedEvidence, events, stopping, onOpen, onOpenMotionSettings }: {

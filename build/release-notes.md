@@ -13,7 +13,7 @@
 ### 其他更新
 
 - 【修复】**升级或修改配置后，优先恢复原会话。** 使用原会话 ID 尝试恢复同类智能体，不再仅凭旧配置摘要放弃恢复。同时修复 Pi 公屏与单聊的恢复路径互相覆盖。
-- 【修复】**修复原生历史丢失后的续接问题。** CodeBuddy 不再将空历史误认为恢复成功；Copilot、Qwen Code、Qoder、ZCode 在确认原会话无法恢复时，可新建会话继续执行并显示提示。替换进程使用新的工具上下文和临时目录，不再引用已清理的旧路径。
+- 【修复】**修复原生历史丢失后的续接问题。** CodeBuddy 不再将空历史误认为恢复成功；Copilot、Qwen Code、Qoder、ZCode 在确认原会话无法恢复时，可新建会话继续执行。替换进程使用新的工具上下文和临时目录，不再引用已清理的旧路径。
 - 【性能】**执行结束不再等待正文和用量统计收尾。** 后续保存失败不会把已成功的操作显示为失败。退出时补充已接收正文的保存处理，渠道最终卡片在正文定稿后生成。
 - 【修复】**修复中文 Markdown 显示和引用定位。** 中文标点紧邻正文时，加粗和删除线正常显示，不再露出原始标记；选文引用的定位也同步修正。
 - 【修复】**修复邀请受理后队员姓名短暂显示异常的问题。** 消息先于成员列表更新时，保留队员姓名并显示同步状态，不再短暂显示“不可用队员”。回复预览和导航摘要同步修正。
@@ -47,7 +47,7 @@ This release adds per-teammate environment variables, manual model IDs, and exec
 ### Other updates
 
 - [Fix] **Try the original session first after upgrades or configuration changes.** Resume the original session ID with the same agent type instead of rejecting recovery solely because of old configuration digests. Pi's public and private conversation recovery paths no longer overwrite each other.
-- [Fix] **Handle missing native history correctly.** CodeBuddy no longer mistakes empty history for successful recovery. Copilot, Qwen Code, Qoder, and ZCode can start a new session and show a notice when the original session is confirmed to be unavailable. Replacement processes receive fresh tool contexts and temporary directories instead of referring to cleaned-up paths.
+- [Fix] **Handle missing native history correctly.** CodeBuddy no longer mistakes empty history for successful recovery. Copilot, Qwen Code, Qoder, and ZCode can start a new session when the original session is confirmed to be unavailable. Replacement processes receive fresh tool contexts and temporary directories instead of referring to cleaned-up paths.
 - [Performance] **Finish executions without waiting for text and usage finalization.** Later save failures no longer turn a successfully committed operation into a reported failure. Shutdown provides an additional opportunity to save received text, and final channel cards wait for text finalization.
 - [Fix] **Fix Chinese Markdown rendering and quote navigation.** Bold and strikethrough render correctly beside Chinese punctuation instead of exposing raw markers. Selected-text quote navigation is updated accordingly.
 - [Fix] **Keep teammate names visible after an invitation is accepted.** When a message arrives before the updated roster, retain the teammate's name and show synchronization status rather than briefly displaying an unavailable teammate. Reply previews and navigation summaries follow the same behavior.

@@ -8,6 +8,29 @@ last_updated: 2026-10-13
 
 # v1.72 实施与验收
 
+## 会话切换读取回归修复（2026-10-13）
+
+基线 `50d50d3a46ec409420a9c1382ab5101ba16892bd`，分支 `codex/remove-session-rebuild-notice`。
+User 要求删除原生会话重建提示和对应事件历史判断，并授权 PR 合入及日常 App 安装。
+删除公开/单聊 Renderer 提示与翻译、两类 Run View 字段及各自 SQL 子查询。
+恢复和 continuity 审计仍由原 Runtime 路径拥有；不新增迁移或模型上下文变更。
+字段边界见 [Runtime Launch v62](../../contracts/runtime-launch-and-verification-v62.md)。
+
+复用 `read_model::camp_open_slow_tests` 的完整首屏事件访问禁止及规模 owner；
+在既有 `single_chat::tests::successful_final_is_private_and_a_cancelled_run_cannot_append_late_output`
+增加公聊/单聊投影的 SQLite authorizer 禁止事件读取断言，不新建独立测试或放宽原性能边界。
+
+- 5 项 CampOpen 慢测与上述单聊 owner 通过。无关事件从 5 万增至 500 万、无关 Evidence 从
+  1,000 增至 100,000 时，首屏 SQL VM 步数保持 3,085。
+- 同机两个真实会话的生产 ReadModel 只读测量，11 次采样的后 10 次中位数从 985/1,105 ms
+  降至 21/22 ms；这是 Debug Read Side 测量，不含 Electron 渲染、IPC 或共享数据库锁等待。
+- 类型检查与完整 `pnpm test` 通过：242 个 Vitest 文件、2,656 项用例；后续 Node 340 项通过、
+  2 项平台跳过。文档带 base 的 CI 门禁通过。
+  主目录的 Git 忽略原型存在既有坏链接，因此完整前端及文档门禁在同基线加本次 patch 的干净
+  临时检出运行，共用已锁定的 Node 依赖；未改动本机原型或跳过测试。
+- User 后续明确要求只跑专项：正在运行的 Rust workspace 全量已停止，不计为通过；后续只做
+  与会话打开相关的定向验收及构建/安装校验。
+
 ## 项目目录 JSON 保存（2026-10-12）
 
 基线主线 `bab6034df3459269a4a15628dc436d660716f1ac`，分支 `rovai/json-project-navigation`，复用原隔离

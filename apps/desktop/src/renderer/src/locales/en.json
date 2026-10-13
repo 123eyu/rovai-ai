@@ -1,5 +1,4 @@
 {
-  "原生会话未能恢复，已新建会话继续。Camp 中的消息保留。": "The native session could not be restored. A new session was created; messages in this Camp are preserved.",
   "已保存": "Saved",
   "启动设置已保存，连接更改尚未保存。": "Startup settings saved; connection changes are still unsaved.",
   "待邀请": "Pending invitation",

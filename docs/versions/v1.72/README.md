@@ -11,6 +11,13 @@ last_updated: 2026-10-13
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 会话切换读取回归修复（2026-10-13）
+
+按 User 要求移除公开及单聊执行过程中的原生会话重建提示、对应 View 字段和事件历史查询，
+恢复 Camp Open 不读取 `event_log` 的边界。原生恢复和审计事件保持，不新增数据库迁移。
+当前合同见 [Runtime Launch v62](../../contracts/runtime-launch-and-verification-v62.md)，
+验证见[实施记录](implementation-plan.md#会话切换读取回归修复2026-10-13)。
+
 ## 原生恢复真实 CLI 复测（2026-10-12）
 
 15 类 Runtime 的隔离实测发现 CodeBuddy 空历史假恢复及四类结构化恢复拒绝未接入降级。

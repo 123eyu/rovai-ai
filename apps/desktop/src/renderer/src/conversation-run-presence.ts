@@ -61,22 +61,29 @@ export function conversationRunPresenceTimeline(
       && message.sourceAgentRunId === run.id && !message.id.startsWith('optimistic:'))
       .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null)
     const inputAnchor = messages.find(message => message.id === run.anchorMessageId)
-    // Current batch Runs have an immutable claimed-input anchor. Older/direct
-    // Runs without one recover from their start boundary, never the latest tail.
-    const startAnchor = inputAnchor ?? (run.anchorMessageId ? null : messages.filter(message => !message.id.startsWith('optimistic:')
+    const startSequence = run.publicTailSequenceAtStart
+    // The last claimed input may precede another Run's reply. Pin to Core's
+    // frozen public tail at claim time, independent of paging or wall clocks.
+    // Legacy projections retain their input/time fallback, never today's tail.
+    const startAnchor = startSequence != null
+      ? messages.filter(message => !message.id.startsWith('optimistic:') && message.sequence <= startSequence)
+        .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null)
+      : inputAnchor ?? (run.anchorMessageId ? null : messages.filter(message => !message.id.startsWith('optimistic:')
       && message.createdAt <= (run.startedAt ?? run.createdAt))
       .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null))
     const anchor = ownMessage ?? startAnchor
     let index = anchor ? timeline.findIndex(item => item.kind === 'camp_message' && item.id === anchor.id) : -1
-    // Keep a published message and its attached artifacts together. A failed
-    // silent Run may instead have a standalone artifact group.
+    // A failed silent Run may instead have a standalone artifact group.
     if (!ownMessage && run.status === 'failed') {
       const artifactIndex = timeline.findLastIndex(item => item.kind !== 'camp_message' && outputRunId(item) === run.id)
       if (artifactIndex >= 0) index = artifactIndex
     }
-    if (ownMessage || run.status === 'failed') {
+    // Every message's output group is atomic, including an earlier Run's reply
+    // used as the start anchor. Continuation identity is still checked below.
+    const anchorRunId = outputRunId(timeline[index])
+    if (anchorRunId) {
       while (index + 1 < timeline.length && timeline[index + 1].kind !== 'camp_message'
-        && outputRunId(timeline[index + 1]) === run.id) index += 1
+        && outputRunId(timeline[index + 1]) === anchorRunId) index += 1
     }
     groups.set(index, [...(groups.get(index) ?? []), { run, continuation: false }])
   }

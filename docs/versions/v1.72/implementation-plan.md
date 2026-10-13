@@ -2017,6 +2017,27 @@ User 确认 4.8 秒、执行行右键入口及连接／处理两阶段文案，�
 外观保存使用隔离内存适配器，未启动日常 App、Core 或真实 Runtime；BusinessApp 的设置跳转
 复用既有离开保护与草稿 owner，浏览器夹具只验证组件路径，不替代完整 App 的导航验收。
 
+## 执行行与回复产物顺序（2026-10-13）
+
+User 确认修正执行行拆开回复与 Files Changed／入队卡片，以及连续输入后新执行回插到上一轮回复之前。
+基线 `997856a8317531b6daaeb3c0d27a20644f4aaaaa`，分支 `rovai/run-presence-order`，独立 worktree 实施。
+
+- Snapshot / Open 的 Run View 直接投影已持久化的启动公开消息边界，输入锚点与模型上下文不变，
+  没有迁移、新查询或新持久副本。精确读取合同见 [Camp Open Projection v27](../../contracts/camp-open-projection-v27.md)。
+- 执行行初始使用冻结边界，自己的公开回复后才推进；插入时越过锚点所属 Run 的整个连续输出组，
+  同一队员不同 Run 仍显示各自身份。边界见 [Run Process Detail Surface v53](../../contracts/run-process-detail-surface-v53.md)。
+- 单元覆盖排队输入、后来插话、时钟回拨、分页与重入、旧字段兼容、连续回复和跨 Run 卡片组。
+  生产组件浏览器夹具新增明确 DOM 顺序断言，不用同一个投影函数充当预期结果。
+- Rust 扩展既有分页 owner 为 `camp_open_run_titles_and_start_boundaries_survive_message_paging`，
+  保留摘要全部 case，增加冻结序号与旧 null 在 Open / Snapshot 中的投影断言；没有新增独立 Rust fixture。
+  该 owner 属于 `slow-tests`，必须显式开启；仅 `extended-tests` 不执行它。
+
+本机验证：`pnpm typecheck`、`pnpm test`、`cargo check --workspace`、Rust 格式检查通过。
+定向执行上述分页 owner，以及 `camp_open_preserves_business_state_without_reading_event_history`，
+验证有界分页读取、wire 字段与零事件历史访问。生产组件浏览器验收通过 38 个阶段、6 组主题尺寸、
+28 项交互记录，包含新初始位置、完整附属卡片、resync 及仅在自身公开回复后移动。
+浏览器使用独立临时 Chrome profile 与合成投影，Rust 使用隔离数据库；没有调用真实 Runtime。
+
 ## 执行行误回到启动状态（2026-10-13）
 
 User 报告远程执行行在公开回复后再次显示连接／处理文案，随后确认 dsh 与 Trae CLI 也有同样现象。

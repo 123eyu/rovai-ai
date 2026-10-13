@@ -253,10 +253,11 @@ export const model = {
   },
   get: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   note: (note: string) => update({ note }),
-  showStartupStatus(waitReason: 'runtime_initializing' | null) {
+  showStartupStatus(waitReason: 'runtime_initializing' | null, preserveEvidence = false) {
     update({ streamPaused: true, snapshot: { ...state.snapshot,
       agentRuns: state.snapshot.agentRuns.map((run: any) => run.id === 'run-alice' ? { ...run, waitReason } : run),
-      executionEvidence: state.snapshot.executionEvidence.filter((item: any) => item.agentRunId !== 'run-alice')
+      executionEvidence: preserveEvidence ? state.snapshot.executionEvidence
+        : state.snapshot.executionEvidence.filter((item: any) => item.agentRunId !== 'run-alice')
     } })
   },
   showNarration(text: string) {

@@ -328,7 +328,17 @@ export interface MemberRemovalPreview {
   openAssignedTaskCount: number
   defaultLeadThreadCount: number
   soleMemberThreadCount: number
+  affectedThreads: MemberRemovalThreadImpact[]
   removable: boolean
+}
+
+export interface MemberRemovalThreadImpact {
+  threadId: string
+  title: string
+  remainingMemberCount: number
+  wasDefaultLead: boolean
+  nextDefaultLeadAgentId: string | null
+  nextDefaultLeadDisplayName: string | null
 }
 
 export interface ReorderAgentProfilesCommand {
@@ -1131,13 +1141,14 @@ export interface ThreadMemberRemovalPreview {
   membershipGeneration: number
   membershipVersion: number
   isDefaultLead: boolean
+  remainingMemberCount: number
   nextDefaultLeadAgentId: string | null
   nonTerminalAgentRunCount: number
   openAssignedTaskCount: number
   pendingDeliveryCount: number
   runningDeliveryCount: number
   removable: boolean
-  blockerCode: 'camp.member_not_active' | 'camp.last_member_required' | null
+  blockerCode: 'camp.member_not_active' | null
 }
 
 export interface TaskView {

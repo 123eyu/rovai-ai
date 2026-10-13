@@ -3,7 +3,7 @@ document_type: architecture
 architecture: dingtalk-channel
 authority: dingtalk-channel-component-and-authority-boundaries
 status: accepted
-last_updated: 2026-09-28
+last_updated: 2026-10-13
 ---
 
 # 钉钉渠道架构
@@ -12,7 +12,7 @@ last_updated: 2026-09-28
 [Channel Message Bridge v1](../contracts/channel-message-bridge-v1.md)，credential 与 Developer Session 持久化见
 [Channel Storage v3](../contracts/channel-storage-v3.md)，共享 Camp admission、membership 与
 模型输入分别继续由 provider-neutral 渠道核心、
-[Camp Membership v2](../contracts/camp-membership-v2.md)和
+[Camp Membership v3](../contracts/camp-membership-v3.md)和
 [ContextManifest Evidence v27](../contracts/context-manifest-evidence-v27.md)拥有。取舍理由见
 [v1.36 决策记录](../versions/v1.36/decisions.md)和
 [V1.37-D09](../versions/v1.37/decisions.md#v1-37-d09)、
@@ -289,7 +289,7 @@ DingTalk Snapshot 另外只投影 inbound collecting/ready/overdue 与 Card crea
 
 - [DingTalk Channel v14](../contracts/dingtalk-channel-v14.md)
 - [Channel Storage v3](../contracts/channel-storage-v3.md)
-- [Camp Membership v2](../contracts/camp-membership-v2.md)
+- [Camp Membership v3](../contracts/camp-membership-v3.md)
 - [渠道设置](../ui/components/channel-settings.md)
 - [v1.36 决策记录](../versions/v1.36/decisions.md)
 - [V1.37-D09](../versions/v1.37/decisions.md#v1-37-d09)

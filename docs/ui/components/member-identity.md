@@ -174,3 +174,11 @@ AI 草稿复用普通会话所有结构，新会话按当前界面语言预填�
 `pnpm test:member-creation` 使用 production BusinessApp 与隔离 transport 验证选择、草稿切换、发送失败、
 入队回执、配置跳转、手动降级、中英文及手机原生输入；`ROVAI_KEEP_MEMBER_CREATION_FIXTURE=1` 保留截图。
 它与既有 member-editor 测试共同保护右侧设置。
+
+
+## 永久移除影响
+
+永久移除继续要求精确名称确认。Core 预览列出会退出的会话、会变空的数量、队长交接和待释放任务。
+只剩目标一人的会话不阻止删除；有未结束执行时明确展示原因，并提供“重新读取影响”。
+失败保留输入和弹窗，重新读取发现名称变更时清空名称确认。历史身份与记录保留，当前语义见
+[Camp Membership v3](../../contracts/camp-membership-v3.md)。

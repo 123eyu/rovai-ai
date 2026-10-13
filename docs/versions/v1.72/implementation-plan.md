@@ -2070,3 +2070,31 @@ User 报告远程执行行在公开回复后再次显示连接／处理文案，
 远程探针使用独立临时 data-dir、Skill Library、MCP 配置、Runtime 文件根与 Chrome profile，
 只在合成数据库中注入执行记录，没有调用真实 Runtime；dsh / Trae 的真实模型运行不是本轮验收项。
 未写入日常数据库，未安装或重启日常 App。修改只交付任务分支，待后续发布后生效。
+
+
+## 空会话与队员移除（2026-10-13）
+
+User 在当前 Thread 确认交互稿后，明确要求去掉失效接收者的输入/附件保留长提示并开启 worktree 实现。
+分支 `rovai/empty-thread-members`，基线 `a8704823a219334ac73603bc6bfcc5c7dde16373`。
+共用 membership cutover；无数据库迁移，无模型上下文修改。
+
+测试归属：扩展既有 `collaboration::slow_tests::removal_cutover_releases_work_persists_reconciliation_and_never_revives_the_old_run`
+与 `remove_member_atomically_ends_membership_releases_tasks_and_reconciles_lead`，取消原最后成员拒绝断言并以
+空会话保留、无接收者拒绝、重新邀请恢复替代；旧 lifetime、防重、任务释放与非终态全局删除保护保留。
+不新增 Rust test function。Renderer 扩展原 Composer 与 Member Editor 的生产组件 fixture，数据库事务由上述 SQLite owner 验证。
+
+本机验证结果：
+
+- `pnpm typecheck`、`pnpm test` 通过；Vitest 242 文件、2658 项通过，通用 Node 回归 340 项通过、2 项平台限定跳过。
+- `cargo check --workspace`、`cargo fmt --all --check` 通过。
+  `cargo test --workspace -j4 -- --test-threads=4` 共 460 项通过、1 项既有 ignored。
+  首轮并发执行遇到既有 `runtime_probe_process` 子进程输出清理超时；该 owner 单独重试与完整受限并发回归均通过。
+- `collaboration::slow_tests` 的 46 项覆盖通过：首轮 45 项通过；全局移除 owner 修正测试夹具的终态值后定向重跑通过。
+  包含最后成员 cutover、历史保留、空默认/广播拒绝、重新邀请、旧 lifetime 不复活和全局运行中阻断。
+- `pnpm build:desktop` 通过。生产组件的 Composer Invitations 与 Member Editor 浏览器夹具通过，
+  覆盖实际菜单/确认按钮、中文名称、逐会话影响、冲突刷新、失败重试、空会话保留、显式接收者修复及不自动发送。
+  已核对空会话与永久移除弹窗的日夜主题截图。
+- `pnpm docs:test`、`pnpm docs:check` 及相对上述基线的 `pnpm docs:check:ci` 通过。
+
+浏览器验收使用独立临时 Electron userData、Skill Library 与闭合 transport，Rust 测试使用隔离 SQLite 数据库；没有调用真实 Runtime 或写入日常数据。
+交付 checkout 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-empty-thread-members`，状态 `ready`，后续沿用该工作树。

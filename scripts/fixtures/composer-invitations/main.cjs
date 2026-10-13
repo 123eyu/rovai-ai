@@ -9,10 +9,14 @@ app.setPath('userData', userData); app.setPath('sessionData', join(userData, 'se
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, width: 1040, height: 700,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } })
-  const evaluate = code => window.webContents.executeJavaScript(code, true)
+  const evaluate = async code => {
+    try { return await window.webContents.executeJavaScript(code, true) }
+    catch (error) { throw new Error(`Renderer expression failed: ${code}`, { cause: error }) }
+  }
   const wait = async predicate => {
     for (let i = 0; i < 100; i++) {
-      if (await evaluate(predicate)) return
+      const result = await evaluate(predicate)
+      if (result) return result
       await new Promise(resolve => setTimeout(resolve, 30))
     }
     throw new Error(`Timed out: ${predicate}; state: ${JSON.stringify(await evaluate('invitationTest.state()'))}`)
@@ -20,8 +24,8 @@ app.whenReady().then(async () => {
   const key = async (key, code) => {
     for (const type of ['keyDown', 'keyUp']) await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type, key, windowsVirtualKeyCode: code })
   }
-  const click = async selector => {
-    const point = await evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); const r = node.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; if (!node.contains(document.elementFromPoint(x, y))) throw new Error('Click target is obscured'); return {x, y}; })()`)
+  const click = async (selector, text) => {
+    const point = await wait(`(() => { const node = [...document.querySelectorAll(${JSON.stringify(selector)})].find(node => node.getBoundingClientRect().width > 0 && (${JSON.stringify(text ?? null)} === null || node.textContent.trim() === ${JSON.stringify(text ?? null)})); if (!node || node.matches(':disabled,[aria-disabled="true"],[data-disabled]')) return null; const r = node.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; if (!node.contains(document.elementFromPoint(x, y))) return null; return {x, y}; })()`)
     for (const type of ['mousePressed', 'mouseReleased']) await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {type, ...point, button:'left', clickCount:1})
   }
   let mentionCount = 0
@@ -153,7 +157,104 @@ app.whenReady().then(async () => {
     state = await evaluate('invitationTest.state()')
     assert.ok(state.calls.indexOf('add:outside') < state.calls.indexOf('send'))
     assert.deepEqual(state.errors, [])
-    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'away refresh keeps pending name static', 'removed profile remains unavailable', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send'], userData }))
+    await wait('invitationTest.state().continuation')
+    // A replacement invitation cannot silently redirect an existing continuation.
+    await click('#camp-message')
+    await window.webContents.debugger.sendCommand('Input.insertText', { text: '接收者离开后继续保留' })
+    await wait('invitationTest.state().draft?.body.includes("接收者离开后继续保留")')
+    await evaluate('invitationTest.removeAll()')
+    await wait(`document.querySelector('.reply-recipient-repair')?.innerText.includes('原接收者当前不可接收') && invitationTest.state().button`)
+    assert.equal(await evaluate(`document.body.innerText.includes('当前输入与附件会继续保留；只有你显式选择新接收者后才能发送。')`), false)
+    await click('.reply-recipient-repair .composer-recipient-recovery')
+    await wait(`!!document.querySelector('.camp-member-candidate-row input')`)
+    await click('.camp-member-candidate-entry:first-child input')
+    await click('.camp-member-dialog .primary-button')
+    await wait('invitationTest.state().memberIds.includes("lead")')
+    assert.equal((await evaluate('invitationTest.state()')).submissions.length, 4)
+    assert.equal((await evaluate('invitationTest.state()')).button, true, 'new lead does not replace the previous recipient implicitly')
+    await click('.camp-detail-collapse')
+    await click('.reply-recipient-options button', '@负责人')
+    await wait('!invitationTest.state().button')
+    assert.equal((await evaluate('invitationTest.state()')).text, '@负责人 接收者离开后继续保留')
+    await evaluate('invitationTest.submit()')
+    await wait('invitationTest.state().submissions.length === 5 && invitationTest.state().text === ""')
+    await wait(`!!document.querySelector('#camp-message[contenteditable="true"]')`)
+    // The final member can leave through the production menu; a conflict must be re-previewed.
+    await evaluate('invitationTest.hide()')
+    await wait(`!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await evaluate('invitationTest.active(); invitationTest.show()')
+    await wait(`!!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await evaluate('invitationTest.focus()')
+    await window.webContents.debugger.sendCommand('Input.insertText', { text: '保留这份草稿' })
+    await wait('!invitationTest.state().button')
+    const historyBefore = await evaluate(`document.querySelectorAll('.message-bubble').length`)
+    await click('.camp-detail-entry[data-detail="members"]')
+    await wait(`!!document.querySelector('.camp-detail-popover:not([hidden]) .camp-member-action-button')`)
+    await click('.camp-member-action-button')
+    await wait(`!!document.querySelector('.camp-member-menu .is-danger')`)
+    assert.equal(await evaluate(`document.querySelector('.camp-member-menu .is-danger').getAttribute('data-disabled')`), null)
+    await click('.camp-member-menu .is-danger')
+    await wait(`document.querySelector('.camp-member-removal-dialog')?.innerText.includes('移出后暂无队员')`)
+    await evaluate('invitationTest.conflictRemoval()')
+    await click('.camp-member-removal-dialog .danger-button')
+    await wait(`document.querySelector('.camp-member-removal-dialog')?.innerText.includes('名册已发生变化')`)
+    assert.deepEqual((await evaluate('invitationTest.state()')).memberIds, ['lead'])
+    await click('.camp-member-removal-dialog .quiet-button', '重新读取影响')
+    await wait(`!document.querySelector('.camp-member-removal-dialog .danger-button').disabled`)
+    await click('.camp-member-removal-dialog .danger-button')
+    await wait('invitationTest.state().memberIds.length === 0 && invitationTest.state().button')
+    assert.equal((await evaluate('invitationTest.state()')).text, '保留这份草稿')
+    assert.equal(await evaluate(`document.querySelectorAll('.message-bubble').length`), historyBefore)
+    assert.ok((await evaluate('invitationTest.state()')).calls.includes('remove:lead:2'))
+    await click('.camp-detail-collapse')
+    for (const theme of ['day', 'night']) {
+      await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+      writeFileSync(join(evidence, `empty-${theme}.png`), (await window.webContents.capturePage()).toPNG())
+    }
+    await click('.composer-recipient-recovery')
+    await wait(`!!document.querySelector('.camp-member-candidate-row input')`)
+    await click('.camp-member-candidate-entry:last-child input')
+    await evaluate('invitationTest.failInvite()')
+    await click('.camp-member-dialog .primary-button')
+    await wait(`!!document.querySelector('.camp-member-candidate-error')`)
+    assert.equal((await evaluate('invitationTest.state()')).text, '保留这份草稿')
+    assert.equal(await evaluate(`document.querySelector('.camp-member-candidate-entry:last-child input').checked`), true)
+    await click('.camp-member-dialog .primary-button')
+    await wait('invitationTest.state().memberIds.includes("outside") && !invitationTest.state().button')
+    assert.equal((await evaluate('invitationTest.state()')).submissions.length, 5, 'inviting never sends the saved draft')
+    assert.equal((await evaluate('invitationTest.state()')).text, '保留这份草稿')
+    await click('.camp-detail-collapse')
+    await evaluate('invitationTest.submit()')
+    await wait('invitationTest.state().submissions.length === 6 && invitationTest.state().text === ""')
+    await wait(`!!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await click('#camp-message')
+    await window.webContents.debugger.sendCommand('Input.insertText', { text: '@爱丽丝' })
+    await wait(`!!document.querySelector('.structured-mention-menu [role="option"]')`)
+    await key('Enter', 13)
+    await wait('invitationTest.state().atoms === 1 && !invitationTest.state().button')
+    assert.equal(await evaluate(`!!document.querySelector('.composer-route-rail .mention-target-summary')`), false, 'explicit current member has no duplicate recipient summary')
+    await evaluate('invitationTest.away()')
+    await wait('invitationTest.state().button')
+    await click('.composer-recipient-recovery')
+    assert.ok((await evaluate('invitationTest.state()')).calls.includes('manage-members'))
+    assert.equal(await evaluate(`document.body.innerText.includes('当前输入与附件会继续保留；只有你显式选择新接收者后才能发送。')`), false)
+    // Empty Active invitation still uses the native Mention Picker and explicit add-then-send.
+    await evaluate('invitationTest.hide()')
+    await wait(`!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await evaluate('invitationTest.empty(); invitationTest.show()')
+    await wait(`!!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await mention()
+    await evaluate('invitationTest.submit()')
+    await wait('invitationTest.state().submissions.length === 7 && invitationTest.state().atoms === 0')
+    state = await evaluate('invitationTest.state()')
+    assert.ok(state.calls.indexOf('add:outside') < state.calls.indexOf('send'))
+    assert.deepEqual(state.errors, [])
+    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'away refresh keeps pending name static', 'removed profile remains unavailable', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send', 'last member removal and CAS conflict refresh', 'empty conversation retains draft and history', 'failed invitation retains selection and retries without sending', 'stale continuation requires explicit recipient repair', 'current explicit mention has no duplicate recipient summary', 'all-away recovery opens member management', 'empty Active native invitation and send'], userData }))
     app.exit(0)
-  } catch (error) { console.error(error); app.exit(1) }
+  } catch (error) {
+    console.error(error)
+    writeFileSync(join(evidence, 'failure.png'), (await window.webContents.capturePage()).toPNG())
+    try { console.error(JSON.stringify(await evaluate('invitationTest.state()'))) } catch {}
+    app.exit(1)
+  }
 })

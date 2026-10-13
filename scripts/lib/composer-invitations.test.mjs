@@ -23,6 +23,8 @@ test('production Composer invites outsiders in Pending drafts and preserves fail
       build: { outDir: join(fixture, 'renderer'), minify: false } })
     const env = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
     delete env.ELECTRON_RUN_AS_NODE
+    await mkdir(join(fixture, 'user-data/managed-skill-library'), { recursive: true })
+    console.log(`Automatic acceptance userData: ${join(fixture, 'user-data')}; Skill Library: ${join(fixture, 'user-data/managed-skill-library')}; no Core or Runtime`)
     child = spawn(electron, [join(root, 'scripts/fixtures/composer-invitations/main.cjs'), join(fixture, 'renderer/index.html'),
       join(fixture, 'user-data'), join(fixture, 'evidence'), ...(process.platform === 'linux' ? ['--no-sandbox'] : [])],
     { env, stdio: ['ignore', 'pipe', 'pipe'] })

@@ -293,6 +293,7 @@ export function composerHasSendablePayload(
 
 export function composerSendIsDisabled(input: {
   hasSendablePayload: boolean
+  hasAvailableRecipient: boolean
   hasUnavailableMention: boolean
   replyRepairRequired: boolean
   continuationRepairRequired: boolean
@@ -304,6 +305,7 @@ export function composerSendIsDisabled(input: {
   failedAttachmentCount: number
 }): boolean {
   return !input.hasSendablePayload
+    || !input.hasAvailableRecipient
     || input.hasUnavailableMention
     || input.replyRepairRequired
     || input.continuationRepairRequired
@@ -605,11 +607,14 @@ export function composerRecipientSummary(
   content: ComposerDocument,
   members: ThreadSnapshot['members']
 ): string | null {
+  const currentMembers = campInspectorMembers(members)
+  if (currentMembers.length === 0) return uiAttribute('暂无队员')
+  if (!currentMembers.some(campMemberIsLeadEligible)) return uiAttribute('队员均暂离')
   if (content.segments.some((segment) =>
     segment.kind === 'atom'
       && (segment.atom.type === 'member' || segment.atom.type === 'all_members')
   )) return null
-  const defaultLead = members.find((member) => member.isDefaultLead)
+  const defaultLead = currentMembers.find((member) => member.isDefaultLead && campMemberIsLeadEligible(member))
   return defaultLead ? uiAttribute("默认由队长 @{0} 接收", String(defaultLead.displayName)) :uiAttribute("默认队长当前不可用")
 }
 
@@ -1661,6 +1666,7 @@ export function ThreadWorkspace({
   firstRunThread = null,
   firstRunThreadId = null,
   onConfigureRuntime,
+  onOpenMembers,
   onOpenMotionSettings,
   onDismissRuntimeRecovery,
   onNotify = () => undefined,
@@ -1724,6 +1730,7 @@ export function ThreadWorkspace({
   firstRunThread?: FirstRunThreadContext | null
   firstRunThreadId?: string | null
   onConfigureRuntime?(agentId: string): void
+  onOpenMembers?(): void
   onOpenMotionSettings?(): void
   onDismissRuntimeRecovery?(): void
   onNotify?(message: string): void
@@ -1755,6 +1762,7 @@ export function ThreadWorkspace({
   const [, setComposerDraftProjectionVersion] = useState(0)
   const [draftLoadState, setDraftLoadState] = useState<DraftLoadState>({ state: 'loading' })
   const [composerPersistenceError, setComposerPersistenceError] = useState<Error | null>(null)
+  const [memberInvitationThreadId, setMemberInvitationThreadId] = useState<string | null>(null)
   const [composerLocalStatus, setComposerLocalStatus] = useState<ComposerLocalStatus>({
     hasContent: false,
     hasExplicitRecipient: false,
@@ -2506,7 +2514,9 @@ export function ThreadWorkspace({
     conversationView === 'conversation', groupingFollowsLatest
   )
   const isThreadEmpty = !campConversationHasVisibleHistory(conversationTimeline)
-  const defaultLead = snapshot.members.find((member) => member.isDefaultLead) ?? null
+  const defaultLead = snapshot.members.find((member) => member.isDefaultLead && campMemberIsLeadEligible(member)) ?? null
+  const hasCurrentMembers = campInspectorMembers(snapshot.members).length > 0
+  const hasAvailableRecipient = pendingInviteIds.length > 0 || snapshot.members.some(campMemberIsLeadEligible)
   const replyRepairRequired = composerDraftNeedsReplyRepair(composerDraft)
   const hasExplicitRecipient = composerLocalStatus.hasExplicitRecipient
   const continuationIntent = composerDraft?.continuationIntent ?? null
@@ -2538,10 +2548,10 @@ export function ThreadWorkspace({
       && !continuationRepairRequired
   )
   const recipientSummary = useMemo(
-    () => hasExplicitRecipient
+    () => hasExplicitRecipient && hasAvailableRecipient
       ? null
       : composerRecipientSummary(emptyComposerDocument(), snapshot.members),
-    [hasExplicitRecipient, snapshot.members]
+    [hasExplicitRecipient, hasAvailableRecipient, snapshot.members]
   )
   const composerSkills = useMemo(
     () => composerSkillsFromCandidates(composerSkillCatalog.candidates),
@@ -2561,6 +2571,7 @@ export function ThreadWorkspace({
     || composerSubmitting
   const composerSendDisabled = composerSendIsDisabled({
     hasSendablePayload,
+    hasAvailableRecipient,
     hasUnavailableMention,
     replyRepairRequired,
     continuationRepairRequired,
@@ -4398,6 +4409,27 @@ export function ThreadWorkspace({
     onOpenInspector?.(tab)
   }
 
+  const recipientRecoveryAction = !hasAvailableRecipient && (
+    <button
+      type="button"
+      className="composer-recipient-recovery"
+      disabled={composerInteractionDisabled || busy}
+      onClick={() => {
+        if (hasCurrentMembers) {
+          if (onOpenMembers) onOpenMembers()
+          else openInspector('members')
+        } else {
+          if (snapshot.thread.activationState === 'pending') {
+            composerHandleRef.current?.startMention()
+            return
+          }
+          openInspector('members')
+          setMemberInvitationThreadId(snapshot.thread.id)
+        }
+      }}
+    >{hasCurrentMembers ? uiAttribute('管理队员') : uiAttribute('邀请队员')}</button>
+  )
+
   const focusPlacementButton = (placement: ExecutionConsolePlacement): void => {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
@@ -5628,6 +5660,8 @@ export function ThreadWorkspace({
             </section>
             <section className="camp-detail-content tab-scroll camp-members-panel" hidden={inspectorSurfaceTab !== 'members'}>
               <ThreadMembersPanel key={snapshot.thread.id}
+                addDialogOpen={memberInvitationThreadId === snapshot.thread.id}
+                setAddDialogOpen={(open) => setMemberInvitationThreadId(open ? snapshot.thread.id : null)}
                 memberFast={memberFast}
                 snapshot={snapshot}
                 profileById={profileById}
@@ -5756,7 +5790,7 @@ export function ThreadWorkspace({
         {pendingInviteNames.length === 0 && ((continuationVisible && continuationIntent) || (
           composerDraft
           && recipientSummary
-          && !composerDraft.replyIntent
+          && (!composerDraft.replyIntent || (!hasAvailableRecipient && !replyRepairRequired))
           && !continuationRepairRequired
         ))
           ? (
@@ -5791,6 +5825,7 @@ export function ThreadWorkspace({
                         <span>{defaultLead
                           ? <><UiText zh={"默认由队长 "} /><strong>@{defaultLead.displayName}</strong><UiText zh={" 接收"} /></>
                           : recipientSummary}</span>
+                        {recipientRecoveryAction}
                       </span>
                     )}
               </div>
@@ -5907,9 +5942,10 @@ export function ThreadWorkspace({
                                   : undefined}
                                 className="quiet-button compact"
                                 type="button"
-                                disabled={composerInteractionDisabled}
+                                disabled={composerInteractionDisabled || !hasAvailableRecipient}
                                 onClick={() => void resolveReplyRecipient({ kind: 'all_members' })}
                               ><UiText zh={"@所有队员"} /></button>
+                              {recipientRecoveryAction}
                             </div>
                           </>
                         )}
@@ -5924,11 +5960,10 @@ export function ThreadWorkspace({
               <div className="reply-recipient-repair" role="alert" aria-live="assertive">
                 <div className="reply-recipient-repair-copy">
                   <strong><UiText zh={"原接收者当前不可接收，请选择其他成员"} /></strong>
-                  <span><UiText zh={"当前输入与附件会继续保留；只有你显式选择新接收者后才能发送。"} /></span>
                 </div>
                 <div className="reply-recipient-options" aria-label={uiAttribute("选择替代接收者")}>
                   {continuationReplacementMembers.length === 0
-                    ? <span className="reply-recipient-empty"><UiText zh={"当前没有其他可接收成员"} /></span>
+                    ? <><span className="reply-recipient-empty"><UiText zh={"当前没有其他可接收成员"} /></span>{recipientRecoveryAction}</>
                     : continuationReplacementMembers.map((member, index) => (
                       <button
                         ref={index === 0 ? recipientRepairFirstOptionRef : undefined}
@@ -8291,6 +8326,8 @@ export function RuntimeRecoveryDock({
 }
 
 function ThreadMembersPanel({
+  addDialogOpen,
+  setAddDialogOpen,
   memberFast,
   snapshot,
   profileById,
@@ -8302,6 +8339,8 @@ function ThreadMembersPanel({
   onRemoveMember,
   onNotify
 }: {
+  addDialogOpen: boolean
+  setAddDialogOpen(open: boolean): void
   memberFast: ThreadMemberFastControls
   snapshot: ThreadSnapshot
   profileById: Map<string, AgentProfile>
@@ -8330,7 +8369,6 @@ function ThreadMembersPanel({
   const [expandedRuntimeAgentIds, setExpandedRuntimeAgentIds] = useState<Set<string>>(
     () => new Set()
   )
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addSearch, setAddSearch] = useState('')
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(() => new Set())
   const [addSubmitting, setAddSubmitting] = useState(false)
@@ -8356,11 +8394,15 @@ function ThreadMembersPanel({
   }, [addSearch, candidateProfiles])
 
   const openAddDialog = (): void => {
+    setAddDialogOpen(true)
+  }
+
+  useEffect(() => {
+    if (!addDialogOpen) return
     setAddSearch('')
     setSelectedCandidateIds(new Set())
     setAddResult(null)
-    setAddDialogOpen(true)
-  }
+  }, [addDialogOpen])
 
   const closeAddDialog = (): void => {
     if (addSubmitting) return
@@ -8430,7 +8472,7 @@ function ThreadMembersPanel({
   }, [onPreviewMemberRemoval])
 
   const openRemovalDialog = (member: ThreadSnapshot['members'][number]): void => {
-    if (members.length <= 1 || !onRemoveMember) return
+    if (!onRemoveMember) return
     setRemovalTarget(member)
     void loadRemovalPreview(member.agentId)
   }
@@ -8491,6 +8533,7 @@ function ThreadMembersPanel({
     || removalPreview.openAssignedTaskCount > 0
     || removalDeliveryCount > 0
     || removalPreview.isDefaultLead
+    || removalPreview.remainingMemberCount === 0
   ))
   const showRemovalDialogBody = removalPreviewState.status !== 'ready'
     || Boolean(removalPreview && (!removalPreview.removable || removalHasActualImpact))
@@ -8500,7 +8543,7 @@ function ThreadMembersPanel({
       <div className="camp-members-summary">
         <div className="camp-members-summary-line">
           <div>
-            <small>{presentCount}<UiText zh={" 位在队 · "} />{awayCount}<UiText zh={" 位暂离"} /></small>
+            <small>{members.length === 0 ? uiAttribute('0 位队员') : <>{presentCount}<UiText zh={" 位在队 · "} />{awayCount}<UiText zh={" 位暂离"} /></>}</small>
           </div>
           <div className="camp-members-summary-actions">
             <button
@@ -8621,11 +8664,10 @@ function ThreadMembersPanel({
                     <DropdownMenu.Separator className="camp-member-menu-separator" />
                     <DropdownMenu.Item
                       className="camp-member-menu-item is-danger"
-                      disabled={members.length <= 1 || !onRemoveMember}
+                      disabled={!onRemoveMember}
                       onSelect={() => openRemovalDialog(member)}
                     >
                       <strong><UiText zh={"移出当前会话"} /></strong>
-                      {members.length <= 1 && <small><UiText zh={"会话至少保留 1 位队员"} /></small>}
                     </DropdownMenu.Item>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -8648,7 +8690,7 @@ function ThreadMembersPanel({
             </article>
           )
         })}
-        {members.length === 0 && <EmptyInline text={uiAttribute("当前会话没有可显示的队员。")} />}
+        {members.length === 0 && <EmptyInline text={uiAttribute("邀请队员加入，继续这次讨论。")} />}
       </div>
 
       <Dialog.Root open={addDialogOpen} onOpenChange={(open) => !open && closeAddDialog()}>
@@ -8767,7 +8809,7 @@ function ThreadMembersPanel({
                 {removalPreview && (
                   <>
                     {!removalPreview.removable && (
-                      <div className="camp-member-dialog-alert is-danger" role="alert"><UiText zh={"会话至少保留 1 位队员，本次没有移出任何队员。"} /></div>
+                      <div className="camp-member-dialog-alert is-danger" role="alert"><UiText zh={"这位队员已不在当前会话，请重新读取移出影响。"} /></div>
                     )}
                     {removalHasActualImpact && (
                       <AppDialogImpactList>
@@ -8783,9 +8825,11 @@ function ThreadMembersPanel({
                           <AppDialogImpact tone="warning" icon="info" label={uiAttribute("等待消息")}>
                             {removalDeliveryCount}<UiText zh={" 个投递将取消或结束。"} /></AppDialogImpact>
                         )}
-                        {removalPreview.isDefaultLead && (
-                          <AppDialogImpact tone="warning" icon="user" label={uiAttribute("队长职责")}>
-                            {removalPreview.nextDefaultLeadAgentId
+                        {(removalPreview.isDefaultLead || removalPreview.remainingMemberCount === 0) && (
+                          <AppDialogImpact tone="warning" icon="user" label={removalPreview.remainingMemberCount === 0 ? uiAttribute('会话状态') : uiAttribute("队长职责")}>
+                            {removalPreview.remainingMemberCount === 0
+                              ? uiAttribute('移出后暂无队员，邀请后可继续发送。历史记录保留。')
+                              : removalPreview.nextDefaultLeadAgentId
                               ? uiAttribute("将交给{0}。", String(profileById.get(removalPreview.nextDefaultLeadAgentId)?.displayName ?? uiAttribute("另一位在队队员")))
                               : uiAttribute("剩余队员都处于暂离状态，会话将暂时没有队长；有人归队后自动恢复。")}
                           </AppDialogImpact>

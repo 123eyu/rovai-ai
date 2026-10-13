@@ -988,6 +988,13 @@ describe('task event projections', () => {
       segments: [{ kind: 'atom', atom: { type: 'all_members' } }]
     }, members))
       .toBeNull()
+    expect(composerRecipientSummary({ version: 2, segments: [] }, [])).toBe('暂无队员')
+    expect(composerRecipientSummary({ version: 2, segments: [
+      { kind: 'atom', atom: { type: 'all_members' } }
+    ] }, [])).toBe('暂无队员')
+    expect(composerRecipientSummary({ version: 2, segments: [] }, members.map(member => ({
+      ...member, profilePresence: 'away'
+    })))).toBe('队员均暂离')
   })
 
   it('requires explicit repair only until an unavailable reply author is visibly replaced', () => {
@@ -2069,6 +2076,7 @@ describe('task event projections', () => {
 
   it('enables one send gate for text or ready attachments and blocks unfinished attachments', () => {
     const baseGate = {
+      hasAvailableRecipient: true,
       hasUnavailableMention: false,
       replyRepairRequired: false,
       continuationRepairRequired: false,
@@ -2081,6 +2089,9 @@ describe('task event projections', () => {
     }
 
     expect(composerHasSendablePayload('', true)).toBe(true)
+    expect(composerSendIsDisabled({
+      ...baseGate, hasSendablePayload: true, hasAvailableRecipient: false
+    })).toBe(true)
     expect(composerSendIsDisabled({
       ...baseGate,
       hasSendablePayload: composerHasSendablePayload('', true)

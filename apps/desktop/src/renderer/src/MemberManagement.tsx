@@ -674,7 +674,7 @@ const MemberEditor = forwardRef<
       if (activeRef.current)
         setRemoval({
           preview,
-          displayName: selectedAgent.displayName,
+          displayName: preview.displayName,
           confirmationName: ''
         })
     } catch (nextError) {
@@ -685,14 +685,33 @@ const MemberEditor = forwardRef<
   }
 
   const confirmRemoval = async (): Promise<void> => {
-    if (!removal) return
+    if (!removal || busy || !removal.preview.removable || removal.confirmationName !== removal.displayName) return
     await runCommand('remove', 'members.remove', {
       agentId: removal.preview.agentId,
       expectedVersion: removal.preview.version,
-      confirmationName: removal.displayName
+      confirmationName: removal.confirmationName
     })
     setNotice(uiAttribute("{0} 已移除，历史身份与记录继续保留。", String(removal.displayName)))
     setRemoval(null)
+  }
+
+  const refreshRemovalPreview = async (): Promise<void> => {
+    if (!removal || busy) return
+    const agentId = removal.preview.agentId
+    setBusy('remove-preview')
+    setError(null)
+    try {
+      const preview = await client.request<MemberRemovalPreview>('members.removalPreview', { agentId })
+      setRemoval((current) => current?.preview.agentId === agentId ? {
+        preview,
+        displayName: preview.displayName,
+        confirmationName: current.displayName === preview.displayName ? current.confirmationName : ''
+      } : current)
+    } catch (nextError) {
+      setError(errorMessage(nextError))
+    } finally {
+      setBusy(null)
+    }
   }
 
   const saveIdentity = async (
@@ -873,16 +892,32 @@ const MemberEditor = forwardRef<
                       {removal.preview.currentThreadMembershipCount}<UiText zh={" 个"} /></AppDialogFact>
                     <AppDialogFact label={uiAttribute("未完成任务")}>
                       {removal.preview.openAssignedTaskCount}<UiText zh={" 个将释放"} /></AppDialogFact>
-                    <AppDialogFact label={uiAttribute("默认负责人")}>
-                      {removal.preview.defaultLeadThreadCount}<UiText zh={" 个将重选"} /></AppDialogFact>
+                    <AppDialogFact label={uiAttribute("会话将变空")}>
+                      {removal.preview.soleMemberThreadCount}<UiText zh={" 个"} /></AppDialogFact>
                   </AppDialogFactGrid>
+                  {removal.preview.affectedThreads.length > 0 && (
+                    <div className="member-removal-threads" aria-label={uiAttribute('受影响的会话')}>
+                      {removal.preview.affectedThreads.map((thread) => (
+                        <div key={thread.threadId}>
+                          <span>{thread.title || uiAttribute('未命名会话')}</span>
+                          <small>{thread.remainingMemberCount === 0
+                            ? uiAttribute('将暂无队员')
+                            : thread.wasDefaultLead
+                              ? thread.nextDefaultLeadDisplayName
+                                ? uiAttribute('队长交给{0}', thread.nextDefaultLeadDisplayName)
+                                : uiAttribute('队员均暂离')
+                              : uiAttribute('移出此会话')}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {removal.preview.nonTerminalAgentRunCount > 0 && (
                     <div
                       className="inline-error app-dialog-blocker"
                       role="alert"
                     ><UiText zh={"仍有 "} />{removal.preview.nonTerminalAgentRunCount}{' '}<UiText zh={"个未结束的执行，当前不能移除。"} /></div>
                   )}
-                  <label className="field-label app-dialog-confirm-field"><UiText zh={"输入 "} /><code>{removal.displayName}</code><UiText zh={" 以确认"} /><input
+                  <label className="field-label app-dialog-confirm-field"><span><UiText zh={"输入 "} /><code>{removal.displayName}</code><UiText zh={" 以确认"} /></span><input
                       value={removal.confirmationName}
                       onChange={(event) =>
                         setRemoval({
@@ -898,6 +933,12 @@ const MemberEditor = forwardRef<
                   </label>
                 </AppDialogBody>
                 <AppDialogFooter>
+                  {(!removal.preview.removable || error) && (
+                    <button className="quiet-button" type="button" disabled={busy !== null}
+                      onClick={() => void refreshRemovalPreview()}>
+                      {busy === 'remove-preview' ? uiAttribute('正在读取…') : uiAttribute('重新读取影响')}
+                    </button>
+                  )}
                   <Dialog.Close
                     className="quiet-button"
                     type="button"
@@ -909,7 +950,7 @@ const MemberEditor = forwardRef<
                     disabled={
                       !removal.preview.removable ||
                       removal.confirmationName !== removal.displayName ||
-                      busy === 'remove'
+                      busy !== null
                     }
                     onClick={() => void confirmRemoval().catch(() => undefined)}
                   >

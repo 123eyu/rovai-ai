@@ -858,3 +858,23 @@ User 确认 1—5 一起实施。SQL 全文比对、上下文中间副本与摘�
 接受同一归属内相同 commandId 的首次结果优先，内容改变需新 ID；不再通过目录 hash 自动发现忘记升级
 协议版本的接口变化。旧中间证据仍可读，新记录对应字段为空；实际输入文字、权限、停止、继续和原生会话
 规则保持。拒绝双 digest、风险分类、回执账本、重试框架和额外后台对账体系。
+
+<a id="v1-72-d39"></a>
+
+## V1.72-D39：路由投影与完整身份分层，既有原生会话继续恢复
+
+- 状态：accepted
+- 日期：2026-10-13
+- 当前权威：[Collaboration State v4](../../contracts/collaboration-state-v4.md)、[Built-in Transport v39](../../contracts/builtin-tool-transport-v39.md)、[ContextManifest v34](../../contracts/context-manifest-evidence-v34.md)、[Profile 11/12](../../contracts/context-delivery-profile-v11.md)
+
+### 背景与选择
+
+专业职责扩为 10,000 字符后，自动向每位成员重复投递全部职责会增加无关上下文。User 确认 R4：
+团队角色承担简短分工，协作名单与 member list 只提供路由，完整身份按需 get，本人身份继续全文投递。
+提高完整上下文与确实阻碍长职责的局部容量；显式 Runtime 配置和原生实际限制仍各自有效。
+
+### 后果与替代方案
+
+工具与动态投影使用新版本，兼容分支保留旧 claimed/冻结输入；这不参与 Native Binding 的恢复判断。
+接受旧 Session 历史中仍有旧名单，后续新 Run 按现有摘要和 accepted ACK 自然刷新，不要求用户重开。
+拒绝自动摘要、增加身份字段、收紧队友字段权限、默认全员 get，以及通过截断或重写历史规避容量。

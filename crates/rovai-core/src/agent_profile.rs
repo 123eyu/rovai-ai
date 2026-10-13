@@ -5059,7 +5059,9 @@ pub(crate) fn validate_stored_member_identity(
     )?;
     if normalized.display_name != display_name
         || normalized.team_role != team_role
-        || normalized.professional_responsibilities != professional_responsibilities
+        // Existing rows may use Rust's former whitespace set; reading never rewrites them.
+        || (normalized.professional_responsibilities != professional_responsibilities
+            && professional_responsibilities.trim() != professional_responsibilities)
         || normalized.personality_traits != personality_traits
         || normalized.working_principles != working_principles
         || normalized.growth_topic != growth_topic
@@ -5088,6 +5090,26 @@ pub(crate) fn validate_member_identity_input(
     Ok(())
 }
 
+pub const PROFESSIONAL_RESPONSIBILITIES_MAX_SCALARS: usize = 10_000;
+pub const PROFESSIONAL_RESPONSIBILITIES_TOO_LONG: &str = "专业职责最多 10,000 个字符。";
+
+/// ECMAScript String.trim whitespace, matching the existing identity editor.
+/// U+FEFF is trimmed; U+0085 is retained. Interior formatting is untouched.
+pub fn normalize_professional_responsibilities(value: &str) -> Result<String> {
+    let value = value.trim_matches(|c| {
+        matches!(c,
+            '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' |
+            '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' |
+            '\u{205f}' | '\u{3000}' | '\u{feff}'
+        )
+    });
+    anyhow::ensure!(
+        value.chars().count() <= PROFESSIONAL_RESPONSIBILITIES_MAX_SCALARS,
+        PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+    );
+    Ok(value.to_owned())
+}
+
 pub(crate) fn normalize_member_identity(
     display_name: &str,
     team_role: &str,
@@ -5110,14 +5132,11 @@ pub(crate) fn normalize_member_identity(
     if team_role.chars().count() > 120 {
         anyhow::bail!("AgentProfile teamRole must not exceed 120 characters");
     }
-    let professional_responsibilities = professional_responsibilities.trim().to_string();
+    let professional_responsibilities =
+        normalize_professional_responsibilities(professional_responsibilities)?;
     let working_principles = working_principles.trim().to_string();
     let growth_topic = growth_topic.trim().to_string();
     for (field, value) in [
-        (
-            "professionalResponsibilities",
-            &professional_responsibilities,
-        ),
         ("workingPrinciples", &working_principles),
         ("growthTopic", &growth_topic),
     ] {
@@ -5717,6 +5736,54 @@ fn profile_updated_result(profile_id: &str, version: i64, code: &str) -> Command
             entity_id: profile_id.to_string(),
         }),
     )
+}
+
+#[cfg(test)]
+// Pure owner: normalization parity and the scalar boundary do not need a database fixture.
+#[test]
+fn professional_responsibilities_use_trimmed_unicode_scalar_limits() {
+    for text in [
+        "中".repeat(10_000),
+        "😀".repeat(10_000),
+        "e\u{0301}".repeat(5_000),
+        "\"\n\u{0000}中😀".repeat(2_000),
+    ] {
+        let padded = format!(" \u{feff}\r\n{text}\u{3000} ");
+        // A final newline/control may be content; padding is normalized before counting.
+        let expected = text.trim_matches(|c| matches!(c, '\n' | '\r' | ' '));
+        assert_eq!(
+            normalize_professional_responsibilities(&padded).unwrap(),
+            expected
+        );
+        let too_long = format!("中{}", "😀".repeat(10_000));
+        assert_eq!(
+            normalize_professional_responsibilities(&too_long)
+                .unwrap_err()
+                .to_string(),
+            PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+        );
+    }
+    assert_eq!(
+        normalize_professional_responsibilities(" \u{feff}\n").unwrap(),
+        ""
+    );
+    assert_eq!(
+        normalize_professional_responsibilities("\u{0085}a\u{0085}").unwrap(),
+        "\u{0085}a\u{0085}"
+    );
+    assert_eq!(
+        normalize_professional_responsibilities(" a\n  b ").unwrap(),
+        "a\n  b"
+    );
+    // Historical Rust-normalized FEFF remains readable without a rewrite.
+    assert!(validate_stored_member_identity("A", "", "\u{feff}old\u{feff}", &[], "", "").is_ok());
+    for (role, principles, growth) in [
+        ("x".repeat(121), String::new(), String::new()),
+        (String::new(), "x".repeat(301), String::new()),
+        (String::new(), String::new(), "x".repeat(301)),
+    ] {
+        assert!(normalize_member_identity("A", &role, "", &[], &principles, &growth).is_err());
+    }
 }
 
 #[cfg(all(test, feature = "slow-tests"))]

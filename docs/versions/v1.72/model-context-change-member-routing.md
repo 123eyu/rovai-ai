@@ -3,9 +3,13 @@ document_type: model-context-change
 version: v1.72
 change_id: member-routing
 revision: 4
-confirmation_status: pending
+confirmation_status: confirmed
+confirmed_revision: 4
+confirmed_by: User
+confirmed_at: 2026-10-13
+confirmation_message_id: 23b13d59-00b5-4c6c-a6f9-992b59fd32d6
 authority: proposed-model-input-change-statement
-implementation_status: not_started
+implementation_status: implemented
 review_baseline: 39bf1eb09a208ea9abd98b737d6ed7c669ed7cbf
 last_updated: 2026-10-13
 ---
@@ -15,7 +19,7 @@ last_updated: 2026-10-13
 本方案把团队角色用于快速识别分工，把专业职责用于详细描述。自动协作名单与 `member list`
 只提供路由信息；需要详细身份时读取相关队员的 `member get`。本人身份继续完整投递。
 
-这是待审阅方案，尚未修改实现、输入 Schema、CLI help 或当前生效合同。
+User 已于 2026-10-13 确认实施本 R4；以下前后对照作为实施基准，实际进度与验证记录另行追加。
 用户已确定提高完整上下文上限，并要求此次变化不影响任何现有 resume：新会话按新逻辑初始化，
 老会话保留原生历史正常续聊，不迁移、不重建、不要求用户处理。
 
@@ -771,7 +775,10 @@ member get 当前行读取、member update 原地更新与版本检查，以及�
 
 ## 二次确认
 
-R4 尚未获得用户阅读本文件后的实施确认；`confirmation_status: pending`。
+User 在阅读 R4 后通过消息 `23b13d59-00b5-4c6c-a6f9-992b59fd32d6` 明确要求：
+“那你开始编码，开启wt”。记录 `confirmation_status: confirmed`、`confirmed_revision: 4`，
+确认日期为 2026-10-13。继续复用本工作原有 worktree，实施基线已合入 `origin/main` 的
+`a8704823a`；原审阅基线与 R4 对照保持，主线新增改动未占用本方案的协议编号。
 Thread `rvcamp_01m4r7rvjff0svehpr9s78zc16` 中用户已确定需求、resume 边界与提高完整上限，
 消息 `c3403579-8f3c-40d6-b705-ccae198fea70` 要求“开启 wt”并先提供上下文、CLI、CLI-help 前后方案。
 该消息授权创建本 worktree 与本方案。随后消息 `c10f4185-c894-4eed-a50c-acc41901fc94`
@@ -785,9 +792,8 @@ R1、R2 原文分别保留在 Git 提交 `158b333001ba13ed313d9b5f431a69142ef9e5
 
 按[上下文变更治理](../../development/model-context-change-governance.md)：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
-因此本轮交付停在可审阅方案。阅读后若明确同意实施 R4，再记录真实的确认人、时间、消息和相等的
-`confirmed_revision`；语义改变则递增 revision。文档版本门禁在 pending 状态下应保持阻断，不能
-伪造确认字段或为此增加 checker 例外。
+本 R4 已取得上述明确实施授权，无需重复确认。后续若改变已确认语义，按治理规则记录 revision
+与实际确认；不伪造确认字段或增加 checker 例外。
 
 ## Worktree 交接
 
@@ -796,8 +802,143 @@ Work item: 成员路由精简、专业职责扩容与模型上下文/CLI/help �
 Worktree: /Users/murray.xue/VSCodeProjects/opensource/rovai-ai-member-routing-context
 Branch: rovai/member-routing-context
 Base: origin/main @ 39bf1eb09a208ea9abd98b737d6ed7c669ed7cbf
-Governance: none（本 R4 为提案，尚未确认或合入）
-Status: ready（方案待审，保留该 worktree 供后续复用）
-Validation: 见本文件“本轮文档验证记录”
-Next: 审阅 R4；确认后按同一工作区继续实施
+Governance: R4 confirmed by User / 23b13d59-00b5-4c6c-a6f9-992b59fd32d6
+Status: ready（代码与定向验收完成；语义 Gate 未运行）
+Validation: 见本文件“实施与验证记录”
+Next: 分支审阅；取得固定 Judge 配置后补齐语义 Gate
+```
+
+## 实施与验证记录（2026-10-13）
+
+R4 已在原 worktree 实现；上述审阅时的前后对照和历史验证记录不回写。本节记录实施后的状态。
+代码和定向验收完成，不宣称完整语义 Gate 或所有 Runtime 已通过，也未合入、发布或修改日常数据。
+
+### 实际契约差异
+
+| 项目 | 变更前 | 已实现 | 说明 |
+| --- | --- | --- | --- |
+| 专业职责 | 300 scalar | trim 后 0～10,000 scalar | 前端、Core、CLI Schema 同口径；超限原子失败，草稿保留；其他字段限制不变 |
+| Agent member list | 五字段含职责 | 四字段：ID、名称、角色、Lead | Schema 和 SQL 均删除职责；用户管理列表保持完整 |
+| Collaboration State | peer 四字段含职责 | peer 三字段：ID、名称、角色 | 直接查窄字段；摘要只基于最终投影；职责编辑不刷新名单 |
+| member get / 本人身份 | 完整身份 | 完整身份、允许长职责 | 原授权、临时图片、身份生效及补发资格保持 |
+| Transport / CLI / Output | 38 / 38 / 10 | 39 / 39 / 11 | IPC 3、Envelope 2 保持，旧结果 fixture 保留 |
+| public Manifest / Profile | 33 / 10 | 34 / 11 | 旧 29～33 已领取输入沿原 serializer；历史 Blob 不重写 |
+| 非 batch Manifest / Profile | 28 / 7 | 35 / 12 | 不复用历史 batch 编号；旧冻结 Profile 仍能读取 |
+| Database | schema 146 | schema 147 / migration 197 | 原子扩展格式准入，保留旧行；缺少新写入 guard 时拒绝准入 |
+| Native Binding / Bootstrap | 既有兼容标识、Bootstrap 5 | 保持 | 不因输出版本变更重建原生 Session |
+| 默认完整输入 / 同包 Bootstrap 预留 | 96 / 32 KiB | 256 / 128 KiB，另计实际封装 | claim 计入全部必需区段，保留完整消息及可选 Task 的既有优先级 |
+| Command Code / Cline 正文 | 32 KiB | 128 KiB | Command Code 外层绑定 JSON 同时从 64 调整为 256 KiB；Cline 规则文件完整保留 |
+| Help / 技能 | 详见 R4 对照 | 按已确认文本实施 | update 原本没有 default；member-studio 的用户原文处理及职责 1～3 句写法未改 |
+
+### 自动化与构建
+
+| 检查 | 结果 |
+| --- | --- |
+| `pnpm test` | Vitest 243 文件、2,663 项通过；Node 340 项通过、2 项平台跳过；包含文档治理测试 |
+| `cargo test --workspace -- --test-threads=4` | 462 项通过、1 项既有忽略 |
+| `cargo test -p rovai-core --all-features context::slow_tests -- --test-threads=4` | 45 项通过；含 v32/v33 待物化兼容、冻结恢复、名单 ACK、10,000 字符身份与补发 |
+| delivery_queue 既有 owner 组（all-features） | 25 项通过；完整上下文 FIFO 预算、显式预算覆盖和超大首条失败 |
+| 成员与 Migration 定向 owner（all-features） | 6 项通过：成员读写/创建授权及原子性、路由迁移、旧结果保留、Bootstrap 迁移、版本准入矩阵 |
+| `node --test scripts/lib/command-code-bootstrap.test.mjs` | 通过；长文本真实 JS hook 往返、正文超限及损坏绑定拒绝 |
+| `pnpm typecheck`、`pnpm build:desktop` | 通过 |
+| `pnpm docs:check`、`DOCS_BASE_REF=a8704823a219334ac73603bc6bfcc5c7dde16373 pnpm docs:check:ci` | 通过 |
+| `node scripts/check-skills.mjs`、`git diff --check` | 通过 |
+
+长度矩阵覆盖中文、四字节字符、组合字符、空白、换行/引号和 NUL JSON 转义；10,001 scalar 拒绝。
+历史 Rust trim 保留的 FEFF 边界文字仍可读；`member update` 省略职责时保持旧字节，只有显式写入才应用新规范化。
+Core 新会话测试使用 10,000 个 NUL，职责 JSON 实际膨胀为约 60 KiB，仍完整进入 Bootstrap 并在恢复时
+逐字节保持。补发 owner 使用 10,000 个四字节字符，核验完整 overlay 和既有 revision ACK。
+Command Code/Cline 文件测试跨过旧 32 KiB 正文界限；Command Code 两端对外层字节上限独立拒绝。
+
+调试期间保留的失败已修复并定向复验：旧 v33 formatter 的断言漏项、版本 golden/迁移夹具未跟随准入、
+图片临时路径不可作恒等断言。首次默认 Rust 并行运行还有一项进程清理时序失败，限制为 4 线程后完整通过。
+
+### Rust 测试准入记录
+
+| 新 owner | 修复前失败输入及不能复用的原因 | 最小命令 / 层级 |
+| --- | --- | --- |
+| `professional_responsibilities_use_trimmed_unicode_scalar_limits` | 原 Core 仅共享 300 限制，未有职责独立 trim/scalar owner；纯函数覆盖新边界，无需 SQLite | `cargo test -p rovai-core professional_responsibilities_use_trimmed_unicode_scalar_limits`；默认层 |
+| `long_bootstrap_bindings_preserve_utf8_and_enforce_body_and_envelope_limits` | 两个 Adapter 的真实绑定文件都拒绝合法长身份；已有 JS hook owner 不覆盖 Rust 写入及 Cline 不可变文件 | `cargo test -p rovai-core long_bootstrap_bindings_preserve_utf8_and_enforce_body_and_envelope_limits`；临时文件默认层，无进程/数据库 |
+| `routing_upgrade_preserves_frozen_evidence_and_rolls_back_atomically` | 新格式 DDL/receipt 回滚、旧 Blob 保留和损坏准入属于独立 migration；纯函数无法证明事务边界 | `cargo test -p rovai-core --features extended-tests routing_upgrade_preserves_frozen_evidence_and_rolls_back_atomically`；扩展层 |
+
+其余矩阵扩展现有 owner，没有删除或永久禁用测试。真实模型验证使用单独 Smoke，不混入普通 Rust 测试。
+
+### 真实投递记录与范围
+
+可重复入口为 [smoke-member-routing.mjs](../../../scripts/smoke-member-routing.mjs)：参数是一个空的绝对
+fixture 目录及 adapter kind。脚本建立隔离 Core/Skill Library/MCP，保存 10,000 scalar（39,580 UTF-8 bytes），
+运行首轮、同 Session 热续接和 Core 重启后冷续接。详细摘要、模型、Run ID、accepted receipt 和本机证据目录
+保存在 [member-routing-verification.json](member-routing-verification.json)。
+
+| Runtime / 模式 | 实际版本 / 观测模型 | 结果 |
+| --- | --- | --- |
+| Codex CLI / NativeAppend | 0.162.1 / gpt-6.1-sol | 3 Run 通过；原生 Session/代次保持；原生 developer 文本 42,214 bytes，职责全文 SHA-256 与保存值、get 相同 |
+| OpenCode / FirstPayload | 2.0.25 / sub2api/gpt-6.1-sol | 3 Run 通过；原生 Session/代次保持；get 全文摘要、首中尾标记及 accepted input 已验证 |
+| Pi / ManagedSystemPrompt | 1.1.0 / sub2api/gpt-6.1-sol | 3 Run 通过；原生 Session/代次保持；get 全文摘要、首中尾标记及 accepted input 已验证 |
+| Cline / ManagedSystemPrompt | macOS arm64 现有准入未通过 | 在创建真实 Run 前返回 `runtime_platform_not_qualified`；保持原准入规则；Rust 绑定文件验证通过 |
+| Command Code / ManagedSystemPrompt | 未运行模型 | Rust 文件与 JS hook 验证通过；现有非公开准入未更改 |
+| Claude Code、Grok Build / NativeAppend | 未运行 | 不从 Codex 推定通过 |
+| Deepseek Harness / ManagedSystemPrompt | 未运行 | 不从 Pi 推定通过 |
+| Copilot、Antigravity、ZCode、Kiro、Qoder、CodeBuddy、Qwen Code、TRAE、Cursor、Kimi / FirstPayload | 未运行 | 不从 OpenCode 推定通过 |
+
+三条通过路径都是修改 peer 职责后继续同一原生会话，三个 Manifest 的名单投递标志均为 `1,0,0`。
+Codex 有原生文本逐字节证据；OpenCode/Pi 本轮未取得独立原生完整文本，不能把标记复述等同于逐字节比对。
+真实 compaction 尚未触发，长身份补发由 Core 集成测试覆盖。重启时出现隔离空附件 view 的完整性告警，
+未阻断上述成员验收；不据此宣称附件流程也通过。Windows/Linux、打包安装和日常数据升级均未执行。
+
+12 Case 的 `context-regression@2.12.0` 语义 Gate 为 **not_run / 证据不足**：本机未找到固定版本的真实
+Judge 配置，已请求配置路径；未用 fixture Judge 或 CLI 模型目录冒充固定 snapshot。上述真实 Smoke 不是
+基线/候选 Gate，也不能代替完整语义评价。后续使用既定 suite/rubric/预算 freeze 后运行，不改变评分标准。
+
+### 修改文件清单
+
+相对编码开始时的分支 HEAD，以下文件承载本次实现、契约与证据（不含生成构建目录）：
+
+```text
+CONTEXT.md
+apps/desktop/src/renderer/src/MemberIdentityEditor.tsx
+apps/desktop/src/renderer/src/locales/en.json
+apps/desktop/src/renderer/src/member-identity-draft.test.ts
+apps/desktop/src/renderer/src/member-identity-draft.ts
+crates/rovai-core/src/agent_profile.rs
+crates/rovai-core/src/bin/rovai.rs
+crates/rovai-core/src/builtin_tool_cli_output.rs
+crates/rovai-core/src/builtin_tool_transport.rs
+crates/rovai-core/src/cline.rs
+crates/rovai-core/src/command_code/bootstrap.mjs
+crates/rovai-core/src/command_code_acp.rs
+crates/rovai-core/src/compaction.rs
+crates/rovai-core/src/context.rs
+crates/rovai-core/src/context_contract.rs
+crates/rovai-core/src/context_delivery.rs
+crates/rovai-core/src/db.rs
+crates/rovai-core/src/db_member_routing.rs
+crates/rovai-core/src/db_simplification.rs
+crates/rovai-core/src/delivery_queue.rs
+crates/rovai-core/src/member_studio.rs
+crates/rovai-core/src/member_tool.rs
+crates/rovai-core/src/team_tool.rs
+crates/rovai-core/src/team_tool_catalog.rs
+crates/rovai-core/tests/fixtures/builtin-tool-agent-output-v11.json
+docs/README.md
+docs/architecture/builtin-tool-runtime.md
+docs/architecture/foundational-invariants.md
+docs/architecture/native-session-bootstrap-redelivery.md
+docs/contracts/README.md
+docs/contracts/builtin-tool-transport-v39.md
+docs/contracts/collaboration-state-v4.md
+docs/contracts/context-delivery-profile-v11.md
+docs/contracts/context-manifest-evidence-v34.md
+docs/decisions/CURRENT.md
+docs/ui/components/member-identity.md
+docs/versions/v1.72/README.md
+docs/versions/v1.72/decisions.md
+docs/versions/v1.72/member-routing-verification.json
+docs/versions/v1.72/model-context-change-member-routing.md
+packages/contracts/src/index.ts
+scripts/benchmark/protocol/product-contract.test.mjs
+scripts/lib/command-code-bootstrap.test.mjs
+scripts/smoke-member-routing.mjs
+skills/cli-operations/SKILL.md
+skills/member-studio/references/identity-generation.md
 ```

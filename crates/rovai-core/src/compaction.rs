@@ -788,8 +788,19 @@ pub fn pending_redelivery_revision(
     native_binding_id: &str,
     native_binding_generation: i64,
 ) -> Result<Option<i64>> {
-    database
-        .connection()
+    pending_redelivery_revision_connection(
+        database.connection(),
+        native_binding_id,
+        native_binding_generation,
+    )
+}
+
+pub(crate) fn pending_redelivery_revision_connection(
+    connection: &rusqlite::Connection,
+    native_binding_id: &str,
+    native_binding_generation: i64,
+) -> Result<Option<i64>> {
+    connection
         .query_row(
             r#"
             SELECT requested_revision

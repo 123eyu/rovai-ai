@@ -8,7 +8,7 @@ last_updated: 2026-10-13
 
 User 的主称呼、结构化提及及冻结恢复见 [User Naming v1](user-naming-v1.md)。
 
-公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v33](context-manifest-evidence-v33.md)、[Built-in Tool Transport v37](builtin-tool-transport-v37.md)。
+公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v34](context-manifest-evidence-v34.md)、[Built-in Tool Transport v39](builtin-tool-transport-v39.md)。
 
 本目录保存跨版本、字段级且可由测试直接验证的接口合同。[Version Decisions](../decisions/README.md)解释为什么选择某个边界，
 Architecture 解释组件如何组成，Version 概览记录交付范围；它们都不复制本目录的完整 wire shape。
@@ -43,7 +43,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 ## 模型消息 Mention
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
-- [ContextManifest v33（当前）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
+- [ContextManifest v34（当前）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
+- [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
 - [Camp History v12（当前）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
 
 ## 生命周期
@@ -350,7 +351,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Accepted Input Recovery v3（历史）](accepted-input-recovery-v3.md) | v2 outcome-unknown 边界不变；Manifest 21 使用语义 View receipt，并增加 Migration 100 clean break |
 | [Accepted Input Recovery v2（历史）](accepted-input-recovery-v2.md) | v1 正常恢复边界不变；增加 Migration 99 对旧 Formatter 20 非终态输入的 evidence-aware clean break |
 | [Accepted Input Recovery v1（历史）](accepted-input-recovery-v1.md) | accepted Runtime input 的启动分类、`recovery_blocked`、Scheduler fence、用户命令与 Stop/预算 outcome-unknown 收敛；不含 Migration 99 |
-| [Collaboration State v3（当前）](collaboration-state-v3.md) | 模型正文删除 schemaVersion，peer、Lead 与 digest 业务语义不变 |
+| [Collaboration State v4（当前）](collaboration-state-v4.md) | peers 恰好 ID、名称、团队角色，职责不参与协作摘要 |
+| [Collaboration State v3（历史）](collaboration-state-v3.md) | 模型正文删除 schemaVersion，peer、Lead 与 digest 业务语义不变 |
 | [Collaboration State v2（历史）](collaboration-state-v2.md) | peer-only routing identity、稳定 CampMember 选择、Lead ID/Boolean、完整 projection digest、独立 inclusion、accepted ACK 与 v0.50 clean break |
 | [Thread Runs v1（当前）](thread-runs-v1.md) | 公开执行和排队查询；统一 items、可空 Run ID、实时预览和动态分页 |
 | [Camp History v11（历史）](camp-history-v11.md) | 正常 timeline/reply-chain/item 统一 addressing，撤回项保持独立形状 |
@@ -366,7 +368,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Memory Capture v3（当前）](memory-capture-v3.md) | v2 边界加 complete exact-Scope View、copyable Revision target、active body aggregate quota、64 KiB production projection limit 与 Memory-domain clean break |
 | [Memory Capture v2 (historical)](memory-capture-v2.md) | v1 捕获/Review/Forget 边界加 flat Agent-relative Scope identity、revise target assertion、durable domain rejection 与 Supersession 原子顺序 |
 | [Memory Capture v1 (historical)](memory-capture-v1.md) | 初版 best-effort 在线捕获、actor-bounded add/revise、隔离 Hearth Review Item、双 CAS、候选清除与 Forget safeguard；不含 Scope-identified revise |
-| [Built-in Tool Transport v38（当前）](builtin-tool-transport-v38.md) | 删除工具结果和目录摘要，静态目录复用；IPC 3、Envelope 2 |
+| [Built-in Tool Transport v39（当前）](builtin-tool-transport-v39.md) | 职责 10,000 scalar，member list 四字段、get 全文；Agent Output 11 |
+| [Built-in Tool Transport v38（历史）](builtin-tool-transport-v38.md) | 删除工具结果和目录摘要，静态目录复用；IPC 3、Envelope 2 |
 | [Domain Command Result v2（当前）](domain-command-result-v2.md) | 取消请求摘要；同命令身份与归属返回首次结果，保留查询 |
 | [Input Snapshot Storage v1（当前）](input-snapshot-storage-v1.md) | 最终输入与必要材料、当前结构准入、Migration 196/schema 146 |
 | [Built-in Tool Transport v37（历史）](builtin-tool-transport-v37.md) | Send 正文文件、严格旧请求识别、输入冲突诊断及冻结 Session 兼容；其他操作输入和 Core Send 合同不变 |
@@ -559,7 +562,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [ContextManifest Evidence v14（历史）](context-manifest-evidence-v14.md) | Formatter v16、Gather result notice、完整 request/current generation evidence 与旧 v14/v15 exact recovery |
 | [ContextManifest Evidence v13（历史）](context-manifest-evidence-v13.md) | Formatter v15、`gather_completion` 与 completion input v1 frozen evidence |
 | [ContextManifest Evidence v12 (historical)](context-manifest-evidence-v12.md) | v11 self-active semantics 加 Formatter v14 的 `mentionsCurrentUser`、Structured Content/projected body evidence 与 frozen recovery |
-| [Context Delivery Profile v10（当前 public Camp）](context-delivery-profile-v10.md) | 冻结形状保持 v9，工具箱 section 全字节计入预算 |
+| [Context Delivery Profile v11（当前 public Camp）](context-delivery-profile-v11.md) | public 11、non-batch 12，完整输入默认 256 KiB，同包 Bootstrap 预留 128 KiB 加封装 |
+| [Context Delivery Profile v10（历史 public Camp）](context-delivery-profile-v10.md) | 冻结形状保持 v9，工具箱 section 全字节计入预算 |
 | [Context Delivery Profile v9（历史 public Camp）](context-delivery-profile-v9.md) | 仅保留 Self Active Task 上限；完整 RUN_INPUT 优先，historyHint 计入预算 |
 | [Context Delivery Profile v8（历史 public Camp）](context-delivery-profile-v8.md) | 继承 v7 数值；默认接收 Mention 进入精确正文与 payload 预算 |
 | [Context Delivery Profile v7（历史 public Camp）](context-delivery-profile-v7.md) | mandatory RUN_INPUT 优先、默认 96 KiB、完整 FIFO prefix 与最新完整历史后缀 |

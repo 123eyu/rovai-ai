@@ -36,7 +36,8 @@ use crate::{
 
 pub fn validate_builtin_tool_input(canonical_name: &str, input: &Value) -> Result<()> {
     let canonical_name = crate::thread_compat::canonical_operation(canonical_name);
-    let input = &crate::thread_compat::normalize_builtin_input(canonical_name, input.clone())?;
+    let input = crate::thread_compat::normalize_builtin_input(canonical_name, input.clone())?;
+    let input = &crate::member_studio::normalize_identity_tool_input(canonical_name, input)?;
     let definition = builtin_tool_definitions()
         .iter()
         .find(|definition| definition["name"].as_str() == Some(canonical_name))
@@ -1145,14 +1146,14 @@ fn build_builtin_tool_definitions() -> Vec<Value> {
         json!({
             "name": MEMBER_LIST_TOOL_NAME,
             "title": "Member list",
-            "description": "List all current Thread members, including yourself and away members, with IDs, names, roles, responsibilities and Default Lead flags. Exclude departed or removed members. This does not discover the global roster.",
+            "description": "List current Thread members, team roles and the default Lead.",
             "inputSchema": member_list_input_schema(),
             "outputSchema": member_list_output_schema()
         }),
         json!({
             "name": MEMBER_GET_TOOL_NAME,
             "title": "Member get",
-            "description": "Read a member's six identity fields, version and icon/portrait paths. The target must be a current Thread member or a member you created in this Thread, verified by Core. Image paths last only for this Run; null paths have a separate image status.",
+            "description": "Read a member's full identity, version and image paths.\nTarget a current Thread member or one you created here. Image paths last for this Run.",
             "inputSchema": member_get_input_schema(),
             "outputSchema": member_get_output_schema()
         }),

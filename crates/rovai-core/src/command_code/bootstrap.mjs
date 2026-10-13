@@ -19,11 +19,11 @@ export default function (cmd) {
         const sessionId = state?.sessionId;
         if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(sessionId)) throw new Error();
         const raw = readFileSync(join(root, 'bindings', `${sessionId}.json`));
-        if (raw.length > 64 * 1024) throw new Error();
+        if (raw.length > 256 * 1024) throw new Error();
         const binding = JSON.parse(raw);
         if (binding.schemaVersion !== 1 || binding.sessionId !== sessionId ||
             typeof binding.bootstrap !== 'string' || !binding.bootstrap.trim() ||
-            Buffer.byteLength(binding.bootstrap) > 32 * 1024 ||
+            Buffer.byteLength(binding.bootstrap) > 128 * 1024 ||
             hash(binding.bootstrap) !== binding.sha256) throw new Error();
         return binding.bootstrap;
       } catch {

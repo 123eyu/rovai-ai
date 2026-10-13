@@ -174,3 +174,7 @@ AI 草稿复用普通会话所有结构，新会话按当前界面语言预填�
 `pnpm test:member-creation` 使用 production BusinessApp 与隔离 transport 验证选择、草稿切换、发送失败、
 入队回执、配置跳转、手动降级、中英文及手机原生输入；`ROVAI_KEEP_MEMBER_CREATION_FIXTURE=1` 保留截图。
 它与既有 member-editor 测试共同保护右侧设置。
+
+专业职责按 trim 后的 Unicode scalar 数显示 `已输入 / 10,000`，不使用 HTML maxlength 替代校验。
+超过上限显示“专业职责最多 10,000 个字符。”并保留草稿；后台同样验证，失败不能部分保存。
+其他身份字段计数/上限与现有布局保持。

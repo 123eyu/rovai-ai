@@ -257,7 +257,7 @@ pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-')
             && !bootstrap.trim().is_empty()
-            && bootstrap.len() <= 32 * 1024,
+            && bootstrap.len() <= crate::context::MAX_SESSION_BOOTSTRAP_BYTES,
         "command_code_bootstrap_binding_invalid"
     );
     let path = root.join("bindings").join(format!("{session_id}.json"));
@@ -265,6 +265,10 @@ pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<
         &json!({"schemaVersion":1, "sessionId":session_id, "bootstrap":bootstrap,
         "sha256":format!("{:x}",Sha256::digest(bootstrap.as_bytes()))}),
     )?;
+    anyhow::ensure!(
+        payload.len() <= 256 * 1024,
+        "command_code_bootstrap_binding_invalid"
+    );
     if path.exists() {
         anyhow::ensure!(
             fs::read(path)? == payload,

@@ -6,9 +6,14 @@ last_updated: 2026-10-13
 
 # 当前规范与决定理由导航
 
-内部减重当前规范：[输入快照/数据库准入](../contracts/input-snapshot-storage-v1.md)、[Built-in Tool Transport v38](../contracts/builtin-tool-transport-v38.md)、[Domain Command Result v2](../contracts/domain-command-result-v2.md)；取舍见 [V1.72-D38](../versions/v1.72/decisions.md#v1-72-d38)。
+成员路由与职责扩容当前规范：[Collaboration State v4](../contracts/collaboration-state-v4.md)、
+[Built-in Transport v39](../contracts/builtin-tool-transport-v39.md)、[ContextManifest v34](../contracts/context-manifest-evidence-v34.md)；
+分层与保持 resume 的取舍见 [V1.72-D39](../versions/v1.72/decisions.md#v1-72-d39)。
 
-Send 正文文件与旧调用兼容：当前规范为 [Built-in Tool Transport v37](../contracts/builtin-tool-transport-v37.md)和
+
+内部减重当前规范：[输入快照/数据库准入](../contracts/input-snapshot-storage-v1.md)、[Built-in Tool Transport v39](../contracts/builtin-tool-transport-v39.md)、[Domain Command Result v2](../contracts/domain-command-result-v2.md)；取舍见 [V1.72-D38](../versions/v1.72/decisions.md#v1-72-d38)。
+
+Send 正文文件与旧调用兼容：当前规范为 [Built-in Tool Transport v39](../contracts/builtin-tool-transport-v39.md)和
 [Built-in 运输不变量](../architecture/foundational-invariants.md#skills-builtin-transport)；单入口与精简教学的取舍见
 [V1.72-D33](../versions/v1.72/decisions.md#v1-72-d33)。
 
@@ -24,7 +29,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Public Camp 消息与多输入 AgentRun
 
-- 模型 Mention 统一：[Message Mentions v1](../contracts/message-mentions-v1.md)、[ContextManifest v33](../contracts/context-manifest-evidence-v33.md)、[Camp History v12](../contracts/camp-history-v12.md)；仅合并两处元数据、按 Run 冻结的取舍见 [V1.72-D19](../versions/v1.72/decisions.md#v1-72-d19)。
+- 模型 Mention 统一：[Message Mentions v1](../contracts/message-mentions-v1.md)、[ContextManifest v34](../contracts/context-manifest-evidence-v34.md)、[Camp History v12](../contracts/camp-history-v12.md)；仅合并两处元数据、按 Run 冻结的取舍见 [V1.72-D19](../versions/v1.72/decisions.md#v1-72-d19)。
 
 - 当前主链：[Public Camp Message/Delivery 架构](../architecture/public-a2a-message-delivery.md)、
   [Message Delivery v11](../contracts/message-delivery-v11.md)、[Camp Message Send v23](../contracts/camp-message-send-v23.md)；
@@ -39,7 +44,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
   [V1.60-D08](../versions/v1.60/decisions.md#v1-60-d08)、
   [V1.60-D10](../versions/v1.60/decisions.md#v1-60-d10)。
 - 多输入 Context 与完整运输：[ContextManifest v32](../contracts/context-manifest-evidence-v32.md)、
-  [Profile 10](../contracts/context-delivery-profile-v10.md)、[Run Facts v7](../contracts/run-facts-v7.md)、
+  [Profile 11](../contracts/context-delivery-profile-v11.md)、[Run Facts v7](../contracts/run-facts-v7.md)、
   [Built-in Transport v33](../contracts/builtin-tool-transport-v33.md)；理由：
   [V1.60-D04](../versions/v1.60/decisions.md#v1-60-d04) 与
   [V1.68-D01](../versions/v1.68/decisions.md#v1-68-d01)。
@@ -103,7 +108,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Member identity
 
-- 当前规范：[成员身份与生命周期](../architecture/foundational-invariants.md#member-identity)、[动态 Camp 队员关系](../architecture/dynamic-camp-membership.md)、[Camp Membership v2](../contracts/camp-membership-v2.md)、[Collaboration State v3](../contracts/collaboration-state-v3.md)、[`CONTEXT.md`](../../CONTEXT.md)。
+- 当前规范：[成员身份与生命周期](../architecture/foundational-invariants.md#member-identity)、[动态 Camp 队员关系](../architecture/dynamic-camp-membership.md)、[Camp Membership v2](../contracts/camp-membership-v2.md)、[Collaboration State v4](../contracts/collaboration-state-v4.md)、[`CONTEXT.md`](../../CONTEXT.md)。
 - 理由来源：[v0.14](../versions/v0.14/decisions.md)、[v0.15](../versions/v0.15/decisions.md)、[v0.16](../versions/v0.16/decisions.md)、[v0.27](../versions/v0.27/decisions.md)、[v0.50](../versions/v0.50/decisions.md)、[V1.29-D02](../versions/v1.29/decisions.md#v1-29-d02)、[V1.29-D03](../versions/v1.29/decisions.md#v1-29-d03)。
 
 ## Collaboration、Task 与 Message Delivery
@@ -159,7 +164,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Session、Context 与 Bootstrap
 
-- 当前规范：[Context 基础不变量](../architecture/foundational-invariants.md#context-session-bootstrap)、[Native Session Bootstrap Redelivery](../architecture/native-session-bootstrap-redelivery.md)、[Skills 来源与链接](../architecture/skills.md)、[ContextManifest Evidence v30](../contracts/context-manifest-evidence-v30.md)、[Context Delivery Profile v10](../contracts/context-delivery-profile-v10.md)、[Run Facts v7](../contracts/run-facts-v7.md)和[Skills Rebuild v1](../contracts/skills-rebuild-v1.md)；Single Chat 使用 Formatter/Manifest 26、Profile 6、[非 batch Run Facts v5](../contracts/run-facts-nonbatch-v5.md) 与 Skill Links v1；投影技术字段清理理由见 [V1.67-D01](../versions/v1.67/decisions.md#v1-67-d01)，公开历史按需读取理由见 [V1.68-D01](../versions/v1.68/decisions.md#v1-68-d01)。
+- 当前规范：[Context 基础不变量](../architecture/foundational-invariants.md#context-session-bootstrap)、[Native Session Bootstrap Redelivery](../architecture/native-session-bootstrap-redelivery.md)、[Skills 来源与链接](../architecture/skills.md)、[ContextManifest Evidence v30](../contracts/context-manifest-evidence-v30.md)、[Context Delivery Profile v11](../contracts/context-delivery-profile-v11.md)、[Run Facts v7](../contracts/run-facts-v7.md)和[Skills Rebuild v1](../contracts/skills-rebuild-v1.md)；Single Chat 使用 Formatter/Manifest 26、Profile 6、[非 batch Run Facts v5](../contracts/run-facts-nonbatch-v5.md) 与 Skill Links v1；投影技术字段清理理由见 [V1.67-D01](../versions/v1.67/decisions.md#v1-67-d01)，公开历史按需读取理由见 [V1.68-D01](../versions/v1.68/decisions.md#v1-68-d01)。
 - 理由来源：[v0.21](../versions/v0.21/decisions.md)、[v0.35](../versions/v0.35/decisions.md)、[v0.44](../versions/v0.44/decisions.md)、[v0.48](../versions/v0.48/decisions.md)、[v0.50](../versions/v0.50/decisions.md)、[v0.52](../versions/v0.52/decisions.md)、[v0.54](../versions/v0.54/decisions.md)、[v0.89](../versions/v0.89/decisions.md)、[v0.90](../versions/v0.90/decisions.md)、[v0.94](../versions/v0.94/decisions.md)、[v0.98](../versions/v0.98/decisions.md)、[v1.07](../versions/v1.07/decisions.md)、[V1.15-D03](../versions/v1.15/decisions.md#v1-15-d03)、[V1.15-D04](../versions/v1.15/decisions.md#v1-15-d04)、[V1.15-D06](../versions/v1.15/decisions.md#v1-15-d06)、[V1.28-D05](../versions/v1.28/decisions.md#v1-28-d05)。
 - Pi managed system prompt 与 `native_system_prompt_preserved` 的初始理由见 [V1.39-D03](../versions/v1.39/decisions.md#v1-39-d03)、[V1.39-D10](../versions/v1.39/decisions.md#v1-39-d10)及已确认的[模型上下文 revision 3](../versions/v1.39/model-context-change-pi-managed-system-prompt.md)；其中 Receipt 准入已由 [V1.48-D01](../versions/v1.48/decisions.md#v1-48-d01) 退役。普通 Prompt 不解释 Slash、图片走独立结构化通道的当前边界见[模型上下文 revision 1](../versions/v1.44/model-context-change-pi-native-prompt.md)。
 

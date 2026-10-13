@@ -3,13 +3,16 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use uuid::Uuid;
 
+#[cfg(test)]
+use crate::context::serialized_batch_run_input_len;
+
 use crate::{
     agent_profile::{FrozenAgentRuntimeConfig, resolve_frozen_runtime},
     camp_content::StructuredThreadMessageContent,
     collaboration::build_effective_config,
     context::{
-        project_batch_run_input_for_claim, public_history_hint, runtime_max_context_payload_bytes,
-        serialized_batch_run_input_len,
+        DeliveryContextPreview, batch_claim_payload_len, charter_delivery_mode_for_adapter,
+        project_batch_run_input_for_claim, runtime_max_context_payload_bytes,
     },
     context_contract::PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION,
     current_input_skill::{
@@ -469,27 +472,14 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
             };
             let effective_config =
                 build_effective_config(&transaction, &conversation_id, &agent_id, &runtime)?;
-            let max_payload_bytes = runtime_max_context_payload_bytes(&runtime);
-            let selection = select_batch_prefix(
-                &transaction,
-                &camp_id,
-                &agent_id,
-                previous_public_boundary,
-                camp_public_tail,
-                &runtime,
-                std::path::Path::new(cleanup_execution_root),
-                &waiting,
-                max_payload_bytes,
-            )?;
-            let selected = &waiting[..selection.count];
-            if let Some(source_id) = selected[0].continuation_source_run_id.as_deref() {
+            if let Some(source_id) = waiting[0].continuation_source_run_id.as_deref() {
                 let source =
                     crate::run_continuation::eligible_source(&transaction, &camp_id, source_id)?
                         .context("Continuation scope changed inside the claim transaction")?;
                 // The User authorized continuation, including a fresh session when
                 // the current binding cannot safely resume. Choose only after the
                 // cleanup gates, using the latest state rather than a preflight choice.
-                if selected[0].use_new_session
+                if waiting[0].use_new_session
                     || crate::run_continuation::has_unresolved_native_turn(
                         &transaction,
                         &source.conversation_id,
@@ -502,12 +492,48 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
                     )?;
                 }
             }
+            let max_payload_bytes = runtime_max_context_payload_bytes(&runtime);
+            let agent_run_id = Uuid::new_v4().to_string();
+            let preview = DeliveryContextPreview {
+                agent_run_id: &agent_run_id,
+                camp_id: &camp_id,
+                camp_turn_id: "",
+                conversation_id: &conversation_id,
+                agent_id: &agent_id,
+                task_id: None,
+                execution_epoch: 0,
+                invocation_kind: "batch",
+                a2a_parent_agent_run_id: None,
+                a2a_root_agent_run_id: None,
+                a2a_depth: 0,
+                camp_message_boundary_sequence: camp_public_tail,
+                conversation_message_boundary_sequence: conversation_tail,
+                trigger_camp_message_id: None,
+                trigger_message_delivery_id: "",
+                effective_config: effective_config.clone(),
+                workspace: serde_json::to_value(workspace.as_ref().cloned().unwrap_or_else(
+                    || AgentRunWorkspace::runtime_managed_path(cleanup_execution_root.to_string()),
+                ))?,
+                charter_delivery_mode: charter_delivery_mode_for_adapter(runtime.adapter_kind),
+                max_payload_bytes,
+            };
+            let selection = select_batch_prefix(
+                &transaction,
+                &camp_id,
+                &agent_id,
+                previous_public_boundary,
+                camp_public_tail,
+                &runtime,
+                std::path::Path::new(cleanup_execution_root),
+                &waiting,
+                &preview,
+            )?;
+            let selected = &waiting[..selection.count];
             let anchor_message_id = selected
                 .last()
                 .map(|delivery| delivery.message_id.as_str())
                 .context("Delivery claim selected an empty input batch")?;
             let now = chrono::Utc::now().to_rfc3339();
-            let agent_run_id = Uuid::new_v4().to_string();
             insert_batch_run(
                 &transaction,
                 &agent_run_id,
@@ -702,7 +728,7 @@ fn select_batch_prefix(
     runtime: &FrozenAgentRuntimeConfig,
     execution_root: &std::path::Path,
     waiting: &[WaitingDelivery],
-    max_payload_bytes: usize,
+    preview: &DeliveryContextPreview<'_>,
 ) -> Result<BatchPrefixSelection> {
     let mut batch_content = Vec::new();
     let mut batch_message_indices = Vec::new();
@@ -750,10 +776,14 @@ fn select_batch_prefix(
             camp_public_tail,
             &message_ids,
         )?;
-        let hint_bytes =
-            public_history_hint(previous_public_boundary, has_additional_public_messages).len();
-        if serialized_batch_run_input_len(&run_input)?.saturating_add(hint_bytes)
-            > max_payload_bytes
+        if batch_claim_payload_len(
+            transaction,
+            preview,
+            &run_input,
+            &skill_selection,
+            previous_public_boundary,
+            has_additional_public_messages,
+        )? > preview.max_payload_bytes
         {
             return Ok(match previous_selection {
                 Some((skill_selection, has_additional_public_messages)) => BatchPrefixSelection {
@@ -3735,7 +3765,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_payload_capacity_selects_the_real_fifo_prefix_and_defaults_to_96_kib() {
+    fn runtime_payload_capacity_selects_the_full_context_fifo_prefix_and_defaults_to_256_kib() {
         let mut constrained = Fixture::new();
         let models_json: String = constrained
             .database
@@ -3837,7 +3867,7 @@ mod tests {
     #[test]
     fn oversized_first_input_keeps_context_payload_too_large_failure() {
         let mut fixture = Fixture::new();
-        fixture.enqueue("oversized-first", &"large input ".repeat(10_000));
+        fixture.enqueue("oversized-first", &"large input ".repeat(30_000));
         let run_id = claim_waiting_delivery_batches(&mut fixture.database, 1)
             .unwrap()
             .pop()

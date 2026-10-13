@@ -75,7 +75,7 @@ pub fn member_create_input_schema() -> Value {
             },
             "displayName": {"type": "string", "minLength": 1, "maxLength": 80},
             "teamRole": {"type": "string", "maxLength": 120, "default": ""},
-            "professionalResponsibilities": {"type": "string", "maxLength": 300, "default": ""},
+            "professionalResponsibilities": {"type": "string", "maxLength": crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_MAX_SCALARS, "default": ""},
             "personalityTraits": {
                 "type": "array", "maxItems": 6, "default": [],
                 "items": {"type": "string", "minLength": 1, "maxLength": 16}
@@ -88,6 +88,24 @@ pub fn member_create_input_schema() -> Value {
             }
         }
     })
+}
+
+/// Normalize only this optional field before schema validation. Missing/null values
+/// remain distinct; the closed schema still owns type and presence checks.
+pub fn normalize_identity_tool_input(operation: &str, mut input: Value) -> Result<Value> {
+    if matches!(
+        operation,
+        MEMBER_CREATE_TOOL_NAME | crate::member_tool::MEMBER_UPDATE_TOOL_NAME
+    ) {
+        if let Some(value) = input
+            .get("professionalResponsibilities")
+            .and_then(Value::as_str)
+        {
+            input["professionalResponsibilities"] =
+                json!(crate::agent_profile::normalize_professional_responsibilities(value)?);
+        }
+    }
+    Ok(input)
 }
 
 /// Called by Core after authenticating the Run, before create/update import.
@@ -135,9 +153,15 @@ pub fn create_member(
         &input.working_principles,
         &input.growth_topic,
     )
-    .map_err(|_| MemberOperationError {
+    .map_err(|error| MemberOperationError {
         code: "member.invalid_identity",
-        message: "One or more member identity fields are invalid; fix the confirmed card and try again",
+        message: if error.to_string()
+            == crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+        {
+            crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+        } else {
+            "One or more member identity fields are invalid; fix the confirmed card and try again"
+        },
         details: None,
     })?;
 
@@ -351,6 +375,35 @@ mod tests {
                 .unwrap()
                 .extend(patch.as_object().unwrap().clone());
             assert!(validate("member.update", &input).is_err(), "{input}");
+        }
+        for (operation, mut input) in [
+            ("member.update", base.clone()),
+            (
+                "member.create",
+                json!({"creationKey":"51d668e1-6dc7-4f39-80b2-0555f823715a", "displayName":"Long identity"}),
+            ),
+        ] {
+            assert_eq!(
+                schema["properties"]["professionalResponsibilities"]["maxLength"],
+                10_000
+            );
+            for text in [
+                "中".repeat(10_000),
+                "😀".repeat(10_000),
+                "e\u{0301}".repeat(5_000),
+            ] {
+                input["professionalResponsibilities"] = json!(format!(" \u{feff}{text}\n"));
+                validate(operation, &input).unwrap();
+                input["professionalResponsibilities"] = json!(format!("{text}界"));
+                assert_eq!(
+                    validate(operation, &input).unwrap_err().to_string(),
+                    crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+                );
+            }
+            input["professionalResponsibilities"] = json!(" \n");
+            validate(operation, &input).unwrap();
+            input["professionalResponsibilities"] = Value::Null;
+            assert!(validate(operation, &input).is_err());
         }
         assert!(validate("member.list", &json!({"agentId":"agent_1"})).is_err());
         assert!(validate("member.get", &json!({"agentId":"agent_1","runtime":true})).is_err());

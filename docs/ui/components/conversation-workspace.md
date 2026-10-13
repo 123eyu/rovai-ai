@@ -18,6 +18,8 @@ last_updated: 2026-10-13
   “上次执行清理未确认，正在重试”。清理完成后恢复正常状态，后继自动领取。
 - 执行区“停止”只 CAS 当前精确 Run。没有公屏通用停止、队列暂停/恢复、Camp 全部停止或手工放行入口；终态后队列按正常规则继续。
 - accepted/outcome-unknown 对用户显示普通红色失败，不显示“结果未知”产品状态；诊断和 evidence 仍保留内部真实分类。旧执行尚未隔离时，后继消息继续显示等待，不制造必败 Run。
+- 公开及单聊执行过程不显示原生会话重建说明，不为该说明加载或查询事件历史；原生恢复行为见
+  [Runtime Launch v62](../../contracts/runtime-launch-and-verification-v62.md)。
 - 本地用户消息仅在首次目标 claim 前显示撤回；成功后时间线可显示“你撤回了一条消息”。Agent 主动读取可在 claim 前看到原文，撤回后 `camp.read` 仅在原序号返回 `Message withdrawn` 状态项，搜索不再命中原文。
 - Channel-bound Camp 的 Agent 公共发言默认外发；没有 `--to-channel` 或 Run 级外发开关。
 - 本地用户或 External Principal 的公开消息使用 `addressMode=default` 且只有一个冻结

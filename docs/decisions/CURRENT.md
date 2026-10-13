@@ -300,6 +300,7 @@ Cline 认证交还原生、撤销 D25 后续的专属认证独占与强制 cold�
 及[本机启动设置](../architecture/runtime-catalog-boundaries.md#本机启动设置)，取舍见
 [V1.72-D35](../versions/v1.72/decisions.md#v1-72-d35)。
 
-同类 CLI 优先恢复与 Adapter 证据限定降级：当前规范为 [Runtime Launch v60](../contracts/runtime-launch-and-verification-v60.md)
+同类 CLI 优先恢复与 Adapter 证据限定降级：当前规范为 [Runtime Launch v62](../contracts/runtime-launch-and-verification-v62.md)
 和 [Session continuity](../architecture/foundational-invariants.md#session-continuity-与-bootstrap)，取舍见
 [V1.72-D37](../versions/v1.72/decisions.md#v1-72-d37)。
+v62 移除原生会话重建提示和展示查询，保留恢复及审计行为。

@@ -632,3 +632,10 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 新建降级，绑定成功前保留旧目标，输入接收/取消/执行代次保护不变。当前边界见
 [Runtime Launch v60](../../contracts/runtime-launch-and-verification-v60.md)，实施与验收见
 [实施记录](implementation-plan.md#同类-cli-优先恢复原生会话2026-10-12)。
+
+
+## 移除会话队员重置入口（2026-10-13）
+
+按 User 要求移除会话队员列表中 Desktop“…”菜单与 Mobile 按钮的“重置队员会话”，
+同时清理专用确认弹窗、前端状态与不再适用的弹窗验收。其他队员操作和后端会话恢复保持。
+边界见 [Runtime Launch v61](../../contracts/runtime-launch-and-verification-v61.md)。

@@ -2,7 +2,7 @@
 document_type: model-context-change
 version: v1.72
 change_id: member-routing
-revision: 1
+revision: 2
 confirmation_status: pending
 authority: proposed-model-input-change-statement
 implementation_status: not_started
@@ -10,7 +10,7 @@ review_baseline: 39bf1eb09a208ea9abd98b737d6ed7c669ed7cbf
 last_updated: 2026-10-13
 ---
 
-# 成员路由信息精简与专业职责扩容：R1 前后对照
+# 成员路由信息精简与专业职责扩容：R2 前后对照
 
 本方案把团队角色用于快速识别分工，把专业职责用于详细描述。自动协作名单与 `member list`
 只提供路由信息；需要详细身份时读取相关队员的 `member get`。本人身份继续完整投递。
@@ -18,6 +18,10 @@ last_updated: 2026-10-13
 这是待审阅方案，尚未修改实现、输入 Schema、CLI help 或当前生效合同。
 用户已确定提高完整上下文上限，并要求此次变化不影响任何现有 resume：新会话按新逻辑初始化，
 老会话保留原生历史正常续聊，不迁移、不重建、不要求用户处理。
+
+本工作对应 [Issue #706](https://github.com/murray17/rovai-ai/issues/706) 第 2 项中的身份字段容量问题；
+Pi 提问交互、对话分类和 Skills 安装不在本方案范围。R2 按用户审阅意见缩短 list/get help，
+澄清 update 无 `default` 是现有行为，并把 help/技能的每处旧文案与新文案紧邻排列。
 
 | 范围 | 变更前 | 变更后 |
 | --- | --- | --- |
@@ -91,70 +95,10 @@ Core 对包含专业职责的完整最终投影计算协作摘要，再按 inclu
 {"type":"string","maxLength":300,"default":""}
 ```
 
-上面是 create 的 `professionalResponsibilities` 属性；update 删除 `default`，省略意味着不改。
+上面是 create 的 `professionalResponsibilities` 属性。当前 update Schema 已经不含 `default`，
+省略意味着不改；此次保持该语义，原因与两种 Schema 的前后对照见“create / update 与所有写入入口”。
 Core 目前把职责、工作准则、成长课题放在同一个 300 字符校验循环中；前端独立执行 trim 后的
 Unicode scalar 计数。前端超限文案为 `专业职责最多 300 个字符。`。
-
-### CLI help：实际旧文本
-
-以下来自基线的 [Catalog](../../../crates/rovai-core/src/team_tool_catalog.rs) 与
-[CLI help renderer](../../../crates/rovai-core/src/bin/rovai.rs)，并与当前本地 CLI help 核对。
-
-`rovai member list --help`：
-
-```text
-rovai member list
-List all current Thread members, including yourself and away members, with IDs, names, roles, responsibilities and Default Lead flags. Exclude departed or removed members. This does not discover the global roster.
-
-Input: direct flags, JSON stdin/heredoc, or --input-file <path>. Choose exactly one input source.
-
-
-Examples:
-  rovai member list
-```
-
-`rovai member get --help`：
-
-```text
-rovai member get
-Read a member's six identity fields, version and icon/portrait paths. The target must be a current Thread member or a member you created in this Thread, verified by Core. Image paths last only for this Run; null paths have a separate image status.
-
-Input: direct flags, JSON stdin/heredoc, or --input-file <path>. Choose exactly one input source.
-
-  --agent-id                   field=agentId type=string required
-
-Examples:
-  rovai member get --agent-id agent_27
-```
-
-create / update 的职责参数目前只有字段行，没有长度、清空或完整文本提示：
-
-```text
-  --professional-responsibilities field=professionalResponsibilities type=string
-```
-
-根 help 的成员命令目录为 `rovai member list|get|create|update`，本次保持原样。
-create 的确认规则说明、update 的授权/版本/原子更新说明及其余参数和例子也保持原文。
-
-### 平台技能：实际旧文本
-
-[cli-operations](../../../skills/cli-operations/SKILL.md) 的 `Member operations` 整节正文：
-
-```text
-`member get` supplies the current Profile version and image paths; `member update` changes the global Profile. Send only the fields the User asked to change. For a newly created member, use the `agentId` returned by `member create`, even before it joins this Thread. Use `member-studio` for creation proposals and confirmation, not edits to an existing Profile.
-```
-
-[身份生成规则](../../../skills/member-studio/references/identity-generation.md) 中此次受影响的完整行/段：
-
-```text
-| Team role | At most 120 characters; contribution, not authority |
-| Professional responsibilities | At most 300 characters; recurring work and outcomes |
-
-Preserve explicit user meaning; edit only for valid format and length unless asked otherwise. Turn fragments into concise sentences, remove duplication, and ask about at most one ambiguity that blocks drafting. Label substantive additions as suggestions.
-
-- **Team role:** a clear, stable contribution such as research and evidence synthesis. It confers no rank or Default Lead status.
-- **Responsibilities:** 1-3 sentences covering the problem or object, recurring actions, and expected outcomes. Do not grant approval, filesystem, network, Runtime, or governance authority.
-```
 
 ### 本人身份与容量
 
@@ -288,11 +232,27 @@ type MemberGetResult = {
 
 ### create / update 与所有写入入口
 
-create 的职责属性变为下列形状，update 同样复用并移除 `default`：
+专业职责属性的前后对照如下。本次只把 `maxLength` 从 300 调整为 10,000；create 的默认空值、
+update 的无默认值均保持现状。
 
-```json
-{"type":"string","maxLength":10000,"default":""}
-```
+| 操作 | 当前 Schema | 目标 Schema |
+| --- | --- | --- |
+| create | `{"type":"string","maxLength":300,"default":""}` | `{"type":"string","maxLength":10000,"default":""}` |
+| update | `{"type":"string","maxLength":300}` | `{"type":"string","maxLength":10000}` |
+
+**为什么 update 没有 `default`：** create 初始化新身份，未提供可选职责时用空字符串；update 是
+局部更新，未提供的字段必须保持旧值。复用 create Schema 时，需要去掉初始化默认值，明确区分
+“未要求修改”和“明确要求清空”。这是[现有实现](../../../crates/rovai-core/src/member_tool.rs)已经
+执行的步骤，不是本次新增删除 `default` 的行为。
+
+| 调用者提供的职责字段 | create | update |
+| --- | --- | --- |
+| 省略 | 初始化为空字符串 | 保留原值 |
+| `"professionalResponsibilities": ""` | 保存为空字符串 | 清空该字段 |
+| `"professionalResponsibilities": "新的职责"` | 保存规范化后的文字 | 替换为规范化后的文字 |
+
+`default` 本身不是写入命令；当前 update 的 `Option` 字段与事务内合并逻辑实际负责保留旧值。
+例如仅提交新的 `teamRole`，原有专业职责、工作准则等仍保持原样，不能补成空值一并提交。
 
 `maxLength` 表达规范化后的 Unicode scalar 上限。处理顺序固定为解析字符串、按既有首尾空白规则
 规范化职责、校验规范化值、事务保存；不能在 trim 之前被原始字符串的 Schema 长度检查拒绝。
@@ -308,20 +268,20 @@ Core 独立执行同一规则，前端计数与保存校验一致。职责以当
 - 保持 name 80、teamRole 120、traits 至多 6 项且每项 1～16、workingPrinciples/growthTopic 各 300。
   不使用 HTML `maxlength="10000"` 代替 scalar 校验，不执行全局 300 替换。
 
-### CLI help：完整替换文本
+### CLI help：逐项前后对照
 
-CLI 延续现有英文文案，中文语义对应用户确定的两句：
+CLI 延续英文。描述只说明命令做什么，以及影响正确使用的目标范围、临时路径有效期。
+成员筛选细则保留在合同与实现中；`verified by Core` 等内部实现说明不进入目标 help。
+以下旧文本来自基线 [Catalog](../../../crates/rovai-core/src/team_tool_catalog.rs) 与
+[CLI help renderer](../../../crates/rovai-core/src/bin/rovai.rs)。每项的完整旧文本与完整新文本紧邻。
 
-```text
-member list：查看当前 Thread 的队员、团队角色和默认 Lead。
-member get：查看指定队员的完整身份，包括专业职责、工作准则等详细内容。
-```
+#### `rovai member list --help`
 
-`rovai member list --help` 的目标完整文本：
+改动前：
 
 ```text
 rovai member list
-List current Thread members, their team roles and Default Lead flags. Includes yourself and away members; excludes leaving, departed and globally removed members. This does not discover the global roster. Use member get for a relevant member's full identity when team roles are insufficient.
+List all current Thread members, including yourself and away members, with IDs, names, roles, responsibilities and Default Lead flags. Exclude departed or removed members. This does not discover the global roster.
 
 Input: direct flags, JSON stdin/heredoc, or --input-file <path>. Choose exactly one input source.
 
@@ -330,11 +290,26 @@ Examples:
   rovai member list
 ```
 
-`rovai member get --help` 的目标完整文本：
+改动后：
+
+```text
+rovai member list
+List current Thread members, team roles and the default Lead.
+
+Input: direct flags, JSON stdin/heredoc, or --input-file <path>. Choose exactly one input source.
+
+
+Examples:
+  rovai member list
+```
+
+#### `rovai member get --help`
+
+改动前：
 
 ```text
 rovai member get
-Read a member's full identity, including professional responsibilities and working principles, plus the Profile version and icon/portrait paths. The target must be a current Thread member or a member you created in this Thread, verified by Core. Image paths last only for this Run; null paths have a separate image status.
+Read a member's six identity fields, version and icon/portrait paths. The target must be a current Thread member or a member you created in this Thread, verified by Core. Image paths last only for this Run; null paths have a separate image status.
 
 Input: direct flags, JSON stdin/heredoc, or --input-file <path>. Choose exactly one input source.
 
@@ -344,20 +319,58 @@ Examples:
   rovai member get --agent-id agent_27
 ```
 
-Catalog 的 list/get description 使用上述第二行同一文本，避免工具说明与 CLI help 漂移。
-create/update 仅在原职责字段行后增加如下完整提示，其余 summary、字段、错误恢复和示例保持：
+改动后：
+
+```text
+rovai member get
+Read a member's full identity, version and image paths.
+Target a current Thread member or one you created here. Image paths last for this Run.
+
+Input: direct flags, JSON stdin/heredoc, or --input-file <path>. Choose exactly one input source.
+
+  --agent-id                   field=agentId type=string required
+
+Examples:
+  rovai member get --agent-id agent_27
+```
+
+Catalog 的 list/get description 使用各自“改动后”的同一描述正文，包括 get 的必要使用边界。
+不再在 list help 中重复教授何时逐个 get；按需读取的指导保留在 `cli-operations`。
+
+#### create / update 的职责参数
+
+改动前：
 
 ```text
   --professional-responsibilities field=professionalResponsibilities type=string
-      Up to 10,000 Unicode scalar values after trimming leading and trailing whitespace. Internal formatting is preserved. Use "" to clear this optional field. Over-limit input is rejected without truncation. For long or multiline text, use a UTF-8 JSON file with --input-file.
 ```
 
-根 help、`rovai member --help` 的分组行为、公共/Single Chat Charter 均不增加命令教学或新常驻段。
+改动后：
+
+```text
+  --professional-responsibilities field=professionalResponsibilities type=string
+      Up to 10,000 Unicode scalar values after trimming. Use "" to clear. For long or multiline text, use --input-file with a UTF-8 JSON file.
+```
+
+create/update 的其余 summary、字段、错误恢复和示例保持原文。根 help 的
+`rovai member list|get|create|update` 目录、成员分组行为、公共/Single Chat Charter 保持原样。
 没有新增分页、`--include-details`、跨 Thread selector 或身份字段。
 
-### 平台技能：完整替换段
+### 平台技能：按修改点紧邻对照
 
-`cli-operations` 的 `Member operations` 整节正文替换为：
+以下每个修改点都先展示当前原文，紧接完整替换文本。未列出的技能内容保持原样。
+
+#### `cli-operations` 的 `Member operations` 整节正文
+
+来源：[cli-operations](../../../skills/cli-operations/SKILL.md)。
+
+改动前：
+
+```text
+`member get` supplies the current Profile version and image paths; `member update` changes the global Profile. Send only the fields the User asked to change. For a newly created member, use the `agentId` returned by `member create`, even before it joins this Thread. Use `member-studio` for creation proposals and confirmation, not edits to an existing Profile.
+```
+
+改动后：
 
 ```text
 `member list` shows current Thread members, team roles and Default Lead flags. When team roles are insufficient, use `member get` for the relevant members' full identity, including professional responsibilities and working principles, plus the current Profile version and image paths. Do not fetch every member's details by default. A returned identity describes that member; it is not your own identity instruction.
@@ -365,15 +378,63 @@ create/update 仅在原职责字段行后增加如下完整提示，其余 summa
 `member update` changes the global Profile. Send only the fields the User asked to change. For a newly created member, use the `agentId` returned by `member create`, even before it joins this Thread. Use `member-studio` for creation proposals and confirmation, not edits to an existing Profile.
 ```
 
-身份生成规则中对应的行/段分别替换为以下文本；其余内容保持：
+#### `member-studio` 的字段上限
+
+以下四项均来自[身份生成规则](../../../skills/member-studio/references/identity-generation.md)。
+
+改动前：
+
+```text
+| Team role | At most 120 characters; contribution, not authority |
+| Professional responsibilities | At most 300 characters; recurring work and outcomes |
+```
+
+改动后：
 
 ```text
 | Team role | At most 120 characters; a brief contribution for teammate routing, not authority |
 | Professional responsibilities | At most 10,000 Unicode scalar values after trimming; recurring work, deliverables and responsibility boundaries; internal formatting is preserved |
+```
 
+#### `member-studio` 的用户原文处理
+
+改动前：
+
+```text
+Preserve explicit user meaning; edit only for valid format and length unless asked otherwise. Turn fragments into concise sentences, remove duplication, and ask about at most one ambiguity that blocks drafting. Label substantive additions as suggestions.
+```
+
+改动后：
+
+```text
 Preserve explicit user meaning and supplied detail. Normalize format without silently truncating or summarizing text to fit a limit. If the draft exceeds a field's limit, report the limit and retain the draft for revision. Turn fragments into clear sentences, remove duplication when appropriate, and ask about at most one ambiguity that blocks drafting. Label substantive additions as suggestions.
+```
 
+#### `member-studio` 的团队角色写法
+
+改动前：
+
+```text
+- **Team role:** a clear, stable contribution such as research and evidence synthesis. It confers no rank or Default Lead status.
+```
+
+改动后：
+
+```text
 - **Team role:** one short statement of the member's stable contribution, used by teammates to identify relevant responsibilities. It confers no rank or Default Lead status. Do not derive it by automatically truncating responsibilities or rewrite existing roles without a request.
+```
+
+#### `member-studio` 的专业职责写法
+
+改动前：
+
+```text
+- **Responsibilities:** 1-3 sentences covering the problem or object, recurring actions, and expected outcomes. Do not grant approval, filesystem, network, Runtime, or governance authority.
+```
+
+改动后：
+
+```text
 - **Responsibilities:** describe the problem or object, recurring actions, expected deliverables and responsibility boundaries at the detail the User needs. Preserve supplied long-form structure within the limit; do not pad the field to reach the limit. Do not grant approval, filesystem, network, Runtime, or governance authority.
 ```
 
@@ -385,9 +446,9 @@ Preserve explicit user meaning and supplied detail. Normalize format without sil
 从 300 扩为 10,000。完整已保存文本仍进入本人身份，不改为按需 get 或文件引用。
 Bootstrap 顺序保持 `SESSION_CHARTER → MEMBER_IDENTITY → ROVAI_PLATFORM_SKILLS → MEMORY_ENTRYPOINT?`。
 
-本 R1 提出如下局部容量值，确认后实现并以真实投递验收；这不是已验证的 Runtime 能力声明。
+R2 沿用以下容量提案，确认后实现并以真实投递验收；这不是已验证的 Runtime 能力声明。
 
-| 检查点 | 当前值 | R1 提案值/规则 |
+| 检查点 | 当前值 | 提案值/规则 |
 | --- | --- | --- |
 | 无显式 capability 的完整 Runtime payload 默认上限 | 96 KiB | 256 KiB（262,144 bytes） |
 | 既有 FirstPayload preflight 的 Bootstrap 预留 | 32 KiB | 128 KiB 正文预算，加上实算分隔符/补发 wrapper；只计入实际同包投递的内容 |
@@ -445,7 +506,7 @@ FIFO、原子完整消息、可选项优先级保持；提高容量可能让一�
 以下编号以本文件的冻结基线为准，实施时若主线占用编号，只调整至未占用编号并记录差异。
 不能把改变后的新生成结果继续标为旧结果版本，也不能在模型正文增加版本字段。
 
-| 版本轴 | 变更前 | R1 拟议变化 |
+| 版本轴 | 变更前 | 拟议变化 |
 | --- | --- | --- |
 | Collaboration State 合同 | v3 | v4，peer 删除职责 |
 | Agent Output | 10 | 11，封闭 member list 结果变化 |
@@ -552,7 +613,7 @@ Case 单项预算与密封材料沿用 suite，不为通过候选修改标准。
 ### 本轮文档验证记录
 
 已完成：干净主线基线核对、独立 worktree 创建、代码/合同/help 只读核对，以及上表离线字节测算。
-产品代码和真实 Runtime 验证尚未执行。2026-10-13 的文档验证结果：
+产品代码和真实 Runtime 验证尚未执行。2026-10-13 的 R1 文档验证结果：
 
 | 命令/检查 | 结果 |
 | --- | --- |
@@ -566,16 +627,24 @@ Case 单项预算与密封材料沿用 suite，不为通过候选修改标准。
 四项记录分别为 `confirmed_revision`、`confirmation_status: confirmed`、`confirmed_by` 和
 `confirmed_at`。尚未发生的用户确认不能补填；门禁没有被豁免或修改。
 
+R2 同日复核：`pnpm docs:test` 仍为 10/10 通过；相对上述 base 的
+`check-doc-decisions.mjs --require-base` 通过，含链接与历史冻结检查；4 个 JSON 示例可解析，
+8 处 help/技能均有紧邻的完整前后文本，目标 help 无 `verified by Core`。
+`pnpm docs:check` 和 `pnpm docs:check:ci` 仍只因 R2 未确认的上述四项记录阻断。
+`git diff --check` 通过，改动仍仅为本说明和版本概览入口。
+
 ## 二次确认
 
-R1 尚未获得用户阅读本文件后的实施确认；`confirmation_status: pending`。
+R2 尚未获得用户阅读本文件后的实施确认；`confirmation_status: pending`。
 Thread `rvcamp_01m4r7rvjff0svehpr9s78zc16` 中用户已确定需求、resume 边界与提高完整上限，
 消息 `c3403579-8f3c-40d6-b705-ccae198fea70` 要求“开启 wt”并先提供上下文、CLI、CLI-help 前后方案。
-该消息授权创建本 worktree 与本方案，不伪记为已确认尚未展示的 R1。
+该消息授权创建本 worktree 与本方案。随后消息 `c10f4185-c894-4eed-a50c-acc41901fc94`
+要求精简 help、解释 `default`、把技能前后文案放在一起；本 R2 记录这些修订，不把审阅意见
+记为实施确认。R1 原文保留在 Git 提交 `158b333001ba13ed313d9b5f431a69142ef9e50c`。
 
 按[上下文变更治理](../../development/model-context-change-governance.md)：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
-因此本轮交付停在可审阅方案。阅读后若明确同意实施 R1，再记录真实的确认人、时间、消息和相等的
+因此本轮交付停在可审阅方案。阅读后若明确同意实施 R2，再记录真实的确认人、时间、消息和相等的
 `confirmed_revision`；语义改变则递增 revision。文档版本门禁在 pending 状态下应保持阻断，不能
 伪造确认字段或为此增加 checker 例外。
 
@@ -586,8 +655,8 @@ Work item: 成员路由精简、专业职责扩容与模型上下文/CLI/help �
 Worktree: /Users/murray.xue/VSCodeProjects/opensource/rovai-ai-member-routing-context
 Branch: rovai/member-routing-context
 Base: origin/main @ 39bf1eb09a208ea9abd98b737d6ed7c669ed7cbf
-Governance: none（本 R1 为提案，尚未确认或合入）
+Governance: none（本 R2 为提案，尚未确认或合入）
 Status: ready（方案待审，保留该 worktree 供后续复用）
 Validation: 见本文件“本轮文档验证记录”
-Next: 审阅 R1；确认后按同一工作区继续实施
+Next: 审阅 R2；确认后按同一工作区继续实施
 ```

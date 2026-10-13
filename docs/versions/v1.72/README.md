@@ -13,10 +13,11 @@ last_updated: 2026-10-13
 
 ## 待审方案：成员路由与专业职责扩容（2026-10-13）
 
-[R1 前后对照](model-context-change-member-routing.md)提出将专业职责上限扩为 10,000 个 Unicode
+[R2 前后对照](model-context-change-member-routing.md)提出将专业职责上限扩为 10,000 个 Unicode
 scalar value，从 `COLLABORATION_STATE` 和 Agent `member list` 移除职责，保留 `member get` 与
 本人身份全文，并同步调整完整上下文容量、CLI help 和平台技能。旧原生会话正常 resume，冻结输入
-保留。本轮仅交付独立 worktree 中的方案；尚未确认实施，当前代码与合同保持原状。
+保留。R2 精简 list/get help，澄清 update 的既有省略语义，并紧邻展示每处 help/技能的旧、新文案。
+本轮仅交付独立 worktree 中的方案；尚未确认实施，当前代码与合同保持原状。
 
 ## 会话切换读取回归修复（2026-10-13）
 

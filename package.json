@@ -175,7 +175,8 @@
     "test:member-creation": "node --test scripts/lib/member-creation.test.mjs",
     "test:mission-board": "node --test scripts/lib/mission-board.test.mjs",
     "test:member-runtime-apply": "node --test scripts/lib/member-runtime-apply.test.mjs",
-    "test:run-presence-ui": "node --test scripts/lib/run-presence.test.mjs"
+    "test:run-presence-ui": "node --test scripts/lib/run-presence.test.mjs",
+    "test:markdown-code-copy": "node --test scripts/lib/markdown-code-copy.test.mjs"
   },
   "dependencies": {
     "@codemirror/language": "6.12.4",

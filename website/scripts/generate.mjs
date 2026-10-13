@@ -97,6 +97,23 @@ function makeWindow(page, lang, topic = '') {
   related.links.push({ id: 'agent-setup', label: agentSetup.title })
   related.links.push({ id: 'multiple-providers', label: multipleProviders.title })
   dom.window.eval(scripts['site.js'])
+  // Normalize both Markdown fences and the structured guide code/request blocks.
+  for (const button of dom.window.document.querySelectorAll('.prompt-copy')) {
+    button.closest('.doc-prompt').classList.add('code-copy-frame')
+    const label = button.textContent
+    button.dataset.copyLabel = label
+    button.dataset.copyState = 'idle'
+    button.setAttribute('aria-label', label)
+    button.title = label
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><g class="code-copy-glyph"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></g><path class="code-copied-glyph" d="m5 12 4 4 10-10"/></svg>'
+    const corner = dom.window.document.createElement('div')
+    corner.className = 'code-copy-corner'
+    button.replaceWith(corner)
+    const status = dom.window.document.createElement('span')
+    status.className = 'code-copy-status'
+    status.setAttribute('role', 'status')
+    corner.append(button, status)
+  }
   return dom
 }
 

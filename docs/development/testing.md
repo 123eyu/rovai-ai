@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # 测试与 Smoke Test
@@ -814,6 +814,12 @@ required 模式，防止未来迁移到 macOS runner 时把环境阻断当成通
 夹具创建临时绝对 `userData`，不启动 Core/SQLite/Runtime，也不读取日常数据；它是生产组件组合测试，不冒充真实数据库
 迁移端到端验收。默认删除本次夹具，`ROVAI_KEEP_STARTUP_PRESENTATION_FIXTURE=1` 可保留 Day/Night、最小窗口与
 200%/reduced-motion 截图。手动 Full check 的 Linux job 通过 `xvfb-run -a pnpm test:startup-presentation` 执行。
+
+Markdown 代码块复制运行 `pnpm test:markdown-code-copy`。先执行根目录 `pnpm install --frozen-lockfile` 和
+`npm ci --prefix website`；使用本机 Chrome（可由 `ROVAI_TEST_CHROME` 指定）。夹具直接挂载生产会话、文件
+预览与代码组件，并构建真实 VitePress 页面，在独立临时浏览器 profile 中验证剪贴板、键盘、失败恢复、
+引用/查找排除、代码更新与页面导航时的异步竞争，以及双主题和窄屏。没有 Chrome 时明确 skip，不能视为通过。
+可设置 `ROVAI_CODE_COPY_OUTPUT=/absolute/path` 保留截图与结果；此入口不启动 Electron、Core 或 Runtime。
 
 文件预览分栏交互运行 `pnpm test:file-preview-layout`。它在真实 Electron 中挂载生产 `FilePreviewProvider`、
 标题栏、分栏组件、文件 Tab 与 Viewer，以原生鼠标/键盘输入验证拖动提交、回弹、关闭与取消、焦点回退、

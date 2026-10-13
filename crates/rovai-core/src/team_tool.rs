@@ -3244,7 +3244,30 @@ mod tests {
             .save(path)
             .unwrap();
         }
+        // The same single create command accepts an intact animation; codec
+        // frame semantics are owned by member_avatar's lower-cost tests.
+        {
+            let file = std::fs::File::create(workspace.path().join("portrait.gif")).unwrap();
+            let mut encoder = gif::Encoder::new(file, 400, 500, &[24, 48, 96, 96, 48, 24]).unwrap();
+            encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+            for color in [0, 1] {
+                encoder
+                    .write_frame(&gif::Frame {
+                        width: 400,
+                        height: 500,
+                        delay: 10,
+                        buffer: std::borrow::Cow::Owned(vec![color; 400 * 500]),
+                        ..gif::Frame::default()
+                    })
+                    .unwrap();
+            }
+        }
         for (name, source, color) in [
+            (
+                "Run relative GIF avatar",
+                "./portrait.gif",
+                [24, 48, 96, 255],
+            ),
             ("Run relative avatar", "./portrait.png", [24, 48, 96, 255]),
             (
                 "Absolute avatar",

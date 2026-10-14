@@ -42,7 +42,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## 模型消息发送者与 Mention
 
-- [Message Senders v1（当前）](message-senders-v1.md)：模型发送者统一，Profile 名称冻结及旧结果回放；内部身份不变。
+- [Message Senders v1（当前）](message-senders-v1.md)：模型发送者统一，按需解析 Profile 当前名称及原输入/结果回放；内部身份不变。
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
 - [ContextManifest v38（当前）](context-manifest-evidence-v38.md)：统一发送者；claim 快照与完整预算，public 38/13/9，non-batch 37/12/6。

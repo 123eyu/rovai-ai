@@ -27,10 +27,11 @@ authorId；封闭 Schema 拒绝混合字段。撤回占位保持原结构，不�
 
 按作者 ID 解析保留 Profile，不查询当前成员集合、不猜测名称、不读取 current-user-profile.json。
 使用请求内缓存，包括名称缺失结果。名称表示本次投影时间；同名不合并 ID，改名不改历史目标。
-公共 batch 在 claim 事务的既有上下文快照冻结姓名，预算与组包使用同一值；SHARED_THREAD
-在既有 lease claim 事务把作者名称写入同一个 Run-owned JSON 存储，原消息选择和正文投影保持。
-旧未执行且没有该快照的 Run 沿用原组包解析。已生成输入恢复不重查名称。
-读取/搜索在本次读取事务解析，不领取新责任。
+组装实际需要的 input、SHARED_THREAD、读取/搜索结果时，只查询这些消息中 Agent 的当前名称，
+同一批次复用查询结果。公开 batch 在原有输入组装阶段取名，名称随完整输入进入既有快照；
+预算与最终渲染使用同一份值。非 batch 领取时不为名称扫描历史或查询 Profile，不另设名称快照、
+持久缓存或恢复分支。已保存输入及工具回执沿用原有保存和回放机制，不重新取名。
+读取/搜索仍在本次读取事务解析，不领取新责任。
 
 body/snippet、Mention、引用作者、附件、时间、分页、可见性、FIFO 与截断算法保持。新增字段纳入
 现有真实字节预算和最终 payload 摘要。旧 CURRENT_INPUT.source、私聊专用结构、send 入参/回执不变。
@@ -41,4 +42,4 @@ Envelope **2**、capability `builtin_cli.transport.v39` 保持；Bootstrap/Chart
 旧成功 read 的 addressing、mentions 两版与旧 search 回执仍按各自封闭结构校验，保留原字节和摘要。
 新调用与新 Run 使用当前格式，包括旧 Session 中的新内容，不要求 Session 重建或升级。
 
-确认与验证见 [R1](../versions/v1.72/model-context-change-message-senders.md)。
+确认与验证见 [R2](../versions/v1.72/model-context-change-message-senders.md)。

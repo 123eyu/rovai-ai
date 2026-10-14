@@ -358,7 +358,7 @@ last_updated: 2026-10-13
 
 ### 公共历史按需读取与实时读取
 
-- 模型发送者按 [Message Senders v1](../contracts/message-senders-v1.md) 统一：公开 RUN_INPUT、SHARED_THREAD、read/search 使用 senderType/senderId，Agent/system 名称可空、User 无名称。内部作者和渠道身份保持；名称冻结于已有快照，不参与 Binding 兼容与授权。
+- 模型发送者按 [Message Senders v1](../contracts/message-senders-v1.md) 统一：公开 RUN_INPUT、SHARED_THREAD、read/search 使用 senderType/senderId，Agent/system 名称可空、User 无名称。内部作者和渠道身份保持；只在实际消息组装时取当前名称并复用同批查询，完整输入沿用已有保存与回放机制，不设置专用名称快照，不参与 Binding 兼容与授权。
 - 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。Mention 改动不改变正文；发送者另由上述合同统一，非 batch 和单聊的 Mention 字段保持。新 Run 使用 [Manifest v38](../contracts/context-manifest-evidence-v38.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
 
 - 新公开 batch AgentRun 不自动生成 `SHARED_CONVERSATION`、历史摘要或遗漏 locator。`RUN_INPUT` 仍完整有序。`RUN_FACTS.historyHint` 依据本 Agent 在此 Camp 上一次有效 accepted ACK 对应执行前公屏尾 `P` 以及本轮 claim 冻结的额外可见消息布尔结果选四种完整句子；存在只表示额外可见消息，不增加工作责任、不要求读取。提示是历史参考点，不代表阅读或完成，也不是 `camp.read --before` 游标。Charter 保留不推断遗漏、仅需当前工作时读取的纪律；`RUN_INPUT` 和已有上下文足够就直接推进，仅在缺少当前工作所需 Camp context 时 `rovai camp read`。

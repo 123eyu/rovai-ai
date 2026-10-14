@@ -169,5 +169,84 @@
     "status": "not_run",
     "cases": "DEMO-101–112",
     "reason": "本任务未提供固定 Judge 配置；自动化 Core/Adapter 验证不等同于各真实 Runtime 升级实测。"
+  },
+  "implementationRevision": 1,
+  "followUp": {
+    "revision": 2,
+    "confirmationMessageId": "728a1602-fe39-4a19-b835-2344b1676f77",
+    "baseline": "61972e170e9212a57202a896c1b3448bea5eac67",
+    "artifactRoot": "/Users/murray.xue/.rovai/instances/v1-ea1b0333b2d3194639a0b5a284275214dc868bf6ebe8bea219653f7c2cd7a4b3/attachments/rvcamp_01m4e3fxdef9ra3cpfasa8gaxk/message-senders-simplification-20261014",
+    "checks": [
+      {
+        "name": "Rust workspace",
+        "command": "cargo test --workspace",
+        "status": "passed",
+        "passed": 471,
+        "ignoredOrSkipped": 1,
+        "log": "rovai-senders-r2-workspace.log",
+        "sha256": "ef3d872c30949443a6c8603f7f604ae5b764e3d4c95b62634423de1c5584b1d3"
+      },
+      {
+        "name": "Context materialization and cache",
+        "command": "cargo test -p rovai-core --features slow-tests --lib context::",
+        "status": "passed",
+        "passed": 53,
+        "ignoredOrSkipped": 0,
+        "log": "rovai-senders-r2-context.log",
+        "sha256": "824487fd90dfc70e238c44f1bb6992ee7ffbc27d709776bf028d1d7649cc6093"
+      },
+      {
+        "name": "FIFO and claim",
+        "command": "cargo test -p rovai-core --features slow-tests --lib delivery_queue::tests::",
+        "status": "passed",
+        "passed": 26,
+        "ignoredOrSkipped": 0,
+        "log": "rovai-senders-r2-delivery.log",
+        "sha256": "74a4dbcf7a8c3a701df5f11f59c684c1d07a0e8c16a037e3b4534471750ce4ba"
+      },
+      {
+        "name": "History",
+        "command": "cargo test -p rovai-core --features slow-tests --lib camp_history::slow_tests::",
+        "status": "passed",
+        "passed": 7,
+        "ignoredOrSkipped": 0,
+        "log": "rovai-senders-r2-history.log",
+        "sha256": "4328bb8429d77a3e8fc4d8c7918ba1e32bdf7513e145992ad29b7b1345bb70c6"
+      },
+      {
+        "name": "Tool output replay",
+        "command": "cargo test -p rovai-core --features slow-tests --lib builtin_tool_cli_output::tests::",
+        "status": "passed",
+        "passed": 8,
+        "ignoredOrSkipped": 0,
+        "log": "rovai-senders-r2-output.log",
+        "sha256": "74e74be4e97ba793f3c81a55f9065a7b9561cdc85fecda4d369f2dbec0d0966f"
+      },
+      {
+        "name": "Document tests",
+        "command": "pnpm docs:test",
+        "status": "passed",
+        "passed": 10,
+        "ignoredOrSkipped": 0,
+        "log": "rovai-senders-r2-doc-tests.log",
+        "sha256": "3f9d71a394e6fac8e6c7896244807263ddef8dcf37fc16a6e3f37ac32f46a5e5"
+      },
+      {
+        "name": "Document governance",
+        "command": "DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 pnpm docs:check:ci",
+        "status": "passed",
+        "passed": null,
+        "ignoredOrSkipped": 0,
+        "log": "rovai-senders-r2-doc-check-final.log",
+        "sha256": "289f24954390438e26234c6b9092b70b7ec154146c0618bf1fb8f8c439b5a554"
+      }
+    ],
+    "notes": [
+      "删除非 batch 领取时的专用名称冻结、快照读写和恢复分支；按需解析实际消息中的 Agent 名称并复用同批查询。",
+      "已有完整输入、预算、上下文及工具回执保存和回放保持；字段、合同版本、Migration、Session/Binding 兼容参数未改。",
+      "Context 专项包含原 serializer 的当前名称、缺失名称与请求内缓存矩阵；单聊 owner 验证领取不创建名称快照，组包取新名称，保存后改名回放字节/摘要不变。",
+      "专项数量与默认 Rust 有重叠；cargo fmt --all --check 与 git diff --check 通过。",
+      "本次没有前端变更，R1 TypeScript/Vitest/Node 证据保留；完整真实 Runtime Gate 未运行。"
+    ]
   }
 }

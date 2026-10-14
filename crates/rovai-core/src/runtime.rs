@@ -1973,7 +1973,6 @@ impl ExecutionRuntimeService {
                     "AgentRun changed before its lease was acquired",
                 ));
             }
-            crate::message_sender::freeze_shared_senders(transaction, &run.id)?;
             // A reusable Native Session may outlive an AgentRun epoch. Clear the
             // previous Team Tool credential before the new epoch can execute so
             // a stale MCP process cannot be resolved as the newly claimed Run.

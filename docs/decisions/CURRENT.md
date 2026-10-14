@@ -29,7 +29,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Public Camp 消息与多输入 AgentRun
 
-- 模型发送者统一：[Message Senders v1](../contracts/message-senders-v1.md)、[History v13](../contracts/camp-history-v13.md)、[Manifest v38](../contracts/context-manifest-evidence-v38.md)；确认与验证见 [R1](../versions/v1.72/model-context-change-message-senders.md)。
+- 模型发送者统一：[Message Senders v1](../contracts/message-senders-v1.md)、[History v13](../contracts/camp-history-v13.md)、[Manifest v38](../contracts/context-manifest-evidence-v38.md)；确认与验证见 [R2](../versions/v1.72/model-context-change-message-senders.md)。
 - 模型 Mention 统一：[Message Mentions v1](../contracts/message-mentions-v1.md)、[ContextManifest v34](../contracts/context-manifest-evidence-v34.md)、[Camp History v13](../contracts/camp-history-v13.md)；仅合并两处元数据、按 Run 冻结的取舍见 [V1.72-D19](../versions/v1.72/decisions.md#v1-72-d19)。
 
 - 当前主链：[Public Camp Message/Delivery 架构](../architecture/public-a2a-message-delivery.md)、

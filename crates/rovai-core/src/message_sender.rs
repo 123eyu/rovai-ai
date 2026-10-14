@@ -38,36 +38,9 @@ impl MessageSender {
 #[derive(Default)]
 pub(crate) struct SenderNames {
     names: BTreeMap<String, Option<String>>,
-    frozen: bool,
 }
 
 impl SenderNames {
-    /// Non-batch shared history uses the same Run-owned JSON slot as batch context.
-    /// Old unmaterialized runs without this optional snapshot keep the existing path.
-    pub(crate) fn for_shared_run(connection: &Connection, run_id: &str) -> Result<Self> {
-        let json: Option<String> = connection
-            .query_row(
-                "SELECT context_json FROM agent_run_claim_context WHERE agent_run_id=?1",
-                [run_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(json) = json else {
-            return Ok(Self::default());
-        };
-        let mut value: Value = serde_json::from_str(&json)?;
-        let Some(names) = value
-            .as_object_mut()
-            .and_then(|object| object.remove("sharedSenderNames"))
-        else {
-            return Ok(Self::default());
-        };
-        Ok(Self {
-            names: serde_json::from_value(names)?,
-            frozen: true,
-        })
-    }
-
     pub(crate) fn project(
         &mut self,
         connection: &Connection,
@@ -84,9 +57,6 @@ impl SenderNames {
             "agent" => {
                 let name = match self.names.entry(author_id.into()) {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::btree_map::Entry::Vacant(entry) if self.frozen => {
-                        entry.insert(None)
-                    }
                     std::collections::btree_map::Entry::Vacant(entry) => entry.insert(
                         connection
                             .query_row(
@@ -108,43 +78,4 @@ impl SenderNames {
             _ => anyhow::bail!("Unsupported stored message author type: {author_type}"),
         })
     }
-}
-
-/// Called in the existing lease-claim transaction, never on a Session boundary.
-pub(crate) fn freeze_shared_senders(connection: &Connection, run_id: &str) -> Result<()> {
-    let needs_snapshot: bool = connection.query_row(
-        "SELECT invocation_kind <> 'batch'
-            AND NOT EXISTS(SELECT 1 FROM agent_run_claim_context WHERE agent_run_id=?1)
-            AND NOT EXISTS(SELECT 1 FROM context_manifest WHERE agent_run_id=?1)
-         FROM agent_run WHERE id=?1",
-        [run_id],
-        |row| row.get(0),
-    )?;
-    if !needs_snapshot {
-        return Ok(());
-    }
-    // Read only distinct author IDs inside the Run's existing public fence. This
-    // neither selects history for the model nor filters authors by current roster.
-    let mut statement = connection.prepare(
-        "SELECT DISTINCT message.author_id FROM agent_run AS run
-         LEFT JOIN camp_turn AS turn ON turn.id=run.camp_turn_id
-         JOIN camp_message AS message ON message.camp_id=COALESCE(run.camp_id,turn.camp_id)
-         WHERE run.id=?1 AND message.sequence<=COALESCE(run.current_public_tail_sequence,run.initial_camp_context_through_sequence)
-           AND message.author_type='agent'",
-    )?;
-    let authors = statement
-        .query_map([run_id], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut names = SenderNames::default();
-    for id in authors {
-        names.project(connection, "agent", &id)?;
-    }
-    connection.execute(
-        "INSERT INTO agent_run_claim_context(agent_run_id,context_json) VALUES(?1,?2)",
-        rusqlite::params![
-            run_id,
-            serde_json::json!({"sharedSenderNames":names.names}).to_string()
-        ],
-    )?;
-    Ok(())
 }

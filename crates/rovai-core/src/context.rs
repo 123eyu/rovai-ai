@@ -711,13 +711,9 @@ impl ContextService {
                 profile.max_public_history_chars,
             );
         }
-        // Reuse claim-time names before budgeting/serialization. Historical final
-        // payloads have already returned through the existing restoration path.
-        let mut sender_names = if snapshot.invocation_kind == "batch" {
-            SenderNames::default()
-        } else {
-            SenderNames::for_shared_run(database.context_connection(), &snapshot.agent_run_id)?
-        };
+        // Resolve only selected message authors, sharing lookups across this
+        // projection. Saved payloads use the existing restoration path above.
+        let mut sender_names = SenderNames::default();
         for message in originating_public_user_message
             .iter_mut()
             .chain(reference_closure.iter_mut().map(|entry| &mut entry.message))
@@ -13536,17 +13532,8 @@ mod slow_tests {
         send_explicit_public_output(
             &mut fixture,
             "shared-sender-before-claim",
-            "PUBLIC_SENDER_FREEZE",
+            "PUBLIC_SENDER_CURRENT",
         );
-        let sender_name: String = fixture
-            .database
-            .connection()
-            .query_row(
-                "SELECT display_name FROM agent_profile WHERE id='agent_1'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
         let single_chat = SingleChatService::default();
         let opened = single_chat
             .open(
@@ -13629,6 +13616,18 @@ mod slow_tests {
             )
             .unwrap();
         let execution_epoch = claimed.result.payload["executionEpoch"].as_i64().unwrap();
+        assert!(
+            !fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM agent_run_claim_context WHERE agent_run_id=?1)",
+                    [&run_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap(),
+            "non-batch claim must not add a sender-name snapshot"
+        );
         fixture.database.connection().execute("UPDATE agent_profile SET display_name='NAME_AFTER_SHARED_CLAIM' WHERE id='agent_1'", []).unwrap();
         let binding = TeamToolService::default()
             .prepare_binding_credential(&mut fixture.database, &run_id, execution_epoch, false)
@@ -13664,11 +13663,11 @@ mod slow_tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|message| message["body"] == "PUBLIC_SENDER_FREEZE")
+            .find(|message| message["body"] == "PUBLIC_SENDER_CURRENT")
             .unwrap();
         assert_eq!(message["senderType"], "agent");
         assert_eq!(message["senderId"], "agent_1");
-        assert_eq!(message["senderName"], sender_name);
+        assert_eq!(message["senderName"], "NAME_AFTER_SHARED_CLAIM");
         let current_input: Value = serde_json::from_str(
             prepared
                 .rendered_payload

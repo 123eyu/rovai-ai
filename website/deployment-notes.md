@@ -1,5 +1,22 @@
 # Deployment documentation delivery notes
 
+## Desktop and Server 0.4.10 unified publication
+
+Desktop and Server share [v0.4.10](https://github.com/murray17/rovai-ai/releases/tag/v0.4.10), published at 2026-10-14T08:54:48Z from frozen main commit 321cffdc0a21ef0a2c6b1721e0f75bd430477e8e. All 16 assets matched their full local SHA-256 values and GitHub asset digests before publication. Anonymous downloads were checked concurrently: small files in full and opening bytes of larger files against the verified packages. The Server update pointer is promoted only after those checks; the legacy channel remains 0.4.1.
+
+The [mac](https://github.com/murray17/rovai-ai/actions/runs/38533887077), [windows](https://github.com/murray17/rovai-ai/actions/runs/38533897548), [server](https://github.com/murray17/rovai-ai/actions/runs/38533915087), [windowsDesktop](https://github.com/murray17/rovai-ai/actions/runs/38533927148), [windowsRuntime](https://github.com/murray17/rovai-ai/actions/runs/38533938179) checks passed on the same source. Ubuntu 22.04, Ubuntu 24.04, and Debian 12 exercised the same Linux archive, binding manifest SHA-256 03d7f1b0e34bd191223fc5fc38efda9d2ae32e160bc0afbb4c86fa0d2a4c22ff; their reports retain runtimeQualification: false. Native builds and artifact downloads ran concurrently, using eight ranged workers per archive and full artifact digest checks.
+
+The architecture-complete Mac updater manifest was checked against all four final ZIP/DMG files. Any post-stapling DMG size/hash refresh used the existing repository merger; ZIP metadata, binaries, bilingual notes, version, source, and date were preserved. Both architectures passed the existing signing, notarization, and Gatekeeper gates.
+
+On macOS arm64, the native installation engine upgraded an isolated copy of the actual published Desktop 0.4.9 App to 0.4.10. About & Updates passed packaged-version, exact bundled notes/date, Chinese display, day/night, compact, keyboard, and 200% layout checks; actual captures were inspected. The daily App was untouched, and the native engine test does not claim production network-download-button coverage. Server 0.4.9 to 0.4.10 preserved an existing authenticated workspace message; restoring the complete stopped backup returned to the actual 0.4.9 program and data.
+
+Local default Rust workspace passed 471 tests with one existing manual ignore. JavaScript passed 2,668 Vitest and 354 Node tests with two existing platform skips. Type checks, production Desktop build, formatting, release-source validation, documentation gates, the 38-state production conversation-presence fixture, and real Electron release-note localization passed. Unchanged application-only checks retain their original source receipts. Four stale fingerprint-test expectations from #744 were synchronized to the authoritative constants. Release preparation left product logic unchanged. The separately approved CI repairs in #746 and #747 add at most six attempts only for explicit Apple ticket-network failures at automatic App stapling, DMG stapling, and final validation. Automatic notarization stays enabled; certificate pins, signature verification, Gatekeeper, and all final acceptance requirements remain unchanged.
+
+The GitHub body is derived from the complete shared bilingual source by removing only its leading version H1. The Release title carries the product/version, while bundled notes and updater manifests retain their validated source bytes for existing clients. Per user direction, the notes use a flat update list, retain acknowledgements, and omit upgrade reminders.
+
+Website labels, seven platform download links, and current installation examples now use 0.4.10. Historical publication records, screenshot baselines, and minimum-version requirements retain their actual versions.
+
+
 ## Desktop and Server 0.4.9 unified publication
 
 Desktop and Server share [`v0.4.9`](https://github.com/murray17/rovai-ai/releases/tag/v0.4.9), published at `2026-10-13T10:46:22Z` from frozen main commit `997856a8317531b6daaeb3c0d27a20644f4aaaaa`. All 16 assets matched their full local SHA-256 values and GitHub asset digests before publication. Anonymous public downloads were then checked concurrently: small files in full and large-file opening bytes against the verified local packages. Only after that verification is `scripts/server-release-tag.txt` promoted to `v0.4.9`; the legacy `scripts/server-channel.txt` remains `0.4.1`.

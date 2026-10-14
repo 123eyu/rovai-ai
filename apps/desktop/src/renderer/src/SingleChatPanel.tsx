@@ -54,6 +54,8 @@ import {
 import { executionPhaseFeedback, executionRunSummary } from './execution-run-summary'
 import { ComposerPrimaryAction } from './ComposerPrimaryAction'
 import { SafeMarkdown } from './SafeMarkdown'
+import { FileReferenceText } from './FileReferenceLink'
+import { TextareaWebLinks } from './TextareaWebLinks'
 import { shouldSubmitStructuredComposerOnEnter } from './StructuredMentionComposer'
 import { readErrorMessage } from './error-message'
 import {
@@ -492,7 +494,7 @@ function SingleChatTranscript({
           <div className="single-chat-user-message">
             <div className="single-chat-user-content">
               <MessageQuotes history quotes={message.quotes ?? []} onReveal={revealPrivateQuote} />
-              {message.body && <div className="single-chat-user-bubble" data-message-quote-body={message.id} data-quote-owner={`single_chat:${snapshot.conversation.id}`}>{message.body}</div>}
+              {message.body && <div className="single-chat-user-bubble" data-message-quote-body={message.id} data-quote-owner={`single_chat:${snapshot.conversation.id}`}><FileReferenceText text={message.body} /></div>}
               {message.attachments.length > 0 && (
                 <div className="single-chat-message-attachments" role="group" aria-label={uiAttribute("附件 {0} 个", String(message.attachments.length))}>
                   {message.attachments.map((attachment) => (
@@ -1778,6 +1780,8 @@ export function SingleChatPanel({
               }}
             />
           </div>
+          <TextareaWebLinks key={bodyDraftKey} inputRef={composerRef} value={draft}
+            enabled={visible && currentTargetReady && !sending && !returningPending && !ending} />
           <div className="composer-action-row">
             <div className="composer-tools">
               <input

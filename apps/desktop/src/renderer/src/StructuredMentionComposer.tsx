@@ -34,6 +34,7 @@ import {
   type ComposerAtomPresentation
 } from './ComposerAtomNode'
 import { ComposerTypeaheadPlugin } from './ComposerTypeaheadPlugin'
+import { ComposerWebLinksPlugin } from './ComposerWebLinksPlugin'
 import { MemberAvatar } from './MemberAvatar'
 import { NavigationIcon } from './NavigationIcon'
 import { MentionRuntimeButton } from './MentionRuntimeButton'
@@ -578,6 +579,7 @@ function ComposerBridge({
   const menuOpen = mentionOpen || skillOpen
 
   return <div className={`structured-mention-composer ${className}`.trim()}>
+    <ComposerWebLinksPlugin />
     <ContentEditable id={id} ref={setEditorElement}
       className="structured-mention-editor" aria-label={ariaLabel}
       aria-expanded={menuOpen} aria-controls={skillOpen ? skillMenuId : mentionMenuId}

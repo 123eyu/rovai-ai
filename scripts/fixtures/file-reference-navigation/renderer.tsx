@@ -21,7 +21,7 @@ const notices: string[] = []
 let chooseRootCalls = 0
 const unsupported = async (): Promise<never> => { throw new Error('Unexpected navigation fixture operation') }
 const api: FilePreviewApi = {
-  bindCamp: async () => {},
+  bindThread: async () => {},
   open: async (request) => {
     opens.push(request)
     if (request.kind === 'message_reference' && request.rawReference === '../outside/config.toml') {

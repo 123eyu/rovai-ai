@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict')
 const { mkdirSync } = require('node:fs')
+const { createServer } = require('node:http')
 const { isAbsolute, join } = require('node:path')
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, shell } = require('electron')
 
-const [renderer, userData] = process.argv.slice(2)
+const [renderer, userData, linkHandlerPath] = process.argv.slice(2)
+const { webLinkWindowHandler } = require(linkHandlerPath)
 assert.ok(isAbsolute(renderer) && isAbsolute(userData), 'The Composer test requires isolated absolute paths')
 mkdirSync(userData, { recursive: true })
 app.setPath('userData', userData)
@@ -23,6 +25,14 @@ app.whenReady().then(async () => {
       backgroundThrottling: false
     }
   })
+
+  const webOpens = []
+  const launchFailures = []
+  let systemBrowserTarget = null
+  window.webContents.setWindowOpenHandler(webLinkWindowHandler(async url => {
+    webOpens.push(url)
+    if (url === systemBrowserTarget) await shell.openExternal(url)
+  }, async () => { launchFailures.push(systemBrowserTarget) }))
 
   async function complete(promise, operation) {
     let timeout
@@ -128,6 +138,260 @@ app.whenReady().then(async () => {
     window.webContents.debugger.attach('1.3')
     await command('Emulation.setFocusEmulationEnabled', { enabled: true })
     await frames()
+
+
+    const webState = () => evaluate('window.composerTest.webState()')
+    const settleLinks = () => evaluate('new Promise(resolve => setTimeout(resolve, 180))')
+    const primary = process.platform === 'darwin' ? 4 : 2
+    const mouse = async (point, modifiers = 0, clickCount = 1) => {
+      await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount, modifiers })
+      await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount, modifiers })
+      await frames()
+    }
+    const clickText = async (text, selector = '#composer', modifiers = 0) =>
+      mouse(await evaluate('window.composerTest.webPoint(' + JSON.stringify(text) + ', 2,' + JSON.stringify(selector) + ')'), modifiers)
+    const button = async (label) => {
+      const point = await evaluate('(() => { const b = [...document.querySelectorAll(".composer-web-link-actions button")].find(b => b.textContent === ' + JSON.stringify(label) + '); const r = b.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()')
+      await mouse(point)
+    }
+    if (process.env.ROVAI_TEST_SYSTEM_BROWSER === '1') await run('desktop click launches the system browser through the production window handler', async () => {
+      let resolveRequest
+      const received = new Promise(resolve => { resolveRequest = resolve })
+      const server = createServer((request, response) => {
+        response.setHeader('Content-Type', 'text/html; charset=utf-8')
+        response.end('<title>Rovai link verification</title><p>Desktop link opened successfully.</p>')
+        if (request.url.startsWith('/opened?')) resolveRequest(request.url)
+      })
+      try {
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+        systemBrowserTarget = 'http://127.0.0.1:' + server.address().port + '/opened?x=1&y=2#part'
+        await reset(systemBrowserTarget)
+        const before = webOpens.length
+        await clickText(systemBrowserTarget)
+        await button('打开链接')
+        assert.equal(await complete(received, 'system browser request'), '/opened?x=1&y=2')
+        assert.equal(webOpens.length, before + 1)
+        assert.equal(webOpens.at(-1), systemBrowserTarget)
+        assert.deepEqual(launchFailures, [])
+        trace('System browser opened ' + systemBrowserTarget)
+      } finally {
+        systemBrowserTarget = null
+        server.closeAllConnections()
+        await new Promise(resolve => server.close(resolve))
+      }
+    })
+    await run('web-link display, popup, copy and open preserve draft versions and selection', async () => {
+      const url = 'http://localhost:8766/a?x=1&y=2#part'
+      await reset('前 ' + url + ' 后')
+      const before = await state(false)
+      const opened = webOpens.length
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url])
+      await clickText(url)
+      assert.equal((await webState()).popup, url)
+      assert.equal((await state(false)).focused, true)
+      assert.equal((await state(false)).caret.collapsed, true)
+      await button('复制链接')
+      assert.equal((await webState()).copied.at(-1), url)
+      await button('打开链接')
+      assert.equal(webOpens.length, opened + 1)
+      assert.equal(webOpens.at(-1), url)
+      const after = await state(false)
+      assert.equal(after.localVersion, before.localVersion)
+      assert.equal(after.saveCount, before.saveCount)
+      assert.equal(after.linkCount, 0)
+      await key('Escape', 27)
+      assert.equal((await webState()).popup, null)
+      await clickText(url, '#composer', primary)
+      assert.equal(webOpens.length, opened + 2)
+    })
+    await run('native code/Atom exclusions and cross-link user quotes preserve literal source', async () => {
+      const url = 'http://localhost:8766/a'
+      await reset('~~~txt\n' + url + '\n~~~\n\u0060' + url + '\u0060\n' + url)
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url])
+      await evaluate('window.composerTest.selectText(' + JSON.stringify(url) + ',' + url.length + ')')
+      await insert('extra')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url])
+      await reset({version:2, segments:[{kind:'atom',atom:{type:'member',agentId:'agent-a'}},{kind:'text',text:' ' + url}]})
+      await evaluate('window.composerTest.renameMember("http://hidden-label")')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url])
+      const from = await evaluate('window.composerTest.webPoint("前 [标题](", 0, "#web-user")')
+      const to = await evaluate('window.composerTest.webPoint(") 后", 2, "#web-user")')
+      const before = webOpens.length
+      window.webContents.sendInputEvent({type:'mouseMove',x:Math.round(from.x),y:Math.round(from.y)})
+      window.webContents.sendInputEvent({type:'mouseDown',x:Math.round(from.x),y:Math.round(from.y),button:'left',clickCount:1})
+      for (let step=1;step<=8;step++) {
+        window.webContents.sendInputEvent({type:'mouseMove',x:Math.round(from.x+(to.x-from.x)*step/8),y:Math.round(to.y),button:'left',modifiers:['leftButtonDown']})
+        await new Promise(resolve=>setTimeout(resolve,16))
+      }
+      window.webContents.sendInputEvent({type:'mouseUp',x:Math.round(to.x),y:Math.round(to.y),button:'left',clickCount:1})
+      await frames()
+      const quote = await evaluate('window.composerTest.quoteWebSelection()')
+      assert.ok(quote, JSON.stringify(await evaluate('({selected:window.getSelection().toString(), anchor:window.getSelection().anchorNode?.parentElement?.outerHTML,focus:window.getSelection().focusNode?.parentElement?.outerHTML,body:document.querySelector("#web-user").outerHTML})')))
+      const selected = await evaluate('window.getSelection().toString()')
+      assert.equal(quote.text, selected)
+      assert.equal(quote.bodyAtSelection.slice(quote.startScalar, quote.endScalar), selected)
+      assert.equal(webOpens.length, before)
+      for (const result of await evaluate('window.composerTest.comparePartialWebQuotes()')) {
+        assert.deepEqual(result.linked, result.plain)
+        assert.equal(result.linked.text, result.expected, 'Unselected URL characters and Markdown symbols must stay out of quotes')
+      }
+      await clickText(url, '#web-agent')
+      assert.equal(webOpens.length, before + 1)
+      await evaluate('document.querySelector("#web-user a").focus()')
+      await key('Enter', 13)
+      assert.equal(webOpens.length, before + 2)
+    })
+    await run('URL edit, undo/redo, saved draft restore, send and historical open stay literal', async () => {
+      const first = 'http://localhost:8766/old?q=1#part'
+      const second = 'http://localhost:8766/new?q=1#part'
+      await reset('')
+      await insert(first)
+      await state(true)
+      await evaluate('window.composerTest.selectText("old",0,3)')
+      await insert('new')
+      await clickText(second)
+      const edited = await state(false)
+      await button('复制链接')
+      assert.equal((await state(false)).localVersion, edited.localVersion)
+      await key('z', 90, primary, 'KeyZ')
+      assert.equal((await state()).text, first)
+      await key('z', 90, primary | 8, 'KeyZ')
+      assert.equal((await state()).text, second)
+      await evaluate('window.composerTest.restoreSaved()')
+      await frames()
+      assert.equal((await state()).text, second)
+      await evaluate('window.composerTest.captureNextSend(); window.composerTest.focusEnd()')
+      await key('Enter', 13)
+      await frames()
+      assert.deepEqual((await webState()).sent, {version:2,segments:[{kind:'text',text:second}]})
+      const before = webOpens.length
+      await clickText(second, '#web-history')
+      assert.equal(webOpens.length, before + 1)
+      assert.equal(webOpens.at(-1), second)
+    })
+    await run('composition, dragging and thread changes close the URL popup without stale targets', async () => {
+      const url = 'https://example.com/a'
+      await reset(url)
+      await clickText(url)
+      await command('Input.imeSetComposition', { text:'中', selectionStart:1, selectionEnd:1 })
+      assert.equal((await webState()).popup, null)
+      await insert('中文')
+      await reset(url)
+      await clickText(url)
+      await evaluate('window.composerTest.switchDraft("另一个会话")')
+      await frames()
+      assert.equal((await webState()).popup, null)
+      const before = webOpens.length
+      await reset(url)
+      const from = await evaluate('window.composerTest.webPoint(' + JSON.stringify(url) + ',1)')
+      const to = await evaluate('window.composerTest.webPoint(' + JSON.stringify(url) + ',12)')
+      await command('Input.dispatchMouseEvent', {type:'mousePressed',...from,button:'left',clickCount:1})
+      await command('Input.dispatchMouseEvent', {type:'mouseMoved',...to,button:'left',buttons:1})
+      await command('Input.dispatchMouseEvent', {type:'mouseReleased',...to,button:'left',clickCount:1})
+      await frames()
+      assert.equal((await webState()).popup, null)
+      assert.equal(webOpens.length, before)
+    })
+    await run('unsupported range highlighting retains URL operations', async () => {
+      await evaluate('window.fixtureHighlights = CSS.highlights; CSS.highlights.delete("rovai-composer-web-link"); Object.defineProperty(CSS,"highlights",{configurable:true,value:undefined}); true')
+      try {
+        const url = 'http://localhost:8766/fallback'
+        await reset(url)
+        const before = webOpens.length
+        await clickText(url)
+        assert.equal((await webState()).popup, url)
+        await button('打开链接')
+        assert.equal(webOpens.length, before + 1)
+        await clickText(url, '#composer', primary)
+        assert.equal(webOpens.length, before + 2)
+      } finally {
+        await evaluate('Object.defineProperty(CSS,"highlights",{configurable:true,value:window.fixtureHighlights}); true')
+      }
+    })
+
+
+    await run('ordinary long-draft edits retain unrelated ranges and multiline Markdown targets', async () => {
+      const lines = Array.from({length:800},(_,index)=>'line ' + index + ' https://example.com/' + index)
+      await reset(lines.join('\n'))
+      await settleLinks()
+      await evaluate('window.firstLinkRange=CSS.highlights.get("rovai-composer-web-link").values().next().value; true')
+      await evaluate('window.composerTest.focusEnd()')
+      const started = Date.now()
+      await insert('changed')
+      assert.ok(Date.now()-started<1000,'A single edit in a long draft must remain responsive')
+      await settleLinks()
+      assert.equal(await evaluate('CSS.highlights.get("rovai-composer-web-link").has(window.firstLinkRange)'),true,'Unchanged URL ranges are retained')
+      assert.equal((await webState()).highlights.length,800)
+      const target = 'https://example.com/?q=中文，参数'
+      await reset('[标题](\n' + target + '\n)')
+      await evaluate('window.composerTest.selectText(' + JSON.stringify(target) + ','+target.length+')')
+      await insert('新')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights,[target+'新'])
+      await clickText(target+'新')
+      assert.equal((await webState()).popup,target+'新')
+    })
+
+    await run('restored paragraph indentation keeps the same links after edits and another restore', async () => {
+      const url = 'https://example.com/a'
+      const source = '说明\n    ' + url
+      await reset('')
+      await insert(source)
+      await state(true)
+      await evaluate('window.composerTest.restoreSaved()')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url])
+      await evaluate('window.composerTest.focusEnd()')
+      await insert('x')
+      const edited = await state(true)
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url + 'x'])
+      assert.equal((await state(false)).localVersion, edited.localVersion)
+      assert.equal((await state(false)).saveCount, edited.saveCount)
+      await clickText(url + 'x')
+      assert.equal((await webState()).popup, url + 'x')
+      await evaluate('window.composerTest.restoreSaved()')
+      await settleLinks()
+      assert.equal((await state()).text, source + 'x')
+      assert.deepEqual((await webState()).highlights, [url + 'x'])
+      // Changing the paragraph boundary must also invalidate the later URL.
+      await evaluate('window.composerTest.selectText("说明",2)')
+      await insert('\n')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [])
+      await key('z', 90, primary, 'KeyZ')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url + 'x'])
+    })
+
+    for (const [name, source] of [
+      ['long single line', 'ordinary text '.repeat(8000) + 'https://example.com/end edit here '],
+      ['Markdown symbol burst', Array.from({length:800},(_,i)=>'line '+i+' https://example.com/'+i).join('\n') + '\nedit here ']
+    ]) await run(name + ' defers and coalesces URL projection outside typing', async () => {
+      await reset(source)
+      await settleLinks()
+      await evaluate('window.composerTest.focusEnd(); window.linkPaints=0; window.originalHighlightSet=CSS.highlights.set; CSS.highlights.set=function(...args){window.linkPaints++; return window.originalHighlightSet.apply(this,args)}; true')
+      const timings = []
+      try {
+        for (const character of '([])\\*') {
+          const started = Date.now()
+          await insert(character)
+          timings.push(Date.now() - started)
+        }
+        assert.equal(await evaluate('window.linkPaints'),0,'Continuous typing must not parse or repaint the whole draft on each key')
+        const edited = await state(false)
+        await settleLinks()
+        assert.equal(await evaluate('window.linkPaints'),1,'One settled projection for the editing burst')
+        assert.equal((await state(false)).localVersion,edited.localVersion)
+        assert.ok(Math.max(...timings)<250,'Native insert plus two frames must remain responsive: '+timings)
+        assert.equal((await state()).text, source + '([])\\*')
+        trace('Link timing '+JSON.stringify({name,characters:source.length,inputAndFramesMs:timings}))
+      } finally { await evaluate('CSS.highlights.set=window.originalHighlightSet; true') }
+    })
 
     await run('ordinary typing stays local to the same Lexical host', async () => {
       await reset('')

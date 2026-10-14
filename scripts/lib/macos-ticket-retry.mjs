@@ -10,8 +10,8 @@ function pauseSync(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }
 
-function isNetworkFailure(result, output) {
-  return !result.error && !result.signal
+export function isAppleTicketNetworkFailure(result, output) {
+  return result.status !== 0 && !result.error && !result.signal
     && /(?:NSURLErrorDomain|kCFErrorDomainCFNetwork)\s+Code=-100[134569]\b/.test(output)
 }
 
@@ -33,7 +33,7 @@ export function runMacosTicket(action, target, {
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
     if (result.error) throw result.error
     if (result.status === 0) return output
-    if (attempt === MACOS_TICKET_RETRY.attempts || !isNetworkFailure(result, output)) {
+    if (attempt === MACOS_TICKET_RETRY.attempts || !isAppleTicketNetworkFailure(result, output)) {
       const reason = result.signal ? `signal ${result.signal}` : result.status
       throw new Error(`xcrun stapler ${action} failed (${reason}): ${output}`)
     }

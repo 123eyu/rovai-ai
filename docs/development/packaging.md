@@ -202,6 +202,11 @@ Apple `NSURLErrorDomain` / `kCFErrorDomainCFNetwork` 明确报告超时、DNS、
 票据缺失、验证失败、签名异常、未知 Error 68 和进程错误立即失败。证书、签名、公证提交、
 Gatekeeper 与产物校验标准不变；不会把网络重试当作通过证据。
 
+electron-builder 内置的 App 贴票也采用同一上限：仅在其明确报告 App 贴票失败且包含上述
+Apple 网络错误时，在同一工作区重跑原有签名构建命令，复用已完成的 Rust 编译。
+自动公证配置保持启用，原命令成功后仍须完成 DMG 公证和全部 verifier 检查；
+编译、签名、证书或其他构建失败不触发此重试。
+
 ### 首次配置 Apple Developer ID 发布环境
 
 1. 在 Apple Developer 的 Certificates 中创建 **Developer ID Application** 证书（不是 Apple Development、

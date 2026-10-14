@@ -16,7 +16,7 @@ test(
   { timeout: 180_000 },
   async (t) => {
     if (!admitElectronIntegrationTest(t)) return
-    const fixture = await mkdtemp(join(tmpdir(), 'rovai-member-editor-test-'))
+    const fixture = process.env.ROVAI_MEMBER_EDITOR_FIXTURE_ROOT ?? await mkdtemp(join(tmpdir(), 'rovai-member-editor-test-'))
     let child,
       closed,
       passed = false

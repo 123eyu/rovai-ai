@@ -12,7 +12,7 @@ Draft a complete identity card from the name and supplied requirements. Create t
 1. Reuse supplied information. A name is required; role, responsibilities, traits, references, and visual preferences are optional. Ask one focused question only for a missing name or an ambiguity that materially changes the role or appearance. Draft other gaps as suggestions.
 2. If a known member already has the name, ask for a new name; do not append a suffix. Creation performs the authoritative uniqueness check.
 3. Read [identity rules](references/identity-generation.md). Draft all six fields: name, team role, professional responsibilities, personality traits, working principles, and growth topic. Preserve the meaning of user input. Identity does not grant permissions or Thread authority.
-4. Read [avatar rules](references/avatar-sourcing.md). Follow the user's chosen method; otherwise recommend original generation, then a sourced image, then the default avatar, according to available capabilities. Before confirmation, present the method and visual plan. Produce a preview first only if requested.
+4. Read [avatar rules](references/avatar-sourcing.md). Follow the user's chosen method. Without an appearance request, use the default avatar; image generation is not a prerequisite for creation. For an appearance request, propose generation or a supplied/sourced image using available capabilities. Before confirmation, present the method and visual plan. Produce a preview first only if requested.
 
 ## Confirm the complete card
 
@@ -44,7 +44,7 @@ After confirmation:
 
 1. Generate one stable `creationKey` for this creation.
 2. Read `rovai member create --help` for current inputs.
-3. Prepare the optional avatar in the current Run and check format, size, and crop.
+3. Prepare the optional avatar in the current Run and check format, size, and avatar framing.
 4. Create with the confirmed six fields and optional avatar.
 5. Inspect the returned `agentId`, creation status, and avatar result.
 

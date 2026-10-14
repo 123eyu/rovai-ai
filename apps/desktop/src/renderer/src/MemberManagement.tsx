@@ -772,36 +772,23 @@ const MemberEditor = forwardRef<
           {selectedAgent ? (
             <MemberDetailHeader
               agent={{ ...selectedAgent, avatarRef: draftAvatar }}
-              runtimeAvailability={runtimeAvailability}
-              hostPlatform={hostPlatform}
-              runtimePlatformAdmission={runtimePlatformAdmission}
-              runtimeDiscoveryPending={runtimeDiscoveryPending}
               busy={busy}
-              onEditAvatar={() => {
-                identityRef.current?.openAvatar()
-                requestAnimationFrame(() =>
-                  pageRef.current
-                    ?.querySelector('.member-editor-avatar-editor')
-                    ?.scrollIntoView({ block: 'center' })
-                )
-              }}
+              onEditAvatar={trigger => identityRef.current?.openAvatar(trigger)}
               onPresence={changePresence}
-              onRuntime={openRuntime}
               onRemove={() => void previewRemoval()}
             />
           ) : (
-            <header className="member-detail-header member-editor-member-header">
-              <div className="member-detail-heading">
-                <MemberAvatar
-                  agentId="new-member"
-                  avatarRef={draftAvatar}
-                  displayName={uiAttribute("新队员")}
-                  size="profile"
-                  decorative
-                />
-                <div>
-                  <h1><UiText zh={"新增队员"} /></h1>
-                  <p><UiText zh={"设置这位队员的长期身份"} /></p>
+            <header className="member-detail-header member-editor-member-header member-profile-hero">
+              <div className="member-profile-main">
+                <button className="member-avatar-trigger" type="button" aria-label={uiAttribute('更换头像')} onClick={event => identityRef.current?.openAvatar(event.currentTarget)}>
+                  <MemberAvatar agentId="new-member" avatarRef={draftAvatar} displayName={uiAttribute('新队员')} size="profile" decorative className="member-detail-avatar" />
+                </button>
+                <div className="member-profile-copy">
+                  <div className="member-profile-title"><h1>{uiAttribute('新增队员')}</h1></div>
+                  <p className="member-profile-role">{uiAttribute('设置这位队员的长期身份')}</p>
+                  <div className="member-profile-avatar-actions">
+                    <button className="member-editor-image-button" type="button" onClick={event => identityRef.current?.openAvatar(event.currentTarget)}>{uiAttribute('更换头像')}</button>
+                  </div>
                 </div>
               </div>
             </header>
@@ -833,7 +820,7 @@ const MemberEditor = forwardRef<
           >
             <div className="member-editor-section-heading">
               <h2><UiText zh={"运行配置"} /></h2>
-              {selectedAgent && <span><UiText zh={"用于之后开始的新执行"} /></span>}
+
             </div>
             {selectedAgent ? (
               <MemberRuntimeForm
@@ -975,94 +962,34 @@ export function memberIdentityTargetAgent(
 
 function MemberDetailHeader({
   agent,
-  runtimeAvailability,
-  hostPlatform,
-  runtimePlatformAdmission,
-  runtimeDiscoveryPending,
   busy,
   onEditAvatar,
   onPresence,
-  onRuntime,
   onRemove
 }: {
   agent: AgentProfile
-  runtimeAvailability: ProductRuntimeAvailability[]
-  hostPlatform: HostPlatformKey | null
-  runtimePlatformAdmission: RuntimePlatformAdmission[]
-  runtimeDiscoveryPending: boolean
   busy: string | null
   onEditAvatar(trigger: HTMLButtonElement): void
   onPresence(presence: 'present' | 'away'): Promise<void>
-  onRuntime(): void
   onRemove(trigger: HTMLButtonElement): void
 }): React.JSX.Element {
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
-  const availability =
-    runtimeAvailability.find(
-      (item) => item.runtimeKind === agent.runtimeConfiguration?.adapterKind
-    ) ?? null
-  const admission = agent.runtimeConfiguration
-    ? runtimePlatformAdmissionFor(
-        hostPlatform,
-        runtimePlatformAdmission,
-        agent.runtimeConfiguration.adapterKind
-      )
-    : null
-  const runtime = memberRuntimePresentation(
-    agent,
-    agent.runtimeConfiguration?.adapterKind ?? null,
-    availability,
-    runtimeDiscoveryPending,
-    admission,
-    hostPlatform !== null
-  )
+  const editAvatarAfterMenu = useRef(false)
   return (
-    <header className="member-detail-header member-editor-member-header">
-      <div className="member-detail-heading">
-        <MemberAvatar
-          agentId={agent.agentId}
-          avatarRef={agent.avatarRef}
-          displayName={agent.displayName}
-          size="profile"
-          decorative
-          className="member-detail-avatar"
-        />
-        <div>
-          <h1>{agent.displayName}</h1>
-          <p>{agent.teamRole ||uiAttribute("团队角色未设置")}</p>
-          <div className="member-detail-statuses">
-            <span className={`presence-${agent.presence}`}>
-              {memberPresenceLabel(agent.presence)}
-            </span>
-            <button
-              className={`member-header-runtime status-${runtime.status}`}
-              type="button"
-              onClick={onRuntime}
-              aria-label={agent.runtimeConfiguration?.adapterKind
-                ? uiAttribute("{0}，{1}；打开运行配置",
-                    runtime.status === 'available' ? agent.displayName : adapterLabel(agent.runtimeConfiguration.adapterKind),
-                    runtime.status === 'available' ? adapterLabel(agent.runtimeConfiguration.adapterKind) : runtime.label)
-                : uiAttribute("未配置智能体；打开运行配置")}
-              title={uiAttribute("打开运行配置")}
-            >
-              <i aria-hidden="true" />
-              <span>
-                {agent.runtimeConfiguration?.adapterKind
-                  ? adapterLabel(agent.runtimeConfiguration.adapterKind)
-                  : uiAttribute("未配置智能体")}
-              </span>
-              <svg
-                className="member-runtime-entry-arrow"
-                viewBox="0 0 16 16"
-                aria-hidden="true"
-              >
-                <path d="m6 3.5 4.5 4.5L6 12.5" />
-              </svg>
-            </button>
+    <header className="member-detail-header member-editor-member-header member-profile-hero">
+      <div className="member-profile-main">
+        <button className="member-avatar-trigger" type="button" aria-label={uiAttribute('更换头像')} disabled={busy !== null} onClick={event => onEditAvatar(event.currentTarget)}>
+          <MemberAvatar agentId={agent.agentId} avatarRef={agent.avatarRef} displayName={agent.displayName} size="profile" decorative className="member-detail-avatar" />
+        </button>
+        <div className="member-profile-copy">
+          <div className="member-profile-title"><h1>{agent.displayName}</h1><span className={`member-presence-label presence-${agent.presence}`}>{memberPresenceLabel(agent.presence)}</span></div>
+          <p className="member-profile-role">{agent.teamRole || uiAttribute('团队角色未设置')}</p>
+          <div className="member-profile-avatar-actions">
+            <button className="member-editor-image-button" type="button" disabled={busy !== null} onClick={event => onEditAvatar(event.currentTarget)}>{uiAttribute('更换头像')}</button>
           </div>
         </div>
       </div>
-      <div className="member-detail-actions">
+      <div className="member-profile-tools">
         <Menu.Root>
           <Menu.Trigger asChild>
             <button
@@ -1073,9 +1000,9 @@ function MemberDetailHeader({
               disabled={busy !== null}
             >
               <svg viewBox="0 0 20 20" aria-hidden="true">
-                <circle cx="4.5" cy="10" r="1" />
-                <circle cx="10" cy="10" r="1" />
-                <circle cx="15.5" cy="10" r="1" />
+                <circle cx="4.5" cy="10" r="1.3" />
+                <circle cx="10" cy="10" r="1.3" />
+                <circle cx="15.5" cy="10" r="1.3" />
               </svg>
             </button>
           </Menu.Trigger>
@@ -1084,13 +1011,17 @@ function MemberDetailHeader({
               className="member-editor-menu"
               align="end"
               sideOffset={6}
+              onCloseAutoFocus={event => {
+                if (!editAvatarAfterMenu.current) return
+                editAvatarAfterMenu.current = false
+                event.preventDefault()
+                if (menuTriggerRef.current) onEditAvatar(menuTriggerRef.current)
+              }}
             >
               <Menu.Item
                 className="member-editor-menu-item"
-                onSelect={() =>
-                  onEditAvatar(menuTriggerRef.current as HTMLButtonElement)
-                }
-              ><UiText zh={"更换角色图片"} /></Menu.Item>
+                onSelect={() => { editAvatarAfterMenu.current = true }}
+              ><UiText zh={"更换头像"} /></Menu.Item>
               <Menu.Item
                 className="member-editor-menu-item"
                 onSelect={() =>
@@ -1478,7 +1409,7 @@ export const MemberRuntimeForm = forwardRef<
               ? uiAttribute("当前平台仅可查看这份配置")
               : dirty
                 ? uiAttribute("有未保存更改")
-                : uiAttribute("当前配置已保存")}
+                : ''}
           </span>
           <div>
             <button

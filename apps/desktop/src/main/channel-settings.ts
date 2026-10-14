@@ -806,12 +806,12 @@ export class ChannelSettingsService {
     const agent = await this.#dependencies!.core.request<AgentProfile>('members.get', { agentId })
     if (!agent || agent.presence !== 'present') throw new Error('该队员当前不可发布。')
     const appDescription = memberBotAppDescription(this.#profile.kind, agent.teamRole)
-    const avatarSource = await this.#memberBotAvatarSource.resolve(agent.avatarRef)
-    if (
-      existingBot
-      || (previousIntent?.remoteAppId
-        && ['failed_recoverable', 'failed_unknown_remote_state'].includes(previousIntent.state))
-    ) {
+    const resuming = Boolean(existingBot || (previousIntent?.remoteAppId
+      && ['failed_recoverable', 'failed_unknown_remote_state'].includes(previousIntent.state)))
+    const publicationIntentId = resuming && previousIntent
+      ? previousIntent.publicationIntentId : `rvfpi_${randomUUID().replaceAll('-', '')}`
+    const avatarSource = await this.#memberBotAvatarSource.resolve(agent.avatarRef, { publicationIntentId })
+    if (resuming) {
       if (!previousIntent) throw new Error('该队员缺少可恢复的飞书发布状态。')
       return this.#reconcileFrozenMemberBot(
         account,
@@ -823,7 +823,6 @@ export class ChannelSettingsService {
       )
     }
 
-    const publicationIntentId = `rvfpi_${randomUUID().replaceAll('-', '')}`
     const timing = new ProvisioningTimingRecorder({
       publicationIntentId,
       agentId,

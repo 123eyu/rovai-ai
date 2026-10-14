@@ -8,6 +8,46 @@ last_updated: 2026-10-14
 
 # v1.72 实施与验收
 
+## 队员头像简化（2026-10-14）
+
+Mission `rvm_01a1390f1fc377028f1bae8eb8f78cf0`，分支 `rovai/mission/062`，基线 `3d4db22df`。
+User 消息 27 授权按确认的 R8 实现并 PR 合入 main，解除此前仅设计稿限制。
+实现覆盖队员配置、会话/Mission 身份卡、引导、欢迎区和历史入队回执；回执仍使用创建快照。
+新 schema 3 只存 source 与取景，Desktop/Web/Agent 共用新路径；旧 schema 1/2 和旧确定性创建重试保持。
+渠道冻结静态 PNG 到既有 Core data 的私有资源目录，无数据库迁移；身份、运行配置和模型上下文边界不变。
+`member-studio` 只调整本任务明确授权的可选头像教学，不变更自动 Bootstrap、Skill description 或身份生成规范。
+
+测试 owner：扩展 `member_avatar::tests` 原有 14 项，不新增或移除 Rust 测试；旧协议、恶意路径、损坏、
+格式及幂等矩阵保持。渠道 resolver owner 增加持久冻结/并发/重启验证，UI 使用生产组件夹具，真实 GIF
+seam 连接隔离 Core 与 Web adapter。原型内存模拟不是生产验收证据。
+
+本机验证（macOS arm64，Apple M5 / 32 GiB）：
+
+- TypeScript、完整 Vitest 243 个文件 / 2,669 项、Desktop/Web/Execution Web 构建通过。
+- 队员页生产组件 22 组检查通过，包括上传后裁切、取消/坏图/晚到读取、确认失败重试、一次主保存清除 dirty，
+  以及原有分区保存、部分成功、冲突、个人资料、移除与菜单。双主题、窄窗口、2K、缩放截图已检查。
+- Chrome 生产会话 fixture 的 38 个状态及交互回归通过；身份卡覆盖鼠标/键盘、焦点恢复、非模态关闭、
+  折叠/展开、当前与未配置 Runtime，以及 1440×920、375×812、844×390 的长资料与双主题截图。
+- 真实隔离 Core + Web 图片 adapter 的 GIF 六组检查通过：动画预览/稳定 URL、单文件保真、保存/重选/刷新，
+  以及 192/240 静态封面。静态非居中取景与 GIF 首帧局部画布、旧资产/replay、安全输入由 Rust owner 覆盖。
+- 文档单元 10 项、普通与基线 `3d4db22df` 的 diff-aware 门禁、Skill 单元 3 项及 12 个 Skill 检查通过。
+
+直接显示预算使用两组低字节但接近 3200 万累计像素的合成 GIF：512×512×120 帧（109,473 B）和
+1024×1024×30 帧（57,213 B），40 ms/帧，三色轮换，12 个独立受管引用与 Blob URL 同时显示。
+上传受 Core 完整校验；读取新资产核对 hash/结构/元数据，不再重复解码整段动画。
+Electron 两组均 12/12 实际截图颜色变化，3 秒帧间隔 p95 分别 17.6 / 16.8 ms，无 >50 ms 主线程长任务；
+Renderer 峰值工作集约 281 / 268 MiB。1024 组的 12 张首读至图片加载完成为 54 ms。
+Chrome 在桌面和 375px 视口均 12/12 动画，p95 16.7–16.8 ms，无长任务；最大观测帧间隔 33.3 ms。
+因此保留单边 1024、累计 3200 万像素、200 帧和 10 MiB 的联合预算，不按压缩文件大小单独准入。
+这些结果证明本机桌面与浏览器渲染路径，不代表实体手机、Safari、Windows 或全部设备性能。
+
+复现入口：生成指定画布/帧数/40ms 三色 GIF 后，以 `ROVAI_AVATAR_STRESS_GIF=<绝对 GIF 路径>`、
+`ROVAI_MEMBER_AVATAR_FIXTURE_ROOT=<新建规范绝对目录>`、`ROVAI_KEEP_MEMBER_AVATAR_FIXTURE=1` 运行
+`pnpm test:member-avatar-flow`；再运行 `node scripts/review-member-avatar-browser-budget.mjs <同一目录>`。
+后者读取前者真实 Core 产生的受管结果，以独立 Chrome profile 验证相同生产组件和浏览器图片 adapter；
+不声明真实远端 Host 或渠道账号验收。计时记录而不设机器相关的 CI 断言；实际动画、文件数、字节和导出为硬断言。
+Rust workspace 与 Agent seam 定向测试结果在合并前补齐。
+
 ## Pi 接收容量与连接失败原因（2026-10-14）
 
 User 确认优先修 Pi 接收容量及错误类型，采用单帧默认 64 MiB。基线

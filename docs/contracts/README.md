@@ -19,6 +19,10 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [AgentRun Continuation v2（历史）](agent-run-continuation-v2.md)：新用户授权、自动会话选择与投递前有界降级，独立 Run 与现有队列。
 - [AgentRun Continuation v1（历史）](agent-run-continuation-v1.md)：独立续做与显式新会话确认；确认规则由 v2 替代。
 
+## 队员头像
+
+- [Member Avatar v1（当前）](member-avatar-v1.md)：单文件资产、显示取景、旧 icon 兼容和按发布意图冻结静态封面。
+
 ## Navigation
 
 - [Navigation Read v1（当前）](navigation-read-v1.md)：单会话、单分组、完整摘要快照，观察水位内已读确认与局部失效。

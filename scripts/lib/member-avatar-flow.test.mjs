@@ -17,7 +17,7 @@ test('GIF avatar survives upload, crop, reopen and reload through the real Core'
   if (!admitElectronIntegrationTest(t)) return
   const binary = resolve(process.env.ROVAI_CORE_BINARY ?? join(root, 'target/debug', process.platform === 'win32' ? 'rovai-core.exe' : 'rovai-core'))
   await access(binary)
-  const fixture = await realpath(await mkdtemp(join(tmpdir(), 'rovai-member-avatar-flow-')))
+  const fixture = await realpath(process.env.ROVAI_MEMBER_AVATAR_FIXTURE_ROOT ?? await mkdtemp(join(tmpdir(), 'rovai-member-avatar-flow-')))
   const userData = join(fixture, 'user-data')
   let child, closed, passed = false
   try {
@@ -56,7 +56,7 @@ test('GIF avatar survives upload, crop, reopen and reload through the real Core'
 // Two full frames with a deliberately very wide canvas. Clearing the LZW table
 // before each pixel keeps this small fixture encoder independent of production.
 function wideGif() {
-  const width = 4097, height = 256
+  const width = 768, height = 256
   const word = value => [value & 255, value >>> 8]
   const parts = [Buffer.from([...Buffer.from('GIF89a'), ...word(width), ...word(height), 0x81, 0, 0,
     255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0,

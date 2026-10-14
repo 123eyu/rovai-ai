@@ -2,7 +2,7 @@
 document_type: model-context-change
 version: v1.72
 change_id: steer-shared-input
-revision: 1
+revision: 2
 confirmation_status: pending
 authority: proposed-model-input-change-statement
 implementation_status: not_started
@@ -10,14 +10,18 @@ review_baseline: 41c8ca19238de8465c23ff0c030f5c7620dd2c02
 last_updated: 2026-10-14
 ---
 
-# 普通消息与 Steer 共用上下文：R1 前后对比报告
+# 普通消息与 Steer 共用上下文：R2 前后对比报告
 
 这是一份**拟改报告，尚未实施**。每个项目都将变更前、变更后紧挨着放。
 “变更前”来自上述代码基线；“变更后”是本报告提出的完整规则，不能作为当前产品能力证明。
 
 核心变化是：**每次新的投递生成自己的动态上下文，普通消息和 Steer 使用同一套构建及格式化规则。**
-模型可见的结构保持现状；两处固定文案由“本 Run”改为“本次输入／投递快照”。
+模型可见的结构保持现状；只去掉 historyHint 中不适用于运行中消息的 Run 时点限定，
+不向 Agent 解释“投递快照”或“已接受输入”。Additional Skills 文案保持原样。
 内部需要解除“一个 Run 只有一份输入上下文”的限制，但不另建 Steer 消息类型、补充消息库或提示词体系。
+
+R2 收缩 R1 的文案改动：第 4 节撤回内部概念的解释，只保留既有历史范围信息；
+第 5 节撤回 `run` → `input` 的替换。内部冻结与恢复规则仍用于保证投递正确，不作为模型学习要求。
 
 当前基线为 public Manifest／Formatter 36、Profile 13、Run Facts 9。本文仅覆盖公开 Thread 的
 用户 Steer 和它与普通公开消息共用的上下文路径；Agent 消息仍走普通投递，Single Chat 和渠道入站不扩展 Steer。
@@ -219,11 +223,14 @@ Run A 启动输入：msg-101、msg-102
 
 ## 4. RUN_FACTS.historyHint：四种完整文本相邻对照
 
-当前提示由历史边界 `P` 和“是否存在额外可见消息”选出。变化包括两处：
-边界来源从“上次 Run”表达为“上次被接受的输入”；快照时点从“本 Run 启动”表达为“本次投递的上下文快照”。
-普通消息和 Steer 都采用以下新文案，不为 Steer 加提示分支。
+当前提示由历史边界 `P` 和“是否存在额外可见消息”选出。Agent 只需要知道这个历史范围和
+当前输入是否包含该范围内的消息，不需要理解 ACK、投递或快照。
 
-### 4.1 已有边界，快照内没有额外可见消息
+保留这次小幅修正的原因是：插话在 Run 已经开始后到达，动态上下文描述的是新输入时的消息范围，
+继续写“上次 Run”或“本 Run 开始时”会指向错误时点。R1 为解释这个区别引入了内部概念，没有必要。
+R2 直接删去 Run 时点限定，不新增另一套时点说明。普通消息和 Steer 共用以下文本。
+
+### 4.1 已有边界，没有额外可见消息
 
 **变更前**
 
@@ -234,10 +241,10 @@ The latest public message before your last recorded run in this Thread had seque
 **变更后**
 
 ```text
-Your last accepted input recorded a public-message boundary of sequence {P} in this Thread. As of this delivery's context snapshot, all visible messages after that sequence are already in RUN_INPUT or were written by you.
+The recorded public-message boundary in this Thread is sequence {P}. All visible messages after that sequence are already in RUN_INPUT or were written by you.
 ```
 
-### 4.2 已有边界，快照内存在额外可见消息
+### 4.2 已有边界，存在额外可见消息
 
 **变更前**
 
@@ -248,10 +255,10 @@ The latest public message before your last recorded run in this Thread had seque
 **变更后**
 
 ```text
-Your last accepted input recorded a public-message boundary of sequence {P} in this Thread. As of this delivery's context snapshot, there are additional visible messages after that sequence beyond RUN_INPUT and messages written by you.
+The recorded public-message boundary in this Thread is sequence {P}. There are additional visible messages after that sequence beyond RUN_INPUT and messages written by you.
 ```
 
-### 4.3 没有既有边界，快照内没有额外可见消息
+### 4.3 没有既有边界，没有额外可见消息
 
 **变更前**
 
@@ -262,10 +269,10 @@ As of this run's start, all visible messages in this Thread are already in RUN_I
 **变更后**
 
 ```text
-As of this delivery's context snapshot, all visible messages in this Thread are already in RUN_INPUT or were written by you.
+All visible messages in this Thread are already in RUN_INPUT or were written by you.
 ```
 
-### 4.4 没有既有边界，快照内存在额外可见消息
+### 4.4 没有既有边界，存在额外可见消息
 
 **变更前**
 
@@ -276,10 +283,12 @@ As of this run's start, there are additional visible messages in this Thread bey
 **变更后**
 
 ```text
-As of this delivery's context snapshot, there are additional visible messages in this Thread beyond RUN_INPUT and messages written by you.
+There are additional visible messages in this Thread beyond RUN_INPUT and messages written by you.
 ```
 
-### 4.5 判断范围与冻结时点
+### 4.5 实现侧的判断范围与冻结时点
+
+以下用于实现与验证，不新增任何模型可见字段、快照信息或教学提示。
 
 | 事项 | 变更前 | 变更后 |
 | --- | --- | --- |
@@ -295,10 +304,11 @@ As of this delivery's context snapshot, there are additional visible messages in
 例如序号 102 仍排队、103 已 Steer 接受：102 仍须正常投递；不能因接受边界前进而丢掉它。
 本次不新增已读水位或第二套历史裁剪算法。ACK 只能推进匹配输入的既有证据；迟到 ACK 不得复活旧执行。
 
-## 5. ROVAI_ADDITIONAL_SKILLS：改一行时点文案
+## 5. ROVAI_ADDITIONAL_SKILLS：保持原文
 
-这段现有说明也以 Run 为单位。若不改，第二次插话刷新索引后，“本 Run 当前索引”容易被误解为
-沿用启动时内容，因此与 `historyHint` 一起采用共同的输入时点表达。
+R1 提出的 `Current for this run` → `Current for this input` 没有必要。
+现有句子已经明确“替换此前索引”，在同一个 Run 中收到更新后的索引并不与它矛盾。
+这与 historyHint 明确断言“Run 开始时”的历史范围不同，不需要为了术语统一而修改。
 
 ### 变更前
 
@@ -313,12 +323,12 @@ Current for this run; replaces any earlier Rovai Additional Skills.
 
 ```text
 [ROVAI_ADDITIONAL_SKILLS]
-Current for this input; replaces any earlier Rovai Additional Skills.
+Current for this run; replaces any earlier Rovai Additional Skills.
 {"root":"/example/skills","skills":[{"name":"member-studio","desc":"Example description."}]}
 [/ROVAI_ADDITIONAL_SKILLS]
 ```
 
-新的 public 输入仅替换说明中的 `run` 为 `input`；旧冻结输入和非 batch 路径保留原文。
+**前后完全相同。** public、非 batch 和旧冻结输入均保持原文。
 JSON 仍为 `root` 与 `skills`，每项仍为 `name`、`desc`，
 空集合仍显式输出；不增加 Steer 专用 Skill、标签或选择器。
 新投递按既有配置及本次消息的 Skill 选择生成当前索引。来源缺失继续按现有规则省略和记录，
@@ -486,7 +496,7 @@ Runtime Input Delivery：同一 Run 可关联多次输入，各自保留原生�
 
 | 版本轴 | 变更前 | 变更后（拟） | 原因 |
 | --- | --- | --- | --- |
-| public ContextManifest／Formatter | 36／36 | 37／37 | 每次投递的输入证据及两处共同文案变化 |
+| public ContextManifest／Formatter | 36／36 | 37／37 | 每次投递的输入证据及 historyHint 的 Run 时点限定修正 |
 | public Context Delivery Profile | 13 | 14 | 同一预算策略扩为逐次投递准备；容量和 Tasks 上限不变 |
 | public Run Facts schema | 9 | 10 | `historyHint` 文本与边界时点变化；业务字段不变 |
 | 非 batch Manifest／Formatter／Profile／Run Facts | 35／35／12／6 | 不变 | 此次不改变私聊及历史非 batch 路径 |
@@ -551,22 +561,24 @@ Bootstrap 原文、模型与权限、原 Run 的启动输入、消息／附件�
 
 | 检查 | 实际结果 |
 | --- | --- |
-| 示例与源码核对 | 两份 JSON 均可解析且内容相同；4 个旧 historyHint 模板及 Additional Skills 旧句与基线一致；代码围栏成对 |
+| 示例与源码核对 | 两份 JSON 均可解析且内容相同；4 个旧 historyHint 模板与基线一致；R2 新句不含 snapshot、accepted input 或投递解释；Additional Skills 前后逐字相同且与基线一致；代码围栏成对 |
 | 文档治理测试 | `node --test scripts/lib/doc-decisions.test.mjs`：10 passed、0 failed |
 | 文档链接／决定治理及固定基线冻结 | `DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 node scripts/check-doc-decisions.mjs --require-base`：通过 |
-| 当前版本与上下文确认门禁 | `node scripts/check-doc-version.mjs`：未通过；仅 4 项 R1 确认记录缺失／待确认，无其他错误 |
+| 当前版本与上下文确认门禁 | `node scripts/check-doc-version.mjs`：未通过；仅 4 项 R2 确认记录缺失／待确认，无其他错误 |
 | 差异空白检查 | `git diff --check`：通过 |
 | 候选实现、真实 Runtime 与完整语义 Gate | 未运行；本次没有候选实现 |
 
 以上 Node 命令是仓库 `docs:test`、`docs:check`、`docs:check:ci` 脚本的实际检查入口。
-首次 pnpm 调用触发本地依赖自动准备，主动中止后改用这些入口完整重跑；中止的尝试不计通过。
+R1 首次 pnpm 调用触发本地依赖自动准备，主动中止后改用这些入口完整重跑；中止的尝试不计通过。
+R2 继续使用这些入口核对修改后的报告。
 版本门禁会拒绝尚未确认的提案，这是本报告当前的真实状态；没有伪造确认字段或修改检查器。
 
 ## 二次确认
 
-R1 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共用上下文方向，
-消息 `dbdbfde2-2ac9-4826-ad07-91a94b5adcf0` 要求这份紧邻前后对照报告；它们不等同于已看过
-并授权实施本 R1，故不填写虚假的确认人、时间或 `confirmed_revision`。
+R2 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共用上下文方向，
+消息 `dbdbfde2-2ac9-4826-ad07-91a94b5adcf0` 要求这份紧邻前后对照报告；
+消息 `b1262396-a0a4-4b20-821f-5119035b6da9` 质疑第 4、5 节修改的必要性，R2 据此收缩。
+这些讨论不等同于已授权实施本 R2，故不填写虚假的确认人、时间或 `confirmed_revision`。
 
 仓库[核心上下文变更治理](../../development/model-context-change-governance.md#二次确认门槛)规定：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”

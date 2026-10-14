@@ -57,7 +57,7 @@ describe('inline member identity save', () => {
         request,
         onCommitted: (value) => committed.push(value)
       })
-    ).rejects.toThrow('文字信息已保存，角色图片未保存')
+    ).rejects.toThrow('文字信息已保存，头像未保存')
     expect(
       request.mock.calls.map(([method, command]) => [
         method,

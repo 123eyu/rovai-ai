@@ -443,13 +443,13 @@ const wakeNetworkRecoveryAfterSystemResume = (): void => {
 }
 
 const memberBotAvatarSource = new ControlledMemberBotAvatarSourceResolver({
-  read: async (avatarRef) => {
+  read: async (avatarRef, _rendition, targetEdge) => {
     const image = await core.request<{
       base64: string; mediaType: 'image/png'; width: number; height: number; crop: import('@contracts').MemberAvatarCrop
-    } | null>('memberAvatars.read', { avatarRef, rendition: 'icon', staticPng: true })
+    } | null>('memberAvatars.read', { avatarRef, rendition: 'icon', staticPng: true, targetEdge })
     return image ? { ...image, bytes: Uint8Array.from(Buffer.from(image.base64, 'base64')) } : null
   }
-})
+}, undefined, coreDataPath ? join(coreDataPath, 'member-bot-avatar-exports') : undefined)
 const channelCredentialStore = new SqliteChannelCredentialStore(core)
 const channelDeveloperSessionStore = new SqliteChannelDeveloperSessionStore(core)
 const executionView = new ExecutionViewService({
@@ -1731,7 +1731,7 @@ ipcMain.handle('rovai:navigation-preferences-restore-project', async (_event, ta
 
 ipcMain.handle('rovai:member-avatar-select-source', async () => {
   const options = {
-    title: '选择角色图片',
+    title: '选择头像',
     buttonLabel: '选择图片',
     filters: [
       { name: '静态与动态图片', extensions: ['png', 'jpg', 'jpeg', 'gif'] }
@@ -1748,6 +1748,12 @@ ipcMain.handle('rovai:member-avatar-select-source', async () => {
 ipcMain.handle(
   'rovai:member-avatar-save',
   async (_event, input: SaveMemberAvatarAssetInput) => {
+    if (input.kind === 'image') {
+      return core.request('memberAvatars.save', {
+        kind: 'image', sourceBase64: Buffer.from(input.source).toString('base64'),
+        sourceWidth: input.sourceWidth, sourceHeight: input.sourceHeight, crop: input.crop
+      })
+    }
     if (input.kind === 'recrop') {
       return core.request('memberAvatars.save', { kind: 'recrop', avatarRef: input.avatarRef, crop: input.crop })
     }

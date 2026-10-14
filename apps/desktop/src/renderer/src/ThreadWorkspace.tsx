@@ -150,7 +150,6 @@ import { ExecutionAvatarRail } from './ExecutionAvatarRail'
 import { ExecutionIcon, ExecutionOverviewMark, ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph, type ExecutionStatusShape } from './ExecutionStatusGlyph'
 import { AgentRunDeliveryRecipients } from './AgentRunDeliveryRecipients'
-import { MemberPortrait } from './MemberPortrait'
 import { localizeExecutionEngineTerms } from './product-copy'
 import { formatThreadTitle } from './camp-title'
 import { writeClipboardText } from './clipboard'
@@ -8092,64 +8091,38 @@ function MentionProfilePopover({
         )}
         {profile && member
           ? (
-              <div className="mention-profile-side-shell">
-                <div className="mention-profile-media">
-                  <MemberPortrait
-                    agentId={profile.agentId}
-                    avatarRef={profile.avatarRef}
-                    displayName={profile.displayName}
-                    decorative
-                    className="mention-profile-portrait"
-                  />
-                  <span className="mention-profile-portrait-label">PORTRAIT</span>
-                </div>
-                <div className="mention-profile-copy">
-                  <header className="mention-profile-header">
-                    <h2>{profile.displayName}</h2>
-                    <p>{profile.teamRole.trim() ||uiAttribute("未设置角色")}</p>
-                  </header>
-                  <div className="mention-profile-status" aria-label={uiAttribute("队员状态")}>
-                    <span className={`presence-${profile.presence}`}>
-                      <i aria-hidden="true" />
-                      {mentionPresenceLabel(profile.presence)}
-                    </span>
-                    <span className={`runtime-${profile.runtimeReadiness.status}`}>
-                      <i aria-hidden="true" />
-                      {mentionRuntimeLabel(profile)}
-                    </span>
+              <article className="identity-card">
+                <header className="identity-card-header">
+                  <MemberAvatar agentId={profile.agentId} avatarRef={profile.avatarRef} displayName={profile.displayName}
+                    size="profile" decorative className="identity-card-avatar" />
+                  <div className="identity-card-heading">
+                    <div className="identity-card-title">
+                      <h2>{profile.displayName}</h2>
+                      <span className={`identity-card-presence presence-${profile.presence}`}><i aria-hidden="true" />{mentionPresenceLabel(profile.presence)}</span>
+                    </div>
+                    {profile.teamRole.trim() && <p>{profile.teamRole}</p>}
                   </div>
+                  <button className="identity-card-close" type="button" aria-label={uiAttribute('关闭身份卡')} onClick={() => onClose(true)}>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+                  </button>
+                </header>
+                <section className="identity-card-responsibilities">
+                  <h3><UiText zh="专业职责" /></h3>
+                  <p>{profile.professionalResponsibilities.trim() || uiAttribute('未设置')}</p>
+                </section>
+                <div className="identity-card-runtime">
+                  <dl className="thread-model-fields"><div><dt><UiText zh="智能体" /></dt><dd className={`runtime-${profile.runtimeReadiness.status}`}>{mentionRuntimeLabel(profile)}</dd></div></dl>
                   <ProfileModelFields profile={profile} installations={installations} />
-                  <div className="mention-profile-fields">
-                    <dl>
-                      <div>
-                        <dt><UiText zh={"专业职责"} /></dt>
-                        <dd>{profile.professionalResponsibilities.trim() ||uiAttribute("未设置")}</dd>
-                      </div>
-                    </dl>
-                    <details className="app-dialog-disclosure">
-                      <summary><UiText zh={"工作准则与性格底色"} /></summary>
-                      <dl>
-                        <div>
-                          <dt><UiText zh={"工作准则"} /></dt>
-                          <dd>{profile.workingPrinciples.trim() ||uiAttribute("未设置")}</dd>
-                        </div>
-                        <div>
-                          <dt><UiText zh={"性格底色"} /></dt>
-                          <dd>
-                            {profile.personalityTraits.length > 0
-                              ? (
-                                  <span className="mention-profile-traits">
-                                    {profile.personalityTraits.map((trait) => <span key={trait}>{trait}</span>)}
-                                  </span>
-                                )
-                              : uiAttribute("未设置")}
-                          </dd>
-                        </div>
-                      </dl>
-                    </details>
-                  </div>
                 </div>
-              </div>
+                {(profile.personalityTraits.length > 0 || profile.workingPrinciples.trim() || profile.growthTopic.trim()) && <details className="identity-card-more">
+                  <summary><span><UiText zh="更多设定" /></span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg></summary>
+                  <dl>
+                    {profile.personalityTraits.length > 0 && <div><dt><UiText zh="性格底色" /></dt><dd className="identity-card-traits">{profile.personalityTraits.map(trait => <span key={trait}>{trait}</span>)}</dd></div>}
+                    {profile.workingPrinciples.trim() && <div><dt><UiText zh="工作准则" /></dt><dd>{profile.workingPrinciples}</dd></div>}
+                    {profile.growthTopic.trim() && <div><dt><UiText zh="成长课题" /></dt><dd>{profile.growthTopic}</dd></div>}
+                  </dl>
+                </details>}
+              </article>
             )
           : request.target.kind === 'all_members'
             ? (
@@ -9220,12 +9193,13 @@ function FirstRunThreadWelcome({
   return (
     <section className="empty-camp-welcome first-run-camp-welcome" aria-labelledby="first-run-camp-title">
       <div className="first-run-camp-intro">
-        <MemberPortrait
+        <MemberAvatar
           agentId={agentId}
           avatarRef={avatarRef}
           displayName={displayName}
           decorative
-          className="first-run-camp-portrait"
+          size="profile"
+          className="first-run-camp-avatar"
         />
         <div>
           <h2 id="first-run-camp-title">{t('你好，我是{0}。', displayName)}</h2>

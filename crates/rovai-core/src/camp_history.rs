@@ -22,6 +22,7 @@ use crate::{
     local_attachment_snapshot::DIRECTORY_MEDIA_TYPE,
     local_attachment_source::parse_source_attachments,
     message_delivery::CAMP_MESSAGE_SEND_TOOL_NAME,
+    message_sender::SenderNames,
     team_tool::{AuthenticatedTeamToolRun, TeamToolInvocationError},
 };
 
@@ -361,7 +362,14 @@ impl ThreadHistoryService {
         let result = attach_search_quotes(
             &transaction,
             &target,
-            ranked_search_response(candidates, &query, limit, false, search_incomplete)?,
+            ranked_search_response(
+                &transaction,
+                candidates,
+                &query,
+                limit,
+                false,
+                search_incomplete,
+            )?,
         )?;
         transaction.commit()?;
         Ok(result)
@@ -427,7 +435,14 @@ impl ThreadHistoryService {
             &transaction,
             &run.agent_id,
             fence.global_boundary,
-            ranked_search_response(candidates, &query, limit, true, search_incomplete)?,
+            ranked_search_response(
+                &transaction,
+                candidates,
+                &query,
+                limit,
+                true,
+                search_incomplete,
+            )?,
         )?;
         transaction.commit()?;
         Ok(result)
@@ -1494,6 +1509,7 @@ fn compare_ranked(left: &RankedMessage, right: &RankedMessage) -> Ordering {
 }
 
 fn ranked_search_response(
+    connection: &rusqlite::Connection,
     candidates: CandidateMap,
     _query: &str,
     limit: usize,
@@ -1504,6 +1520,7 @@ fn ranked_search_response(
     candidates.sort_by(compare_ranked);
     let truncated = candidates.len() > limit;
     candidates.truncate(limit);
+    let mut sender_names = SenderNames::default();
     let results = candidates
         .into_iter()
         .map(|candidate| {
@@ -1511,8 +1528,6 @@ fn ranked_search_response(
                 "threadId": candidate.message.camp_id,
                 "messageId": candidate.message.id,
                 "sequence": candidate.message.sequence,
-                "authorType": candidate.message.author_type,
-                "authorId": candidate.message.author_id,
                 "anchorMessageId": candidate.message.reply_to_message_id,
                 "createdAt": candidate.message.created_at,
                 "snippet": snippet(
@@ -1521,12 +1536,19 @@ fn ranked_search_response(
                         .then_some(candidate.first_match_offset),
                 ),
             });
+            sender_names
+                .project(
+                    connection,
+                    &candidate.message.author_type,
+                    &candidate.message.author_id,
+                )?
+                .insert_into(&mut value);
             if include_camp_title {
                 value["threadTitle"] = json!(candidate.message.camp_title);
             }
-            value
+            Ok(value)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
     cap_top_k_response(
         json!({
             "results": results,
@@ -1680,8 +1702,6 @@ fn read_item(
         "items": [{
             "messageId": message.id,
             "sequence": message.sequence,
-            "authorType": message.author_type,
-            "authorId": message.author_id,
             "anchorMessageId": message.reply_to_message_id,
             "createdAt": message.created_at,
             "body": message.body,
@@ -1692,6 +1712,9 @@ fn read_item(
             "mentions": mentions,
         }]
     });
+    SenderNames::default()
+        .project(transaction, &message.author_type, &message.author_id)?
+        .insert_into(&mut value["items"][0]);
     attach_message_quotes(transaction, target, message_id, &mut value["items"][0])?;
     Ok(value)
 }
@@ -2314,9 +2337,18 @@ fn fit_collection_response(
 ) -> Result<Value> {
     let messages: Vec<_> = rows.iter().filter(|row| !row.withdrawn).collect();
     let mentions = load_message_mentions(transaction, &messages)?;
+    let mut sender_names = SenderNames::default();
     response["items"] = Value::Array(
         rows.iter()
-            .map(|row| collection_item(transaction, target, row, mentions.get(&row.id)))
+            .map(|row| {
+                collection_item(
+                    transaction,
+                    target,
+                    row,
+                    mentions.get(&row.id),
+                    &mut sender_names,
+                )
+            })
             .collect::<Result<Vec<_>>>()?,
     );
     Ok(response)
@@ -2327,6 +2359,7 @@ fn collection_item(
     target: &ThreadTarget,
     row: &MessageRow,
     mentions: Option<&Value>,
+    sender_names: &mut SenderNames,
 ) -> Result<Value> {
     if row.withdrawn {
         return Ok(withdrawn_item(row));
@@ -2334,14 +2367,15 @@ fn collection_item(
     let mut value = json!({
         "messageId": row.id,
         "sequence": row.sequence,
-        "authorType": row.author_type,
-        "authorId": row.author_id,
         "anchorMessageId": row.reply_to_message_id,
         "createdAt": row.created_at,
         "body": row.body,
         "attachmentCount": attachment_count(transaction, &row.id)?,
         "mentions": mentions.context("normal message is missing mentions")?,
     });
+    sender_names
+        .project(transaction, &row.author_type, &row.author_id)?
+        .insert_into(&mut value);
     attach_message_quotes(transaction, target, &row.id, &mut value)?;
     Ok(value)
 }
@@ -2434,8 +2468,15 @@ mod slow_tests {
         assert!(search_incomplete);
         assert_eq!(candidates.len(), 8);
 
-        let response =
-            ranked_search_response(candidates, "任务", 5, false, search_incomplete).unwrap();
+        let response = ranked_search_response(
+            &Connection::open_in_memory().unwrap(),
+            candidates,
+            "任务",
+            5,
+            false,
+            search_incomplete,
+        )
+        .unwrap();
         assert_eq!(response["results"].as_array().unwrap().len(), 5);
         assert_eq!(response["truncated"], true);
         assert_eq!(response["searchIncomplete"], true);
@@ -2526,7 +2567,15 @@ mod slow_tests {
             rank_message(recent, "needle", false),
         );
 
-        let response = ranked_search_response(candidates, "needle", 2, false, false).unwrap();
+        let response = ranked_search_response(
+            &Connection::open_in_memory().unwrap(),
+            candidates,
+            "needle",
+            2,
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(
             response["results"]
                 .as_array()
@@ -2602,7 +2651,9 @@ mod slow_tests {
             rank_message(row, "authoritative", false),
         )]);
         reproject_search_candidates(&transaction, "authoritative", &mut candidates).unwrap();
-        let search = ranked_search_response(candidates, "authoritative", 10, false, false).unwrap();
+        let search =
+            ranked_search_response(&transaction, candidates, "authoritative", 10, false, false)
+                .unwrap();
         assert_eq!(search["results"][0]["snippet"], "@User authoritative body");
 
         for query in ["@User", "@Principal"] {
@@ -2624,7 +2675,8 @@ mod slow_tests {
             );
             reproject_search_candidates(&transaction, query, &mut principal_candidates).unwrap();
             let principal_search =
-                ranked_search_response(principal_candidates, query, 10, false, false).unwrap();
+                ranked_search_response(&transaction, principal_candidates, query, 10, false, false)
+                    .unwrap();
             assert_eq!(principal_search["results"].as_array().unwrap().len(), 1);
             assert_eq!(
                 principal_search["results"][0]["snippet"],
@@ -2653,12 +2705,25 @@ mod slow_tests {
             viewer_agent_id: "agent_1".into(),
         };
         let addressing = load_message_mentions(&transaction, &[&rows[0]]).unwrap();
-        let collection =
-            collection_item(&transaction, &target, &rows[0], addressing.get(&rows[0].id)).unwrap();
+        let collection = collection_item(
+            &transaction,
+            &target,
+            &rows[0],
+            addressing.get(&rows[0].id),
+            &mut SenderNames::default(),
+        )
+        .unwrap();
         assert_eq!(collection["mentions"], json!([{"id": "user"}]));
         let mut withdrawn = rows[0].clone();
         withdrawn.withdrawn = true;
-        let marker = collection_item(&transaction, &target, &withdrawn, None).unwrap();
+        let marker = collection_item(
+            &transaction,
+            &target,
+            &withdrawn,
+            None,
+            &mut SenderNames::default(),
+        )
+        .unwrap();
         assert_eq!(marker.as_object().unwrap().len(), 4);
         assert!(marker.get("addressing").is_none());
         // Only structured atoms accept the alias; literal old text and mixed queries remain literal.
@@ -3044,6 +3109,8 @@ mod slow_tests {
             ("user", "local_user"),
             ("external_principal", "external_principal_example"),
             ("agent", "agent_1"),
+            ("agent", "agent_99"),
+            ("system", "automation-run-original-id"),
         ] {
             transaction
                 .execute(
@@ -3067,8 +3134,34 @@ mod slow_tests {
                 let message = &read["items"][0];
                 assert_eq!(message["body"], item["body"]);
                 assert_eq!(message["mentions"], item["mentions"]);
-                assert_eq!(message["authorType"], author_type);
-                assert_eq!(message["authorId"], author_id);
+                let expected = match author_type {
+                    "agent" => json!({"senderType":"agent", "senderId":author_id,
+                        "senderName": if author_id == "agent_1" { Some("Alice") } else { None }}),
+                    "system" => {
+                        json!({"senderType":"system","senderId":"system","senderName":null})
+                    }
+                    _ => json!({"senderType":"user","senderId":"user"}),
+                };
+                for key in ["senderType", "senderId", "senderName"] {
+                    assert_eq!(message.get(key), expected.get(key));
+                }
+                assert!(message.get("authorType").is_none());
+                assert!(message.get("authorId").is_none());
+                let row = load_item_message(&transaction, &target, &run, "message-1")
+                    .unwrap()
+                    .unwrap();
+                for history in [false, true] {
+                    let candidates = CandidateMap::from([(
+                        (row.camp_id.clone(), row.id.clone()),
+                        rank_message(row.clone(), "A", false),
+                    )]);
+                    let search =
+                        ranked_search_response(&transaction, candidates, "A", 10, history, false)
+                            .unwrap();
+                    for key in ["senderType", "senderId", "senderName"] {
+                        assert_eq!(search["results"][0].get(key), message.get(key));
+                    }
+                }
                 assert!(message.get("addressing").is_none());
                 assert!(message.get("mentionsCurrentUser").is_none());
             }

@@ -7,6 +7,7 @@ import {
   assertStableMacosSignature
 } from './macos-signing-policy.mjs'
 import { MACOS_TICKET_RETRY, runMacosTicket } from './macos-ticket-retry.mjs'
+import { runMacosReleaseBuild } from './macos-release-build-retry.mjs'
 
 const TEAM_ID = 'ABCDE12345'
 const validDetails = [
@@ -125,6 +126,7 @@ test('release workflow requires a pinned Developer ID certificate and notarizati
   assert.match(workflow, /vars\.MAC_RELEASE_TEAM_ID/)
   assert.match(workflow, /secrets\.APPLE_API_KEY_BASE64/)
   assert.match(workflow, /xcrun notarytool submit/)
+  assert.ok(workflow.includes('node scripts/retry-macos-build.mjs ${{ matrix.arch }}'))
   assert.match(workflow, /node scripts\/retry-macos-ticket\.mjs staple "\$DMG_PATH"/)
   assert.doesNotMatch(workflow, /add-trusted-cert/)
   assert.match(workflow, /node scripts\/verify-macos-release\.mjs \$\{\{ matrix\.arch \}\}/)
@@ -235,5 +237,95 @@ test('ticket retry rejects unsupported actions before invoking xcrun', () => {
   const fixture = ticketFixture([{ status: 0 }])
   assert.throws(() => runMacosTicket('submit', '/fixture/App.app', fixture.options), /Expected stapler action/)
   assert.throws(() => runMacosTicket('validate', '', fixture.options), /Expected stapler action/)
+  assert.deepEqual(fixture.calls, [])
+})
+
+const appStaplingDisconnected = {
+  status: 1,
+  output: 'Failed to staple your application with code: 68\n' + disconnected.stderr
+}
+
+function buildFixture(results) {
+  const calls = [], pauses = [], retries = []
+  return {
+    calls, pauses, retries,
+    options: {
+      cwd: '/fixture',
+      execute: async (...args) => {
+        calls.push(args)
+        return results[Math.min(calls.length - 1, results.length - 1)]
+      },
+      wait: async delay => pauses.push(delay),
+      onRetry: message => retries.push(message)
+    }
+  }
+}
+
+test('release build retry invokes the unchanged official signed build command', async () => {
+  const metadata = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  for (const arch of ['arm64', 'x64']) {
+    const fixture = buildFixture([{ status: 0 }])
+    await runMacosReleaseBuild(arch, fixture.options)
+    assert.deepEqual(fixture.calls, [['pnpm', ['dist:mac:release:' + arch], { cwd: '/fixture' }]])
+    assert.deepEqual(fixture.pauses, [])
+    assert.match(metadata.scripts['dist:mac:release:' + arch], /mac\.notarize=true/)
+  }
+})
+
+test('release build retry covers electron-builder automatic App stapling network errors', async () => {
+  const fixture = buildFixture([appStaplingDisconnected, appStaplingDisconnected, { status: 0 }])
+  await runMacosReleaseBuild('arm64', fixture.options)
+  assert.equal(fixture.calls.length, 3)
+  assert.deepEqual(fixture.pauses, [20_000, 40_000])
+  assert.equal(fixture.retries.length, 2)
+})
+
+test('release build retry fails after six automatic App stapling network failures', async () => {
+  const fixture = buildFixture([appStaplingDisconnected])
+  await assert.rejects(runMacosReleaseBuild('x64', fixture.options), /release build failed \(1\)/)
+  assert.equal(fixture.calls.length, 6)
+  assert.deepEqual(fixture.pauses, [20_000, 40_000, 60_000, 60_000, 60_000])
+})
+
+test('release build retry does not repeat compilation, signing, or unrelated network failures', async () => {
+  for (const output of [
+    'Compilation failed',
+    'Code signature is invalid.',
+    disconnected.stderr,
+    'Failed to staple your application with code: 68',
+    'Failed to staple your application\nError Domain=NSURLErrorDomain Code=-1202'
+  ]) {
+    const fixture = buildFixture([{ status: 1, output }])
+    await assert.rejects(runMacosReleaseBuild('arm64', fixture.options), /release build failed/)
+    assert.equal(fixture.calls.length, 1)
+    assert.deepEqual(fixture.pauses, [])
+  }
+})
+
+test('release build retry does not retry process errors or signals', async () => {
+  const error = new Error('pnpm missing')
+  for (const result of [
+    { error, status: null },
+    { ...appStaplingDisconnected, status: null, signal: 'SIGTERM' }
+  ]) {
+    const fixture = buildFixture([result])
+    await assert.rejects(runMacosReleaseBuild('arm64', fixture.options))
+    assert.equal(fixture.calls.length, 1)
+    assert.deepEqual(fixture.pauses, [])
+  }
+})
+
+test('release build retry strips ANSI styling before classifying the Apple error', async () => {
+  const fixture = buildFixture([
+    { ...appStaplingDisconnected, output: '\u001b[31mFailed to staple your application\u001b[0m\n' + disconnected.stderr },
+    { status: 0 }
+  ])
+  await runMacosReleaseBuild('arm64', fixture.options)
+  assert.equal(fixture.calls.length, 2)
+})
+
+test('release build retry rejects unknown architectures before invoking pnpm', async () => {
+  const fixture = buildFixture([{ status: 0 }])
+  await assert.rejects(runMacosReleaseBuild('arm64 --flag', fixture.options), /Expected architecture/)
   assert.deepEqual(fixture.calls, [])
 })

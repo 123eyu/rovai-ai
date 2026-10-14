@@ -3,17 +3,12 @@ import {
   type BuiltinMemberAvatarRole
 } from '@contracts'
 import luokeIcon from './assets/characters/luoke/icon-192.png'
-import luokeSource from './assets/characters/luoke/source.avif'
 import mianzhiIcon from './assets/characters/mianzhi/icon-192.png'
-import mianzhiSource from './assets/characters/mianzhi/source.avif'
 import muwaIcon from './assets/characters/muwa/icon-192.png'
-import muwaSource from './assets/characters/muwa/source.avif'
 import qiluIcon from './assets/characters/qilu/icon-192.png'
-import qiluSource from './assets/characters/qilu/source.avif'
 
 export interface BuiltinMemberAvatarAssets {
   icon: string
-  portrait: string
 }
 
 export const BUILTIN_MEMBER_AVATAR_ASSETS: Readonly<
@@ -21,19 +16,15 @@ export const BUILTIN_MEMBER_AVATAR_ASSETS: Readonly<
 > = {
   luoke: {
     icon: luokeIcon,
-    portrait: luokeSource
   },
   muwa: {
     icon: muwaIcon,
-    portrait: muwaSource
   },
   mianzhi: {
     icon: mianzhiIcon,
-    portrait: mianzhiSource
   },
   qilu: {
     icon: qiluIcon,
-    portrait: qiluSource
   }
 }
 

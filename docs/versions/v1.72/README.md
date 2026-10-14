@@ -6,10 +6,31 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 队员头像简化（2026-10-14）
+
+按 User 确认的 R8 与消息 27 实施：紧凑身份信息与会话卡、上传后裁切确认、默认折叠更多设定及预设。
+新头像单文件保存，GIF 保留动画，旧 icon/source 兼容；渠道按发布意图冻结静态封面，Agent 素材要求同步简化。
+当前边界见 [Member Avatar v1](../../contracts/member-avatar-v1.md)，验证见[实施记录](implementation-plan.md#队员头像简化2026-10-14)。
+
+## 消息发送者统一（2026-10-14）
+
+按 User 已确认的 [R2](model-context-change-message-senders.md) 已在独立 worktree 实施并通过自动化回归；R2 移除专用名称冻结，只在实际消息组装时取名。完整真实模型 Gate 待补。
+公开输入、SHARED_THREAD、读取和搜索统一发送者与名称；内部身份、正文、Mention、渠道与旧恢复保持。
+当前合同为 [Message Senders v1](../../contracts/message-senders-v1.md)、[History v13](../../contracts/camp-history-v13.md)
+和 [Manifest v38](../../contracts/context-manifest-evidence-v38.md)。验证状态见 R2 实施记录。
+
+## Pi 接收容量与连接失败原因（2026-10-14）
+
+Pi 入站单帧从 4 MiB 提高到 64 MiB，出站与 stderr 保留各自预算；不压缩头像、不修改其他 Runtime。
+读取层区分容量超限、协议损坏和连接读取失败，并沿既有 Runtime loss 事务保存公开原因；
+accepted/unknown 输入不重放，Host 清理和单聊取消语义保持。精确边界见
+[Runtime Launch v63](../../contracts/runtime-launch-and-verification-v63.md)，验证见
+[实施记录](implementation-plan.md#pi-接收容量与连接失败原因2026-10-14)。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 

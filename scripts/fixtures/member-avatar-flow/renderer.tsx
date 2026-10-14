@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemberAvatarEditor } from '../../../apps/desktop/src/renderer/src/MemberAvatarEditor'
 import { MemberAvatar } from '../../../apps/desktop/src/renderer/src/MemberAvatar'
@@ -13,6 +13,7 @@ declare global {
     avatarFixture: {
       request(method: string, params: unknown): Promise<any>
     }
+    showAvatarStress?(refs: string[]): void
   }
 }
 
@@ -25,13 +26,19 @@ const client = { memberAvatars } as ThreadClient
 
 function Fixture(): React.JSX.Element {
   const [value, setValue] = useState<string | null>(() => localStorage.getItem('avatar'))
+  const trigger = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(!value)
+  const [stress, setStress] = useState<string[]>([])
+  useEffect(() => { window.showAvatarStress = setStress; return () => { delete window.showAvatarStress } }, [])
   return <ThreadClientProvider client={client}>
-    <main style={{ width: 640, margin: '16px auto' }}>
-      <button data-reopen onClick={() => setOpen(true)}>重新裁剪</button>
+    <main style={{ width: 'min(640px, 100%)', margin: '16px auto' }}>
+      <button ref={trigger} data-reopen onClick={() => setOpen(true)}>更换头像</button>
       <output data-avatar-ref>{value}</output>
       <MemberAvatar agentId="fixture" avatarRef={value} displayName="Fixture" size="picker" />
-      <MemberAvatarEditor value={value} open={open} disabled={false} onPendingChange={() => {}}
+      <div data-stress style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        {stress.map((ref, index) => <MemberAvatar key={ref} agentId={`stress-${index}`} avatarRef={ref} displayName={`Stress ${index}`} size="profile" />)}
+      </div>
+      <MemberAvatarEditor returnFocusRef={trigger} value={value} open={open} disabled={false} onPendingChange={() => {}}
         onChange={next => { setValue(next); if (next) localStorage.setItem('avatar', next) }} onClose={() => setOpen(false)} />
     </main>
   </ThreadClientProvider>

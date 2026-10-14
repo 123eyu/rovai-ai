@@ -3,10 +3,95 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # v1.72 实施与验收
+
+## 队员头像简化（2026-10-14）
+
+Mission `rvm_01a1390f1fc377028f1bae8eb8f78cf0`，分支 `rovai/mission/062`，基线 `3d4db22df`。
+User 消息 27 授权按确认的 R8 实现并 PR 合入 main，解除此前仅设计稿限制。
+实现覆盖队员配置、会话/Mission 身份卡、引导、欢迎区和历史入队回执；回执仍使用创建快照。
+新 schema 3 只存 source 与取景，Desktop/Web/Agent 共用新路径；旧 schema 1/2 和旧确定性创建重试保持。
+渠道冻结静态 PNG 到既有 Core data 的私有资源目录，无数据库迁移；身份、运行配置和模型上下文边界不变。
+`member-studio` 只调整本任务明确授权的可选头像教学，不变更自动 Bootstrap、Skill description 或身份生成规范。
+
+测试 owner：扩展 `member_avatar::tests` 原有 14 项，不新增或移除 Rust 测试；旧协议、恶意路径、损坏、
+格式及幂等矩阵保持。渠道 resolver owner 增加持久冻结/并发/重启验证，UI 使用生产组件夹具，真实 GIF
+seam 连接隔离 Core 与 Web adapter。原型内存模拟不是生产验收证据。
+
+本机验证（macOS arm64，Apple M5 / 32 GiB）：
+
+- TypeScript、完整 Vitest 243 个文件 / 2,669 项、Desktop/Web/Execution Web 构建通过。
+- 队员页生产组件 22 组检查通过，包括上传后裁切、取消/坏图/晚到读取、确认失败重试、一次主保存清除 dirty，
+  以及原有分区保存、部分成功、冲突、个人资料、移除与菜单。双主题、窄窗口、2K、缩放截图已检查。
+- Chrome 生产会话 fixture 的 38 个状态及交互回归通过；身份卡覆盖鼠标/键盘、焦点恢复、非模态关闭、
+  折叠/展开、当前与未配置 Runtime，以及 1440×920、375×812、844×390 的长资料与双主题截图。
+- 真实隔离 Core + Web 图片 adapter 的 GIF 六组检查通过：动画预览/稳定 URL、单文件保真、保存/重选/刷新，
+  以及 192/240 静态封面。静态非居中取景与 GIF 首帧局部画布、旧资产/replay、安全输入由 Rust owner 覆盖。
+- 文档单元 10 项、普通与基线 `3d4db22df` 的 diff-aware 门禁、Skill 单元 3 项及 12 个 Skill 检查通过。
+
+直接显示预算使用两组低字节但接近 3200 万累计像素的合成 GIF：512×512×120 帧（109,473 B）和
+1024×1024×30 帧（57,213 B），40 ms/帧，三色轮换，12 个独立受管引用与 Blob URL 同时显示。
+上传受 Core 完整校验；读取新资产核对 hash/结构/元数据，不再重复解码整段动画。
+Electron 两组均 12/12 实际截图颜色变化，3 秒帧间隔 p95 分别 17.6 / 16.8 ms，无 >50 ms 主线程长任务；
+Renderer 峰值工作集约 281 / 268 MiB。1024 组的 12 张首读至图片加载完成为 54 ms。
+Chrome 在桌面和 375px 视口均 12/12 动画，p95 16.7–16.8 ms，无长任务；最大观测帧间隔 33.3 ms。
+因此保留单边 1024、累计 3200 万像素、200 帧和 10 MiB 的联合预算，不按压缩文件大小单独准入。
+这些结果证明本机桌面与浏览器渲染路径，不代表实体手机、Safari、Windows 或全部设备性能。
+
+复现入口：生成指定画布/帧数/40ms 三色 GIF 后，以 `ROVAI_AVATAR_STRESS_GIF=<绝对 GIF 路径>`、
+`ROVAI_MEMBER_AVATAR_FIXTURE_ROOT=<新建规范绝对目录>`、`ROVAI_KEEP_MEMBER_AVATAR_FIXTURE=1` 运行
+`pnpm test:member-avatar-flow`；再运行 `node scripts/review-member-avatar-browser-budget.mjs <同一目录>`。
+后者读取前者真实 Core 产生的受管结果，以独立 Chrome profile 验证相同生产组件和浏览器图片 adapter；
+不声明真实远端 Host 或渠道账号验收。计时记录而不设机器相关的 CI 断言；实际动画、文件数、字节和导出为硬断言。
+Rust `cargo test --workspace` 通过（471 项，1 项既有人工 smoke 忽略）；
+`cargo test -p rovai-core --features extended-tests --lib -- member_avatar::tests member_profile_reads_and_patches_preserve_scope_atomicity_and_replay confirmed_user_input_can_create_one_idempotent_member_but_agent_input_cannot`
+16 项通过，涵盖头像 codec/存储及 Agent 创建、修改、重放/回滚 seam。Rust 格式检查通过。
+
+合并前按代码规范与 Mission/R8 需求分别独立审查，规范轴 4 项（3 P2、1 P3）、需求轴 2 项（P2）已全部修复并复核：
+旧 GIF 确定性重放恢复规范化后的取景夹紧；钉钉空图不会冻结为不可恢复的发布快照，补图可在同一 intent 重试；
+外部指定的验收目录一律保留；删除新增焦点外框；头像 Dialog 按 R8 返回实际入口的限定例外同步到上层规范；
+读屏与视觉缩放倍率一致。修正后渠道 resolver/钉钉 79 项、扩展 Rust 16 项、队员页 22 组、TypeScript 及
+diff-aware 文档门禁再次通过。未新增剩余审查发现；真实渠道账号、实体移动端和 Windows 不在本次执行证据内。
+
+## Pi 接收容量与连接失败原因（2026-10-14）
+
+User 确认优先修 Pi 接收容量及错误类型，采用单帧默认 64 MiB。基线
+`7a40768ccded50af6e4ec062d355f17e6efc3337`，分支 `rovai/pi-inbound-frame-budget`。
+独立 worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-pi-inbound-frame-budget`；
+无需先行治理提交。当前合同为 [Runtime Launch v63](../../contracts/runtime-launch-and-verification-v63.md)。
+
+- 触发证据：Pi 1.1.0 的图片 read result 在 content 与 structuredContent 重复 base64；
+  本次 1,860,849 字节 GIF 返回的 RPC 事件约 4.73 MiB，超过原 4 MiB 接收限制。
+- Pi 入站改为 64 MiB，保持读取时的有界检查；出站 4 MiB、stderr 64 KiB 及其他 Adapter 不变。
+  错误通过 typed cause 传到 pending command、Host 退出事件与受 Run/epoch 保护的 loss 事务。
+  公开 detail 仅含安全原因/字节数，非法记录诊断不复制正文。
+- 内部 unknown-outcome 代码、禁止重放、终态 fencing、Fleet 停止/reap 与 Single Chat 取消保持。
+  无数据库迁移、头像修改、上下文格式变化或 App 安装。
+
+测试归属：扩展既有 JSONL parser owner，保留 Unicode 分隔符并增加跨块、CRLF、EOF 和 64 MiB
+临界输入；扩展既有 Runtime loss owner 检查持久原因、accepted/unknown、不重试及旧代次/已知终态；
+扩展 Single Chat 原 policy/restart owner 验证 Snapshot 仍显示当前回复已取消，安全原因保留在 Run 记录。
+新增 `pi::host::tests::inbound_image_frames_preserve_host_health_and_typed_loss` 作为管道/Host seam owner：
+修复前大于 4 MiB 的合法图片事件杀死 reader，原 parser owner 不能证明 Host 健康、pending RPC 和
+退出事件的原因传递，既有 Host fixture 只拥有会话切换与 abort correlation，因此复用 fixture 增加一个
+独立扩展层 owner；精确尺寸矩阵仍只由 parser 拥有。
+
+最小验证命令为 `cargo test -p rovai-core --features extended-tests --lib -- pi:: runtime_loss_settles_uncertain_input_and_fences_old_or_terminal_executions built_in_policy_is_closed_and_runtime_loss_cancels_only_the_reply`。
+本机验证结果：
+
+- `cargo test --workspace`：471 项通过、1 项既有人工 Runtime smoke 忽略。
+- 上述定向扩展层命令：27 项通过、1 项既有 Pi Machine Ready smoke 忽略，包含新增管道 owner、
+  64 MiB 精确边界、RPC 原生拒绝/协议错误/EOF、持久原因和 unknown 输入保护。
+- `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`（10 项）、`pnpm docs:check` 与
+  相对上述基线的 `pnpm docs:check:ci` 通过。
+
+User 于 2026-10-14 要求合入 PR #743。合入前同步主干 `321cffdc0a21ef0a2c6b1721e0f75bd430477e8e`，
+仅版本概览的并列新增段落发生冲突，两项记录均保留；七个 Rust 文件相对新主干的修复与原提交一致。
+同步后再次通过默认 Rust 471 项、定向 27 项，以及格式和通用文档门禁，既有人工 smoke 仍忽略。
+验证使用隔离临时数据库及合成 Pi 管道，不启动日常 Core、App 或真实模型。
 
 ## 会话切换读取回归修复（2026-10-13）
 

@@ -16,6 +16,7 @@ use crate::{
         PermissionSemantics, fail_lost_agent_run_in_tx, pump_target_after_run_terminal,
         recompute_camp_turn, settle_abortive_agent_run_in_tx,
     },
+    runtime_failure::RuntimeFailureView,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -578,6 +579,8 @@ pub struct ReconcileRuntimeLossCommand {
     pub expected_version: i64,
     pub execution_epoch: i64,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<RuntimeFailureView>,
 }
 
 impl sealed::Sealed for ReconcileRuntimeLossCommand {}
@@ -2625,6 +2628,9 @@ impl ActionSafetyService {
         database: &mut Database,
         envelope: &CommandEnvelope<ReconcileRuntimeLossCommand>,
     ) -> Result<CommandExecution> {
+        if let Some(failure) = &envelope.payload.failure {
+            failure.validate()?;
+        }
         let execution = self.gateway.execute(database, envelope, |transaction| {
             if !matches!(
                 &envelope.actor,
@@ -2676,6 +2682,16 @@ impl ActionSafetyService {
             }
 
             let now = chrono::Utc::now().to_rfc3339();
+            if let Some(failure) = &envelope.payload.failure {
+                let adapter: Option<String> = transaction.query_row(
+                    "SELECT runtime_adapter_kind FROM agent_run WHERE id = ?1",
+                    [&envelope.payload.agent_run_id],
+                    |row| row.get(0),
+                )?;
+                if adapter.as_deref() != Some(failure.runtime_kind.as_str()) {
+                    anyhow::bail!("Runtime loss failure must match the active Runtime");
+                }
+            }
             if invocation_kind == "single_chat" {
                 let camp_turn_id = camp_turn_id
                     .as_deref()
@@ -2695,6 +2711,15 @@ impl ActionSafetyService {
                     Some(run_epoch),
                     &now,
                 )?;
+                if let Some(failure) = &envelope.payload.failure {
+                    transaction.execute(
+                        "UPDATE agent_run SET public_runtime_failure_json = ?2 WHERE id = ?1",
+                        params![
+                            envelope.payload.agent_run_id,
+                            serde_json::to_string(failure)?
+                        ],
+                    )?;
+                }
                 return Ok(CommandHandlerResult::applied(
                     "agent_run.cancelled",
                     json!({
@@ -2722,6 +2747,7 @@ impl ActionSafetyService {
                     &envelope.payload.agent_run_id,
                     &envelope.actor,
                     &envelope.payload.reason,
+                    envelope.payload.failure.as_ref(),
                 );
             }
             let actions_marked_unknown = transaction.execute(
@@ -5391,6 +5417,7 @@ mod tests {
                     &fixture.camp_id,
                     "runtime-recovery-coordinator",
                     ReconcileRuntimeLossCommand {
+                        failure: None,
                         agent_run_id: fixture.agent_run_id.clone(),
                         expected_version: run_version,
                         execution_epoch: 1,
@@ -5580,6 +5607,7 @@ mod tests {
                     &fixture.camp_id,
                     "runtime-recovery-coordinator",
                     ReconcileRuntimeLossCommand {
+                        failure: None,
                         agent_run_id: fixture.agent_run_id.clone(),
                         expected_version: run_version,
                         execution_epoch: 1,

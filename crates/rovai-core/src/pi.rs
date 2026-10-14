@@ -1,12 +1,13 @@
 mod host;
 
-use std::{path::Path, time::Duration};
+use std::{fmt, path::Path, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use rovai_core::{
     action::ActionResultOutcome,
     agent_profile::{AdapterKind, FrozenAgentRuntimeConfig},
     command::canonical_json_digest,
+    runtime_failure::{RuntimeFailureOrigin, RuntimeFailurePhase, RuntimeFailureView},
     storage_layout::ThreadOutputDirectory,
 };
 use serde_json::{Value, json};
@@ -23,8 +24,70 @@ pub use host::{PiAgentRunRuntimeRequest, PiRpcRuntimeAdapter, PiRuntime};
 
 pub(crate) const PI_PROTOCOL_VERSION: &str = "pi-jsonl-rpc-v1";
 pub(crate) const PI_HOST_EXTENSION_VERSION: &str = "rovai-pi-host-v8";
-pub(super) const PI_MAX_JSONL_RECORD_BYTES: usize = 4 * 1024 * 1024;
+// Pi image results may include the same base64 data in content and structuredContent.
+// Receive and send budgets are independent; stderr retains its own smaller limit.
+pub(super) const PI_MAX_INBOUND_RECORD_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const PI_MAX_OUTBOUND_RECORD_BYTES: usize = 4 * 1024 * 1024;
 pub(super) const PI_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PiTransportFailure {
+    FrameTooLarge {
+        limit_bytes: usize,
+        observed_bytes: usize,
+    },
+    ProtocolViolation,
+    ReadFailed,
+}
+
+impl PiTransportFailure {
+    pub fn public_failure(self) -> RuntimeFailureView {
+        let (origin, code, summary) = match self {
+            Self::FrameTooLarge { .. } => (
+                RuntimeFailureOrigin::Rovai,
+                "pi_rpc_frame_too_large",
+                "Pi 返回消息超出接收上限",
+            ),
+            Self::ProtocolViolation => (
+                RuntimeFailureOrigin::Compatibility,
+                "pi_rpc_protocol_error",
+                "Pi 返回了不兼容的协议消息",
+            ),
+            Self::ReadFailed => (
+                RuntimeFailureOrigin::Environment,
+                "pi_rpc_read_failed",
+                "无法读取 Pi 运行连接",
+            ),
+        };
+        RuntimeFailureView::new(
+            AdapterKind::Pi,
+            origin,
+            RuntimeFailurePhase::Execution,
+            code,
+            summary,
+            Some(self.to_string()),
+            false,
+        )
+    }
+}
+
+impl fmt::Display for PiTransportFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FrameTooLarge {
+                limit_bytes,
+                observed_bytes,
+            } => write!(
+                formatter,
+                "Pi RPC frame exceeds the receive limit: at least {observed_bytes} bytes, limit {limit_bytes} bytes"
+            ),
+            Self::ProtocolViolation => formatter.write_str("Pi RPC protocol validation failed"),
+            Self::ReadFailed => formatter.write_str("Pi RPC stdout could not be read"),
+        }
+    }
+}
+
+impl std::error::Error for PiTransportFailure {}
 
 #[derive(Debug)]
 pub enum PiIncoming {
@@ -42,6 +105,7 @@ pub enum PiIncoming {
         host_instance_id: String,
         agent_run_id: String,
         execution_epoch: i64,
+        failure: Option<PiTransportFailure>,
     },
     Diagnostic {
         host_instance_id: String,
@@ -494,8 +558,13 @@ pub(super) async fn read_jsonl_record<R: AsyncBufRead + Unpin>(
             .iter()
             .position(|byte| *byte == b'\n')
             .map_or(buffer.len(), |offset| offset + 1);
-        if record.len().saturating_add(take) > max_bytes {
-            bail!("Pi JSONL record exceeds the safety limit");
+        let observed_bytes = record.len().saturating_add(take);
+        if observed_bytes > max_bytes {
+            return Err(PiTransportFailure::FrameTooLarge {
+                limit_bytes: max_bytes,
+                observed_bytes,
+            }
+            .into());
         }
         record.extend_from_slice(&buffer[..take]);
         tokio::io::AsyncBufReadExt::consume(reader, take);
@@ -565,12 +634,57 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn jsonl_reader_preserves_unicode_line_separators() {
-        let input = b"{\"value\":\"a\xE2\x80\xA8b\xE2\x80\xA9c\"}\n";
-        let mut reader = BufReader::new(&input[..]);
-        let record = read_jsonl_record(&mut reader, 1024).await.unwrap().unwrap();
-        let value: Value = serde_json::from_slice(&record).unwrap();
-        assert_eq!(value["value"], "a\u{2028}b\u{2029}c");
+    async fn jsonl_reader_bounds_records_and_preserves_unicode() {
+        use tokio::io::AsyncReadExt;
+
+        for input in [
+            b"{\"value\":\"a\xE2\x80\xA8b\xE2\x80\xA9c\"}\n".as_slice(),
+            b"{}\r\n",
+            b"{}",
+        ] {
+            let mut reader = BufReader::with_capacity(1, input);
+            let record = read_jsonl_record(&mut reader, 1024).await.unwrap().unwrap();
+            let value: Value = serde_json::from_slice(&record).unwrap();
+            if let Some(value) = value.get("value") {
+                assert_eq!(value, "a\u{2028}b\u{2029}c");
+            }
+            assert!(
+                read_jsonl_record(&mut reader, 1024)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        // The wire budget includes the line delimiter. Generate the input as a
+        // stream so the boundary cases do not require two 64 MiB input copies.
+        for (length, accepted) in [
+            (PI_MAX_INBOUND_RECORD_BYTES - 1, true),
+            (PI_MAX_INBOUND_RECORD_BYTES, false),
+        ] {
+            let input = tokio::io::repeat(b'x')
+                .take(length as u64)
+                .chain(b"\n".as_slice());
+            let mut reader = BufReader::new(input);
+            let result = read_jsonl_record(&mut reader, PI_MAX_INBOUND_RECORD_BYTES).await;
+            if accepted {
+                assert_eq!(result.unwrap().unwrap().len(), length);
+            } else {
+                let error = result.unwrap_err();
+                let failure = error.downcast_ref::<PiTransportFailure>().unwrap();
+                assert_eq!(
+                    *failure,
+                    PiTransportFailure::FrameTooLarge {
+                        limit_bytes: PI_MAX_INBOUND_RECORD_BYTES,
+                        observed_bytes: PI_MAX_INBOUND_RECORD_BYTES + 1,
+                    }
+                );
+                let public = failure.public_failure();
+                public.validate().unwrap();
+                assert_eq!(public.code, "pi_rpc_frame_too_large");
+                assert_eq!(public.origin, RuntimeFailureOrigin::Rovai);
+                assert!(!public.retryable);
+            }
+        }
     }
 
     #[test]

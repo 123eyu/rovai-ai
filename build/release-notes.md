@@ -1,69 +1,43 @@
-# Rovai AI v0.4.9
+# Rovai AI v0.4.10
 
 <!-- lang:zh-CN -->
 
-本次新增队员独立环境变量配置、手动模型 ID，以及会话内执行查看与控制；另有会话恢复、消息显示、项目目录保存和启动加载方面的修复。
+本次增加了 GIF 队员头像和代码块复制，将专业职责上限提高到 10,000 字符，并允许移除最后一位队员后保留会话。同时补齐执行行的队员与模型信息，修复执行行排序问题。
 
-### 新功能
+- 【功能】**专业职责上限提高到 10,000 字符。** 原上限为 300 字符，现在可以填写更完整的职责、工作范围和交付要求，保存及传给队员本人时保留全文。
+- 【功能】**队员头像支持 GIF 动画。** 上传、保存、重新裁剪和刷新后均保留动画，桌面端与网页端都可使用。
+- 【功能】**代码块支持一键复制。** 会话消息、Markdown 文件预览和官网文档的代码块右上角增加复制按钮，保留缩进、空行和末尾换行；复制成功显示勾号，失败时可重试或手动复制。
+- 【功能】**移除最后一位队员后，会话仍可保留。** 可移出或永久移除最后一位队员，历史记录和输入草稿继续保留，重新邀请队员后可继续使用。永久移除前会列出受影响的会话、队长交接和任务释放情况；正在执行任务的队员仍需先结束执行。
+- 【交互】**执行行可直接查看队员资料和模型信息。** 点击头像或姓名打开队员卡片，点击模型摘要查看本次执行记录的模型与推理强度。
+- 【修复】**修复连续追加消息时的执行行排序。** 新一轮执行不会插回上一轮回复之前，也不会拆开回复与入队、文件变更卡片。
+- 【交互】**停止确认改为按钮旁的文字气泡。** 就近显示队员姓名和“取消 / 停止”操作，支持 Esc 和点击外部关闭；提交失败时在原位提示并可重试。
+- 【性能】**减少协作上下文中的重复职责信息。** 协作名单保留队员名称和团队角色，完整职责按需查看；队员本人仍接收自己的完整职责。
+- 【修复】**修复恢复会话后长消息批量处理失败的问题。** 按完整输入容量分批处理排队消息，后续消息继续等待；恢复后仍使用原会话。
+- 【修复】**改善头像上传与重新裁剪。** 修复部分 PNG 图片无法上传的问题，并改善超宽、超高图片保存后重新打开和裁剪的处理。
+- 【界面】**调整侧栏与执行卡片的细节。** “查看更多”和“收起”与会话标题对齐；执行卡片的“协作投递”简化为“协作”，悬浮时说明消息接收队员。
 
-- 【功能】**队员可单独配置环境变量。** 每位队员使用自己的运行配置，敏感值默认隐藏。修改在新进程启动时生效，不影响正在运行的任务。原智能体级环境变量配置停用，旧值保留，可在“诊断与修复”中查看并手动复制到对应队员。官网补充了多 Provider 配置指南。
-- 【功能】**模型选择支持手动填写 ID。** 在搜索框输入模型 ID 后，可直接选择并保存，即使该模型不在原生列表中。实际是否可用，由智能体执行时判断。
-- 【功能】**会话中可直接查看和控制执行。** 显示队员当前正文或命令，可查看执行详情、停止执行，或在执行失败后重试。执行行固定在对应消息位置，不会随其他队员的消息移动，并区分连接与处理阶段。
+感谢 [@liuqiong0319](https://github.com/liuqiong0319) 提交 GIF 头像与 PNG 上传兼容改进（[#718](https://github.com/murray17/rovai-ai/pull/718)），感谢 [@liangxyz](https://github.com/liangxyz) 在 [#706](https://github.com/murray17/rovai-ai/issues/706) 中反馈专业职责长度限制问题。
 
-### 其他更新
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.9...v0.4.10)
 
-- 【修复】**升级或修改配置后，优先恢复原会话。** 使用原会话 ID 尝试恢复同类智能体，不再仅凭旧配置摘要放弃恢复。同时修复 Pi 公屏与单聊的恢复路径互相覆盖。
-- 【修复】**修复原生历史丢失后的续接问题。** CodeBuddy 不再将空历史误认为恢复成功；Copilot、Qwen Code、Qoder、ZCode 在确认原会话无法恢复时，可新建会话继续执行。替换进程使用新的工具上下文和临时目录，不再引用已清理的旧路径。
-- 【性能】**执行结束不再等待正文和用量统计收尾。** 后续保存失败不会把已成功的操作显示为失败。退出时补充已接收正文的保存处理，渠道最终卡片在正文定稿后生成。
-- 【修复】**修复中文 Markdown 显示和引用定位。** 中文标点紧邻正文时，加粗和删除线正常显示，不再露出原始标记；选文引用的定位也同步修正。
-- 【修复】**修复邀请受理后队员姓名短暂显示异常的问题。** 消息先于成员列表更新时，保留队员姓名并显示同步状态，不再短暂显示“不可用队员”。回复预览和导航摘要同步修正。
-- 【修复】**空项目目录在切换和重启后仍会保留。** 已添加的目录即使没有会话，或删除了其中全部会话，也不会丢失登记。原有别名和排序保持不变。
-- 【交互】**启动时直接显示加载页。** 不再先显示空侧栏框架，再切换到加载页。所需数据就绪后进入工作区，读取失败时显示恢复界面。
-- 【调整】**精简 Charter 和记忆入口提示。** 删去重复的命令清单和说明，减少内部术语，移除 Codex 专用最终答复提示。协作义务和权限边界保留。
-- 【性能】**减少重复的上下文存储和校验。** 去除重复副本和校验信息，减少数据库打开、内置工具执行时的额外处理。实际输入、历史记录及结果查询保留。
-
-### 升级提醒
-
-Mac v0.4.1 及更新版本可在应用内升级；v0.4.0 及更早版本需要下载 DMG、退出旧应用并手动替换已安装应用一次。保留原有用户数据。
-
-Server v0.4.1 及更新版本可在网页的“关于与更新”中升级；更早版本请先备份数据、停止 Server，再使用新版官方安装脚本，并保持原有数据目录。
-
-Desktop 与 Server 同版发布，使用同一份源码构建。
-
-Windows x64 仍为未签名预览版，安装时可能出现“未知发布者”提示。请仅从本次官方 GitHub Release 下载安装包。
-
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.8...v0.4.9)
+---
 
 <!-- lang:en -->
 
-This release adds per-teammate environment variables, manual model IDs, and execution previews and controls in conversations. It also fixes native session recovery, message rendering, project folder persistence, and startup presentation.
+This release adds animated GIF teammate avatars and code block copying, raises the professional responsibilities limit to 10,000 characters, and keeps conversations available after their last teammate is removed. It also adds teammate and model details to execution rows and fixes their ordering.
 
-### New features
+- [Feature] **Professional responsibilities now allow up to 10,000 characters.** The previous limit was 300. You can describe responsibilities, scope, and expected deliverables in more detail; the full text is saved and provided to the teammate.
+- [Feature] **Teammate avatars support animated GIFs.** Animation is preserved after uploading, saving, recropping, and refreshing, on both desktop and web.
+- [Feature] **Copy individual code blocks with one click.** Conversation messages, Markdown file previews, and website documentation have a copy button in the upper-right corner of each code block. Indentation, blank lines, and trailing newlines are preserved. A check mark confirms success; failed copies can be retried or copied manually.
+- [Feature] **Keep a conversation after removing its last teammate.** You can remove the last teammate from a conversation or permanently remove their profile while retaining conversation history and the input draft. Invite another teammate to continue. Permanent removal lists affected conversations, lead handoffs, and released tasks; a teammate's active executions must finish first.
+- [Interaction] **Open teammate and model details from execution rows.** Click an avatar or name to open the teammate card, or click the model summary to inspect the model and reasoning effort recorded for that execution.
+- [Fix] **Correct execution row ordering when more messages are queued.** A new execution no longer appears before the previous reply or separates a reply from its teammate-joining and file-change cards.
+- [Interaction] **Confirm stopping an execution beside the button you clicked.** A nearby popover shows the teammate's name and Cancel / Stop actions. Escape or clicking outside closes it; failed requests show an inline error and can be retried.
+- [Performance] **Reduce repeated responsibility text in collaboration context.** Teammate lists retain names and team roles, with full responsibilities available on demand. Each teammate still receives their own complete responsibilities.
+- [Fix] **Handle queued long messages correctly after resuming a session.** Messages are split into batches based on the complete input size, with remaining messages kept in the queue. Resuming continues to use the original session.
+- [Fix] **Improve avatar uploading and recropping.** Fix uploads for some PNG files and improve reopening and recropping unusually wide or tall images after saving.
+- [UI] **Refine sidebar and execution card details.** Show more and Collapse align with conversation titles. The execution card label is shortened to Collaboration, with a tooltip explaining the message recipients.
 
-- [Feature] **Configure environment variables for each teammate.** Each teammate has its own configuration, with sensitive values hidden by default. Changes apply when a new process starts, without interrupting running tasks. The former agent-level environment configuration is no longer used; its values remain available in Diagnostics & Repair for manual copying to the appropriate teammate. The website includes a guide to configuring multiple providers.
-- [Feature] **Enter model IDs manually.** Type a model ID in the search field, select it, and save it even when it is absent from the native model list. The agent validates availability during execution.
-- [Feature] **View and control execution directly in conversations.** See a teammate's current text or command, open execution details, stop execution, or retry after a failure. Each execution row stays with its corresponding message rather than moving with other teammates' messages, and distinguishes connection from processing.
+Thanks to [@liuqiong0319](https://github.com/liuqiong0319) for the GIF avatar and PNG upload improvements ([#718](https://github.com/murray17/rovai-ai/pull/718)), and [@liangxyz](https://github.com/liangxyz) for reporting the professional responsibilities limit in [#706](https://github.com/murray17/rovai-ai/issues/706).
 
-### Other updates
-
-- [Fix] **Try the original session first after upgrades or configuration changes.** Resume the original session ID with the same agent type instead of rejecting recovery solely because of old configuration digests. Pi's public and private conversation recovery paths no longer overwrite each other.
-- [Fix] **Handle missing native history correctly.** CodeBuddy no longer mistakes empty history for successful recovery. Copilot, Qwen Code, Qoder, and ZCode can start a new session when the original session is confirmed to be unavailable. Replacement processes receive fresh tool contexts and temporary directories instead of referring to cleaned-up paths.
-- [Performance] **Finish executions without waiting for text and usage finalization.** Later save failures no longer turn a successfully committed operation into a reported failure. Shutdown provides an additional opportunity to save received text, and final channel cards wait for text finalization.
-- [Fix] **Fix Chinese Markdown rendering and quote navigation.** Bold and strikethrough render correctly beside Chinese punctuation instead of exposing raw markers. Selected-text quote navigation is updated accordingly.
-- [Fix] **Keep teammate names visible after an invitation is accepted.** When a message arrives before the updated roster, retain the teammate's name and show synchronization status rather than briefly displaying an unavailable teammate. Reply previews and navigation summaries follow the same behavior.
-- [Fix] **Keep empty project folders across navigation and restarts.** Registered folders remain even when they contain no conversations or all their conversations are deleted. Existing aliases and ordering are preserved.
-- [Interaction] **Show the loading screen from the first startup frame.** The app no longer briefly shows an empty sidebar shell before switching to loading. It enters the workspace when the required data is ready and shows recovery controls if reading fails.
-- [Change] **Shorten Charter and Memory entry instructions.** Remove repeated command lists and explanations, reduce internal terminology, and remove Codex-specific final-answer guidance. Collaboration obligations and permission boundaries remain.
-- [Performance] **Reduce duplicate context storage and validation.** Remove redundant copies and validation metadata, reducing extra work when opening the database and executing built-in tools. Actual input, history, and result lookup remain available.
-
-### Upgrading
-
-Mac users on v0.4.1 or later can update in the app. Users on v0.4.0 or earlier need to download the DMG, quit the old app, and replace the installed app once. Keep your existing user data.
-
-Server users on v0.4.1 or later can update through “About & Updates” in the web interface. For earlier versions, back up your data, stop Server, and run the updated official installer while keeping the same data directory.
-
-Desktop and Server share this release and are built from the same source commit.
-
-Windows x64 remains an unsigned preview. SmartScreen may show “Unknown publisher” during installation; download installers only from this official GitHub Release.
-
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.8...v0.4.9)
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.9...v0.4.10)

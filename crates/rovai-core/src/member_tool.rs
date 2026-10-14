@@ -125,7 +125,7 @@ fn invalid_patch() -> MemberOperationError {
 fn invalid_image() -> MemberOperationError {
     MemberOperationError {
         code: "member.avatar_invalid",
-        message: "The image could not be safely prepared; fix the image without dropping the requested image change",
+        message: "Could not import the avatar. Check that the file is readable and meets the format and size limits in this command's --help.",
         details: None,
     }
 }

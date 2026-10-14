@@ -28,6 +28,10 @@ use rovai_core::camp_message_send_teaching::{
     CAMP_MESSAGE_SEND_TO_PRINCIPAL_HELP,
 };
 use rovai_core::command::canonical_json_digest;
+use rovai_core::member_avatar::{
+    DISPLAY_GIF_CUMULATIVE_PIXELS, DISPLAY_GIF_MAXIMUM_EDGE, MAXIMUM_DECODED_EDGE,
+    MAXIMUM_DECODED_PIXELS, MAXIMUM_GIF_FRAMES, SELECTED_FILE_BYTES,
+};
 use rovai_core::platform::local_ipc::LocalIpcClientStream;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -1615,6 +1619,14 @@ fn operation_help_text(description: &BuiltinToolDescription) -> String {
         if description.name == "member.update" {
             writeln!(output, "\nProvide at least one change. Clear optional text with \"\"; clear personalityTraits with [] in JSON. displayName cannot be empty.\nIf an image fails, fix the image; do not silently drop it and save only text. For multiline text, use a UTF-8 JSON file.").expect("writing help to a String cannot fail");
         }
+        if matches!(description.name.as_str(), "member.create" | "member.update") {
+            writeln!(
+                output,
+                "\nAvatar import limits:\nPNG/JPEG/GIF: up to {} MiB, {MAXIMUM_DECODED_EDGE} px per edge and {MAXIMUM_DECODED_PIXELS} pixels; APNG is unsupported.\nGIF additionally: up to {DISPLAY_GIF_MAXIMUM_EDGE} px per edge, {MAXIMUM_GIF_FRAMES} frames and {DISPLAY_GIF_CUMULATIVE_PIXELS} canvas pixels across all frames.\nIf over budget, use a smaller file. GIFs are not automatically compressed.",
+                SELECTED_FILE_BYTES / (1024 * 1024),
+            )
+            .expect("writing help to a String cannot fail");
+        }
         let examples = operation_help_examples(&description.name);
         writeln!(output, "\nExamples:").expect("writing help to a String cannot fail");
         for example in examples {
@@ -1659,16 +1671,16 @@ fn render_flat_input_help(output: &mut String, description: &BuiltinToolDescript
             let teaching = match argument.field.as_str() {
                 "agentId" => "A current Thread member, or a member you created in this Thread.",
                 "avatarCenterX" => {
-                    "Supply center X, center Y and size together to crop the source. Centers: 0-1; size: 0.12-1; the crop must fit inside the source."
+                    "Supply center X, center Y and size together. Centers are fractions of the normalized image width/height (0-1); size is a fraction of its shorter side (0.12-1). The square must fit inside the image."
                 }
                 "avatarFile" => {
-                    "Run-readable PNG/JPEG/GIF source. Replaces the portrait and generates its icon; omit the crop fields to use the default crop."
+                    "Readable local PNG/JPEG/GIF path, in any accessible directory. Non-square images are supported; omit crop fields for centered square framing."
                 }
                 "avatarSize" => {
-                    "With all crop fields and no avatarFile, re-crop the existing source without replacing the portrait."
+                    "With all crop fields and no avatarFile, adjust the existing avatar framing."
                 }
                 "clearAvatar" => {
-                    "Clear both images. Cannot combine with avatarFile or any crop field."
+                    "Clear the avatar reference. Cannot combine with avatarFile or crop fields."
                 }
                 "expectedVersion" => {
                     "Use member get's version. On conflict, read again and decide whether a new update is needed."
@@ -1738,7 +1750,7 @@ fn render_flat_input_help(output: &mut String, description: &BuiltinToolDescript
         if description.name == "member.create" && argument.field == "avatarFile" {
             writeln!(
                 output,
-                "      Optional run-readable PNG/JPEG/GIF path. If unavailable, omit it and Rovai uses the default avatar."
+                "      Optional readable local PNG/JPEG/GIF path, in any accessible directory. Omit it for the default avatar. Non-square images use centered square framing."
             )
                 .expect("writing help to a String cannot fail");
         }

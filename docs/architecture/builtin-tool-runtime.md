@@ -229,11 +229,11 @@ Send v12 的 `body` 缺省为空字符串，`files` 缺省为空数组；领域�
 因此 `rovai send --file <path>` 是完整命令，不生成占位正文。Schema/default 只负责 transport shape，跨字段
 payload 门禁仍在 Domain Service。
 
-`member.create` 只接受 attested active、direct user-triggered AgentRun。Agent 依照 `member-studio` 展示完整
-名牌并取得用户确认，可选地把当前 Run 中 Core 可读的 PNG/JPEG 路径交给 CLI；Core 在领域提交前完成
-有界解码、轻量方形粗裁和 managed asset 发布。临时路径只存在于调用输入，不进入 Command payload、
-canonical result 或 Evidence；这条 narrow importer 与 Renderer 上传继续写出相同的 avatar manifest v1，
-但不形成通用文件导入或 Main↔Core bridge。
+`member.create` 只接受 attested active、direct user-triggered AgentRun。Agent 按
+`member-studio` 展示完整身份卡并取得用户确认，可选提交当前 Run 中 Core 可读的头像文件。
+Core 在身份提交前验证并物化受管头像；格式、取景、资源预算与旧资产兼容由
+[Member Avatar v1](../contracts/member-avatar-v1.md) 统一定义。临时文件路径不进入
+Command payload、canonical result 或 Evidence；此入口不承担通用文件导入。
 
 ## Agent Result Projection
 

@@ -1,4 +1,4 @@
 interface:
-  display_name: "伙伴入队"
-  short_description: "从名字直接起草完整队员名牌和头像方案，确认后加入名册"
-  default_prompt: "使用 $member-studio 创建一位新队员：根据我已给的信息直接起草完整身份和推荐头像方案，先展示名牌供我修改或确认，再完成创建。"
+  display_name: "创建队员"
+  short_description: "根据已有信息起草身份与头像方案，确认后创建队员，不自动加入会话"
+  default_prompt: "使用 $member-studio，根据我提供的信息起草队员身份与头像方案，供我修改或确认后创建。"

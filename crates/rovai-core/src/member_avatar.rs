@@ -23,10 +23,11 @@ use uuid::Uuid;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 
-const SELECTED_FILE_BYTES: u64 = 10 * 1024 * 1024;
+// CLI import guidance uses these same admission limits.
+pub const SELECTED_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const MINIMUM_DECODED_EDGE: u32 = 1;
-const MAXIMUM_DECODED_EDGE: u32 = 8192;
-const MAXIMUM_DECODED_PIXELS: u64 = 32_000_000;
+pub const MAXIMUM_DECODED_EDGE: u32 = 8192;
+pub const MAXIMUM_DECODED_PIXELS: u64 = 32_000_000;
 const NORMALIZED_MAXIMUM_EDGE: u32 = 2048;
 const NORMALIZED_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const ICON_EDGE: u32 = 192;
@@ -34,16 +35,16 @@ const ICON_BYTES: usize = 1024 * 1024;
 const MANIFEST_BYTES: usize = 16 * 1024;
 const MAXIMUM_DECODE_ALLOCATION: u64 = 256 * 1024 * 1024;
 /// Hard ceiling on decoded frames for an animated GIF member avatar.
-const MAXIMUM_GIF_FRAMES: u32 = 200;
+pub const MAXIMUM_GIF_FRAMES: u32 = 200;
 /// Cumulative decoded frame pixels across the whole animation; bounds decode
 /// allocation and prevents a multi-frame bomb (e.g. 200 × 32M px).
 const MAXIMUM_GIF_CUMULATIVE_DECODED_PIXELS: u64 = 128_000_000;
 // New single-file avatars are displayed directly by every client. Reject large
 // animations instead of resampling/re-encoding them during import. Legacy files
 // retain their original admission limits and pre-cropped icon.
-const DISPLAY_GIF_MAXIMUM_EDGE: u32 = 1024;
+pub const DISPLAY_GIF_MAXIMUM_EDGE: u32 = 1024;
 const DISPLAY_GIF_MAXIMUM_PIXELS: u64 = 1_048_576;
-const DISPLAY_GIF_CUMULATIVE_PIXELS: u64 = 32_000_000;
+pub const DISPLAY_GIF_CUMULATIVE_PIXELS: u64 = 32_000_000;
 
 pub const LUOKE_AVATAR_REF: &str = "rovai://member-avatar/builtin/luoke/v1";
 pub const MUWA_AVATAR_REF: &str = "rovai://member-avatar/builtin/muwa/v1";

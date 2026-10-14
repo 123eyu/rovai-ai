@@ -61,6 +61,7 @@ use crate::{
     managed_blob::ManagedBlobStore,
     mcp_projection::{McpExposureSnapshot, PreparedMcpProjection},
     memory::{MemoryScopeKind, RelationshipDirection},
+    message_sender::{MessageSender, SenderNames},
     skill::SkillLibraryService,
     skill_projection::{PreparedSkillExposure, SkillExposureSnapshot},
 };
@@ -72,11 +73,11 @@ pub const MAX_SESSION_BOOTSTRAP_BYTES: usize = 128 * 1024;
 fn run_facts_schema_version(manifest_version: i64, invocation_kind: &str) -> i64 {
     if invocation_kind == "batch" {
         match manifest_version {
-            32 | 33 | 34 | 36 => 9,
+            32 | 33 | 34 | 36 | 38 => 9,
             31 => 8,
             _ => 7,
         }
-    } else if matches!(manifest_version, 28 | 35) {
+    } else if matches!(manifest_version, 28 | 35 | 37) {
         6
     } else {
         5
@@ -524,8 +525,9 @@ impl ContextService {
             .transpose()?;
         let claimed_context = claim::load(database.connection(), &snapshot.agent_run_id)?;
         anyhow::ensure!(
-            batch_context_manifest_version != Some(36) || claimed_context.is_some(),
-            "Public v36 Run has no claimed context snapshot"
+            !batch_context_manifest_version.is_some_and(|version| version >= 36)
+                || claimed_context.is_some(),
+            "Public Run has no claimed context snapshot"
         );
         if batch_context_manifest_version == Some(30) {
             anyhow::bail!(
@@ -708,6 +710,24 @@ impl ContextService {
                 &mut omission_entries,
                 profile.max_public_history_chars,
             );
+        }
+        // Reuse claim-time names before budgeting/serialization. Historical final
+        // payloads have already returned through the existing restoration path.
+        let mut sender_names = if snapshot.invocation_kind == "batch" {
+            SenderNames::default()
+        } else {
+            SenderNames::for_shared_run(database.context_connection(), &snapshot.agent_run_id)?
+        };
+        for message in originating_public_user_message
+            .iter_mut()
+            .chain(reference_closure.iter_mut().map(|entry| &mut entry.message))
+            .chain(recent_messages.iter_mut())
+        {
+            message.model_sender = Some(sender_names.project(
+                database.context_connection(),
+                &message.sender_type,
+                &message.sender_id,
+            )?);
         }
         let current_input = load_current_input(database, &snapshot)?;
         let attachment_refs = load_current_attachment_refs(database, &current_input)?;
@@ -1126,7 +1146,7 @@ impl ContextService {
             .inspect(|&version| {
                 debug_assert!(matches!(
                     version,
-                    29 | 30 | 31 | 32 | 33 | 34 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
+                    29 | 30 | 31 | 32 | 33 | 34 | 36 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
                 ));
             })
             .unwrap_or(CONTEXT_FORMATTER_VERSION);
@@ -4070,6 +4090,7 @@ struct SharedMessage {
     content_digest: String,
     default_recipient_mention: Option<DefaultRecipientMention>,
     mentions: Option<Vec<MessageMention>>,
+    model_sender: Option<MessageSender>,
     mentions_current_user: bool,
     skill_names: Vec<String>,
     skill_mentions: Vec<(String, String)>,
@@ -4235,6 +4256,9 @@ fn model_batch_message(message: &SharedMessage) -> Value {
         "senderId": message.sender_id,
         "body": message.body,
     });
+    if let Some(sender) = &message.model_sender {
+        sender.insert_into(&mut value);
+    }
     if let Some(anchor_message_id) = message.reply_to_message_id.as_deref() {
         value["anchorMessageId"] = json!(anchor_message_id);
     }
@@ -4310,6 +4334,7 @@ pub(crate) fn project_batch_run_input_for_claim(
     through_sequence: i64,
     message_ids: &[String],
     skill_links: &[CurrentInputSkillLink],
+    sender_names: &mut SenderNames,
 ) -> Result<Value> {
     let base_profile = current_public_camp_batch_context_delivery_profile()?;
     let complete_profile = ContextDeliveryProfile {
@@ -4391,6 +4416,8 @@ pub(crate) fn project_batch_run_input_for_claim(
             true,
             Some(&claimed_source_message_ids),
         )?;
+        message.model_sender =
+            Some(sender_names.project(transaction, &message.sender_type, &message.sender_id)?);
         message.default_recipient_mention = default_recipient_mention;
         message.mentions = Some(message_mentions(
             transaction,
@@ -4440,7 +4467,7 @@ fn frozen_batch_context_manifest_version(
     anyhow::ensure!(
         matches!(
             version,
-            29 | 30 | 31 | 32 | 33 | 34 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
+            29 | 30 | 31 | 32 | 33 | 34 | 36 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
         ),
         "Batch AgentRun uses an unsupported context version"
     );
@@ -4638,8 +4665,8 @@ struct ModelSharedMessage<'a> {
     quotes: Vec<Value>,
     message_id: &'a str,
     sequence: i64,
-    sender_type: &'a str,
-    sender_id: &'a str,
+    #[serde(flatten)]
+    sender: MessageSender,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_to_message_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -4670,8 +4697,10 @@ impl SharedMessage {
                 .collect(),
             message_id: &self.message_id,
             sequence: self.sequence,
-            sender_type: &self.sender_type,
-            sender_id: &self.sender_id,
+            sender: self
+                .model_sender
+                .clone()
+                .unwrap_or_else(|| MessageSender::legacy(&self.sender_type, &self.sender_id)),
             reply_to_message_id: self.reply_to_message_id.as_deref(),
             attachments: self
                 .attachments
@@ -5410,6 +5439,7 @@ fn project_shared_message<R: ContextReadConnection>(
         content_digest,
         default_recipient_mention: None,
         mentions: None,
+        model_sender: None,
         mentions_current_user,
         skill_names: Vec::new(),
         skill_mentions: Vec::new(),
@@ -8329,10 +8359,10 @@ mod tests {
                     context_manifest_version INTEGER
                 );
                 INSERT INTO agent_run_input VALUES ('historical', 26);
-                INSERT INTO agent_run_input VALUES ('current', 36);
-                INSERT INTO agent_run_input VALUES ('current', 36);
-                INSERT INTO agent_run_input VALUES ('previous', 33);
-                INSERT INTO agent_run_input VALUES ('previous', 33);
+                INSERT INTO agent_run_input VALUES ('current', 38);
+                INSERT INTO agent_run_input VALUES ('current', 38);
+                INSERT INTO agent_run_input VALUES ('previous', 36);
+                INSERT INTO agent_run_input VALUES ('previous', 36);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
                 INSERT INTO agent_run_input VALUES ('mixed', 26);
@@ -8352,7 +8382,7 @@ mod tests {
         );
         assert_eq!(
             frozen_batch_context_manifest_version(&connection, "previous").unwrap(),
-            33
+            36
         );
         for invalid in ["historical", "mixed", "missing", "absent"] {
             assert!(frozen_batch_context_manifest_version(&connection, invalid).is_err());
@@ -8401,6 +8431,7 @@ mod tests {
             content_digest: "sha256:test".to_string(),
             default_recipient_mention: None,
             mentions: None,
+            model_sender: None,
             mentions_current_user: false,
             skill_names: vec!["review-code".to_string()],
             skill_mentions: Vec::new(),
@@ -8430,6 +8461,86 @@ mod tests {
         assert_eq!(current["mentions"], json!([{"id":"user"}]));
         assert!(current.get("mentionsCurrentUser").is_none());
         assert_eq!(current["body"], legacy["body"]);
+        connection.execute_batch("CREATE TABLE agent_profile(id TEXT PRIMARY KEY, display_name TEXT);
+            INSERT INTO agent_profile VALUES('agent_1','Alice'),('agent_2','Alice'),('agent_3','');").unwrap();
+        let mut names = SenderNames::default();
+        for (kind, id, expected) in [
+            (
+                "user",
+                "local_user",
+                json!({"senderType":"user","senderId":"user"}),
+            ),
+            (
+                "external_principal",
+                "external_principal_private",
+                json!({"senderType":"user","senderId":"user"}),
+            ),
+            (
+                "system",
+                "automation-run-id",
+                json!({"senderType":"system","senderId":"system","senderName":null}),
+            ),
+            (
+                "agent",
+                "agent_1",
+                json!({"senderType":"agent","senderId":"agent_1","senderName":"Alice"}),
+            ),
+            (
+                "agent",
+                "agent_2",
+                json!({"senderType":"agent","senderId":"agent_2","senderName":"Alice"}),
+            ),
+            (
+                "agent",
+                "agent_3",
+                json!({"senderType":"agent","senderId":"agent_3","senderName":null}),
+            ),
+            (
+                "agent",
+                "agent_99",
+                json!({"senderType":"agent","senderId":"agent_99","senderName":null}),
+            ),
+        ] {
+            message.sender_type = kind.into();
+            message.sender_id = id.into();
+            message.model_sender = Some(names.project(&connection, kind, id).unwrap());
+            let batch = model_batch_message(&message);
+            let shared = serde_json::to_value(message.model_projection()).unwrap();
+            for key in ["senderType", "senderId", "senderName"] {
+                assert_eq!(batch.get(key), expected.get(key));
+                assert_eq!(shared.get(key), expected.get(key));
+            }
+            assert_eq!(batch["body"], legacy["body"]);
+            assert_eq!(shared["body"], legacy["body"]);
+            assert_eq!(
+                message.sender_id, id,
+                "stored author remains available to evidence"
+            );
+        }
+        connection
+            .execute_batch(
+                "UPDATE agent_profile SET display_name='Renamed' WHERE id='agent_1';
+            INSERT INTO agent_profile VALUES('agent_99','Newly available');",
+            )
+            .unwrap();
+        for (id, before, after) in [
+            ("agent_1", json!("Alice"), json!("Renamed")),
+            ("agent_99", Value::Null, json!("Newly available")),
+        ] {
+            assert_eq!(
+                serde_json::to_value(names.project(&connection, "agent", id).unwrap()).unwrap()["senderName"],
+                before
+            );
+            assert_eq!(
+                serde_json::to_value(
+                    SenderNames::default()
+                        .project(&connection, "agent", id)
+                        .unwrap()
+                )
+                .unwrap()["senderName"],
+                after
+            );
+        }
         let context = BatchModelContext {
             run_input_messages: vec![message],
         };
@@ -8471,6 +8582,7 @@ mod tests {
             content_digest: "sha256:test".to_string(),
             default_recipient_mention: None,
             mentions: None,
+            model_sender: None,
             mentions_current_user: false,
             skill_names: vec!["review-code".to_string()],
             skill_mentions: vec![("native:one".to_string(), "review-code".to_string())],
@@ -9423,14 +9535,22 @@ mod slow_tests {
             &fixture.directory,
         )
         .unwrap();
-        let input = load_batch_model_context(
+        let mut context = load_batch_model_context(
             &tx,
             &snapshot,
             current_public_camp_batch_context_delivery_profile().unwrap(),
-            36,
+            PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION,
         )
-        .unwrap()
-        .run_input_projection(&links);
+        .unwrap();
+        let mut sender_names = SenderNames::default();
+        for message in &mut context.run_input_messages {
+            message.model_sender = Some(
+                sender_names
+                    .project(&tx, &message.sender_type, &message.sender_id)
+                    .unwrap(),
+            );
+        }
+        let input = context.run_input_projection(&links);
         let frozen = ClaimedBatchContext::prepare(&tx, &preview, None)
             .unwrap()
             .with_input(
@@ -10754,13 +10874,51 @@ mod slow_tests {
     // A claimed input without a Manifest must survive an upgrade using its frozen formatter.
     #[test]
     fn claimed_legacy_batch_keeps_its_format_after_context_upgrades() {
-        for expected_version in [32, 33] {
+        for expected_version in [32, 33, 36, 38] {
             let mut fixture = fixture();
             fixture.database.connection().execute(
                 "INSERT INTO camp_member(camp_id,agent_id,status,capability_overrides_json,version,joined_at) VALUES(?1,'agent_2','active','{}',1,datetime('now'))",
                 [&fixture.camp_id],
             ).unwrap();
-            if expected_version == 32 {
+            let author_name: String = fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT display_name FROM agent_profile WHERE id='agent_2'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            if expected_version >= 36 {
+                fixture.database.connection().execute("UPDATE camp_message SET author_type='agent',author_id='agent_2' WHERE id=(SELECT message_id FROM agent_run_input WHERE agent_run_id=?1)", [&fixture.run_id]).unwrap();
+                freeze_fixture_claim(&mut fixture);
+                if expected_version == 36 {
+                    let mut claimed = claim::load(fixture.database.connection(), &fixture.run_id)
+                        .unwrap()
+                        .unwrap();
+                    for message in claimed.run_input["messages"].as_array_mut().unwrap() {
+                        message.as_object_mut().unwrap().remove("senderName");
+                    }
+                    let tx = fixture.database.connection_mut().transaction().unwrap();
+                    tx.execute(
+                        "DELETE FROM agent_run_claim_context WHERE agent_run_id=?1",
+                        [&fixture.run_id],
+                    )
+                    .unwrap();
+                    claimed.persist(&tx, &fixture.run_id).unwrap();
+                    tx.commit().unwrap();
+                    crate::db::upgrade_message_senders_fixture(&mut fixture.database);
+                }
+                // A later profile change and departure cannot change already claimed names.
+                fixture
+                    .database
+                    .connection()
+                    .execute_batch(
+                        "UPDATE agent_profile SET display_name='After claim' WHERE id='agent_2';
+                    UPDATE camp_member SET status='left' WHERE agent_id='agent_2';",
+                    )
+                    .unwrap();
+            } else if expected_version == 32 {
                 crate::db::downgrade_message_mentions_fixture(&fixture.database);
                 crate::db::upgrade_message_mentions_fixture(&mut fixture.database);
             } else {
@@ -10794,6 +10952,17 @@ mod slow_tests {
                 input["messages"][0].get("mentions").is_none(),
                 expected_version == 32
             );
+            if expected_version >= 36 {
+                assert_eq!(input["messages"][0]["senderId"], "agent_2");
+                if expected_version == 38 {
+                    assert_eq!(input["messages"][0]["senderName"], author_name);
+                } else {
+                    assert!(input["messages"][0].get("senderName").is_none());
+                }
+            } else {
+                assert_eq!(input["messages"][0]["senderId"], "test-user");
+                assert!(input["messages"][0].get("senderName").is_none());
+            }
             let roster: Value = serde_json::from_str(
                 first
                     .rendered_payload
@@ -10811,7 +10980,8 @@ mod slow_tests {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .all(|peer| peer.get("professionalResponsibilities").is_some())
+                    .all(|peer| peer.get("professionalResponsibilities").is_some()
+                        == (expected_version <= 33))
             );
             let version: i64 = fixture
                 .database
@@ -11037,7 +11207,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(
             (manifest_version, formatter_version, facts_version),
-            (36, 36, 9)
+            (38, 38, 9)
         );
         assert_eq!(profile_json, None);
         assert_eq!(
@@ -13363,6 +13533,20 @@ mod slow_tests {
     #[test]
     fn single_chat_materializes_conversation_input_with_a_memory_free_bootstrap() {
         let mut fixture = fixture();
+        send_explicit_public_output(
+            &mut fixture,
+            "shared-sender-before-claim",
+            "PUBLIC_SENDER_FREEZE",
+        );
+        let sender_name: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT display_name FROM agent_profile WHERE id='agent_1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         let single_chat = SingleChatService::default();
         let opened = single_chat
             .open(
@@ -13445,6 +13629,7 @@ mod slow_tests {
             )
             .unwrap();
         let execution_epoch = claimed.result.payload["executionEpoch"].as_i64().unwrap();
+        fixture.database.connection().execute("UPDATE agent_profile SET display_name='NAME_AFTER_SHARED_CLAIM' WHERE id='agent_1'", []).unwrap();
         let binding = TeamToolService::default()
             .prepare_binding_credential(&mut fixture.database, &run_id, execution_epoch, false)
             .unwrap();
@@ -13464,6 +13649,66 @@ mod slow_tests {
         else {
             panic!("Single Chat context should be ready")
         };
+        let shared: Value = serde_json::from_str(
+            prepared
+                .rendered_payload
+                .split_once("[SHARED_THREAD]\n")
+                .unwrap()
+                .1
+                .split_once("\n[/SHARED_THREAD]")
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        let message = shared["recentMessages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["body"] == "PUBLIC_SENDER_FREEZE")
+            .unwrap();
+        assert_eq!(message["senderType"], "agent");
+        assert_eq!(message["senderId"], "agent_1");
+        assert_eq!(message["senderName"], sender_name);
+        let current_input: Value = serde_json::from_str(
+            prepared
+                .rendered_payload
+                .split_once("[CURRENT_INPUT]\n")
+                .unwrap()
+                .1
+                .split_once("\n[/CURRENT_INPUT]")
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        assert_eq!(current_input["source"], json!({"type":"user"}));
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET display_name='NAME_AFTER_RENDER' WHERE id='agent_1'",
+                [],
+            )
+            .unwrap();
+        let ContextMaterialization::Ready(replayed) = ContextService
+            .materialize(
+                &mut fixture.database,
+                &store,
+                &MaterializeContextRequest {
+                    agent_run_id: &run_id,
+                    execution_epoch,
+                    charter_delivery_mode: CharterDeliveryMode::FirstPayload,
+                    max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("frozen Single Chat context should be ready")
+        };
+        assert_eq!(replayed.rendered_payload, prepared.rendered_payload);
+        assert_eq!(
+            replayed.rendered_payload_digest,
+            prepared.rendered_payload_digest
+        );
         assert!(prepared.runtime_payload.starts_with("[SESSION_CHARTER]\n"));
         assert!(prepared.runtime_payload.contains("[MEMBER_IDENTITY]"));
         assert!(!prepared.runtime_payload.contains("[MEMORY_ENTRYPOINT]"));
@@ -14299,6 +14544,7 @@ mod slow_tests {
                 content_digest: sha256_text(&body),
                 default_recipient_mention: None,
                 mentions: None,
+                model_sender: None,
                 mentions_current_user: false,
                 skill_names: Vec::new(),
                 skill_mentions: Vec::new(),

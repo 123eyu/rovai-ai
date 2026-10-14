@@ -40,14 +40,18 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Mission v2（历史）](mission-v2.md) | 继承 v1，并让当前 Mission 的受认证 Agent 显式读取有序附件原路径；删除即排队清理的规则由 v3 局部替代 |
 | [Mission v1（历史）](mission-v1.md) | 身份、业务状态、当前成员操作、工作区准备与清理、固定基准累计变更；附件 raw path 始终私有的结论由 v2 局部替代 |
 
-## 模型消息 Mention
+## 模型消息发送者与 Mention
+
+- [Message Senders v1（当前）](message-senders-v1.md)：模型发送者统一，Profile 名称冻结及旧结果回放；内部身份不变。
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
-- [ContextManifest v36（当前）](context-manifest-evidence-v36.md)：claim 快照与完整预算，public 36/13/9，non-batch 35/12/6 保持。
+- [ContextManifest v38（当前）](context-manifest-evidence-v38.md)：统一发送者；claim 快照与完整预算，public 38/13/9，non-batch 37/12/6。
 - [Context Delivery Profile v13（当前 public batch）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
+- [ContextManifest v36（历史）](context-manifest-evidence-v36.md)：首版 claim 上下文冻结，public 36/13/9。
+- [Camp History v12（历史）](camp-history-v12.md)：mentions 统一，作者字段保留原始身份。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
-- [Camp History v12（当前）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
+- [Camp History v13（当前）](camp-history-v13.md)：read/search 统一发送者，Agent Output 12；历史回执保持。
 
 ## 生命周期
 

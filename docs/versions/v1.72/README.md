@@ -11,6 +11,13 @@ last_updated: 2026-10-13
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 消息发送者统一（2026-10-14）
+
+按 User 已确认的 [R1](model-context-change-message-senders.md) 已在独立 worktree 实施，自动化回归通过；完整真实模型 Gate 待补。
+公开输入、SHARED_THREAD、读取和搜索统一发送者与名称；内部身份、正文、Mention、渠道与旧恢复保持。
+当前合同为 [Message Senders v1](../../contracts/message-senders-v1.md)、[History v13](../../contracts/camp-history-v13.md)
+和 [Manifest v38](../../contracts/context-manifest-evidence-v38.md)。验证状态见 R1 实施记录。
+
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 
 按 User 确认的 [R1](model-context-change-bootstrap-claim-budget.md)，以本 Run 快照统一 FIFO 选批与实际组包，

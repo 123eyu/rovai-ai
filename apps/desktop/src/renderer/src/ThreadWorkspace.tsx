@@ -52,7 +52,7 @@ import {
   ToolActivityGroup, ToolCallRow, selectCompletePresentableExecutionEvidence, type ToolCallStep
 } from './ExecutionToolGroup'
 import { executionPhaseFeedback, executionRunSummary } from './execution-run-summary'
-import { ComposerPrimaryAction } from './ComposerPrimaryAction'
+import { ComposerDeliveryAction, deliveryPlans, deliveryActionLabel } from './ComposerDeliveryAction'
 import { ThreadMemberFastToggle } from './ThreadMemberFastToggle'
 import { useThreadMemberFast, type ThreadMemberFastControls } from './useThreadMemberFast'
 import type {
@@ -1631,6 +1631,7 @@ export function ThreadWorkspace({
   busy,
   onSend,
   onWithdrawMessage,
+  onReconcileDelivery,
   onPendingDraftPersisted,
   onPendingThreadLeave,
   onThreadLeaveGuardChange,
@@ -1691,8 +1692,9 @@ export function ThreadWorkspace({
   installations?: AdapterInstallation[]
   liveRuntimeEvents?: LiveRuntimeEvent[]
   busy: boolean
-  onSend(draft: ThreadComposerDraftView): Promise<ThreadMessageSendReceipt | void>
+  onSend(draft: ThreadComposerDraftView, deliveryMode?: 'start' | 'steer', steerTargets?: Array<{agentRunId: string; executionEpoch: number}>): Promise<ThreadMessageSendReceipt | void>
   onWithdrawMessage?(message: ThreadMessageView): Promise<void>
+  onReconcileDelivery?(deliveryId: string): Promise<string>
   onPendingDraftPersisted?(): void
   onPendingThreadLeave?(draft: ThreadComposerDraftView): Promise<void>
   onThreadLeaveGuardChange?(threadId: string, guard: ThreadLeaveGuard | null): void
@@ -1787,6 +1789,8 @@ export function ThreadWorkspace({
   const [replyInteractionError, setReplyInteractionError] = useState<string | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [withdrawalMessage, setWithdrawalMessage] = useState<ThreadMessageView | null>(null)
+  const [deliveryMode, setDeliveryMode] = useState<'start' | 'steer'>('steer')
+  useEffect(() => setDeliveryMode('steer'), [snapshot.thread.id])
   const [withdrawingMessageId, setWithdrawingMessageId] = useState<string | null>(null)
   const [withdrawalError, setWithdrawalError] = useState<string | null>(null)
   useEffect(() => {
@@ -2518,6 +2522,8 @@ export function ThreadWorkspace({
   const defaultLead = snapshot.members.find((member) => member.isDefaultLead && campMemberIsLeadEligible(member)) ?? null
   const hasCurrentMembers = campInspectorMembers(snapshot.members).length > 0
   const hasAvailableRecipient = pendingInviteIds.length > 0 || snapshot.members.some(campMemberIsLeadEligible)
+  const composerDeliveryPlans = deliveryPlans(snapshot, composerDraft, deliveryMode)
+  const composerDeliveryLabel = deliveryActionLabel(composerDeliveryPlans)
   const replyRepairRequired = composerDraftNeedsReplyRepair(composerDraft)
   const hasExplicitRecipient = composerLocalStatus.hasExplicitRecipient
   const continuationIntent = composerDraft?.continuationIntent ?? null
@@ -4049,7 +4055,7 @@ export function ThreadWorkspace({
         }
       }
       sendAttempted = true
-      const sendReceipt = await onSend(routedDraft)
+      const sendReceipt = await onSend(routedDraft, deliveryMode, composerDeliveryPlans.flatMap(plan => plan.route === 'steer' && plan.target ? [plan.target] : []))
       if (!sendReceipt) throw new Error(uiAttribute('消息未被当前 Thread 接受。'))
       sendAccepted = true
       if (currentSnapshot.thread.activationState === 'pending' && sendReceipt.threadMessageId) {
@@ -5314,7 +5320,10 @@ export function ThreadWorkspace({
                                 actionBefore={campMessage.authorType === 'user' ? (
                                   <UserMessageDeliveryReceipt
                                     message={campMessage}
+                                    onReconcile={onReconcileDelivery}
                                     runs={userMessageRuns}
+                                    deliveries={campMessageDeliveries}
+                                    allRuns={snapshot.agentRuns}
                                     memberById={memberById}
                                     onOpenExecution={(run, trigger) => openExecutionProcess(
                                       run.agentId,
@@ -6107,14 +6116,17 @@ export function ThreadWorkspace({
                   <span className="composer-hint-visual" aria-hidden="true">
                     <kbd>↵</kbd>
                     <span>{pendingInviteIds.length > 0
-                      ? <UiText zh={'邀请并发送'} /> : <UiText zh={'发送'} />}</span>
+                      ? <UiText zh={'邀请并发送'} /> : composerDeliveryLabel}</span>
                     <span className="composer-hint-separator">·</span>
                     <kbd>⇧↵</kbd>
                     <span><UiText zh={"换行"} /></span>
                   </span>
                 </span>
               )}
-              <ComposerPrimaryAction
+              <ComposerDeliveryAction
+                plans={composerDeliveryPlans}
+                mode={deliveryMode}
+                onModeChange={setDeliveryMode}
                 action="send"
                 type="submit"
                 disabled={composerSendDisabled}
@@ -7771,6 +7783,7 @@ function ThreadMessageDeliveryFooter({
   onActivateMemberMention
 }: {
   deliveries: MessageDeliveryView[]
+  onReconcile?(deliveryId: string): Promise<string>
   memberById: Map<string, ThreadSnapshot['members'][number]>
   onActivateMemberMention(
     agentId: string,
@@ -7852,6 +7865,7 @@ function userMessageRunStatusLabel(run: AgentRunView | null): string {
 }
 
 function UserMessageDeliveryReceipt({
+  deliveries, allRuns, onReconcile,
   message,
   runs,
   memberById,
@@ -7860,10 +7874,15 @@ function UserMessageDeliveryReceipt({
 }: {
   message: ThreadMessageView
   runs: AgentRunView[]
+  allRuns: AgentRunView[]
+  deliveries: MessageDeliveryView[]
+  onReconcile?(deliveryId: string): Promise<string>
   memberById: Map<string, ThreadSnapshot['members'][number]>
   onOpenExecution(run: AgentRunView, trigger: HTMLButtonElement): void
   onWithdraw?(): void
 }): JSX.Element | null {
+  const [checking, setChecking] = useState<string | null>(null)
+  const [checkResult, setCheckResult] = useState<string | null>(null)
   if (message.id.startsWith('optimistic:') || message.addressedAgentIds.length === 0) return null
   const runByAgentId = new Map<string, AgentRunView>()
   for (const run of runs.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt))) {
@@ -7871,12 +7890,19 @@ function UserMessageDeliveryReceipt({
   }
   const ordered = message.addressedAgentIds.map((agentId) => ({
     agentId,
-    run: runByAgentId.get(agentId) ?? null
+    delivery: deliveries.find(d => d.recipientAgentId === agentId),
+    run: allRuns.find(r => r.id === deliveries.find(d => d.recipientAgentId === agentId)?.targetAgentRunId) ?? runByAgentId.get(agentId) ?? null
   }))
+  const steered = ordered.filter(({ delivery }) => delivery?.requestedMode === 'steer' && delivery.inputDeliveryStatus === 'accepted')
+  const unknown = ordered.filter(({ delivery }) => delivery?.inputDeliveryStatus === 'delivery_unknown')
   const pending = ordered.filter(({ run }) => !run || (run.status === 'queued' && !run.cancelRequestedAt))
   const inProgress = ordered.filter(({ run }) => run?.status === 'running' || run?.status === 'waiting')
   const canWithdraw = message.canWithdraw && Boolean(onWithdraw)
-  const presentation = pending.length > 0
+  const presentation = unknown.length > 0
+    ? { className: 'is-queued', label: uiAttribute('待核对 · {0}', String(unknown.length)) }
+    : steered.length > 0
+      ? { className: 'is-progress', label: [uiAttribute('已插话 {0}', String(steered.length)), pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : ''].filter(Boolean).join(' · ') }
+      : pending.length > 0
     ? { className: 'is-queued', label: uiAttribute("待处理 · {0}", String(pending.length)) }
     : inProgress.length > 0
       ? { className: 'is-progress', label: uiAttribute("处理中 · {0}", String(inProgress.length)) }
@@ -7901,17 +7927,25 @@ function UserMessageDeliveryReceipt({
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="user-message-receipt-menu" sideOffset={5} align="end">
             <h3><UiText zh={"消息处理状态"} /></h3>
-            {ordered.map(({ agentId, run }) => {
+            {ordered.map(({ agentId, run, delivery }) => {
               const member = memberById.get(agentId)
               const displayName = member?.displayName ?? agentId
               return <div className="user-message-receipt-recipient" key={agentId}>
                 <MemberAvatar agentId={agentId} avatarRef={member?.avatarRef ?? null} displayName={displayName} size="mention" decorative />
-                <span><strong>{displayName}</strong><small>{userMessageRunStatusLabel(run)}</small></span>
-                {run && <DropdownMenu.Item asChild>
+                <span><strong>{displayName}</strong><small>{delivery?.requestedMode === 'steer' ? delivery.inputDeliveryStatus === 'accepted' ? uiAttribute('已加入当前执行') : delivery.inputDeliveryStatus === 'delivery_unknown' ? uiAttribute('是否送达待核对') : ['failed','cancelled'].includes(delivery.status) ? uiAttribute(delivery.status === 'cancelled' ? '已停止' : '未完成') : uiAttribute('正在投递') : userMessageRunStatusLabel(run)}</small></span>
+                {delivery?.inputDeliveryStatus === 'delivery_unknown' && onReconcile ? <button type="button" disabled={checking === delivery.id} onClick={async () => {
+                  setChecking(delivery.id); setCheckResult(null)
+                  try {
+                    const status = await onReconcile(delivery.id)
+                    if (status !== 'accepted') setCheckResult(uiAttribute('暂未确认送达'))
+                  } catch { setCheckResult(uiAttribute('暂时无法核对')) }
+                  finally { setChecking(null) }
+                }}>{checking === delivery.id ? uiAttribute('正在核对…') : uiAttribute('核对结果')}</button> : run && <DropdownMenu.Item asChild>
                   <button type="button" onClick={(event) => onOpenExecution(run, event.currentTarget)}><UiText zh={"查看执行"} /></button>
                 </DropdownMenu.Item>}
               </div>
             })}
+            {checkResult && <p role="status">{checkResult}</p>}
             {canWithdraw && <div className="user-message-receipt-actions">
               <DropdownMenu.Item asChild>
                 <button type="button" onClick={onWithdraw}><UiText zh={"撤回消息"} /></button>

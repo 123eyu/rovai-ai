@@ -43,8 +43,11 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 ## 模型消息 Mention
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
-- [ContextManifest v36（当前）](context-manifest-evidence-v36.md)：claim 快照与完整预算，public 36/13/9，non-batch 35/12/6 保持。
-- [Context Delivery Profile v13（当前 public batch）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
+- [ContextManifest v37（当前）](context-manifest-evidence-v37.md)：普通与 Steer 共用动态上下文，多输入精确回执；public 37/14/10。
+- [Context Delivery Profile v14（当前 public batch）](context-delivery-profile-v14.md)：共同预算与本次投递来源，旧输入原字节恢复。
+- [Message Delivery v13（当前）](message-delivery-v13.md)：用户逐队员 Steer、指定执行与未知结果防重。
+- [ContextManifest v36（历史）](context-manifest-evidence-v36.md)：claim 快照与完整预算，public 36/13/9，non-batch 35/12/6 保持。
+- [Context Delivery Profile v13（历史）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
 - [Camp History v12（当前）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
@@ -411,7 +414,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Durable Task v5（当前）](durable-task-v5.md) | Task 对象全面去版本化，字段补丁后写覆盖，Agent 四类结果精简 |
 | [Durable Task v4（历史）](durable-task-v4.md) | 继承 v3 authority；单一 description、历史要求只读合成/编辑清理、16000 上限、精简 get Agent projection 与旧输入拒绝 |
 | [Durable Task v3（历史）](durable-task-v3.md) | User/Lead 责任定义、Assignee execution-state update、Camp-wide read、explicit owner、unassigned holding 与 advisory actions；字段 surface 由 v4 替代 |
-| [Camp Message Send v26（当前）](camp-message-send-v26.md) | Pending 首条 User 消息从结构化提及原子邀请队外队员 |
+| [Camp Message Send v27（当前）](camp-message-send-v27.md) | User 消息按目标选择普通开始或指定活跃执行注入，允许多队员和附件 |
+| [Camp Message Send v26（历史）](camp-message-send-v26.md) | Pending 首条 User 消息从结构化提及原子邀请队外队员 |
 | [Camp Message Send v25（历史）](camp-message-send-v25.md) | User 发送事件保存明确 Task 关联，续做按全部原输入校验当前范围；输入、回执和模型格式不变 |
 | [Camp Message Send v24（历史）](camp-message-send-v24.md) | 继承 v23；正文 Principal 与参数合并、PublicOnly 保留用户提及、昵称与 Markdown 投影 |
 | [Camp Message Send v23（历史）](camp-message-send-v23.md) | 继承 v22；用户消息轻量处理回执、权威 `canWithdraw`、确认弹窗与 Desktop/Web 撤回运输 |

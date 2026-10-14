@@ -3,10 +3,61 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # v1.72 实施与验收
+
+## 用户 Steer（2026-10-14）
+
+User seq18 确认 [R3](model-context-change-steer-shared-input.md)，实施分支 `rovai/mission/064`。
+共用普通动态上下文与 RUN_INPUT，执行身份和环境保持冻结；仅 Runtime 层区分开始执行与注入。
+用户一次多队员发送按队员能力处理，支持附件及纯附件；保留原有视觉风格及普通消息回执。
+当前接入 Codex turn/steer，其余 Runtime 忙碌时排队。未安装日常 App，未创建 PR。
+完整 [15 类 Runtime 报告](../../research/runtime-monitoring/steer-2026-10-14.md) 与 [证据索引](steer-verification.json)
+区分原生探针、产品验收和尚未验证的边界。
+
+新增的唯一独立 Rust owner 是 `delivery_queue::tests::active_inputs_preserve_initial_context_and_unsubmitted_sources`
+（extended-tests）：一个 Run 的第二条输入在原实现中会复用第一份 Manifest／回执，旧单输入 fixture
+不能覆盖这个事务边界。因此复用 DeliveryQueue fixture 增加该 owner，检查来源隔离、同水位多输入、
+恢复原字节、逆序 ACK、目标 Run／epoch 失效、正常结束回队列、取消后不重启、未知不重发及迟到回执。
+这些是持久化与跨模块事务语义，不能仅以纯函数测试替代。没有删除或禁用原测试。
+迁移 199 回滚与旧证据逐字保留扩展既有 member_routing / claim_context 迁移 owner；
+历史迁移 fixture 先恢复真实旧 schema，再用正式升级链回到当前 schema 后调用新业务 API。
+版本断言更新为当前 37/14/10，既有旧数据、错误分支、FK、事务回滚断言保留。
+既有 Codex 真实子进程夹具补充指定 turn 的正向接受／读取、目标不匹配、校验拒绝、内部错误与
+Host 退出矩阵；只有明确的原生校验拒绝允许回队列，内部错误和传输中断保持未知。未为此增加独立测试。
+
+主要复现入口（Rust 使用本机已配置的 rustup）：
+
+```sh
+cargo test --workspace
+cargo test -p rovai-core --features slow-tests --lib context::
+cargo test -p rovai-core --features extended-tests --lib delivery_queue::tests::
+cargo test -p rovai-core --features extended-tests --lib db::member_routing::tests::
+pnpm typecheck
+pnpm exec vitest run apps/desktop/src/renderer/src/ThreadWorkspace*.test.ts apps/desktop/src/renderer/src/composer-*.test.ts apps/desktop/src/renderer/src/camp-composer-local-store.test.ts
+node --test --test-name-pattern='Steer uses' scripts/lib/camp-open-projection.test.mjs
+pnpm test:composer-input
+pnpm docs:test
+pnpm docs:check
+DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 pnpm docs:check:ci
+```
+
+真实 Smoke：先构建 Core 和 `rovai` CLI，放在同一产品 bin 目录；创建一个新的空绝对路径目录，运行
+`node scripts/smoke-steer.mjs <空目录> <Core绝对路径>`。脚本明示独立 data、Skill Library、MCP、cache、
+workspace，记录 Core SHA-256、实际 Runtime 版本、每条输入 Manifest、目标及结果文件。
+使用现有登录和 Runtime 默认模型，本次不是固定模型质量 A/B。
+
+最终默认 Rust workspace **471 passed，0 failed，1 个既有 ignored**；上下文 slow owner 53 项、
+Delivery 与迁移定向 39 项通过，首次扩展失败项修正后的 19 项定向 owner 也已逐项通过。
+Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer 集成、类型检查、双主题 UI
+12 组（含 900 px / 200% 缩放）、文档测试及带基线治理均通过。未重跑整个扩展集；首次
+992 passed / 16 failed / 8 ignored 的原日志保留，15 项在定向复测中修复，剩余一项为下述基线失败。
+
+验证结果以 [JSON 索引](steer-verification.json) 为准。完整 12 Case 语义 Gate 缺固定 Judge 未运行，
+保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
+中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。
 
 ## 会话切换读取回归修复（2026-10-13）
 

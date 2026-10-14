@@ -70,15 +70,9 @@ impl BootstrapContents {
 pub(crate) struct ClaimedBatchContext {
     pub(super) bootstrap: BootstrapContents,
     pub(super) member_identity: MemberIdentityBootstrapProjection,
-    pub(super) collaboration_state: Value,
-    pub(super) tasks: Vec<SelectedSelfActiveTask>,
-    pub(super) omitted_tasks: usize,
-    pub(super) run_facts: RenderedRunFacts,
-    pub(super) mission_details_version: Option<i64>,
-    pub(super) workspace: PreparedWorkspaceFact,
-    pub(super) additional_skills: PreparedAdditionalSkills,
+    #[serde(flatten)]
+    pub(super) dynamic: input::DynamicInputContext,
     pub(super) run_input: Value,
-    had_native_session: bool,
     bootstrap_reserve: usize,
 }
 
@@ -144,38 +138,11 @@ impl ClaimedBatchContext {
         } else {
             0
         };
-        let members = load_collaboration_projection_members(transaction, &snapshot.camp_id)?;
-        let (tasks, omitted_tasks) = load_self_active_tasks(
-            transaction,
-            &snapshot,
-            current_public_camp_batch_context_delivery_profile()?.max_self_active_tasks,
-        )?;
-        let (facts, mission_details_version) = build_run_facts(transaction, &snapshot, false, 0)?;
         Ok(Self {
             bootstrap,
             member_identity,
-            collaboration_state: build_collaboration_state(&members, &snapshot.agent_id),
-            tasks,
-            omitted_tasks,
-            run_facts: render_run_facts(&facts)?,
-            mission_details_version,
-            workspace: match workspace_fact {
-                Some(value) => PreparedWorkspaceFact {
-                    value: Some(value.clone()),
-                    digest: Some(canonical_json_digest(value)?),
-                    included: true,
-                },
-                None => {
-                    anyhow::ensure!(
-                        mission_facts(transaction, &snapshot)?.is_none(),
-                        "mission.workspace_not_prepared"
-                    );
-                    PreparedWorkspaceFact::default()
-                }
-            },
-            additional_skills: prepare_additional_skills(transaction, data_dir, &snapshot)?,
+            dynamic: input::DynamicInputContext::prepare(transaction, &snapshot, workspace_fact)?,
             run_input: json!({"messages": []}),
-            had_native_session: snapshot.native_session_id.is_some(),
             bootstrap_reserve,
         })
     }
@@ -237,22 +204,6 @@ impl ClaimedBatchContext {
         Ok(payload.len().saturating_add(self.bootstrap_reserve))
     }
 
-    pub(super) fn run_facts_for_session(&self, new_session: bool) -> Result<RenderedRunFacts> {
-        let mut facts = self.run_facts.clone();
-        if new_session && self.had_native_session {
-            let mut value: Value = serde_json::from_str(&facts.payload_json)?;
-            value["sessionContinuity"] =
-                json!({"state":"lost", "requiredAction":"recheck_private_session_assumptions"});
-            facts.payload_json = serde_json::to_string(&value)?;
-            facts.references.push(RunFactRef {
-                fact: "session_continuity".into(),
-                task_id: None,
-                mission_id: None,
-            });
-        }
-        Ok(facts)
-    }
-
     pub(crate) fn persist(&self, transaction: &Transaction<'_>, run_id: &str) -> Result<()> {
         transaction.execute(
             "INSERT INTO agent_run_claim_context(agent_run_id, context_json) VALUES (?1, ?2)",
@@ -266,7 +217,7 @@ pub(super) fn load(connection: &Connection, run_id: &str) -> Result<Option<Claim
     // Historical inputs retain their original materializer, including databases
     // exercised at intermediate migration boundaries.
     let current: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM agent_run_input WHERE agent_run_id=?1 AND context_manifest_version=36)",
+        "SELECT EXISTS(SELECT 1 FROM agent_run_input WHERE agent_run_id=?1 AND context_manifest_version IN (36,37))",
         [run_id], |row| row.get(0),
     )?;
     if !current {
@@ -283,4 +234,16 @@ pub(super) fn load(connection: &Connection, run_id: &str) -> Result<Option<Claim
     Ok(Some(
         serde_json::from_str(&json).context("Invalid claimed batch context")?,
     ))
+}
+
+impl std::ops::Deref for ClaimedBatchContext {
+    type Target = input::DynamicInputContext;
+    fn deref(&self) -> &Self::Target {
+        &self.dynamic
+    }
+}
+impl std::ops::DerefMut for ClaimedBatchContext {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.dynamic
+    }
 }

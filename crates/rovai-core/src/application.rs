@@ -1,4 +1,5 @@
 mod execution_drivers;
+mod steer;
 use execution_drivers::*;
 use rusqlite::OptionalExtension;
 mod config;
@@ -825,6 +826,7 @@ fn request_runs_outside_main_queue(method: &str) -> bool {
             | "runtime.startup.check"
             | "runtime.startup.save"
             | "runtime.networkRecovery.wake"
+            | "runtimeInputs.reconcile"
             | "runtime.modelCatalog.open"
             | "workspaces.inspect"
             | "camp.messages.send"
@@ -1710,6 +1712,10 @@ struct AcknowledgeThreadViewedParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SendThreadMessageParams {
+    #[serde(default)]
+    delivery_mode: rovai_core::steer::UserDeliveryMode,
+    #[serde(default)]
+    steer_targets: Option<Vec<rovai_core::steer::ActiveInputTarget>>,
     command_id: String,
     #[serde(rename = "threadId", alias = "campId")]
     camp_id: ThreadId,
@@ -1735,6 +1741,8 @@ impl SendThreadMessageParams {
             expected_versions: Vec::new(),
             execution_epoch: None,
             payload: SendUserThreadMessageCommand {
+                delivery_mode: params.delivery_mode,
+                steer_targets: params.steer_targets.clone(),
                 camp_id: params.camp_id.to_string(),
                 content: params.content.clone(),
                 source_attachments: params.source_attachments.clone(),
@@ -11214,6 +11222,14 @@ impl Core {
                 let params: SendThreadMessageParams =
                     serde_json::from_value(request.params.clone())?;
                 self.send_test_camp_message_request(params).await
+            }
+            "runtimeInputs.reconcile" => {
+                let delivery_id = request
+                    .params
+                    .get("deliveryId")
+                    .and_then(Value::as_str)
+                    .context("deliveryId is required")?;
+                self.reconcile_active_input(delivery_id).await
             }
             "camp.messages.withdraw" => {
                 let params: UserCommandParams<WithdrawThreadMessageCommand> =
@@ -25013,6 +25029,25 @@ async fn process_agent_run_scheduler(
     'scheduler: loop {
         if scan_delivery_batches {
             scan_delivery_batches = false;
+            let inputs = {
+                let database = core.database.lock().await;
+                rovai_core::steer::pending_inputs(database.connection())
+            };
+            match inputs {
+                Ok(inputs) => {
+                    for input in inputs {
+                        let run_id = input.agent_run_id.clone();
+                        if !delivery_batch_inflight.insert(run_id.clone()) {
+                            continue;
+                        }
+                        let worker_core = core.clone();
+                        let handle = delivery_batch_dispatches
+                            .spawn(async move { worker_core.dispatch_active_input(input).await });
+                        delivery_batch_workers.insert(handle.id(), run_id);
+                    }
+                }
+                Err(error) => eprintln!("failed to select active inputs: {error:#}"),
+            }
             match core.collect_delivery_batch_dispatch_candidates().await {
                 Ok(candidates) => {
                     for candidate in candidates {
@@ -28532,6 +28567,8 @@ done
         let attachment_id = source_attachment.id.clone();
         let sent = core
             .send_test_camp_message_request(SendThreadMessageParams {
+                delivery_mode: Default::default(),
+                steer_targets: None,
                 command_id: uuid::Uuid::new_v4().to_string(),
                 camp_id: ThreadId::parse(&camp_id).unwrap(),
                 content: text_composer_document("Use the published attachment"),
@@ -28680,6 +28717,8 @@ done
         let source_attachment =
             observe_source_attachment(&source, "published.txt", Some("text/plain")).unwrap();
         core.send_test_camp_message_request(SendThreadMessageParams {
+            delivery_mode: Default::default(),
+            steer_targets: None,
             command_id: uuid::Uuid::new_v4().to_string(),
             camp_id: ThreadId::parse(&camp_id).unwrap(),
             content: text_composer_document("Use the published attachment"),
@@ -31654,6 +31693,8 @@ done
         };
         let sent = core
             .send_test_camp_message_request(SendThreadMessageParams {
+                delivery_mode: Default::default(),
+                steer_targets: None,
                 command_id: uuid::Uuid::new_v4().to_string(),
                 camp_id: ThreadId::parse(&camp_id).unwrap(),
                 content: text_composer_document("Keep cleanup busy"),
@@ -32233,6 +32274,8 @@ for line in sys.stdin:
         let (camp_id, run_id, version, epoch) =
             claimed_runtime_cleanup_test_run(&core, &workspace).await;
         core.send_test_camp_message_request(SendThreadMessageParams {
+            delivery_mode: Default::default(),
+            steer_targets: None,
             command_id: uuid::Uuid::new_v4().to_string(),
             camp_id: ThreadId::parse(&camp_id).unwrap(),
             content: text_composer_document("Already queued before native failure"),

@@ -6,18 +6,21 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
 
-## 待审阅：普通消息与 Steer 共用上下文（2026-10-14）
+## 已实现：用户 Steer 与共同上下文，语义 Gate 待补（2026-10-14）
 
-[R3 前后对比报告](model-context-change-steer-shared-input.md)按每个区段紧邻列出当前内容与拟改内容，
+[R3 前后对比报告](model-context-change-steer-shared-input.md)按每个区段紧邻列出变更前后的内容，
 覆盖共同 Builder／Formatter、逐次投递的 RUN_INPUT、冻结恢复、多队员、附件与版本边界。
 R3 将 historyHint 收缩为四种单句，其余提示词保持原样；补清冻结执行环境、本次来源资源、
 多输入回执与 Run 收尾规则，撤回按旧 Manifest 号一概禁止 Steer 的限制。
-当前仅完成报告，尚未确认实施或修改产品上下文。
+User 在消息 `52de18ca-e5df-4c91-b2a7-ee998f8068b0` 确认开始实施 R3，并要求最终交付逐 Runtime 实测结果。
+当前产品接入 Codex；多队员、附件、纯附件及普通队列独立，未增加插话专用提示词。
+15 类 Runtime 检查、12 类原生探针、真实 Core 与生产 UI 验收见[实测报告](../../research/runtime-monitoring/steer-2026-10-14.md)。
+完整 12 Case 语义 Gate 缺固定 Judge 配置，尚未运行；不声明全 Runtime 已支持。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 

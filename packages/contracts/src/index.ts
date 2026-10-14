@@ -1867,6 +1867,7 @@ export type AgentRunCancelReasonCode =
   | 'single_chat_ended'
 
 export interface AgentRunView {
+  canSteer?: boolean
   id: string
   threadTurnId: string | null
   inputMessageIds?: string[]
@@ -2618,6 +2619,8 @@ export interface ThreadMessageFindParams {
 }
 
 interface MessageDeliveryBaseView {
+  requestedMode?: 'start' | 'steer'
+  inputDeliveryStatus?: string
   continuationRequest?: boolean
   inputMessageIds?: string[]
   id: string
@@ -4326,6 +4329,7 @@ export type CoreMethod =
   | 'tasks.get'
   | 'messageQuotes.mutateDraft'
   | 'messageQuotes.capture'
+  | 'runtimeInputs.reconcile'
   | 'thread.messages.send'
   | 'thread.messages.withdraw'
   | 'userAutomation.thread.send'

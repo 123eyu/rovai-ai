@@ -228,7 +228,7 @@ pub fn has_pending_delivery_batch_work(database: &Database) -> Result<bool> {
             SELECT 1
             FROM camp_message_delivery AS delivery
             JOIN camp ON camp.id = delivery.camp_id
-            WHERE delivery.status = 'waiting'
+            WHERE (delivery.status = 'waiting' OR (delivery.status='claimed' AND delivery.requested_mode='steer'))
               AND camp.deletion_operation_id IS NULL
         ) OR EXISTS(
             SELECT 1
@@ -949,7 +949,7 @@ fn select_batch_prefix(
     })
 }
 
-fn has_additional_public_messages(
+pub(crate) fn has_additional_public_messages(
     transaction: &Transaction<'_>,
     camp_id: &str,
     agent_id: &str,
@@ -1161,6 +1161,7 @@ pub(crate) fn settle_run_deliveries(
         "failed" => "failed",
         _ => return Ok(0),
     };
+    crate::steer::settle_execution(transaction, agent_run_id, run_status, now)?;
     Ok(transaction.execute(
         r#"
         UPDATE camp_message_delivery
@@ -1264,6 +1265,8 @@ mod tests {
         fn send_user_input(&mut self, agent: &str, body: &str, task: Option<&str>) -> String {
             use crate::collaboration::{ExecutionRequest, SendUserThreadMessageCommand};
             let command = self.user_command(SendUserThreadMessageCommand {
+                steer_targets: None,
+                delivery_mode: Default::default(),
                 camp_id: self.camp_id.clone(),
                 content: crate::camp_content::composer_document_from_content(&[
                     StructuredThreadMessageSegment::MemberMention {
@@ -2932,6 +2935,305 @@ mod tests {
             signals[0].action.subject.as_ref().unwrap().related_run_ids,
             vec![run_id.clone()]
         );
+    }
+
+    // Owns the new multi-input transaction, exact-source recovery and late ACK fence.
+    // The existing single-input fixture cannot exercise two Manifests on one Run.
+    #[test]
+    #[cfg(feature = "extended-tests")]
+    fn active_inputs_preserve_initial_context_and_unsubmitted_sources() {
+        use crate::context::{
+            CharterDeliveryMode, ContextMaterialization, ContextService, MaterializeContextRequest,
+        };
+        let mut fixture = Fixture::new();
+        fixture.enqueue("initial-steer", "initial work");
+        let run = claim_waiting_delivery_batches(&mut fixture.database, 1)
+            .unwrap()
+            .remove(0);
+        let initial = fixture.materialize_run(&run);
+        fixture.database.connection().execute("UPDATE conversation SET native_session_id='steer-session' WHERE id='delivery-queue-agent-1'", []).unwrap();
+        let first = ContextService
+            .prepare_input_delivery_for_context(&mut fixture.database, &run, 1, &initial)
+            .unwrap();
+        ContextService
+            .acknowledge_input_delivery(&mut fixture.database, &first.id, "same-native-turn")
+            .unwrap();
+        let view = crate::read_model::ReadModelService
+            .camp_snapshot(&mut fixture.database, &fixture.camp_id)
+            .unwrap();
+        assert!(
+            view.agent_runs
+                .iter()
+                .find(|r| r.id == run)
+                .unwrap()
+                .can_steer
+        );
+        let ordinary = fixture.enqueue("ordinary-before-steer", "leave this queued");
+        let one = fixture.enqueue("steer-one", "first correction");
+        let two = fixture.enqueue("steer-two", "second correction");
+        {
+            let tx = fixture.database.connection_mut().transaction().unwrap();
+            for targets in [
+                vec![],
+                vec![crate::steer::ActiveInputTarget {
+                    agent_run_id: "previous-run".into(),
+                    execution_epoch: 1,
+                }],
+                vec![crate::steer::ActiveInputTarget {
+                    agent_run_id: run.clone(),
+                    execution_epoch: 2,
+                }],
+            ] {
+                crate::steer::route_user_message(&tx, "steer-one", Some(&targets)).unwrap();
+                let status: String = tx
+                    .query_row(
+                        "SELECT status FROM camp_message_delivery WHERE id=?1",
+                        [&one],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    status, "waiting",
+                    "stale targets must remain ordinary queued input"
+                );
+            }
+            crate::steer::route_user_message(
+                &tx,
+                "steer-one",
+                Some(&[crate::steer::ActiveInputTarget {
+                    agent_run_id: run.clone(),
+                    execution_epoch: 1,
+                }]),
+            )
+            .unwrap();
+            crate::steer::route_user_message(&tx, "steer-two", None).unwrap();
+            tx.commit().unwrap();
+        }
+        let pending = crate::steer::pending_inputs(fixture.database.connection()).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].delivery_id, one);
+        let request = MaterializeContextRequest {
+            agent_run_id: &run,
+            execution_epoch: 1,
+            charter_delivery_mode: CharterDeliveryMode::NativeAppend,
+            max_payload_bytes: 96 * 1024,
+        };
+        let materialize = |fixture: &mut Fixture, delivery: &str| {
+            let ContextMaterialization::Ready(context) = ContextService
+                .materialize_message_delivery(
+                    &mut fixture.database,
+                    &crate::managed_blob::ManagedBlobStore::new(&fixture._directory),
+                    delivery,
+                    &[],
+                    &request,
+                )
+                .unwrap()
+            else {
+                panic!("input must be ready")
+            };
+            context
+        };
+        let one_context = materialize(&mut fixture, &one);
+        assert!(one_context.rendered_payload.contains("first correction"));
+        assert!(!one_context.rendered_payload.contains("initial work"));
+        assert!(!one_context.rendered_payload.contains("leave this queued"));
+        assert!(!one_context.rendered_payload.contains("second correction"));
+        assert_eq!(
+            materialize(&mut fixture, &one).rendered_payload,
+            one_context.rendered_payload
+        );
+        let one_input = ContextService
+            .prepare_input_delivery_for_context(&mut fixture.database, &run, 1, &one_context)
+            .unwrap();
+        fixture.database.connection().execute("UPDATE agent_profile SET display_name='Changed after first preparation' WHERE id='agent_1'", []).unwrap();
+        let two_context = materialize(&mut fixture, &two);
+        assert!(
+            two_context
+                .rendered_payload
+                .contains("Changed after first preparation")
+        );
+        assert_eq!(
+            one_context.camp_message_boundary_sequence,
+            two_context.camp_message_boundary_sequence
+        );
+        let two_input = ContextService
+            .prepare_input_delivery_for_context(&mut fixture.database, &run, 1, &two_context)
+            .unwrap();
+        assert_ne!(one_input.id, first.id);
+        assert_ne!(two_input.id, one_input.id);
+        // Native input identity may be the same turn for all injections.
+        ContextService
+            .acknowledge_input_delivery(&mut fixture.database, &two_input.id, "same-native-turn")
+            .unwrap();
+        ContextService
+            .acknowledge_input_delivery(&mut fixture.database, &one_input.id, "same-native-turn")
+            .unwrap();
+        let digest: String = fixture.database.connection().query_row("SELECT native_collaboration_state_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r|r.get(0)).unwrap();
+        assert_eq!(digest, two_context.collaboration_state_digest);
+        assert_eq!(
+            fixture.materialize_run(&run).rendered_payload,
+            initial.rendered_payload
+        );
+        let unsent = fixture.enqueue("steer-unsent", "must survive completion");
+        {
+            let tx = fixture.database.connection_mut().transaction().unwrap();
+            crate::steer::route_user_message(&tx, "steer-unsent", None).unwrap();
+            tx.commit().unwrap();
+        }
+        let unsent_context = materialize(&mut fixture, &unsent);
+        let unsent_input = ContextService
+            .prepare_input_delivery_for_context(&mut fixture.database, &run, 1, &unsent_context)
+            .unwrap();
+        {
+            let tx = fixture.database.connection_mut().transaction().unwrap();
+            tx.execute(
+                "UPDATE agent_run SET status='succeeded',ended_at=datetime('now') WHERE id=?1",
+                [&run],
+            )
+            .unwrap();
+            settle_run_deliveries(
+                &tx,
+                &run,
+                "succeeded",
+                None,
+                &chrono::Utc::now().to_rfc3339(),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+        for id in [&ordinary, &unsent] {
+            let status: (String, Option<String>) = fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT status,claimed_agent_run_id FROM camp_message_delivery WHERE id=?1",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(status, ("waiting".into(), None));
+        }
+        assert_eq!(
+            ContextService
+                .runtime_input_delivery_status(&fixture.database, &unsent_input.id)
+                .unwrap()
+                .as_deref(),
+            Some("not_accepted")
+        );
+        assert!(
+            !ContextService
+                .begin_runtime_input_dispatch(&mut fixture.database, &unsent_input.id, &run, 1)
+                .unwrap()
+        );
+
+        // Cancellation closes unsent work; ambiguous native submission never requeues.
+        for (terminal, dispatch, expected) in [
+            ("cancelled", false, "cancelled"),
+            ("succeeded", true, "failed"),
+        ] {
+            let mut f = Fixture::new();
+            f.enqueue("original", "original");
+            let run = claim_waiting_delivery_batches(&mut f.database, 1)
+                .unwrap()
+                .remove(0);
+            let context = f.materialize_run(&run);
+            f.database.connection().execute("UPDATE conversation SET native_session_id='session' WHERE id='delivery-queue-agent-1'",[]).unwrap();
+            let initial = ContextService
+                .prepare_input_delivery_for_context(&mut f.database, &run, 1, &context)
+                .unwrap();
+            ContextService
+                .acknowledge_input_delivery(&mut f.database, &initial.id, "turn")
+                .unwrap();
+            let source = f.enqueue("correction", "correction");
+            let tx = f.database.connection_mut().transaction().unwrap();
+            crate::steer::route_user_message(&tx, "correction", None).unwrap();
+            tx.commit().unwrap();
+            let request = MaterializeContextRequest {
+                agent_run_id: &run,
+                execution_epoch: 1,
+                charter_delivery_mode: CharterDeliveryMode::NativeAppend,
+                max_payload_bytes: 96 * 1024,
+            };
+            let ContextMaterialization::Ready(context) = ContextService
+                .materialize_message_delivery(
+                    &mut f.database,
+                    &crate::managed_blob::ManagedBlobStore::new(&f._directory),
+                    &source,
+                    &[],
+                    &request,
+                )
+                .unwrap()
+            else {
+                panic!("ready")
+            };
+            let input = ContextService
+                .prepare_input_delivery_for_context(&mut f.database, &run, 1, &context)
+                .unwrap();
+            if dispatch {
+                assert!(
+                    ContextService
+                        .begin_runtime_input_dispatch(&mut f.database, &input.id, &run, 1)
+                        .unwrap()
+                );
+            }
+            let tx = f.database.connection_mut().transaction().unwrap();
+            tx.execute(
+                "UPDATE agent_run SET status=?2,ended_at=datetime('now') WHERE id=?1",
+                params![run, terminal],
+            )
+            .unwrap();
+            settle_run_deliveries(&tx, &run, terminal, None, &chrono::Utc::now().to_rfc3339())
+                .unwrap();
+            tx.commit().unwrap();
+            assert_eq!(
+                f.database
+                    .connection()
+                    .query_row(
+                        "SELECT status FROM camp_message_delivery WHERE id=?1",
+                        [&source],
+                        |r| r.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                expected
+            );
+            assert!(
+                crate::steer::pending_inputs(f.database.connection())
+                    .unwrap()
+                    .is_empty()
+            );
+            if dispatch {
+                assert_eq!(
+                    ContextService
+                        .runtime_input_delivery_status(&f.database, &input.id)
+                        .unwrap()
+                        .as_deref(),
+                    Some("delivery_unknown")
+                );
+                ContextService
+                    .acknowledge_input_delivery(&mut f.database, &input.id, "turn")
+                    .unwrap();
+                assert_eq!(
+                    f.database
+                        .connection()
+                        .query_row("SELECT status FROM agent_run WHERE id=?1", [&run], |r| {
+                            r.get::<_, String>(0)
+                        })
+                        .unwrap(),
+                    "succeeded"
+                );
+                assert_eq!(
+                    f.database
+                        .connection()
+                        .query_row(
+                            "SELECT status FROM camp_message_delivery WHERE id=?1",
+                            [&source],
+                            |r| r.get::<_, String>(0)
+                        )
+                        .unwrap(),
+                    "settled"
+                );
+            }
+        }
     }
 
     #[test]

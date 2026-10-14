@@ -4905,7 +4905,7 @@ fn settle_failed_agent_run_in_tx(
     }
     let native_turn_id: Option<String> = if terminal_resolution_source == Some("runtime_terminal") {
         transaction.query_row(
-            "SELECT native_input_id FROM runtime_input_delivery WHERE agent_run_id=?1 AND execution_epoch=?2 AND status='accepted'",
+            "SELECT native_input_id FROM runtime_input_delivery WHERE agent_run_id=?1 AND execution_epoch=?2 AND input_kind='start' AND status='accepted'",
             params![target.agent_run_id, failure.execution_epoch], |row| row.get(0),
         ).optional()?.flatten()
     } else {
@@ -6831,7 +6831,7 @@ fn network_recovery_input_is_safe(
             r#"
             SELECT status, dispatch_started_at
             FROM runtime_input_delivery
-            WHERE agent_run_id = ?1 AND execution_epoch = ?2
+            WHERE agent_run_id = ?1 AND execution_epoch = ?2 AND input_kind='start'
             "#,
             params![run_id, execution_epoch],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),

@@ -67,6 +67,8 @@ fn message(camp: &str, ids: &[&str], broadcast: bool) -> SendUserThreadMessageCo
         text: " 请检查这个实现".into(),
     });
     SendUserThreadMessageCommand {
+        delivery_mode: Default::default(),
+        steer_targets: None,
         camp_id: camp.into(),
         content: composer_document_from_content(&content).unwrap(),
         source_attachments: vec![],

@@ -630,6 +630,9 @@ fn load_run_fence(
               AND camp.id = ?3
               AND camp.deletion_operation_id IS NULL
               AND manifest.history_fence_version = 1
+              AND (manifest.source_delivery_id IS NULL OR EXISTS(SELECT 1 FROM runtime_input_delivery i WHERE i.context_manifest_id=manifest.id AND i.status='accepted'))
+            ORDER BY manifest.global_public_message_boundary DESC, manifest.created_at DESC, manifest.id DESC
+            LIMIT 1
             "#,
             params![
                 run.agent_run_id,

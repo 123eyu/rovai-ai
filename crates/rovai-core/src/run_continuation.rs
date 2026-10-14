@@ -110,7 +110,7 @@ pub(crate) fn has_unresolved_native_turn(
                  'runtime_session_unavailable','runtime_session_incompatible','runtime_stream_incompatible',
                  'runtime_failed_after_input_accepted','runtime_missing_final_result','runtime_missing_final_output')
                AND recovered.terminal_resolution_source='runtime_terminal'
-               AND accepted.status='accepted' AND accepted.native_binding_id=current.native_binding_id
+               AND accepted.status='accepted' AND accepted.input_kind='start' AND accepted.native_binding_id=current.native_binding_id
                AND accepted.native_binding_generation=current.native_binding_generation
                AND accepted.native_input_id=json_extract(completed.payload_json,'$.nativeTurnId')
            ))",

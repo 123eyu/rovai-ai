@@ -13,6 +13,8 @@ import { admitElectronIntegrationTest } from './electron-sandbox-capability.mjs'
 const root = resolve(import.meta.dirname, '../..')
 const fixtureSource = join(root, 'scripts/fixtures/camp-open-projection')
 
+test('Steer uses per-recipient routes, attachment-only send and silent execution completion', { timeout: 90_000 }, t => runFixture(t, '--steer'))
+
 test('business-only CampOpen keeps cards, earlier pages and reading position across refresh', { timeout: 60_000 }, t => runFixture(t))
 test('return to latest is local to the viewport and never toggles failed Run rows', { timeout: 60_000 }, t => runFixture(t, '--return-latest'))
 test('execution text loads sparse history and complete Blob bodies in place with retry', { timeout: 60_000 }, t => runFixture(t, '--text-evidence'))

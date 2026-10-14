@@ -1272,7 +1272,7 @@ fn persist_session_context(
         SELECT c.id, d.native_binding_id, d.native_binding_generation,
                NULLIF(ar.runtime_observed_model_id, ''), ar.runtime_host_config_digest, ar.runtime_model_selection_json
         FROM agent_run ar
-        JOIN runtime_input_delivery d ON d.agent_run_id=ar.id AND d.execution_epoch=ar.execution_epoch
+        JOIN runtime_input_delivery d ON d.agent_run_id=ar.id AND d.execution_epoch=ar.execution_epoch AND d.input_kind='start'
         JOIN conversation c ON c.id=ar.conversation_id
         WHERE ar.id=?1 AND ar.execution_epoch=?2 AND c.native_session_id=?3
           AND c.native_binding_id=d.native_binding_id
@@ -4406,9 +4406,10 @@ mod tests {
             );
             INSERT INTO conversation VALUES ('conversation', 'session-a', 'binding-a', 1);
             INSERT INTO agent_run VALUES ('run-a', 'conversation', 1, '2026-09-28T00:00:00Z', NULL, NULL);
-            INSERT INTO runtime_input_delivery VALUES ('run-a', 1, 'binding-a', 1, 'accepted');
+            INSERT INTO runtime_input_delivery(agent_run_id,execution_epoch,native_binding_id,native_binding_generation,status) VALUES ('run-a', 1, 'binding-a', 1, 'accepted');
             INSERT INTO agent_run VALUES ('run-b', 'conversation', 1, '2026-09-28T00:01:00Z', NULL, NULL);
-            INSERT INTO runtime_input_delivery VALUES ('run-b', 1, 'binding-b', 2, 'accepted');
+            INSERT INTO runtime_input_delivery(agent_run_id,execution_epoch,native_binding_id,native_binding_generation,status) VALUES ('run-b', 1, 'binding-b', 2, 'accepted');
+            ALTER TABLE runtime_input_delivery ADD COLUMN input_kind TEXT NOT NULL DEFAULT 'start';
             ALTER TABLE agent_run ADD COLUMN runtime_model_selection_json TEXT DEFAULT '{}';
         "#).unwrap();
         let run = |id: &str| RuntimeUsageRun {
@@ -4648,7 +4649,7 @@ mod tests {
         actual.fields.native_context_ratio = None;
         actual.occurred_at = Some("2026-09-28T00:04:06Z".into());
         persist_session_context(&tx, &run("run-b"), &actual).unwrap();
-        tx.execute_batch("INSERT INTO agent_run VALUES ('run-c','conversation',1,'2026-09-28T00:05:00Z',NULL,'provider-config-b','{}'); INSERT INTO runtime_input_delivery VALUES ('run-c',1,'binding-b',2,'prepared');").unwrap();
+        tx.execute_batch("INSERT INTO agent_run VALUES ('run-c','conversation',1,'2026-09-28T00:05:00Z',NULL,'provider-config-b','{}'); INSERT INTO runtime_input_delivery(agent_run_id,execution_epoch,native_binding_id,native_binding_generation,status) VALUES ('run-c',1,'binding-b',2,'prepared');").unwrap();
         actual.context_model_id = None;
         actual.fields.context_used_tokens = Some(200);
         actual.fields.context_size_tokens = None;
@@ -4665,7 +4666,7 @@ mod tests {
             "old owner cannot overwrite a current unaccepted Run"
         );
         actual.occurred_at = Some("2026-09-28T00:06:01Z".into());
-        tx.execute_batch(r#"INSERT INTO agent_run VALUES ('run-d','conversation',1,'2026-09-28T00:06:00Z',NULL,'provider-config-b','{"options":{"contextWindow":4000}}'); INSERT INTO runtime_input_delivery VALUES ('run-d',1,'binding-b',2,'prepared');"#).unwrap();
+        tx.execute_batch(r#"INSERT INTO agent_run VALUES ('run-d','conversation',1,'2026-09-28T00:06:00Z',NULL,'provider-config-b','{"options":{"contextWindow":4000}}'); INSERT INTO runtime_input_delivery(agent_run_id,execution_epoch,native_binding_id,native_binding_generation,status) VALUES ('run-d',1,'binding-b',2,'prepared');"#).unwrap();
         persist_session_context(&tx, &run("run-d"), &actual).unwrap();
         assert_eq!(
             read_context().1,

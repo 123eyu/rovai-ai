@@ -202,6 +202,7 @@ mod tests {
         .unwrap()
         .commit(database.connection())
         .unwrap();
+        super::super::downgrade_run_bootstrap_for_test(database.connection());
         let connection = database.connection();
         connection.execute_batch("INSERT INTO camp(id,title,project_binding_kind,project_path,last_message_sequence,version,created_at,updated_at)
             VALUES('environment-upgrade','Keep history','directory','/tmp',1,1,datetime('now'),datetime('now'));

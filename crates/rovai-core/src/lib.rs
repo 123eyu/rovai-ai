@@ -118,6 +118,7 @@ mod runtime_thinking;
 pub mod single_chat;
 pub mod skill;
 pub mod skill_projection;
+pub mod steer;
 pub mod storage_layout;
 pub mod team_tool;
 pub mod team_tool_catalog;

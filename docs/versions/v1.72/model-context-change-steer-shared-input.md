@@ -3,17 +3,21 @@ document_type: model-context-change
 version: v1.72
 change_id: steer-shared-input
 revision: 3
-confirmation_status: pending
+confirmation_status: confirmed
+confirmed_revision: 3
+confirmed_by: User
+confirmed_at: 2026-10-14
+confirmation_message_id: 52de18ca-e5df-4c91-b2a7-ee998f8068b0
 authority: proposed-model-input-change-statement
-implementation_status: not_started
+implementation_status: implemented
 review_baseline: 41c8ca19238de8465c23ff0c030f5c7620dd2c02
 last_updated: 2026-10-14
 ---
 
 # 普通消息与 Steer 共用上下文：R3 前后对比报告
 
-这是一份**拟改报告，尚未实施**。每个项目都将变更前、变更后紧挨着放。
-“变更前”来自上述代码基线；“变更后”是本报告提出的完整规则，不能作为当前产品能力证明。
+这是一份**已确认并实施的 R3 方案**。每个项目都将变更前、变更后紧挨着放。
+“变更前”来自上述代码基线；前后对照保留确认时的规则，实际实现与验证见文末实施记录。
 
 核心变化是：**每次新的投递生成自己的动态上下文，普通消息和 Steer 使用同一套构建及格式化规则。**
 模型可见的结构保持现状；historyHint 只说哪些消息在当前输入中、是否还有额外消息，
@@ -613,7 +617,7 @@ Bootstrap 原文、模型与权限、原 Run 的启动输入、消息／附件�
 实际队伍、模型与 Judge 配置须在执行前写入冻结计划；不把未冻结的配置或未跑的 Case 记为通过。
 操作流程与命令见 [上下文改动 Gate](../../development/evaluation.md#上下文改动-gate)。
 
-### 本次实际验证
+### R3 确认前的方案验证（历史记录）
 
 本次仅核对当前代码、合同与这份报告；尚未修改产品实现，也没有运行候选模型或宣称 Steer 验收通过。
 
@@ -630,19 +634,21 @@ Bootstrap 原文、模型与权限、原 Run 的启动输入、消息／附件�
 以上 Node 命令是仓库 `docs:test`、`docs:check`、`docs:check:ci` 脚本的实际检查入口。
 R1 首次 pnpm 调用触发本地依赖自动准备，主动中止后改用这些入口完整重跑；中止的尝试不计通过。
 R3 继续使用这些入口核对修改后的报告。
-版本门禁会拒绝尚未确认的提案，这是本报告当前的真实状态；没有伪造确认字段或修改检查器。
+以上是确认前的历史结果；User 后续确认及当前门禁结果见下文，没有修改检查器。
 
 ## 二次确认
 
-R3 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共用上下文方向，
+User 在消息 `52de18ca-e5df-4c91-b2a7-ee998f8068b0` 明确要求“那你开始执行吧”，
+并要求最终交付不同智能体的实际测试结果。本消息确认此前提交的 R3，实施沿用 revision 3。
+消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共用上下文方向，
 消息 `dbdbfde2-2ac9-4826-ad07-91a94b5adcf0` 要求这份紧邻前后对照报告；
 消息 `b1262396-a0a4-4b20-821f-5119035b6da9` 质疑第 4、5 节修改的必要性，R2 据此收缩。
 消息 `232a40b6-c144-427a-bdcf-ffdb16cbdb8e` 要求提示词简洁有效并全面复查，R3 据此收缩文字、修正实施漏项。
-这些讨论不等同于已授权实施本 R3，故不填写虚假的确认人、时间或 `confirmed_revision`。
+上述讨论形成 R3；本次实施授权已在 Front Matter 记录。
 
 仓库[核心上下文变更治理](../../development/model-context-change-governance.md#二次确认门槛)规定：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
-本次完成报告；实施前按该规则记录对本 revision 的明确确认。若文案或语义修改，递增 revision。
+本次确认已满足该门槛。若模型可见文案或语义超出 R3，递增 revision 并重新依规则审阅。
 
 ## 代码定位
 
@@ -660,3 +666,21 @@ R3 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共�
 | 输入查找与 ACK 标记 | `crates/rovai-core/src/context.rs`：`prepare_input_delivery_inner`、`load_delivery`、`acknowledge_input_delivery_transaction` |
 | Run 收尾批量结算 | `crates/rovai-core/src/delivery_queue.rs`：`settle_run_deliveries` |
 
+
+## R3 实施记录（2026-10-14）
+
+User seq18 授权后在 `rovai/mission/064` 实施。新 public Manifest／Formatter 37、Profile 14、
+Run Facts 10，Migration 199 / schema 149；旧输入及非 batch 保持原版本恢复。
+
+共用动态构建、普通来源消息投影与 Formatter；Steer 每次选择自身 Delivery，冻结后只恢复同一输入。
+执行配置与 Bootstrap 沿用当前执行；本次动态名单、Tasks、Mission、Additional Skills 正常构建。
+四种 historyHint 与 R3 确认稿一致，Additional Skills 原文保持，没有新加模型可见字段、Steer 指导或标签。
+
+本次接入 Codex；多队员按各自能力及活跃状态投递，支持附件及纯附件。
+未知结果不重发，核对仅接受原 turn 中的正向证据；正常结束安静回普通投递，取消／失败不另起执行。
+细则由 [Send v27](../../contracts/camp-message-send-v27.md)、[Delivery v13](../../contracts/message-delivery-v13.md)、
+[Manifest v37](../../contracts/context-manifest-evidence-v37.md) 和 [Profile v14](../../contracts/context-delivery-profile-v14.md)拥有。
+
+逐 Runtime 真实结果、产品验收与失败记录见[实测报告](../../research/runtime-monitoring/steer-2026-10-14.md)，
+机器可读证据见[验收索引](steer-verification.json)，复现命令见[实施计划](implementation-plan.md#用户-steer2026-10-14)。
+完整 12 Case 语义 Gate 因缺固定 Judge 配置未执行，记证据不足；不把原生插话单例或确定性测试等同语义 Gate 通过。

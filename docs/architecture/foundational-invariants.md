@@ -371,6 +371,8 @@ last_updated: 2026-10-13
 
 ### ContextManifest 与结构化 Run Facts
 
+- 普通消息和 Steer 使用共同动态上下文；本次来源决定全部消息资源。启动与后续输入分别冻结，ACK 精确关联输入，迟到证据不覆盖新标记。当前规则见 [Manifest 37](../contracts/context-manifest-evidence-v37.md) 与 [Profile 14](../contracts/context-delivery-profile-v14.md)。
+
 - ContextManifest 保存实际输入及必要来源、遗漏与水位；Runtime Input Delivery 记录真实接收，Native Session/Run 保存执行状态。新快照不再重复保存生成材料或其独立摘要，旧输入直接复用最终 Blob；不把历史版本组合用于再次证明已冻结输入。规则见[输入快照存储](../contracts/input-snapshot-storage-v1.md)。
 - Manifest 对新 public Run 冻结完整有序 AgentRunInput、最后一条 anchor、执行配置、Skill Selection/Resolution v2、最终输入中的 `ROVAI_ADDITIONAL_SKILLS` 文本、visibility fence、claim 时前次有效接受边界及额外可见消息判断对应的 RUN_FACTS/historyHint 与 实际输入字节；历史专属 refs/evidence 为空。输入附件只使用各消息 `RUN_INPUT.messages[].attachments`。旧 Manifest 原字节留作审计；v30/10/7、v29/9/7 和非 batch v26/6/5 保留已有序列化入口；已物化输入不因生成版本组合失配而拒绝。
 - 模型投影可以 compact，但不得丢失、重命名或自由文本化 authoritative fact。稳定产品规则留在 Session Charter，per-Run 事实只出现一次；实际格式变化由原序列化 owner 管理；不为中间材料另建兼容版本。

@@ -3819,7 +3819,7 @@ export function BusinessApp({
   }
 
   const sendThreadMessage = async (
-    draft: ThreadComposerDraftView
+    draft: ThreadComposerDraftView, deliveryMode: 'start' | 'steer' = 'start', steerTargets: Array<{agentRunId: string; executionEpoch: number}> = []
   ): Promise<ThreadMessageSendReceipt | void> => {
     const hasReadyAttachment = draft.attachments.length > 0
     const hasSendablePayload = composerHasSendablePayload(draft.body, hasReadyAttachment)
@@ -3842,7 +3842,7 @@ export function BusinessApp({
     try {
       const result = await client.request<SendThreadMessageResult>(
         'thread.messages.send',
-        campMessageSendParams(commandId, threadId, draft)
+        { ...campMessageSendParams(commandId, threadId, draft), deliveryMode, steerTargets }
       )
       if (!result.commandResult) {
         throw new Error(uiAttribute('消息提交结果暂时不可用，请稍后重试。'))
@@ -4410,6 +4410,11 @@ export function BusinessApp({
             liveRuntimeEvents={liveRuntimeEvents}
             busy={busy === 'camp-message' || busy === 'change-default-lead' || busy === 'camp-membership' || busy?.startsWith('action-approval-') === true}
             onSend={sendThreadMessage}
+            onReconcileDelivery={async deliveryId => {
+              const result = await client.request<{ status: string }>('runtimeInputs.reconcile', { deliveryId })
+              await refreshActiveThreadSnapshot(activeThreadId!)
+              return result.status
+            }}
             onWithdrawMessage={withdrawThreadMessage}
             onPendingDraftPersisted={refreshPendingThreadNavigation}
             onPendingThreadLeave={settlePendingThreadOnLeave}

@@ -914,3 +914,22 @@ User 已确认同组件交互稿，并在移除多余的失效接收者提示后
 拒绝领取后退回队列或拆分冻结 Run，以免改变 accepted／unknown 防重和责任归属。固定预留
 128 KiB 虽修改小，却会拒绝本能装下的单条输入。选择每 Run 一份必要快照，代价是把公开 Run
 的身份／索引刷新截止点前移至 claim；不增加重试协调器、第二条队列或证明摘要体系。
+
+<a id="v1-72-d42"></a>
+## V1.72-D42：Steer 复用消息、上下文与投递证据
+
+- 状态：accepted
+- 日期：2026-10-14
+- 当前权威：[公开投递架构](../../architecture/public-a2a-message-delivery.md#用户运行中插话)、[Manifest 37](../../contracts/context-manifest-evidence-v37.md)、[Delivery v13](../../contracts/message-delivery-v13.md)
+
+### 背景与选择
+
+用户要求插话尽量像普通消息，支持多队员与附件，不为模型新增 Steer 指导或快照解释。
+采用普通 CampMessage、逐接收者 Delivery 和共同 Builder／Formatter；扩展已有 Manifest 与 Runtime
+Input Delivery 的关联以保留每次实际输入及回执。开始执行和注入的差别封装在 Runtime 投递层。
+
+### 后果与替代方案
+
+没有采用独立 RunSupplement、平行消息存储或 Steer 专用上下文。多输入关联有迁移成本，但不可用
+覆写启动快照替代，否则无法恢复原输入、关联晚到回执或防止重复发送。原生实验成功的 Adapter 仍须
+满足目标绑定和结束竞态后才开放；未准入队员正常排队，不限制整条多目标消息。

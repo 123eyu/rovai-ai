@@ -8,8 +8,8 @@ last_updated: 2026-10-08
 
 # Public Camp Message、Delivery 与 AgentRun
 
-本架构定义公开 Camp 的统一消息执行主链。字段合同见 [Camp Message Send v25](../contracts/camp-message-send-v25.md)、
-[Message Delivery v11](../contracts/message-delivery-v11.md)、[ContextManifest 36](../contracts/context-manifest-evidence-v36.md)
+本架构定义公开 Camp 的统一消息执行主链。字段合同见 [Camp Message Send v27](../contracts/camp-message-send-v27.md)、
+[Message Delivery v13](../contracts/message-delivery-v13.md)、[ContextManifest 37](../contracts/context-manifest-evidence-v37.md)
 与 [Camp History v11](../contracts/camp-history-v11.md)。Single Chat 不使用本主链。
 
 ## 三类事实
@@ -150,3 +150,14 @@ PublicOnly 只抑制 Agent 路由，仍允许用户提及；通知沿用当前�
 SQLite claim 事务只复核准备结果的 workspace ID、generation、preparation token、目录和当前
 成员／Delivery 准入。结果过期则保留 waiting 并重新发现，不使用源 checkout 猜测输入。
 历史 queued Run 保持执行准备边界；Mission cleanup 与删除继续使用既有 workspace lifecycle gate。
+
+## 用户运行中插话
+
+User 的发送操作可以选择 Steer，正文仍只有普通 CampMessage，责任仍由逐队员 Delivery 拥有。
+Core 在发布时捕获可用的目标 Run／epoch，Scheduler 复用既有 worker；只在 Runtime 层选择 start
+或向该活跃 turn 注入。多目标分别处理，普通 waiting 队列不被抽走；支持附件、引用与 Skill。
+
+共同 DynamicInputContext Builder 和 Formatter 只读本次来源，新输入读取最新动态事实；启动内容、
+执行配置、Bootstrap 和已物化输入保持冻结。Manifest 可以一 Run 多条，ACK、恢复和历史 fence 关联
+精确 Manifest。正常结束时可证明未提交的来源回普通队列；未知不重放，取消不自动启动后继。
+当前只有 Codex Adapter 开放，其他 Runtime 的原生实验不构成产品准入。

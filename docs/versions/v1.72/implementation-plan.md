@@ -2250,3 +2250,26 @@ User 在当前 Thread 确认交互稿后，明确要求去掉失效接收者的�
 - 工作区 Rust 471 项通过，1 项人工 Runtime smoke 跳过；文档三项治理通过。
 - 合成夹具原快照 2 行／目录正文 143 字节，新 Run 为 0 行／0 字节，只保留一个模式字段；旧 2 行保持。
   此项每个新 Run 省去整份目录，不改变旧数据库的现有占用。
+
+评审定点修正（User 28）：目录当前摘要与后台初始化
+
+- 同一未发布 migration 201 增加 Camp 的消息时间／ID 和初始化标志，公开发布及可见性维护在原事务中完成。
+  新 Camp 已确认无消息；旧 Camp 未初始化时走会话内有序索引回退。既有 housekeeping 每秒最多 32 个 Camp，
+  会话间检查 10 ms 预算；完成后停止。目录不再全局聚合发布事件，正文边界及旧目录读取不变。
+- 扩展原冻结／实时目录 owner（无新增 Rust 测试函数），在完整表结构与生产 WAL/NORMAL 配置、应用 bundled
+  SQLite 3.53.2 上构造 601 个会话／120,000 条消息。目录每种状态 7 次、发布与撤回各 12 次，小样本仅报告范围。
+  修改前读取 423.20–458.62 ms，全部未初始化回退 2.12–4.07 ms，初始化完成后 0.40–0.78 ms；不据此承诺稳定倍数。
+- 升级含建索引 208.49 ms；601 个旧会话共 19 批，批耗时 1.19–2.14 ms，合计 30.31 ms（不含调度间隔）。
+  发布语句含现有导航触发器为 1.29–1.84 ms，最新消息撤回语句 0.085–0.160 ms；这是事务内语句成本，
+  不包含完整业务请求及提交。初始化不在 App 启动事务内汇总正文。
+- 完成后的 SQL 只使用 camp_history_directory_idx；回退／重算只按 camp_message_history_activity_idx 定位本会话，
+  用 event_log_entity_sequence_idx 判断发布。目录／摘要不选择 message.body、structured_content_json、event payload
+  或 Blob。报告保留 EXPLAIN QUERY PLAN、Column/OpenRead/临时表等 VM 指令及对应 schema root，避免以应用计数代替 SQL 证据。
+- 覆盖初始化期间排序一致、空与未知区分、发布／撤回事务回滚、旧消息撤回及 recall 关闭不触发摘要更新、删除最后
+  发布事件／消息回退。既有 owner 继续覆盖新模式目录零新增、改名、正文边界及旧格式升级收尾。
+
+原始样本及查询计划：[实时目录定向比较](live-directory-query-comparison.json)。这些数字只描述合成工作负载，
+不代表日常实例耗时，也不声称现有存量自动缩小。
+
+该修正的目标基线为 #750 `7c47ab128`：`cargo test --workspace` 471 通过／1 项人工 Runtime smoke 跳过，
+`context::slow_tests` 44 项通过，另行运行含大历史测量的目录 owner 1 项通过；三项文档治理通过。

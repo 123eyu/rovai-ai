@@ -4,6 +4,8 @@ use super::*;
 pub(super) fn schema_matches(connection: &Connection) -> rusqlite::Result<bool> {
     connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('context_manifest')
         WHERE name='live_history_directory' AND type='INTEGER')
+        AND (SELECT count(*) FROM pragma_table_info('camp') WHERE name IN ('history_activity_at','history_activity_message_id','history_activity_initialized'))=3
+        AND (SELECT count(*) FROM sqlite_master WHERE name IN ('camp_history_uninitialized_idx','camp_history_directory_idx','camp_message_history_activity_idx','camp_history_new','camp_history_publication','camp_history_sequence','camp_history_visibility','camp_history_message_delete','camp_history_publication_delete'))=9
         AND (SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name IN (
             'context_directory_mode_insert','context_directory_mode_immutable','context_live_directory_no_snapshot'))=3",
         [], |row| row.get(0))
@@ -32,6 +34,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             BEGIN SELECT RAISE(ABORT, 'live history directory cannot persist a snapshot'); END;
         INSERT INTO schema_migration VALUES(201,datetime('now'));
         UPDATE rovai_data_contract SET projection_schema_version=151,updated_at=datetime('now') WHERE singleton=1;")?;
+    tx.execute_batch(include_str!("db_live_history_activity.sql"))?;
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
@@ -50,7 +53,19 @@ pub(super) fn downgrade_for_test(connection: &Connection) {
     }
     connection
         .execute_batch(
-            "DROP TRIGGER context_live_directory_no_snapshot;
+            "DROP TRIGGER camp_history_new;
+        DROP TRIGGER camp_history_publication;
+        DROP TRIGGER camp_history_sequence;
+        DROP TRIGGER camp_history_visibility;
+        DROP TRIGGER camp_history_message_delete;
+        DROP TRIGGER camp_history_publication_delete;
+        DROP INDEX camp_history_uninitialized_idx;
+        DROP INDEX camp_history_directory_idx;
+        DROP INDEX camp_message_history_activity_idx;
+        ALTER TABLE camp DROP COLUMN history_activity_at;
+        ALTER TABLE camp DROP COLUMN history_activity_message_id;
+        ALTER TABLE camp DROP COLUMN history_activity_initialized;
+        DROP TRIGGER context_live_directory_no_snapshot;
         DROP TRIGGER context_directory_mode_immutable;
         DROP TRIGGER context_directory_mode_insert;
         ALTER TABLE context_manifest DROP COLUMN live_history_directory;
@@ -110,6 +125,7 @@ pub(super) fn assert_legacy_upgrade(database: &mut Database) {
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap(),
         before
     );
+    probe::verify_large_directory();
     let reopened =
         Connection::open_with_flags(&database.path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     assert_eq!(snapshot(&reopened), old_directory);
@@ -124,3 +140,7 @@ pub(super) fn assert_legacy_upgrade(database: &mut Database) {
         0
     );
 }
+
+#[cfg(all(test, feature = "slow-tests"))]
+#[path = "db_live_directory_probe.rs"]
+mod probe;

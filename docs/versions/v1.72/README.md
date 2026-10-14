@@ -11,6 +11,12 @@ last_updated: 2026-10-13
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 待审阅：普通消息与 Steer 共用上下文（2026-10-14）
+
+[R1 前后对比报告](model-context-change-steer-shared-input.md)按每个区段紧邻列出当前内容与拟改内容，
+覆盖共同 Builder／Formatter、逐次投递的 RUN_INPUT、historyHint 和 Additional Skills 时点文案，
+并说明冻结恢复、多队员、附件与版本边界。当前仅完成报告，尚未确认实施或修改产品上下文。
+
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 
 按 User 确认的 [R1](model-context-change-bootstrap-claim-budget.md)，以本 Run 快照统一 FIFO 选批与实际组包，

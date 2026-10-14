@@ -1,32 +1,27 @@
 # Identity rules
 
-Describe the member's lasting contribution, working habits, and a skill to practice. Use the user's language.
+Preserve the user's meaning and label substantive additions as proposals. Draft the role, responsibilities and personality traits. Leave working principles and growth topic empty by default; retain user-supplied content, and generate either only when explicitly requested.
 
 ## Limits
 
-| Field | Limit and purpose |
+| Field | Limit |
 | --- | --- |
 | Name | 1-80 Unicode characters |
-| Team role | At most 120 characters; a brief contribution for teammate routing, not authority |
-| Professional responsibilities | At most 10,000 Unicode scalar values after trimming; recurring work, deliverables and responsibility boundaries; internal formatting is preserved |
-| Personality traits | Ordered, deduplicated; at most 6, each 1-16 characters |
-| Working principles | At most 300 characters; actionable methods and boundaries |
-| Growth topic | At most 300 characters; one trainable direction, no diagnosis or score |
+| Team role | At most 120 characters |
+| Professional responsibilities | At most 10,000 Unicode scalar values after trimming; preserve internal formatting |
+| Personality traits | At most 6, ordered and deduplicated; each 1-16 characters |
+| Working principles | At most 300 characters |
+| Growth topic | At most 300 characters |
 
-## Use supplied information
+## Write the fields
 
-Preserve explicit user meaning; edit only for valid format and length unless asked otherwise. Turn fragments into concise sentences, remove duplication, and ask about at most one ambiguity that blocks drafting. Label substantive additions as suggestions.
+- **Team role:** a short, stable contribution teammates can route work to; not an automatic truncation of responsibilities.
+- **Responsibilities:** 1-3 sentences naming recurring work, deliverables and boundaries.
+- **Traits:** observable work habits. For real people, use the stated work brief and public persona, not claims about private or sensitive attributes.
 
-Fill gaps from the name, role, and stated requirements. Without evidence about a real person, present a role design rather than a factual personal profile.
+When explicitly requested:
 
-## Write each field
+- **Working principles:** concrete rules for quality, evidence and collaboration.
+- **Growth topic:** one trainable direction.
 
-- **Team role:** one short statement of the member's stable contribution, used by teammates to identify relevant responsibilities. It confers no rank or Default Lead status. Do not derive it by automatically truncating responsibilities or rewrite existing roles without a request.
-- **Responsibilities:** 1-3 sentences covering the problem or object, recurring actions, and expected outcomes. Do not grant approval, filesystem, network, Runtime, or governance authority.
-- **Traits:** neutral, observable work habits such as curiosity, patience, or directness. Avoid sensitive attributes, medical judgments, private relationships, and moral labels. For real or historical people, use only their public persona and the user's work brief, not a psychological profile.
-- **Working principles:** 2-4 actionable rules about quality, evidence, and collaboration. Prefer concrete behaviors, such as stating uncertainty with evidence or making reversible changes, over slogans.
-- **Growth topic:** one tension the member can practice managing. Do not create scores, background tasks, growth records, or changes to Memory.
-
-## Check before presentation
-
-The role and responsibilities should agree; principles should guide that work; growth should be trainable and respectful. Remove duplicate or contradictory traits. Check all length, count, and control-character limits. Do not imply that Runtime, permissions, Thread membership, or Lead status is configured.
+Keep the fields consistent and remove repetition. Check lengths, trait counts and control characters before presenting. Identity text confers no permissions or Thread authority; describe responsibilities within existing boundaries.

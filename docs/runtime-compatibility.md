@@ -6,16 +6,24 @@ last_updated: 2026-10-14
 
 # Agent Runtime 兼容性清单
 
-## 2026-10-14 用户 Steer：按当前接入通道核验
+## 2026-10-14 用户 Steer：当前通道与 Kiro / ZCode 产品接入
 
-按 User seq28 重做的[完整清单](research/runtime-monitoring/steer-current-transport-2026-10-14.md)覆盖十五种 Runtime，
-排除 Cursor、Cline、Command Code；仅按 Rovai 当前通道判断，全部重新调用真实 LLM。
-当前分支已接入 Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build，六种均复测通过。
-Kiro 现有 v2 ACP 的 `_session/steer`、ZCode 现有官方内核的 guide 也同轮通过，产品适配尚未补接。
-Kimi、OpenCode、DeepSeek Harness、TRAE 当前 ACP 拒绝并发 Prompt；Copilot ACP 取消替换，
-Qoder ACP 与 Antigravity Stream JSON 排到下一轮。结论限定于清单中实测版本，不以其他 SDK/HTTP 能力代替当前通道。
-真实产品场景及既有失败见[五种扩展验收](research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)与其引用的 Codex 验收。
-此前[跨通道补测](research/runtime-monitoring/steer-complete-2026-10-14.md)保留为历史证据；本轮未改生产代码或安装日常 App。
+User seq30 后，产品支持增加到八种：Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、
+Kiro CLI、ZCode。后两种的同 Run 文本与纯附件插话、普通队列分离、多队员路由及取消使用真实 Core/LLM 验证。
+[最新完整清单](research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)记录逐次通过、失败、版本依据与边界，
+不把协议回执当作模型行为验收，也不以其他 SDK/HTTP 能力代替当前通道。
+
+Qoder 当前 1.1.65 和隔离下载的 1.1.71 ACP 均实测排到下一轮；Antigravity 1.3.5 Stream JSON
+追加 user 也是下一轮，steer 事件被忽略、control_request 明确不支持。Copilot 当前 ACP 是取消替换。
+Kimi 2.1.1、OpenCode 2.0.25、DeepSeek Harness 0.2.1-alpha.1 的当前 ACP 没有已验证的专用插话入口；
+官方 OpenCode v2.0.29、DeepSeek Harness 0.2.1-alpha.3 代码仍拒绝重叠 prompt。
+TRAE CN 旧版 0.120.52 不提供相关扩展；新 0.209.1 握手声明 steering，但企业认证阻断真实生成，
+不能算作 Rovai 已支持，也不能把 0.209.1 宣称为首个支持版本。
+
+[seq28 全通道复测](research/runtime-monitoring/steer-current-transport-2026-10-14.md)与
+[五种扩展验收](research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)保留此前证据；
+[跨通道补测](research/runtime-monitoring/steer-complete-2026-10-14.md)仅作历史参考。
+本次无模型上下文、Schema 或 UI 改动；没有安装或重启日常 App。
 
 ## 2026-10-10 关闭原生自动记忆
 

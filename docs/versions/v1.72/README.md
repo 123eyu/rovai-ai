@@ -30,6 +30,10 @@ User seq28 随后要求仅按 Rovai 实际接入通道重新核验，结论以[�
 十五种均重新使用真实 LLM，六种已接入者复测通过；Kiro ACP `_session/steer` 和 ZCode 官方内核 guide
 在现有通道同轮通过、待产品适配。Kimi REST、Copilot SDK、OpenCode HTTP 不纳入当前支持数量。
 
+User seq30 随后要求接入 Kiro 与 ZCode，二者已完成 Runtime 投递与真实 Core 验证，产品 Steer 扩展为八种。
+[新完整清单](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)给出忙碌拒绝项的版本核查、
+Qoder 当前/最新版本及 Antigravity 的实际结果、失败尝试与认证边界；不变更模型上下文、Schema 或 UI。
+
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 
 按 User 确认的 [R1](model-context-change-bootstrap-claim-budget.md)，以本 Run 快照统一 FIFO 选批与实际组包，

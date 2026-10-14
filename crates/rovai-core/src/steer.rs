@@ -22,7 +22,14 @@ pub struct ActiveInputTarget {
 pub fn supports_active_input(adapter: &str) -> bool {
     matches!(
         adapter,
-        "codex-cli" | "claude-code-cli" | "pi" | "codebuddy-cli" | "qwen-code" | "grok-build"
+        "codex-cli"
+            | "claude-code-cli"
+            | "pi"
+            | "codebuddy-cli"
+            | "qwen-code"
+            | "grok-build"
+            | "kiro-cli"
+            | "zcode-app"
     )
 }
 

@@ -1370,12 +1370,17 @@ struct ZcodeBackgroundRoute {
     finished: bool,
 }
 
-struct QwenSteeringInput {
+struct QueuedSteeringInput {
     owner: AcpRuntimeOwner,
     session_id: String,
     prompt_id: String,
     text: String,
     receipt: oneshot::Sender<Result<String>>,
+}
+
+struct KiroSteeringInput {
+    source: QueuedSteeringInput,
+    native_id: Option<String>,
 }
 
 pub(crate) struct AcpHost {
@@ -1393,7 +1398,8 @@ pub(crate) struct AcpHost {
     next_compaction_observation_sequence: AtomicU64,
     grok_acceptance_auto_compact_armed: AtomicBool,
     retire_after_steer: AtomicBool,
-    qwen_steering: Mutex<HashMap<String, QwenSteeringInput>>,
+    qwen_steering: Mutex<HashMap<String, QueuedSteeringInput>>,
+    kiro_steering: Mutex<HashMap<String, KiroSteeringInput>>,
     routes: RwLock<HashMap<String, AcpSessionRoute>>,
     late_context_owners: RwLock<HashMap<String, (AcpRuntimeOwner, Instant)>>,
     ingress_fence: Mutex<()>,
@@ -1778,6 +1784,7 @@ impl AcpHost {
             grok_acceptance_auto_compact_armed: AtomicBool::new(false),
             retire_after_steer: AtomicBool::new(false),
             qwen_steering: Mutex::new(HashMap::new()),
+            kiro_steering: Mutex::new(HashMap::new()),
             routes: RwLock::new(HashMap::new()),
             late_context_owners: RwLock::new(HashMap::new()),
             ingress_fence: Mutex::new(()),
@@ -2046,6 +2053,12 @@ impl AcpHost {
                             message = projected;
                         }
                         let method = message.get("method").and_then(Value::as_str);
+                        if host.adapter_kind == AdapterKind::KiroCli
+                            && method == Some("_kiro.dev/session/update")
+                            && host.observe_kiro_steering(&message).await
+                        {
+                            continue;
+                        }
                         if host.adapter_kind == AdapterKind::QwenCode
                             && method == Some("craft/drainMidTurnQueue")
                             && message.get("id").is_some()
@@ -2345,7 +2358,54 @@ impl AcpHost {
         });
     }
 
+    // A queued response is not consumption. Correlate Kiro's queue identity and
+    // exact payload before accepting its injected notification under this owner.
+    async fn observe_kiro_steering(&self, message: &Value) -> bool {
+        let update = &message["params"]["update"];
+        let kind = update["sessionUpdate"].as_str();
+        if !matches!(
+            kind,
+            Some("AgentExecutionUserMessageQueued" | "AgentExecutionSteeringInjected")
+        ) {
+            return false;
+        }
+        let (Some(session), Some(native_id), Some(text)) = (
+            message["params"]["sessionId"].as_str(),
+            update["messageId"].as_str().filter(|id| !id.is_empty()),
+            update["content"].as_str(),
+        ) else {
+            return true;
+        };
+        let routes = self.routes.read().await;
+        let mut pending = self.kiro_steering.lock().await;
+        let matched = pending.iter().find(|(_, input)| {
+            let source = &input.source;
+            // Kiro 2.21.1 trims the notification content. Keep the submitted
+            // Builder bytes intact; normalize only this receipt comparison.
+            source.session_id == session && source.text.trim() == text
+                && routes.get(session).is_some_and(|route| route.owner == source.owner
+                    && !route.client_terminal_create_cancelled
+                    && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == source.prompt_id))
+                && if kind == Some("AgentExecutionSteeringInjected") {
+                    input.native_id.as_deref() == Some(native_id)
+                } else { input.native_id.is_none() }
+        }).map(|(id, _)| id.clone());
+        if let Some(id) = matched {
+            if kind == Some("AgentExecutionUserMessageQueued") {
+                pending.get_mut(&id).unwrap().native_id = Some(native_id.to_string());
+            } else if let Some(input) = pending.remove(&id) {
+                let _ = input.source.receipt.send(Ok(native_id.to_string()));
+            }
+        }
+        true
+    }
+
     async fn handle_exit(&self) {
+        for (_, input) in self.kiro_steering.lock().await.drain() {
+            let _ = input.source.receipt.send(Err(anyhow::anyhow!(
+                "Kiro exited before confirming steering injection"
+            )));
+        }
         for (_, input) in self.qwen_steering.lock().await.drain() {
             let _ = input
                 .receipt
@@ -2415,6 +2475,24 @@ impl AcpHost {
                 session_id,
                 prompt_id,
             } => {
+                let mut kiro = self.kiro_steering.lock().await;
+                let ids: Vec<_> = kiro
+                    .iter()
+                    .filter(|(_, input)| {
+                        input.source.owner == owner
+                            && input.source.session_id == session_id
+                            && input.source.prompt_id == prompt_id
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                for id in ids {
+                    if let Some(input) = kiro.remove(&id) {
+                        let _ = input.source.receipt.send(Err(anyhow::anyhow!(
+                            "Kiro target ended before confirming steering injection"
+                        )));
+                    }
+                }
+                drop(kiro);
                 // An undrained Qwen callback item has never crossed stdin.
                 let mut queued = self.qwen_steering.lock().await;
                 let ids: Vec<_> = queued
@@ -3138,7 +3216,10 @@ impl AcpHost {
                 // or tool activity counts; catalog/history/user echoes do not.
                 if matches!(
                     self.adapter_kind,
-                    AdapterKind::CodebuddyCli | AdapterKind::QwenCode | AdapterKind::GrokBuild
+                    AdapterKind::CodebuddyCli
+                        | AdapterKind::QwenCode
+                        | AdapterKind::GrokBuild
+                        | AdapterKind::KiroCli
                 ) && !active_prompt.acceptance_emitted
                     && (matches!(
                         message
@@ -5274,7 +5355,7 @@ impl AcpRuntime {
         if self.adapter_kind() == AdapterKind::QwenCode {
             self.host.qwen_steering.lock().await.insert(
                 input_id.to_string(),
-                QwenSteeringInput {
+                QueuedSteeringInput {
                     owner: self.owner.clone(),
                     session_id: session,
                     prompt_id: expected_prompt.to_string(),
@@ -5302,13 +5383,47 @@ impl AcpRuntime {
                 }
             };
         }
-        drop(sender);
+        let kiro = self.adapter_kind() == AdapterKind::KiroCli;
+        if kiro {
+            self.host.kiro_steering.lock().await.insert(
+                input_id.to_string(),
+                KiroSteeringInput {
+                    source: QueuedSteeringInput {
+                        owner: self.owner.clone(),
+                        session_id: session.clone(),
+                        prompt_id: expected_prompt.to_string(),
+                        text: text.to_string(),
+                        receipt: sender,
+                    },
+                    native_id: None,
+                },
+            );
+        } else {
+            drop(sender);
+        }
         let (method, params) = match self.adapter_kind() {
             AdapterKind::CodebuddyCli => (
                 "session/prompt",
                 json!({"sessionId":session,"prompt":[{"type":"text","text":text}]}),
             ),
             AdapterKind::GrokBuild => ("_x.ai/interject", json!({"sessionId":session,"text":text})),
+            AdapterKind::KiroCli => (
+                "_session/steer",
+                json!({"sessionId":session,"message":text}),
+            ),
+            AdapterKind::ZcodeApp => {
+                let original_input = routes
+                    .get(&session)
+                    .and_then(|route| match &route.phase {
+                        AcpSessionPhase::PromptActive(p) => p.zcode_input_id.as_deref(),
+                        _ => None,
+                    })
+                    .context("ZCode active input identity unavailable")?;
+                (
+                    "_zcode/steer",
+                    json!({"sessionId":session,"expectedInputId":original_input,"inputId":input_id,"text":text}),
+                )
+            }
             _ => return Err(rovai_core::steer::ActiveInputNotAccepted.into()),
         };
         let id = self.host.next_id.fetch_add(1, Ordering::Relaxed);
@@ -5334,10 +5449,54 @@ impl AcpRuntime {
         .context("ACP active input write timed out")??;
         drop(routes);
         drop(ingress);
-        let result = timeout(Duration::from_secs(45), response)
-            .await
-            .context("ACP active input response timed out")?
-            .context("ACP active input response disconnected")??;
+        let result = timeout(
+            Duration::from_secs(if self.adapter_kind() == AdapterKind::ZcodeApp {
+                600
+            } else {
+                45
+            }),
+            response,
+        )
+        .await
+        .context("ACP active input response timed out")?
+        .context("ACP active input response disconnected")?;
+        let result = match result {
+            Err(error)
+                if kiro
+                    && error
+                        .downcast_ref::<AcpRpcError>()
+                        .is_some_and(|e| e.code == Some(-32601)) =>
+            {
+                self.host.kiro_steering.lock().await.remove(input_id);
+                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+            }
+            Err(error)
+                if self.adapter_kind() == AdapterKind::ZcodeApp
+                    && error
+                        .downcast_ref::<AcpRpcError>()
+                        .is_some_and(|e| e.code == Some(-32015)) =>
+            {
+                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+            }
+            result => result?,
+        };
+        if kiro {
+            if result["queued"] != true {
+                self.host.kiro_steering.lock().await.remove(input_id);
+                bail!("Kiro did not confirm its steering queue");
+            }
+            let result = timeout(Duration::from_secs(600), receipt).await;
+            self.host.kiro_steering.lock().await.remove(input_id);
+            return result
+                .context("Kiro steering injection timed out")?
+                .context("Kiro steering receipt disconnected")?;
+        }
+        if self.adapter_kind() == AdapterKind::ZcodeApp {
+            if result["inputId"] != input_id || result["injected"] != true {
+                bail!("ZCode did not confirm steering consumption");
+            }
+            return Ok(input_id.to_string());
+        }
         let routes = self.host.routes.read().await;
         if !routes.get(&session).is_some_and(|route| route.owner == self.owner
             && !route.client_terminal_create_cancelled
@@ -5418,7 +5577,8 @@ impl AcpRuntime {
         // Native stop acknowledgement alone cannot prove that they exited. With
         // no retained background work, close this Host using the captured pidfds.
         // Hosts with older Session tasks keep the existing scoped cancellation.
-        !cfg!(target_os = "linux") || self.host.has_zcode_background_tasks()
+        !self.host.retire_after_steer.load(Ordering::Acquire)
+            && (!cfg!(target_os = "linux") || self.host.has_zcode_background_tasks())
     }
 
     pub async fn confirm_zcode_cancelled(&self) -> bool {
@@ -11724,8 +11884,12 @@ while IFS= read -r ignored; do :; done
             AdapterKind::CodebuddyCli,
             AdapterKind::GrokBuild,
             AdapterKind::QwenCode,
+            AdapterKind::KiroCli,
         ] {
-            for late in [false, true] {
+            for (late, unsupported) in [(false, false), (true, false), (false, true)] {
+                if unsupported && kind != AdapterKind::KiroCli {
+                    continue;
+                }
                 let root =
                     std::env::temp_dir().join(format!("rovai-acp-steer-{}", uuid::Uuid::new_v4()));
                 std::fs::create_dir_all(&root).unwrap();
@@ -11745,7 +11909,27 @@ printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{}}'"#
                 } else {
                     ""
                 };
-                let supplement = if kind == AdapterKind::QwenCode {
+                let supplement = if unsupported {
+                    format!(
+                        "printf '%s\\n' '{{\"id\":{supplement_request},\"error\":{{\"code\":-32601,\"message\":\"Method not found\"}}}}'\nIFS= read -r finish || exit 1\n{terminal}"
+                    )
+                } else if kind == AdapterKind::KiroCli {
+                    let queued = r#"printf '%s\n' '{"method":"_kiro.dev/session/update","params":{"sessionId":"session-steer","update":{"sessionUpdate":"AgentExecutionUserMessageQueued","messageId":"native-steer","content":"STEER"}}}'"#;
+                    let injected = queued.replace(
+                        "AgentExecutionUserMessageQueued",
+                        "AgentExecutionSteeringInjected",
+                    );
+                    let ack = format!(
+                        "printf '%s\\n' '{{\"id\":{supplement_request},\"result\":{{\"queued\":true}}}}'"
+                    );
+                    if late {
+                        format!("{ack}\n{queued}\n{terminal}\n{injected}")
+                    } else {
+                        format!(
+                            "{ack}\n{queued}\nIFS= read -r inject || exit 1\n{injected}\nIFS= read -r finish || exit 1\n{terminal}"
+                        )
+                    }
+                } else if kind == AdapterKind::QwenCode {
                     if late {
                         terminal.to_string()
                     } else {
@@ -11785,7 +11969,7 @@ while IFS= read -r ignored; do :; done
                 let mut frozen = frozen_trae_runtime(&executable);
                 frozen.adapter_kind = kind;
                 frozen.permissions = serde_json::from_value(json!({"adapterKind":kind.as_str(),"schemaVersion":1,
-                    "values": if kind == AdapterKind::QwenCode { json!({"approval_mode":"yolo"}) } else { json!({"permission_mode":"bypassPermissions"}) }})).unwrap();
+                    "values": if kind == AdapterKind::QwenCode { json!({"approval_mode":"yolo"}) } else if kind == AdapterKind::KiroCli { json!({"trust_all_tools":"on"}) } else { json!({"permission_mode":"bypassPermissions"}) }})).unwrap();
                 let workspace =
                     AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().into());
                 let (incoming, mut receiver) = mpsc::unbounded_channel();
@@ -11858,7 +12042,19 @@ while IFS= read -r ignored; do :; done
                 let future = tokio::spawn({
                     let runtime = runtime.clone();
                     let prompt = prompt.clone();
-                    async move { runtime.steer(&prompt, "source-input", "STEER").await }
+                    async move {
+                        runtime
+                            .steer(
+                                &prompt,
+                                "source-input",
+                                if kind == AdapterKind::KiroCli {
+                                    "\nSTEER\n"
+                                } else {
+                                    "STEER"
+                                },
+                            )
+                            .await
+                    }
                 });
                 if kind == AdapterKind::QwenCode {
                     timeout(Duration::from_secs(2), async {
@@ -11879,11 +12075,48 @@ while IFS= read -r ignored; do :; done
                     );
                     host.notify("fixture/boundary", json!({})).await.unwrap();
                 }
+                if kind == AdapterKind::KiroCli && !late && !unsupported {
+                    timeout(Duration::from_secs(2), async {
+                        while !host
+                            .kiro_steering
+                            .lock()
+                            .await
+                            .values()
+                            .any(|input| input.native_id.is_some())
+                        {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                    for (session, native, text) in [
+                        ("other", "native-steer", "STEER"),
+                        ("session-steer", "other", "STEER"),
+                        ("session-steer", "native-steer", "OTHER"),
+                    ] {
+                        host.observe_kiro_steering(&json!({"params":{"sessionId":session,"update":{
+                            "sessionUpdate":"AgentExecutionSteeringInjected","messageId":native,"content":text}}})).await;
+                    }
+                    assert!(
+                        !future.is_finished(),
+                        "queue ack and foreign notifications cannot accept a source"
+                    );
+                    assert_eq!(host.kiro_steering.lock().await.len(), 1);
+                    host.notify("fixture/inject", json!({})).await.unwrap();
+                }
                 let result = timeout(Duration::from_secs(5), future)
                     .await
                     .unwrap()
                     .unwrap();
-                if late {
+                if unsupported {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .is::<rovai_core::steer::ActiveInputNotAccepted>()
+                    );
+                    assert!(host.kiro_steering.lock().await.is_empty());
+                    host.notify("fixture/finish", json!({})).await.unwrap();
+                } else if late {
                     let error = result.unwrap_err();
                     assert_eq!(
                         error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
@@ -11915,6 +12148,12 @@ while IFS= read -r ignored; do :; done
                     host.retire_after_steer.load(Ordering::Acquire),
                     kind != AdapterKind::QwenCode
                 );
+                if kind != AdapterKind::QwenCode {
+                    assert!(
+                        !runtime.preserve_zcode_host_after_cancel(),
+                        "a retired Host cannot wait for the reusable-Host cancellation fence"
+                    );
+                }
                 host.shutdown().await;
                 std::fs::remove_dir_all(root).unwrap();
             }

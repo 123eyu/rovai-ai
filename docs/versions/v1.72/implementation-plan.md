@@ -106,6 +106,18 @@ User seq28 指定只看 Rovai 实际接入方式，继续排除 Cursor、Cline�
 保留探针失败、普通 Prompt 反例和清理确认缺项；不将直接通道测试宣称为完整 Core 产品验收。
 没有生产、上下文或提示词改动。检查文档三项门禁、探针语法和结构化证据；没有重复运行 Rust 产品套件。
 
+## Kiro / ZCode Steer 接入与专用入口复核（2026-10-14）
+
+User seq30；基线 `d6afc8c484b1d30dfe5cf112a05e9ce7169097dc`。当前合同升级为
+[Message Delivery v15](../../contracts/message-delivery-v15.md)，保持共同上下文与现有数据库不变。
+Kiro 使用默认 v2 ACP 的 queued/injected 回执，ZCode 使用官方内核 guide 的 queued/drained 回执；
+二者都在 Run/epoch/Session 下关联，原 Prompt 终态保持独立，使用过 Steer 的 Host 不复用。
+扩展既有 ACP receipt 与 ZCode event owner，复用生产 smoke；补齐文本、纯附件、普通队列、多队员与取消。
+ZCode 的退休 Host 取消路径及已消失进程组的 EPERM 确认同步修复，保留真实信号失败的负例。
+验收发现既有 Probe 依赖已被终止 watcher 的报告；改用与执行 Host 相同的进程树退出证据，并要求终止与回收成功，独立检查恢复 ready。
+完整版本与逐次验收见[本次报告](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)和
+[结构化证据](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.evidence.json)。
+
 ## 会话切换读取回归修复（2026-10-13）
 
 基线 `50d50d3a46ec409420a9c1382ab5101ba16892bd`，分支 `codex/remove-session-rebuild-notice`。

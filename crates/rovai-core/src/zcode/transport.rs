@@ -120,8 +120,11 @@ pub async fn probe(
     .and_then(|result| result);
     drop(reader);
     drop(writer);
-    let _ = child.force_terminate_tree();
-    let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+    let terminated = child.force_terminate_tree().is_ok();
+    let reaped = matches!(
+        tokio::time::timeout(Duration::from_secs(3), child.wait()).await,
+        Ok(Ok(_))
+    );
     let cleanup = confirm_owner_cleanup(
         &child,
         &root.0,
@@ -129,7 +132,7 @@ pub async fn probe(
     )
     .await;
     drain.abort();
-    if !cleanup {
+    if !terminated || !reaped || !cleanup {
         bail!("ZCode probe process-group cleanup unconfirmed");
     }
     result
@@ -141,13 +144,22 @@ pub async fn confirm_owner_cleanup(
     deadline: tokio::time::Instant,
 ) -> bool {
     loop {
+        // These platforms capture every descendant before terminating the tree,
+        // including the Node watcher. A killed watcher cannot write its report;
+        // use the same owned-tree proof as an execution Host's cleanup instead.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        match _child.captured_tree_is_empty() {
+            Ok(true) => return true,
+            Err(_) => return false,
+            Ok(false) => {}
+        }
         #[cfg(windows)]
         match _child.tree_is_empty() {
             Ok(true) => return true,
             Err(_) => return false,
             Ok(false) => {}
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         if let Ok(bytes) = tokio::fs::read(_root.join("owner-cleanup.json")).await
             && let Ok(report) = serde_json::from_slice::<Value>(&bytes)
         {
@@ -169,6 +181,7 @@ struct Session {
     cancel_requests: std::collections::HashSet<String>,
     acceptance_compaction: Option<oneshot::Sender<()>>,
     context_refresh_pending: Option<u64>,
+    steering: HashMap<String, Reply>,
 }
 
 struct PendingPermission {
@@ -188,6 +201,7 @@ struct Bridge {
     background_settle: mpsc::Sender<String>,
     context_refresh: Notify,
     snapshot_read: Mutex<()>,
+    input_fence: Mutex<()>,
     config: NativeConfig,
     cwd: PathBuf,
     mode: String,
@@ -225,6 +239,7 @@ where
         background_settle,
         context_refresh: Notify::new(),
         snapshot_read: Mutex::new(()),
+        input_fence: Mutex::new(()),
         acceptance_compacted: AtomicBool::new(false),
     });
     tokio::spawn(async move {
@@ -533,17 +548,19 @@ impl Bridge {
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         let params = &message["params"];
         let result = self.dispatch(method, params).await;
-        let failed = result
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.downcast_ref::<NativeTurnFailure>().is_none());
+        let failed = result.as_ref().err().is_some_and(|error| {
+            error.downcast_ref::<NativeTurnFailure>().is_none()
+                && !error.is::<rovai_core::steer::ActiveInputNotAccepted>()
+        });
         if let Some(id) = id {
             let response = match result {
                 Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
                 Err(error) => {
                     // Only dispatch's exact native resume rejection can escape as
                     // a recoverability code. A later subscribe/model failure cannot.
-                    let code = if error.downcast_ref::<crate::runtime::NativeSessionResumeFailure>()
+                    let code = if error.is::<rovai_core::steer::ActiveInputNotAccepted>() {
+                        -32015 // Internal facade only: exact pre-write rejection.
+                    } else if error.downcast_ref::<crate::runtime::NativeSessionResumeFailure>()
                         == Some(&crate::runtime::NativeSessionResumeFailure::Incompatible)
                     {
                         error
@@ -672,6 +689,7 @@ impl Bridge {
                         ),
                         model_reasoning_defaults,
                         terminal: None,
+                        steering: HashMap::new(),
                         cancelled: false,
                         cancel_input: None,
                         cancel_requests: Default::default(),
@@ -793,6 +811,58 @@ impl Bridge {
                 }
                 rx.await.context("ZCode turn closed without terminal")?
             }
+            "_zcode/steer" => {
+                let session_id = params["sessionId"]
+                    .as_str()
+                    .context("ZCode Session missing")?;
+                let expected = params["expectedInputId"]
+                    .as_str()
+                    .context("ZCode target input missing")?;
+                let input = params["inputId"]
+                    .as_str()
+                    .context("ZCode steering input missing")?;
+                let text = params["text"]
+                    .as_str()
+                    .context("ZCode steering text missing")?;
+                let fence = self.input_fence.lock().await;
+                let (tx, rx) = oneshot::channel();
+                {
+                    let mut sessions = self.sessions.lock().await;
+                    let session = sessions
+                        .get_mut(session_id)
+                        .context("Unknown ZCode Session")?;
+                    if session.cancelled || session.terminal.is_none() {
+                        return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+                    }
+                    session.events.begin_steer(expected, input, text)?;
+                    session.steering.insert(input.to_string(), tx);
+                }
+                let ack = self
+                    .command(
+                        Some(session_id),
+                        "sendText",
+                        input,
+                        json!({"text":text,"requestedDelivery":"guide"}),
+                    )
+                    .await;
+                drop(fence);
+                match ack {
+                    Ok(ack)
+                        if ack.pointer("/result/inputId").and_then(Value::as_str)
+                            == Some(input)
+                            && ack.pointer("/result/delivery").and_then(Value::as_str)
+                                == Some("queue") => {}
+                    _ => {
+                        self.stop(session_id).await?;
+                        bail!("ZCode guide admission unavailable");
+                    }
+                }
+                // The command's queue ack does not prove entry into this Turn.
+                tokio::time::timeout(Duration::from_secs(590), rx)
+                    .await
+                    .context("ZCode guide consumption timed out")?
+                    .context("ZCode guide receipt disconnected")?
+            }
             "session/cancel" | "_zcode/cancelFence" => {
                 self.stop(
                     params["sessionId"]
@@ -811,11 +881,17 @@ impl Bridge {
     }
 
     async fn stop(&self, session_id: &str) -> Result<()> {
+        let _fence = self.input_fence.lock().await;
         if let Some(session) = self.sessions.lock().await.get_mut(session_id) {
             if !session.cancelled {
                 session.cancel_input = session.events.input_id().map(str::to_string);
             }
             session.cancelled = true;
+            for (_, receipt) in session.steering.drain() {
+                let _ = receipt.send(Err(anyhow::anyhow!(
+                    "ZCode steering cancelled before consumption"
+                )));
+            }
         }
         self.command(
             Some(session_id),
@@ -991,7 +1067,15 @@ impl Bridge {
             let Some(session) = sessions.get_mut(session_id) else {
                 return Ok(());
             };
-            session.events.receive(params)?
+            let translated = session.events.receive(params)?;
+            for input in &translated.steering_injected {
+                if !session.cancelled
+                    && let Some(receipt) = session.steering.remove(input)
+                {
+                    let _ = receipt.send(Ok(json!({"inputId":input,"injected":true})));
+                }
+            }
+            translated
         };
         if params["type"] == "turn.started"
             && params
@@ -1050,6 +1134,17 @@ impl Bridge {
             }
         }
         if let Some(terminal) = translated.terminal {
+            let pending_steer = self
+                .sessions
+                .lock()
+                .await
+                .get(session_id)
+                .is_some_and(|s| !s.steering.is_empty());
+            if pending_steer {
+                // A native guide may fall back to its ordinary queue. Stop the
+                // exact Host's foreground before any successor can inherit it.
+                self.stop(session_id).await?;
+            }
             crate::monitoring::context_acceptance_trace(|| {
                 json!({
                     "kind":"zcode_native_final", "sessionId":session_id,

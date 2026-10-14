@@ -20,7 +20,7 @@ last_updated: 2026-10-14
 node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qwen-code
 ```
 
-第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code` 或 `grok-build`。
+第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 或 `zcode-app`。
 可选第四参数 `steer-only` 仅验同轮文字与纯附件，`mixed-only` 仅验多队员混合投递，`cancel-only`
 仅验取消后的副作用与后继 Run；默认顺序验证同轮输入、普通后继和多队员混合。混合场景额外调用
 OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint

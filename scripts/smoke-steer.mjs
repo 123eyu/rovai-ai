@@ -2,7 +2,7 @@
 // node scripts/smoke-steer.mjs <new-empty-absolute-root> <absolute-core-executable> [target-adapter] [cancel-only|steer-only|mixed-only]
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import { access, chmod, copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { access, chmod, cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -10,13 +10,13 @@ import { startQualificationCore } from './lib/qualification-core.mjs'
 import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 const [fixture, executable, targetAdapter = 'codex-cli', scenario = 'full'] = process.argv.slice(2)
 assert.ok(['full','cancel-only','steer-only','mixed-only'].includes(scenario))
-assert.ok(['codex-cli','claude-code-cli','pi','codebuddy-cli','qwen-code','grok-build'].includes(targetAdapter))
+assert.ok(['codex-cli','claude-code-cli','pi','codebuddy-cli','qwen-code','grok-build','kiro-cli','zcode-app'].includes(targetAdapter))
 assert.ok(isAbsolute(fixture) && isAbsolute(executable))
 await access(join(dirname(executable), process.platform === 'win32' ? 'rovai.exe' : 'rovai'))
 assert.deepEqual(await readdir(fixture), [])
 const data = join(fixture, 'core'), project = join(fixture, 'project')
 await mkdir(data); await mkdir(project)
-const report = { startedAt: new Date().toISOString(), coreExecutable: executable, coreSha256: createHash('sha256').update(await readFile(executable)).digest('hex'), fixture, targetAdapter, scenario, cases: [], runtimes: [] }
+const report = { startedAt: new Date().toISOString(), coreExecutable: executable, coreSha256: createHash('sha256').update(await readFile(executable)).digest('hex'), fixture, targetAdapter, scenario, cases: [], runtimes: [], runtimeChecks: [] }
 console.error(`Automatic acceptance: data=${data}; skills=${join(data,'managed-skill-library')}; MCP=${join(data,'mcp.json')}; project=${project}`)
 // Native credentials are copied only into this private acceptance directory.
 // The report contains no credential values or native configuration contents.
@@ -26,13 +26,15 @@ const nativeSpec = {
   'codebuddy-cli':['CODEBUDDY_CONFIG_DIR','.codebuddy',['settings.json','user-state.json']],
   'qwen-code':['QWEN_HOME','.qwen',['settings.json','oauth_creds.json','installation_id']],
   'grok-build':['GROK_HOME','.grok',['config.toml','managed_config.toml','requirements.toml','.env','agent_id']],
+  'kiro-cli':['KIRO_HOME','.kiro',['settings','agents']],
+  'zcode-app':['ZCODE_DATA_BASE_DIR','',['.zcode/v2/provider_config.json']],
 }[targetAdapter]
 if(nativeSpec) {
   const [key, directory, files] = nativeSpec
   const source=process.env[key]??join(homedir(),directory), native=join(fixture,'native')
   await mkdir(native,{mode:0o700}); await chmod(fixture,0o700)
   for(const name of files) { try { await access(join(source,name)) } catch { continue }
-    await copyFile(join(source,name),join(native,name));await chmod(join(native,name),0o600) }
+    await cp(join(source,name),join(native,name),{recursive:true}); }
   if(targetAdapter==='claude-code-cli') {
     const settings=JSON.parse(await readFile(join(native,'settings.json'),'utf8'))
     const baseURL=settings.env?.ANTHROPIC_BASE_URL
@@ -44,6 +46,10 @@ if(nativeSpec) {
   }
   process.env[key]=native
   if(targetAdapter==='qwen-code')process.env.QWEN_RUNTIME_DIR=native
+  if(targetAdapter==='zcode-app') {
+    process.env.ZCODE_STORAGE_DIR=join(native,'storage')
+    process.env.ZCODE_SESSION_DB_PATH=join(native,'sessions.sqlite')
+  }
 }
 let core, db, threadId, failedExecution = () => null
 async function wait(check, label, timeout=600_000) {
@@ -56,7 +62,7 @@ try {
   core = startQualificationCore({coreExecutable:executable,dataDirectory:data,workingDirectory:project,runtimeCacheDirectory:join(fixture,'cache'),mcpConfigPath:join(data,'mcp.json')})
   await core.request('health.check')
   await core.request('runtime.discovery.rescan',{interactiveShell:false})
-  for(const adapter of [targetAdapter,'opencode-cli']) await core.request('runtime.product.check',{runtimeKind:adapter},120_000)
+  for(const adapter of [targetAdapter,'opencode-cli']) report.runtimeChecks.push({adapter,result:await core.request('runtime.product.check',{runtimeKind:adapter},120_000)})
   const installations = await core.request('runtime.installations.list')
   for(const [agentId,adapter] of [['agent_1',targetAdapter],['agent_2','opencode-cli'],['agent_3',targetAdapter]]) {
     const installation=installations.find(i=>i.adapterKind===adapter&&i.installationClass==='managed_default'&&i.authScope==='default'&&i.memberRuntimeDefaults)
@@ -136,7 +142,7 @@ try {
   await wait(()=>exists('mixed-codex.ready'),'mixed Codex boundary');await wait(()=>exists('mixed-opencode.ready'),'mixed OpenCode boundary')
   const mixedTarget=runs().find(r=>r.agent_id==='agent_1'&&r.status==='running')
   await wait(()=>inputs(mixedTarget.id)[0]?.status==='accepted','mixed initial input accepted',60_000)
-  const multi=await send(['agent_1','agent_2','agent_3'],'隔离多队员要求 MIXED_成功：agent_1 写入 mixed-codex.txt；agent_2 写入 mixed-opencode.txt；agent_3 写入 mixed-idle.txt。各自只写自己的文件，用 rovai send --public-only 报告，并在最终回复中再次输出 MIXED_成功。','steer')
+  const multi=await send(['agent_1','agent_2','agent_3'],'隔离多队员要求：每人把文本 MIXED_成功 原样写入自己的文件。agent_1 的文件是 mixed-codex.txt；agent_2 是 mixed-opencode.txt；agent_3 是 mixed-idle.txt。文件正文只包含 MIXED_成功，不写姓名或说明。各自只写自己的文件，用 rovai send --public-only 报告，并在最终回复中再次输出 MIXED_成功。','steer')
   await wait(()=>inputs(runs().find(r=>r.agent_id==='agent_1'&&r.status==='running').id).some(i=>i.input_kind==='steer'&&i.dispatch_started_at),'mixed steer dispatched')
   const route=deliveries(multi)
   assert.equal(route[0].requested_mode,'steer');assert.equal(route[1].requested_mode,'start');assert.equal(route[1].status,'waiting');assert.equal(route[2].requested_mode,'start')

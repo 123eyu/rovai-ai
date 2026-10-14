@@ -920,7 +920,7 @@ User 已确认同组件交互稿，并在移除多余的失效接收者提示后
 
 - 状态：accepted
 - 日期：2026-10-14
-- 当前权威：[公开投递架构](../../architecture/public-a2a-message-delivery.md#用户运行中插话)、[Manifest 37](../../contracts/context-manifest-evidence-v37.md)、[Delivery v13](../../contracts/message-delivery-v13.md)
+- 当前权威：[公开投递架构](../../architecture/public-a2a-message-delivery.md#用户运行中插话)、[Manifest 37](../../contracts/context-manifest-evidence-v37.md)、[Delivery v15](../../contracts/message-delivery-v15.md)
 
 ### 背景与选择
 

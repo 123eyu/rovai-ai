@@ -18,7 +18,7 @@ export function browserMemberAvatars(transport: ConsoleClient): MemberAvatarsApi
         input.hidden = true; document.body.append(input); input.click()
       })
       if (!file) return null
-      if (file.size > MEMBER_AVATAR_LIMITS.selectedFileBytes) throw new Error('角色图片不能超过 10 MiB')
+      if (file.size > MEMBER_AVATAR_LIMITS.selectedFileBytes) throw new Error('头像不能超过 10 MiB')
       const { inspection, bytes } = inspectMemberAvatarUpload(new Uint8Array(await file.arrayBuffer()))
       return {
         displayName: file.name, mediaType: inspection.mediaType, bytes,
@@ -28,6 +28,12 @@ export function browserMemberAvatars(transport: ConsoleClient): MemberAvatarsApi
       }
     },
     save: input => {
+      if (input.kind === 'image') {
+        return transport.avatar('save', {
+          kind: 'image', sourceBase64: base64(input.source),
+          sourceWidth: input.sourceWidth, sourceHeight: input.sourceHeight, crop: input.crop
+        })
+      }
       if (input.kind === 'recrop') {
         return transport.avatar('save', { kind: 'recrop', avatarRef: input.avatarRef, crop: input.crop })
       }

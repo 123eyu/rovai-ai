@@ -21,6 +21,7 @@ let reload,
   openSettings
 const assets = new Map()
 let selectedSource = null
+let releaseSource = null
 let externalAfterUpdate = null
 let delayedReload = false
 let catalogScenario = null
@@ -51,19 +52,16 @@ window.rovai = {
   memberAvatars: {
     read: async (ref, rendition) => {
       const source = assets.get(ref)
-      return source
-        ? {
-            bytes: Array.from(
-              rendition === 'portrait' ? source.sourcePng : source.iconPng
-            ),
-            width: rendition === 'portrait' ? source.sourceWidth : 192,
-            height: rendition === 'portrait' ? source.sourceHeight : 192,
-            crop: source.crop
-          }
-        : null
+      if (!source) return null
+      if (source.kind === 'image') return { bytes: Array.from(source.source), mediaType: source.source[0] === 71 ? 'image/gif' : 'image/png',
+        width: source.sourceWidth, height: source.sourceHeight, crop: source.crop, displayCrop: source.crop }
+      return { bytes: Array.from(rendition === 'portrait' ? source.sourcePng : source.iconPng),
+        width: rendition === 'portrait' ? source.sourceWidth : 192,
+        height: rendition === 'portrait' ? source.sourceHeight : 192, crop: source.crop }
     },
     selectSource: async () => selectedSource,
     save: async (source) => {
+      if (failMethod === 'memberAvatars.save') { failMethod = null; throw new Error('验收模拟头像文件保存失败') }
       const avatarRef = `rovai://member-avatar/managed/${crypto.randomUUID()}`
       assets.set(avatarRef, source)
       return { avatarRef, crop: source.crop }
@@ -217,6 +215,8 @@ window.memberFixture = {
     )
     reload()
   },
+  holdSource: () => { selectedSource = new Promise(resolve => { releaseSource = resolve }) },
+  releaseSource: value => { releaseSource?.(value); releaseSource = null },
   source: (value) => {
     selectedSource = value
   },

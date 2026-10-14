@@ -7,7 +7,7 @@ export const BUILTIN_MEMBER_AVATAR_ROLES = [
 
 export const MEMBER_AVATAR_LIMITS = {
   selectedFileBytes: 10 * 1024 * 1024,
-  minimumDecodedEdge: 256,
+  minimumDecodedEdge: 1,
   qualityWarningEdge: 512,
   maximumDecodedEdge: 8192,
   maximumDecodedPixels: 32_000_000,
@@ -21,7 +21,10 @@ export const MEMBER_AVATAR_LIMITS = {
   maximumGifFrames: 200,
   /** Cumulative decoded frame pixels across the whole animation; bounds decode
    * allocation and prevents a multi-frame bomb (e.g. 200 × 32M px). */
-  maximumGifCumulativeDecodedPixels: 128_000_000
+  maximumGifCumulativeDecodedPixels: 128_000_000,
+  displayGifMaximumEdge: 1024,
+  displayGifMaximumPixels: 1_048_576,
+  displayGifCumulativePixels: 32_000_000
 } as const
 
 export type BuiltinMemberAvatarRole = (typeof BUILTIN_MEMBER_AVATAR_ROLES)[number]

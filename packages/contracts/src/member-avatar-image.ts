@@ -303,6 +303,15 @@ export function inspectMemberAvatarUpload(bytes: Uint8Array): {
     ? inspectMemberAvatarUploadPng(bytes)
     : inspectImage(bytes)
   validateMemberAvatarDimensions(inspection.width, inspection.height)
+  if (inspection.mediaType === 'image/gif') {
+    const pixels = inspection.width * inspection.height
+    if (inspection.width > MEMBER_AVATAR_LIMITS.displayGifMaximumEdge
+      || inspection.height > MEMBER_AVATAR_LIMITS.displayGifMaximumEdge
+      || pixels > MEMBER_AVATAR_LIMITS.displayGifMaximumPixels
+      || pixels * inspection.frameCount > MEMBER_AVATAR_LIMITS.displayGifCumulativePixels) {
+      throw new Error('GIF exceeds the display budget; choose a smaller file')
+    }
+  }
   return {
     inspection,
     bytes: 'iendOffset' in inspection && typeof inspection.iendOffset === 'number'

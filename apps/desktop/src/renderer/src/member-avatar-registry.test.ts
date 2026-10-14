@@ -10,8 +10,8 @@ describe('member avatar registry', () => {
     for (const role of ['luoke', 'muwa', 'mianzhi', 'qilu'] as const) {
       const assets = builtinMemberAvatarAssets(builtinMemberAvatarRef(role))
       expect(assets).toEqual(BUILTIN_MEMBER_AVATAR_ASSETS[role])
-      expect(Object.values(assets ?? {})).toHaveLength(2)
-      expect(assets?.icon).not.toBe(assets?.portrait)
+      expect(Object.values(assets ?? {})).toHaveLength(1)
+      expect(assets?.icon).toBeTruthy()
     }
   })
 

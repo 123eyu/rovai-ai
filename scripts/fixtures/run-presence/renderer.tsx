@@ -7,7 +7,7 @@ import { ThreadNavigation } from '../../../apps/desktop/src/renderer/src/ThreadN
 import { AppHeader } from '../../../apps/desktop/src/renderer/src/AppHeader'
 import { AppearanceSettings } from '../../../apps/desktop/src/renderer/src/AppearanceSettings'
 import { DEFAULT_APPEARANCE } from '../../../apps/desktop/src/shared/appearance'
-import type { AppearancePreferences, AppearanceSnapshot } from '@contracts'
+import type { AgentProfile, AppearancePreferences, AppearanceSnapshot } from '@contracts'
 import { ThreadWorkspace, campConversationTimeline } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { FilePreviewProvider } from '../../../apps/desktop/src/renderer/src/FilePreviewContext'
@@ -22,6 +22,7 @@ const projectedTimeline = (snapshot: any) => conversationRunPresenceTimeline(cam
   snapshot.turns, snapshot.agentRuns, snapshot.tasks, snapshot.agentRunFileChanges, snapshot.agentRunImages, snapshot.memberCreations), snapshot.agentRuns)
 const projectedPresence = (snapshot: any) => projectedTimeline(snapshot).flatMap(item => item.kind === 'run_presence' ? [{ ...item.slot, status: item.slot.run.status }] : [])
 import '../../../apps/desktop/src/renderer/src/styles.css'
+import '../../../apps/desktop/src/renderer/src/member-editor.css'
 import './fixture.css'
 
 declare const __SOURCE_COMMIT__: string
@@ -60,6 +61,7 @@ function Workbench() {
   const [placement, setPlacement] = useState<any>('inspector')
   const [profile, setProfile] = useState({ displayName: '你', avatarDataUrl: null })
   const [memberName, setMemberName] = useState('爱丽丝')
+  const [identityFields, setIdentityFields] = useState<Partial<AgentProfile>>({})
   const [otherThread, setOtherThread] = useState<{ id: string; title: string } | null>(null)
   const namedSnapshot = { ...state.snapshot, members: state.snapshot.members.map((member: any) => member.agentId === profiles[0].agentId ? { ...member, displayName: memberName } : member) }
   const visibleSnapshot = otherThread ? { ...namedSnapshot, thread: { ...state.snapshot.thread, ...otherThread },
@@ -107,7 +109,7 @@ function Workbench() {
       lastActivityGlobalSequence: 10, totalCount: 4, recentThreads: [current,
         ...['消息投递与恢复', '会话工作区优化', '发布前检查'].map((title, i) => ({ ...current, id: `demo-thread-${i}`, title, marker: 'none' }))] }] }
   useEffect(() => {
-    Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal, setMemberName,
+    Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal, setMemberName, setIdentityFields,
       setLanguage: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async (interfaceLanguage: string) => ({ interfaceLanguage }) } as any, language),
       getState: model.get, setRunModel: model.setRunModel, setMemberAvailability: model.setMemberAvailability,
       showNarration: model.showNarration, showStartupStatus: model.showStartupStatus, controls: model.controls, resync: model.resync, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
@@ -156,7 +158,7 @@ function Workbench() {
           <ThreadWorkspace key={`${state.generation}:${visibleSnapshot.thread.id}`} snapshot={params.has('windowed') ? { ...visibleSnapshot, executionEvidence: [] } : visibleSnapshot}
             liveRuntimeEvents={model.controls.liveEvidence ? visibleSnapshot.executionEvidence.map(liveRuntimeEventFromExecutionEvidence) : undefined}
             workspaceEntrySnapshotReady={!model.controls.holdEntrySnapshot}
-            openCoverage={params.has('windowed') ? openCoverage : null} projectName="rovai-ai" agents={profiles as any}
+            openCoverage={params.has('windowed') ? openCoverage : null} projectName="rovai-ai" agents={profiles.map((profile, index) => index === 0 ? { ...profile, ...identityFields } : profile) as any}
             installations={installations as any} initialComposerDraft={state.draft} busy={state.busy}
             onSend={model.send} onChangeLead={model.changeLead} onTasksChanged={async () => {}}
             onResolveApproval={() => {}} stopping={false} onCancelAgentRun={model.cancel}

@@ -10,7 +10,6 @@ import {
 } from 'react'
 import type { AgentProfile } from '@contracts'
 import { DialogControlIcon } from './AppDialog'
-import { MemberPortrait } from './MemberPortrait'
 import { MemberAvatarEditor } from './MemberAvatarEditor'
 import {
   identityDraftFor,
@@ -25,7 +24,7 @@ import {
 import { readErrorMessage } from './error-message'
 import { UiText , uiAttribute } from './interface-language'
 
-export type MemberIdentityEditorHandle = { discard(): void; openAvatar(): void }
+export type MemberIdentityEditorHandle = { discard(): void; openAvatar(trigger: HTMLButtonElement): void }
 export const MemberIdentityEditor = forwardRef<
   MemberIdentityEditorHandle,
   {
@@ -56,6 +55,7 @@ export const MemberIdentityEditor = forwardRef<
   const [draft, setDraft] = useState(() => identityDraftFor(agent))
   const [avatarRef, setAvatarRef] = useState(agent?.avatarRef ?? null)
   const [avatarOpen, setAvatarOpen] = useState(false)
+  const avatarTrigger = useRef<HTMLButtonElement | null>(null)
   const [avatarPending, setAvatarPending] = useState(false)
   const [avatarRevision, setAvatarRevision] = useState(0)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -101,7 +101,7 @@ export const MemberIdentityEditor = forwardRef<
   }
   useImperativeHandle(ref, () => ({
     discard: reset,
-    openAvatar: () => setAvatarOpen(true)
+    openAvatar: trigger => { avatarTrigger.current = trigger; setAvatarOpen(true) }
   }))
   useEffect(() => {
     onDirtyChange(dirty || !agent)
@@ -157,14 +157,15 @@ export const MemberIdentityEditor = forwardRef<
     if (busy || conflict || avatarPending) return
     const next = traitInput.trim() ? addTraits() : draft
     if (!next) {
-      document.getElementById(fieldId('traits'))?.focus()
+      setAdvancedOpen(true)
+      requestAnimationFrame(() => document.getElementById(fieldId('traits'))?.focus())
       return
     }
     const issue = identityDraftIssue(next, agent?.agentId ?? null, agents)
     setError(issue)
     if (issue) {
       if (
-        ['workingPrinciples', 'growthTopic', 'advanced'].includes(issue.field)
+        ['personalityTraits', 'workingPrinciples', 'growthTopic', 'advanced'].includes(issue.field)
       )
         setAdvancedOpen(true)
       requestAnimationFrame(() =>
@@ -209,8 +210,9 @@ export const MemberIdentityEditor = forwardRef<
     }
   }
   const filled =
-    Number(Boolean(draft.workingPrinciples.trim())) +
-    Number(Boolean(draft.growthTopic.trim()))
+    draft.personalityTraits.length > 0 ||
+    Boolean(draft.workingPrinciples.trim()) ||
+    Boolean(draft.growthTopic.trim())
   const field = (
     key: Exclude<keyof IdentityDraft, 'personalityTraits'>,
     label: string,
@@ -266,15 +268,28 @@ export const MemberIdentityEditor = forwardRef<
       className="member-editor-section member-editor-identity"
       aria-labelledby={fieldId('title')}
     >
-      <h2 id={fieldId('title')}><UiText zh={"队员信息"} /></h2>
+      <h2 id={fieldId('title')}>{uiAttribute('身份信息')}</h2>
       <form
         className="member-identity-form"
         noValidate
         onSubmit={(event) => void submit(event)}
       >
+        <MemberAvatarEditor
+          key={avatarRevision}
+          value={avatarRef}
+          open={avatarOpen}
+          returnFocusRef={avatarTrigger}
+          disabled={busy}
+          onChange={(value) => {
+            setAvatarRef(value)
+            setSaved(false)
+          }}
+          onClose={() => setAvatarOpen(false)}
+          onPendingChange={setAvatarPending}
+        />
         <div className="member-editor-identity-layout">
           <div className="member-editor-identity-fields">
-            <div className="member-editor-two-columns">
+            <div className="member-editor-two-columns identity-name-role">
               {field('displayName', uiAttribute('名称'), 80)}
               {field('teamRole', uiAttribute('团队角色'), 120, false, uiAttribute('主要贡献类型'))}
             </div>
@@ -285,7 +300,29 @@ export const MemberIdentityEditor = forwardRef<
               true,
               uiAttribute('长期负责什么，通常交付什么结果')
             )}
-            <div className="member-editor-field">
+          </div>
+
+        </div>
+
+        <div className="member-editor-extra">
+          <button
+            type="button"
+            className="member-editor-disclosure"
+            aria-expanded={advancedOpen}
+            aria-controls={fieldId('extra-panel')}
+            disabled={busy}
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          >
+            <span>{uiAttribute("更多设定")}</span>
+            {filled && <small>{uiAttribute("已设置")}</small>}
+            <DialogControlIcon name="chevron" />
+          </button>
+          <div
+            className="member-editor-two-columns member-editor-extra-fields"
+            id={fieldId('extra-panel')}
+            hidden={!advancedOpen}
+          >
+            <div className="member-editor-field member-editor-traits-field">
               <div className="member-editor-field-label">
                 <label htmlFor={fieldId('traits')}><UiText zh={"性格底色"} /></label>
                 <small className="member-editor-counter">
@@ -347,7 +384,11 @@ export const MemberIdentityEditor = forwardRef<
                       addTraits()
                     }
                   }}
-                  onBlur={() => {
+                  onBlur={(event) => {
+                    // Saving also commits the unfinished tag. Defer that work to
+                    // submit so blur cannot move the button between down and up.
+                    const next = event.relatedTarget
+                    if (next instanceof HTMLButtonElement && next.type === 'submit' && next.form === event.currentTarget.form) return
                     if (traitInput.trim()) addTraits()
                   }}
                 />
@@ -360,63 +401,6 @@ export const MemberIdentityEditor = forwardRef<
                 </small>
               )}
             </div>
-          </div>
-          <div className="member-editor-appearance">
-            <MemberPortrait
-              agentId={agent?.agentId ?? 'new-member'}
-              avatarRef={avatarRef}
-              displayName={draft.displayName || uiAttribute('新队员')}
-              decorative
-            />
-            <button
-              type="button"
-              className="member-editor-image-button"
-              aria-expanded={avatarOpen}
-              disabled={busy}
-              onClick={() => setAvatarOpen(!avatarOpen)}
-            >
-              <svg
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                aria-hidden="true"
-              >
-                <path d="M3.5 6.5h2.2l1.1-1.8h6.4l1.1 1.8h2.2v8.8h-13z" />
-                <circle cx="10" cy="10.8" r="2.7" />
-              </svg><UiText zh={"更换角色图片"} /></button>
-          </div>
-        </div>
-        <MemberAvatarEditor
-          key={avatarRevision}
-          value={avatarRef}
-          open={avatarOpen}
-          disabled={busy}
-          onChange={(value) => {
-            setAvatarRef(value)
-            setSaved(false)
-          }}
-          onClose={() => setAvatarOpen(false)}
-          onPendingChange={setAvatarPending}
-        />
-        <div className="member-editor-extra">
-          <button
-            type="button"
-            className="member-editor-disclosure"
-            aria-expanded={advancedOpen}
-            aria-controls={fieldId('extra-panel')}
-            disabled={busy}
-            onClick={() => setAdvancedOpen(!advancedOpen)}
-          >
-            <span><UiText zh={"工作准则与成长课题"} /></span>
-            <small>{filled ? uiAttribute("已填写 {0} 项", String(filled)) : uiAttribute("未填写")}</small>
-            <DialogControlIcon name="chevron" />
-          </button>
-          <div
-            className="member-editor-two-columns member-editor-extra-fields"
-            id={fieldId('extra-panel')}
-            hidden={!advancedOpen}
-          >
             {field(
               'workingPrinciples',
               uiAttribute('工作准则'),
@@ -459,13 +443,13 @@ export const MemberIdentityEditor = forwardRef<
             {busy
               ? uiAttribute("正在保存…")
               : avatarPending
-                ? uiAttribute("请先完成或取消图片裁剪")
+                ? uiAttribute("正在处理头像…")
                 : dirty
                   ? uiAttribute("有未保存更改")
                   : saved
                     ? uiAttribute("已保存")
                     : agent
-                      ? uiAttribute("当前信息已保存")
+                      ? ''
                       : uiAttribute("尚未创建")}
           </span>
           <div>

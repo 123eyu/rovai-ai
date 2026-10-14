@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { ControlledMemberBotAvatarSourceResolver } from './member-bot-avatar-source'
 
 const PNG_192 = Uint8Array.from([
@@ -46,7 +49,33 @@ describe('controlled member Bot avatar source resolver', () => {
       width: 192,
       height: 192
     })
-    expect(managed.read).toHaveBeenCalledWith(avatarRef, 'icon')
+    expect(managed.read).toHaveBeenCalledWith(avatarRef, 'icon', 192)
+  })
+
+  it('freezes publication bytes across changed profiles, restarts and concurrent retries', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rovai-avatar-export-'))
+    const ref = 'rovai://member-avatar/managed/2b945f3f-4b45-4ae5-92b2-739fce600338'
+    const read = vi.fn(async () => ({ mediaType: 'image/png' as const, bytes: PNG_192,
+      width: 192, height: 192, crop: { centerX: .5, centerY: .5, size: 1 } }))
+    try {
+      const resolver = new ControlledMemberBotAvatarSourceResolver({ read }, vi.fn(), directory)
+      const options = { publicationIntentId: 'publication-1' }
+      const results = await Promise.all([resolver.resolve(ref, options), resolver.resolve(ref, options)])
+      expect(results[0]).toEqual(results[1])
+      const restarted = new ControlledMemberBotAvatarSourceResolver({ read: vi.fn(() => { throw new Error('must use frozen file') }) }, vi.fn(), directory)
+      expect(await restarted.resolve(null, options)).toEqual(results[0])
+      expect(await resolver.resolve(null, { publicationIntentId: 'no-avatar' })).toBeUndefined()
+      expect(await restarted.resolve(ref, { publicationIntentId: 'no-avatar' })).toBeUndefined()
+      const required = { publicationIntentId: 'image-required', allowDefaultAvatar: false }
+      expect(await resolver.resolve(null, required)).toBeUndefined()
+      const supplied = await resolver.resolve(ref, required)
+      expect(supplied?.pngBytes).toEqual(PNG_192)
+      expect(await restarted.resolve(null, required)).toEqual(supplied)
+      const linked = join(directory, 'linked')
+      await symlink(directory, linked, 'dir')
+      const unsafe = new ControlledMemberBotAvatarSourceResolver({ read }, vi.fn(), linked)
+      await expect(unsafe.resolve(ref, options)).rejects.toThrow('snapshot_invalid')
+    } finally { await rm(directory, { recursive: true, force: true }) }
   })
 
   it('uses the Rovai fallback only when the member has no avatar reference', async () => {

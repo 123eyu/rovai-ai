@@ -54,7 +54,9 @@ active directory Camp 的绝对 `project_path`。相对 Evidence 路径仍拒绝
 误开原项目副本。
 
 Command View 的 canonical diff 文件行和无 Diff 的终态 Read/Write 文件操作行共用 `run_activity_file`。
-Core 先用 exact Camp、AgentRun、execution epoch 和 Evidence ID 找到该 Evidence 所关联的 canonical activity；
+Core 先用 exact Camp、AgentRun、execution epoch 和 Evidence 主键定位记录及其创建格式；新格式读取本行活动
+小字段，旧格式先定位旧活动主键再读取选中 projection，不经过整轮 execution_activity 联合视图。无 diff 的成功
+文件操作只从选中记录的有限预览读取准入对象；查看历史修改正文时才读取对应完整正文／Blob。
 Diff 路径须精确命中 available diff projection，无 Diff 的文件操作路径须精确命中同一终态 Evidence
 中已准入的 schema 2 `runtimeFileOperation.path`，且 activity 已成功。通过后，相对路径复用上述
 `executionRoot` 优先、历史 Camp 项目回退的根目录规则；绝对路径保持原位置。该来源

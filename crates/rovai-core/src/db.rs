@@ -70,6 +70,19 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
     );
 }
 
+// Synthetic packaged-App fixture only; never reachable from product startup/read paths.
+#[cfg(all(test, feature = "extended-tests"))]
+pub(crate) fn export_legacy_storage_fixture(database: &Database, path: &Path) {
+    let mut target = Connection::open(path).unwrap();
+    rusqlite::backup::Backup::new(database.connection(), &mut target)
+        .unwrap()
+        .run_to_completion(128, std::time::Duration::ZERO, None)
+        .unwrap();
+    execution_storage::downgrade_for_test(&target);
+    assert!(matches!(classify_database_contract(&target).unwrap(),
+        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version==149));
+}
+
 #[cfg(test)]
 pub(crate) fn assert_unified_activity_upgrade(database: &mut Database) {
     unified_activity::assert_upgrade(database);

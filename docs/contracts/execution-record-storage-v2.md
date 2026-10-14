@@ -32,8 +32,14 @@ started_at / terminal_at 对应小字段记录实际观察时间。操作 ID、E
 新操作禁止写入 canonical_runtime_activity，格式 1、2 继续原表。
 
 execution_activity 是旧活动行与格式 3 小字段的只读 UNION ALL 视图，不保存任何行或正文。
-活动分页、筛选、文件预览授权和 Trace 均从兼容读取路径获得事实；后台 ZCode 身份／结束判断继续读取独立输入／结果的
+活动分页、筛选和 Trace 从兼容读取路径获得事实；后台 ZCode 身份／结束判断继续读取独立输入／结果的
 既有结构字段。分类器和生命周期归并复用原逻辑，冲突终态仍为 unsettled，不从截断输出推断成功。
+
+单文件预览授权先按 Evidence 主键核对会话、Run 与 epoch，再按创建格式读取，不经过 execution_activity 联合视图。
+格式 3 只读选中行的活动小字段；无 diff 的成功 Read/Write 再从该行的有限预览 JSON 取 runtimeFileOperation 小对象，
+复用既有逐字段归并（包括稀疏结果与 null 规则）。格式 1、2 先在旧活动表定位小主键，再读取选中旧 projection；没有可靠操作 ID 的
+旧 append-only 记录仍用原 source Evidence 归属查找，不推断命令相等。整轮旧 diff 不进入临时联合表。
+工作目录、请求来源与路径校验保持，查询优化不新增或取消权限机制。
 
 文件 diff 展示只保存路径、计数和状态，不另存 patch。点击展开时复用该次已授权的完整 Evidence 读取，
 按现有 Runtime diff 解析器恢复 patch；冲突／不可用状态不得借重新解析恢复为成功。权限判定仍在 Core，

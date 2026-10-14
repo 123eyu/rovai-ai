@@ -2187,7 +2187,7 @@ fn fill_missing(latest: &mut Value, earlier: &Value) {
     }
 }
 
-fn combine_lifecycle_values(input: &Value, result: Option<&Value>) -> Value {
+pub(crate) fn combine_lifecycle_values(input: &Value, result: Option<&Value>) -> Value {
     let mut combined = result.cloned().unwrap_or(Value::Null);
     fill_missing(&mut combined, input);
     combined

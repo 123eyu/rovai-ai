@@ -2293,7 +2293,7 @@ User 在当前 Thread 确认交互稿后，明确要求去掉失效接收者的�
   Evidence 17、文件授权 10、GC 3、删除 3、Trace 3、准入 2、旧领取格式／实时目录 2、历史查询 7、取消／未知结果 3。
   旧 v32／v33／v36／v38 领取输入走正式升级链后仍按冻结格式物化。
 - `pnpm typecheck`、Renderer 的 ExecutionToolGroup／execution-window／execution-group-window／agent-run-file-preview
-  四个文件 54 项通过；恢复协议 Node 测试 6 项通过。真实模型／Runtime 和打包 App smoke 未运行，日常实例未作验收对象。
+  四个文件 54 项通过；恢复协议 Node 测试 6 项通过。该阶段未运行打包 App smoke，后续补测见下文；日常实例未作验收对象。
 - 生命周期夹具覆盖 128 次进度归并、UTF-8 预算、完整结果替换及状态更新；后缀 canary 不存在于 Evidence、
   活动元数据、event_log 或任何测试 Blob。Rovai 的持久化与日志调用链没有新增原始输出备份；不检查模型自己的原生日志。
   正常删除的候选登记沿用现有事务及 GC，覆盖回滚、宽限期、共享／无外键引用、重新引用与中断恢复。
@@ -2364,4 +2364,63 @@ cargo test -p rovai-core --features slow-tests --lib read_model::slow_tests::exe
 ```
 
 定向失败已修复：旧领取输入夹具曾仅升级到旧 schema，缺少新目录列；现在走正式升级链，旧输入格式断言全部保留。
-本轮未执行真实模型组合／打包 App smoke；不作为前两份 PR 的前置条件。合并与发布留给 User，现存几 GB 不因上线自动缩小。
+本阶段未执行真实模型组合；打包 App 升级 smoke 由下方补测覆盖。合并与发布留给 User，现存几 GB 不因上线自动缩小。
+
+
+### 单文件授权定点修正与升级后旧数据测量
+
+目标基线 #751 `2c8c30d8c`；文件授权按 Evidence 主键与存储格式分流。旧格式只选旧活动小主键后读取那条 diff，
+新格式只读选中活动元数据；无 diff 的成功 Read/Write 按需提取本行预览的准入对象。原 Camp／Run／epoch、工作目录、
+路径检查保留，不改 Renderer、分页／分组或权限系统。
+
+复用 exact-evidence/worktree owner，生产 SQLite 3.53.2、完整表结构及 WAL/NORMAL，构造同 Run 的 512 条旧操作和
+256 条新操作，每次 patch 输入 66,007 字节。先经正式 151→152 migration 测全旧，再添新记录测混合；旧 append-only
+无 operation ID 单列。始终保留升级后的真实 UNION ALL 视图，未换为简化旧视图。每类 7 次，未并行运行本任务构建／测试。
+
+| 状态 | 修正前授权 SQL（ms） | 修正后实际 Core 文件来源入口（ms） |
+|---|---:|---:|
+| 全旧，生命周期记录 | 15.54–26.29 | 0.86–1.33 |
+| 全旧，append-only 记录 | 15.34–18.93 | 1.31–1.70 |
+| 混合，选旧记录 | 16.86–21.05 | 0.86–1.03 |
+| 混合，选新记录 | 16.99–18.83 | 0.079–0.221 |
+
+前列是原 PR 的 SQL，后列包含真实 resolve_file_preview_source 的归属／工作目录校验；实际文件内容验证在计时后执行。
+这是同机小样本范围，不作稳定倍数或 P95 声明。原查询计划明确 MATERIALIZE execution_activity 并装入同 Run 旧 diff；
+修正后选中 Evidence 走主键，旧活动先筛小键再主键取单条 diff，新格式不访问旧活动表、不读输入／输出预览和 Blob。
+仅无 diff 的文件操作会取选中行预览里的小对象；SQLite 为 JSON 提取仍须读取该列，不能声称从未读过预览列。
+
+原始 [文件授权查询证据](file-authority-query-comparison.json) 保留实际计划、VM Column/OpenRead/临时表指令、
+schema root 对应及实际入口经 SQLite authorizer 请求的列。authorizer 是列访问证据，不是磁盘页读取次数；旧格式仍读取
+选中的完整 diff_projection_json，无操作 ID 时仍可能扫同 Run 的旧 source-ID 元数据，但不临时复制整轮 diff。
+该修正不改变先前 10,000 操作同负载的存储减量；常规输出预算与必要修改 Blob 保持。
+
+
+### 隔离打包升级与最终回归
+
+`pnpm package:mac` 产物通过显式临时 userData、独立 Skill Library／MCP 启动；合成 schema 149 库经
+Desktop → Host → Core 正式链升级至 152，未直接打开日常数据库。使用既有测试 downgrade/export helper 构造旧库，
+只有合成夹具会执行该构造过程，产品启动和读取没有逆向迁移入口。
+
+- 60 条旧公开消息在真实页面可读；512 条旧操作保持 12+12 翻页、不重叠，折叠组计数 512、展开组 12 条。
+- 经真实 preload/Main/Core 文件入口读取旧文件，按需展开大于 60 KB 的旧修改详情；添加新 Run 后再次验证新旧历史。
+- 显式指定合成 Codex app-server，并在发送前核对可执行文件。一次命令经历 40 次输出进度后仍为一条操作，正常结束，
+  持久输出恰为 7,680 UTF-8 字节且标记截断；另一个文件修改操作可预览。新活动副本 0 行、新目录副本 0 行。
+- 检查隔离 data-dir 的 614 个普通文件（包括数据库、WAL 和 Blob），截断后缀 canary 未出现；合成输入脚本位于其外。
+  此检查不包含 provider 自有原生日志，不改变智能体实际接收结果。
+- 关闭并重启这个验收 App，新旧预览及分页仍通过；旧操作预览列／Blob 引用摘要不变，合成输入仅投递一次。
+  两个独立临时夹具均通过，提交第二次完整脚本结果；单次首次就绪约 1.086 s，重启约 0.523 s，包含壳层启动，
+  不将两个样本当作稳定启动性能。
+
+原始聚合结果：[storage-app-upgrade-comparison.json](storage-app-upgrade-comparison.json)。复现（两个路径须为新临时目录和隔离候选 App）：
+
+```sh
+ROVAI_STORAGE_UPGRADE_FIXTURE=/private/tmp/rovai-storage-upgrade-example \
+cargo test -p rovai-core --features extended-tests --lib file_preview_authority::tests::run_activity_file_uses_the_exact_evidence_and_mission_worktree -- --exact
+node scripts/smoke-storage-app-upgrade.mjs /private/tmp/rovai-storage-upgrade-example '/absolute/candidate/Rovai AI.app'
+```
+
+最终目标基线 #751 `2c8c30d8c`：`cargo test --workspace` 471 通过／1 项既有人工 Runtime smoke 忽略；
+文件授权 10、旧领取操作升级 1、执行记录 17、升级后大 diff 查询 owner 1 通过；TypeScript 检查、
+6 文件 114 项 Renderer/Main 定向测试、6 项恢复协议 Node 测试及文档三项门禁通过。
+首轮并行构建期间一个既有 500 ms Runtime 清理测试超时，未修改超时阈值；该项独立重跑及随后完整 workspace 重跑均通过。
+本轮只补具体查询和验收；审批、command.result、投递／结算、分页算法、权限系统及 Pi 入站预算没有变更。

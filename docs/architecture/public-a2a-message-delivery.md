@@ -9,7 +9,7 @@ last_updated: 2026-10-08
 # Public Camp Message、Delivery 与 AgentRun
 
 本架构定义公开 Camp 的统一消息执行主链。字段合同见 [Camp Message Send v25](../contracts/camp-message-send-v25.md)、
-[Message Delivery v11](../contracts/message-delivery-v11.md)、[ContextManifest 36](../contracts/context-manifest-evidence-v36.md)
+[Message Delivery v11](../contracts/message-delivery-v11.md)、[ContextManifest 38](../contracts/context-manifest-evidence-v38.md)
 与 [Camp History v11](../contracts/camp-history-v11.md)。Single Chat 不使用本主链。
 
 ## 三类事实

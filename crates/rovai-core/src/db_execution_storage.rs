@@ -27,8 +27,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(classify_database_contract(&tx)?,
             DatabaseContractClassification::SupportedMigrationSource(ref marker)
-                if marker.projection_schema_version == 148),
-            "Execution storage requires schema 148"
+                if marker.projection_schema_version == 149),
+            "Execution storage requires schema 149"
         );
         // Only Managed Blob metadata is rebuilt to extend its closed GC-owner set.
         // No evidence rows or Blob files are read or rewritten by this migration.
@@ -48,8 +48,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
                 BEFORE UPDATE OF storage_version ON agent_run_execution_evidence
                 WHEN NEW.storage_version <> OLD.storage_version
                 BEGIN SELECT RAISE(ABORT, 'operation storage format is fixed at creation'); END;
-            INSERT INTO schema_migration VALUES(199,datetime('now'));
-            UPDATE rovai_data_contract SET projection_schema_version=149,updated_at=datetime('now') WHERE singleton=1;")?;
+            INSERT INTO schema_migration VALUES(200,datetime('now'));
+            UPDATE rovai_data_contract SET projection_schema_version=150,updated_at=datetime('now') WHERE singleton=1;")?;
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
@@ -80,8 +80,8 @@ pub(super) fn downgrade_for_test(connection: &Connection) {
         "DROP TRIGGER execution_evidence_storage_version_insert;
         DROP TRIGGER execution_evidence_storage_version_immutable;
         ALTER TABLE agent_run_execution_evidence DROP COLUMN storage_version;
-        DELETE FROM schema_migration WHERE version=199;
-        UPDATE rovai_data_contract SET projection_schema_version=148 WHERE singleton=1;",
+        DELETE FROM schema_migration WHERE version=200;
+        UPDATE rovai_data_contract SET projection_schema_version=149 WHERE singleton=1;",
     )
     .unwrap();
     expand_closed_set(
@@ -97,7 +97,7 @@ pub(super) fn downgrade_for_test(connection: &Connection) {
 
 #[cfg(test)]
 pub(super) fn assert_upgrade(database: &mut Database) {
-    // Seed a populated v148 fixture, never production data.
+    // Seed a populated v149 fixture, never production data.
     database.connection.execute_batch("UPDATE agent_run_execution_evidence SET payload_preview_json =
         rovai_execution_preview(storage_version,payload_preview_json,input_preview_json,result_preview_json);").unwrap();
     downgrade_for_test(database.connection());
@@ -112,7 +112,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .connection
         .execute_batch(
             "CREATE TEMP TRIGGER reject_storage_receipt BEFORE INSERT ON schema_migration
-        WHEN NEW.version=199 BEGIN SELECT RAISE(ABORT,'storage receipt rollback'); END;",
+        WHEN NEW.version=200 BEGIN SELECT RAISE(ABORT,'storage receipt rollback'); END;",
         )
         .unwrap();
     assert!(
@@ -152,9 +152,9 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         "restart must keep legacy bytes and Blob references"
     );
     let mut old_chain = load_current_migration_state(database.connection()).unwrap();
-    old_chain.v199 = false;
+    old_chain.v200 = false;
     assert!(
-        !old_chain.admits("v1.72", 149, V147_CLASSIFIER_VERSION),
-        "schema 148 writers cannot admit the new marker"
+        !old_chain.admits("v1.72", 150, V147_CLASSIFIER_VERSION),
+        "schema 149 writers cannot admit the new marker"
     );
 }

@@ -15,9 +15,9 @@ last_updated: 2026-10-14
 
 ## 新操作与旧操作
 
-SQLite schema 149 / migration 199 的最低读取与写入实现是本合同实现版本；沿用 authority admission，
-不识别 schema 149 的旧 Core 不得继续打开写入。已发布的 0.4.10（schema 148）不支持此格式；
-包含 migration 199 的 Core 是最低读写实现，正式 App 版本号由发布流程分配。不支持逆向迁移。
+SQLite schema 150 / migration 200 的最低读取与写入实现是本合同实现版本；沿用 authority admission，
+不识别 schema 150 的旧 Core 不得继续打开写入。已发布的 0.4.10（schema 149）不支持此格式；
+包含 migration 200 的 Core 是最低读写实现，正式 App 版本号由发布流程分配。不支持逆向迁移。
 
 既有 Evidence 表增加 storage_version：旧行默认 1，新创建且具有可靠操作 ID 的生命周期行写 2。
 格式在创建时确定并由 SQL trigger 禁止改变。旧操作仍按 1 收尾；普通追加式 Evidence 没有重复的输入／结果，

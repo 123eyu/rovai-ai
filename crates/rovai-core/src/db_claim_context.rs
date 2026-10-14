@@ -192,7 +192,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
-    super::execution_storage::downgrade_for_test(connection);
+    super::message_senders::downgrade_for_test(connection);
     let applied: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=198)",
@@ -386,7 +386,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     migrate(database).unwrap();
     assert!(matches!(
         classify_database_contract(database.connection()).unwrap(),
-        DatabaseContractClassification::Current(_)
+        DatabaseContractClassification::SupportedMigrationSource(_)
     ));
     assert_eq!(
         before,
@@ -399,6 +399,12 @@ pub(super) fn assert_upgrade(database: &mut Database) {
             .unwrap(),
         1
     );
+    let immutable = schema(
+        database.connection(),
+        "trigger",
+        "agent_run_claim_context_immutable",
+    )
+    .unwrap();
     database
         .connection()
         .execute_batch("DROP TRIGGER agent_run_claim_context_immutable")
@@ -407,4 +413,6 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         classify_database_contract(database.connection()).unwrap(),
         DatabaseContractClassification::Unknown(_)
     ));
+    database.connection().execute_batch(&immutable).unwrap();
+    super::message_senders::assert_upgrade(database);
 }

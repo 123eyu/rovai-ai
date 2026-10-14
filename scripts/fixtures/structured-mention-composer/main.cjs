@@ -141,6 +141,7 @@ app.whenReady().then(async () => {
 
 
     const webState = () => evaluate('window.composerTest.webState()')
+    const settleLinks = () => evaluate('new Promise(resolve => setTimeout(resolve, 180))')
     const primary = process.platform === 'darwin' ? 4 : 2
     const mouse = async (point, modifiers = 0, clickCount = 1) => {
       await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount, modifiers })
@@ -184,6 +185,7 @@ app.whenReady().then(async () => {
       await reset('前 ' + url + ' 后')
       const before = await state(false)
       const opened = webOpens.length
+      await settleLinks()
       assert.deepEqual((await webState()).highlights, [url])
       await clickText(url)
       assert.equal((await webState()).popup, url)
@@ -206,13 +208,15 @@ app.whenReady().then(async () => {
     await run('native code/Atom exclusions and cross-link user quotes preserve literal source', async () => {
       const url = 'http://localhost:8766/a'
       await reset('~~~txt\n' + url + '\n~~~\n\u0060' + url + '\u0060\n' + url)
+      await settleLinks()
       assert.deepEqual((await webState()).highlights, [url])
       await evaluate('window.composerTest.selectText(' + JSON.stringify(url) + ',' + url.length + ')')
       await insert('extra')
+      await settleLinks()
       assert.deepEqual((await webState()).highlights, [url])
       await reset({version:2, segments:[{kind:'atom',atom:{type:'member',agentId:'agent-a'}},{kind:'text',text:' ' + url}]})
       await evaluate('window.composerTest.renameMember("http://hidden-label")')
-      await frames()
+      await settleLinks()
       assert.deepEqual((await webState()).highlights, [url])
       const from = await evaluate('window.composerTest.webPoint("前 [标题](", 0, "#web-user")')
       const to = await evaluate('window.composerTest.webPoint(") 后", 2, "#web-user")')
@@ -313,20 +317,80 @@ app.whenReady().then(async () => {
     await run('ordinary long-draft edits retain unrelated ranges and multiline Markdown targets', async () => {
       const lines = Array.from({length:800},(_,index)=>'line ' + index + ' https://example.com/' + index)
       await reset(lines.join('\n'))
+      await settleLinks()
       await evaluate('window.firstLinkRange=CSS.highlights.get("rovai-composer-web-link").values().next().value; true')
       await evaluate('window.composerTest.focusEnd()')
       const started = Date.now()
       await insert('changed')
       assert.ok(Date.now()-started<1000,'A single edit in a long draft must remain responsive')
+      await settleLinks()
       assert.equal(await evaluate('CSS.highlights.get("rovai-composer-web-link").has(window.firstLinkRange)'),true,'Unchanged URL ranges are retained')
       assert.equal((await webState()).highlights.length,800)
       const target = 'https://example.com/?q=中文，参数'
       await reset('[标题](\n' + target + '\n)')
       await evaluate('window.composerTest.selectText(' + JSON.stringify(target) + ','+target.length+')')
       await insert('新')
+      await settleLinks()
       assert.deepEqual((await webState()).highlights,[target+'新'])
       await clickText(target+'新')
       assert.equal((await webState()).popup,target+'新')
+    })
+
+    await run('restored paragraph indentation keeps the same links after edits and another restore', async () => {
+      const url = 'https://example.com/a'
+      const source = '说明\n    ' + url
+      await reset('')
+      await insert(source)
+      await state(true)
+      await evaluate('window.composerTest.restoreSaved()')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url])
+      await evaluate('window.composerTest.focusEnd()')
+      await insert('x')
+      const edited = await state(true)
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url + 'x'])
+      assert.equal((await state(false)).localVersion, edited.localVersion)
+      assert.equal((await state(false)).saveCount, edited.saveCount)
+      await clickText(url + 'x')
+      assert.equal((await webState()).popup, url + 'x')
+      await evaluate('window.composerTest.restoreSaved()')
+      await settleLinks()
+      assert.equal((await state()).text, source + 'x')
+      assert.deepEqual((await webState()).highlights, [url + 'x'])
+      // Changing the paragraph boundary must also invalidate the later URL.
+      await evaluate('window.composerTest.selectText("说明",2)')
+      await insert('\n')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [])
+      await key('z', 90, primary, 'KeyZ')
+      await settleLinks()
+      assert.deepEqual((await webState()).highlights, [url + 'x'])
+    })
+
+    for (const [name, source] of [
+      ['long single line', 'ordinary text '.repeat(8000) + 'https://example.com/end edit here '],
+      ['Markdown symbol burst', Array.from({length:800},(_,i)=>'line '+i+' https://example.com/'+i).join('\n') + '\nedit here ']
+    ]) await run(name + ' defers and coalesces URL projection outside typing', async () => {
+      await reset(source)
+      await settleLinks()
+      await evaluate('window.composerTest.focusEnd(); window.linkPaints=0; window.originalHighlightSet=CSS.highlights.set; CSS.highlights.set=function(...args){window.linkPaints++; return window.originalHighlightSet.apply(this,args)}; true')
+      const timings = []
+      try {
+        for (const character of '([])\\*') {
+          const started = Date.now()
+          await insert(character)
+          timings.push(Date.now() - started)
+        }
+        assert.equal(await evaluate('window.linkPaints'),0,'Continuous typing must not parse or repaint the whole draft on each key')
+        const edited = await state(false)
+        await settleLinks()
+        assert.equal(await evaluate('window.linkPaints'),1,'One settled projection for the editing burst')
+        assert.equal((await state(false)).localVersion,edited.localVersion)
+        assert.ok(Math.max(...timings)<250,'Native insert plus two frames must remain responsive: '+timings)
+        assert.equal((await state()).text, source + '([])\\*')
+        trace('Link timing '+JSON.stringify({name,characters:source.length,inputAndFramesMs:timings}))
+      } finally { await evaluate('CSS.highlights.set=window.originalHighlightSet; true') }
     })
 
     await run('ordinary typing stays local to the same Lexical host', async () => {

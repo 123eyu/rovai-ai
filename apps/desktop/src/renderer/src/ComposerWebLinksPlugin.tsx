@@ -1,8 +1,8 @@
-import * as Popover from '@radix-ui/react-popover'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { useEffect, useRef, useState } from 'react'
 import { registerComposerWebLinks, type ComposerWebLink } from './composer-web-links'
 import { openWebLink, WebLinkFeedback, WEB_LINK_COPY_FAILED } from './WebLink'
+import { WebLinkActions } from './WebLinkActions'
 import { writeClipboardText } from './clipboard'
 import { useUiText } from './interface-language'
 
@@ -104,23 +104,9 @@ export function ComposerWebLinksPlugin(): React.JSX.Element {
     if (!copied) setError(t(WEB_LINK_COPY_FAILED))
   }
   return <>
-    <Popover.Root open={active !== null} onOpenChange={open => { if (!open) setActive(null) }} modal={false}>
-      <Popover.Anchor virtualRef={anchor} />
-      <Popover.Portal>
-        <Popover.Content className="composer-web-link-actions" side="top" align="start" sideOffset={6}
-          collisionPadding={12} data-quote-exclude
-          onOpenAutoFocus={event => event.preventDefault()}
-          onCloseAutoFocus={event => event.preventDefault()}>
-          <div className="composer-web-link-address">{active?.target}</div>
-          <div className="composer-web-link-buttons">
-            <button type="button" className="quiet-button" onPointerDown={event => event.preventDefault()}
-              onClick={() => { const link = currentLink(); if (link) openWebLink(link.target, setError); else setActive(null) }}>{t('打开链接')}</button>
-            <button type="button" className="quiet-button" onPointerDown={event => event.preventDefault()}
-              onClick={() => { void copy() }}>{t('复制链接')}</button>
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <WebLinkActions target={active?.target ?? null} anchor={anchor} onClose={() => setActive(null)}
+      onOpen={() => { const link = currentLink(); if (link) openWebLink(link.target, setError); else setActive(null) }}
+      onCopy={() => { void copy() }} />
     <WebLinkFeedback message={error} onClose={() => setError(null)} />
   </>
 }

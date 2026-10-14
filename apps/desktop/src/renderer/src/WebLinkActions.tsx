@@ -1,0 +1,30 @@
+import * as Popover from '@radix-ui/react-popover'
+import type { RefObject } from 'react'
+import { useUiText } from './interface-language'
+
+export function WebLinkActions({ target, anchor, onClose, onOpen, onCopy }: {
+  target: string | null
+  anchor: RefObject<{ getBoundingClientRect(): DOMRect }>
+  onClose(): void
+  onOpen(): void
+  onCopy(): void
+}): React.JSX.Element {
+  const t = useUiText()
+  return <Popover.Root open={target !== null} onOpenChange={open => { if (!open) onClose() }} modal={false}>
+    <Popover.Anchor virtualRef={anchor} />
+    <Popover.Portal>
+      <Popover.Content className="composer-web-link-actions" side="top" align="start" sideOffset={6}
+        collisionPadding={12} data-quote-exclude
+        onOpenAutoFocus={event => event.preventDefault()}
+        onCloseAutoFocus={event => event.preventDefault()}>
+        <div className="composer-web-link-address">{target}</div>
+        <div className="composer-web-link-buttons">
+          <button type="button" className="quiet-button" onPointerDown={event => event.preventDefault()}
+            onClick={onOpen}>{t('打开链接')}</button>
+          <button type="button" className="quiet-button" onPointerDown={event => event.preventDefault()}
+            onClick={onCopy}>{t('复制链接')}</button>
+        </div>
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>
+}

@@ -29,13 +29,7 @@ const safeMarkdownParser = unified()
 export function projectWebLinkRanges(source: string): WebLinkRange[] {
   if (!/https?:\/\//iu.test(source)) return []
   if (!/[\u0060~<>\[\]\\\r\n*_]/u.test(source) && !/^(?: {4}|\t)/u.test(source)) return bareWebLinks(source)
-  return projectWebLinkSource(source).links
-}
-
-export function projectWebLinkSource(source: string): { links: WebLinkRange[]; code: Array<{ start: number; end: number }>; contexts: Array<{ start: number; end: number }> } {
   const links: WebLinkRange[] = []
-  const code: Array<{ start: number; end: number }> = []
-  const contexts: Array<{ start: number; end: number }> = []
   const visit = (node: MarkdownNode): void => {
     const start = node.position?.start.offset
     const end = node.position?.end.offset
@@ -43,11 +37,9 @@ export function projectWebLinkSource(source: string): { links: WebLinkRange[]; c
     const raw = source.slice(start, end)
     if (node.type === 'code' || node.type === 'inlineCode' || node.type === 'html'
       || node.type === 'image' || node.type === 'imageReference' || node.type === 'linkReference') {
-      code.push({ start, end })
       return
     }
     if (node.type === 'link' && (raw.startsWith('[') || raw.startsWith('<')) || node.type === 'definition') {
-      if (raw.includes('\n')) contexts.push({ start, end })
       if (!node.url || !isWebUrl(node.url)) return
       let from = raw.startsWith('<') ? 1 : node.type === 'definition' ? raw.indexOf(':') + 1
         : source.indexOf('](', node.children?.at(-1)?.position?.end.offset ?? start + 1) - start + 2
@@ -86,7 +78,7 @@ export function projectWebLinkSource(source: string): { links: WebLinkRange[]; c
     }
   }
   visit(safeMarkdownParser.parse(source) as MarkdownNode)
-  return { links, code, contexts }
+  return links
 }
 
 // Check decoded Markdown text as well as raw source: an entity such as &#82;

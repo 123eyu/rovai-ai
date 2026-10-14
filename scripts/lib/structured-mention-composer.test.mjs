@@ -71,7 +71,8 @@ test('Composer edits preserve text, structured tokens and Skill query interactio
     assert.ok(reportLine, `Native Composer fixture produced no report:\n${stdout}\n${stderr}`)
     const report = JSON.parse(reportLine)
     assert.equal(report.ok, true)
-    assert.equal(report.cases.length, process.env.ROVAI_TEST_SYSTEM_BROWSER === '1' ? 39 : 38)
+    assert.equal(report.cases.length, process.env.ROVAI_TEST_SYSTEM_BROWSER === '1' ? 42 : 41)
+    console.log(stderr.split('\n').filter(line => line.includes('Link timing')).join('\n'))
     if (process.env.ROVAI_TEST_SYSTEM_BROWSER === '1') console.log(stderr.trim())
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {

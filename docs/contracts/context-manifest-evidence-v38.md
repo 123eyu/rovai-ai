@@ -27,3 +27,5 @@ Migration **199** 将 schema **148 → 149**，仅扩展 Manifest、RunInput 及
 旧成功工具回执不重新生成。新 Run 不依赖 Session 年龄，既有 accepted 水位和恢复策略保持。
 
 确认与验证见 [R2](../versions/v1.72/model-context-change-message-senders.md)。
+
+新 Run 的目录模式独立于正文边界，见 [Camp History v14](camp-history-v14.md)。不复制目录，不迁移旧 Context。

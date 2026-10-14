@@ -33,7 +33,7 @@ Bootstrap、身份投影与数据不变，验证状态见该记录。
 
 按 User 已确认的 [R2](model-context-change-message-senders.md) 已在独立 worktree 实施并通过自动化回归；R2 移除专用名称冻结，只在实际消息组装时取名。完整真实模型 Gate 待补。
 公开输入、SHARED_THREAD、读取和搜索统一发送者与名称；内部身份、正文、Mention、渠道与旧恢复保持。
-当前合同为 [Message Senders v1](../../contracts/message-senders-v1.md)、[History v13](../../contracts/camp-history-v13.md)
+当前合同为 [Message Senders v1](../../contracts/message-senders-v1.md)、[History v14](../../contracts/camp-history-v14.md)
 和 [Manifest v38](../../contracts/context-manifest-evidence-v38.md)。验证状态见 R2 实施记录。
 
 ## Pi 接收容量与连接失败原因（2026-10-14）
@@ -716,3 +716,6 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 
 新操作组合预览去重与正常删除 Blob 回收登记见 [保存合同](../../contracts/execution-record-storage-v1.md)
 及[实施记录](implementation-plan.md#执行记录存储精简组合预览与删除回收2026-10-14)。旧记录继续可读，日常实例不做历史清理。
+
+新 Run 使用[实时会话目录](../../contracts/camp-history-v14.md)，停止写入开工目录快照；旧模式和消息正文边界保持。
+验证见[实时目录实施记录](implementation-plan.md#执行记录存储精简实时会话目录2026-10-14)。

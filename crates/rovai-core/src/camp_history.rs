@@ -30,7 +30,7 @@ pub const CAMP_LIST_TOOL_NAME: &str = "thread.list";
 pub const CAMP_SEARCH_TOOL_NAME: &str = "thread.search";
 pub const HISTORY_SEARCH_TOOL_NAME: &str = "history.search";
 pub const CAMP_READ_TOOL_NAME: &str = "thread.read";
-pub const CAMP_HISTORY_CONTRACT_VERSION: u32 = 12;
+pub const CAMP_HISTORY_CONTRACT_VERSION: u32 = 14;
 
 const CAMP_LIST_DEFAULT_LIMIT: usize = 20;
 const CAMP_LIST_MAX_LIMIT: usize = 50;
@@ -109,6 +109,7 @@ struct RunFence {
     current_camp_id: String,
     current_boundary: i64,
     global_boundary: i64,
+    live_directory: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -280,17 +281,19 @@ impl ThreadHistoryService {
         if let Some(query) = query.as_deref() {
             let folded_query = fold_text(query);
             camps.retain(|camp| fold_text(&camp.camp_title).contains(&folded_query));
-            camps.sort_by(|left, right| {
-                camp_name_match_class(&left.camp_title, &folded_query)
-                    .cmp(&camp_name_match_class(&right.camp_title, &folded_query))
-                    .then_with(|| {
-                        right
-                            .last_visible_activity_at
-                            .cmp(&left.last_visible_activity_at)
-                    })
-                    .then_with(|| left.camp_id.cmp(&right.camp_id))
-            });
-        } else {
+            if !fence.live_directory {
+                camps.sort_by(|left, right| {
+                    camp_name_match_class(&left.camp_title, &folded_query)
+                        .cmp(&camp_name_match_class(&right.camp_title, &folded_query))
+                        .then_with(|| {
+                            right
+                                .last_visible_activity_at
+                                .cmp(&left.last_visible_activity_at)
+                        })
+                        .then_with(|| left.camp_id.cmp(&right.camp_id))
+                });
+            }
+        } else if !fence.live_directory {
             camps.sort_by(|left, right| {
                 right
                     .last_visible_activity_at
@@ -632,7 +635,7 @@ fn load_run_fence(
         .query_row(
             r#"
             SELECT manifest.id, camp.last_message_sequence,
-                   manifest.global_public_message_boundary
+                   manifest.global_public_message_boundary, manifest.live_history_directory
             FROM context_manifest AS manifest
             JOIN agent_run ON agent_run.id = manifest.agent_run_id
             JOIN conversation ON conversation.id = agent_run.conversation_id
@@ -658,6 +661,7 @@ fn load_run_fence(
                     current_camp_id: run.camp_id.clone(),
                     current_boundary: row.get(1)?,
                     global_boundary: row.get(2)?,
+                    live_directory: row.get(3)?,
                 })
             },
         )
@@ -674,6 +678,9 @@ fn load_history_camps(
     transaction: &Transaction<'_>,
     fence: &RunFence,
 ) -> Result<Vec<HistoryThread>> {
+    if fence.live_directory {
+        return load_live_history_camps(transaction, &fence.current_camp_id);
+    }
     let publication_cte = public_camp_message_publication_cte();
     let sql = format!(
         r#"
@@ -722,6 +729,26 @@ fn load_history_camps(
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+// Same published public-message visibility as explicit history search (v10+):
+// withdrawn/tombstoned messages are excluded, recallable/waiting messages remain public.
+// This directory never changes the separate global fence used to read message bodies.
+fn load_live_history_camps(
+    transaction: &Transaction<'_>,
+    current_camp_id: &str,
+) -> Result<Vec<HistoryThread>> {
+    let sql = crate::camp_message_publication::live_directory_sql(transaction)?;
+    let mut statement = transaction.prepare(&sql)?;
+    Ok(statement
+        .query_map([current_camp_id], |row| {
+            Ok(HistoryThread {
+                camp_id: row.get(0)?,
+                camp_title: row.get(1)?,
+                last_visible_activity_at: row.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 fn resolve_camp_target(
@@ -2525,6 +2552,7 @@ mod slow_tests {
                 current_camp_id: "rvcamp_01h47kvsy5fk1shh6w1g60eecf".to_string(),
                 current_boundary: 100,
                 global_boundary: 100,
+                live_directory: false,
             },
             "x",
             8,
@@ -2666,6 +2694,7 @@ mod slow_tests {
                         current_camp_id: "rvcamp_01h47kvsy5fk1shh6w1g60eecf".to_string(),
                         current_boundary: 1,
                         global_boundary: 1,
+                        live_directory: false,
                     },
                     query,
                     8,
@@ -3207,6 +3236,7 @@ mod slow_tests {
             current_camp_id: target.camp_id.clone(),
             current_boundary: 3,
             global_boundary: 3,
+            live_directory: false,
         };
         let (candidates, _) =
             load_current_body_candidates(&transaction, &search_fence, "w", 8).unwrap();

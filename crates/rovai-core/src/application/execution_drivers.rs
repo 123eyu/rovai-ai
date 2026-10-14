@@ -482,6 +482,14 @@ pub(super) async fn process_housekeeping(
         Duration::from_secs(15),
     );
     camp_deletion_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    // This resumes small per-Camp summaries after startup; it is not a startup
+    // history scan and is disabled once initialization finishes.
+    let mut directory_pending = true;
+    let mut directory_interval = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(1),
+        Duration::from_secs(1),
+    );
+    directory_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         if *shutdown.borrow() {
             break;
@@ -495,6 +503,13 @@ pub(super) async fn process_housekeeping(
             }
         }
         tokio::select! {
+            _ = directory_interval.tick(), if directory_pending => {
+                let mut database = core.database.lock().await;
+                match crate::camp_message_publication::initialize_directory_activity(&mut database) {
+                    Ok(pending) => directory_pending = pending,
+                    Err(error) => eprintln!("History directory summary initialization deferred: {error:#}"),
+                }
+            },
             _ = core.mission_workspace_cleanup_notify.notified() => {
                 let cleanup_core=Arc::clone(&core);
                 core.agent_run_tasks.lock().await.spawn(async move {

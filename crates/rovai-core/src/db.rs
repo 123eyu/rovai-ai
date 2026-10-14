@@ -4,6 +4,8 @@ mod attachment_paths;
 mod claim_context;
 #[path = "db_execution_storage.rs"]
 mod execution_storage;
+#[path = "db_live_directory.rs"]
+mod live_directory;
 #[path = "db_member_creation.rs"]
 mod member_creation;
 #[path = "db_member_environment.rs"]
@@ -45,8 +47,9 @@ pub(crate) use run_continuation::assert_legacy_request_upgrade;
 
 #[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn upgrade_message_mentions_fixture(database: &mut Database) {
-    message_mentions::migrate(database).unwrap();
-    run_continuation::migrate_requests(database).unwrap();
+    // Restore the current schema through the production upgrade chain while the
+    // claimed input keeps its frozen v32 formatter and body.
+    database.migrate(false).unwrap();
 }
 
 #[cfg(all(test, feature = "slow-tests"))]
@@ -57,10 +60,16 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
     claim_context::migrate(database).unwrap();
     message_senders::migrate(database).unwrap();
     execution_storage::migrate(database).unwrap();
+    live_directory::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
     );
+}
+
+#[cfg(all(test, feature = "slow-tests"))]
+pub(crate) fn assert_legacy_history_directory_upgrade(database: &mut Database) {
+    live_directory::assert_legacy_upgrade(database);
 }
 
 #[cfg(test)]
@@ -82,6 +91,7 @@ pub(crate) fn upgrade_message_senders_fixture(database: &mut Database) {
         .unwrap();
     message_senders::migrate(database).unwrap();
     execution_storage::migrate(database).unwrap();
+    live_directory::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -397,7 +407,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 150;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 151;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -872,6 +882,7 @@ struct CurrentMigrationState {
     v198: bool,
     v199: bool,
     v200: bool,
+    v201: bool,
 }
 
 impl CurrentMigrationState {
@@ -893,6 +904,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v201 {
+            let mut previous = *self;
+            previous.v201 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 151
+                && self.v200
+                && previous.admits("v1.72", 150, classifier);
+        }
         if self.v200 {
             let mut previous = *self;
             previous.v200 = false;
@@ -3037,7 +3056,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
         .and_then(Option::as_ref)
         .is_some_and(|(contract, schema, _)| {
             contract == CURRENT_DATA_CONTRACT_VERSION
-                && matches!(schema, 145 | 146 | 147 | 148 | 149 | 150)
+                && matches!(schema, 145 | 146 | 147 | 148 | 149 | 150 | 151)
         })
     {
         return Ok(matches!(
@@ -3446,7 +3465,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149 | 150
+            145 | 146 | 147 | 148 | 149 | 150 | 151
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3469,7 +3488,9 @@ pub(crate) fn classify_database_contract(
                     message_senders::schema_matches(connection)
                 })
             && (marker.projection_schema_version < 150
-                || execution_storage::schema_matches(connection)?);
+                || execution_storage::schema_matches(connection)?)
+            && (marker.projection_schema_version < 151
+                || live_directory::schema_matches(connection)?);
         return Ok(if !valid {
             DatabaseContractClassification::Unknown(Some(marker))
         } else if marker.projection_schema_version == CURRENT_PROJECTION_SCHEMA_VERSION {
@@ -5700,7 +5721,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 197),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 198),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 199),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 200)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 200),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 201)
         "#,
         [],
         |row| {
@@ -5836,6 +5858,7 @@ fn load_current_migration_state(
                 v198: row.get(128)?,
                 v199: row.get(129)?,
                 v200: row.get(130)?,
+                v201: row.get(131)?,
             })
         },
     )
@@ -9080,6 +9103,9 @@ impl Database {
             if !self.schema_migration_applied(200)? {
                 migration_step!("migration_200", execution_storage::migrate(self));
             }
+            if !self.schema_migration_applied(201)? {
+                migration_step!("migration_201", live_directory::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -9898,6 +9924,9 @@ impl Database {
         }
         if !self.schema_migration_applied(200)? {
             migration_step!("migration_200", execution_storage::migrate(self));
+        }
+        if !self.schema_migration_applied(201)? {
+            migration_step!("migration_201", live_directory::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41669,6 +41698,7 @@ mod tests {
             v198: version >= 198,
             v199: version >= 199,
             v200: version >= 200,
+            v201: version >= 201,
         }
     }
 
@@ -41863,7 +41893,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                200,
+                201,
             ),
             (
                 "v1.72/schema 143 before async Usage settlement",
@@ -42433,7 +42463,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(200);
+        let current = migration_state_through(201);
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;
@@ -43078,7 +43108,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(200));
+        assert_eq!(state, migration_state_through(201));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43131,7 +43161,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=200", [])
+                        .execute("DELETE FROM schema_migration WHERE version=201", [])
                         .unwrap();
                 }
                 _ => unreachable!(),
@@ -43166,7 +43196,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<200;
+                "DELETE FROM schema_migration WHERE version<201;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();

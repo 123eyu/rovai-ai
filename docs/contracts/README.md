@@ -56,7 +56,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Camp History v12（历史）](camp-history-v12.md)：mentions 统一，作者字段保留原始身份。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
-- [Camp History v13（当前）](camp-history-v13.md)：read/search 统一发送者，Agent Output 12；历史回执保持。
+- [Camp History v14（当前）](camp-history-v14.md)：新 Run 实时目录、消息发送时间排序、撤回回退与独立正文边界；继承 v13 发送者输出。
+- [Camp History v13（历史）](camp-history-v13.md)：read/search 统一发送者，Agent Output 12；历史回执保持。
 
 ## 生命周期
 

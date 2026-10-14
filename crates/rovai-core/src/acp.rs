@@ -6769,19 +6769,20 @@ fn configure_runtime_command(
                 .get("permission_mode")
                 .and_then(Value::as_str)
                 .context("TRAE CLI requires permission_mode")?;
+            let legacy_read_only = permission_semantics == PermissionSemantics::CoreEnforcedV1
+                && workspace.access == "read_only";
+            // TRAE CLI 2.0 requires global options before the ACP subcommand.
+            command.arg("--permission-mode").arg(if legacy_read_only {
+                "plan"
+            } else {
+                configured
+            });
             health::configure_acp_command(
                 command,
                 runtime.adapter_kind,
                 false,
                 runtime.reported_version.as_deref(),
             )?;
-            let legacy_read_only = permission_semantics == PermissionSemantics::CoreEnforcedV1
-                && workspace.access == "read_only";
-            command.arg("--permission-mode").arg(if legacy_read_only {
-                "plan"
-            } else {
-                configured
-            });
             // TRAE receives Rovai MCP definitions through session/new or
             // session/load. Native MCP configuration remains untouched.
         }
@@ -12363,7 +12364,7 @@ while IFS= read -r ignored; do :; done
 
         let invocations = std::fs::read_to_string(&invocation_log).unwrap();
         assert_eq!(invocations.lines().count(), 1);
-        assert_eq!(invocations.trim(), "acp serve --permission-mode default");
+        assert_eq!(invocations.trim(), "--permission-mode default acp serve");
         assert!(!invocations.contains("--version"));
         // Session creation above still has one Host. Only the explicit numeric
         // supplement adds one bounded catalog read; it never starts a prompt.
@@ -12373,7 +12374,7 @@ while IFS= read -r ignored; do :; done
         assert_eq!(
             invocations.lines().collect::<Vec<_>>(),
             vec![
-                "acp serve --permission-mode default",
+                "--permission-mode default acp serve",
                 "--config disable_auto_upgrade=true models --json"
             ]
         );
@@ -13003,7 +13004,7 @@ while IFS= read -r ignored; do :; done
         assert_eq!(
             invocations
                 .lines()
-                .filter(|line| line.starts_with("acp serve"))
+                .filter(|line| line.ends_with("acp serve"))
                 .count(),
             1
         );

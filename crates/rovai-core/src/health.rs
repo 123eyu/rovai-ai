@@ -1913,6 +1913,10 @@ async fn run_acp_probe_with_scope(
         write_kiro_additive_agent_config(&probe_root, &Default::default())?;
     }
     let mut command = runtime_command(path, Some(kind));
+    if kind == AdapterKind::TraeCnCli {
+        // Global options precede `acp serve` in TRAE CLI 2.0.
+        command.args(["--permission-mode", "default"]);
+    }
     if kind == AdapterKind::DeepseekHarness {
         crate::dsh::configure_probe(&mut command, &probe_root)?;
     } else if kind == AdapterKind::OpencodeCli && catalog_only {
@@ -1942,9 +1946,6 @@ async fn run_acp_probe_with_scope(
         kind == AdapterKind::GrokBuild && crate::acp::grok_native_byok_configured()?;
     if kind == AdapterKind::GrokBuild {
         crate::acp::configure_grok_native_environment(&mut command)?;
-    }
-    if kind == AdapterKind::TraeCnCli {
-        command.args(["--permission-mode", "default"]);
     }
     // Probe the same native Home/configuration as a formal AgentRun. Only the
     // working directory and its additive configuration belong to this probe;
@@ -4441,6 +4442,7 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' 'trae-cli version 0.120.52'
   exit 0
 fi
+[ "$*" = "--permission-mode default acp serve" ] || exit 2
 IFS= read -r initialize || exit 1
 printf '%s\n' "$initialize" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{"loadSession":true}}}}}}'

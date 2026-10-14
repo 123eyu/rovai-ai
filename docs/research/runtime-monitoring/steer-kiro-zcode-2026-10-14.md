@@ -7,6 +7,10 @@ last_updated: 2026-10-14
 
 # Steer 完整清单：Kiro / ZCode 接入与版本核查
 
+> 后续 seq32 [TRAE 升级复核](steer-trae-upgrade-2026-10-14.md)已完成本机 0.209.1 升级、企业登录与 ACP
+> 同轮实测。本报告的认证失败仅代表当时隔离探针，不能推断本机没有企业登录态；原失败记录保留。
+> Qoder 官方 IDE 已有 Steer；以下否定结论限于已测试的 CLI / 接入通道，不代表整个官方产品。
+
 **当前分支支持八种：Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、Kiro、ZCode。**
 Kiro 和 ZCode 本次补齐产品投递，使用真实 Core、正式 Adapter 与真实模型验证。
 “排到下一轮”描述上游收到补充消息后的执行行为，并非把 Qoder、Antigravity 的测试推迟。

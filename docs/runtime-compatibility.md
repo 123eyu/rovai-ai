@@ -17,8 +17,14 @@ Qoder 当前 1.1.65 和隔离下载的 1.1.71 ACP 均实测排到下一轮；Ant
 追加 user 也是下一轮，steer 事件被忽略、control_request 明确不支持。Copilot 当前 ACP 是取消替换。
 Kimi 2.1.1、OpenCode 2.0.25、DeepSeek Harness 0.2.1-alpha.1 的当前 ACP 没有已验证的专用插话入口；
 官方 OpenCode v2.0.29、DeepSeek Harness 0.2.1-alpha.3 代码仍拒绝重叠 prompt。
-TRAE CN 旧版 0.120.52 不提供相关扩展；新 0.209.1 握手声明 steering，但企业认证阻断真实生成，
-不能算作 Rovai 已支持，也不能把 0.209.1 宣称为首个支持版本。
+User seq32 授权将本机 TRAE CN 从 0.120.52 升级到官方 0.209.1；补齐迁移遗漏的企业登录配置并完成 SSO 后，
+ACP `_session/steering` 返回 injected，真实模型在原 prompt 结束前采用更正，通道同轮验证通过。
+Rovai 的 TRAE Steer 投递尚未接入，产品范围仍为八种；0.209.1 也不是已证明的首次支持版本。
+修正 Health/Dispatch Probe 与正式执行的全局参数顺序：`--permission-mode` 必须位于 `acp serve` 前。
+旧 0.120.52 同样接受此顺序。升级、企业认证纠正与产品边界见[最新复核](research/runtime-monitoring/steer-trae-upgrade-2026-10-14.md)。
+
+Qoder 官方 IDE 1.10.1 已有 Steer，不能将上述 CLI ACP 结论外推为整个官方产品不支持；
+Antigravity 的结论同样仅限已核验的官方 CLI Stream JSON 接口，不否定其他交互界面的反馈能力。
 
 [seq28 全通道复测](research/runtime-monitoring/steer-current-transport-2026-10-14.md)与
 [五种扩展验收](research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)保留此前证据；

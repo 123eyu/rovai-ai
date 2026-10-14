@@ -34,6 +34,11 @@ User seq30 随后要求接入 Kiro 与 ZCode，二者已完成 Runtime 投递与
 [新完整清单](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)给出忙碌拒绝项的版本核查、
 Qoder 当前/最新版本及 Antigravity 的实际结果、失败尝试与认证边界；不变更模型上下文、Schema 或 UI。
 
+User seq32 授权升级本机 TRAE CN 至官方 0.209.1。企业登录后 ACP 同轮 Steer 真实模型验证通过，
+产品投递尚未接入；本分支修正新版全局参数顺序，日常 Rovai App 未安装或重启。
+[升级与边界复核](../../research/runtime-monitoring/steer-trae-upgrade-2026-10-14.md)同时纠正先前认证表述，
+区分 Qoder 官方 IDE 的 Steer 与当前 CLI ACP 能力；不改模型上下文、Schema 或 UI。
+
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 
 按 User 确认的 [R1](model-context-change-bootstrap-claim-budget.md)，以本 Run 快照统一 FIFO 选批与实际组包，

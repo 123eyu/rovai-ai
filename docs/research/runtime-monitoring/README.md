@@ -9,6 +9,13 @@ baseline_ref: "4b4fe088b15ef785cd76f54f221e5d87c9d639a4"
 
 # Rovai AI 运行监控指标可采集性审计
 
+2026-10-14 [TRAE 本机升级与 Steer 支持边界复核](steer-trae-upgrade-2026-10-14.md)：按 User seq32
+升级官方 CLI 至 0.209.1、完成企业登录并真实 LLM 验证 ACP 同轮插话；修正全局参数顺序。
+产品八种已支持、TRAE 通道通过待适配；区分 Qoder 官方 IDE Steer 与 CLI ACP，收窄 Antigravity 的否定范围。
+
+2026-10-14 [Kiro / ZCode 产品接入与完整清单](steer-kiro-zcode-2026-10-14.md)：按 User seq30
+补齐正式 Runtime 投递与真实 Core 验收，产品支持扩展为八种；包含版本核查与失败记录。
+
 2026-10-14 [Steer 当前通道完整清单](steer-current-transport-2026-10-14.md)：按 User seq28 纠正范围，
 十五种 Runtime 全部重新真实 LLM 核验；六种产品已接入，Kiro ACP / ZCode 官方内核同轮通过但待接入。
 其余当前通道分别拒绝、排队或取消替换；排除 Cursor、Cline、Command Code。

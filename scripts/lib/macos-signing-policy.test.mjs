@@ -6,6 +6,7 @@ import {
   assertAdhocMacosSignature,
   assertStableMacosSignature
 } from './macos-signing-policy.mjs'
+import { MACOS_TICKET_RETRY, runMacosTicket } from './macos-ticket-retry.mjs'
 
 const TEAM_ID = 'ABCDE12345'
 const validDetails = [
@@ -124,9 +125,115 @@ test('release workflow requires a pinned Developer ID certificate and notarizati
   assert.match(workflow, /vars\.MAC_RELEASE_TEAM_ID/)
   assert.match(workflow, /secrets\.APPLE_API_KEY_BASE64/)
   assert.match(workflow, /xcrun notarytool submit/)
-  assert.match(workflow, /xcrun stapler staple/)
+  assert.match(workflow, /node scripts\/retry-macos-ticket\.mjs staple "\$DMG_PATH"/)
   assert.doesNotMatch(workflow, /add-trusted-cert/)
   assert.match(workflow, /node scripts\/verify-macos-release\.mjs \$\{\{ matrix\.arch \}\}/)
   assert.match(verifier, /macos-signing-policy\.mjs/)
-  assert.match(verifier, /stapler', 'validate'/)
+  for (const target of ['appPath', 'dmgPath', 'zipAppPath']) {
+    assert.ok(verifier.includes(`runMacosTicket('validate', ${target}, { cwd: root })`))
+  }
+})
+
+const disconnected = {
+  status: 68,
+  stderr: 'Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."'
+}
+
+function ticketFixture(results) {
+  const calls = [], pauses = [], retries = []
+  return {
+    calls, pauses, retries,
+    options: {
+      cwd: '/fixture',
+      execute: (...args) => {
+        calls.push(args)
+        return results[Math.min(calls.length - 1, results.length - 1)]
+      },
+      pause: delay => pauses.push(delay),
+      onRetry: message => retries.push(message)
+    }
+  }
+}
+
+test('ticket retry preserves the exact stapler action and space-containing target', () => {
+  for (const action of ['staple', 'validate']) {
+    const fixture = ticketFixture([disconnected, disconnected, { status: 0, stdout: 'Result: valid\n' }])
+    assert.equal(runMacosTicket(action, '/fixture/Rovai AI.app', fixture.options), 'Result: valid')
+    assert.equal(fixture.calls.length, 3)
+    for (const call of fixture.calls) {
+      assert.deepEqual(call, [
+        '/usr/bin/xcrun', ['stapler', action, '/fixture/Rovai AI.app'],
+        { cwd: '/fixture', encoding: 'utf8' }
+      ])
+    }
+    assert.deepEqual(fixture.pauses, [20_000, 40_000])
+    assert.equal(fixture.retries.length, 2)
+  }
+})
+
+test('ticket retry stops after six failed network attempts and never treats them as success', () => {
+  assert.deepEqual(MACOS_TICKET_RETRY, { attempts: 6, baseDelayMs: 20_000, maxDelayMs: 60_000 })
+  const fixture = ticketFixture([disconnected])
+  assert.throws(() => runMacosTicket('validate', '/fixture/App.app', fixture.options), /failed \(68\)/)
+  assert.equal(fixture.calls.length, 6)
+  assert.deepEqual(fixture.pauses, [20_000, 40_000, 60_000, 60_000, 60_000])
+})
+
+test('ticket retry does not repeat missing tickets, invalid signatures, or unknown Error 68 failures', () => {
+  for (const result of [
+    { status: 65, stderr: 'The ticket is not valid.' },
+    { status: 68, stderr: 'The staple and validate action failed! Error 68.' },
+    { status: 65, stderr: 'Code signature is invalid.' },
+    { status: 66, stderr: 'A ticket was not found.' }
+  ]) {
+    const fixture = ticketFixture([result])
+    assert.throws(() => runMacosTicket('validate', '/fixture/App.app', fixture.options), /failed/)
+    assert.equal(fixture.calls.length, 1)
+    assert.deepEqual(fixture.pauses, [])
+  }
+})
+
+test('ticket retry returns first-attempt success without sleeping', () => {
+  const fixture = ticketFixture([{ status: 0, stdout: 'Valid\n' }])
+  assert.equal(runMacosTicket('validate', '/fixture/App.app', fixture.options), 'Valid')
+  assert.equal(fixture.calls.length, 1)
+  assert.deepEqual(fixture.pauses, [])
+})
+
+test('ticket retry recognizes only the selected Apple network error codes', () => {
+  for (const domain of ['NSURLErrorDomain', 'kCFErrorDomainCFNetwork']) {
+    for (const code of [-1001, -1003, -1004, -1005, -1006, -1009]) {
+      const fixture = ticketFixture([
+        { status: 68, stderr: `Error Domain=${domain} Code=${code}` },
+        { status: 0, stdout: 'Valid' }
+      ])
+      assert.equal(runMacosTicket('validate', '/fixture/App.app', fixture.options), 'Valid')
+      assert.equal(fixture.calls.length, 2)
+    }
+  }
+  for (const code of [-1200, -1202, -1012, -10050]) {
+    const fixture = ticketFixture([{ status: 68, stderr: `Error Domain=NSURLErrorDomain Code=${code}` }])
+    assert.throws(() => runMacosTicket('validate', '/fixture/App.app', fixture.options), /failed/)
+    assert.equal(fixture.calls.length, 1)
+  }
+})
+
+test('ticket retry does not retry process errors or signals', () => {
+  const error = Object.assign(new Error('xcrun missing'), { code: 'ENOENT' })
+  for (const result of [
+    { error, status: null },
+    { status: null, signal: 'SIGTERM', stderr: disconnected.stderr }
+  ]) {
+    const fixture = ticketFixture([result])
+    assert.throws(() => runMacosTicket('validate', '/fixture/App.app', fixture.options))
+    assert.equal(fixture.calls.length, 1)
+    assert.deepEqual(fixture.pauses, [])
+  }
+})
+
+test('ticket retry rejects unsupported actions before invoking xcrun', () => {
+  const fixture = ticketFixture([{ status: 0 }])
+  assert.throws(() => runMacosTicket('submit', '/fixture/App.app', fixture.options), /Expected stapler action/)
+  assert.throws(() => runMacosTicket('validate', '', fixture.options), /Expected stapler action/)
+  assert.deepEqual(fixture.calls, [])
 })

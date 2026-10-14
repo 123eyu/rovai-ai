@@ -180,7 +180,7 @@ jobs:
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
-          xcrun stapler staple "$DMG_PATH"
+          node scripts/retry-macos-ticket.mjs staple "$DMG_PATH"
 
       - name: Verify signed release artifacts
         run: node scripts/verify-macos-release.mjs ${{ matrix.arch }}

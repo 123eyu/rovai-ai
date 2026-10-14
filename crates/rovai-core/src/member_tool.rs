@@ -125,7 +125,7 @@ fn invalid_patch() -> MemberOperationError {
 fn invalid_image() -> MemberOperationError {
     MemberOperationError {
         code: "member.avatar_invalid",
-        message: "The image could not be safely prepared; fix the image without dropping the requested image change",
+        message: "Could not import the avatar. Check that the file is readable and meets the format and size limits in this command's --help.",
         details: None,
     }
 }
@@ -212,23 +212,15 @@ pub fn get_member(
     authorize_member_target(connection, run, &input.agent_id, false)?;
     let snapshot = identity_snapshot(connection, &input.agent_id)?;
     let mut result = serde_json::to_value(&snapshot)?;
-    let mut paths = json!({"icon": null, "portrait": null});
-    let mut statuses = json!({"icon": "absent", "portrait": "absent"});
-    if let Some(avatar_ref) = snapshot.avatar_ref.as_deref() {
-        for (variant, portrait) in [("icon", false), ("portrait", true)] {
-            match materialize_member_avatar(data_dir, run_tmp, avatar_ref, portrait) {
-                Ok(path) => {
-                    paths[variant] = json!(path);
-                    statuses[variant] = json!("available");
-                }
-                Err(_) => {
-                    statuses[variant] = json!("unavailable");
-                }
-            }
-        }
-    }
-    result["images"] = paths;
-    result["imageStatus"] = statuses;
+    result["avatar"] = match snapshot.avatar_ref.as_deref() {
+        Some(avatar_ref) => match materialize_member_avatar(data_dir, run_tmp, avatar_ref) {
+            Ok(avatar) => json!({
+                "path": avatar.path, "status": "available", "displayCrop": avatar.display_crop
+            }),
+            Err(_) => json!({"path": null, "status": "unavailable", "displayCrop": null}),
+        },
+        None => json!({"path": null, "status": "absent", "displayCrop": null}),
+    };
     Ok(result)
 }
 
@@ -449,14 +441,29 @@ pub fn member_list_output_schema() -> Value {
     }})
 }
 pub fn member_get_output_schema() -> Value {
-    let image_status = json!({"type":"string","enum":["available","absent","unavailable"]});
+    let crop = json!({"type":"object","additionalProperties":false,
+        "required":["centerX","centerY","size"],"properties":{
+            "centerX":{"type":"number","minimum":0,"maximum":1},
+            "centerY":{"type":"number","minimum":0,"maximum":1},
+            "size":{"type":"number","minimum":0.12,"maximum":1}
+        }
+    });
+    let avatar = json!({"type":"object","additionalProperties":false,
+        "required":["path","status","displayCrop"],"properties":{
+            "path":{"type":["string","null"]},
+            "status":{"enum":["available","absent","unavailable"]},
+            "displayCrop":{"anyOf":[{"type":"null"},crop]}
+        },"anyOf":[
+            {"properties":{"status":{"const":"available"},"path":{"type":"string","minLength":1}}},
+            {"properties":{"status":{"enum":["absent","unavailable"]},"path":{"type":"null"},"displayCrop":{"type":"null"}}}
+        ]
+    });
     json!({"type":"object","additionalProperties":false,
-        "required":["agentId","displayName","teamRole","professionalResponsibilities","personalityTraits","workingPrinciples","growthTopic","version","images","imageStatus"],
+        "required":["agentId","displayName","teamRole","professionalResponsibilities","personalityTraits","workingPrinciples","growthTopic","version","avatar"],
         "properties":{
             "agentId":{"type":"string"},"displayName":{"type":"string"},"teamRole":{"type":"string"},"professionalResponsibilities":{"type":"string"},
             "personalityTraits":{"type":"array","items":{"type":"string"}},"workingPrinciples":{"type":"string"},"growthTopic":{"type":"string"},"version":{"type":"integer","minimum":1},
-            "images":{"type":"object","additionalProperties":false,"required":["icon","portrait"],"properties":{"icon":{"type":["string","null"]},"portrait":{"type":["string","null"]}}},
-            "imageStatus":{"type":"object","additionalProperties":false,"required":["icon","portrait"],"properties":{"icon":image_status,"portrait":image_status}}
+            "avatar":avatar
         }
     })
 }

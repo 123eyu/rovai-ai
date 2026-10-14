@@ -15,8 +15,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     anyhow::ensure!(
         matches!(classify_database_contract(&tx)?,
-        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version==150),
-        "Unified operation activity requires schema 150"
+        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version==151),
+        "Unified operation activity requires schema 151"
     );
     tx.execute_batch("ALTER TABLE agent_run_execution_evidence ADD COLUMN activity_meta_json TEXT;
         ALTER TABLE agent_run_execution_evidence ADD COLUMN activity_started_at TEXT;
@@ -53,8 +53,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             json_array(id), sequence, sequence, revision, occurred_at, COALESCE(updated_at,occurred_at),
             activity_started_at, activity_terminal_at
         FROM agent_run_execution_evidence WHERE storage_version=3 AND activity_meta_json IS NOT NULL;
-        INSERT INTO schema_migration VALUES(201,datetime('now'));
-        UPDATE rovai_data_contract SET projection_schema_version=151,updated_at=datetime('now') WHERE singleton=1;")?;
+        INSERT INTO schema_migration VALUES(202,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=152,updated_at=datetime('now') WHERE singleton=1;")?;
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
@@ -81,8 +81,8 @@ pub(super) fn downgrade_for_test(connection: &Connection) {
             WHEN NEW.storage_version NOT IN (1,2) OR (NEW.storage_version=2 AND
                 (NEW.operation_id IS NULL OR NEW.input_preview_json IS NULL OR NEW.payload_preview_json <> '{}'))
             BEGIN SELECT RAISE(ABORT, 'invalid operation storage format'); END;
-        DELETE FROM schema_migration WHERE version=201;
-        UPDATE rovai_data_contract SET projection_schema_version=150 WHERE singleton=1;").unwrap();
+        DELETE FROM schema_migration WHERE version=202;
+        UPDATE rovai_data_contract SET projection_schema_version=151 WHERE singleton=1;").unwrap();
 }
 
 #[cfg(test)]
@@ -101,7 +101,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .connection
         .execute_batch(
             "CREATE TEMP TRIGGER reject_activity_receipt BEFORE INSERT ON schema_migration
-        WHEN NEW.version=201 BEGIN SELECT RAISE(ABORT,'activity receipt rollback'); END;",
+        WHEN NEW.version=202 BEGIN SELECT RAISE(ABORT,'activity receipt rollback'); END;",
         )
         .unwrap();
     assert!(

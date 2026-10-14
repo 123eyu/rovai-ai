@@ -5059,6 +5059,23 @@ mod tests {
         let current =
             antigravity_binding_compatibility_digest("agy-local", "antigravity-app-cli-v1")
                 .unwrap();
+        // Sender-only output changes must preserve the deployed binding input,
+        // including Antigravity's historical transport-version field.
+        assert_eq!(
+            current,
+            canonical_json_digest(&json!({
+                "adapterKind": AdapterKind::AntigravityApp,
+                "installationId": "agy-local",
+                "protocolVersion": "antigravity-app-cli-v1",
+                "contextContract": {
+                    "nativeSessionBootstrap":"native_session_bootstrap_v4",
+                    "bootstrapFormatterVersion":4, "sessionCharterRevision":16,
+                    "agentRunContextFormatterVersion":26, "contextManifestVersion":26,
+                },
+                "builtinToolContractVersion":39,
+            }))
+            .unwrap()
+        );
         for (installation, protocol) in [
             ("agy-other", "antigravity-app-cli-v1"),
             ("agy-local", "antigravity-app-cli-v2"),

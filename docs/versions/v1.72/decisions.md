@@ -937,7 +937,7 @@ User 已确认同组件交互稿，并在移除多余的失效接收者提示后
 
 - 状态：accepted
 - 日期：2026-10-14
-- 当前权威：[Camp History v13](../../contracts/camp-history-v13.md)
+- 当前权威：[Camp History v14](../../contracts/camp-history-v14.md)
 
 User 取消“每次开工复制所有会话名称与活动时间”的需求。新 Run 直接查询当前公开可见的会话，目录活动由
 可见消息发送时间决定；历史正文搜索仍使用原冻结边界。共享快照和增量快照只是换一种方式保留已取消需求，

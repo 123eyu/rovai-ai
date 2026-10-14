@@ -30,5 +30,5 @@ Native Binding，并由有效 accepted ACK 推进水位；新旧 Input 都不因
 
 范围、确认和验证记录见 [R1](../versions/v1.72/model-context-change-bootstrap-claim-budget.md)。
 
-新 ContextManifest 的目录模式与正文 fence 分离，参见 [Camp History v13](camp-history-v13.md)。
+新 ContextManifest 的目录模式与正文 fence 分离，参见 [Camp History v14](camp-history-v14.md)。
 新 Run 不再保存整份跨会话目录；旧 Manifest、目录行、正文与 Blob 不转换。

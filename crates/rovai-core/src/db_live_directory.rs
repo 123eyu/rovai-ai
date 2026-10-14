@@ -15,8 +15,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     anyhow::ensure!(
         matches!(classify_database_contract(&tx)?,
-        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version==149),
-        "Live directory requires schema 149"
+        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version==150),
+        "Live directory requires schema 150"
     );
     // Widening history_fence_version's old CHECK would rebuild all ContextManifest rows.
     // An independent defaulted flag preserves those rows without any body scan or copy.
@@ -30,8 +30,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         CREATE TRIGGER context_live_directory_no_snapshot BEFORE INSERT ON context_manifest_history_camp
             WHEN EXISTS(SELECT 1 FROM context_manifest WHERE id=NEW.context_manifest_id AND live_history_directory=1)
             BEGIN SELECT RAISE(ABORT, 'live history directory cannot persist a snapshot'); END;
-        INSERT INTO schema_migration VALUES(200,datetime('now'));
-        UPDATE rovai_data_contract SET projection_schema_version=150,updated_at=datetime('now') WHERE singleton=1;")?;
+        INSERT INTO schema_migration VALUES(201,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=151,updated_at=datetime('now') WHERE singleton=1;")?;
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
@@ -56,8 +56,8 @@ pub(super) fn downgrade_for_test(connection: &Connection) {
         DROP TRIGGER context_directory_mode_immutable;
         DROP TRIGGER context_directory_mode_insert;
         ALTER TABLE context_manifest DROP COLUMN live_history_directory;
-        DELETE FROM schema_migration WHERE version=200;
-        UPDATE rovai_data_contract SET projection_schema_version=149 WHERE singleton=1;",
+        DELETE FROM schema_migration WHERE version=201;
+        UPDATE rovai_data_contract SET projection_schema_version=150 WHERE singleton=1;",
         )
         .unwrap();
 }
@@ -92,7 +92,7 @@ pub(super) fn assert_legacy_upgrade(database: &mut Database) {
         .connection
         .execute_batch(
             "CREATE TEMP TRIGGER reject_directory_receipt BEFORE INSERT ON schema_migration
-        WHEN NEW.version=200 BEGIN SELECT RAISE(ABORT,'directory receipt rollback'); END;",
+        WHEN NEW.version=201 BEGIN SELECT RAISE(ABORT,'directory receipt rollback'); END;",
         )
         .unwrap();
     assert!(

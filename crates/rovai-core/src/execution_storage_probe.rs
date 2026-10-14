@@ -35,6 +35,13 @@ fn reset_reads() {
     execution_evidence::take_read_counts();
     managed_blob::take_read_count();
 }
+fn operation_json_bytes(db: &Database, id: &str) -> i64 {
+    db.connection().query_row("SELECT length(CAST(payload_preview_json AS BLOB))+
+        COALESCE(length(CAST(input_preview_json AS BLOB)),0)+COALESCE(length(CAST(result_preview_json AS BLOB)),0)+
+        COALESCE(length(CAST(activity_meta_json AS BLOB)),0)+COALESCE((SELECT length(CAST(diff_projection_json AS BLOB))
+            FROM canonical_runtime_activity a WHERE a.agent_run_id=e.agent_run_id AND a.operation_id=e.operation_id),0)
+        FROM agent_run_execution_evidence e WHERE id=?1",[id],|r|r.get(0)).unwrap()
+}
 fn measured<T>(f: impl FnOnce() -> T) -> (T, Value) {
     reset_reads();
     let start = Instant::now();
@@ -138,11 +145,7 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
                             output_id = recorded.id.clone();
                         }
                     }
-                    write_bytes+=db.connection().query_row("SELECT length(CAST(payload_preview_json AS BLOB))+
-                        COALESCE(length(CAST(input_preview_json AS BLOB)),0)+COALESCE(length(CAST(result_preview_json AS BLOB)),0)+
-                        COALESCE(length(CAST(activity_meta_json AS BLOB)),0)+COALESCE((SELECT length(CAST(diff_projection_json AS BLOB))
-                            FROM canonical_runtime_activity a WHERE a.agent_run_id=e.agent_run_id AND a.operation_id=e.operation_id),0)
-                        FROM agent_run_execution_evidence e WHERE id=?1",[&recorded.id],|r|r.get::<_,i64>(0)).unwrap();
+                    write_bytes += operation_json_bytes(&db, &recorded.id);
                     peak_wal = peak_wal.max(file_size(&directory.join("rovai.sqlite-wal")));
                     events += 1;
                 }
@@ -152,7 +155,7 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
         // Updating an old operation outside the fixture override must keep its first format.
         let mut progress_samples = Vec::new();
         for step in 0..128 {
-            let (_, sample) = measured(|| {
+            let (recorded, sample) = measured(|| {
                 let record = || {
                     ExecutionEvidenceService.record_runtime_event(&mut db,&store,run,0,"runtime.action",
                     &json!({"toolCallId":"progress-probe","kind":"execute","status":"in_progress",
@@ -165,6 +168,7 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
                     record()
                 }
             });
+            write_bytes += operation_json_bytes(&db, &recorded.id);
             progress_samples.push(sample);
             peak_wal = peak_wal.max(file_size(&directory.join("rovai.sqlite-wal")));
         }

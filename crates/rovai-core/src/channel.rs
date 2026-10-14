@@ -14156,8 +14156,23 @@ mod tests {
             sequence,
             &[message_id],
             &[],
+            &mut crate::message_sender::SenderNames::default(),
         )
         .unwrap();
+        let model_message = &projection["messages"][0];
+        assert_eq!(model_message["senderType"], "user");
+        assert_eq!(model_message["senderId"], "user");
+        assert!(model_message.get("senderName").is_none());
+        let raw: (String, String) = transaction
+            .query_row(
+                "SELECT author_type,author_id FROM camp_message WHERE id=?1",
+                [model_message["messageId"].as_str().unwrap()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(raw.0, "external_principal");
+        assert_ne!(raw.1, "user");
+
         assert_eq!(
             projection["messages"][0]["attachments"][0]["path"],
             sources[0].source_path
@@ -15761,8 +15776,23 @@ mod tests {
                 boundary,
                 &[message_id],
                 &[],
+                &mut crate::message_sender::SenderNames::default(),
             )
             .unwrap();
+            let model_message = &projection["messages"][0];
+            assert_eq!(model_message["senderType"], "user");
+            assert_eq!(model_message["senderId"], "user");
+            assert!(model_message.get("senderName").is_none());
+            let raw: (String, String) = transaction
+                .query_row(
+                    "SELECT author_type,author_id FROM camp_message WHERE id=?1",
+                    [model_message["messageId"].as_str().unwrap()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(raw.0, "external_principal");
+            assert_ne!(raw.1, "user");
+
             assert_eq!(
                 projection["messages"][0]["attachments"][0]["path"],
                 sources[0].source_path

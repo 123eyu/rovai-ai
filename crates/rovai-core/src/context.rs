@@ -778,7 +778,12 @@ impl ContextService {
             current_input.as_payload(&attachment_paths, &current_input_skill_resolution.links);
         let mut batch_run_input_value = claimed_context
             .as_ref()
-            .map(|claimed| claimed.available_run_input(&current_input_skill_resolution.links))
+            .map(|claimed| {
+                claim::ClaimedBatchContext::available_run_input(
+                    &claimed.run_input,
+                    &current_input_skill_resolution.links,
+                )
+            })
             .or_else(|| {
                 batch_model_context.as_ref().map(|context| {
                     context.run_input_projection(&current_input_skill_resolution.links)
@@ -8486,7 +8491,7 @@ mod tests {
         let context = BatchModelContext {
             run_input_messages: vec![template, second],
         };
-        let projection = context.run_input_projection(&[
+        let links = [
             CurrentInputSkillLink {
                 name: "review-code".to_string(),
                 path: "/skills/one/SKILL.md".to_string(),
@@ -8499,7 +8504,8 @@ mod tests {
                 skill_id: Some("native:two".to_string()),
                 message_index: Some(1),
             },
-        ]);
+        ];
+        let projection = context.run_input_projection(&links);
         assert_eq!(
             projection["messages"][0]["skills"],
             json!([{
@@ -8512,6 +8518,23 @@ mod tests {
                 {"name": "review-code", "path": "/skills/two/SKILL.md"},
             {"name": "renamed-code", "path": "/skills/one/SKILL.md"},
             ])
+        );
+        let available = claim::ClaimedBatchContext::available_run_input(&projection, &links);
+        assert_eq!(
+            available, projection,
+            "both references retain their frozen aliases"
+        );
+        let unavailable = claim::ClaimedBatchContext::available_run_input(&projection, &links[1..]);
+        assert!(unavailable["messages"][0].get("skills").is_none());
+        assert_eq!(
+            unavailable["messages"][1]["skills"],
+            json!([
+                {"name":"review-code", "path":"/skills/two/SKILL.md"}
+            ])
+        );
+        assert_eq!(
+            projection["messages"][0]["body"],
+            unavailable["messages"][0]["body"]
         );
     }
 
@@ -8571,9 +8594,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            crate::delivery_queue::claim_waiting_delivery_batches(&mut database, 100)
-                .unwrap()
-                .len(),
+            crate::test_support::claim_mission_batches_with_fixture_workspaces(&mut database).len(),
             1
         );
         let conversation_id = database

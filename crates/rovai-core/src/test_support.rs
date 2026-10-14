@@ -42,6 +42,43 @@ struct TestDatabaseTemplate {
 static FRESH_SCHEMA_TEMPLATE: OnceLock<TestDatabaseTemplate> = OnceLock::new();
 static SEEDED_RUNTIME_TEMPLATE: OnceLock<TestDatabaseTemplate> = OnceLock::new();
 
+// Domain projection tests supply the workspace owner's result explicitly; real Git
+// preparation and its races are covered by the application Mission owner tests.
+pub(crate) fn claim_mission_batches_with_fixture_workspaces(
+    database: &mut Database,
+) -> Vec<String> {
+    use crate::delivery_queue::{
+        capture_prepared_batch_workspace, waiting_mission_batch_workspaces,
+    };
+    use crate::runtime::AgentRunWorkspace;
+    use rusqlite::OptionalExtension;
+    let mut prepared = crate::delivery_queue::BatchWorkspaces::new();
+    for (camp_id, project_path) in waiting_mission_batch_workspaces(database).unwrap() {
+        let ready = database.connection().query_row(
+            "SELECT working_directory,branch FROM mission_workspace WHERE camp_id=?1 AND state='ready' ORDER BY created_at,id LIMIT 1",
+            [&camp_id], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?)),
+        ).optional().unwrap();
+        let (workspace, fact) = match ready {
+            Some((root, branch)) => (
+                AgentRunWorkspace {
+                    execution_root: root.clone(),
+                    access: "write".into(),
+                    isolation: "git_worktree".into(),
+                },
+                serde_json::json!({"workingDirectory":root,"branch":branch}),
+            ),
+            None => (
+                AgentRunWorkspace::runtime_managed_path(project_path.clone()),
+                serde_json::json!({"workingDirectory":project_path}),
+            ),
+        };
+        let result = capture_prepared_batch_workspace(database, &camp_id, workspace, fact).unwrap();
+        prepared.insert(camp_id, Ok(result));
+    }
+    crate::delivery_queue::claim_waiting_delivery_batches_with_workspaces(database, 100, &prepared)
+        .unwrap()
+}
+
 pub(crate) struct OwnedTestDatabase {
     database: Option<Database>,
     directory: PathBuf,

@@ -21,9 +21,18 @@ fn admission(old: &str) -> Result<String> {
         + old[start..]
             .find("\n OR\n")
             .context("missing v34 admission boundary")?;
+    let branch = require_fragments(
+        old[start..end].to_owned(),
+        &[
+            "NEW.formatter_version = 34",
+            "NEW.context_delivery_profile_version = 11",
+            "input.context_manifest_version = 34",
+            "input.context_manifest_version IS NOT 34",
+        ],
+    )?;
     Ok(format!(
         "{}\n OR\n",
-        old[start..end]
+        branch
             .replace("= 34", "= 36")
             .replace("IS NOT 34", "IS NOT 36")
             .replace("profile_version = 11", "profile_version = 13")
@@ -94,7 +103,10 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             "agent_run_input",
         )
         .replace("29, 30, 31, 32, 33, 34)", "29, 30, 31, 32, 33, 34, 36)");
-        let original_guard = schema(&tx, "trigger", "context_manifest_v34_only_insert")?;
+        let original_guard = require_fragments(
+            schema(&tx, "trigger", "context_manifest_v34_only_insert")?,
+            &["WHEN NOT ("],
+        )?;
         let guard = original_guard
             .replace(
                 "context_manifest_v34_only_insert",
@@ -312,6 +324,46 @@ pub(super) fn assert_upgrade(database: &mut Database) {
             [&old_schema],
         )
         .unwrap();
+    database
+        .connection()
+        .execute_batch("PRAGMA writable_schema=OFF;")
+        .unwrap();
+    let old_guard = schema(
+        database.connection(),
+        "trigger",
+        "context_manifest_v34_only_insert",
+    )
+    .unwrap();
+    for (from, to) in [
+        ("WHEN NOT (", "WHEN NOT("),
+        ("NEW.formatter_version = 34", "NEW.formatter_version=34"),
+        (
+            "NEW.context_delivery_profile_version = 11",
+            "NEW.context_delivery_profile_version=11",
+        ),
+    ] {
+        database
+            .connection()
+            .execute_batch("PRAGMA writable_schema=ON;")
+            .unwrap();
+        database.connection().execute(
+            "UPDATE sqlite_master SET sql=?1 WHERE type='trigger' AND name='context_manifest_v34_only_insert'",
+            [old_guard.replacen(from, to, 1)],
+        ).unwrap();
+        database
+            .connection()
+            .execute_batch("PRAGMA writable_schema=OFF;")
+            .unwrap();
+        assert!(migrate(database).is_err(), "unverified source shape: {to}");
+        assert!(!database.schema_migration_applied(198).unwrap());
+    }
+    database
+        .connection()
+        .execute_batch("PRAGMA writable_schema=ON;")
+        .unwrap();
+    database.connection().execute(
+        "UPDATE sqlite_master SET sql=?1 WHERE type='trigger' AND name='context_manifest_v34_only_insert'", [&old_guard],
+    ).unwrap();
     database.connection().execute_batch("PRAGMA writable_schema=OFF;
         CREATE TEMP TRIGGER reject_claim_context BEFORE INSERT ON schema_migration WHEN NEW.version=198 BEGIN SELECT RAISE(ABORT,'claim context rollback fixture'); END;").unwrap();
     assert!(

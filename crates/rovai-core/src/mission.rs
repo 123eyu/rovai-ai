@@ -1554,6 +1554,10 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
+            0
+        );
+        assert_eq!(
+            crate::test_support::claim_mission_batches_with_fixture_workspaces(&mut db).len(),
             1
         );
         let ordinary_claimed = service.get(&db, &ordinary_id).unwrap().unwrap();
@@ -1683,7 +1687,7 @@ mod tests {
 
         // The running member remains allowed after another member becomes lead.
         let claimed_runs =
-            crate::delivery_queue::claim_waiting_delivery_batches(&mut db, 100).unwrap();
+            crate::test_support::claim_mission_batches_with_fixture_workspaces(&mut db);
         assert_eq!(claimed_runs.len(), 1);
         let queued_projection = service.get(&db, &id).unwrap().unwrap();
         assert!(!queued_projection.start_available);
@@ -2133,9 +2137,7 @@ mod tests {
                 .cleanup_available
         );
         assert_eq!(
-            crate::delivery_queue::claim_waiting_delivery_batches(&mut db, 100)
-                .unwrap()
-                .len(),
+            crate::test_support::claim_mission_batches_with_fixture_workspaces(&mut db).len(),
             1
         );
         db.connection()
@@ -2183,9 +2185,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            crate::delivery_queue::claim_waiting_delivery_batches(&mut db, 100)
-                .unwrap()
-                .len(),
+            crate::test_support::claim_mission_batches_with_fixture_workspaces(&mut db).len(),
             1
         );
         db.connection()

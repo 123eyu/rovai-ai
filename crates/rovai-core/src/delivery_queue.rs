@@ -4230,10 +4230,21 @@ mod tests {
             context.rendered_payload.len() + body.len() + 512 < DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES
         );
         assert!(context.runtime_payload.len() + body.len() > DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
-        let crate::context::ContextMaterialization::Ready(recovered) = ContextService.materialize(
-            &mut fixture.database, &crate::managed_blob::ManagedBlobStore::new(&fixture._directory),
-            &crate::context::MaterializeContextRequest { agent_run_id: &run, execution_epoch: 1, charter_delivery_mode: CharterDeliveryMode::FirstPayload, max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES },
-        ).unwrap() else { panic!("claimed Manifest must recover"); };
+        let crate::context::ContextMaterialization::Ready(recovered) = ContextService
+            .materialize(
+                &mut fixture.database,
+                &crate::managed_blob::ManagedBlobStore::new(&fixture._directory),
+                &crate::context::MaterializeContextRequest {
+                    agent_run_id: &run,
+                    execution_epoch: 1,
+                    charter_delivery_mode: CharterDeliveryMode::FirstPayload,
+                    max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("claimed Manifest must recover");
+        };
         assert_eq!(recovered.runtime_payload, context.runtime_payload);
         accept_and_finish(&mut fixture, &run, &context);
         let new_digest: String = fixture
@@ -4274,14 +4285,26 @@ mod tests {
             "reserving bytes must not force a resend"
         );
         let mut separate = Fixture::new();
-        separate.database.connection().execute("UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_1'", ["😀".repeat(9_000)]).unwrap();
+        separate
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_1'",
+                ["😀".repeat(9_000)],
+            )
+            .unwrap();
         separate.enqueue("separate-system-layer", &"中".repeat(80_000));
-        let independent_run = claim_waiting_delivery_batches(&mut separate.database, 1).unwrap().remove(0);
-        let independent = separate.materialize_with_mode(&independent_run, CharterDeliveryMode::NativeAppend, DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+        let independent_run = claim_waiting_delivery_batches(&mut separate.database, 1)
+            .unwrap()
+            .remove(0);
+        let independent = separate.materialize_with_mode(
+            &independent_run,
+            CharterDeliveryMode::NativeAppend,
+            DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        );
         assert!(!independent.bootstrap_in_runtime_payload);
         assert!(independent.runtime_payload.len() > 240_000);
         assert!(independent.runtime_payload.len() <= DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
-
     }
 
     #[test]

@@ -84,19 +84,23 @@ pub(crate) struct ClaimedBatchContext {
 
 impl ClaimedBatchContext {
     pub(super) fn available_run_input(
-        &self,
+        input: &Value,
         links: &[crate::current_input_skill::CurrentInputSkillLink],
     ) -> Value {
-        let mut input = self.run_input.clone();
+        let mut input = input.clone();
         if let Some(messages) = input.get_mut("messages").and_then(Value::as_array_mut) {
             for (index, message) in messages.iter_mut().enumerate() {
                 if let Some(skills) = message.get_mut("skills").and_then(Value::as_array_mut) {
                     skills.retain(|skill| {
                         links.iter().any(|link| {
-                            link.message_index
-                                .is_none_or(|message_index| message_index == index)
-                                && skill["name"].as_str() == Some(link.name.as_str())
-                                && skill["path"].as_str() == Some(link.path.as_str())
+                            // v2 links are deduplicated by source ID. Their index/name
+                            // describe the first mention; later messages retain their alias.
+                            skill["path"].as_str() == Some(link.path.as_str())
+                                && (link.skill_id.is_some()
+                                    || (link
+                                        .message_index
+                                        .is_none_or(|message_index| message_index == index)
+                                        && skill["name"].as_str() == Some(link.name.as_str())))
                         })
                     });
                     if skills.is_empty() {

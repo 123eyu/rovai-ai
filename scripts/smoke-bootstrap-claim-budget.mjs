@@ -62,15 +62,17 @@ try {
     sourceAttachments: [], quotes: [], replyToThreadMessageId: null,
     execution: { taskId: null, purpose: 'Bootstrap full-budget regression', completionRole: 'required' } })
   await writeFile(join(project, 'hold.mjs'), `import {access,writeFile} from 'node:fs/promises';\nawait writeFile('hold.ready','ready');\nwhile(true){try{await access('release');break}catch{await new Promise(r=>setTimeout(r,100))}}\nconsole.log('HOLD_COMPLETE');\n`)
-  console.error('Establishing native Session and holding its lane while two messages enter the queue')
+  console.error('Establishing an accepted native Session before holding the next turn')
+  await send('这是隔离验收预热。请用 rovai send --public-only 报告 WARMUP_OK，然后结束本轮，不执行其他任务。')
+  assert.equal((await waitRun(0)).status, 'succeeded')
   await send('这是隔离容量验收。请只执行 node ./hold.mjs（不要修改脚本），等待它正常结束后，用 rovai send --public-only 报告 HOLD_COMPLETE，然后结束本轮。不要联系其他队员。')
   await wait(async () => { try { await access(join(project, 'hold.ready')); return true } catch { return false } }, 'controlled first Run')
   const binding = database.prepare('SELECT native_session_id,native_binding_generation,native_charter_digest FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_1')
   assert.ok(binding.native_session_id && binding.native_charter_digest)
   const memory = await core.request('memory.create', { commandId: randomUUID(), command: {
-    scope: 'hearth', kind: 'preference', body: 'Bootstrap 容量验收期间按公开消息顺序处理。', retrievalKeys: ['bootstrap-budget-regression'],
+    scope: 'hearth', kind: 'preference', body: 'Bootstrap 容量验收期间按公开消息顺序处理。', retrievalKeys: ['bootstrap budget'],
     companionAgentId: null, relationshipAgentIds: [], direction: null, directedActorAgentId: null, reviewAfter: null } })
-  assert.equal(memory.status, 'applied')
+  assert.equal(memory.status, 'applied', JSON.stringify(memory))
   for (const number of [1, 2]) {
     const body = `这是隔离容量验收消息 ${number}。请忽略下方容量填充，只把 BATCH_${number}_OK 写入当前目录 batch-${number}.txt，然后用 rovai send --public-only 报告 BATCH_${number}_OK。不要联系其他队员。\n容量填充：\n` + '中'.repeat(40_000)
     const sent = await send(body)
@@ -78,8 +80,8 @@ try {
   }
   assert.equal(database.prepare("SELECT count(*) AS count FROM camp_message_delivery WHERE camp_id=? AND status='waiting'").get(threadId).count, 2)
   await writeFile(join(project, 'release'), 'release')
-  assert.equal((await waitRun(0)).status, 'succeeded')
-  const second = await waitRun(1)
+  assert.equal((await waitRun(1)).status, 'succeeded')
+  const second = await waitRun(2)
   const inputCount = run => database.prepare('SELECT count(*) AS count FROM agent_run_input WHERE agent_run_id=?').get(run.id).count
   if (baseline) {
     assert.equal(inputCount(second), 2)
@@ -89,7 +91,7 @@ try {
   } else {
     assert.equal(second.status, 'succeeded', second.last_error_code)
     assert.equal(inputCount(second), 1)
-    const third = await waitRun(2)
+    const third = await waitRun(3)
     assert.equal(third.status, 'succeeded', third.last_error_code)
     assert.equal(inputCount(third), 1)
     for (const number of [1, 2]) assert.equal((await readFile(join(project, `batch-${number}.txt`), 'utf8')).trim(), `BATCH_${number}_OK`)
@@ -104,6 +106,7 @@ try {
 } catch (error) {
   report.status = 'failed'; report.error = error.message; process.exitCode = 1
 } finally {
+  await writeFile(join(project, 'release'), 'release')
   database?.close()
   if (core) report.coreExit = await core.stop()
   report.finishedAt = new Date().toISOString()

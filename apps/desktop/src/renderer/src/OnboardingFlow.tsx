@@ -20,7 +20,7 @@ import {
   runtimeEditorInstallation,
   runtimeModelSelectionAvailable
 } from './MemberRuntimeParameters'
-import { MemberPortrait } from './MemberPortrait'
+import { MemberAvatar } from './MemberAvatar'
 import { builtinMemberPresetsForLanguage, type BuiltinMemberPreset } from './member-presets'
 import { useInterfaceLanguage, useUiText , uiAttribute } from './interface-language'
 import { VISIBLE_PRODUCT_RUNTIMES } from './runtime-products'
@@ -298,12 +298,12 @@ function MemberStep({
       </header>
       <div className="onboarding-member-layout">
         <aside className="onboarding-selected-member" data-member-role={selected.role}>
-          <MemberPortrait
+          <MemberAvatar size="profile"
             agentId={`onboarding-${selected.role}`}
             avatarRef={selected.avatarRef}
             displayName={selected.displayName}
             decorative
-            className="onboarding-selected-portrait"
+            className="onboarding-selected-avatar"
           />
           <div className="onboarding-selected-copy">
             <h2>{selected.displayName}</h2>
@@ -459,12 +459,12 @@ function RuntimeStep({
       </header>
       <div className="onboarding-runtime-layout">
         <aside className="onboarding-runtime-member" data-member-role={member.role}>
-          <MemberPortrait
+          <MemberAvatar size="profile"
             agentId={`onboarding-runtime-${member.role}`}
             avatarRef={member.avatarRef}
             displayName={member.displayName}
             decorative
-            className="onboarding-runtime-member-portrait"
+            className="onboarding-runtime-member-avatar"
           />
           <div>
             <h2>{member.displayName}</h2>

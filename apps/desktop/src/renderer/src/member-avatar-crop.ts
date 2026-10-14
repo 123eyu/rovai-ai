@@ -186,3 +186,13 @@ export function avatarCropSizeFromZoomPercent(percent: number): number {
   return MAX_AVATAR_CROP_SIZE
     - normalized * (MAX_AVATAR_CROP_SIZE - MIN_AVATAR_CROP_SIZE)
 }
+
+/** Percentage geometry follows the same saved square at every display size. */
+export function avatarDisplayStyle(crop: MemberAvatarCrop, width: number, height: number): import('react').CSSProperties {
+  const rect = avatarCropToPixels(crop, width, height)
+  return {
+    width: `${width / rect.size * 100}%`, height: `${height / rect.size * 100}%`,
+    left: `${-rect.x / rect.size * 100}%`, top: `${-rect.y / rect.size * 100}%`,
+    right: 'auto', bottom: 'auto', maxWidth: 'none'
+  }
+}

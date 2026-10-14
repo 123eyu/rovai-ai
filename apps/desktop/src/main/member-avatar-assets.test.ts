@@ -151,7 +151,7 @@ describe('member avatar image inspection', () => {
     expect(() => inspectGif(makeGif(4096, 4096, 10, 0))).toThrow(
       'cumulative decode resource limit'
     )
-    expect(() => inspectGif(makeGif(255, 512, 1, 0))).toThrow('below the minimum')
+    expect(() => inspectGif(makeGif(255, 512, 1, 0))).not.toThrow()
     expect(() => inspectGif(makeGif(512, 512, 0, 0))).toThrow('contains no frames')
     const looping = makeGif(256, 256, 1, 3)
     for (let end = 0; end < looping.byteLength; end++) {

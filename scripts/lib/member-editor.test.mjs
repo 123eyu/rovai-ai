@@ -16,7 +16,8 @@ test(
   { timeout: 180_000 },
   async (t) => {
     if (!admitElectronIntegrationTest(t)) return
-    const fixture = await mkdtemp(join(tmpdir(), 'rovai-member-editor-test-'))
+    const suppliedFixture = process.env.ROVAI_MEMBER_EDITOR_FIXTURE_ROOT
+    const fixture = suppliedFixture ?? await mkdtemp(join(tmpdir(), 'rovai-member-editor-test-'))
     let child,
       closed,
       passed = false
@@ -73,7 +74,7 @@ test(
         child.kill('SIGKILL')
         await closed
       }
-      if (!passed || process.env.ROVAI_KEEP_MEMBER_EDITOR_FIXTURE === '1')
+      if (suppliedFixture !== undefined || !passed || process.env.ROVAI_KEEP_MEMBER_EDITOR_FIXTURE === '1')
         console.log(`Member editor fixture: ${fixture}`)
       else await rm(fixture, { recursive: true, force: true })
     }

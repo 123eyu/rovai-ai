@@ -2,7 +2,7 @@
 document_type: ui-qa-contract
 authority: renderer-accessibility
 status: accepted
-last_updated: 2026-09-08
+last_updated: 2026-10-14
 ---
 
 # Renderer 无障碍基线
@@ -25,7 +25,9 @@ last_updated: 2026-09-08
 ## Dialogs, drawers and popovers
 
 模态 Radix Dialog/Drawer 负责 focus trap 与 Esc；关闭时不额外将焦点送回入口按钮。提交中可阻止关闭，但必须说明
-忙碌状态。非模态锚定 Popover 不设 focus trap，保留 Esc、点击外部与必要输入定位。原有运行配置下拉框交互不重做。
+忙碌状态。队员头像选择/裁切弹窗按已确认交互作为限定例外：关闭后恢复实际头像入口的 DOM focus，
+不滚动、不增加焦点装饰；详见 [队员身份](../components/member-identity.md)。
+非模态锚定 Popover 不设 focus trap，保留 Esc、点击外部与必要输入定位。原有运行配置下拉框交互不重做。
 Approval Dock 是非模态且不得遮住 Composer/Stop。
 
 ## Announcements and motion

@@ -29,12 +29,13 @@ describe('first-run onboarding flow', () => {
     expect(markup).toContain('aria-label="第 1 步，共 3 步"')
   })
 
-  it('uses one selected portrait and a four-row text roster', () => {
+  it('uses one selected avatar and a four-row text roster', () => {
     const markup = renderOnboarding({
       ...snapshot('member'),
       selectedMemberRole: 'muwa'
     })
-    expect(markup.match(/onboarding-selected-portrait/g)).toHaveLength(1)
+    expect(markup.match(/onboarding-selected-avatar/g)).toHaveLength(1)
+    expect(markup).not.toContain('onboarding-selected-portrait')
     expect(markup.match(/class="onboarding-member-row"/g)).toHaveLength(4)
     expect(markup).not.toContain('onboarding-member-row-portrait')
     expect(markup).toContain('下一步')

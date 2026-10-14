@@ -158,7 +158,7 @@ SELECT json_object(
     'errorCode', CASE WHEN a.source_authority = 'core'
         THEN CASE WHEN original_e.id IS NULL THEN COALESCE(json_extract(last_e.result_preview_json, '$.errorCode'), json_extract(last_e.input_preview_json, '$.errorCode'), json_extract(last_e.payload_preview_json, '$.errorCode')) ELSE COALESCE(json_extract(original_e.result_preview_json, '$.errorCode'), json_extract(original_e.input_preview_json, '$.errorCode'), json_extract(original_e.payload_preview_json, '$.errorCode')) END ELSE NULL END
 )
-FROM canonical_runtime_activity a
+FROM execution_activity a
 JOIN agent_run r ON r.id = a.agent_run_id LEFT JOIN eligible_turns t ON t.id = r.camp_turn_id
 LEFT JOIN agent_run_execution_evidence first_e
     ON first_e.agent_run_id = a.agent_run_id AND first_e.sequence = a.first_evidence_sequence
@@ -618,6 +618,12 @@ mod tests {
                 params![run_id, classifier, params.since.to_rfc3339()]
             ).unwrap();
         }
+        database.connection().execute("INSERT INTO agent_run_execution_evidence(id,agent_run_id,execution_epoch,sequence,event_type,kind,phase,
+            payload_preview_json,content_byte_count,is_truncated,occurred_at,operation_id,revision,storage_version,input_preview_json,result_preview_json,activity_meta_json)
+            VALUES('trace-new',?1,0,4,'runtime.action','tool_result','completed','{}',0,0,?2,'new-operation',1,3,'{}',?3,?4)",
+            params![run_id,params.since.to_rfc3339(),json!({"idempotentReplay":false,"errorCode":null,"rawBody":"PRIVATE_NEW_CANARY"}).to_string(),
+                json!({"classifierVersion":CLASSIFIER_VERSION,"activityDomain":"tool","phase":"terminal","outcome":"succeeded",
+                    "coverageLevel":"fine_grained","sourceAuthority":"core","credibility":"core_verified"}).to_string()]).unwrap();
         // Reject body hydration and any DML at SQLite's boundary.
         database.connection().authorizer(Some(|context: rusqlite::hooks::AuthContext<'_>| match context.action {
             AuthAction::Insert {..} | AuthAction::Update {..} | AuthAction::Delete {..} => Authorization::Deny,
@@ -626,10 +632,10 @@ mod tests {
         })).unwrap();
         let report = export(&mut database, &params).unwrap();
         assert_eq!(report["facts"]["runs"].as_array().unwrap().len(), 1);
-        assert_eq!(report["facts"]["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(report["facts"]["tools"].as_array().unwrap().len(), 2);
         assert_eq!(
             report["metrics"]["tools"]["bySource"]["core"]["terminalOutcomesInWindow"]["succeeded"],
-            1
+            2
         );
         assert!(!report.to_string().contains("PRIVATE_"));
         assert!(!report.to_string().contains(workspace.to_str().unwrap()));

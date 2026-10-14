@@ -151,6 +151,8 @@ pub(crate) fn register_preview_function(connection: &rusqlite::Connection) -> Re
         rusqlite::functions::FunctionFlags::SQLITE_UTF8
             | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
         |ctx| {
+            #[cfg(test)]
+            PREVIEW_READS.set(PREVIEW_READS.get() + 1);
             if ctx.get::<i64>(0)? == 1 {
                 return ctx.get::<String>(1);
             }
@@ -165,6 +167,43 @@ pub(crate) fn register_preview_function(connection: &rusqlite::Connection) -> Re
         },
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    // Isolated fixtures replay the identical event stream through retained legacy writers.
+    static TEST_OPERATION_STORAGE: std::cell::Cell<i64> = const { std::cell::Cell::new(3) };
+    static PREVIEW_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static FULL_PAYLOAD_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn take_read_counts() -> (u64, u64) {
+    (PREVIEW_READS.replace(0), FULL_PAYLOAD_READS.replace(0))
+}
+
+fn new_operation_storage_version() -> i64 {
+    #[cfg(test)]
+    {
+        TEST_OPERATION_STORAGE.get()
+    }
+    #[cfg(not(test))]
+    {
+        3
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn with_operation_storage_for_test<T>(version: i64, f: impl FnOnce() -> T) -> T {
+    struct Restore(i64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_OPERATION_STORAGE.set(self.0);
+        }
+    }
+    assert!((1..=3).contains(&version));
+    let _restore = Restore(TEST_OPERATION_STORAGE.replace(version));
+    f()
 }
 
 pub(crate) fn allocate_change_sequence(
@@ -1097,8 +1136,25 @@ impl ExecutionEvidenceService {
             phase,
             payload,
         );
-        if !proposed_facts.is_activity || proposed_facts.identity_authority == "evidence" {
+        if !proposed_facts.is_activity {
             return Ok(None);
+        }
+        // Without a reliable operation ID each observation is a distinct operation. Only an
+        // exact source-event replay is deduplicated; command text never establishes identity.
+        if proposed_facts.identity_authority == "evidence" {
+            if let Some(key) = source_event_key {
+                let tx = database.connection_mut().transaction()?;
+                if let Some(mut evidence) = load_by_source_key(&tx, agent_run_id, key)? {
+                    evidence.canonical = load_canonical_for_evidence(&tx, &evidence.id)?;
+                    tx.commit()?;
+                    return Ok(Some(Some(RecordedExecutionEvidence {
+                        evidence,
+                        inserted: false,
+                        file_facts_changed: false,
+                    })));
+                }
+                tx.commit()?;
+            }
         }
         let operation_id = proposed_facts.operation_id.clone();
         let existing = load_lifecycle_evidence(
@@ -1279,7 +1335,12 @@ impl ExecutionEvidenceService {
                 return Ok(Some(None));
             }
             let row = existing.expect("semantic equality requires an existing lifecycle row");
-            let canonical = load_canonical_for_evidence(&transaction, &row.id)?;
+            let mut canonical = load_canonical_for_evidence(&transaction, &row.id)?;
+            if row.storage_version == 3 {
+                if let Some(activity) = canonical.as_mut() {
+                    hydrate_operation_diff(activity, &lifecycle_combined_payload(&row), &row.id);
+                }
+            }
             transaction.commit()?;
             return Ok(Some(Some(RecordedExecutionEvidence {
                 evidence: lifecycle_evidence_view(
@@ -1332,7 +1393,9 @@ impl ExecutionEvidenceService {
                 .transpose()?
                 .as_ref(),
         );
-        let storage_version = existing.as_ref().map_or(2, |row| row.storage_version);
+        let storage_version = existing
+            .as_ref()
+            .map_or_else(new_operation_storage_version, |row| row.storage_version);
         let preview_json = if storage_version == 1 {
             serde_json::to_string(&preview)?
         } else {
@@ -1520,67 +1583,81 @@ impl ExecutionEvidenceService {
             &next_phase,
             &next_combined,
         );
-        let previous_facts = canonical_activity::classify_evidence_with_version(
-            canonical_activity::PREVIOUS_CLASSIFIER_VERSION,
-            agent_run_id,
-            execution_epoch,
-            &id,
-            &next_event_type,
-            &next_kind,
-            &next_phase,
-            &next_combined,
-        );
-        let intermediate_facts = canonical_activity::classify_evidence_with_version(
-            canonical_activity::INTERMEDIATE_CLASSIFIER_VERSION,
-            agent_run_id,
-            execution_epoch,
-            &id,
-            &next_event_type,
-            &next_kind,
-            &next_phase,
-            &next_combined,
-        );
-        let legacy_facts = canonical_activity::classify_evidence_with_version(
-            canonical_activity::LEGACY_CLASSIFIER_VERSION,
-            agent_run_id,
-            execution_epoch,
-            &id,
-            &next_event_type,
-            &next_kind,
-            &next_phase,
-            &next_combined,
-        );
-        let canonical = upsert_canonical_activity(
-            &transaction,
-            agent_run_id,
-            execution_epoch,
-            sequence,
-            &id,
-            &occurred_at,
-            EvidenceActivityClassifications {
-                current: &facts,
-                previous: &previous_facts,
-                intermediate: &intermediate_facts,
-                legacy: &legacy_facts,
-            },
-        )?;
-        if incoming_is_start && let Some(canonical) = canonical.as_ref() {
-            transaction.execute(
-                r#"
+        let canonical = if storage_version == 3 {
+            upsert_unified_activity(
+                &transaction,
+                &id,
+                sequence,
+                revision,
+                &occurred_at,
+                incoming_is_start,
+                &facts,
+                existing_payload.as_ref(),
+            )?
+        } else {
+            let previous_facts = canonical_activity::classify_evidence_with_version(
+                canonical_activity::PREVIOUS_CLASSIFIER_VERSION,
+                agent_run_id,
+                execution_epoch,
+                &id,
+                &next_event_type,
+                &next_kind,
+                &next_phase,
+                &next_combined,
+            );
+            let intermediate_facts = canonical_activity::classify_evidence_with_version(
+                canonical_activity::INTERMEDIATE_CLASSIFIER_VERSION,
+                agent_run_id,
+                execution_epoch,
+                &id,
+                &next_event_type,
+                &next_kind,
+                &next_phase,
+                &next_combined,
+            );
+            let legacy_facts = canonical_activity::classify_evidence_with_version(
+                canonical_activity::LEGACY_CLASSIFIER_VERSION,
+                agent_run_id,
+                execution_epoch,
+                &id,
+                &next_event_type,
+                &next_kind,
+                &next_phase,
+                &next_combined,
+            );
+            let canonical = upsert_canonical_activity(
+                &transaction,
+                agent_run_id,
+                execution_epoch,
+                sequence,
+                &id,
+                &occurred_at,
+                EvidenceActivityClassifications {
+                    current: &facts,
+                    previous: &previous_facts,
+                    intermediate: &intermediate_facts,
+                    legacy: &legacy_facts,
+                },
+            )?;
+            if incoming_is_start && let Some(canonical) = canonical.as_ref() {
+                transaction.execute(
+                    r#"
                 UPDATE canonical_runtime_activity
                 SET started_at = COALESCE(started_at, ?5), updated_at = ?5
                 WHERE agent_run_id = ?1 AND execution_epoch = ?2
                   AND operation_id = ?3 AND classifier_version = ?4
                 "#,
-                params![
-                    agent_run_id,
-                    execution_epoch,
-                    canonical.operation_id,
-                    canonical.classifier_version,
-                    occurred_at,
-                ],
-            )?;
-        }
+                    params![
+                        agent_run_id,
+                        execution_epoch,
+                        canonical.operation_id,
+                        canonical.classifier_version,
+                        occurred_at,
+                    ],
+                )?;
+            }
+            canonical
+        };
         transaction.commit()?;
         Ok(Some(Some(RecordedExecutionEvidence {
             evidence: AgentRunExecutionEvidence {
@@ -1614,6 +1691,8 @@ impl ExecutionEvidenceService {
         camp_id: &str,
         evidence_id: &str,
     ) -> Result<Value> {
+        #[cfg(test)]
+        FULL_PAYLOAD_READS.set(FULL_PAYLOAD_READS.get() + 1);
         let row = database
             .connection()
             .query_row(
@@ -1661,6 +1740,8 @@ impl ExecutionEvidenceService {
         blob_store: &ManagedBlobStore,
         evidence_id: &str,
     ) -> Result<Value> {
+        #[cfg(test)]
+        FULL_PAYLOAD_READS.set(FULL_PAYLOAD_READS.get() + 1);
         let row = database
             .connection()
             .query_row(
@@ -2106,7 +2187,7 @@ fn fill_missing(latest: &mut Value, earlier: &Value) {
     }
 }
 
-fn combine_lifecycle_values(input: &Value, result: Option<&Value>) -> Value {
+pub(crate) fn combine_lifecycle_values(input: &Value, result: Option<&Value>) -> Value {
     let mut combined = result.cloned().unwrap_or(Value::Null);
     fill_missing(&mut combined, input);
     combined
@@ -3162,6 +3243,91 @@ fn load_by_source_key(
         .transpose()
 }
 
+// Only the selected operation's original payload can supply a patch. Never infer a
+// successful change from output text, and never revive a conflicting diff summary.
+pub(crate) fn hydrate_operation_diff(
+    activity: &mut CanonicalRuntimeActivity,
+    payload: &Value,
+    evidence_id: &str,
+) {
+    let Some(summary) = activity.diff_projection.as_mut() else {
+        return;
+    };
+    if summary.status != "available" {
+        return;
+    }
+    if let Some(full) = crate::runtime_diff::projection_from_evidence(payload, evidence_id) {
+        if full.status == "available" && full.semantic_kind == summary.semantic_kind {
+            summary.entries = full.entries;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn upsert_unified_activity(
+    transaction: &rusqlite::Transaction<'_>,
+    evidence_id: &str,
+    sequence: i64,
+    revision: i64,
+    occurred_at: &str,
+    incoming_is_start: bool,
+    facts: &EvidenceActivityFacts,
+    prior_payload: Option<&Value>,
+) -> Result<Option<CanonicalRuntimeActivity>> {
+    let prior = load_canonical_for_evidence(transaction, evidence_id)?;
+    let mut projection = match prior {
+        Some(mut prior) => {
+            if let Some(payload) = prior_payload {
+                hydrate_operation_diff(&mut prior, payload, evidence_id);
+            }
+            canonical_activity::merge_projection(prior, facts.clone(), evidence_id, sequence)
+        }
+        None => canonical_activity::new_projection(facts.clone(), evidence_id, sequence)
+            .context("Operation must have activity facts")?,
+    };
+    projection.revision = revision;
+    let mut small = projection.clone();
+    if let Some(hint) = small.presentation_hint.as_mut() {
+        // Full input/title remains readable in the operation payload.
+        *hint = hint.chars().take(256).collect();
+    }
+    if let Some(entries) = small
+        .diff_projection
+        .as_mut()
+        .and_then(|p| p.entries.as_mut())
+    {
+        for entry in entries {
+            entry.diff.clear();
+        }
+    }
+    let mut metadata = serde_json::to_value(small)?;
+    let fields = metadata
+        .as_object_mut()
+        .expect("activity serializes as an object");
+    for key in [
+        "operationId",
+        "sourceEvidenceIds",
+        "firstEvidenceSequence",
+        "lastEvidenceSequence",
+        "revision",
+    ] {
+        fields.remove(key);
+    }
+    transaction.execute(
+        "UPDATE agent_run_execution_evidence SET activity_meta_json=?2,
+        activity_started_at=COALESCE(activity_started_at,?3),
+        activity_terminal_at=COALESCE(?4,activity_terminal_at)
+        WHERE id=?1 AND storage_version=3",
+        params![
+            evidence_id,
+            serde_json::to_string(&metadata)?,
+            incoming_is_start.then_some(occurred_at),
+            (facts.phase == "terminal").then_some(occurred_at)
+        ],
+    )?;
+    Ok(Some(projection))
+}
+
 struct EvidenceActivityClassifications<'a> {
     current: &'a EvidenceActivityFacts,
     previous: &'a EvidenceActivityFacts,
@@ -3314,6 +3480,36 @@ fn load_canonical_for_evidence(
     transaction: &rusqlite::Transaction<'_>,
     evidence_id: &str,
 ) -> Result<Option<CanonicalRuntimeActivity>> {
+    let unified = transaction
+        .query_row(
+            "SELECT storage_version,activity_meta_json,operation_id,sequence,revision
+         FROM agent_run_execution_evidence WHERE id=?1",
+            [evidence_id],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Option<i64>>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    if let Some((3, metadata, operation_id, sequence, revision)) = unified {
+        let Some(metadata) = metadata else {
+            return Ok(None);
+        };
+        return Ok(Some(activity_from_stored_metadata(
+            &metadata,
+            evidence_id,
+            operation_id
+                .as_deref()
+                .context("Unified operation identity missing")?,
+            sequence,
+            revision.context("Unified operation revision missing")?,
+        )?));
+    }
     transaction
         .query_row(
             r#"
@@ -3356,6 +3552,22 @@ fn load_canonical_for_evidence(
         )
         .optional()
         .map_err(Into::into)
+}
+
+pub(crate) fn activity_from_stored_metadata(
+    metadata: &str,
+    evidence_id: &str,
+    operation_id: &str,
+    sequence: i64,
+    revision: i64,
+) -> Result<CanonicalRuntimeActivity> {
+    let mut value: Value = serde_json::from_str(metadata)?;
+    value["operationId"] = serde_json::json!(operation_id);
+    value["sourceEvidenceIds"] = serde_json::json!([evidence_id]);
+    value["firstEvidenceSequence"] = serde_json::json!(sequence);
+    value["lastEvidenceSequence"] = serde_json::json!(sequence);
+    value["revision"] = serde_json::json!(revision);
+    Ok(serde_json::from_value(value)?)
 }
 
 fn canonical_activity_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CanonicalRuntimeActivity> {
@@ -4960,25 +5172,28 @@ mod tests {
         let discarded_output_marker = "OUTPUT_AFTER_7680_MUST_NOT_PERSIST";
         let output = format!("{}{discarded_output_marker}", "x".repeat(7_680));
         let structured_diff = format!("DIFF_REMAINS_READABLE\n{}", "d".repeat(20_000));
-        let started_command = ExecutionEvidenceService
-            .record_runtime_event(
-                &mut database,
-                &blob_store,
-                &run_id,
-                execution_epoch,
-                "activity.started",
-                &json!({
-                    "item": {
-                        "id": "command-1",
-                        "type": "commandExecution",
-                        "command": "cargo test",
-                        "status": "inProgress",
-                    }
-                }),
-            )
-            .unwrap()
-            .unwrap();
+        let started_command = with_operation_storage_for_test(2, || {
+            ExecutionEvidenceService
+                .record_runtime_event(
+                    &mut database,
+                    &blob_store,
+                    &run_id,
+                    execution_epoch,
+                    "activity.started",
+                    &json!({
+                        "item": {
+                            "id": "command-1",
+                            "type": "commandExecution",
+                            "command": "cargo test",
+                            "status": "inProgress",
+                        }
+                    }),
+                )
+                .unwrap()
+                .unwrap()
+        });
         assert_eq!(started_command.sequence, 1);
+        crate::db::assert_unified_activity_upgrade(&mut database);
         crate::db::assert_execution_storage_upgrade(&mut database);
 
         let evidence = ExecutionEvidenceService
@@ -5300,7 +5515,7 @@ mod tests {
         let stored: (i64,String) = database.connection().query_row(
             "SELECT storage_version,payload_preview_json FROM agent_run_execution_evidence WHERE id=?1", [&terminal_first.id],
             |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
-        assert_eq!(stored, (2, "{}".to_owned()));
+        assert_eq!(stored, (3, "{}".to_owned()));
         assert!(
             database
                 .connection()
@@ -5358,7 +5573,7 @@ mod tests {
         assert_eq!(late_start.payload["item"]["status"], "completed");
         assert_eq!(late_start.payload["item"]["command"], "printf late-start");
         let canonical_started: bool = database.connection().query_row(
-            "SELECT started_at IS NOT NULL FROM canonical_runtime_activity WHERE agent_run_id = ?1 AND operation_id = ?2",
+            "SELECT started_at IS NOT NULL FROM execution_activity WHERE agent_run_id = ?1 AND operation_id = ?2",
             params![run_id, late_start.canonical.as_ref().unwrap().operation_id],
             |row| row.get(0),
         ).unwrap();
@@ -5976,7 +6191,7 @@ mod tests {
             "NEVER_PERSIST_PROGRESS_",
         ] {
             let leaked: bool = database.connection().query_row(
-                "SELECT EXISTS(SELECT 1 FROM agent_run_execution_evidence WHERE instr(payload_preview_json,?1)>0 OR instr(input_preview_json,?1)>0 OR instr(result_preview_json,?1)>0)
+                "SELECT EXISTS(SELECT 1 FROM agent_run_execution_evidence WHERE instr(payload_preview_json,?1)>0 OR instr(input_preview_json,?1)>0 OR instr(result_preview_json,?1)>0 OR instr(activity_meta_json,?1)>0)
                  OR EXISTS(SELECT 1 FROM event_log WHERE instr(payload_json,?1)>0)
                  OR EXISTS(SELECT 1 FROM canonical_runtime_activity WHERE instr(diff_projection_json,?1)>0)", [marker], |r| r.get(0)).unwrap();
             assert!(!leaked, "ordinary output suffix leaked into durable SQL");
@@ -5996,6 +6211,67 @@ mod tests {
                 );
             }
         }
+        // New operations without a reliable operation ID stay separate even for identical text.
+        database.connection().execute("UPDATE agent_run SET status='running',ended_at=NULL,cancel_requested_at=NULL WHERE id=?1",[&run_id]).unwrap();
+        let anonymous = |key: &str| json!({"eventId":key,"kind":"execute","status":"completed","input":"same command","output":"done"});
+        let first = ExecutionEvidenceService
+            .record_runtime_event(
+                &mut database,
+                &blob_store,
+                &run_id,
+                execution_epoch,
+                "runtime.action",
+                &anonymous("anonymous-1"),
+            )
+            .unwrap()
+            .unwrap();
+        let second = ExecutionEvidenceService
+            .record_runtime_event(
+                &mut database,
+                &blob_store,
+                &run_id,
+                execution_epoch,
+                "runtime.action",
+                &anonymous("anonymous-2"),
+            )
+            .unwrap()
+            .unwrap();
+        let replay = ExecutionEvidenceService
+            .record_runtime_event(
+                &mut database,
+                &blob_store,
+                &run_id,
+                execution_epoch,
+                "runtime.action",
+                &anonymous("anonymous-1"),
+            )
+            .unwrap()
+            .unwrap();
+        assert_ne!(first.operation_id, second.operation_id);
+        assert_eq!(first.id, replay.id);
+        assert!(!replay.inserted);
+        let legacy_two = with_operation_storage_for_test(2, || {
+            ExecutionEvidenceService.record_runtime_event(&mut database,&blob_store,&run_id,execution_epoch,
+            "runtime.action",&json!({"toolCallId":"old-format-two","kind":"execute","status":"started","input":"legacy operation"})).unwrap().unwrap()
+        });
+        let finished_two=ExecutionEvidenceService.record_runtime_event(&mut database,&blob_store,&run_id,execution_epoch,
+            "runtime.action",&json!({"toolCallId":"old-format-two","kind":"execute","status":"completed","output":"finished safely"})).unwrap().unwrap();
+        assert_eq!(finished_two.id, legacy_two.id);
+        assert_eq!(
+            database
+                .connection()
+                .query_row(
+                    "SELECT storage_version FROM agent_run_execution_evidence WHERE id=?1",
+                    [&legacy_two.id],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            2
+        );
+        let copies:i64=database.connection().query_row("SELECT count(*) FROM canonical_runtime_activity a JOIN agent_run_execution_evidence e
+            ON e.agent_run_id=a.agent_run_id AND e.execution_epoch=a.execution_epoch AND e.operation_id=a.operation_id WHERE e.storage_version=3",[],|r|r.get(0)).unwrap();
+        assert_eq!(copies, 0);
+        assert_eq!(database.connection().query_row("SELECT count(*) FROM agent_run_execution_evidence WHERE storage_version=3 AND activity_meta_json IS NULL",[],|r|r.get::<_,i64>(0)).unwrap(),0);
         // A legacy Action result has no SQL FK and no other reference.
         let action_blob = blob_store
             .put_bytes(
@@ -6029,7 +6305,7 @@ mod tests {
         let sizes: (i64,i64,i64) = database.connection().query_row(
             "SELECT count(*),sum(length(CAST(payload_preview_json AS BLOB))),
                 sum(length(CAST(rovai_execution_preview(storage_version,payload_preview_json,input_preview_json,result_preview_json) AS BLOB)))
-             FROM agent_run_execution_evidence WHERE storage_version=2", [],
+             FROM agent_run_execution_evidence WHERE storage_version=3", [],
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
         println!(
             "storage_pr1_new_rows={} combined_bytes_saved={} marker_bytes={} reconstructed_bytes={}",

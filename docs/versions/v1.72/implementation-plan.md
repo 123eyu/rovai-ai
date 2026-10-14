@@ -40,7 +40,9 @@ User 确认优先修 Pi 接收容量及错误类型，采用单帧默认 64 MiB�
 - `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`（10 项）、`pnpm docs:check` 与
   相对上述基线的 `pnpm docs:check:ci` 通过。
 
-状态：ready，保留当前 worktree 供 PR 评审，下一步为 Review / CI 后按主线流程合入。
+User 于 2026-10-14 要求合入 PR #743。合入前同步主干 `321cffdc0a21ef0a2c6b1721e0f75bd430477e8e`，
+仅版本概览的并列新增段落发生冲突，两项记录均保留；七个 Rust 文件相对新主干的修复与原提交一致。
+同步后再次通过默认 Rust 471 项、定向 27 项，以及格式和通用文档门禁，既有人工 smoke 仍忽略。
 验证使用隔离临时数据库及合成 Pi 管道，不启动日常 Core、App 或真实模型。
 
 ## 会话切换读取回归修复（2026-10-13）

@@ -346,6 +346,7 @@ last_updated: 2026-10-14
 - 同一 Camp、队员和当前 Conversation，未重置且 AdapterKind 相同，优先把当前绑定的原生 ID 交给 Adapter 恢复。历史配置、安装记录、版本、指纹、兼容 key 或上下文摘要不否决资格；切换 CLI 类型不传递旧 ID。当前权限、工具、工作目录、进程归属与执行防重继续检查。恢复目标与业务输入接收是不同权威。
 - Adapter 在恢复调用处提供结论；只有能力不支持、针对恢复请求的结构化拒绝或已有精确目标核验才允许一次新建。认证、网络、锁、初始化、模型、MCP、取消和超时等不能从报错文本推断旧历史失效。新建成功并绑定后才切换目标和提示，失败保留旧目标；完整行为见 [Runtime Launch v60](../contracts/runtime-launch-and-verification-v60.md)。
 - Bootstrap、章程和上下文格式变化不触发 Session rotation。新 Run 按现有装配方式生成当前 Bootstrap；旧原生历史允许保留旧说明。`SESSION_CHARTER → MEMBER_IDENTITY → ROVAI_PLATFORM_SKILLS → MEMORY_ENTRYPOINT?` 的结构及公开/Single Chat 输入区别不变。
+- 新 public Run 在 claim 时冻结本次启动内容与预算相关区段；首次物化和后续 Binding 准备复用同一内容，后续 Memory／身份编辑进入下一 Run。FIFO 按完整 payload 选批，同包 Bootstrap 以实际字节加补发包装预留；独立系统层保持原规则，见 [Profile 13](../contracts/context-delivery-profile-v13.md)。
 - 同一 Run/Binding/generation 的 Bootstrap 与 Manifest bytes 保持冻结。历史 Bootstrap 不作为下一个 Run 的必读材料，损坏或缺失不挡续聊；现有 Evidence 表保留每次准备结果和旧 Blob 引用。是否投递仍由 Adapter delivery mode、Charter digest、redelivery requirement 和 accepted Input 门禁决定；不重复业务输入，也不伪造已接受事实。
 - Session Charter 只拥有稳定产品合同、工具/Skill 进入方法与协作纪律，不复制 operation schema；文案及格式版本不构成原生历史有效性的证明。
 - Bootstrap 各组件、完整序列化 bytes 和实际投递是不同 evidence 层；不用“已生成完整 Bootstrap”替代 Runtime accepted evidence。ContextManifest 保存实际输入与必要来源，Runtime Input Delivery Evidence 记录实际 bytes 与 accepted ACK；只有当前有效 Run/epoch 和 Native Binding 的 accepted ACK 推进 Conversation 水位；明确未接受才可重新准备，accepted/unknown 不自动重发。迟到回执只补充证据，不修改 successor 水位。
@@ -358,7 +359,7 @@ last_updated: 2026-10-14
 
 ### 公共历史按需读取与实时读取
 
-- 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。正文/作者的各自投影不变，非 batch 和单聊保持旧字段。新 Run 使用 [Manifest v34](../contracts/context-manifest-evidence-v34.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
+- 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。正文/作者的各自投影不变，非 batch 和单聊保持旧字段。新 Run 使用 [Manifest v36](../contracts/context-manifest-evidence-v36.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
 
 - 新公开 batch AgentRun 不自动生成 `SHARED_CONVERSATION`、历史摘要或遗漏 locator。`RUN_INPUT` 仍完整有序。`RUN_FACTS.historyHint` 依据本 Agent 在此 Camp 上一次有效 accepted ACK 对应执行前公屏尾 `P` 以及本轮 claim 冻结的额外可见消息布尔结果选四种完整句子；存在只表示额外可见消息，不增加工作责任、不要求读取。提示是历史参考点，不代表阅读或完成，也不是 `camp.read --before` 游标。Charter 保留不推断遗漏、仅需当前工作时读取的纪律；`RUN_INPUT` 和已有上下文足够就直接推进，仅在缺少当前工作所需 Camp context 时 `rovai camp read`。
 - claim 同一事务用 `P`、本轮公屏尾 `T`、最终领取进入 `RUN_INPUT.messages` 的全部 ID `I` 与当前 Agent `A` 检查额外可见消息：`P > 0` 查 `(P, T]`、`P = 0` 查 `<= T`，首轮也查实际历史。可见性沿用当前 Camp `camp.read` 时间线的同 Camp／非 tombstone 规则，撤回占位符计入；仅排除 `I` 和 `author_type = agent, author_id = A`。发给其他 Agent 的可见消息及未领取队尾仍计入；不能用 waiting Delivery 候选代替历史可见集合。只做无正文、无数量、无分页上限的 `EXISTS`，失败回滚整个 claim，不创建无判断结果的 Run。Run 内部冻结 `P` 与布尔值，不复制历史；后续消息、撤回或水位变化均不重算原提示。

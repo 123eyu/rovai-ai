@@ -2516,6 +2516,23 @@ fn load_active_memory_records(connection: &Connection) -> Result<Vec<MemoryRecor
         .map_err(Into::into)
 }
 
+/// Startup discovery needs current metadata, not every historical Memory body.
+pub(crate) fn entrypoint_memories(connection: &Connection) -> Result<Vec<MemoryView>> {
+    load_active_memory_records(connection)?
+        .into_iter()
+        .map(|record| {
+            let keys = load_retrieval_keys(
+                connection,
+                record
+                    .current_revision_id
+                    .as_deref()
+                    .context("active Memory has no current Revision")?,
+            )?;
+            memory_view_from_record(connection, record, Vec::new(), keys)
+        })
+        .collect()
+}
+
 fn load_retrieval_keys(connection: &Connection, revision_id: &str) -> Result<Vec<String>> {
     let mut statement = connection.prepare(
         r#"

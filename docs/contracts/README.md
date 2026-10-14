@@ -43,7 +43,9 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 ## 模型消息 Mention
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
-- [ContextManifest v34（当前）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
+- [ContextManifest v36（当前）](context-manifest-evidence-v36.md)：claim 快照与完整预算，public 36/13/9，non-batch 35/12/6 保持。
+- [Context Delivery Profile v13（当前 public batch）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
+- [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
 - [Camp History v12（当前）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
 

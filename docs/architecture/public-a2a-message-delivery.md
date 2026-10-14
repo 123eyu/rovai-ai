@@ -9,7 +9,7 @@ last_updated: 2026-10-08
 # Public Camp Message、Delivery 与 AgentRun
 
 本架构定义公开 Camp 的统一消息执行主链。字段合同见 [Camp Message Send v25](../contracts/camp-message-send-v25.md)、
-[Message Delivery v11](../contracts/message-delivery-v11.md)、[ContextManifest 30](../contracts/context-manifest-evidence-v30.md)
+[Message Delivery v11](../contracts/message-delivery-v11.md)、[ContextManifest 36](../contracts/context-manifest-evidence-v36.md)
 与 [Camp History v11](../contracts/camp-history-v11.md)。Single Chat 不使用本主链。
 
 ## 三类事实
@@ -56,11 +56,11 @@ Runtime 配置。Scheduler 获得执行资格时，在一个事务中：
 1. 幂等补建历史 waiting lane 缺失的 Camp-member Conversation；只处理仍 active/present 的目标；
 2. 分别检查当前 membership、同一 Camp+Agent 旧执行隔离，以及实际共享 executionRoot 的清理门禁；
 3. 读取当前 Runtime、模型、模式、工作区、工具与权限配置；
-4. 用本次 Runtime payload capacity 和正式 `RUN_INPUT.messages[]` 投影/序列化结果，从队首选取能完整交付的
+4. 准备本 Run 的 Bootstrap 与动态上下文快照，用本次 Runtime payload capacity 和正式 `RUN_INPUT.messages[]` 投影/序列化结果，从队首选取能完整交付的
    最大连续前缀，不跳过任何中间项；每条消息按自身 ID 投影正文、quotes、source attachments 与 Skills；
 5. 在同一事务内用上次有效接受边界、本次公屏尾、最终选择的全部输入 ID 和当前 Agent，对可见公屏历史做无分页上限的 `EXISTS`；排除已选输入和自己写的消息，查询失败回滚 claim；完整 `historyHint` 文本纳入容量预算；
 6. 创建一个 batch AgentRun 和有序 AgentRunInput，在 Run 内冻结该边界和额外消息判断；
-7. 以最后一条输入作为 Run anchor，冻结 ContextManifest 和实际执行配置；
+7. 以最后一条输入作为 Run anchor，同事务保存 claim 上下文快照和实际执行配置；后续物化使用相同内容；
 8. 把所选 Delivery 原子改为 claimed 并绑定该 Run。
 
 用户、Agent、Mission、Automation 与 Channel 来源使用同一规则，不形成批次边界。新消息不会追加到已冻结 Run。
@@ -80,7 +80,7 @@ Single Chat Pending 接续与 non-batch Run 由自己的提交后通知推进，
 业务 deadline 或实际失败的 retry deadline 到期时重验。既有低频资源回收仍保留，不承担正常消息推进。
 
 必要 `RUN_INPUT` 优先于可选 Self Active Tasks。`RUN_FACTS.historyHint` 计入完整 payload 预算。队首单条也超过当前 Runtime profile 时，Core 创建明确的 preflight-failed Run，
-不向 Runtime 发送截断内容，并让队列随后继续。完整选择规则见 [Profile 9](../contracts/context-delivery-profile-v9.md)。
+不向 Runtime 发送截断内容，并让队列随后继续。完整选择规则见 [Profile 13](../contracts/context-delivery-profile-v13.md)。同包 Bootstrap 按本 Run 实际冻结内容预留完整补发空间，避免领取后 Memory 更新或 Session 更换使预算不足。未领取消息保持 waiting；已领取 Run 不重新拆批。
 
 ## 可见性与撤回
 
@@ -142,3 +142,11 @@ PublicOnly 只抑制 Agent 路由，仍允许用户提及；通知沿用当前�
 本查询不建立快照分页、缓存或调度管理机制；动态页间变化按命令说明保留明确限制。
 
 用户主动继续复用此队列，但单独成批，普通消息合批不跨过续做请求；旧 Run 与旧投递终态不变。
+
+### claim 前的 Mission 工作区准备
+
+新 public batch 先由现有 Mission workspace owner 异步准备真实执行目录、读取实际 Git branch，
+再把完整 WORKSPACE 计入选批快照。每 Camp 至多一个准备任务；普通 lane 可继续领取和派发。
+SQLite claim 事务只复核准备结果的 workspace ID、generation、preparation token、目录和当前
+成员／Delivery 准入。结果过期则保留 waiting 并重新发现，不使用源 checkout 猜测输入。
+历史 queued Run 保持执行准备边界；Mission cleanup 与删除继续使用既有 workspace lifecycle gate。

@@ -1275,7 +1275,7 @@ impl ContextService {
                     "historyFenceVersion": 1,
                     "globalPublicMessageBoundary": global_public_message_boundary,
                     "historyCampCount": 0,
-            "liveHistoryDirectory": true,
+                    "liveHistoryDirectory": true,
                     "previousAcceptedPublicBoundarySequence": previous_accepted_public_boundary_sequence,
                     "contextDeliveryProfileVersion": profile.profile_version,
 

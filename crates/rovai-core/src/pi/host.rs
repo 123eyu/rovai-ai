@@ -37,7 +37,7 @@ use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncWriteExt, BufReader},
     process::Command,
-    sync::{Mutex, RwLock, mpsc, oneshot},
+    sync::{Mutex, Notify, RwLock, mpsc, oneshot},
     time::timeout,
 };
 use url::Url;
@@ -298,6 +298,9 @@ pub(crate) struct PiHost {
     poisoned: AtomicBool,
     provider_registration_failed: AtomicBool,
     streaming: AtomicBool,
+    input_settled: Notify,
+    steering: StdMutex<Option<(String, oneshot::Sender<()>)>>,
+    retire_after_steer: AtomicBool,
     sequence: AtomicU64,
     executable_path: PathBuf,
     builtin_tools: Option<BuiltinToolProcessConfig>,
@@ -570,6 +573,9 @@ impl PiHost {
             poisoned: AtomicBool::new(false),
             provider_registration_failed: AtomicBool::new(false),
             streaming: AtomicBool::new(false),
+            input_settled: Notify::new(),
+            steering: StdMutex::new(None),
+            retire_after_steer: AtomicBool::new(false),
             sequence: AtomicU64::new(0),
             executable_path: launch.executable.to_path_buf(),
             builtin_tools: launch.builtin_tools.clone(),
@@ -707,12 +713,17 @@ impl PiHost {
                 }
                 match message.get("type").and_then(Value::as_str) {
                     Some("agent_start") => host.streaming.store(true, Ordering::Release),
-                    Some("agent_settled") => host.streaming.store(false, Ordering::Release),
+                    Some("agent_settled") => {
+                        host.streaming.store(false, Ordering::Release);
+                        host.input_settled.notify_waiters();
+                    }
                     _ => {}
                 }
                 host.route_message(message).await;
             }
             host.alive.store(false, Ordering::Release);
+            host.steering.lock().unwrap().take();
+            host.input_settled.notify_waiters();
             for (_, pending) in host.pending.lock().await.drain() {
                 let _ = pending.sender.send(Err("Pi RPC Host exited".to_string()));
             }
@@ -774,6 +785,28 @@ impl PiHost {
     }
 
     async fn route_message(&self, message: Value) {
+        if message.get("type").and_then(Value::as_str) == Some("message_start")
+            && message.pointer("/message/role").and_then(Value::as_str) == Some("user")
+        {
+            let content = &message["message"]["content"];
+            let text = content.as_str().map(str::to_owned).or_else(|| {
+                content.as_array().map(|parts| {
+                    parts
+                        .iter()
+                        .filter(|p| p["type"] == "text")
+                        .filter_map(|p| p["text"].as_str())
+                        .collect::<String>()
+                })
+            });
+            let mut steering = self.steering.lock().unwrap();
+            if steering
+                .as_ref()
+                .is_some_and(|(expected, _)| text.as_deref() == Some(expected.as_str()))
+                && let Some((_, receipt)) = steering.take()
+            {
+                let _ = receipt.send(());
+            }
+        }
         // Native RPC exposes extension registration failures separately from a
         // successful get_available_models response. Only this typed event is
         // catalog evidence; generic stderr and unrelated extension errors aren't.
@@ -1379,6 +1412,61 @@ impl PiRuntime {
         self.text_state.lock().await.normalize(message)
     }
 
+    pub(crate) async fn steer(&self, text: &str) -> Result<String> {
+        let settled = self.host.input_settled.notified();
+        tokio::pin!(settled);
+        settled.as_mut().enable();
+        // Retain the exact Host owner until the receipt/queue removal resolves.
+        // A later Run must never inherit a native idle steering queue.
+        let owner = self.host.owner.read().await;
+        if owner.as_ref() != Some(&self.owner)
+            || !self.host.is_alive()
+            || !self.host.streaming.load(Ordering::Acquire)
+        {
+            return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+        }
+        let (sender, mut receipt) = oneshot::channel();
+        {
+            let mut pending = self.host.steering.lock().unwrap();
+            if pending.is_some() {
+                bail!("Pi already has an unresolved input");
+            }
+            *pending = Some((text.to_string(), sender));
+        }
+        self.host.retire_after_steer.store(true, Ordering::Release);
+        let response = self.host.command("steer", json!({"message":text})).await?;
+        if response
+            .pointer("/data/disposition")
+            .and_then(Value::as_str)
+            != Some("queued")
+        {
+            bail!("Pi did not confirm the steering queue disposition");
+        }
+        let result = tokio::select! {
+            biased;
+            accepted = &mut receipt => {
+                accepted.context("Pi lost the native input receipt")?;
+                Ok(self.prompt_id().to_string())
+            }
+            _ = &mut settled => {
+                // Native queued is not consumed. Only exact queue removal proves
+                // a source may return to ordinary delivery after normal success.
+                let cleared = self.host.command("clear_queue", json!({})).await?;
+                if cleared.pointer("/data/steering").and_then(Value::as_array)
+                    .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(text))) {
+                    Err(rovai_core::steer::ActiveInputNotAccepted.into())
+                } else if receipt.try_recv().is_ok() {
+                    Ok(self.prompt_id().to_string())
+                } else { bail!("Pi ended without evidence for this input"); }
+            }
+            _ = tokio::time::sleep(Duration::from_secs(600)) => {
+                bail!("Pi input consumption receipt timed out");
+            }
+        };
+        self.host.steering.lock().unwrap().take();
+        result
+    }
+
     pub async fn start_prompt(&self, message: &str, images: &[PiPromptImage]) -> Result<()> {
         *self.final_message.write().await = None;
         *self.final_stop_reason.write().await = None;
@@ -1506,6 +1594,8 @@ impl PiRuntime {
     }
 
     pub async fn cancel(&self) -> Result<()> {
+        self.host.streaming.store(false, Ordering::Release);
+        self.host.input_settled.notify_waiters();
         self.host.command("abort", json!({})).await?;
         Ok(())
     }
@@ -1914,7 +2004,9 @@ impl PiRpcRuntimeAdapter {
     pub async fn complete_agent_run(&self, agent_run_id: &str, execution_epoch: i64) {
         let runtime = self.take_runtime(agent_run_id, execution_epoch).await;
         let disposition = if let Some(runtime) = runtime {
-            if runtime.cleanup_for_release().await.is_ok() {
+            if runtime.cleanup_for_release().await.is_ok()
+                && !runtime.host.retire_after_steer.load(Ordering::Acquire)
+            {
                 FleetReleaseDisposition::Reusable
             } else {
                 FleetReleaseDisposition::Stop
@@ -3243,7 +3335,7 @@ done
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn late_abort_response_remains_correlated_after_the_waiter_deadline() {
+    async fn active_input_consumption_and_late_abort_keep_exact_rpc_correlation() {
         use std::os::unix::fs::PermissionsExt;
 
         let root = std::env::temp_dir().join(format!(
@@ -3266,6 +3358,16 @@ while IFS= read -r request; do
   case "$request_type" in
     get_state)
       printf '{"type":"response","id":"%s","success":true,"command":"get_state","data":{}}\n' "$request_id"
+      ;;
+    steer)
+      printf '{"type":"response","id":"%s","success":true,"command":"steer","data":{"disposition":"queued"}}\n' "$request_id"
+      case "$request" in
+        *unconsumed*) printf '%s\n' '{"type":"agent_settled"}' ;;
+        *) printf '%s\n' '{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"STEER"}]}}' ;;
+      esac
+      ;;
+    clear_queue)
+      printf '{"type":"response","id":"%s","success":true,"command":"clear_queue","data":{"steering":["unconsumed"],"followUp":[]}}\n' "$request_id"
       ;;
     abort)
       /bin/sleep 0.15
@@ -3321,6 +3423,24 @@ done
             },
         );
 
+        host.bind(runtime.owner.clone()).await.unwrap();
+        assert!(
+            runtime
+                .steer("idle")
+                .await
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
+        host.streaming.store(true, Ordering::Release);
+        assert_eq!(runtime.steer("STEER").await.unwrap(), "prompt-abort");
+        assert!(
+            runtime
+                .steer("unconsumed")
+                .await
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
+        assert!(host.retire_after_steer.load(Ordering::Acquire));
         assert!(
             timeout(Duration::from_millis(20), runtime.cancel())
                 .await
@@ -3345,7 +3465,17 @@ done
                     .to_string()
             })
             .collect::<Vec<_>>();
-        assert_eq!(commands, ["get_state", "abort", "get_state"]);
+        assert_eq!(
+            commands,
+            [
+                "get_state",
+                "steer",
+                "steer",
+                "clear_queue",
+                "abort",
+                "get_state"
+            ]
+        );
         host.shutdown_and_reap().await;
         std::fs::remove_dir_all(root).unwrap();
     }

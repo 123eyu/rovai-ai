@@ -45,7 +45,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
 - [ContextManifest v37（当前）](context-manifest-evidence-v37.md)：普通与 Steer 共用动态上下文，多输入精确回执；public 37/14/10。
 - [Context Delivery Profile v14（当前 public batch）](context-delivery-profile-v14.md)：共同预算与本次投递来源，旧输入原字节恢复。
-- [Message Delivery v13（当前）](message-delivery-v13.md)：用户逐队员 Steer、指定执行与未知结果防重。
+- [Message Delivery v14（当前）](message-delivery-v14.md)：六种 Runtime 用户 Steer、原生回执与结束隔离。
+- [Message Delivery v13（历史）](message-delivery-v13.md)：Codex 用户逐队员 Steer、指定执行与未知结果防重。
 - [ContextManifest v36（历史）](context-manifest-evidence-v36.md)：claim 快照与完整预算，public 36/13/9，non-batch 35/12/6 保持。
 - [Context Delivery Profile v13（历史）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。

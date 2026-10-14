@@ -2942,6 +2942,20 @@ mod tests {
     #[test]
     #[cfg(feature = "extended-tests")]
     fn active_inputs_preserve_initial_context_and_unsubmitted_sources() {
+        for adapter in crate::agent_profile::AdapterKind::ALL {
+            assert_eq!(
+                crate::steer::supports_active_input(adapter.as_str()),
+                matches!(
+                    adapter,
+                    crate::agent_profile::AdapterKind::CodexCli
+                        | crate::agent_profile::AdapterKind::ClaudeCodeCli
+                        | crate::agent_profile::AdapterKind::Pi
+                        | crate::agent_profile::AdapterKind::CodebuddyCli
+                        | crate::agent_profile::AdapterKind::QwenCode
+                        | crate::agent_profile::AdapterKind::GrokBuild
+                )
+            );
+        }
         use crate::context::{
             CharterDeliveryMode, ContextMaterialization, ContextService, MaterializeContextRequest,
         };

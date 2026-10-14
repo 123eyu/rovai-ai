@@ -18,9 +18,11 @@ last_updated: 2026-10-14
 R3 将 historyHint 收缩为四种单句，其余提示词保持原样；补清冻结执行环境、本次来源资源、
 多输入回执与 Run 收尾规则，撤回按旧 Manifest 号一概禁止 Steer 的限制。
 User 在消息 `52de18ca-e5df-4c91-b2a7-ee998f8068b0` 确认开始实施 R3，并要求最终交付逐 Runtime 实测结果。
-当前产品接入 Codex；多队员、附件、纯附件及普通队列独立，未增加插话专用提示词。
+首批产品接入 Codex；多队员、附件、纯附件及普通队列独立，未增加插话专用提示词。
 15 类 Runtime 检查、12 类原生探针、真实 Core 与生产 UI 验收见[实测报告](../../research/runtime-monitoring/steer-2026-10-14.md)。
-完整 12 Case 语义 Gate 缺固定 Judge 配置，尚未运行；不声明全 Runtime 已支持。
+完整 12 Case 语义 Gate 缺固定 Judge 配置，尚未运行。
+User seq23 随后要求接入 Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build，
+并授权真实 LLM 验证，Claude 使用 sub2api。结果见[扩展验收](../../research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 

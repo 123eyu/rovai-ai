@@ -1370,6 +1370,14 @@ struct ZcodeBackgroundRoute {
     finished: bool,
 }
 
+struct QwenSteeringInput {
+    owner: AcpRuntimeOwner,
+    session_id: String,
+    prompt_id: String,
+    text: String,
+    receipt: oneshot::Sender<Result<String>>,
+}
+
 pub(crate) struct AcpHost {
     credential_redactor: Option<rovai_core::runtime_custom_api::CredentialRedactor>,
     adapter_kind: AdapterKind,
@@ -1384,6 +1392,8 @@ pub(crate) struct AcpHost {
     next_id: AtomicU64,
     next_compaction_observation_sequence: AtomicU64,
     grok_acceptance_auto_compact_armed: AtomicBool,
+    retire_after_steer: AtomicBool,
+    qwen_steering: Mutex<HashMap<String, QwenSteeringInput>>,
     routes: RwLock<HashMap<String, AcpSessionRoute>>,
     late_context_owners: RwLock<HashMap<String, (AcpRuntimeOwner, Instant)>>,
     ingress_fence: Mutex<()>,
@@ -1766,6 +1776,8 @@ impl AcpHost {
             next_id: AtomicU64::new(1),
             next_compaction_observation_sequence: AtomicU64::new(1),
             grok_acceptance_auto_compact_armed: AtomicBool::new(false),
+            retire_after_steer: AtomicBool::new(false),
+            qwen_steering: Mutex::new(HashMap::new()),
             routes: RwLock::new(HashMap::new()),
             late_context_owners: RwLock::new(HashMap::new()),
             ingress_fence: Mutex::new(()),
@@ -2034,6 +2046,13 @@ impl AcpHost {
                             message = projected;
                         }
                         let method = message.get("method").and_then(Value::as_str);
+                        if host.adapter_kind == AdapterKind::QwenCode
+                            && method == Some("craft/drainMidTurnQueue")
+                            && message.get("id").is_some()
+                        {
+                            host.drain_qwen_steering(&message).await;
+                            continue;
+                        }
                         if host.client_terminal_mode.is_available()
                             && method.is_some_and(is_acp_client_terminal_method)
                             && message.get("id").is_some()
@@ -2327,6 +2346,11 @@ impl AcpHost {
     }
 
     async fn handle_exit(&self) {
+        for (_, input) in self.qwen_steering.lock().await.drain() {
+            let _ = input
+                .receipt
+                .send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+        }
         if self.exit_handled.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -2391,6 +2415,25 @@ impl AcpHost {
                 session_id,
                 prompt_id,
             } => {
+                // An undrained Qwen callback item has never crossed stdin.
+                let mut queued = self.qwen_steering.lock().await;
+                let ids: Vec<_> = queued
+                    .iter()
+                    .filter(|(_, input)| {
+                        input.owner == owner
+                            && input.session_id == session_id
+                            && input.prompt_id == prompt_id
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                for id in ids {
+                    if let Some(input) = queued.remove(&id) {
+                        let _ = input
+                            .receipt
+                            .send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+                    }
+                }
+                drop(queued);
                 let native_response_succeeded = response.is_ok();
                 let cline_observations = if self.adapter_kind == AdapterKind::ClineCli {
                     match self
@@ -3090,6 +3133,33 @@ impl AcpHost {
                 if !is_session_catalog_update(message) {
                     active_prompt.prompt_activity_observed = true;
                 }
+                // These active-input adapters need the initial native input
+                // acknowledged while work is running. Only prompt-scoped model
+                // or tool activity counts; catalog/history/user echoes do not.
+                if matches!(
+                    self.adapter_kind,
+                    AdapterKind::CodebuddyCli | AdapterKind::QwenCode | AdapterKind::GrokBuild
+                ) && !active_prompt.acceptance_emitted
+                    && (matches!(
+                        message
+                            .pointer("/params/update/sessionUpdate")
+                            .and_then(Value::as_str),
+                        Some(
+                            "agent_message_chunk"
+                                | "agent_thought_chunk"
+                                | "tool_call"
+                                | "tool_call_update"
+                        )
+                    ) || message["method"] == "session/request_permission")
+                {
+                    active_prompt.acceptance_emitted = true;
+                    let _ = self.incoming.send(route.owner.input_accepted(
+                        self.adapter_kind,
+                        &self.host_instance_id,
+                        session_id,
+                        active_prompt,
+                    ));
+                }
                 route.sequence = route.sequence.saturating_add(1);
                 AcpSessionMessageRoute::Forward {
                     owner: route.owner.clone(),
@@ -3587,6 +3657,7 @@ impl AcpHost {
             None => true,
         };
         self.is_alive()
+            && !self.retire_after_steer.load(Ordering::Acquire)
             && !self.protocol_violated.load(Ordering::Acquire)
             && self.pending.lock().await.is_empty()
             && self.routes.read().await.is_empty()
@@ -3784,6 +3855,52 @@ impl AcpHost {
     async fn rpc(&self, method: &str, params: Value) -> Result<Value> {
         self.rpc_with_timeout(method, params, Duration::from_secs(45))
             .await
+    }
+
+    async fn drain_qwen_steering(&self, request: &Value) {
+        if !request
+            .get("id")
+            .is_some_and(|id| id.is_string() || id.is_number())
+        {
+            return;
+        }
+        let session = request
+            .pointer("/params/sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let routes = self.routes.read().await;
+        let mut pending = self.qwen_steering.lock().await;
+        let ids: Vec<_> = pending.iter().filter(|(_, input)| {
+            input.session_id == session && routes.get(session).is_some_and(|route|
+                route.owner == input.owner && !route.client_terminal_create_cancelled
+                && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == input.prompt_id))
+        }).map(|(id, _)| id.clone()).collect();
+        let inputs: Vec<_> = ids
+            .into_iter()
+            .filter_map(|id| pending.remove(&id).map(|input| (id, input)))
+            .collect();
+        drop(pending);
+        let items: Vec<_> = inputs
+            .iter()
+            .map(|(id, input)| {
+                json!({"messageId":id,
+            "content":[{"type":"text","text":input.text}]})
+            })
+            .collect();
+        let written = timeout(
+            Duration::from_secs(10),
+            self.send(json!({"jsonrpc":"2.0","id":request["id"],
+            "result":{"items":items,"hasQueuedPrompt":false}})),
+        )
+        .await;
+        for (id, input) in inputs {
+            let result = if matches!(written, Ok(Ok(()))) {
+                Ok(id)
+            } else {
+                Err(anyhow::anyhow!("Qwen drain response write failed"))
+            };
+            let _ = input.receipt.send(result);
+        }
     }
 
     async fn rpc_with_timeout(
@@ -5133,6 +5250,109 @@ impl AcpRuntime {
             return Err(error);
         }
         Ok(prepared.prompt_id)
+    }
+
+    pub(crate) async fn steer(
+        &self,
+        expected_prompt: &str,
+        input_id: &str,
+        text: &str,
+    ) -> Result<String> {
+        let session = self
+            .session_id()
+            .await
+            .context("ACP Session is unavailable")?;
+        let ingress = self.host.ingress_fence.lock().await;
+        let routes = self.host.routes.read().await;
+        let active = self.host.is_alive() && routes.get(&session).is_some_and(|route|
+            route.owner == self.owner && !route.client_terminal_create_cancelled
+            && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == expected_prompt));
+        if !active {
+            return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+        }
+        let (sender, receipt) = oneshot::channel();
+        if self.adapter_kind() == AdapterKind::QwenCode {
+            self.host.qwen_steering.lock().await.insert(
+                input_id.to_string(),
+                QwenSteeringInput {
+                    owner: self.owner.clone(),
+                    session_id: session,
+                    prompt_id: expected_prompt.to_string(),
+                    text: text.to_string(),
+                    receipt: sender,
+                },
+            );
+            drop(routes);
+            drop(ingress);
+            return match timeout(Duration::from_secs(600), receipt).await {
+                Ok(receipt) => receipt.context("Qwen input receipt disconnected")?,
+                Err(_) => {
+                    if self
+                        .host
+                        .qwen_steering
+                        .lock()
+                        .await
+                        .remove(input_id)
+                        .is_some()
+                    {
+                        Err(rovai_core::steer::ActiveInputNotAccepted.into())
+                    } else {
+                        bail!("Qwen input delivery result is unknown");
+                    }
+                }
+            };
+        }
+        drop(sender);
+        let (method, params) = match self.adapter_kind() {
+            AdapterKind::CodebuddyCli => (
+                "session/prompt",
+                json!({"sessionId":session,"prompt":[{"type":"text","text":text}]}),
+            ),
+            AdapterKind::GrokBuild => ("_x.ai/interject", json!({"sessionId":session,"text":text})),
+            _ => return Err(rovai_core::steer::ActiveInputNotAccepted.into()),
+        };
+        let id = self.host.next_id.fetch_add(1, Ordering::Relaxed);
+        let (sender, response) = oneshot::channel();
+        // A supplement response is never the authoritative original Prompt
+        // terminal. In particular CodeBuddy returns end_turn before its tool ends.
+        self.host.pending.lock().await.insert(
+            id,
+            PendingRpc::Response {
+                method: method.to_string(),
+                sender,
+            },
+        );
+        // These protocols cannot atomically bind to a native turn. Retire the
+        // exact Host on completion so a late input cannot reach any successor.
+        self.host.retire_after_steer.store(true, Ordering::Release);
+        timeout(
+            Duration::from_secs(10),
+            self.host
+                .send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})),
+        )
+        .await
+        .context("ACP active input write timed out")??;
+        drop(routes);
+        drop(ingress);
+        let result = timeout(Duration::from_secs(45), response)
+            .await
+            .context("ACP active input response timed out")?
+            .context("ACP active input response disconnected")??;
+        let routes = self.host.routes.read().await;
+        if !routes.get(&session).is_some_and(|route| route.owner == self.owner
+            && !route.client_terminal_create_cancelled
+            && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == expected_prompt)) {
+            bail!("ACP input response arrived after the target execution ended");
+        }
+        if self.adapter_kind() == AdapterKind::GrokBuild
+            && result.pointer("/result/status").and_then(Value::as_str) != Some("queued")
+        {
+            bail!("Grok did not confirm its interjection queue");
+        }
+        if self.adapter_kind() == AdapterKind::CodebuddyCli && result["stopReason"] != "end_turn" {
+            bail!("CodeBuddy did not confirm the supplemental prompt");
+        }
+        Ok(acp_prompt_id(&self.host.host_instance_id, id))
     }
 
     pub async fn install_compaction_observer(&self, lease: CompactionObserverLease) -> Result<()> {
@@ -11494,6 +11714,211 @@ while IFS= read -r ignored; do :; done
             .unwrap();
         collect_prompt(&mut receiver, &prompt_id, "ROVAI_CLINE_CORE_COLD").await;
         cold_host.shutdown().await;
+    }
+
+    // Owns supplementary ACP correlation and the native pull boundary. A pure
+    // payload test cannot detect an early end_turn terminating the original Run.
+    #[tokio::test]
+    async fn active_input_receipts_preserve_the_original_prompt_and_fence_late_sources() {
+        for kind in [
+            AdapterKind::CodebuddyCli,
+            AdapterKind::GrokBuild,
+            AdapterKind::QwenCode,
+        ] {
+            for late in [false, true] {
+                let root =
+                    std::env::temp_dir().join(format!("rovai-acp-steer-{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&root).unwrap();
+                let executable = root.join("fake-agent");
+                let response = if kind == AdapterKind::GrokBuild {
+                    r#"{"result":{"status":"queued"}}"#
+                } else {
+                    r#"{"stopReason":"end_turn"}"#
+                };
+                let terminal = r#"printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}'"#;
+                let original_request = if kind == AdapterKind::GrokBuild { 3 } else { 2 };
+                let supplement_request = original_request + 1;
+                let terminal = terminal.replace("\"id\":2", &format!("\"id\":{original_request}"));
+                let authentication = if kind == AdapterKind::GrokBuild {
+                    r#"IFS= read -r auth || exit 1
+printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{}}'"#
+                } else {
+                    ""
+                };
+                let supplement = if kind == AdapterKind::QwenCode {
+                    if late {
+                        terminal.to_string()
+                    } else {
+                        format!(
+                            r#"
+printf '%s\n' '{{"jsonrpc":"2.0","id":100,"method":"craft/drainMidTurnQueue","params":{{"sessionId":"session-steer"}}}}'
+IFS= read -r drained || exit 1
+case "$drained" in *STEER*) : ;; *) exit 3 ;; esac
+IFS= read -r finish || exit 1
+{terminal}
+"#
+                        )
+                    }
+                } else if late {
+                    format!(
+                        "{terminal}\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":{supplement_request},\"result\":{response}}}'"
+                    )
+                } else {
+                    format!(
+                        "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":{supplement_request},\"result\":{response}}}'\nIFS= read -r finish || exit 1\n{terminal}"
+                    )
+                };
+                make_executable(
+                    &executable,
+                    &format!(
+                        r#"#!/bin/sh
+IFS= read -r initialize || exit 1
+printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{}},"authMethods":[{{"id":"cached_token","name":"Cached token"}}]}}}}'
+{authentication}
+IFS= read -r original || exit 1
+IFS= read -r supplemental || exit 1
+{supplement}
+while IFS= read -r ignored; do :; done
+"#
+                    ),
+                );
+                let mut frozen = frozen_trae_runtime(&executable);
+                frozen.adapter_kind = kind;
+                frozen.permissions = serde_json::from_value(json!({"adapterKind":kind.as_str(),"schemaVersion":1,
+                    "values": if kind == AdapterKind::QwenCode { json!({"approval_mode":"yolo"}) } else { json!({"permission_mode":"bypassPermissions"}) }})).unwrap();
+                let workspace =
+                    AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().into());
+                let (incoming, mut receiver) = mpsc::unbounded_channel();
+                let host = AcpHost::spawn(
+                    &root,
+                    &workspace,
+                    PermissionSemantics::RuntimeManagedV2,
+                    &frozen,
+                    incoming,
+                    Some(exact_builtin_tools(&root)),
+                    CompactionDetectorPolicy::Disabled,
+                    true,
+                    &BTreeMap::new(),
+                    &root.join("private"),
+                    None,
+                )
+                .await
+                .unwrap();
+                let owner = AcpRuntimeOwner {
+                    agent_run_id: "run-steer".into(),
+                    execution_epoch: 7,
+                };
+                host.bind_session("session-steer", &owner, AcpSessionPhase::Ready)
+                    .await
+                    .unwrap();
+                let runtime = AcpRuntime::from_host(
+                    owner,
+                    host.clone(),
+                    "compat".into(),
+                    "mcp".into(),
+                    root.clone(),
+                    Some(exact_attachment_root(&root)),
+                    "runtime_managed".into(),
+                    AcpSessionPermissions::default(),
+                    None,
+                );
+                *runtime.session_id.write().await = Some("session-steer".into());
+                let prompt = runtime.start_prompt("initial", "ORIGINAL").await.unwrap();
+                for update in [
+                    json!({"sessionUpdate":"available_commands_update","availableCommands":[]}),
+                    json!({"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ORIGINAL"}}),
+                ] {
+                    host.route_session_message("session-steer", &json!({
+                        "method":"session/update","params":{"sessionId":"session-steer","update":update}
+                    }), 0).await;
+                    assert!(
+                        receiver.try_recv().is_err(),
+                        "metadata/user echo is not input acceptance"
+                    );
+                }
+                for update in ["tool_call", "agent_thought_chunk"] {
+                    host.route_session_message("session-steer", &json!({
+                        "method":"session/update","params":{"sessionId":"session-steer", "update":{"sessionUpdate":update}}
+                    }), 0).await;
+                }
+                assert!(
+                    matches!(receiver.try_recv(), Ok(AcpIncoming::InputAccepted { native_prompt_id, .. }) if native_prompt_id == prompt)
+                );
+                assert!(
+                    receiver.try_recv().is_err(),
+                    "only one initial receipt per Prompt"
+                );
+                assert!(
+                    runtime
+                        .steer("other-turn", "wrong", "NEVER")
+                        .await
+                        .unwrap_err()
+                        .is::<rovai_core::steer::ActiveInputNotAccepted>()
+                );
+                let future = tokio::spawn({
+                    let runtime = runtime.clone();
+                    let prompt = prompt.clone();
+                    async move { runtime.steer(&prompt, "source-input", "STEER").await }
+                });
+                if kind == AdapterKind::QwenCode {
+                    timeout(Duration::from_secs(2), async {
+                        while host.qwen_steering.lock().await.is_empty() {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                    host.drain_qwen_steering(
+                        &json!({"id":null,"params":{"sessionId":"session-steer"}}),
+                    )
+                    .await;
+                    assert_eq!(
+                        host.qwen_steering.lock().await.len(),
+                        1,
+                        "invalid callback IDs cannot consume input"
+                    );
+                    host.notify("fixture/boundary", json!({})).await.unwrap();
+                }
+                let result = timeout(Duration::from_secs(5), future)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if late {
+                    let error = result.unwrap_err();
+                    assert_eq!(
+                        error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
+                        kind == AdapterKind::QwenCode,
+                        "only an undrained source is proved not sent"
+                    );
+                } else {
+                    result.unwrap();
+                    assert!(matches!(
+                        &host.routes.read().await["session-steer"].phase,
+                        AcpSessionPhase::PromptActive(_)
+                    ));
+                    while let Ok(event) = receiver.try_recv() {
+                        assert!(
+                            !matches!(event, AcpIncoming::Message { message, .. } if message["method"] == "rovai/acp_prompt_completed")
+                        );
+                    }
+                    host.notify("fixture/finish", json!({})).await.unwrap();
+                }
+                receive_through_prompt_completion(&mut receiver).await;
+                assert!(
+                    runtime
+                        .steer(&prompt, "late", "NEVER")
+                        .await
+                        .unwrap_err()
+                        .is::<rovai_core::steer::ActiveInputNotAccepted>()
+                );
+                assert_eq!(
+                    host.retire_after_steer.load(Ordering::Acquire),
+                    kind != AdapterKind::QwenCode
+                );
+                host.shutdown().await;
+                std::fs::remove_dir_all(root).unwrap();
+            }
+        }
     }
 
     #[tokio::test]

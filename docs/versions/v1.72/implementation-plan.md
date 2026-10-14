@@ -13,7 +13,7 @@ last_updated: 2026-10-14
 User seq18 确认 [R3](model-context-change-steer-shared-input.md)，实施分支 `rovai/mission/064`。
 共用普通动态上下文与 RUN_INPUT，执行身份和环境保持冻结；仅 Runtime 层区分开始执行与注入。
 用户一次多队员发送按队员能力处理，支持附件及纯附件；保留原有视觉风格及普通消息回执。
-当前接入 Codex turn/steer，其余 Runtime 忙碌时排队。未安装日常 App，未创建 PR。
+首批接入 Codex turn/steer，其余 Runtime 当时忙碌时排队。未安装日常 App，未创建 PR。
 完整 [15 类 Runtime 报告](../../research/runtime-monitoring/steer-2026-10-14.md) 与 [证据索引](steer-verification.json)
 区分原生探针、产品验收和尚未验证的边界。
 
@@ -58,6 +58,33 @@ Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer �
 验证结果以 [JSON 索引](steer-verification.json) 为准。完整 12 Case 语义 Gate 缺固定 Judge 未运行，
 保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
 中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。
+
+## Steer 扩展到五种 Runtime（2026-10-14）
+
+User seq23 授权 Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build 产品接入与真实 LLM 测试，
+Claude 使用 sub2api。基线 `82352292da8a47df71e08f0d2c264d70ea1b2b32`，继续当前任务分支。
+当前合同为 [Message Delivery v14](../../contracts/message-delivery-v14.md)；沿用共同动态 Builder、
+Formatter、RUN_INPUT 和 R3 的全部提示词，不新增 Migration、消息类型或上下文版本。
+
+传输层各自等待有来源关联的原生回执，并保留 Run/epoch、原 Prompt、取消和 unknown 不重发边界。
+Claude 用原生 replay UUID；Pi 等待实际消费，结束后精确清除未消费来源；Qwen 响应原生拉取回调；
+CodeBuddy/Grok 的补充请求不改变原 Prompt 的终态归属。后三者初始输入根据当前 Prompt 的真实活动
+提前确认，metadata 与 user echo 不作为证据。Pi、CodeBuddy、Grok 使用过插话的 Host 不进入 warm pool。
+
+测试准入：扩展现有 DeliveryQueue、Claude Control 和 Pi Host owner；新增唯一独立 ACP owner
+`active_input_receipts_preserve_the_original_prompt_and_fence_late_sources`。旧 fixture 不拥有补充 RPC
+与原 Prompt 的双重关联，纯 payload 测试无法发现补充 end_turn 错误结束原 Run，所以使用最小真实
+子进程协议夹具（无 Core/数据库/模型），覆盖三种适配器、迟到回执、未拉取来源、错误目标和初始 ACK。
+无测试删除或永久禁用。真实验收扩展现有 `scripts/smoke-steer.mjs`，不建立平行 Core harness。
+
+本轮默认 Rust workspace 471 passed / 0 failed / 1 既有 ignored；ACP 定向 68 passed / 2 ignored、
+Pi 24 passed / 1 ignored、Claude 45 passed / 1 ignored。最终 active_input 3 项及 Codex 既有
+Steer Host owner 1 项通过（与前述有重叠，不相加）。`cargo check`、格式、脚本语法与文档治理通过。
+未重跑整个 extended 集，也没有把此前的完整语义 Gate 缺项改为通过。
+
+真实产品测试覆盖同 Run 两次输入（文字、纯附件）、普通队列分离、多队员混合投递和取消。
+逐 Runtime 成败、冻结二进制摘要和未通过场景见[实测报告](../../research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)
+与[证据索引](steer-five-runtimes-verification.json)。不安装或重启日常 App，不创建 PR。
 
 ## 会话切换读取回归修复（2026-10-13）
 

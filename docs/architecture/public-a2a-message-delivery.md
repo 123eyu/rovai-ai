@@ -3,13 +3,13 @@ document_type: architecture
 architecture: public-a2a-message-delivery
 authority: public-message-delivery-and-agent-run-boundaries
 status: accepted
-last_updated: 2026-10-08
+last_updated: 2026-10-14
 ---
 
 # Public Camp Message、Delivery 与 AgentRun
 
 本架构定义公开 Camp 的统一消息执行主链。字段合同见 [Camp Message Send v27](../contracts/camp-message-send-v27.md)、
-[Message Delivery v13](../contracts/message-delivery-v13.md)、[ContextManifest 37](../contracts/context-manifest-evidence-v37.md)
+[Message Delivery v14](../contracts/message-delivery-v14.md)、[ContextManifest 37](../contracts/context-manifest-evidence-v37.md)
 与 [Camp History v11](../contracts/camp-history-v11.md)。Single Chat 不使用本主链。
 
 ## 三类事实
@@ -160,4 +160,8 @@ Core 在发布时捕获可用的目标 Run／epoch，Scheduler 复用既有 work
 共同 DynamicInputContext Builder 和 Formatter 只读本次来源，新输入读取最新动态事实；启动内容、
 执行配置、Bootstrap 和已物化输入保持冻结。Manifest 可以一 Run 多条，ACK、恢复和历史 fence 关联
 精确 Manifest。正常结束时可证明未提交的来源回普通队列；未知不重放，取消不自动启动后继。
-当前只有 Codex Adapter 开放，其他 Runtime 的原生实验不构成产品准入。
+当前支持 Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build，运输和回执见
+[Message Delivery v14](../contracts/message-delivery-v14.md)。Qwen 只通过原生拉取回调投递；
+CodeBuddy 的补充响应不结束原 Run。Pi 等待消费证据，不把 queued 当作消费。
+CodeBuddy/Grok 缺少原生 turn 参数，以 Run/epoch/Session fence 和执行后 Host 回收限制迟到输入；
+Pi 的原生未消费队列同样不能带入后继 Host。上下文、消息正文和逐队员 Delivery 保持共同路径。

@@ -1,13 +1,30 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # 测试与 Smoke Test
 
 [`package.json#scripts`](../../package.json)是 JavaScript 命令名和组合的真源。Rust 测试
 目标由 Cargo workspace 和测试代码决定。
+
+## 用户 Steer 的 Runtime 验收
+
+普通队列与运行中插话共用 `scripts/smoke-steer.mjs`。真实模型调用先满足
+[本地工作流隔离规则](local-workflow.md)，并取得当前任务的真实 LLM 授权。Core 与配套 `rovai`
+二进制必须放在同一目录，fixture 必须是新建空绝对路径；脚本打印独立 data、Skills、MCP、cache
+和 workspace，并将目标 Runtime 的原生配置复制到 fixture 的私有目录。凭据不进入 JSON 报告。
+
+```sh
+node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qwen-code
+```
+
+第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code` 或 `grok-build`。
+可选第四参数 `steer-only` 仅验同轮文字与纯附件，`mixed-only` 仅验多队员混合投递，`cancel-only`
+仅验取消后的副作用与后继 Run；默认顺序验证同轮输入、普通后继和多队员混合。混合场景额外调用
+OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint
+和模型供核对。单项通过不能覆盖其余场景的超时，失败报告也必须保留。
 
 ## Rust 测试准入与退役门槛
 

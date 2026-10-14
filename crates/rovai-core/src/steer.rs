@@ -18,10 +18,25 @@ pub struct ActiveInputTarget {
     pub execution_epoch: i64,
 }
 
-/// Only adapters with target-bound native submission are admitted here.
+/// Adapters whose active-input transport is fenced to this Run/epoch.
 pub fn supports_active_input(adapter: &str) -> bool {
-    matches!(adapter, "codex-cli")
+    matches!(
+        adapter,
+        "codex-cli" | "claude-code-cli" | "pi" | "codebuddy-cli" | "qwen-code" | "grok-build"
+    )
 }
+
+/// Proof that this source was not written, or was removed from an unconsumed
+/// native queue. Transport failures must never be converted to this error.
+#[derive(Debug)]
+pub struct ActiveInputNotAccepted;
+
+impl std::fmt::Display for ActiveInputNotAccepted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The target execution no longer accepts this input")
+    }
+}
+impl std::error::Error for ActiveInputNotAccepted {}
 
 pub(crate) fn route_user_message(
     tx: &Transaction<'_>,

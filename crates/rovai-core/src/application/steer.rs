@@ -1,5 +1,23 @@
 use super::*;
 
+enum ActiveInputRuntime {
+    Codex(Arc<codex::CodexRuntime>, String),
+    Claude(Arc<crate::claude_control::ClaudeControl>),
+    Pi(Arc<pi::PiRuntime>),
+    Acp(Arc<acp::AcpRuntime>, String),
+}
+
+impl ActiveInputRuntime {
+    async fn submit(&self, input_id: &str, payload: &str) -> Result<String> {
+        match self {
+            Self::Codex(runtime, turn) => runtime.steer(turn, payload).await,
+            Self::Claude(runtime) => runtime.steer(payload).await,
+            Self::Pi(runtime) => runtime.steer(payload).await,
+            Self::Acp(runtime, prompt) => runtime.steer(prompt, input_id, payload).await,
+        }
+    }
+}
+
 impl Core {
     pub(super) async fn dispatch_active_input(
         &self,
@@ -45,14 +63,46 @@ impl Core {
         let Some(execution) = execution else {
             return self.queue_unsubmitted_input(&pending.delivery_id).await;
         };
-        let runtime = self
-            .codex_cli
-            .get_agent_run(&pending.agent_run_id, pending.execution_epoch)
-            .await;
-        let Some(runtime) = runtime else {
-            return self.queue_unsubmitted_input(&pending.delivery_id).await;
+        let runtime = match execution.runtime.adapter_kind {
+            AdapterKind::CodexCli => {
+                if let Some(runtime) = self
+                    .codex_cli
+                    .get_agent_run(&pending.agent_run_id, pending.execution_epoch)
+                    .await
+                {
+                    runtime
+                        .turn_id()
+                        .await
+                        .map(|turn| ActiveInputRuntime::Codex(runtime, turn))
+                } else {
+                    None
+                }
+            }
+            AdapterKind::ClaudeCodeCli => self
+                .claude_code_cli
+                .get_agent_run(&pending.agent_run_id, pending.execution_epoch)
+                .map(ActiveInputRuntime::Claude),
+            AdapterKind::Pi => self
+                .pi
+                .get_agent_run(&pending.agent_run_id, pending.execution_epoch)
+                .await
+                .map(ActiveInputRuntime::Pi),
+            kind => {
+                if let Some(adapter) = self.acp_adapter(kind)
+                    && let Some(runtime) = adapter
+                        .get_agent_run(&pending.agent_run_id, pending.execution_epoch)
+                        .await
+                {
+                    runtime
+                        .prompt_id()
+                        .await
+                        .map(|prompt| ActiveInputRuntime::Acp(runtime, prompt))
+                } else {
+                    None
+                }
+            }
         };
-        let Some(turn_id) = runtime.turn_id().await else {
+        let Some(runtime) = runtime else {
             return self.queue_unsubmitted_input(&pending.delivery_id).await;
         };
         let sources = {
@@ -121,15 +171,18 @@ impl Core {
             }
             (context, input)
         };
-        match runtime.steer(&turn_id, &context.runtime_payload).await {
+        match runtime.submit(&input.id, &context.runtime_payload).await {
             Ok(native_id) => {
                 let mut database = self.database.lock().await;
                 ContextService.acknowledge_input_delivery(&mut database, &input.id, &native_id)?;
             }
             Err(error)
                 if error
-                    .downcast_ref::<codex::CodexResponseError>()
-                    .is_some_and(codex::CodexResponseError::input_was_not_accepted) =>
+                    .downcast_ref::<rovai_core::steer::ActiveInputNotAccepted>()
+                    .is_some()
+                    || error
+                        .downcast_ref::<codex::CodexResponseError>()
+                        .is_some_and(codex::CodexResponseError::input_was_not_accepted) =>
             {
                 let mut database = self.database.lock().await;
                 ContextService.mark_input_delivery_not_accepted(

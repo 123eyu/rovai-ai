@@ -46,7 +46,9 @@ Chrome 在桌面和 375px 视口均 12/12 动画，p95 16.7–16.8 ms，无长�
 `pnpm test:member-avatar-flow`；再运行 `node scripts/review-member-avatar-browser-budget.mjs <同一目录>`。
 后者读取前者真实 Core 产生的受管结果，以独立 Chrome profile 验证相同生产组件和浏览器图片 adapter；
 不声明真实远端 Host 或渠道账号验收。计时记录而不设机器相关的 CI 断言；实际动画、文件数、字节和导出为硬断言。
-Rust workspace 与 Agent seam 定向测试结果在合并前补齐。
+Rust `cargo test --workspace` 通过（471 项，1 项既有人工 smoke 忽略）；
+`cargo test -p rovai-core --features extended-tests --lib -- member_avatar::tests member_profile_reads_and_patches_preserve_scope_atomicity_and_replay confirmed_user_input_can_create_one_idempotent_member_but_agent_input_cannot`
+16 项通过，涵盖头像 codec/存储及 Agent 创建、修改、重放/回滚 seam。Rust 格式检查通过。
 
 ## Pi 接收容量与连接失败原因（2026-10-14）
 

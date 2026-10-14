@@ -4,12 +4,13 @@ import { parseControlledMemberAvatarRef } from '@contracts'
 import { builtinMemberAvatarAssets } from './member-avatar-registry'
 import { firstGrapheme } from './member-identity'
 import { identityColorToken } from './theme'
+import { avatarDisplayStyle } from './member-avatar-crop'
 import { useManagedAvatarUrl } from './use-managed-avatar'
 
-export type MemberAvatarSize = 'execution' | 'mention' | 'list' | 'workspace' | 'picker' | 'profile' | 'bust'
+export type MemberAvatarSize = 'execution' | 'mention' | 'list' | 'workspace' | 'picker' | 'profile'
 
 const MEMBER_AVATAR_PIXEL_SIZE: Readonly<
-  Record<Exclude<MemberAvatarSize, 'bust'>, number>
+  Record<MemberAvatarSize, number>
 > = {
   execution: 20,
   mention: 28,
@@ -40,7 +41,7 @@ export function MemberAvatar({
   const builtin = builtinMemberAvatarAssets(avatarRef)
   const managed = useManagedAvatarUrl(avatarRef, 'icon')
   const renditionKey = parsed?.kind === 'builtin'
-    ? `${avatarRef}:${size === 'bust' ? 'bust' : 'glyph'}`
+    ? `${avatarRef}:glyph`
     : parsed?.kind === 'managed'
       ? `${avatarRef}:icon`
       : 'fallback'
@@ -50,9 +51,7 @@ export function MemberAvatar({
   const hasBuiltinImage = parsed?.kind === 'builtin' && builtin && !failed
   const style = {
     '--member-avatar-accent': identityColorToken(agentId),
-    ...(size === 'bust'
-      ? {}
-      : { '--member-avatar-size': `${MEMBER_AVATAR_PIXEL_SIZE[size]}px` })
+    '--member-avatar-size': `${MEMBER_AVATAR_PIXEL_SIZE[size]}px`
   } as CSSProperties
   const semanticProps = decorative
     ? { 'aria-hidden': true }
@@ -62,7 +61,6 @@ export function MemberAvatar({
     <span
       className={[
         'member-avatar',
-        size === 'bust' ? 'member-avatar--bust' : '',
         managed.loading ? 'member-avatar--loading' : '',
         className ?? ''
       ].filter(Boolean).join(' ')}
@@ -70,16 +68,7 @@ export function MemberAvatar({
       aria-busy={!decorative && managed.loading ? true : undefined}
       {...semanticProps}
     >
-      {hasBuiltinImage && size === 'bust' && (
-        <img
-          className="member-avatar-image member-avatar-image--bust"
-          src={builtin.portrait}
-          alt=""
-          draggable={false}
-          onError={() => setFailedRenditionKey(renditionKey)}
-        />
-      )}
-      {hasBuiltinImage && size !== 'bust' && (
+      {hasBuiltinImage && (
         <img
           className="member-avatar-image"
           src={builtin.icon}
@@ -92,6 +81,7 @@ export function MemberAvatar({
         <img
           className="member-avatar-image"
           src={managed.url ?? undefined}
+          style={managed.image?.displayCrop ? avatarDisplayStyle(managed.image.displayCrop, managed.image.width, managed.image.height) : undefined}
           alt=""
           draggable={false}
           onError={() => setFailedRenditionKey(renditionKey)}

@@ -16,7 +16,7 @@ if (!await access(chrome).then(() => true, () => false)) {
   t.skip('Chrome is not installed; conversation presence acceptance did not run')
   return
 }
-const root = await mkdtemp(join(tmpdir(), 'rovai-run-presence-'))
+const root = process.env.ROVAI_PRESENCE_UI_FIXTURE ?? await mkdtemp(join(tmpdir(), 'rovai-run-presence-'))
 const out = process.env.ROVAI_PRESENCE_UI_OUTPUT ?? join(root, 'screenshots')
 await promisify(execFile)(process.execPath, [resolve(import.meta.dirname, '../fixtures/run-presence/build.mjs'), root])
 await mkdir(out, { recursive:true })
@@ -67,6 +67,13 @@ try {
   assert.match(await b.evaluate(`document.querySelector('${profileCard}').textContent`),/爱丽丝/)
   assert.equal(await b.evaluate(`document.querySelector('${avatarTrigger}').getAttribute('aria-expanded')`),'true')
   assert.equal(await b.evaluate('!!document.querySelector(".camp-detail-popover:not([hidden])")'),false)
+  assert.equal(await b.evaluate(`document.querySelector('${profileCard}').getAttribute('aria-modal')`), 'false')
+  assert.equal(await b.evaluate(`!!document.querySelector('${profileCard} .member-portrait')`), false)
+  assert.equal(await b.evaluate(`document.querySelector('${profileCard} .identity-card-more').open`), false)
+  await b.click('.identity-card-more summary'); await settle()
+  assert.equal(await b.evaluate(`document.querySelector('${profileCard} .identity-card-more').open`), true)
+  await b.capture(join(out,'run-member-card-expanded.png'))
+  await b.click('.identity-card-more summary'); await settle()
   await b.capture(join(out,'run-member-card.png')); await b.key('Escape'); await settle()
   assert.equal(await b.evaluate(`document.activeElement.matches('${avatarTrigger}')`),true)
   await b.key(' '); await settle()
@@ -76,9 +83,29 @@ try {
   await b.evaluate(`document.querySelector('${nameTrigger}').focus()`); await b.key('Enter'); await settle()
   assert.equal(await b.evaluate(`document.activeElement.closest('${profileCard}') !== null`),true)
   // Profile intentionally uses today's defaults; the running model stays frozen.
-  assert.match(await b.evaluate(`document.querySelector('${profileCard} .mention-profile-model').textContent`),/智能体默认/)
+  assert.match(await b.evaluate(`document.querySelector('${profileCard} .identity-card-runtime').textContent`),/智能体默认/)
   await b.key('Escape'); await settle()
   assert.equal(await b.evaluate(`document.activeElement.matches('${nameTrigger}')`),true)
+  await b.evaluate(`__presence.setIdentityFields(${JSON.stringify({ displayName: '很长的队员名称爱丽丝'.repeat(3), teamRole: '负责跨端产品体验和方案验证的队员'.repeat(3), professionalResponsibilities: '保持职责全文可读。'.repeat(200), personalityTraits: ['细致', '好奇'], workingPrinciples: '先确认事实，再提出方案。'.repeat(20), growthTopic: '持续改善表达。'.repeat(20), runtimeConfiguration: null, runtimeReadiness: { status: 'runtime_not_configured', blockers: [] } })})`)
+  await b.click(avatarTrigger); await settle()
+  assert.match(await b.evaluate(`document.querySelector('${profileCard} .identity-card-runtime').textContent`), /未配置/)
+  for (const [width, height] of [[1440,920], [375,812], [844,390]]) for (const theme of ['day','night']) {
+    await b.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+    await b.evaluate(`__presence.setTheme('${theme}')`); await settle()
+    const geometry = await b.evaluate(`(() => {
+      const panel = document.querySelector('${profileCard}'), inner = panel.querySelector('.mention-profile-popover-inner');
+      const r = panel.getBoundingClientRect(); return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+        horizontalOverflow: inner.scrollWidth > inner.clientWidth, scrollable: inner.scrollHeight > inner.clientHeight,
+        closeHeight: panel.querySelector('.identity-card-close').getBoundingClientRect().height };
+    })()`)
+    assert.equal(geometry.inside, true); assert.equal(geometry.horizontalOverflow, false); assert.equal(geometry.scrollable, true)
+    if (width === 375) assert.ok(geometry.closeHeight >= 44)
+    await b.capture(join(out, `identity-long-${theme}-${width}.png`))
+  }
+  await b.click('.identity-card-close'); await settle()
+  assert.equal(await b.evaluate(`document.activeElement.matches('${avatarTrigger}')`),true)
+  await b.evaluate('__presence.setIdentityFields({}); __presence.setTheme("day")')
+  await b.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 920, deviceScaleFactor: 1, mobile: false }); await settle()
   assert.equal(await b.evaluate(`document.querySelector('${modelTrigger}').textContent`),'frozen-run-model · high')
   await b.click(modelTrigger); await settle()
   const modelFields = () => b.evaluate('document.querySelector(".thread-model-fields").textContent')

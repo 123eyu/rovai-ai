@@ -149,7 +149,7 @@ without extra focus outlines or halos; higher contrast preferences restore the s
 ## Components
 
 - **Buttons:** compact, direct and text-first. Primary actions use Steel by default. Conversation send, conversation/project renaming, new-conversation dialog creation, task creation and member creation/invitation use
-  the neutral `--conversation-action` family, as do first-run onboarding, teammate Runtime permission switches, Host workspace confirmation, teammate save, Memory, Automation and MCP/Skills actions. Teammate save and workspace creation entries use light tonal buttons. Home creation uses a quiet tonal entry; danger marks destructive actions and sidebar removal. Active buttons move down 1px; disabled controls retain legible content at
+  the neutral `--conversation-action` family, as do first-run onboarding, teammate Runtime permission switches, Host workspace confirmation, teammate save, Memory, Automation and MCP/Skills actions. Teammate saves and avatar crop sliders use the neutral primary action; workspace creation entries use light tonal buttons. Home creation uses a quiet tonal entry; danger marks destructive actions and sidebar removal. Active buttons move down 1px; disabled controls retain legible content at
   reduced opacity. Floating return-to-latest icon controls keep their hit area stationary while pressed;
   their face uses a tonal change for feedback. Mission creation/start buttons also keep their position
   when pressed; their primary actions use the neutral `--conversation-action` family.
@@ -171,7 +171,9 @@ without extra focus outlines or halos; higher contrast preferences restore the s
   and only necessary status. Destructive dialog actions use `--danger-soft` with `--danger` text. The standalone
   Mission Worktree cleanup action is a narrow product-specific exception: it uses the neutral conversation
   action while its concise dialog states the exact Worktree/branch scope.
-  Preserve identity portraits and functional context icons. Closing menus or dialogs does not automatically refocus an entry button; retain input positioning, focus trapping and keyboard navigation. Runtime configuration dropdown bodies remain unchanged.
+  Preserve identity avatars and functional context icons. Closing menus or dialogs does not automatically refocus an entry button; retain input positioning, focus trapping and keyboard navigation.
+  The member avatar picker/crop dialog is a scoped exception: its confirmed interaction returns focus to the actual avatar entry after closing, without scrolling or adding focus decoration.
+  Runtime configuration dropdown bodies remain unchanged.
 - **Evidence:** uses the dedicated evidence and diff tokens, monospaced type where appropriate, and
   structural `+`/`-`, line numbers or labels in addition to color.
 - **Code:** shared SafeMarkdown surfaces use a quiet inline canvas with `0 2px` padding and a `3px`

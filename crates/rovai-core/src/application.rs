@@ -8847,6 +8847,8 @@ impl Core {
                     rendition: String,
                     #[serde(default)]
                     static_png: bool,
+                    #[serde(default)]
+                    target_edge: Option<u32>,
                 }
                 let params: Read = serde_json::from_value(request.params.clone())?;
                 anyhow::ensure!(
@@ -8857,10 +8859,15 @@ impl Core {
                     !params.static_png || params.rendition == "icon",
                     "Only icons support a static PNG rendition"
                 );
+                anyhow::ensure!(
+                    params.static_png || params.target_edge.is_none(),
+                    "Export size requires static PNG"
+                );
                 let image = if params.static_png {
-                    rovai_core::member_avatar::read_managed_member_avatar_static_icon(
+                    rovai_core::member_avatar::read_managed_member_avatar_static_png(
                         &self.data_dir,
                         &params.avatar_ref,
+                        params.target_edge.unwrap_or(192),
                     )?
                 } else {
                     rovai_core::member_avatar::read_managed_member_avatar(
@@ -8881,6 +8888,12 @@ impl Core {
                     deny_unknown_fields
                 )]
                 enum Save {
+                    Image {
+                        source_base64: String,
+                        source_width: u32,
+                        source_height: u32,
+                        crop: rovai_core::member_avatar::MemberAvatarCrop,
+                    },
                     Raster {
                         source_base64: String,
                         icon_base64: String,
@@ -8906,6 +8919,26 @@ impl Core {
                 }
                 let params: Save = serde_json::from_value(value)?;
                 let summary = match params {
+                    Save::Image {
+                        source_base64,
+                        source_width,
+                        source_height,
+                        crop,
+                    } => {
+                        anyhow::ensure!(
+                            source_base64.len() <= 23 * 1024 * 1024,
+                            "Avatar exceeds the managed asset limit"
+                        );
+                        let source =
+                            base64::engine::general_purpose::STANDARD.decode(source_base64)?;
+                        rovai_core::member_avatar::save_member_avatar_image(
+                            &self.data_dir,
+                            &source,
+                            source_width,
+                            source_height,
+                            crop,
+                        )?
+                    }
                     Save::Raster {
                         source_base64,
                         icon_base64,

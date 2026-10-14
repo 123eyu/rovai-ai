@@ -182,7 +182,7 @@ last_updated: 2026-10-14
 ### 头像、内置外观与 Native Session 身份
 
 - Core 在新队员创建、资料或头像修改、Runtime 配置、Presence、移除或排序命令首次成功提交后，通过同一事件通道发 `members.invalidated { reason }`。Agent 内置 `member.create` 也遵守此提交边界；拒绝和幂等重放不发通知。事件只是名册失效提示，不携带可直接应用的队员状态。Main 原样转发，Renderer 用 `members.list` 重读完整名册。
-- `avatarRef` 是 AgentProfile 唯一头像领域字段，引用受控内置外观或应用受管不可变本地资产。选择、解码、规范化、限尺/重编码、原子保存和引用提交分层校验；先物化不可变资产、再事务提交 ref，失败/替换产生的孤儿由延迟安全 GC 回收。原路径、原图元数据和图像正文不得进入 SQLite、日志、诊断或导出。
+- `avatarRef` 是 AgentProfile 唯一头像领域字段，引用受控内置外观或应用受管不可变本地资产。选择、解码、静态规范化、资源限额、原子保存和引用提交分层校验；先物化不可变资产、再事务提交 ref。新资产只保存一份图像及显示取景，GIF 不逐帧裁切、缩放或重编码；旧 icon/source 保持兼容，不在本轮迁移或回收。渠道在发布时导出并冻结静态封面；精确边界见 [Member Avatar v1](../contracts/member-avatar-v1.md)。原路径、原图元数据和图像正文不得进入 SQLite、日志、诊断或导出。
 - 每个封闭内置角色只有一套当前 packaged appearance/preset；升级直接替换受控引用背后的当前内容，不维护旧图库，也不从外观推导角色、Capability、Runtime、权限或生命周期。
 - 用户导入图像仅存本地，备份/导出默认只包含安全 ref/受控资产而不恢复原始文件路径；缺失、损坏或未随备份携带时降级为中性展示，不修改身份或从不可信路径回读。
 - `MEMBER_IDENTITY` 是一个 Native Session 唯一完整的 self identity；`COLLABORATION_STATE` 只投影新 AgentRun 冻结时当前 Camp peers 的路由身份和 Lead 引用，不重复 self，也不包含专业职责、人格、Presence、Runtime、busy、membership generation/version 或成员变化 delta。已冻结 Run 不因名册变化被原位打补丁。

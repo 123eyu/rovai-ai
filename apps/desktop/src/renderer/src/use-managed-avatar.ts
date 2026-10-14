@@ -2,7 +2,8 @@ import { useThreadClient } from './camp-client'
 import { useEffect, useState } from 'react'
 import { parseControlledMemberAvatarRef } from '@contracts'
 import {
-  managedAvatarObjectUrl,
+  managedAvatarImage,
+  type ManagedAvatarImage,
   type ManagedAvatarRenditionKind
 } from './managed-avatar-cache'
 
@@ -10,13 +11,13 @@ type ManagedAvatarState = {
   read?: import('./managed-avatar-cache').ManagedAvatarRead
   key: string
   settled: boolean
-  url: string | null
+  image: ManagedAvatarImage | null
 }
 
 export function useManagedAvatarUrl(
   avatarRef: string | null,
   rendition: ManagedAvatarRenditionKind
-): { loading: boolean; url: string | null } {
+): { loading: boolean; url: string | null; image: ManagedAvatarImage | null } {
   const client = useThreadClient()
   const parsed = avatarRef ? parseControlledMemberAvatarRef(avatarRef) : null
   const read = parsed?.kind === 'managed' ? client.memberAvatars.read : null
@@ -24,21 +25,21 @@ export function useManagedAvatarUrl(
   const [state, setState] = useState<ManagedAvatarState>({
     key: '',
     settled: false,
-    url: null
+    image: null
   })
 
   useEffect(() => {
     if (!key || !avatarRef || !read) return undefined
     let ignore = false
-    void managedAvatarObjectUrl(avatarRef, rendition, read).then((url) => {
-      if (!ignore) setState({ key, read, settled: true, url })
+    void managedAvatarImage(avatarRef, rendition, read).then((image) => {
+      if (!ignore) setState({ key, read, settled: true, image })
     })
     return () => {
       ignore = true
     }
   }, [avatarRef, key, rendition, read])
 
-  if (!key) return { loading: false, url: null }
-  if (state.key !== key || state.read !== read) return { loading: true, url: null }
-  return { loading: !state.settled, url: state.url }
+  if (!key) return { loading: false, url: null, image: null }
+  if (state.key !== key || state.read !== read) return { loading: true, url: null, image: null }
+  return { loading: !state.settled, url: state.image?.url ?? null, image: state.image }
 }

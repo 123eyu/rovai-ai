@@ -49,8 +49,9 @@ pub(crate) use run_continuation::assert_legacy_request_upgrade;
 
 #[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn upgrade_message_mentions_fixture(database: &mut Database) {
-    message_mentions::migrate(database).unwrap();
-    run_continuation::migrate_requests(database).unwrap();
+    // Restore the current schema through the production upgrade chain while the
+    // claimed input keeps its frozen v32 formatter and body.
+    database.migrate(false).unwrap();
 }
 
 #[cfg(all(test, feature = "slow-tests"))]

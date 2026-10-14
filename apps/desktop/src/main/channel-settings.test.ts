@@ -1058,7 +1058,7 @@ describe('channel settings service', () => {
       expectedDeveloperIdentity: { userId: owner.userId, tenantId: owner.tenantId },
       avatarSource
     }))
-    expect(resolveAvatar).toHaveBeenCalledWith('rovai://member-avatar/builtin/luoke/v1')
+    expect(resolveAvatar).toHaveBeenCalledWith('rovai://member-avatar/builtin/luoke/v1', { publicationIntentId })
     expect(normal.activeQrAttempt).toBeNull()
     expect(normal.activeProvisioning).toMatchObject({
       agentId: 'agent-a',

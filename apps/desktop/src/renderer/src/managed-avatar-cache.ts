@@ -3,9 +3,17 @@ import type { MemberAvatarRendition, MemberAvatarsApi } from '@contracts'
 export type ManagedAvatarRenditionKind = 'icon' | 'portrait'
 export type ManagedAvatarRead = MemberAvatarsApi['read']
 
+export type ManagedAvatarImage = {
+  url: string
+  width: number
+  height: number
+  displayCrop?: MemberAvatarRendition['displayCrop']
+}
+
 type CacheEntry = {
   token: object
-  promise: Promise<string | null>
+  promise: Promise<ManagedAvatarImage | null>
+  urlPromise: Promise<string | null>
 }
 
 const managedAvatarCaches = new Map<ManagedAvatarRead, Map<string, CacheEntry>>()
@@ -25,11 +33,11 @@ function renditionObjectUrl(rendition: MemberAvatarRendition): string {
   return URL.createObjectURL(new Blob([bytes], { type: rendition.mediaType }))
 }
 
-export function managedAvatarObjectUrl(
+export function managedAvatarImage(
   avatarRef: string,
   rendition: ManagedAvatarRenditionKind,
   read: ManagedAvatarRead = desktopRead
-): Promise<string | null> {
+): Promise<ManagedAvatarImage | null> {
   const managedAvatarCache = cacheFor(read)
   const key = cacheKey(avatarRef, rendition)
   const cached = managedAvatarCache.get(key)
@@ -44,11 +52,20 @@ export function managedAvatarObjectUrl(
         URL.revokeObjectURL(objectUrl)
         return null
       }
-      return objectUrl
+      return { url: objectUrl, width: result.width, height: result.height, displayCrop: result.displayCrop }
     })
     .catch(() => null)
-  managedAvatarCache.set(key, { token, promise })
+  managedAvatarCache.set(key, { token, promise, urlPromise: promise.then(image => image?.url ?? null) })
   return promise
+}
+
+export function managedAvatarObjectUrl(
+  avatarRef: string,
+  rendition: ManagedAvatarRenditionKind,
+  read: ManagedAvatarRead = desktopRead
+): Promise<string | null> {
+  managedAvatarImage(avatarRef, rendition, read)
+  return cacheFor(read).get(cacheKey(avatarRef, rendition))!.urlPromise
 }
 
 export async function invalidateManagedAvatarObjectUrl(
@@ -70,7 +87,7 @@ export async function invalidateManagedAvatarObjectUrl(
   })
   const objectUrls = await Promise.all(entries.map((entry) => entry.promise))
   for (const objectUrl of objectUrls) {
-    if (objectUrl) URL.revokeObjectURL(objectUrl)
+    if (objectUrl) URL.revokeObjectURL(objectUrl.url)
   }
 }
 
@@ -80,6 +97,6 @@ export async function clearManagedAvatarObjectUrlCache(): Promise<void> {
   managedAvatarCaches.clear()
   const objectUrls = await Promise.all(entries.map((entry) => entry.promise))
   for (const objectUrl of objectUrls) {
-    if (objectUrl) URL.revokeObjectURL(objectUrl)
+    if (objectUrl) URL.revokeObjectURL(objectUrl.url)
   }
 }

@@ -5739,12 +5739,12 @@ fn has_terminal_safety_blocker(transaction: &Transaction<'_>, run_id: &str) -> R
                    WHERE owner.id = action_execution.agent_run_id AND owner.runtime_adapter_kind = 'zcode-app'
                      AND owner.execution_epoch = action_execution.source_agent_run_execution_epoch
                      AND evidence.execution_epoch = owner.execution_epoch AND evidence.event_type = 'runtime.action'
-                     AND json_extract(evidence.payload_preview_json, '$.zcodeBackground.toolCallId') = action_execution.native_item_id
+                     AND CASE WHEN evidence.storage_version = 1 THEN json_extract(evidence.payload_preview_json, '$.zcodeBackground.toolCallId') ELSE COALESCE(json_extract(evidence.result_preview_json, '$.zcodeBackground.toolCallId'), json_extract(evidence.input_preview_json, '$.zcodeBackground.toolCallId')) END = action_execution.native_item_id
                      AND evidence.sequence = (SELECT MAX(latest.sequence) FROM agent_run_execution_evidence AS latest
                        WHERE latest.agent_run_id = owner.id AND latest.execution_epoch = owner.execution_epoch
                          AND latest.event_type = 'runtime.action'
-                         AND json_extract(latest.payload_preview_json, '$.zcodeBackground.toolCallId') = action_execution.native_item_id)
-                     AND json_extract(evidence.payload_preview_json, '$.zcodeBackground.status') IN ('running', 'lost'))))
+                         AND CASE WHEN latest.storage_version = 1 THEN json_extract(latest.payload_preview_json, '$.zcodeBackground.toolCallId') ELSE COALESCE(json_extract(latest.result_preview_json, '$.zcodeBackground.toolCallId'), json_extract(latest.input_preview_json, '$.zcodeBackground.toolCallId')) END = action_execution.native_item_id)
+                     AND CASE WHEN evidence.storage_version = 1 THEN json_extract(evidence.payload_preview_json, '$.zcodeBackground.status') ELSE COALESCE(json_extract(evidence.result_preview_json, '$.zcodeBackground.status'), json_extract(evidence.input_preview_json, '$.zcodeBackground.status')) END IN ('running', 'lost'))))
           + (SELECT COUNT(*) FROM runtime_delivery_checkpoint
              WHERE agent_run_id = ?1 AND status IN ('pending', 'delivering', 'failed'))
           + (SELECT COUNT(*) FROM runtime_input_delivery

@@ -93,6 +93,7 @@ struct LifecycleEvidenceRow {
     revision: i64,
     change_sequence: i64,
     output_truncated: Option<bool>,
+    storage_version: i64,
     input: LifecycleContentPart,
     result: Option<LifecycleContentPart>,
 }
@@ -140,6 +141,30 @@ impl Deref for RecordedExecutionEvidence {
     fn deref(&self) -> &Self::Target {
         &self.evidence
     }
+}
+
+// Resolve only selected page/detail previews. Never opens a Blob or modifies legacy rows.
+pub(crate) fn register_preview_function(connection: &rusqlite::Connection) -> Result<()> {
+    connection.create_scalar_function(
+        "rovai_execution_preview",
+        4,
+        rusqlite::functions::FunctionFlags::SQLITE_UTF8
+            | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            if ctx.get::<i64>(0)? == 1 {
+                return ctx.get::<String>(1);
+            }
+            let input: String = ctx.get(2)?;
+            let result: Option<String> = ctx.get(3)?;
+            let resolve = || -> serde_json::Result<String> {
+                let input = serde_json::from_str(&input)?;
+                let result = result.as_deref().map(serde_json::from_str).transpose()?;
+                serde_json::to_string(&combine_lifecycle_values(&input, result.as_ref()))
+            };
+            resolve().map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+        },
+    )?;
+    Ok(())
 }
 
 pub(crate) fn allocate_change_sequence(
@@ -544,7 +569,7 @@ impl ExecutionEvidenceService {
             let registered: bool = database.connection().query_row(
                 "SELECT EXISTS(SELECT 1 FROM agent_run_execution_evidence
                  WHERE agent_run_id = ?1 AND execution_epoch = ?2 AND event_type = 'runtime.action'
-                 AND json_extract(payload_preview_json, '$.zcodeBackground.identityDigest') = ?3)",
+                 AND COALESCE(json_extract(result_preview_json, '$.zcodeBackground.identityDigest'), json_extract(input_preview_json, '$.zcodeBackground.identityDigest'), json_extract(payload_preview_json, '$.zcodeBackground.identityDigest')) = ?3)",
                 params![
                     agent_run_id,
                     execution_epoch,
@@ -1307,7 +1332,12 @@ impl ExecutionEvidenceService {
                 .transpose()?
                 .as_ref(),
         );
-        let preview_json = serde_json::to_string(&preview)?;
+        let storage_version = existing.as_ref().map_or(2, |row| row.storage_version);
+        let preview_json = if storage_version == 1 {
+            serde_json::to_string(&preview)?
+        } else {
+            "{}".to_owned()
+        };
         let content_byte_count = next_input_part
             .byte_count
             .saturating_add(next_result_part.as_ref().map_or(0, |part| part.byte_count));
@@ -1352,10 +1382,10 @@ impl ExecutionEvidenceService {
                     operation_id, revision, change_sequence,
                     input_preview_json, input_blob_id, input_byte_count, input_content_state,
                     result_preview_json, result_blob_id, result_byte_count, result_content_state,
-                    output_truncated, updated_at
+                    output_truncated, updated_at, storage_version
                 ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11, ?12,
-                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25
+                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
                 )
                 "#,
                 params![
@@ -1386,6 +1416,7 @@ impl ExecutionEvidenceService {
                     next_result_part.as_ref().map(|part| &part.state),
                     next_output_truncated.map(i64::from),
                     occurred_at,
+                    storage_version,
                 ],
             )?;
         } else {
@@ -2265,7 +2296,7 @@ fn load_lifecycle_evidence(
             SELECT id, sequence, event_type, kind, phase, occurred_at,
                    revision, change_sequence, output_truncated,
                    input_preview_json, input_blob_id, input_byte_count, input_content_state,
-                   result_preview_json, result_blob_id, result_byte_count, result_content_state
+                   result_preview_json, result_blob_id, result_byte_count, result_content_state, storage_version
             FROM agent_run_execution_evidence
             WHERE agent_run_id = ?1 AND execution_epoch = ?2 AND operation_id = ?3
             "#,
@@ -2289,6 +2320,7 @@ fn load_lifecycle_evidence(
                     row.get::<_, Option<String>>(14)?,
                     row.get::<_, Option<i64>>(15)?,
                     row.get::<_, Option<String>>(16)?,
+                    row.get::<_, i64>(17)?,
                 ))
             },
         )
@@ -2311,6 +2343,7 @@ fn load_lifecycle_evidence(
         result_blob,
         result_bytes,
         result_state,
+        storage_version,
     )) = row
     else {
         return Ok(None);
@@ -2344,6 +2377,7 @@ fn load_lifecycle_evidence(
         revision,
         change_sequence,
         output_truncated,
+        storage_version,
         input,
         result,
     }))
@@ -3055,7 +3089,7 @@ fn load_by_source_key(
         .query_row(
             r#"
             SELECT id, agent_run_id, execution_epoch, sequence,
-                   event_type, kind, phase, payload_preview_json,
+                   event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json),
                    content_blob_id, content_byte_count, is_truncated, occurred_at,
                    operation_id, revision, change_sequence, output_truncated
             FROM agent_run_execution_evidence
@@ -4945,6 +4979,8 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(started_command.sequence, 1);
+        crate::db::assert_execution_storage_upgrade(&mut database);
+
         let evidence = ExecutionEvidenceService
             .record_runtime_event(
                 &mut database,
@@ -5001,6 +5037,11 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             ).unwrap();
         assert!(!payload_preview.contains(discarded_output_marker));
+        assert_ne!(
+            payload_preview, "{}",
+            "legacy in-flight rows keep their combined preview"
+        );
+
         assert!(!result_preview.unwrap().contains(discarded_output_marker));
         let result_blob_id =
             result_blob_id.expect("structured diff should keep the result Blob-backed");
@@ -5256,8 +5297,39 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(terminal_first.inserted);
+        let stored: (i64,String) = database.connection().query_row(
+            "SELECT storage_version,payload_preview_json FROM agent_run_execution_evidence WHERE id=?1", [&terminal_first.id],
+            |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(stored, (2, "{}".to_owned()));
+        assert!(
+            database
+                .connection()
+                .execute(
+                    "UPDATE agent_run_execution_evidence SET storage_version=1 WHERE id=?1",
+                    [&terminal_first.id]
+                )
+                .is_err()
+        );
+
         assert_eq!(terminal_first.sequence, 9);
         assert_eq!(terminal_first.revision, Some(1));
+        let mixed = crate::read_model::ReadModelService
+            .agent_run_execution_evidence_page(&mut database, &camp_id, &run_id, 0, 48)
+            .unwrap();
+        assert!(
+            mixed.evidence.iter().any(|row| row.id == started_command.id
+                && row.payload["item"]["command"] == "cargo test")
+        );
+        assert_eq!(
+            mixed
+                .evidence
+                .iter()
+                .find(|row| row.id == terminal_first.id)
+                .unwrap()
+                .payload,
+            terminal_first.payload
+        );
+
         let late_start_payload = json!({
             "item": {
                 "id": "terminal-first-command",
@@ -5408,6 +5480,43 @@ mod tests {
         assert_eq!(pi_streamed.payload["output"], "找到 3 个文件……");
         assert_eq!(pi_streamed.output_truncated, Some(false));
 
+        // Hundreds of cumulative progress snapshots must not append history rows or
+        // accumulate previous output. A later short snapshot remains a valid replacement.
+        for step in 0..128 {
+            let (kind, update) = crate::pi::normalize_event(&json!({
+                "type":"tool_execution_update", "toolCallId":"pi-streamed-result", "toolName":"grep",
+                "args":{"query":"needle"}, "partialResult":{"content":[{"type":"text",
+                    "text":format!("{}NEVER_PERSIST_PROGRESS_{step}", "界".repeat(2560))}]}
+            }));
+            let saved = ExecutionEvidenceService
+                .record_runtime_event(
+                    &mut database,
+                    &blob_store,
+                    &run_id,
+                    execution_epoch,
+                    kind,
+                    &update,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved.id, pi_streamed.id);
+            assert_eq!(saved.payload["output"].as_str().unwrap().len(), 7680);
+            assert_eq!(saved.output_truncated, Some(true));
+        }
+        let restored = ExecutionEvidenceService
+            .record_runtime_event(
+                &mut database,
+                &blob_store,
+                &run_id,
+                execution_epoch,
+                "runtime.action",
+                &pi_update,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.payload["output"], pi_streamed.payload["output"]);
+        assert_eq!(restored.output_truncated, Some(false));
+        assert_eq!(database.connection().query_row("SELECT count(*) FROM agent_run_execution_evidence WHERE agent_run_id=?1 AND operation_id=?2",params![run_id,pi_streamed.operation_id],|r|r.get::<_,i64>(0)).unwrap(),1);
         let (pi_event_type, pi_terminal) = crate::pi::normalize_event(&json!({
             "type": "tool_execution_end",
             "toolCallId": "pi-streamed-result",
@@ -5860,6 +5969,151 @@ mod tests {
                 .validate()
                 .unwrap();
         }
+
+        for marker in [
+            discarded_output_marker,
+            snapshot_marker,
+            "NEVER_PERSIST_PROGRESS_",
+        ] {
+            let leaked: bool = database.connection().query_row(
+                "SELECT EXISTS(SELECT 1 FROM agent_run_execution_evidence WHERE instr(payload_preview_json,?1)>0 OR instr(input_preview_json,?1)>0 OR instr(result_preview_json,?1)>0)
+                 OR EXISTS(SELECT 1 FROM event_log WHERE instr(payload_json,?1)>0)
+                 OR EXISTS(SELECT 1 FROM canonical_runtime_activity WHERE instr(diff_projection_json,?1)>0)", [marker], |r| r.get(0)).unwrap();
+            assert!(!leaked, "ordinary output suffix leaked into durable SQL");
+            let ids: Vec<String> = database
+                .connection()
+                .prepare("SELECT id FROM managed_blob")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            for id in ids {
+                let bytes = blob_store.read_bytes(&database, &id).unwrap();
+                assert!(
+                    !String::from_utf8_lossy(&bytes).contains(marker),
+                    "ordinary output suffix leaked into a Blob"
+                );
+            }
+        }
+        // A legacy Action result has no SQL FK and no other reference.
+        let action_blob = blob_store
+            .put_bytes(
+                &mut database,
+                b"action-only-reference",
+                "text/plain",
+                "normal",
+            )
+            .unwrap();
+        database.connection().execute("INSERT INTO action_execution(id,agent_run_id,native_action_id,action_kind,action_schema_version,
+            action_digest,digest_algorithm,canonicalization_version,canonical_input_json,input_completeness,action_summary,
+            execution_authority,control_mode,policy_decision,policy_version,status,created_at,updated_at,result_blob_id)
+            VALUES('gc-action',?1,'gc-action','tool','v1','digest','sha256','v1','{}','complete','gc fixture',
+                'core','mediated','allow','v1','prepared','2026-01-01','2026-01-01',?2)", params![run_id, action_blob.id]).unwrap();
+        let tx = database.connection_mut().transaction().unwrap();
+        detach_gc_candidate(
+            &tx,
+            &action_blob.id,
+            GC_OWNER_EXECUTION_LIFECYCLE,
+            "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert!(
+            !blob_store
+                .collect_gc_candidates_before(&mut database, "9999-01-01T00:00:00Z", 100)
+                .unwrap()
+                .contains(&action_blob.id)
+        );
+        assert!(blob_store.read_bytes(&database, &action_blob.id).is_ok());
+        let sizes: (i64,i64,i64) = database.connection().query_row(
+            "SELECT count(*),sum(length(CAST(payload_preview_json AS BLOB))),
+                sum(length(CAST(rovai_execution_preview(storage_version,payload_preview_json,input_preview_json,result_preview_json) AS BLOB)))
+             FROM agent_run_execution_evidence WHERE storage_version=2", [],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        println!(
+            "storage_pr1_new_rows={} combined_bytes_saved={} marker_bytes={} reconstructed_bytes={}",
+            sizes.0,
+            sizes.2 - sizes.1,
+            sizes.1,
+            sizes.2
+        );
+        // Normal aggregate deletion queues only its released references, atomically.
+        let referenced: Vec<String> = database.connection().prepare(
+            "SELECT content_blob_id FROM agent_run_execution_evidence WHERE agent_run_id=?1 AND content_blob_id IS NOT NULL
+             UNION SELECT input_blob_id FROM agent_run_execution_evidence WHERE agent_run_id=?1 AND input_blob_id IS NOT NULL
+             UNION SELECT result_blob_id FROM agent_run_execution_evidence WHERE agent_run_id=?1 AND result_blob_id IS NOT NULL
+             UNION SELECT rendered_payload_blob_id FROM context_manifest WHERE agent_run_id=?1
+             UNION SELECT result_blob_id FROM action_execution WHERE agent_run_id=?1 AND result_blob_id IS NOT NULL")
+            .unwrap().query_map([&run_id], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        assert!(!referenced.is_empty());
+        let shared = referenced[0].clone();
+        database
+            .connection()
+            .execute_batch(
+                "CREATE TABLE retained_blob_reference(blob_id TEXT REFERENCES managed_blob(id));",
+            )
+            .unwrap();
+        database
+            .connection()
+            .execute("INSERT INTO retained_blob_reference VALUES(?1)", [&shared])
+            .unwrap();
+        let before: Vec<(String, Option<String>)> = database
+            .connection()
+            .prepare("SELECT id,gc_candidate_at FROM managed_blob ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let tx = database.connection_mut().transaction().unwrap();
+        crate::collaboration::delete_camp_aggregate(&tx, &camp_id).unwrap();
+        tx.rollback().unwrap();
+        let after: Vec<(String, Option<String>)> = database
+            .connection()
+            .prepare("SELECT id,gc_candidate_at FROM managed_blob ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            after, before,
+            "rollback must restore references and candidate registration together"
+        );
+        let tx = database.connection_mut().transaction().unwrap();
+        crate::collaboration::delete_camp_aggregate(&tx, &camp_id).unwrap();
+        tx.commit().unwrap();
+        for id in &referenced {
+            assert!(
+                blob_store.read_bytes(&database, id).is_ok(),
+                "delete transaction never removes files"
+            );
+            assert_eq!(
+                database
+                    .connection()
+                    .query_row(
+                        "SELECT gc_candidate_owner FROM managed_blob WHERE id=?1",
+                        [id],
+                        |r| r.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                "camp_deletion"
+            );
+        }
+        assert!(
+            blob_store
+                .collect_gc_candidates_before(&mut database, "2000-01-01T00:00:00Z", 100)
+                .unwrap()
+                .is_empty()
+        );
+        let collected = blob_store
+            .collect_gc_candidates_before(&mut database, "9999-01-01T00:00:00Z", 100)
+            .unwrap();
+        for id in &referenced {
+            assert_eq!(collected.contains(id), id != &shared);
+        }
+        assert!(blob_store.read_bytes(&database, &shared).is_ok());
 
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();

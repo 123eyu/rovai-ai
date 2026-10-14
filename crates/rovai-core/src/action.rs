@@ -1983,8 +1983,8 @@ impl ActionSafetyService {
                     WHERE a.id = ?1 AND a.control_mode = 'intercepted' AND r.runtime_adapter_kind = 'zcode-app'
                       AND e.execution_epoch = a.source_agent_run_execution_epoch AND r.execution_epoch = e.execution_epoch
                       AND e.event_type = 'runtime.action'
-                      AND json_extract(e.payload_preview_json, '$.zcodeBackground.toolCallId') = a.native_item_id
-                      AND json_extract(e.payload_preview_json, '$.zcodeBackground.status') IN ('completed','failed','cancelled','host_closed'))",
+                      AND CASE WHEN e.storage_version = 1 THEN json_extract(e.payload_preview_json, '$.zcodeBackground.toolCallId') ELSE COALESCE(json_extract(e.result_preview_json, '$.zcodeBackground.toolCallId'), json_extract(e.input_preview_json, '$.zcodeBackground.toolCallId')) END = a.native_item_id
+                      AND CASE WHEN e.storage_version = 1 THEN json_extract(e.payload_preview_json, '$.zcodeBackground.status') ELSE COALESCE(json_extract(e.result_preview_json, '$.zcodeBackground.status'), json_extract(e.input_preview_json, '$.zcodeBackground.status')) END IN ('completed','failed','cancelled','host_closed'))",
                     [&envelope.payload.action_id], |row| row.get(0))?
             } else { false };
             let reconciling_unknown = status == "unknown"

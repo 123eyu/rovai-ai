@@ -536,7 +536,7 @@ fn run_activity_authorizes_file(
         .connection()
         .query_row(
             r#"
-            SELECT activity.diff_projection_json, evidence.payload_preview_json,
+            SELECT activity.diff_projection_json, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
                    evidence.phase, activity.outcome
             FROM agent_run_execution_evidence AS evidence
             JOIN agent_run ON agent_run.id = evidence.agent_run_id
@@ -1421,8 +1421,8 @@ mod tests {
             .connection()
             .execute(
                 "UPDATE agent_run_execution_evidence
-                 SET payload_preview_json=json_set(
-                   payload_preview_json, '$.runtimeFileOperation.status', 'unavailable'
+                 SET result_preview_json=json_set(
+                   COALESCE(result_preview_json, '{}'), '$.runtimeFileOperation.status', 'unavailable'
                  ) WHERE id=?1",
                 [&operation_evidence.evidence.id],
             )

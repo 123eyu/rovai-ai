@@ -17,7 +17,8 @@ test('GIF avatar survives upload, crop, reopen and reload through the real Core'
   if (!admitElectronIntegrationTest(t)) return
   const binary = resolve(process.env.ROVAI_CORE_BINARY ?? join(root, 'target/debug', process.platform === 'win32' ? 'rovai-core.exe' : 'rovai-core'))
   await access(binary)
-  const fixture = await realpath(process.env.ROVAI_MEMBER_AVATAR_FIXTURE_ROOT ?? await mkdtemp(join(tmpdir(), 'rovai-member-avatar-flow-')))
+  const suppliedFixture = process.env.ROVAI_MEMBER_AVATAR_FIXTURE_ROOT
+  const fixture = await realpath(suppliedFixture ?? await mkdtemp(join(tmpdir(), 'rovai-member-avatar-flow-')))
   const userData = join(fixture, 'user-data')
   let child, closed, passed = false
   try {
@@ -45,7 +46,7 @@ test('GIF avatar survives upload, crop, reopen and reload through the real Core'
     passed = true
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await closed }
-    if (!passed || process.env.ROVAI_KEEP_MEMBER_AVATAR_FIXTURE === '1') console.log(`Member avatar fixture: ${fixture}`)
+    if (suppliedFixture !== undefined || !passed || process.env.ROVAI_KEEP_MEMBER_AVATAR_FIXTURE === '1') console.log(`Member avatar fixture: ${fixture}`)
     else {
       await removeEphemeralRuntimeCampFilesRoot(join(userData, 'core'))
       await rm(fixture, { recursive: true, force: true })

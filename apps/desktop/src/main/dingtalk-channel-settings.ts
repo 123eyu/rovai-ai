@@ -772,7 +772,9 @@ export class DingTalkChannelSettingsService {
         ? credentialRefFor(agentId, current.remoteUnifiedAppId)
         : null)
     try {
-      const avatar = await this.#dependencies.avatarSource.resolve(agent.avatarRef, { publicationIntentId: current.publicationIntentId, targetEdge: 240 })
+      const avatar = await this.#dependencies.avatarSource.resolve(agent.avatarRef, {
+        publicationIntentId: current.publicationIntentId, targetEdge: 240, allowDefaultAvatar: false
+      })
       if (!avatar?.pngBytes) throw new Error('dingtalk_member_bot_avatar_unavailable')
       const provisioned = await this.#dependencies.provisioner.create({
         appName: current.requestedAppName,

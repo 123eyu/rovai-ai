@@ -1236,7 +1236,6 @@
 .avatar-picker-dialog .app-dialog-footer button { min-height: 36px; white-space: nowrap; }
 .avatar-picker-dialog .avatar-picker-remove { padding-inline: 8px; margin-left: -8px; }
 .avatar-picker-dialog .member-editor-field-error { margin: 12px 0 0; }
-.avatar-picker-dialog :is(button, input):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .avatar-cut-dialog .app-dialog-body { padding: 0 24px 20px; }
 .avatar-cut-dialog .avatar-crop-editor { gap: 0; }
 .avatar-cut-dialog .avatar-crop-stage { width: min(100%, 320px); margin: 0 auto; }
@@ -1281,7 +1280,6 @@
 .identity-card-close { display: grid; place-items: center; width: 28px; height: 28px; margin: -4px -4px 0 0; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
 .identity-card-close svg { width: 18px; height: 18px; }
 .identity-card-close:hover { color: var(--ink); background: var(--neutral-hover); }
-.identity-card :is(button, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .identity-card-responsibilities { padding: 0 20px 18px; }
 .identity-card-responsibilities h3, .identity-card-more dt { margin: 0 0 7px; color: var(--muted); font-size: 11.5px; font-weight: 500; line-height: 1.5; }
 .identity-card-responsibilities p, .identity-card-more dd { margin: 0; color: var(--ink); font-size: 13px; font-weight: 400; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }

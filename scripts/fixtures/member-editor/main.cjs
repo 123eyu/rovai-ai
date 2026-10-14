@@ -475,7 +475,13 @@ app
       const open = async () => { await click(`${active}.member-editor-image-button`); await wait('document.querySelector(".avatar-picker-upload")'); assert.equal(await run('document.querySelector(".avatar-picker-preset-toggle").getAttribute("aria-expanded")'), 'false') }
       await run(`window.memberFixture.source(${source})`)
       await open(); await click('.avatar-picker-upload'); await wait('document.querySelector(".avatar-crop-stage img")?.naturalWidth === 480')
+      assert.equal(await run('document.querySelector(".avatar-crop-zoom input").getAttribute("aria-valuetext")'), '100% 放大')
+      await run('document.querySelector(".avatar-crop-zoom input").focus()'); await key('End')
+      await wait('document.querySelector(".avatar-crop-zoom output").textContent === "833%"')
+      assert.equal(await run('document.querySelector(".avatar-crop-zoom input").getAttribute("aria-valuetext")'), '833% 放大')
+      await key('Home'); await run('document.querySelector(".avatar-crop-stage").focus()')
       await key('Right'); await key('Escape'); await wait('!document.querySelector(".avatar-picker-dialog")')
+      await wait(`document.activeElement === document.querySelector('${active}.member-editor-image-button')`)
       assert.equal(await run('window.memberFixture.profiles()[0].avatarRef'), before)
       await run('window.memberFixture.source({bytes: new Uint8Array([1,2,3]), byteLength:3, inspectedWidth:480, inspectedHeight:320, mediaType:"image/png", displayName:"broken.png"})')
       await open(); await click('.avatar-picker-upload'); await wait('document.querySelector(".avatar-picker-dialog [role=alert]")')

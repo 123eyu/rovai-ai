@@ -30,7 +30,8 @@ schema 3 沿用 `source` 的尺寸、MIME、字节数、SHA-256、方向/隐私�
 `iconCrop` 记录 `centerX`、`centerY`（相对宽高）和 `size`（相对短边，0.12–1）。字段命名保留读取兼容。
 新资产的 icon rendition 返回同一文件和可选 `displayCrop`；旧资产不带 `displayCrop`，防止二次裁切。
 缺失、损坏、hash/尺寸不符、安全路径失败均拒绝读取，UI 只显示身份 fallback。
-Agent 的旧确定性创建请求重试验证旧 source/crop 并返回同一 ref，不重写为新格式。
+Agent 的旧确定性创建/修改请求重试验证旧 source/crop 并返回同一 ref，不重写为新格式；
+旧 GIF 显式取景先按旧规范化尺寸夹紧，避免缩放舍入导致相同请求冲突。
 
 旧 `raster`、`gif`、`recrop` 保存协议和共享图片函数保留兼容；新 Desktop/Web/Agent 导入只走单文件路径。
 旧 Agent `member.get` 的图像物化字段保留；新资产两种兼容读取均指向同一份头像内容。
@@ -70,6 +71,8 @@ Agent `--avatar-file` 由 Core 读取当前 Run 可访问文件，调用相同�
 
 Main 在远端发布 mutation 前读取、验证和导出。按既有 publication intent ID 与尺寸将静态结果冻结到
 Core data 下 `member-bot-avatar-exports` 私有目录；原子首次写入优先，记录内容、尺寸与摘要，重启重试直接读取。
-空 ref 冻结“使用渠道默认头像”的选择。更换本地头像不替换正在发布的冻结封面；新发布意图才取当前图。
+飞书/Lark 的空 ref 冻结“使用渠道默认头像”的选择。钉钉要求图片，空 ref 在冻结前失败，补图后可在同一 intent 重试；
+已有可用快照优先于当前 ref，即使当前已移除头像也不改变此次封面。
+更换本地头像不替换正在发布的冻结封面；新发布意图才取当前图。
 快照损坏/读取失败使此次发布失败，不回退读取较新的头像，也不改本地文件或引用。
 沿用既有 Provider 发布/更新/重试边界，不新增自动同步、选帧或用户可见的快照管理；无数据库迁移。

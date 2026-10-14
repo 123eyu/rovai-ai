@@ -171,7 +171,9 @@ without extra focus outlines or halos; higher contrast preferences restore the s
   and only necessary status. Destructive dialog actions use `--danger-soft` with `--danger` text. The standalone
   Mission Worktree cleanup action is a narrow product-specific exception: it uses the neutral conversation
   action while its concise dialog states the exact Worktree/branch scope.
-  Preserve identity portraits and functional context icons. Closing menus or dialogs does not automatically refocus an entry button; retain input positioning, focus trapping and keyboard navigation. Runtime configuration dropdown bodies remain unchanged.
+  Preserve identity avatars and functional context icons. Closing menus or dialogs does not automatically refocus an entry button; retain input positioning, focus trapping and keyboard navigation.
+  The member avatar picker/crop dialog is a scoped exception: its confirmed interaction returns focus to the actual avatar entry after closing, without scrolling or adding focus decoration.
+  Runtime configuration dropdown bodies remain unchanged.
 - **Evidence:** uses the dedicated evidence and diff tokens, monospaced type where appropriate, and
   structural `+`/`-`, line numbers or labels in addition to color.
 - **Code:** shared SafeMarkdown surfaces use a quiet inline canvas with `0 2px` padding and a `3px`

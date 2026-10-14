@@ -66,6 +66,11 @@ describe('controlled member Bot avatar source resolver', () => {
       expect(await restarted.resolve(null, options)).toEqual(results[0])
       expect(await resolver.resolve(null, { publicationIntentId: 'no-avatar' })).toBeUndefined()
       expect(await restarted.resolve(ref, { publicationIntentId: 'no-avatar' })).toBeUndefined()
+      const required = { publicationIntentId: 'image-required', allowDefaultAvatar: false }
+      expect(await resolver.resolve(null, required)).toBeUndefined()
+      const supplied = await resolver.resolve(ref, required)
+      expect(supplied?.pngBytes).toEqual(PNG_192)
+      expect(await restarted.resolve(null, required)).toEqual(supplied)
       const linked = join(directory, 'linked')
       await symlink(directory, linked, 'dir')
       const unsafe = new ControlledMemberBotAvatarSourceResolver({ read }, vi.fn(), linked)

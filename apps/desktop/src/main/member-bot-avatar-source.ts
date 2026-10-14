@@ -15,8 +15,15 @@ import qiluIconPath from '../renderer/src/assets/characters/qilu/icon-192.png?as
 import type { MemberBotAvatarSource } from './feishu-member-bot-provisioner'
 import { inspectPng } from './member-avatar-assets'
 
+export interface MemberBotAvatarSourceOptions {
+  targetEdge?: number
+  publicationIntentId?: string
+  /** Whether an absent reference is a usable channel default that can be frozen. */
+  allowDefaultAvatar?: boolean
+}
+
 export interface MemberBotAvatarSourceResolver {
-  resolve(avatarRef: string | null, options?: { targetEdge?: number; publicationIntentId?: string }): Promise<MemberBotAvatarSource | undefined>
+  resolve(avatarRef: string | null, options?: MemberBotAvatarSourceOptions): Promise<MemberBotAvatarSource | undefined>
 }
 
 type ManagedAvatarExport = { read(avatarRef: string, rendition: 'icon', targetEdge?: number): Promise<MemberAvatarRendition | null> }
@@ -44,7 +51,7 @@ export class ControlledMemberBotAvatarSourceResolver implements MemberBotAvatarS
     this.#snapshotDirectory = snapshotDirectory
   }
 
-  async resolve(avatarRef: string | null, options: { targetEdge?: number; publicationIntentId?: string } = {}): Promise<MemberBotAvatarSource | undefined> {
+  async resolve(avatarRef: string | null, options: MemberBotAvatarSourceOptions = {}): Promise<MemberBotAvatarSource | undefined> {
     const edge = options.targetEdge ?? MEMBER_AVATAR_LIMITS.iconEdge
     if (!Number.isInteger(edge) || edge < 1 || edge > 512) throw new Error('member_bot_avatar_export_size_invalid')
     if (!options.publicationIntentId || !this.#snapshotDirectory) return this.#read(avatarRef, edge)
@@ -57,6 +64,9 @@ export class ControlledMemberBotAvatarSourceResolver implements MemberBotAvatarS
     const existing = await readSnapshot(file)
     if (existing !== null) return existing.image
     const image = await this.#read(avatarRef, edge)
+    // A channel that requires an image must be able to retry after the user
+    // supplies one. Only usable images/defaults become immutable snapshots.
+    if (!image && options.allowDefaultAvatar === false) return undefined
     const temporary = join(root, `.tmp-${randomUUID()}`)
     const handle = await open(temporary, 'wx', 0o600)
     try {

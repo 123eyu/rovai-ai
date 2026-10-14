@@ -50,6 +50,12 @@ Rust `cargo test --workspace` 通过（471 项，1 项既有人工 smoke 忽略�
 `cargo test -p rovai-core --features extended-tests --lib -- member_avatar::tests member_profile_reads_and_patches_preserve_scope_atomicity_and_replay confirmed_user_input_can_create_one_idempotent_member_but_agent_input_cannot`
 16 项通过，涵盖头像 codec/存储及 Agent 创建、修改、重放/回滚 seam。Rust 格式检查通过。
 
+合并前按代码规范与 Mission/R8 需求分别独立审查，规范轴 4 项（3 P2、1 P3）、需求轴 2 项（P2）已全部修复并复核：
+旧 GIF 确定性重放恢复规范化后的取景夹紧；钉钉空图不会冻结为不可恢复的发布快照，补图可在同一 intent 重试；
+外部指定的验收目录一律保留；删除新增焦点外框；头像 Dialog 按 R8 返回实际入口的限定例外同步到上层规范；
+读屏与视觉缩放倍率一致。修正后渠道 resolver/钉钉 79 项、扩展 Rust 16 项、队员页 22 组、TypeScript 及
+diff-aware 文档门禁再次通过。未新增剩余审查发现；真实渠道账号、实体移动端和 Windows 不在本次执行证据内。
+
 ## Pi 接收容量与连接失败原因（2026-10-14）
 
 User 确认优先修 Pi 接收容量及错误类型，采用单帧默认 64 MiB。基线

@@ -339,15 +339,26 @@ pub fn prepare_member_avatar(
             use base64::Engine;
             let stored = read_managed_member_avatar(data_dir, &avatar_ref, true)?
                 .ok_or_else(|| MemberAvatarImportError::conflict())?;
-            let normalized = if format == ImageFormat::Gif {
+            let (normalized, selected_crop) = if format == ImageFormat::Gif {
                 let info = parse_gif_info(&selected_bytes)?;
                 validate_gif_file_info(&info)?;
+                let selected_crop = if let Some(crop) = crop {
+                    validate_crop(&crop, info.width, info.height)?;
+                    normalized_gif_crop(crop, stored.width, stored.height)
+                } else {
+                    stored.crop.clone()
+                };
                 let frames = decode_composited_gif_frames(&selected_bytes)?;
-                normalize_gif_source_bytes(&selected_bytes, &frames, info.loop_count)?
+                (
+                    normalize_gif_source_bytes(&selected_bytes, &frames, info.loop_count)?,
+                    selected_crop,
+                )
             } else {
-                encode_png(&normalize_selected_avatar(selected_file)?)?
+                (
+                    encode_png(&normalize_selected_avatar(selected_file)?)?,
+                    crop.unwrap_or_else(|| stored.crop.clone()),
+                )
             };
-            let selected_crop = crop.unwrap_or_else(|| stored.crop.clone());
             if base64::engine::general_purpose::STANDARD.decode(&stored.base64)? != normalized
                 || selected_crop != stored.crop
             {
@@ -2863,10 +2874,17 @@ mod tests {
                 &bytes,
                 width,
                 height,
-                left_edge_crop,
+                left_edge_crop.clone(),
                 1,
             )
             .unwrap();
+            let legacy_id =
+                Uuid::parse_str(original.avatar_ref.rsplit('/').next().unwrap()).unwrap();
+            assert_eq!(
+                prepare_member_avatar(&directory, legacy_id, &input, Some(left_edge_crop), true)
+                    .unwrap(),
+                original
+            );
             assert!(
                 read_managed_member_avatar(&directory, &original.avatar_ref, true)
                     .unwrap()

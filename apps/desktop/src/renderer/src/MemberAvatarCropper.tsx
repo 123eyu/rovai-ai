@@ -60,7 +60,8 @@ export function MemberAvatarCropper({
   )
   const cropResolution = avatarCropSourceResolution(crop, sourceWidth, sourceHeight)
   const lowResolution = isAvatarCropLowResolution(crop, sourceWidth, sourceHeight)
-  const zoomPercent = avatarCropZoomPercent(crop)
+  const zoomProgress = avatarCropZoomPercent(crop)
+  const displayedZoomPercent = compact ? Math.round(100 / crop.size) : zoomProgress
 
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -202,13 +203,13 @@ export function MemberAvatarCropper({
             type="range"
             min="0"
             max="100"
-            value={zoomPercent}
+            value={zoomProgress}
             disabled={disabled}
             aria-label={uiAttribute("头像放大倍率")}
-            aria-valuetext={uiAttribute("{0}% 放大", String(zoomPercent))}
+            aria-valuetext={uiAttribute("{0}% 放大", String(displayedZoomPercent))}
             onChange={(event) => changeZoom(Number(event.target.value))}
           />
-          <output>{compact ? Math.round(100 / crop.size) : zoomPercent}%</output>
+          <output>{displayedZoomPercent}%</output>
         </label>
         <button
           className="quiet-button compact"

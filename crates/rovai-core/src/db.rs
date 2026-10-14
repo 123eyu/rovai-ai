@@ -10,6 +10,8 @@ mod member_environment;
 mod member_routing;
 #[path = "db_message_mentions.rs"]
 mod message_mentions;
+#[path = "db_message_senders.rs"]
+mod message_senders;
 #[path = "db_mission_context.rs"]
 mod mission_context;
 #[path = "db_mission_description.rs"]
@@ -51,10 +53,39 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
     let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
     member_routing::migrate(database).unwrap();
     claim_context::migrate(database).unwrap();
+    message_senders::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
     );
+}
+
+#[cfg(all(test, feature = "slow-tests"))]
+pub(crate) fn upgrade_message_senders_fixture(database: &mut Database) {
+    message_senders::downgrade_for_test(database.connection());
+    let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
+    let claims: Vec<String> = database
+        .connection()
+        .prepare("SELECT context_json FROM agent_run_claim_context ORDER BY agent_run_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    message_senders::migrate(database).unwrap();
+    assert_eq!(
+        before,
+        public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
+    );
+    let after: Vec<String> = database
+        .connection()
+        .prepare("SELECT context_json FROM agent_run_claim_context ORDER BY agent_run_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(claims, after);
 }
 
 // Exercise upgrade against the context owner's populated, isolated legacy fixture.
@@ -357,7 +388,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 148;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 149;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -830,6 +861,7 @@ struct CurrentMigrationState {
     v196: bool,
     v197: bool,
     v198: bool,
+    v199: bool,
 }
 
 impl CurrentMigrationState {
@@ -851,11 +883,19 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v199 {
+            let mut previous = *self;
+            previous.v199 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+                && self.v198
+                && previous.admits("v1.72", 148, classifier);
+        }
         if self.v198 {
             let mut previous = *self;
             previous.v198 = false;
             return contract == CURRENT_DATA_CONTRACT_VERSION
-                && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+                && schema == 148
                 && self.v197
                 && previous.admits("v1.72", 147, classifier);
         }
@@ -2978,7 +3018,8 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
         .ok()
         .and_then(Option::as_ref)
         .is_some_and(|(contract, schema, _)| {
-            contract == CURRENT_DATA_CONTRACT_VERSION && matches!(schema, 145 | 146 | 147 | 148)
+            contract == CURRENT_DATA_CONTRACT_VERSION
+                && matches!(schema, 145 | 146 | 147 | 148 | 149)
         })
     {
         return Ok(matches!(
@@ -3385,7 +3426,10 @@ pub(crate) fn classify_database_contract(
     // Current databases do not re-prove every historical migration's SQL text.
     // Older layouts retain their migration-specific source recognition below.
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
-        && matches!(marker.projection_schema_version, 145 | 146 | 147 | 148)
+        && matches!(
+            marker.projection_schema_version,
+            145 | 146 | 147 | 148 | 149
+        )
     {
         let expected_migration = marker.projection_schema_version + 50;
         let completed: bool = connection.query_row(
@@ -3401,8 +3445,10 @@ pub(crate) fn classify_database_contract(
             && (marker.projection_schema_version < 147
                 || if marker.projection_schema_version == 147 {
                     member_routing::schema_matches(connection)?
-                } else {
+                } else if marker.projection_schema_version == 148 {
                     claim_context::schema_matches(connection)
+                } else {
+                    message_senders::schema_matches(connection)
                 });
         return Ok(if !valid {
             DatabaseContractClassification::Unknown(Some(marker))
@@ -5632,7 +5678,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 195),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 196),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 197),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 198)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 198),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 199)
         "#,
         [],
         |row| {
@@ -5766,6 +5813,7 @@ fn load_current_migration_state(
                 v196: row.get(126)?,
                 v197: row.get(127)?,
                 v198: row.get(128)?,
+                v199: row.get(129)?,
             })
         },
     )
@@ -8992,6 +9040,9 @@ impl Database {
             if !self.schema_migration_applied(198)? {
                 migration_step!("migration_198", claim_context::migrate(self));
             }
+            if !self.schema_migration_applied(199)? {
+                migration_step!("migration_199", message_senders::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -9804,6 +9855,9 @@ impl Database {
         }
         if !self.schema_migration_applied(198)? {
             migration_step!("migration_198", claim_context::migrate(self));
+        }
+        if !self.schema_migration_applied(199)? {
+            migration_step!("migration_199", message_senders::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41573,6 +41627,7 @@ mod tests {
             v196: version >= 196,
             v197: version >= 197,
             v198: version >= 198,
+            v199: version >= 199,
         }
     }
 
@@ -42337,7 +42392,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(198);
+        let current = migration_state_through(199);
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;

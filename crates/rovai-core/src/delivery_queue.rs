@@ -862,6 +862,7 @@ fn select_batch_prefix(
     workspace_fact: Option<&Value>,
 ) -> Result<BatchPrefixSelection> {
     let base_context = ClaimedBatchContext::prepare(transaction, preview, workspace_fact)?;
+    let mut sender_names = crate::message_sender::SenderNames::default();
     let mut batch_content = Vec::new();
     let mut batch_message_indices = Vec::new();
     let mut previous_selection = None;
@@ -899,6 +900,7 @@ fn select_batch_prefix(
             camp_public_tail,
             &message_ids,
             &skill_links,
+            &mut sender_names,
         )?;
         let has_additional_public_messages = has_additional_public_messages(
             transaction,
@@ -3415,7 +3417,7 @@ mod tests {
             .database
             .connection()
             .execute(
-                "UPDATE camp_message SET address_mode = 'default' WHERE id = 'default-message'",
+                "UPDATE camp_message SET address_mode = 'default', author_type = 'agent', author_id = 'agent_2' WHERE id = 'default-message'",
                 [],
             )
             .unwrap();
@@ -3428,6 +3430,14 @@ mod tests {
             )
             .unwrap();
 
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET display_name='领取时作者' WHERE id='agent_2'",
+                [],
+            )
+            .unwrap();
         let run_id = claim_waiting_delivery_batches(&mut fixture.database, 100)
             .unwrap()
             .pop()
@@ -3440,6 +3450,33 @@ mod tests {
                 [],
             )
             .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET display_name='改名作者' WHERE id='agent_2'",
+                [],
+            )
+            .unwrap();
+        let frozen_json: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT context_json FROM agent_run_claim_context WHERE agent_run_id=?1",
+                [&run_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let claimed: Value = serde_json::from_str(&frozen_json).unwrap();
+        let input = &claimed["runInput"]["messages"][0];
+        assert_eq!(input["senderType"], "agent");
+        assert_eq!(input["senderId"], "agent_2");
+        assert_eq!(input["senderName"], "领取时作者");
+        assert_eq!(input["body"], "@领取时队长 正文");
+        assert_eq!(
+            input["mentions"],
+            json!([{"id":"agent_1","name":"领取时队长"}])
+        );
         let frozen: (i64, Option<String>) = fixture
             .database
             .connection()
@@ -4392,7 +4429,7 @@ mod tests {
                 r#"
                 UPDATE camp_message
                 SET source_attachments_json=?2, structured_content_json=?3,
-                    content_digest=?4,
+                    author_type='agent', author_id='agent_2', content_digest=?4,
                     effective_recipient_ids_json='["agent_2","agent_1","agent_2"]'
                 WHERE id=?1
                 "#,
@@ -4445,6 +4482,7 @@ mod tests {
                 skill_id: None,
                 message_index: None,
             }],
+            &mut crate::message_sender::SenderNames::default(),
         )
         .unwrap();
         let messages = projection["messages"].as_array().unwrap();
@@ -4478,6 +4516,22 @@ mod tests {
             messages
                 .iter()
                 .all(|message| message.get("mentionsCurrentUser").is_none())
+        );
+        assert_eq!(messages[0]["senderType"], "user");
+        assert_eq!(messages[0]["senderId"], "user");
+        assert!(messages[0].get("senderName").is_none());
+        assert_eq!(messages[1]["senderType"], "agent");
+        assert_eq!(messages[1]["senderId"], "agent_2");
+        assert!(messages[1]["senderName"].as_str().is_some());
+        assert_eq!(messages[1]["quotes"][0]["source"]["author"]["type"], "user");
+        let mut without_sender_name = projection.clone();
+        without_sender_name["messages"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("senderName");
+        assert!(
+            serialized_batch_run_input_len(&projection).unwrap()
+                > serialized_batch_run_input_len(&without_sender_name).unwrap()
         );
         let mut without_mentions = projection.clone();
         for message in without_mentions["messages"].as_array_mut().unwrap() {

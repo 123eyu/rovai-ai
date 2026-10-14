@@ -15558,6 +15558,7 @@ mod slow_tests {
                             expected_versions: Vec::new(),
                             execution_epoch: None,
                             payload: crate::action::ReconcileRuntimeLossCommand {
+                                failure: None,
                                 agent_run_id: fixture.run_id.clone(),
                                 expected_version: current.version + 1,
                                 execution_epoch: fixture.execution_epoch,

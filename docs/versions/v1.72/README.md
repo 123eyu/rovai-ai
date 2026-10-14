@@ -6,10 +6,18 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## Pi 接收容量与连接失败原因（2026-10-14）
+
+Pi 入站单帧从 4 MiB 提高到 64 MiB，出站与 stderr 保留各自预算；不压缩头像、不修改其他 Runtime。
+读取层区分容量超限、协议损坏和连接读取失败，并沿既有 Runtime loss 事务保存公开原因；
+accepted/unknown 输入不重放，Host 清理和单聊取消语义保持。精确边界见
+[Runtime Launch v63](../../contracts/runtime-launch-and-verification-v63.md)，验证见
+[实施记录](implementation-plan.md#pi-接收容量与连接失败原因2026-10-14)。
 
 ## 已实现：成员路由与专业职责扩容，语义 Gate 待补（2026-10-13）
 

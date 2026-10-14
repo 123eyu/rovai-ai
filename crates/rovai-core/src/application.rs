@@ -17695,6 +17695,7 @@ impl Core {
         agent_run_id: &str,
         execution_epoch: i64,
         reason: &str,
+        failure: Option<RuntimeFailureView>,
     ) {
         let recovery = {
             let mut database = self.database.lock().await;
@@ -17712,6 +17713,7 @@ impl Core {
                             expected_versions: Vec::new(),
                             execution_epoch: None,
                             payload: ReconcileRuntimeLossCommand {
+                                failure,
                                 agent_run_id: agent_run_id.to_string(),
                                 expected_version: execution.version,
                                 execution_epoch,
@@ -20109,6 +20111,7 @@ async fn process_pi_events(
                 host_instance_id,
                 agent_run_id,
                 execution_epoch,
+                failure,
             } => {
                 process_pi_agent_run_exit(
                     &core,
@@ -20116,6 +20119,7 @@ async fn process_pi_events(
                     &host_instance_id,
                     &agent_run_id,
                     execution_epoch,
+                    failure,
                 )
                 .await;
             }
@@ -20653,6 +20657,7 @@ async fn process_pi_agent_run_exit(
     host_instance_id: &str,
     agent_run_id: &str,
     execution_epoch: i64,
+    failure: Option<pi::PiTransportFailure>,
 ) {
     if core.planned_shutdown.shutdown_started() {
         return;
@@ -20678,8 +20683,25 @@ async fn process_pi_agent_run_exit(
         "runtime_host_exit_unclassified",
     )
     .await;
-    core.reconcile_exited_agent_run(output, agent_run_id, execution_epoch, "pi_host_exited")
-        .await;
+    let public_failure = failure.map(pi::PiTransportFailure::public_failure);
+    let reason = public_failure.as_ref().map_or_else(
+        || "pi_host_exited".to_string(),
+        |failure| {
+            format!(
+                "{}: {}",
+                failure.code,
+                failure.detail.as_deref().unwrap_or(&failure.summary)
+            )
+        },
+    );
+    core.reconcile_exited_agent_run(
+        output,
+        agent_run_id,
+        execution_epoch,
+        &reason,
+        public_failure,
+    )
+    .await;
 }
 
 async fn process_acp_events(
@@ -23525,6 +23547,7 @@ async fn process_acp_agent_run_exit(
         agent_run_id,
         execution_epoch,
         &format!("{}_host_exited", adapter_kind.as_str().replace('-', "_")),
+        None,
     )
     .await;
 }
@@ -24833,8 +24856,14 @@ async fn process_agent_run_exit(
         "runtime_host_exit_unclassified",
     )
     .await;
-    core.reconcile_exited_agent_run(output, agent_run_id, execution_epoch, "codex_host_exited")
-        .await;
+    core.reconcile_exited_agent_run(
+        output,
+        agent_run_id,
+        execution_epoch,
+        "codex_host_exited",
+        None,
+    )
+    .await;
 }
 
 async fn dispatch_pending_single_chat_inputs(core: &Core) -> Result<()> {

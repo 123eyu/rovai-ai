@@ -11,7 +11,7 @@ use crate::{
     camp_content::StructuredThreadMessageContent,
     collaboration::build_effective_config,
     context::{
-        DeliveryContextPreview, batch_claim_payload_len, charter_delivery_mode_for_adapter,
+        ClaimedBatchContext, DeliveryContextPreview, charter_delivery_mode_for_adapter,
         project_batch_run_input_for_claim, runtime_max_context_payload_bytes,
     },
     context_contract::PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION,
@@ -43,6 +43,7 @@ struct WaitingDelivery {
 
 #[derive(Debug)]
 struct BatchPrefixSelection {
+    context: Option<ClaimedBatchContext>,
     count: usize,
     first_too_large: bool,
     skill_selection: SkillSelectionSnapshot,
@@ -555,6 +556,9 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
                     .then_some("context_payload_too_large"),
                 &now,
             )?;
+            if let Some(context) = selection.context {
+                context.persist(&transaction, &agent_run_id)?;
+            }
             claimed_run_ids.push(agent_run_id);
             if claimed_run_ids.len() == limit as usize {
                 break;
@@ -730,6 +734,7 @@ fn select_batch_prefix(
     waiting: &[WaitingDelivery],
     preview: &DeliveryContextPreview<'_>,
 ) -> Result<BatchPrefixSelection> {
+    let base_context = ClaimedBatchContext::prepare(transaction, preview)?;
     let mut batch_content = Vec::new();
     let mut batch_message_indices = Vec::new();
     let mut previous_selection = None;
@@ -776,23 +781,27 @@ fn select_batch_prefix(
             camp_public_tail,
             &message_ids,
         )?;
-        if batch_claim_payload_len(
+        let context = base_context.with_input(
             transaction,
             preview,
-            &run_input,
+            run_input,
             &skill_selection,
             previous_public_boundary,
             has_additional_public_messages,
-        )? > preview.max_payload_bytes
-        {
+        )?;
+        if context.payload_len()? > preview.max_payload_bytes {
             return Ok(match previous_selection {
-                Some((skill_selection, has_additional_public_messages)) => BatchPrefixSelection {
-                    count: count - 1,
-                    first_too_large: false,
-                    skill_selection,
-                    has_additional_public_messages,
-                },
+                Some((skill_selection, has_additional_public_messages, context)) => {
+                    BatchPrefixSelection {
+                        context: Some(context),
+                        count: count - 1,
+                        first_too_large: false,
+                        skill_selection,
+                        has_additional_public_messages,
+                    }
+                }
                 None => BatchPrefixSelection {
+                    context: None,
                     count: if atomic_input { waiting.len() } else { 1 },
                     first_too_large: true,
                     skill_selection,
@@ -800,11 +809,12 @@ fn select_batch_prefix(
                 },
             });
         }
-        previous_selection = Some((skill_selection, has_additional_public_messages));
+        previous_selection = Some((skill_selection, has_additional_public_messages, context));
     }
-    let (skill_selection, has_additional_public_messages) =
+    let (skill_selection, has_additional_public_messages, context) =
         previous_selection.context("Delivery claim selected an empty input batch")?;
     Ok(BatchPrefixSelection {
+        context: Some(context),
         count: waiting.len(),
         first_too_large: false,
         skill_selection,
@@ -1182,9 +1192,22 @@ mod tests {
 
         #[cfg(feature = "extended-tests")]
         fn materialize_run(&mut self, run: &str) -> crate::context::PreparedContext {
+            self.materialize_with_mode(
+                run,
+                crate::context::CharterDeliveryMode::NativeAppend,
+                96 * 1024,
+            )
+        }
+
+        #[cfg(feature = "extended-tests")]
+        fn materialize_with_mode(
+            &mut self,
+            run: &str,
+            mode: crate::context::CharterDeliveryMode,
+            limit: usize,
+        ) -> crate::context::PreparedContext {
             use crate::context::{
-                CharterDeliveryMode, ContextMaterialization, ContextService,
-                MaterializeContextRequest,
+                ContextMaterialization, ContextService, MaterializeContextRequest,
             };
             self.database
                 .connection()
@@ -1203,8 +1226,8 @@ mod tests {
                     &MaterializeContextRequest {
                         agent_run_id: run,
                         execution_epoch: 1,
-                        charter_delivery_mode: CharterDeliveryMode::NativeAppend,
-                        max_payload_bytes: 96 * 1024,
+                        charter_delivery_mode: mode,
+                        max_payload_bytes: limit,
                     },
                 )
                 .unwrap()
@@ -1736,6 +1759,27 @@ mod tests {
             vec!["original-a", "original-b"],
             vec!["later-message"],
         ] {
+            let task_title = format!("current-task-{}", run_ids.len());
+            CollaborationService::default()
+                .create_task(
+                    &mut fixture.database,
+                    &CommandEnvelope {
+                        command_id: format!("task-for-{}", run_ids.len()),
+                        actor: ActorRef::User {
+                            user_id: "local_user".into(),
+                        },
+                        camp_id: Some(fixture.camp_id.clone()),
+                        expected_versions: vec![],
+                        execution_epoch: None,
+                        payload: crate::collaboration::CreateTaskCommand {
+                            camp_id: fixture.camp_id.clone(),
+                            title: task_title.clone(),
+                            description: String::new(),
+                            assignee_agent_id: "agent_1".into(),
+                        },
+                    },
+                )
+                .unwrap();
             let claimed = claim_waiting_delivery_batches(&mut fixture.database, 10).unwrap();
             assert_eq!(claimed.len(), 1);
             let run = &claimed[0];
@@ -1757,29 +1801,7 @@ mod tests {
                 let old_reused:bool=fixture.database.connection().query_row("SELECT EXISTS(SELECT 1 FROM agent_run_input WHERE agent_run_id=?1 AND delivery_id=?2)",params![run,old_delivery],|r|r.get(0)).unwrap();
                 assert!(!old_reused);
 
-                // Exercise the production builder: current Tasks are rebuilt,
-                // while RUN_INPUT stays the complete original business input.
-                let task_title = format!("current-task-{run}");
-                CollaborationService::default()
-                    .create_task(
-                        &mut fixture.database,
-                        &CommandEnvelope {
-                            command_id: format!("task-for-{run}"),
-                            actor: ActorRef::User {
-                                user_id: "local_user".into(),
-                            },
-                            camp_id: Some(fixture.camp_id.clone()),
-                            expected_versions: vec![],
-                            execution_epoch: None,
-                            payload: crate::collaboration::CreateTaskCommand {
-                                camp_id: fixture.camp_id.clone(),
-                                title: task_title.clone(),
-                                description: String::new(),
-                                assignee_agent_id: "agent_1".into(),
-                            },
-                        },
-                    )
-                    .unwrap();
+                // A continuation gets current claim-time Tasks and the original complete input.
                 let context = fixture.materialize_run(run);
                 let input = context
                     .rendered_payload
@@ -3862,6 +3884,185 @@ mod tests {
             .unwrap();
         assert_eq!(claimed_inputs, 2);
         assert_eq!(defaulted.frozen_history_result(&run_id), (0, false));
+    }
+
+    // Owns the claim -> materialize boundary: an accepted native Session is not
+    // evidence that this Run can omit the current Bootstrap from its budget.
+    #[test]
+    #[cfg(feature = "extended-tests")]
+    fn changed_bootstrap_splits_before_claim_and_materializes_the_frozen_snapshot() {
+        use crate::context::{
+            CharterDeliveryMode, ContextService, DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        };
+        let mut fixture = Fixture::new();
+        fixture.database.connection().execute_batch(r#"
+            UPDATE adapter_installation SET adapter_kind='opencode-cli' WHERE id='adapter-test-codex';
+            UPDATE agent_profile SET selected_runtime_adapter_kind='opencode-cli',
+                default_permission_config_json='{"adapterKind":"opencode-cli","schemaVersion":1,"values":{"permission":"allow"}}'
+                WHERE id='agent_1';
+        "#).unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_1'",
+                ["😀".repeat(9_000)],
+            )
+            .unwrap();
+        let accept_and_finish =
+            |fixture: &mut Fixture, run: &str, context: &crate::context::PreparedContext| {
+                let input = ContextService
+                    .prepare_input_delivery_for_context(&mut fixture.database, run, 1, context)
+                    .unwrap();
+                ContextService
+                    .acknowledge_input_delivery(
+                        &mut fixture.database,
+                        &input.id,
+                        "accepted-fixture",
+                    )
+                    .unwrap();
+                let tx = fixture.database.connection_mut().transaction().unwrap();
+                tx.execute("UPDATE agent_run SET status='succeeded' WHERE id=?1", [run])
+                    .unwrap();
+                settle_run_deliveries(
+                    &tx,
+                    run,
+                    "succeeded",
+                    None,
+                    &chrono::Utc::now().to_rfc3339(),
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            };
+        let add_memory = |fixture: &mut Fixture, key: &str| {
+            let command = fixture.user_command(crate::memory::CreateMemoryCommand {
+                scope: crate::memory::MemoryScopeKind::Hearth,
+                kind: crate::memory::MemoryKind::Preference,
+                body: "private Memory body".into(),
+                retrieval_keys: vec![key.into()],
+                companion_agent_id: None,
+                relationship_agent_ids: vec![],
+                direction: None,
+                directed_actor_agent_id: None,
+                review_after: None,
+            });
+            crate::memory::MemoryService::default()
+                .create(&mut fixture.database, &command)
+                .unwrap();
+        };
+        fixture.enqueue("initial", "establish a Session");
+        let initial_run = claim_waiting_delivery_batches(&mut fixture.database, 1)
+            .unwrap()
+            .remove(0);
+        let initial = fixture.materialize_with_mode(
+            &initial_run,
+            CharterDeliveryMode::FirstPayload,
+            DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        );
+        fixture.database.connection().execute(
+            "UPDATE conversation SET native_session_id='existing-opencode-session' WHERE id='delivery-queue-agent-1'", [],
+        ).unwrap();
+        accept_and_finish(&mut fixture, &initial_run, &initial);
+        let old_digest: String = fixture.database.connection().query_row(
+            "SELECT native_session_bootstrap_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r| r.get(0),
+        ).unwrap();
+        add_memory(&mut fixture, "indexed-before-claim");
+        let body = "中".repeat(40_000); // 120,000 UTF-8 bytes per complete message.
+        fixture.enqueue("large-1", &body);
+        fixture.enqueue("large-2", &body);
+        let run = claim_waiting_delivery_batches(&mut fixture.database, 1)
+            .unwrap()
+            .remove(0);
+        let messages: Vec<String> = fixture
+            .database
+            .connection()
+            .prepare(
+                "SELECT message_id FROM agent_run_input WHERE agent_run_id=?1 ORDER BY ordinal",
+            )
+            .unwrap()
+            .query_map([&run], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(messages, ["large-1"]);
+        let waiting: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT status FROM camp_message_delivery WHERE message_id='large-2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(waiting, "waiting");
+        assert!(
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE agent_run_claim_context SET context_json='{}' WHERE agent_run_id=?1",
+                    [&run],
+                )
+                .is_err()
+        );
+        add_memory(&mut fixture, "indexed-after-claim");
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET team_role='role-after-claim' WHERE id='agent_1'",
+                [],
+            )
+            .unwrap();
+        let context = fixture.materialize_with_mode(
+            &run,
+            CharterDeliveryMode::FirstPayload,
+            DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        );
+        assert!(context.bootstrap_in_runtime_payload);
+        assert!(context.runtime_payload.contains("indexed-before-claim"));
+        assert!(!context.runtime_payload.contains("indexed-after-claim"));
+        assert!(!context.runtime_payload.contains("role-after-claim"));
+        assert!(context.runtime_payload.contains(&body));
+        assert!(context.runtime_payload.len() <= DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+        // Reproduce the old claim decision numerically: both dynamic inputs fit,
+        // but appending the actual changed Bootstrap would overflow the same cap.
+        assert!(
+            context.rendered_payload.len() + body.len() + 512 < DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES
+        );
+        assert!(context.runtime_payload.len() + body.len() > DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+        accept_and_finish(&mut fixture, &run, &context);
+        let new_digest: String = fixture.database.connection().query_row(
+            "SELECT native_session_bootstrap_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r| r.get(0),
+        ).unwrap();
+        assert_ne!(old_digest, new_digest);
+        let next_run = claim_waiting_delivery_batches(&mut fixture.database, 1)
+            .unwrap()
+            .remove(0);
+        let next = fixture.materialize_with_mode(
+            &next_run,
+            CharterDeliveryMode::FirstPayload,
+            DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        );
+        assert!(next.runtime_payload.contains("indexed-after-claim"));
+        assert!(next.runtime_payload.contains("role-after-claim"));
+        assert!(next.runtime_payload.contains("large-2"));
+        assert!(!next.runtime_payload.contains("large-1"));
+        assert!(next.runtime_payload.len() <= DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+        accept_and_finish(&mut fixture, &next_run, &next);
+        fixture.enqueue("unchanged", "ordinary continuation");
+        let unchanged_run = claim_waiting_delivery_batches(&mut fixture.database, 1)
+            .unwrap()
+            .remove(0);
+        let unchanged = fixture.materialize_with_mode(
+            &unchanged_run,
+            CharterDeliveryMode::FirstPayload,
+            DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        );
+        assert!(
+            !unchanged.bootstrap_in_runtime_payload,
+            "reserving bytes must not force a resend"
+        );
     }
 
     #[test]

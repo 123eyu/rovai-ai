@@ -898,3 +898,19 @@ User 已确认同组件交互稿，并在移除多余的失效接收者提示后
 工具与动态投影使用新版本，兼容分支保留旧 claimed/冻结输入；这不参与 Native Binding 的恢复判断。
 接受旧 Session 历史中仍有旧名单，后续新 Run 按现有摘要和 accepted ACK 自然刷新，不要求用户重开。
 拒绝自动摘要、增加身份字段、收紧队友字段权限、默认全员 get，以及通过截断或重写历史规避容量。
+
+
+<a id="v1-72-d41"></a>
+## V1.72-D41：冻结前用同一份完整上下文选批
+
+- 状态：accepted
+- 日期：2026-10-14
+- 当前权威：[Profile 13](../../contracts/context-delivery-profile-v13.md)、[Manifest 36](../../contracts/context-manifest-evidence-v36.md)、[公开 Delivery 架构](../../architecture/public-a2a-message-delivery.md)
+
+已有 Bootstrap 摘要不能证明下次输入无需 Bootstrap。User 确认把本 Run 的启动内容和预算相关
+区段在 claim 时固定，复用现有 FIFO 前缀选择；未选责任留在 waiting。预算按实际冻结正文加补发
+包装计算，覆盖 Memory 更新和 Session 更换，实际发送仍由既有摘要、补发与 ACK 规则决定。
+
+拒绝领取后退回队列或拆分冻结 Run，以免改变 accepted／unknown 防重和责任归属。固定预留
+128 KiB 虽修改小，却会拒绝本能装下的单条输入。选择每 Run 一份必要快照，代价是把公开 Run
+的身份／索引刷新截止点前移至 claim；不增加重试协调器、第二条队列或证明摘要体系。

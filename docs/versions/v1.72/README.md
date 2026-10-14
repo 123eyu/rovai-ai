@@ -11,6 +11,12 @@ last_updated: 2026-10-13
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Bootstrap 领取预算一致性（2026-10-14）
+
+按 User 确认的 [R1](model-context-change-bootstrap-claim-budget.md)，以本 Run 快照统一 FIFO 选批与实际组包，
+覆盖 Memory 更新、同包补发与 Session 更换。新 public 36/13/9；历史与非 batch 保持。
+实施、验证和合并结果见上述独立说明。
+
 ## 已实现：成员路由与专业职责扩容，语义 Gate 待补（2026-10-13）
 
 [R4 逐项前后对照](model-context-change-member-routing.md)提出将专业职责上限扩为 10,000 个 Unicode

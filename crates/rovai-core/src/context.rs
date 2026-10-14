@@ -1,3 +1,6 @@
+mod claim;
+pub(crate) use claim::ClaimedBatchContext;
+
 use crate::message_quote::{
     MessageQuoteSnapshot, QuoteStorage, ThreadQuoteFence, load_agent_visible_camp_quotes,
     load_agent_visible_camp_quotes_with_claimed_sources, load_quotes, model_quotes,
@@ -57,7 +60,7 @@ use crate::{
     managed_attachment::resolve_managed_attachment_path,
     managed_blob::ManagedBlobStore,
     mcp_projection::{McpExposureSnapshot, PreparedMcpProjection},
-    memory::{MemoryScopeKind, MemoryService, RelationshipDirection},
+    memory::{MemoryScopeKind, RelationshipDirection},
     skill::SkillLibraryService,
     skill_projection::{PreparedSkillExposure, SkillExposureSnapshot},
 };
@@ -69,7 +72,7 @@ pub const MAX_SESSION_BOOTSTRAP_BYTES: usize = 128 * 1024;
 fn run_facts_schema_version(manifest_version: i64, invocation_kind: &str) -> i64 {
     if invocation_kind == "batch" {
         match manifest_version {
-            32 | 33 | 34 => 9,
+            32 | 33 | 34 | 36 => 9,
             31 => 8,
             _ => 7,
         }
@@ -270,7 +273,7 @@ struct PreparedBootstrapEvidence {
     delivery_mode: CharterDeliveryMode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MemberIdentityBootstrapProjection {
     name: String,
@@ -519,6 +522,11 @@ impl ContextService {
                 )
             })
             .transpose()?;
+        let claimed_context = claim::load(database.connection(), &snapshot.agent_run_id)?;
+        anyhow::ensure!(
+            batch_context_manifest_version != Some(36) || claimed_context.is_some(),
+            "Public v36 Run has no claimed context snapshot"
+        );
         if batch_context_manifest_version == Some(30) {
             anyhow::bail!(
                 "Unmaterialized public v30 input has no frozen Additional Skills evidence"
@@ -600,8 +608,12 @@ impl ContextService {
             );
         }
 
-        let members = load_collaboration_projection_members(database, &snapshot.camp_id)?;
-        let mut collaboration_state = build_collaboration_state(&members, &snapshot.agent_id);
+        let mut collaboration_state = if let Some(claimed) = &claimed_context {
+            claimed.collaboration_state.clone()
+        } else {
+            let members = load_collaboration_projection_members(database, &snapshot.camp_id)?;
+            build_collaboration_state(&members, &snapshot.agent_id)
+        };
         // Claimed inputs retain their original serializer. Only new input versions
         // use the routing-only projection; no historical context is rewritten.
         if batch_context_manifest_version.is_some_and(|version| version <= 33) {
@@ -619,6 +631,8 @@ impl ContextService {
                 crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V10
                     .validate()?
             }
+            Some(34) => crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V11
+                .validate()?,
             Some(_) => current_public_camp_batch_context_delivery_profile()?,
             None => current_context_delivery_profile()?,
         };
@@ -633,7 +647,9 @@ impl ContextService {
             })
             .transpose()?;
         let (mut self_active_tasks, mut self_active_task_omitted_count) =
-            if snapshot.invocation_kind == "single_chat" {
+            if let Some(claimed) = &claimed_context {
+                (claimed.tasks.clone(), claimed.omitted_tasks)
+            } else if snapshot.invocation_kind == "single_chat" {
                 (Vec::new(), 0)
             } else {
                 load_self_active_tasks(database, &snapshot, profile.max_self_active_tasks)?
@@ -719,28 +735,36 @@ impl ContextService {
             count_a2a_runs(database, &snapshot.camp_turn_id)?
         };
         let collaboration_state_section = collaboration_changed.then_some(collaboration_state);
-        let (mut run_facts, mission_details_version) =
-            build_run_facts(database, &snapshot, requires_new_native_session, a2a_count)?;
-        if snapshot.invocation_kind == "batch" {
-            run_facts.history_hint = Some(
-                if batch_context_manifest_version.is_some_and(|version| version >= 31) {
-                    public_history_hint(
-                        previous_accepted_public_boundary_sequence,
-                        snapshot
-                            .claim_has_additional_public_messages
-                            .context("Batch AgentRun has no frozen additional-message result")?,
-                    )
-                } else {
-                    previous_public_history_hint(previous_accepted_public_boundary_sequence)
-                },
-            );
-        }
-        if batch_context_manifest_version.is_some_and(|version| version < 32) {
-            if let Some(hint) = run_facts.history_hint.as_mut() {
-                *hint = hint.replace("Thread", "Camp");
+        let (rendered_run_facts, mission_details_version) = if let Some(claimed) = &claimed_context
+        {
+            (
+                claimed.run_facts_for_session(requires_new_native_session)?,
+                claimed.mission_details_version,
+            )
+        } else {
+            let (mut run_facts, mission_details_version) =
+                build_run_facts(database, &snapshot, requires_new_native_session, a2a_count)?;
+            if snapshot.invocation_kind == "batch" {
+                run_facts.history_hint = Some(
+                    if batch_context_manifest_version.is_some_and(|version| version >= 31) {
+                        public_history_hint(
+                            previous_accepted_public_boundary_sequence,
+                            snapshot.claim_has_additional_public_messages.context(
+                                "Batch AgentRun has no frozen additional-message result",
+                            )?,
+                        )
+                    } else {
+                        previous_public_history_hint(previous_accepted_public_boundary_sequence)
+                    },
+                );
             }
-        }
-        let rendered_run_facts = render_run_facts(&run_facts)?;
+            if batch_context_manifest_version.is_some_and(|version| version < 32) {
+                if let Some(hint) = run_facts.history_hint.as_mut() {
+                    *hint = hint.replace("Thread", "Camp");
+                }
+            }
+            (render_run_facts(&run_facts)?, mission_details_version)
+        };
         let bootstrap_redelivery_revision = pending_redelivery_revision(
             database,
             bootstrap_binding_id,
@@ -752,9 +776,14 @@ impl ContextService {
             || bootstrap_redelivery_revision.is_some();
         let current_input_value =
             current_input.as_payload(&attachment_paths, &current_input_skill_resolution.links);
-        let mut batch_run_input_value = batch_model_context
+        let mut batch_run_input_value = claimed_context
             .as_ref()
-            .map(|context| context.run_input_projection(&current_input_skill_resolution.links));
+            .map(|claimed| claimed.run_input.clone())
+            .or_else(|| {
+                batch_model_context.as_ref().map(|context| {
+                    context.run_input_projection(&current_input_skill_resolution.links)
+                })
+            });
         if batch_context_manifest_version.is_some_and(|version| version < 32) {
             if let Some(messages) = batch_run_input_value
                 .as_mut()
@@ -782,20 +811,34 @@ impl ContextService {
             None
         };
 
-        let workspace_fact =
-            prepare_workspace_fact(database, &snapshot, requires_new_native_session, false)?;
-        let additional_skills = (batch_context_manifest_version != Some(29))
-            .then(|| {
-                prepare_additional_skills(
-                    database.connection(),
-                    database
-                        .path()
-                        .parent()
-                        .context("Core data directory is unavailable")?,
-                    &snapshot,
-                )
-            })
-            .transpose()?;
+        let workspace_fact = if let Some(claimed) = &claimed_context {
+            let mut workspace = claimed.workspace.clone();
+            let accepted: Option<String> = database.connection().query_row(
+                "SELECT native_workspace_fact_digest FROM conversation WHERE id=?1",
+                [&snapshot.conversation_id],
+                |row| row.get(0),
+            )?;
+            workspace.included = requires_new_native_session || workspace.digest != accepted;
+            workspace
+        } else {
+            prepare_workspace_fact(database, &snapshot, requires_new_native_session, false)?
+        };
+        let additional_skills = if let Some(claimed) = &claimed_context {
+            Some(claimed.additional_skills.clone())
+        } else {
+            (batch_context_manifest_version != Some(29))
+                .then(|| {
+                    prepare_additional_skills(
+                        database.connection(),
+                        database
+                            .path()
+                            .parent()
+                            .context("Core data directory is unavailable")?,
+                        &snapshot,
+                    )
+                })
+                .transpose()?
+        };
         let (shared_conversation, payload, runtime_payload) = loop {
             let origin_is_recent = originating_public_user_message
                 .as_ref()
@@ -3077,46 +3120,24 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
         });
     }
 
-    // Channel guidance is selected only for new evidence, never when replaying a Binding.
-    let has_active_feishu_binding =
-        camp_has_active_feishu_binding(database.connection(), &snapshot.camp_id)?;
-    let charter = build_session_charter(
-        snapshot,
-        has_active_feishu_binding,
-        mission_facts(database.connection(), snapshot)?.is_some(),
-    )?;
-    let (entrypoint, observed, authorization_basis_digest) =
-        if snapshot.invocation_kind == "single_chat" {
-            (
-                String::new(),
-                Vec::new(),
-                canonical_json_digest(&json!({
-                    "schemaVersion": 1,
-                    "memoryAccess": "none",
-                }))?,
-            )
-        } else {
-            build_memory_entrypoint(database, snapshot)?
-        };
+    let contents = match claim::load(database.connection(), &snapshot.agent_run_id)? {
+        Some(claimed) => claimed.bootstrap,
+        None => claim::BootstrapContents::read(
+            database,
+            database
+                .path()
+                .parent()
+                .context("Core data directory is unavailable")?,
+            snapshot,
+        )?,
+    };
+    let charter = contents.session_charter;
+    let entrypoint = contents.memory_entrypoint;
+    let observed = contents.observed_memory_revisions;
+    let authorization_basis_digest = contents.authorization_basis_digest;
+    let platform_skills = contents.platform_skills;
     let charter_digest = sha256_text(&charter);
     let entrypoint_digest = sha256_text(&entrypoint);
-    let managed_skills = crate::managed_skills::ManagedSkills::for_data_dir(
-        database
-            .path()
-            .parent()
-            .context("Core data directory is unavailable")?,
-    )?;
-    managed_skills.sync()?;
-    let (platform_entries, omitted) = managed_skills.index(crate::managed_skills::PLATFORM_SKILLS);
-    anyhow::ensure!(
-        omitted.is_empty(),
-        "platform Skill source is unavailable: {}",
-        omitted.join("; ")
-    );
-    let platform_skills = format!(
-        "[ROVAI_PLATFORM_SKILLS]\n{}\n[/ROVAI_PLATFORM_SKILLS]",
-        managed_skills.index_json(&platform_entries)?
-    );
     let platform_digest = sha256_text(&platform_skills);
     let charter_blob = blob_store.put_bytes(
         database,
@@ -3217,7 +3238,10 @@ fn format_session_bootstrap_for_snapshot(
     snapshot: &RunSnapshot,
     evidence: PreparedBootstrapEvidence,
 ) -> Result<PreparedSessionBootstrap> {
-    let member_identity = load_latest_member_identity(database, &snapshot.agent_id)?;
+    let member_identity = match claim::load(database.connection(), &snapshot.agent_run_id)? {
+        Some(claimed) => claimed.member_identity,
+        None => load_latest_member_identity(database, &snapshot.agent_id)?,
+    };
     let payload = render_session_bootstrap(
         &evidence.session_charter,
         &member_identity,
@@ -3234,12 +3258,12 @@ fn format_session_bootstrap_for_snapshot(
     })
 }
 
-fn load_latest_member_identity(
-    database: &Database,
+fn load_latest_member_identity<R: ContextReadConnection>(
+    database: &R,
     agent_id: &str,
 ) -> Result<MemberIdentityBootstrapProjection> {
     let row = database
-        .connection()
+        .context_connection()
         .query_row(
             r#"
             SELECT display_name, team_role, professional_responsibilities,
@@ -3374,17 +3398,17 @@ fn bootstrap_required_for_snapshot<R: ContextReadConnection>(
     Ok(requires_new_native_session || snapshot.native_charter_digest.is_none())
 }
 
-fn build_memory_entrypoint(
-    database: &Database,
+fn build_memory_entrypoint<R: ContextReadConnection>(
+    database: &R,
     snapshot: &RunSnapshot,
 ) -> Result<(String, Vec<Value>, String)> {
-    let list = MemoryService::default().list(database)?;
+    let memories = crate::memory::entrypoint_memories(database.context_connection())?;
     let member_order = load_present_member_order(database, &snapshot.camp_id)?;
     let counterparty_order = load_memory_counterparty_order(database, snapshot, &member_order)?;
     let mut hearth = Vec::new();
     let mut companion = Vec::new();
     let mut relationships = BTreeMap::<String, Vec<MemoryEntrypointRow>>::new();
-    for memory in list.memories {
+    for memory in memories {
         if memory.lifecycle != "active" {
             continue;
         }
@@ -3558,11 +3582,11 @@ fn append_entrypoint_row(
     }
 }
 
-fn load_present_member_order(
-    database: &Database,
+fn load_present_member_order<R: ContextReadConnection>(
+    database: &R,
     camp_id: &str,
 ) -> Result<BTreeMap<String, (i64, String)>> {
-    let mut statement = database.connection().prepare(
+    let mut statement = database.context_connection().prepare(
         r#"
         SELECT agent_profile.id, agent_profile.member_order, agent_profile.display_name
         FROM camp_member
@@ -3585,8 +3609,8 @@ fn load_present_member_order(
         .map_err(Into::into)
 }
 
-fn load_memory_counterparty_order(
-    database: &Database,
+fn load_memory_counterparty_order<R: ContextReadConnection>(
+    database: &R,
     snapshot: &RunSnapshot,
     present_members: &BTreeMap<String, (i64, String)>,
 ) -> Result<BTreeMap<String, i64>> {
@@ -3595,7 +3619,7 @@ fn load_memory_counterparty_order(
         .as_deref()
         .map(|message_id| {
             database
-                .connection()
+                .context_connection()
                 .query_row(
                     r#"
                     SELECT author_id
@@ -3615,7 +3639,7 @@ fn load_memory_counterparty_order(
     let mut task_participants = Vec::new();
     if let Some(task_id) = snapshot.task_id.as_deref()
         && let Some((assignee, created_by_type, created_by_id)) = database
-            .connection()
+            .context_connection()
             .query_row(
                 r#"
                 SELECT assignee_agent_id, created_by_type, created_by_id
@@ -3641,7 +3665,7 @@ fn load_memory_counterparty_order(
         }
     }
 
-    let mut turn_statement = database.connection().prepare(
+    let mut turn_statement = database.context_connection().prepare(
         r#"
         SELECT DISTINCT conversation.agent_id
         FROM agent_run
@@ -4270,74 +4294,6 @@ fn model_batch_input_message(
     value
 }
 
-/// Size the entire prospective batch, not just RUN_INPUT. Required sections use
-/// the delivery formatter; Bootstrap reserves its supported body plus the actual
-/// envelope only when it shares this Runtime input. Selection never truncates a message.
-pub(crate) fn batch_claim_payload_len(
-    transaction: &Transaction<'_>,
-    request: &DeliveryContextPreview<'_>,
-    run_input: &Value,
-    skills: &SkillSelectionSnapshot,
-    previous_boundary: i64,
-    additional_messages: bool,
-) -> Result<usize> {
-    let mut snapshot = prospective_delivery_snapshot(transaction, request)?;
-    snapshot.skill_selection_snapshot = skills.clone();
-    let new_session = snapshot.native_binding_id.is_none() || snapshot.native_session_id.is_none();
-    let bootstrap_required = bootstrap_required_for_snapshot(transaction, &snapshot, new_session)?;
-    let members = load_collaboration_projection_members(transaction, &snapshot.camp_id)?;
-    let collaboration = build_collaboration_state(&members, &snapshot.agent_id);
-    let digest = canonical_json_digest(&collaboration)?;
-    let collaboration = (bootstrap_required
-        || snapshot.native_collaboration_state_digest.as_deref() != Some(&digest))
-    .then_some(collaboration);
-    let profile = current_public_camp_batch_context_delivery_profile()?;
-    let (mut tasks, mut omitted) =
-        load_self_active_tasks(transaction, &snapshot, profile.max_self_active_tasks)?;
-    let (mut facts, _) = build_run_facts(transaction, &snapshot, new_session, 0)?;
-    facts.history_hint = Some(public_history_hint(previous_boundary, additional_messages));
-    let facts = render_run_facts(&facts)?;
-    let workspace = prepare_workspace_fact(transaction, &snapshot, new_session, true)?;
-    let additional_skills = prepare_additional_skills(
-        transaction,
-        std::path::Path::new(
-            transaction
-                .path()
-                .context("Core database path is unavailable")?,
-        )
-        .parent()
-        .context("Core data directory is unavailable")?,
-        &snapshot,
-    )?;
-    let reserve = bootstrap_payload_reserve(
-        request.charter_delivery_mode,
-        bootstrap_required,
-        has_pending_bootstrap_redelivery(transaction, &snapshot)?,
-    );
-    loop {
-        let projection = self_active_task_projection(&tasks, omitted);
-        let payload = render_payload(RenderPayloadInput {
-            collaboration_state: collaboration.as_ref(),
-            self_active_tasks: projection.as_ref(),
-            shared_conversation: None,
-            run_facts: &facts,
-            workspace: workspace.section(),
-            additional_skills: Some(&additional_skills.section),
-            a2a_guidance: None,
-            single_chat_guidance: None,
-            current_input: None,
-            run_input: Some(run_input),
-        })?;
-        let bytes = payload.len().saturating_add(reserve);
-        if bytes <= request.max_payload_bytes || tasks.is_empty() {
-            return Ok(bytes);
-        }
-        // Complete RUN_INPUT keeps priority over optional Task context, as at delivery.
-        tasks.pop();
-        omitted += 1;
-    }
-}
-
 /// Projects a prospective Delivery prefix through the same message projector
 /// and `RUN_INPUT` serializer used after the batch has been claimed. This keeps
 /// claim sizing aligned with the delivered bodies, quotes, attachments and
@@ -4479,7 +4435,7 @@ fn frozen_batch_context_manifest_version(
     anyhow::ensure!(
         matches!(
             version,
-            29 | 30 | 31 | 32 | 33 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
+            29 | 30 | 31 | 32 | 33 | 34 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
         ),
         "Batch AgentRun uses an unsupported context version"
     );
@@ -4915,17 +4871,17 @@ impl SharedMessageProjectionEvidence {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RunFactRef {
-    fact: &'static str,
+    fact: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mission_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct RenderedRunFacts {
     references: Vec<RunFactRef>,
     payload_json: String,
@@ -4939,20 +4895,20 @@ impl RenderedRunFacts {
 
 fn render_run_facts(run_facts: &RunFacts) -> Result<RenderedRunFacts> {
     let mut references = vec![RunFactRef {
-        fact: "attachment_output_root",
+        fact: "attachment_output_root".into(),
         task_id: None,
         mission_id: None,
     }];
     if run_facts.history_hint.is_some() {
         references.push(RunFactRef {
-            fact: "history_hint",
+            fact: "history_hint".into(),
             task_id: None,
             mission_id: None,
         });
     }
     if let Some(task_context) = run_facts.task_context.as_ref() {
         references.push(RunFactRef {
-            fact: "task_context",
+            fact: "task_context".into(),
             task_id: Some(task_context.task_id.clone()),
             mission_id: None,
         });
@@ -4966,7 +4922,7 @@ fn render_run_facts(run_facts: &RunFacts) -> Result<RenderedRunFacts> {
     ] {
         if included {
             references.push(RunFactRef {
-                fact,
+                fact: fact.into(),
                 task_id: None,
                 mission_id: if fact == "mission" {
                     run_facts.mission.as_ref().map(|m| m.mission_id.clone())
@@ -6760,7 +6716,7 @@ struct SelfActiveTaskProjection {
     omitted_count: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SelectedSelfActiveTask {
     item: SelfActiveTaskItem,
     updated_at: String,
@@ -6884,7 +6840,7 @@ fn mission_facts(
 ) -> Result<Option<crate::mission::MissionFacts>> {
     Ok(selected_mission_facts(connection, snapshot)?.map(|selected| selected.facts))
 }
-#[derive(Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct PreparedWorkspaceFact {
     value: Option<Value>,
     digest: Option<String>,
@@ -7016,7 +6972,7 @@ fn render_payload(input: RenderPayloadInput<'_>) -> Result<String> {
     Ok(output)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PreparedAdditionalSkills {
     section: String,
     omitted: Vec<String>,
@@ -8365,8 +8321,8 @@ mod tests {
                     context_manifest_version INTEGER
                 );
                 INSERT INTO agent_run_input VALUES ('historical', 26);
-                INSERT INTO agent_run_input VALUES ('current', 34);
-                INSERT INTO agent_run_input VALUES ('current', 34);
+                INSERT INTO agent_run_input VALUES ('current', 36);
+                INSERT INTO agent_run_input VALUES ('current', 36);
                 INSERT INTO agent_run_input VALUES ('previous', 33);
                 INSERT INTO agent_run_input VALUES ('previous', 33);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
@@ -10969,7 +10925,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(
             (manifest_version, formatter_version, facts_version),
-            (34, 34, 9)
+            (36, 36, 9)
         );
         assert_eq!(profile_json, None);
         assert_eq!(
@@ -13954,7 +13910,7 @@ mod slow_tests {
             "No Memory indexed at Session start; use `rovai memory search` when needed."
         );
         assert!(empty_selection.is_empty());
-        MemoryService::default()
+        crate::memory::MemoryService::default()
             .create(
                 &mut fixture.database,
                 &CommandEnvelope {

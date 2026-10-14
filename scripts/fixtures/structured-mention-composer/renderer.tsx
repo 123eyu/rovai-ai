@@ -1,3 +1,6 @@
+import { FileReferenceText } from '../../../apps/desktop/src/renderer/src/FileReferenceLink'
+import { SafeMarkdown } from '../../../apps/desktop/src/renderer/src/SafeMarkdown'
+import { readMessageQuoteSelection } from '../../../apps/desktop/src/renderer/src/message-quote-selection'
 import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
 import type { ComposerDocument } from '@contracts'
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -15,6 +18,29 @@ import {
 } from '../../../apps/desktop/src/renderer/src/composer-document'
 import type { ComposerSkillOption } from '../../../apps/desktop/src/renderer/src/composer-skill-picker'
 import '../../../apps/desktop/src/renderer/src/styles.css'
+
+
+const webTarget = new URLSearchParams(location.search).get('url') ?? 'http://localhost:8766/a?x=1&y=2#part'
+const webMessage = '前 [标题](' + webTarget + ') 后'
+const copiedLinks: string[] = []
+Object.assign(window, { rovai: { platform: navigator.platform.includes('Mac') ? 'darwin' : 'linux',
+  clipboard: { write: async ({ text }: { text: string }) => { copiedLinks.push(text) } } } })
+function textPoint(needle: string, offset = 1, selector = '#composer') {
+  const root = document.querySelector(selector)!
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode()
+  while (node) {
+    const start = (node.textContent ?? '').indexOf(needle)
+    if (start >= 0) {
+      const range = document.createRange()
+      range.setStart(node, start + offset); range.setEnd(node, start + offset + 1)
+      const rect = range.getBoundingClientRect()
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+    }
+    node = walker.nextNode()
+  }
+  throw new Error('Missing text point: ' + needle)
+}
 
 const fixtureSkills: ComposerSkillOption[] = [
   { id: 'skill-worktree', name: 'worktree', description: '管理并行工作树', origin: 'official' },
@@ -94,6 +120,8 @@ function normalizeInput(value: string | ComposerDocument): ComposerDocument {
 }
 
 function Harness() {
+  const [sentDocument, setSentDocument] = useState<ComposerDocument | null>(null)
+  const captureSend = useRef(false)
   const composerRef = useRef<StructuredMentionComposerHandle>(null)
   const [draftIdentity, setDraftIdentity] = useState('fixture-thread:draft-0')
   const [initialDocument, setInitialDocument] = useState<ComposerDocument>(
@@ -108,6 +136,46 @@ function Harness() {
   useLayoutEffect(() => {
     Object.assign(window, {
       composerTest: {
+        webPoint: textPoint,
+        webState() {
+          return { highlights: [...(CSS.highlights?.get('rovai-composer-web-link') ?? [])].map(range => range.toString()),
+            popup: document.querySelector('.composer-web-link-address')?.textContent ?? null,
+            copied: [...copiedLinks], error: document.querySelector('.app-toast')?.textContent ?? null,
+            sent: sentDocument, history: document.querySelector('#web-history')?.textContent }
+        },
+        quoteWebSelection() {
+          return readMessageQuoteSelection(window.getSelection(), 'web-fixture', () => ({ id: 'web-user', body: webMessage, authorType: 'user' }))?.selection ?? null
+        },
+        comparePartialWebQuotes() {
+          const linked = document.querySelector<HTMLElement>('#web-user')!
+          const plain = linked.cloneNode(false) as HTMLElement
+          plain.removeAttribute('id')
+          plain.textContent = webMessage
+          linked.after(plain)
+          const quote = (root: HTMLElement, start: number, end: number) => {
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+            const range = document.createRange()
+            let offset = 0
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const length = node.textContent!.length
+              if (start >= offset && start < offset + length) range.setStart(node, start - offset)
+              if (end > offset && end <= offset + length) range.setEnd(node, end - offset)
+              offset += length
+            }
+            const selection = window.getSelection()!
+            selection.removeAllRanges(); selection.addRange(range)
+            return readMessageQuoteSelection(selection, 'web-fixture', () => ({ id: 'web-user', body: webMessage, authorType: 'user' }))?.selection
+          }
+          try {
+            const start = webMessage.indexOf(webTarget)
+            return [[0, start + 12], [start + 7, webMessage.length], [start + 7, start + 22]].map(([from, to]) => ({
+              linked: quote(linked, from, to), plain: quote(plain, from, to), expected: webMessage.slice(from, to)
+            }))
+          } finally { plain.remove(); window.getSelection()?.removeAllRanges() }
+        },
+        restoreSaved() { setInitialDocument(JSON.parse(localStorage.getItem('web-fixture-draft')!)); setDraftIdentity(value => value + '-restored') },
+        captureNextSend() { captureSend.current = true },
+
         reset(value: string | ComposerDocument) {
           errors.length = 0
           savedDocuments = []
@@ -127,7 +195,7 @@ function Harness() {
         },
         switchDraft(value: string | ComposerDocument) {
           setInitialDocument(normalizeInput(value))
-          setDraftIdentity((current) => `${current.split(':')[0]}:draft-${Number(current.split('-').at(-1)) + 1}`)
+          setDraftIdentity((current) => `${current}:next`)
         },
         rerender() { setPropRevision((value) => value + 1) },
         setMembers,
@@ -265,7 +333,13 @@ function Harness() {
     })
   })
 
-  return <div style={{ position: 'absolute', left: 24, right: 24, bottom: 24 }}>
+  return <>
+    <div style={{ margin: 24 }}>
+      <div id="web-user" style={{ userSelect: 'text' }} data-message-quote-body="web-user" data-quote-owner="web-fixture"><FileReferenceText text={webMessage} /></div>
+      <div id="web-agent"><SafeMarkdown>{'Agent ' + webTarget + '，后续 www.example.com'}</SafeMarkdown></div>
+      <div id="web-history"><FileReferenceText text={sentDocument?.segments.map(segment => segment.kind === 'text' ? segment.text : '').join('') ?? ''} /></div>
+    </div>
+    <div style={{ position: 'absolute', left: 24, right: 24, bottom: 24 }}>
     <StructuredMentionComposer
       ref={composerRef}
       id="composer"
@@ -279,17 +353,21 @@ function Harness() {
       disabled={disabled}
       persistDocument={async (document) => {
         savedDocuments.push(cloneComposerDocument(document))
+        localStorage.setItem('web-fixture-draft', JSON.stringify(document))
       }}
       onLocalStatusChange={(status) => { localStatus = status }}
       onDirtyChange={(value) => { dirty = value }}
-      onSubmit={() => { submitCount += 1 }}
+      onSubmit={async () => {
+        submitCount += 1
+        if (captureSend.current) { captureSend.current = false; setSentDocument((await composerRef.current!.flush()).document) }
+      }}
       onBackspaceAtStart={() => { backspaceAtStartCount += 1 }}
       onPasteFiles={(files) => { pastedFileCount += files.length }}
       onActivateMemberMention={(member) => { activatedAtom = `member:${member.agentId}` }}
       onActivateAllMembersMention={() => { activatedAtom = 'all_members' }}
       onActivateSkillMention={(skillId) => { activatedAtom = `skill:${skillId}` }}
     />
-  </div>
+  </div></>
 }
 
 // The fixture has no Core or managed avatars; formal shared components still receive an explicit client.

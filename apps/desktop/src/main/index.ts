@@ -3,7 +3,7 @@ import { createHostChannelHandler } from './host-channels'
 import { FilePreviewFrameNavigation } from './file-preview/file-preview-navigation'
 import { installWindowNavigation } from './window-navigation'
 import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
-import { openHostWebLink } from './host-web-link'
+import { webLinkWindowHandler } from './web-link-window-handler'
 import { randomUUID } from 'node:crypto'
 import bundledReleaseNotes from '../../../../build/release-notes.md?raw'
 import bundledReleaseMetadata from '../../../../build/release-metadata.json'
@@ -899,11 +899,15 @@ function createWindow(): void {
   })
 
   window.once('ready-to-show', () => window.show())
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) void shell.openExternal(url)
-    else if (url.startsWith('http://')) void openHostWebLink(url, () => core.request('host.web.status'), value => shell.openExternal(value)).catch(() => undefined)
-    return { action: 'deny' }
-  })
+  window.webContents.setWindowOpenHandler(webLinkWindowHandler(url => shell.openExternal(url), async () => {
+    if (window.isDestroyed()) return
+    const english = requireGeneralPreferences().get().interfaceLanguage === 'en'
+    await dialog.showMessageBox(window, {
+      type: 'error',
+      message: english ? 'Unable to open the link. Try again or copy the address.' : '无法打开链接，请重试或复制地址。',
+      buttons: [english ? 'OK' : '好']
+    })
+  }))
   window.webContents.on('will-navigate', (event, url) => {
     const current = window.webContents.getURL()
     if (current && url !== current) event.preventDefault()

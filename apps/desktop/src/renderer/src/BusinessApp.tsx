@@ -1,3 +1,5 @@
+import { AppToast, type AppToastValue } from './AppToast'
+export { AppToast } from './AppToast'
 import { EMPTY_SNAPSHOT, isProjectPath } from '../../shared/navigation-preferences-model'
 import { useThreadUserAnchorCache } from './useThreadUserAnchors'
 import { hasPendingThreadDraftInput } from './pending-thread-draft'
@@ -958,13 +960,6 @@ export function bootstrapAuthorityCopy(snapshot: SupervisorSnapshot | null): {
   }
 }
 
-type AppToastValue = {
-  message: string
-  tone: 'neutral' | 'danger'
-  action?: { label: string; onSelect(): void }
-  persistent?: boolean
-}
-
 export function navigationWithoutDeletedThreads(
   snapshot: NavigationSnapshot,
   deletingThreadIds: ReadonlySet<string>
@@ -983,26 +978,6 @@ export function navigationWithoutDeletedThreads(
       .map(filterGroup)
       .filter((project) => project.totalCount > 0)
   }
-}
-
-export function AppToast({
-  toast,
-  onClose
-}: {
-  toast: AppToastValue
-  onClose(): void
-}): React.JSX.Element {
-  return (
-    <div
-      className={`app-toast${toast.tone === 'danger' ? ' is-danger' : ''}`}
-      role={toast.tone === 'danger' ? 'alert' : 'status'}
-      aria-live={toast.tone === 'danger' ? 'assertive' : 'polite'}
-    >
-      <span>{toast.message}</span>
-      {toast.action && <button className="app-toast-action" type="button" onClick={() => { onClose(); toast.action?.onSelect() }}>{toast.action.label}</button>}
-      <button className="icon-button" type="button" aria-label={uiAttribute("关闭提示")} onClick={onClose}>×</button>
-    </div>
-  )
 }
 
 export function BusinessApp({

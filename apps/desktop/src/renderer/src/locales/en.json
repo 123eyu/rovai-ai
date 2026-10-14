@@ -3725,5 +3725,9 @@
   "将暂无队员": "Will have no teammates",
   "队长交给{0}": "Lead passes to {0}",
   "移出此会话": "Leaves this conversation",
-  "未命名会话": "Untitled conversation"
+  "未命名会话": "Untitled conversation",
+  "打开链接": "Open link",
+  "复制链接": "Copy link",
+  "无法打开链接，请重试或复制地址。": "Unable to open the link. Try again or copy the address.",
+  "复制失败，请重试。": "Copy failed. Please try again."
 }

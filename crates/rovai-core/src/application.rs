@@ -19,6 +19,8 @@ use crate::{acp, antigravity, builtin_tool_runtime, claude, codex, health, pi, r
 mod runtime_check_environment;
 #[path = "startup_settings.rs"]
 mod startup_settings;
+#[cfg(test)]
+use rovai_core::delivery_queue::claim_waiting_delivery_batches;
 use rovai_core::zcode;
 
 use std::{
@@ -170,10 +172,7 @@ use rovai_core::{
     current_user::CURRENT_USER_ID,
     database_admission::{AdmissionAssessment, AuthorityBlock, DatabaseAdmission},
     db::{Database, DatabaseInitializeError, DatabaseMigrationError, DatabaseOpenError},
-    delivery_queue::{
-        claim_waiting_delivery_batches, has_pending_delivery_batch_work,
-        has_waiting_delivery_batch_work,
-    },
+    delivery_queue::{has_pending_delivery_batch_work, has_waiting_delivery_batch_work},
     diagnostics::{
         DiagnosticCheck, DiagnosticGroup, DiagnosticStatus, DiagnosticsReport, aggregate_counts,
         database_integrity_check, diagnostics_export_v5,
@@ -2375,6 +2374,12 @@ struct Core {
     runtime_search_environment: RwLock<Arc<RuntimeSearchEnvironment>>,
     runtime_search_update: Mutex<()>,
     mission_workspace_gate: Mutex<()>,
+    batch_workspace_preparations: Mutex<
+        std::collections::BTreeMap<
+            String,
+            Option<Result<rovai_core::delivery_queue::PreparedBatchWorkspace, String>>,
+        >,
+    >,
     mission_workspace_cleanup_gate: Mutex<()>,
     mission_workspace_cleanup_notify: Notify,
     camp_deletion_gate: Mutex<()>,
@@ -12417,8 +12422,78 @@ impl Core {
     }
 
     async fn collect_delivery_batch_dispatch_candidates(
-        &self,
+        self: &Arc<Self>,
     ) -> Result<Vec<rovai_core::runtime::QueuedAgentRunCandidate>> {
+        let missions = {
+            let database = self.database.lock().await;
+            rovai_core::delivery_queue::waiting_mission_batch_workspaces(&database)?
+        };
+        // Preparing a Mission can take time. Each Camp owns one short-lived job;
+        // ordinary lanes continue through selection and dispatch immediately.
+        let mut preparations = self.batch_workspace_preparations.lock().await;
+        for (camp_id, project_path) in missions {
+            if preparations.contains_key(&camp_id) {
+                continue;
+            }
+            preparations.insert(camp_id.clone(), None);
+            let core = self.clone();
+            tokio::spawn(async move {
+                let prepared = core
+                    .prepare_mission_execution_workspace(
+                        &camp_id,
+                        rovai_core::runtime::AgentRunWorkspace::runtime_managed_path(project_path),
+                        None,
+                    )
+                    .await;
+                let value = match prepared {
+                    Ok(Some(workspace)) => {
+                        let mut fact = json!({"workingDirectory": workspace.execution_root});
+                        if workspace.isolation == "git_worktree" {
+                            let observation =
+                                git::observe_git(Path::new(&workspace.execution_root)).await;
+                            if observation.state != git::GitCapabilityState::GitValid {
+                                core.batch_workspace_preparations.lock().await.insert(
+                                    camp_id,
+                                    Some(Err("mission.branch_unavailable".into())),
+                                );
+                                core.delivery_batch_scheduler_notify.notify_one();
+                                return;
+                            }
+                            fact["branch"] = json!(observation.branch);
+                        }
+                        let database = core.database.lock().await;
+                        rovai_core::delivery_queue::capture_prepared_batch_workspace(
+                            &database, &camp_id, workspace, fact,
+                        )
+                        .map_err(|error| format!("{error:#}"))
+                    }
+                    Ok(None) => {
+                        core.batch_workspace_preparations
+                            .lock()
+                            .await
+                            .remove(&camp_id);
+                        core.delivery_batch_scheduler_notify.notify_one();
+                        return;
+                    }
+                    Err(error) => Err(format!("{error:#}")),
+                };
+                core.batch_workspace_preparations
+                    .lock()
+                    .await
+                    .insert(camp_id, Some(value));
+                core.delivery_batch_scheduler_notify.notify_one();
+            });
+        }
+        let ready = preparations
+            .iter()
+            .filter_map(|(camp_id, value)| {
+                value.as_ref().map(|value| (camp_id.clone(), value.clone()))
+            })
+            .collect::<rovai_core::delivery_queue::BatchWorkspaces>();
+        for camp_id in ready.keys() {
+            preparations.remove(camp_id);
+        }
+        drop(preparations);
         let mut changed_camps = std::collections::BTreeSet::new();
         loop {
             let claimed = {
@@ -12431,10 +12506,12 @@ impl Core {
                         [],
                         |row| row.get(0),
                     )?;
-                    let runs = claim_waiting_delivery_batches(
-                        &mut database,
-                        DELIVERY_BATCH_SCHEDULER_PAGE_LIMIT,
-                    )?;
+                    let runs =
+                        rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
+                            &mut database,
+                            DELIVERY_BATCH_SCHEDULER_PAGE_LIMIT,
+                            &ready,
+                        )?;
                     let mut statement = database.connection().prepare(
                         "SELECT DISTINCT camp_id FROM agent_run WHERE id IN (SELECT value FROM json_each(?1)) AND camp_id IS NOT NULL
                          UNION SELECT camp_id FROM event_log WHERE global_sequence > ?2
@@ -18776,6 +18853,7 @@ async fn run_core(
         runtime_search_environment: RwLock::new(runtime_search_environment.clone()),
         runtime_search_update: Mutex::new(()),
         mission_workspace_gate: Mutex::new(()),
+        batch_workspace_preparations: Mutex::new(Default::default()),
         mission_workspace_cleanup_gate: Mutex::new(()),
         mission_workspace_cleanup_notify: Notify::new(),
         camp_deletion_gate: Mutex::new(()),
@@ -26835,6 +26913,7 @@ mod tests {
             output,
             runtime_search_update: Mutex::new(()),
             mission_workspace_gate: Mutex::new(()),
+            batch_workspace_preparations: Mutex::new(Default::default()),
             mission_workspace_cleanup_gate: Mutex::new(()),
             mission_workspace_cleanup_notify: Notify::new(),
             camp_deletion_gate: Mutex::new(()),
@@ -31226,7 +31305,7 @@ done
                 2,
                 vec![git_path.parent().unwrap().to_path_buf()],
             ));
-        let (camp_id, candidate) = {
+        let camp_id = {
             let mut database = core.database.lock().await;
             let agent_id = AgentProfileService::default()
                 .list_profiles(&database)
@@ -31288,25 +31367,50 @@ done
                 )
                 .unwrap();
             assert_eq!(started.result.status, CommandResultStatus::Accepted);
-            let agent_run_id = claim_waiting_delivery_batches(&mut database, 1)
-                .unwrap()
-                .into_iter()
-                .next()
-                .expect("Mission start should create a dispatchable AgentRun");
-            let candidate = ExecutionRuntimeService::default()
-                .load_dispatchable_agent_run(&database, &agent_run_id)
-                .unwrap()
-                .expect("Mission AgentRun should be dispatchable");
-            (camp_id, candidate)
+            assert!(
+                claim_waiting_delivery_batches(&mut database, 1)
+                    .unwrap()
+                    .is_empty()
+            );
+            camp_id
         };
-
-        let prepared = core
-            .prepare_mission_workspace(&candidate)
+        // A pending Mission preparation must not hold the candidate collector.
+        let preparation_guard = core.mission_workspace_gate.lock().await;
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                core.collect_delivery_batch_dispatch_candidates()
+            )
             .await
             .unwrap()
-            .expect("initial Mission workspace preparation should succeed");
+            .unwrap()
+            .is_empty()
+        );
+        assert!(
+            core.batch_workspace_preparations
+                .lock()
+                .await
+                .contains_key(&camp_id)
+        );
+        drop(preparation_guard);
+        let candidate = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                core.delivery_batch_scheduler_notify.notified().await;
+                let mut candidates = core
+                    .collect_delivery_batch_dispatch_candidates()
+                    .await
+                    .unwrap();
+                if let Some(candidate) = candidates.pop() {
+                    break candidate;
+                }
+            }
+        })
+        .await
+        .expect("Mission preparation should wake the waiting batch");
+        let prepared = candidate.execution_workspace();
         let worktree = PathBuf::from(&prepared.execution_root);
         assert!(worktree.exists());
+        assert_ne!(worktree, source);
 
         let wrapper_root = root.join("blocking-git");
         fs::create_dir_all(&wrapper_root).unwrap();

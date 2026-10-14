@@ -30,10 +30,24 @@ fn admission(old: &str) -> Result<String> {
     ))
 }
 
+fn require_fragments(sql: String, fragments: &[&str]) -> Result<String> {
+    for fragment in fragments {
+        anyhow::ensure!(
+            sql.contains(fragment),
+            "Claim context migration source shape mismatch: {fragment}"
+        );
+    }
+    Ok(sql)
+}
+
 pub(super) fn schema_matches(connection: &Connection) -> bool {
     connection
         .prepare("SELECT agent_run_id,context_json FROM agent_run_claim_context LIMIT 0")
         .is_ok()
+        && connection.query_row(
+            "SELECT count(*)=2 FROM sqlite_master WHERE type='trigger' AND name IN ('agent_run_claim_context_immutable','agent_run_input_v36_only_insert')",
+            [], |row| row.get::<_,bool>(0),
+        ).unwrap_or(false)
 }
 
 pub(super) fn migrate(database: &mut Database) -> Result<()> {
@@ -50,7 +64,14 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             "Claim context requires schema 147"
         );
         let manifest = replacement_table_schema_v171(
-            schema(&tx, "table", "context_manifest")?,
+            require_fragments(
+                schema(&tx, "table", "context_manifest")?,
+                &[
+                    "29, 30, 31, 32, 33, 34, 35)",
+                    "profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12)",
+                    FACT34,
+                ],
+            )?,
             "context_manifest",
         )
         .replace(
@@ -66,7 +87,10 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             &format!("{}\n OR\n {FACT34}", FACT34.replace("= 34", "= 36")),
         );
         let input = replacement_table_schema_v171(
-            schema(&tx, "table", "agent_run_input")?,
+            require_fragments(
+                schema(&tx, "table", "agent_run_input")?,
+                &["29, 30, 31, 32, 33, 34)"],
+            )?,
             "agent_run_input",
         )
         .replace("29, 30, 31, 32, 33, 34)", "29, 30, 31, 32, 33, 34, 36)");
@@ -81,15 +105,18 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
                 &format!("WHEN NOT ({}", admission(&original_guard)?),
                 1,
             );
-        let profile = schema(&tx, "trigger", "context_manifest_quote_profile_insert")?.replacen(
-            "WHEN NOT (",
-            &format!("WHEN NOT ({PROFILE}"),
-            1,
-        );
-        let attachment = schema(
-            &tx,
-            "trigger",
-            "runtime_input_delivery_attachment_auth_insert",
+        let profile = require_fragments(
+            schema(&tx, "trigger", "context_manifest_quote_profile_insert")?,
+            &["WHEN NOT ("],
+        )?
+        .replacen("WHEN NOT (", &format!("WHEN NOT ({PROFILE}"), 1);
+        let attachment = require_fragments(
+            schema(
+                &tx,
+                "trigger",
+                "runtime_input_delivery_attachment_auth_insert",
+            )?,
+            &["29, 30, 31, 32, 33, 34, 35)"],
         )?
         .replace(
             "29, 30, 31, 32, 33, 34, 35)",
@@ -245,4 +272,85 @@ pub(super) fn downgrade_for_test(connection: &Connection) {
         UPDATE rovai_data_contract SET projection_schema_version=147 WHERE singleton=1;").unwrap();
     tx.commit().unwrap();
     connection.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+}
+
+#[cfg(all(test, feature = "extended-tests"))]
+pub(super) fn assert_upgrade(database: &mut Database) {
+    let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
+    let old_schema = schema(database.connection(), "table", "context_manifest").unwrap();
+    // An unsupported source shape must never receive the new receipt/marker.
+    database
+        .connection()
+        .execute_batch("PRAGMA writable_schema=ON;")
+        .unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE sqlite_master SET sql=?1 WHERE type='table' AND name='context_manifest'",
+            [old_schema.replace(FACT34, &FACT34.replace(" AND ", "  AND "))],
+        )
+        .unwrap();
+    database
+        .connection()
+        .execute_batch("PRAGMA writable_schema=OFF;")
+        .unwrap();
+    assert!(
+        migrate(database)
+            .unwrap_err()
+            .to_string()
+            .contains("source shape mismatch")
+    );
+    assert!(!database.schema_migration_applied(198).unwrap());
+    database
+        .connection()
+        .execute_batch("PRAGMA writable_schema=ON;")
+        .unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE sqlite_master SET sql=?1 WHERE type='table' AND name='context_manifest'",
+            [&old_schema],
+        )
+        .unwrap();
+    database.connection().execute_batch("PRAGMA writable_schema=OFF;
+        CREATE TEMP TRIGGER reject_claim_context BEFORE INSERT ON schema_migration WHEN NEW.version=198 BEGIN SELECT RAISE(ABORT,'claim context rollback fixture'); END;").unwrap();
+    assert!(
+        migrate(database)
+            .unwrap_err()
+            .to_string()
+            .contains("claim context rollback fixture")
+    );
+    assert_eq!(
+        schema(database.connection(), "table", "context_manifest").unwrap(),
+        old_schema
+    );
+    assert!(!schema_matches(database.connection()));
+    database
+        .connection()
+        .execute_batch("DROP TRIGGER reject_claim_context")
+        .unwrap();
+    migrate(database).unwrap();
+    assert!(matches!(
+        classify_database_contract(database.connection()).unwrap(),
+        DatabaseContractClassification::Current(_)
+    ));
+    assert_eq!(
+        before,
+        public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
+    );
+    assert_eq!(
+        database
+            .connection()
+            .query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    database
+        .connection()
+        .execute_batch("DROP TRIGGER agent_run_claim_context_immutable")
+        .unwrap();
+    assert!(matches!(
+        classify_database_contract(database.connection()).unwrap(),
+        DatabaseContractClassification::Unknown(_)
+    ));
 }

@@ -142,3 +142,11 @@ PublicOnly 只抑制 Agent 路由，仍允许用户提及；通知沿用当前�
 本查询不建立快照分页、缓存或调度管理机制；动态页间变化按命令说明保留明确限制。
 
 用户主动继续复用此队列，但单独成批，普通消息合批不跨过续做请求；旧 Run 与旧投递终态不变。
+
+### claim 前的 Mission 工作区准备
+
+新 public batch 先由现有 Mission workspace owner 异步准备真实执行目录、读取实际 Git branch，
+再把完整 WORKSPACE 计入选批快照。每 Camp 至多一个准备任务；普通 lane 可继续领取和派发。
+SQLite claim 事务只复核准备结果的 workspace ID、generation、preparation token、目录和当前
+成员／Delivery 准入。结果过期则保留 waiting 并重新发现，不使用源 checkout 猜测输入。
+历史 queued Run 保持执行准备边界；Mission cleanup 与删除继续使用既有 workspace lifecycle gate。

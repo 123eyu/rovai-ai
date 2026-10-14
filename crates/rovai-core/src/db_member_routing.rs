@@ -306,6 +306,7 @@ mod tests {
             DatabaseContractClassification::Unknown(_)
         ));
         database.connection().execute_batch(&input_guard).unwrap();
+        super::super::claim_context::assert_upgrade(&mut database);
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -778,7 +778,7 @@ impl ContextService {
             current_input.as_payload(&attachment_paths, &current_input_skill_resolution.links);
         let mut batch_run_input_value = claimed_context
             .as_ref()
-            .map(|claimed| claimed.run_input.clone())
+            .map(|claimed| claimed.available_run_input(&current_input_skill_resolution.links))
             .or_else(|| {
                 batch_model_context.as_ref().map(|context| {
                     context.run_input_projection(&current_input_skill_resolution.links)
@@ -1121,7 +1121,7 @@ impl ContextService {
             .inspect(|&version| {
                 debug_assert!(matches!(
                     version,
-                    29 | 30 | 31 | 32 | 33 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
+                    29 | 30 | 31 | 32 | 33 | 34 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
                 ));
             })
             .unwrap_or(CONTEXT_FORMATTER_VERSION);
@@ -7293,7 +7293,10 @@ fn load_existing_manifest(
         && bootstrap_required)
         || bootstrap_redelivery_revision.is_some();
     let runtime_payload = if bootstrap_in_runtime_payload {
-        let member_identity = load_latest_member_identity(database, &snapshot.agent_id)?;
+        let member_identity = match claim::load(database.connection(), &snapshot.agent_run_id)? {
+            Some(claimed) => claimed.member_identity,
+            None => load_latest_member_identity(database, &snapshot.agent_id)?,
+        };
         let bootstrap = render_session_bootstrap(
             &charter,
             &member_identity,
@@ -9361,6 +9364,91 @@ mod slow_tests {
         }
     }
 
+    // Materializer fixtures alter admitted source rows to construct edge cases.
+    // Finish that setup at the new claim boundary, before producing any Manifest.
+    // End-to-end FIFO selection is owned by delivery_queue tests.
+    fn freeze_fixture_claim(fixture: &mut Fixture) {
+        let snapshot =
+            load_run_snapshot(&fixture.database, &fixture.run_id, fixture.execution_epoch)
+                .unwrap()
+                .unwrap();
+        let tx = fixture.database.connection_mut().transaction().unwrap();
+        let preview = DeliveryContextPreview {
+            agent_run_id: &snapshot.agent_run_id,
+            camp_id: &snapshot.camp_id,
+            camp_turn_id: &snapshot.camp_turn_id,
+            conversation_id: &snapshot.conversation_id,
+            agent_id: &snapshot.agent_id,
+            task_id: snapshot.task_id.as_deref(),
+            execution_epoch: snapshot.execution_epoch,
+            invocation_kind: "batch",
+            a2a_parent_agent_run_id: None,
+            a2a_root_agent_run_id: None,
+            a2a_depth: 0,
+            camp_message_boundary_sequence: snapshot.camp_message_boundary_sequence,
+            conversation_message_boundary_sequence: snapshot.conversation_message_boundary_sequence,
+            trigger_camp_message_id: None,
+            trigger_message_delivery_id: "",
+            effective_config: snapshot.effective_config.clone(),
+            workspace: snapshot.workspace.clone(),
+            charter_delivery_mode: CharterDeliveryMode::NativeAppend,
+            max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+        };
+        let adapter = run_snapshot_adapter_kind(&snapshot).unwrap();
+        let links = crate::current_input_skill::projected_skill_links_for_claim(
+            &tx,
+            &snapshot.skill_selection_snapshot,
+            adapter,
+            &fixture.directory,
+        )
+        .unwrap();
+        let input = load_batch_model_context(
+            &tx,
+            &snapshot,
+            current_public_camp_batch_context_delivery_profile().unwrap(),
+            36,
+        )
+        .unwrap()
+        .run_input_projection(&links);
+        let frozen = ClaimedBatchContext::prepare(&tx, &preview, None)
+            .unwrap()
+            .with_input(
+                &tx,
+                &preview,
+                input,
+                &snapshot.skill_selection_snapshot,
+                snapshot
+                    .claim_previous_public_boundary_sequence
+                    .unwrap_or(0),
+                snapshot
+                    .claim_has_additional_public_messages
+                    .unwrap_or(false),
+            )
+            .unwrap();
+        tx.execute(
+            "DELETE FROM agent_run_claim_context WHERE agent_run_id=?1",
+            [&fixture.run_id],
+        )
+        .unwrap();
+        frozen.persist(&tx, &fixture.run_id).unwrap();
+        tx.commit().unwrap();
+    }
+
+    // Keep coverage of pre-v36 preparation-time identity failure behavior.
+    fn legacy_fixture() -> Fixture {
+        let fixture = fixture();
+        fixture
+            .database
+            .connection()
+            .execute_batch(
+                "DROP TRIGGER agent_run_input_context_projection_immutable;
+             UPDATE agent_run_input SET context_manifest_version=34;
+             DELETE FROM agent_run_claim_context;",
+            )
+            .unwrap();
+        fixture
+    }
+
     fn send_explicit_public_output(fixture: &mut Fixture, call_id: &str, body: &str) {
         let run_id = fixture.run_id.clone();
         let execution_epoch = fixture.execution_epoch;
@@ -10406,6 +10494,7 @@ mod slow_tests {
             )
             .unwrap();
 
+        freeze_fixture_claim(&mut fixture);
         let ContextMaterialization::Ready(materialized) = ContextService
             .materialize(
                 &mut fixture.database,
@@ -10610,6 +10699,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(frozen, (0, true));
         let store = ManagedBlobStore::new(&fixture.directory);
+        freeze_fixture_claim(&mut fixture);
         let request = MaterializeContextRequest {
             agent_run_id: &fixture.run_id,
             execution_epoch: fixture.execution_epoch,
@@ -10836,6 +10926,7 @@ mod slow_tests {
             .complete_publication(&mut fixture.database, &publication.operation_id)
             .unwrap();
         let service = ContextService;
+        freeze_fixture_claim(&mut fixture);
         let first = service
             .materialize(
                 &mut fixture.database,
@@ -11172,6 +11263,7 @@ mod slow_tests {
                 .unwrap();
         }
 
+        freeze_fixture_claim(&mut fixture);
         let ContextMaterialization::Ready(prepared) = ContextService
             .materialize(
                 &mut fixture.database,
@@ -11292,6 +11384,7 @@ mod slow_tests {
                 ],
             )
             .unwrap();
+        freeze_fixture_claim(&mut budget_fixture);
         let ContextMaterialization::Ready(budget_context) = ContextService
             .materialize(
                 &mut budget_fixture.database,
@@ -11442,6 +11535,7 @@ mod slow_tests {
             .unwrap();
         let exposure = prepared;
         assert!(exposure.snapshot.skills.is_empty());
+        freeze_fixture_claim(&mut fixture);
         let materialized = ContextService
             .materialize_with_skill_exposure(
                 &mut fixture.database,
@@ -11654,6 +11748,7 @@ mod slow_tests {
         let store = ManagedBlobStore::new(&fixture.directory);
         // Model an already frozen pre-rename binding. Only this synthetic fixture
         // writes evidence; production upgrades must keep its bytes and identity.
+        freeze_fixture_claim(&mut fixture);
         let current = service
             .prepare_session_bootstrap(
                 &mut fixture.database,
@@ -12860,6 +12955,7 @@ mod slow_tests {
         let execution = bind_fixture_native_session(&mut fixture, "new-native-session");
 
         let store = ManagedBlobStore::new(&fixture.directory);
+        freeze_fixture_claim(&mut fixture);
         let materialized = ContextService
             .materialize(
                 &mut fixture.database,
@@ -13136,15 +13232,9 @@ mod slow_tests {
             1
         );
         assert!(refreshed_bootstrap.payload.contains(&charter_component));
-        assert!(
-            refreshed_bootstrap
-                .payload
-                .contains("\"name\": \"之后的狐狸\"")
-        );
-        assert!(
-            refreshed_bootstrap
-                .payload
-                .contains("\"growthTopic\": \"只用于之后创建的 Run\"")
+        assert_eq!(
+            refreshed_bootstrap.payload, initial_bootstrap.payload,
+            "identity edits after claim belong to the next Run"
         );
         assert!(initial_bootstrap.payload.contains("\"name\": \"叮叮\""));
         assert!(!initial_bootstrap.payload.contains("之后的狐狸"));
@@ -13421,6 +13511,7 @@ mod slow_tests {
 
         let execution = bind_fixture_native_session(&mut fixture, "collaboration-v2-session");
         let store = ManagedBlobStore::new(&fixture.directory);
+        freeze_fixture_claim(&mut fixture);
         let ContextMaterialization::Ready(initial) = ContextService
             .materialize(
                 &mut fixture.database,
@@ -13535,7 +13626,7 @@ mod slow_tests {
                 SET display_name = 'SELF_EDITED_NAME',
                     team_role = 'SELF_EDITED_ROLE',
                     professional_responsibilities = 'SELF_EDITED_RESPONSIBILITIES',
-                    personality_traits_json = '["SELF_EDITED_TRAIT"]',
+                    personality_traits_json = '["SELF_TRAIT"]',
                     working_principles = 'SELF_EDITED_PRINCIPLES',
                     growth_topic = 'SELF_EDITED_GROWTH',
                     version = version + 1, updated_at = ?1
@@ -13776,7 +13867,7 @@ mod slow_tests {
 
     #[test]
     fn first_payload_resume_does_not_reload_identity_but_native_append_fails_closed() {
-        let mut fixture = fixture();
+        let mut fixture = legacy_fixture();
         bind_fixture_native_session(&mut fixture, "existing-first-payload-session");
         let store = ManagedBlobStore::new(&fixture.directory);
         let ContextMaterialization::Ready(initial) = ContextService
@@ -13852,7 +13943,7 @@ mod slow_tests {
 
     #[test]
     fn new_session_fails_before_manifest_when_member_identity_is_unavailable() {
-        let mut fixture = fixture();
+        let mut fixture = legacy_fixture();
         let store = ManagedBlobStore::new(&fixture.directory);
         fixture
             .database
@@ -14324,6 +14415,7 @@ mod slow_tests {
             )
             .unwrap();
         let store = ManagedBlobStore::new(&fixture.directory);
+        freeze_fixture_claim(&mut fixture);
         let ContextMaterialization::Ready(context) = ContextService
             .materialize(
                 &mut fixture.database,
@@ -14433,6 +14525,7 @@ mod slow_tests {
             )
             .unwrap();
         let store = ManagedBlobStore::new(&fixture.directory);
+        freeze_fixture_claim(&mut fixture);
         let error = ContextService
             .materialize(
                 &mut fixture.database,
@@ -15234,7 +15327,7 @@ mod slow_tests {
         assert!(
             replacement_context
                 .runtime_payload
-                .contains("\"name\": \"替换会话狐狸\"")
+                .contains("\"name\": \"叮叮\"")
         );
         assert!(
             !replacement_context

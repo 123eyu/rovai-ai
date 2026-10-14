@@ -83,9 +83,38 @@ pub(crate) struct ClaimedBatchContext {
 }
 
 impl ClaimedBatchContext {
+    pub(super) fn available_run_input(
+        &self,
+        links: &[crate::current_input_skill::CurrentInputSkillLink],
+    ) -> Value {
+        let mut input = self.run_input.clone();
+        if let Some(messages) = input.get_mut("messages").and_then(Value::as_array_mut) {
+            for (index, message) in messages.iter_mut().enumerate() {
+                if let Some(skills) = message.get_mut("skills").and_then(Value::as_array_mut) {
+                    skills.retain(|skill| {
+                        links.iter().any(|link| {
+                            link.message_index
+                                .is_none_or(|message_index| message_index == index)
+                                && skill["name"].as_str() == Some(link.name.as_str())
+                                && skill["path"].as_str() == Some(link.path.as_str())
+                        })
+                    });
+                    if skills.is_empty() {
+                        message
+                            .as_object_mut()
+                            .expect("message projection is an object")
+                            .remove("skills");
+                    }
+                }
+            }
+        }
+        input
+    }
+
     pub(crate) fn prepare(
         transaction: &Transaction<'_>,
         request: &DeliveryContextPreview<'_>,
+        workspace_fact: Option<&Value>,
     ) -> Result<Self> {
         let snapshot = prospective_delivery_snapshot(transaction, request)?;
         let data_dir = std::path::Path::new(
@@ -126,7 +155,20 @@ impl ClaimedBatchContext {
             omitted_tasks,
             run_facts: render_run_facts(&facts)?,
             mission_details_version,
-            workspace: prepare_workspace_fact(transaction, &snapshot, true, true)?,
+            workspace: match workspace_fact {
+                Some(value) => PreparedWorkspaceFact {
+                    value: Some(value.clone()),
+                    digest: Some(canonical_json_digest(value)?),
+                    included: true,
+                },
+                None => {
+                    anyhow::ensure!(
+                        mission_facts(transaction, &snapshot)?.is_none(),
+                        "mission.workspace_not_prepared"
+                    );
+                    PreparedWorkspaceFact::default()
+                }
+            },
             additional_skills: prepare_additional_skills(transaction, data_dir, &snapshot)?,
             run_input: json!({"messages": []}),
             had_native_session: snapshot.native_session_id.is_some(),

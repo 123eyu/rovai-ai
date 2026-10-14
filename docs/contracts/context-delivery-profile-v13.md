@@ -26,3 +26,8 @@ wrapper 和分隔符预留空间，覆盖摘要变化、claim 后补发和恢复
 组包消费同一份快照，不重新扩充模型输入。必要的 Runtime、附件授权、Binding 和 accepted
 检查保留。最终完整输入仍检查实际字节数；单条或原子续做集合无法装下时明确
 `context_payload_too_large`，不截断、不把已领取输入退回 waiting、不自动重播。
+
+Mission 的实际 WORKSPACE 在异步准备和 Git 观察完成后传入 claim；不得在 SQLite 事务内执行 Git，
+不得用源目录或 managedBranch 代替实际执行目录和 checkout。准备中的 Mission 不阻塞普通 lane。
+结果在 claim 事务验证 workspace 身份／代次／token／路径；失效时重新准备，消息仍为 waiting。
+RUN_INPUT 中已失效的 Skill 链接可按既有授权／可用性检查移除；不得在 claim 后添加链接。

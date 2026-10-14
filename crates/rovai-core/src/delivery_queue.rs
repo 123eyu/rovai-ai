@@ -45,7 +45,7 @@ struct WaitingDelivery {
 struct BatchPrefixSelection {
     context: Option<ClaimedBatchContext>,
     count: usize,
-    first_too_large: bool,
+    failure_code: Option<&'static str>,
     skill_selection: SkillSelectionSnapshot,
     has_additional_public_messages: bool,
 }
@@ -256,9 +256,74 @@ pub fn has_waiting_delivery_batch_work(database: &Database) -> Result<bool> {
 
 /// Converts waiting Delivery lanes into immutable, ordered multi-input AgentRuns.
 /// Waiting rows carry message responsibility or explicit continuation authorization. Runtime, model and permissions are
-/// resolved here. Workspace is also frozen unless an unprepared Mission must first
-/// establish its exact execution directory at the execution-preparing boundary.
+/// resolved here. Mission lanes wait for their exact workspace facts, prepared
+/// asynchronously before selection; ordinary lanes need no preparation input.
 pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Result<Vec<String>> {
+    claim_waiting_delivery_batches_with_workspaces(database, limit, &Default::default())
+}
+
+/// Actual Mission execution facts observed outside the claim transaction.
+#[derive(Debug, Clone)]
+pub struct PreparedBatchWorkspace {
+    pub workspace: AgentRunWorkspace,
+    pub fact: Value,
+    fence: Value,
+}
+
+pub type BatchWorkspaces =
+    std::collections::BTreeMap<String, Result<PreparedBatchWorkspace, String>>;
+
+fn batch_workspace_fence(connection: &rusqlite::Connection, camp_id: &str) -> Result<Value> {
+    let row: Option<(String, i64, String, String, String)> = connection.query_row(
+        "SELECT id,generation,preparation_token,working_directory,state FROM mission_workspace WHERE camp_id=?1 ORDER BY created_at,id LIMIT 1",
+        [camp_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    ).optional()?;
+    Ok(serde_json::to_value(row)?)
+}
+
+pub fn capture_prepared_batch_workspace(
+    database: &Database,
+    camp_id: &str,
+    workspace: AgentRunWorkspace,
+    fact: Value,
+) -> Result<PreparedBatchWorkspace> {
+    Ok(PreparedBatchWorkspace {
+        workspace,
+        fact,
+        fence: batch_workspace_fence(database.connection(), camp_id)?,
+    })
+}
+
+pub fn waiting_mission_batch_workspaces(database: &Database) -> Result<Vec<(String, String)>> {
+    let lanes = database.connection().prepare(
+        "SELECT DISTINCT camp.id,camp.project_path,c.id,m.agent_id FROM camp
+         JOIN mission ON mission.camp_id=camp.id
+         JOIN camp_message_delivery d ON d.camp_id=camp.id AND d.status='waiting'
+         JOIN camp_member m ON m.camp_id=camp.id AND m.agent_id=d.recipient_agent_id
+         JOIN agent_profile p ON p.id=m.agent_id
+         JOIN conversation c ON c.camp_id=camp.id AND c.agent_id=m.agent_id AND c.kind='camp_member'
+         WHERE camp.deletion_operation_id IS NULL AND m.status='active'
+           AND m.leave_requested_at IS NULL AND p.profile_status='present'
+           AND NOT EXISTS (SELECT 1 FROM conversation c JOIN agent_run r ON r.conversation_id=c.id
+                WHERE c.camp_id=camp.id AND c.agent_id=m.agent_id AND r.status IN ('queued','running','waiting'))
+           AND NOT EXISTS (SELECT 1 FROM agent_run r JOIN conversation c ON c.id=r.conversation_id
+                WHERE c.camp_id=camp.id AND r.cancel_requested_at IS NOT NULL AND r.cancel_acknowledged_at IS NULL)"
+    )?.query_map([], |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?, row.get::<_,String>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let tx = database.connection().unchecked_transaction()?;
+    let mut camps = std::collections::BTreeMap::new();
+    for (camp_id, path, conversation, member) in lanes {
+        if resolve_frozen_runtime(&tx, &conversation, &member)?.is_ok() {
+            camps.insert(camp_id, path);
+        }
+    }
+    Ok(camps.into_iter().collect())
+}
+
+pub fn claim_waiting_delivery_batches_with_workspaces(
+    database: &mut Database,
+    limit: i64,
+    prepared_workspaces: &BatchWorkspaces,
+) -> Result<Vec<String>> {
     if !(1..=100).contains(&limit) {
         anyhow::bail!("Delivery claim limit must be between 1 and 100");
     }
@@ -379,7 +444,27 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
                 [&camp_id],
                 |row| row.get(0),
             )?;
-            let workspace = batch_workspace_for_claim(&transaction, &camp_id, &project_path)?;
+            let mission_exists: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM mission WHERE camp_id=?1)",
+                [&camp_id],
+                |row| row.get(0),
+            )?;
+            let prepared_workspace = prepared_workspaces.get(&camp_id);
+            if let Some(Ok(prepared)) = prepared_workspace {
+                if prepared.fence != batch_workspace_fence(&transaction, &camp_id)? {
+                    continue;
+                }
+                let current =
+                    crate::mission_workspace::execution_directory(&transaction, &camp_id)?;
+                if current.as_deref().unwrap_or(&project_path) != prepared.workspace.execution_root
+                {
+                    continue;
+                }
+            }
+            let workspace = match prepared_workspace {
+                Some(Ok(prepared)) => Some(prepared.workspace.clone()),
+                _ => batch_workspace_for_claim(&transaction, &camp_id, &project_path)?,
+            };
             if let Some(workspace) = workspace.as_ref() {
                 workspace.validate()?;
             }
@@ -473,6 +558,9 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
             };
             let effective_config =
                 build_effective_config(&transaction, &conversation_id, &agent_id, &runtime)?;
+            if mission_exists && prepared_workspace.is_none() {
+                continue;
+            }
             if let Some(source_id) = waiting[0].continuation_source_run_id.as_deref() {
                 let source =
                     crate::run_continuation::eligible_source(&transaction, &camp_id, source_id)?
@@ -518,17 +606,57 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
                 charter_delivery_mode: charter_delivery_mode_for_adapter(runtime.adapter_kind),
                 max_payload_bytes,
             };
-            let selection = select_batch_prefix(
-                &transaction,
-                &camp_id,
-                &agent_id,
-                previous_public_boundary,
-                camp_public_tail,
-                &runtime,
-                std::path::Path::new(cleanup_execution_root),
-                &waiting,
-                &preview,
-            )?;
+            let selection = match prepared_workspace {
+                Some(Err(detail)) => {
+                    eprintln!("Delivery workspace for {camp_id} is unavailable: {detail}");
+                    BatchPrefixSelection {
+                        context: None,
+                        count: if waiting[0].continuation_source_run_id.is_some() {
+                            waiting.len()
+                        } else {
+                            1
+                        },
+                        failure_code: Some("workspace_unavailable"),
+                        skill_selection: SkillSelectionSnapshot::default(),
+                        has_additional_public_messages: false,
+                    }
+                }
+                _ => match select_batch_prefix(
+                    &transaction,
+                    &camp_id,
+                    &agent_id,
+                    previous_public_boundary,
+                    camp_public_tail,
+                    &runtime,
+                    std::path::Path::new(cleanup_execution_root),
+                    &waiting,
+                    &preview,
+                    prepared_workspace
+                        .and_then(|prepared| prepared.as_ref().ok())
+                        .map(|prepared| &prepared.fact),
+                ) {
+                    Ok(selection) => selection,
+                    Err(error) if error.downcast_ref::<rusqlite::Error>().is_none() => {
+                        // Bad member/input configuration settles this lane visibly;
+                        // database failures still roll back the whole transaction.
+                        eprintln!(
+                            "Delivery claim context for {agent_id} is unavailable: {error:#}"
+                        );
+                        BatchPrefixSelection {
+                            context: None,
+                            count: if waiting[0].continuation_source_run_id.is_some() {
+                                waiting.len()
+                            } else {
+                                1
+                            },
+                            failure_code: Some("runtime_configuration_invalid"),
+                            skill_selection: SkillSelectionSnapshot::default(),
+                            has_additional_public_messages: false,
+                        }
+                    }
+                    Err(error) => return Err(error),
+                },
+            };
             let selected = &waiting[..selection.count];
             let anchor_message_id = selected
                 .last()
@@ -551,9 +679,7 @@ pub fn claim_waiting_delivery_batches(database: &mut Database, limit: i64) -> Re
                 Some(&runtime),
                 &selection.skill_selection,
                 selected,
-                selection
-                    .first_too_large
-                    .then_some("context_payload_too_large"),
+                selection.failure_code,
                 &now,
             )?;
             if let Some(context) = selection.context {
@@ -733,8 +859,9 @@ fn select_batch_prefix(
     execution_root: &std::path::Path,
     waiting: &[WaitingDelivery],
     preview: &DeliveryContextPreview<'_>,
+    workspace_fact: Option<&Value>,
 ) -> Result<BatchPrefixSelection> {
-    let base_context = ClaimedBatchContext::prepare(transaction, preview)?;
+    let base_context = ClaimedBatchContext::prepare(transaction, preview, workspace_fact)?;
     let mut batch_content = Vec::new();
     let mut batch_message_indices = Vec::new();
     let mut previous_selection = None;
@@ -795,7 +922,7 @@ fn select_batch_prefix(
                     BatchPrefixSelection {
                         context: Some(context),
                         count: count - 1,
-                        first_too_large: false,
+                        failure_code: None,
                         skill_selection,
                         has_additional_public_messages,
                     }
@@ -803,7 +930,7 @@ fn select_batch_prefix(
                 None => BatchPrefixSelection {
                     context: None,
                     count: if atomic_input { waiting.len() } else { 1 },
-                    first_too_large: true,
+                    failure_code: Some("context_payload_too_large"),
                     skill_selection,
                     has_additional_public_messages,
                 },
@@ -816,7 +943,7 @@ fn select_batch_prefix(
     Ok(BatchPrefixSelection {
         context: Some(context),
         count: waiting.len(),
-        first_too_large: false,
+        failure_code: None,
         skill_selection,
         has_additional_public_messages,
     })
@@ -2980,60 +3107,66 @@ mod tests {
     #[cfg(feature = "extended-tests")]
     #[test]
     fn malformed_member_configuration_fails_its_lane_without_blocking_other_camps() {
-        let mut fixture = Fixture::with_members(&["agent_1", "agent_2"]);
-        let other = fixture.add_camp_lane("healthy");
-        fixture.enqueue("bad-member", "must fail visibly");
-        fixture.database.connection().execute("UPDATE camp_message_delivery SET recipient_agent_id='agent_2' WHERE message_id='bad-member'", []).unwrap();
-        fixture
-            .database
-            .connection()
-            .execute(
-                "UPDATE agent_profile SET selected_runtime_adapter_kind='codex-cli',
-            default_runtime_installation_id='adapter-test-codex', default_model_selection_json='{}',
-            default_permission_config_json='{}' WHERE id='agent_2'",
-                [],
-            )
-            .unwrap();
-        fixture.enqueue_for(&other, "healthy-member", "must still run");
-        // Upgrade-era native Sessions have no environment record. They should
-        // continue through normal native recovery, without changing context here.
-        fixture
-            .database
-            .connection()
-            .execute(
-                "UPDATE conversation SET native_session_id='native-existing' WHERE camp_id=?1",
-                [&other],
-            )
-            .unwrap();
-        let claimed = claim_waiting_delivery_batches(&mut fixture.database, 100).unwrap();
-        assert_eq!(claimed.len(), 2);
-        let row = |message: &str| {
-            fixture.database.connection().query_row(
-            "SELECT r.status,r.last_error_code FROM agent_run r JOIN camp_message_delivery d ON d.claimed_agent_run_id=r.id WHERE d.message_id=?1",
-            [message], |r| Ok((r.get::<_, String>(0)?,r.get::<_, Option<String>>(1)?))).unwrap()
-        };
-        assert_eq!(
-            row("bad-member"),
-            (
-                "failed".into(),
-                Some("runtime_configuration_invalid".into())
-            )
-        );
-        assert_eq!(row("healthy-member"), ("queued".into(), None));
-        assert_eq!(
+        for corrupt_bootstrap in [false, true] {
+            let mut fixture = Fixture::with_members(&["agent_1", "agent_2"]);
+            let other = fixture.add_camp_lane("healthy");
+            fixture.enqueue("bad-member", "must fail visibly");
+            fixture.database.connection().execute("UPDATE camp_message_delivery SET recipient_agent_id='agent_2' WHERE message_id='bad-member'", []).unwrap();
             fixture
                 .database
                 .connection()
-                .query_row(
-                    "SELECT native_session_id FROM conversation WHERE camp_id=?1",
-                    [&other],
-                    |r| r.get::<_, String>(0)
+                .execute(
+                    "UPDATE agent_profile SET selected_runtime_adapter_kind='codex-cli',
+            default_runtime_installation_id='adapter-test-codex', default_model_selection_json='{}',
+            default_permission_config_json='{}' WHERE id='agent_2'",
+                    [],
                 )
-                .unwrap(),
-            "native-existing"
-        );
-        let snapshots: i64 = fixture.database.connection().query_row("SELECT COUNT(*) FROM agent_run WHERE json_type(effective_config_json,'$.runtime.environment') IS NOT NULL", [], |r|r.get(0)).unwrap();
-        assert_eq!(snapshots, 0);
+                .unwrap();
+            if corrupt_bootstrap {
+                crate::agent_profile::configure_test_runtime(&fixture.database, &["agent_2"]);
+                fixture.database.connection().execute("UPDATE agent_profile SET personality_traits_json='not-json' WHERE id='agent_2'", []).unwrap();
+            }
+            fixture.enqueue_for(&other, "healthy-member", "must still run");
+            // Upgrade-era native Sessions have no environment record. They should
+            // continue through normal native recovery, without changing context here.
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE conversation SET native_session_id='native-existing' WHERE camp_id=?1",
+                    [&other],
+                )
+                .unwrap();
+            let claimed = claim_waiting_delivery_batches(&mut fixture.database, 100).unwrap();
+            assert_eq!(claimed.len(), 2);
+            let row = |message: &str| {
+                fixture.database.connection().query_row(
+            "SELECT r.status,r.last_error_code FROM agent_run r JOIN camp_message_delivery d ON d.claimed_agent_run_id=r.id WHERE d.message_id=?1",
+            [message], |r| Ok((r.get::<_, String>(0)?,r.get::<_, Option<String>>(1)?))).unwrap()
+            };
+            assert_eq!(
+                row("bad-member"),
+                (
+                    "failed".into(),
+                    Some("runtime_configuration_invalid".into())
+                )
+            );
+            assert_eq!(row("healthy-member"), ("queued".into(), None));
+            assert_eq!(
+                fixture
+                    .database
+                    .connection()
+                    .query_row(
+                        "SELECT native_session_id FROM conversation WHERE camp_id=?1",
+                        [&other],
+                        |r| r.get::<_, String>(0)
+                    )
+                    .unwrap(),
+                "native-existing"
+            );
+            let snapshots: i64 = fixture.database.connection().query_row("SELECT COUNT(*) FROM agent_run WHERE json_type(effective_config_json,'$.runtime.environment') IS NOT NULL", [], |r|r.get(0)).unwrap();
+            assert_eq!(snapshots, 0);
+        }
     }
 
     #[test]
@@ -3448,10 +3581,52 @@ mod tests {
         let ready_worktree = ready._directory.join("mission-worktree");
         ready.attach_completed_mission(Some(&ready_worktree));
         ready.enqueue("ready-message", "继续使命");
-        let ready_run = claim_waiting_delivery_batches(&mut ready.database, 100)
-            .unwrap()
-            .pop()
+        assert!(
+            claim_waiting_delivery_batches(&mut ready.database, 100)
+                .unwrap()
+                .is_empty()
+        );
+        let workspace = AgentRunWorkspace {
+            execution_root: ready_worktree.to_string_lossy().into_owned(),
+            access: "write".into(),
+            isolation: "git_worktree".into(),
+        };
+        let fact =
+            json!({"workingDirectory": workspace.execution_root, "branch": "actual-user-branch"});
+        let prepared = capture_prepared_batch_workspace(
+            &ready.database,
+            &ready.camp_id,
+            workspace.clone(),
+            fact.clone(),
+        )
+        .unwrap();
+        let stale = BatchWorkspaces::from([(ready.camp_id.clone(), Ok(prepared))]);
+        ready
+            .database
+            .connection()
+            .execute(
+                "UPDATE mission_workspace SET generation=generation+1 WHERE camp_id=?1",
+                [&ready.camp_id],
+            )
             .unwrap();
+        assert!(
+            claim_waiting_delivery_batches_with_workspaces(&mut ready.database, 100, &stale)
+                .unwrap()
+                .is_empty()
+        );
+        let prepared = capture_prepared_batch_workspace(
+            &ready.database,
+            &ready.camp_id,
+            workspace,
+            fact.clone(),
+        )
+        .unwrap();
+        let prepared = BatchWorkspaces::from([(ready.camp_id.clone(), Ok(prepared))]);
+        let ready_run =
+            claim_waiting_delivery_batches_with_workspaces(&mut ready.database, 100, &prepared)
+                .unwrap()
+                .pop()
+                .unwrap();
         let ready_workspace_json: Option<String> = ready
             .database
             .connection()
@@ -3475,20 +3650,35 @@ mod tests {
         let mut unprepared = Fixture::new();
         unprepared.attach_completed_mission(None);
         unprepared.enqueue("unprepared-message", "首次执行使命");
-        let unprepared_run = claim_waiting_delivery_batches(&mut unprepared.database, 100)
-            .unwrap()
-            .pop()
-            .unwrap();
-        let unprepared_workspace_json: Option<String> = unprepared
-            .database
-            .connection()
-            .query_row(
-                "SELECT workspace_json FROM agent_run WHERE id = ?1",
-                [&unprepared_run],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(unprepared_workspace_json.is_none());
+        assert!(
+            claim_waiting_delivery_batches(&mut unprepared.database, 100)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(unprepared.batch_run_count(), 0);
+        let ordinary = unprepared.add_camp_lane("ordinary-during-mission-prepare");
+        unprepared.enqueue_for(
+            &ordinary,
+            "ordinary-message",
+            "continue without waiting for Mission Git",
+        );
+        assert_eq!(
+            claim_waiting_delivery_batches(&mut unprepared.database, 100)
+                .unwrap()
+                .len(),
+            1
+        );
+        #[cfg(feature = "extended-tests")]
+        {
+            let context = ready.materialize_run(&ready_run);
+            assert!(context.rendered_payload.contains("actual-user-branch"));
+            assert!(
+                context
+                    .rendered_payload
+                    .contains(ready_worktree.to_str().unwrap())
+            );
+            assert!(!context.rendered_payload.contains("rovai/mission/001"));
+        }
     }
 
     #[test]
@@ -3918,12 +4108,15 @@ mod tests {
                     .acknowledge_input_delivery(
                         &mut fixture.database,
                         &input.id,
-                        "accepted-fixture",
+                        &format!("accepted-{run}"),
                     )
                     .unwrap();
                 let tx = fixture.database.connection_mut().transaction().unwrap();
-                tx.execute("UPDATE agent_run SET status='succeeded' WHERE id=?1", [run])
-                    .unwrap();
+                tx.execute(
+                    "UPDATE agent_run SET status='succeeded',ended_at=datetime('now') WHERE id=?1",
+                    [run],
+                )
+                .unwrap();
                 settle_run_deliveries(
                     &tx,
                     run,
@@ -3938,7 +4131,7 @@ mod tests {
             let command = fixture.user_command(crate::memory::CreateMemoryCommand {
                 scope: crate::memory::MemoryScopeKind::Hearth,
                 kind: crate::memory::MemoryKind::Preference,
-                body: "private Memory body".into(),
+                body: format!("private Memory body for {key}"),
                 retrieval_keys: vec![key.into()],
                 companion_agent_id: None,
                 relationship_agent_ids: vec![],
@@ -3963,9 +4156,15 @@ mod tests {
             "UPDATE conversation SET native_session_id='existing-opencode-session' WHERE id='delivery-queue-agent-1'", [],
         ).unwrap();
         accept_and_finish(&mut fixture, &initial_run, &initial);
-        let old_digest: String = fixture.database.connection().query_row(
-            "SELECT native_session_bootstrap_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r| r.get(0),
-        ).unwrap();
+        let old_digest: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT native_charter_digest FROM conversation WHERE id='delivery-queue-agent-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         add_memory(&mut fixture, "indexed-before-claim");
         let body = "中".repeat(40_000); // 120,000 UTF-8 bytes per complete message.
         fixture.enqueue("large-1", &body);
@@ -4031,10 +4230,21 @@ mod tests {
             context.rendered_payload.len() + body.len() + 512 < DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES
         );
         assert!(context.runtime_payload.len() + body.len() > DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+        let crate::context::ContextMaterialization::Ready(recovered) = ContextService.materialize(
+            &mut fixture.database, &crate::managed_blob::ManagedBlobStore::new(&fixture._directory),
+            &crate::context::MaterializeContextRequest { agent_run_id: &run, execution_epoch: 1, charter_delivery_mode: CharterDeliveryMode::FirstPayload, max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES },
+        ).unwrap() else { panic!("claimed Manifest must recover"); };
+        assert_eq!(recovered.runtime_payload, context.runtime_payload);
         accept_and_finish(&mut fixture, &run, &context);
-        let new_digest: String = fixture.database.connection().query_row(
-            "SELECT native_session_bootstrap_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r| r.get(0),
-        ).unwrap();
+        let new_digest: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT native_charter_digest FROM conversation WHERE id='delivery-queue-agent-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_ne!(old_digest, new_digest);
         let next_run = claim_waiting_delivery_batches(&mut fixture.database, 1)
             .unwrap()
@@ -4063,6 +4273,15 @@ mod tests {
             !unchanged.bootstrap_in_runtime_payload,
             "reserving bytes must not force a resend"
         );
+        let mut separate = Fixture::new();
+        separate.database.connection().execute("UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_1'", ["😀".repeat(9_000)]).unwrap();
+        separate.enqueue("separate-system-layer", &"中".repeat(80_000));
+        let independent_run = claim_waiting_delivery_batches(&mut separate.database, 1).unwrap().remove(0);
+        let independent = separate.materialize_with_mode(&independent_run, CharterDeliveryMode::NativeAppend, DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+        assert!(!independent.bootstrap_in_runtime_payload);
+        assert!(independent.runtime_payload.len() > 240_000);
+        assert!(independent.runtime_payload.len() <= DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES);
+
     }
 
     #[test]

@@ -20,7 +20,12 @@ User 在已阅读消息 `58a31901-7d8a-4741-a635-494ced2e094d` 的完整流程�
 补发／新 Session 预算及单条超限说明后，于上述消息明确要求实施并 PR 合入 main，
 强调可用性优先、简洁有效。本说明记录该已确认方案，不再要求重复授权。
 
-## 变更前与变更后
+## 变更前
+
+已恢复 Session 只要有旧 Bootstrap 摘要，领取阶段就可能不预留启动内容；实际组包重新读取当前
+Memory 等内容时才发现摘要变化。整批已冻结，完整输入超限而失败，本可分批的消息无法处理。
+
+## 变更后
 
 | 位置 | 变更前 | 变更后 |
 | --- | --- | --- |
@@ -48,13 +53,27 @@ Session 判断；预算覆盖可能发送它们的较大输入。Bootstrap 的�
 仍由摘要、delivery mode、pending redelivery 及原 accepted-input 门禁决定实际投递。
 RunInput skill link、引用与附件投影使用现有正式 serializer，冻结选择结果，不剪裁正文。
 
-## 不变边界
+## 明确不变
 
 默认完整 payload 上限 256 KiB，显式模型配置继续覆盖；Bootstrap 上限和外部 Runtime 限额不放大。
 单聊、历史非 batch 及已领取的旧版本 Run 保持原路由。Native Session ID 优先恢复，不因格式
 或 Memory 变化重建。accepted／unknown 输入不重播；有效 accepted ACK 才推进水位。
 用户主动续做的来源输入仍作为一个原子集合，不能为了容量拆分已冻结来源 Run。
 Memory 快照只冻结发现索引，后续 `memory read` 继续校验实时生命周期和访问权限。
+
+## 二次确认
+
+实际确认：User 消息 `a5582ebd-b926-4993-88d5-c83d9d3e3623` 引用方案
+`58a31901-7d8a-4741-a635-494ced2e094d`，要求“那就这么改吧，改完pr到main merge”，
+并要求可用性优先、简洁有效。此次确认覆盖相同 Run 快照、完整预算及 claim 前选批；
+本说明不将后续实现细节冒充为用户逐项指定的要求。
+
+实现审核澄清了现有 Mission 边界：其实际目录和当前 branch 必须先由原 workspace owner
+准备与观察，才能计入真实预算。该准备异步发生在 SQLite claim 事务之外，普通会话不等它；
+准备结果带 workspace ID／generation／preparation token／路径，在 claim 事务重新核验。
+过期结果保持消息 waiting；已知配置错误和准备失败各自落为可见失败，不能阻塞其他 lane。
+不引入估算 padding、路径截断或 managed branch 代替实际 branch。
+已冻结 Skill 链接在准备时继续做现有可用性检查；失效只移除链接，不扩张输入或改变消息正文。
 
 ## 版本、存储与兼容
 

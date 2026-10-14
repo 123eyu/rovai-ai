@@ -9,6 +9,10 @@ baseline_ref: "4b4fe088b15ef785cd76f54f221e5d87c9d639a4"
 
 # Rovai AI 运行监控指标可采集性审计
 
+2026-10-15 [Qoder 本机升级与 Steer 最低版本清单](steer-minimum-versions-2026-10-15.md)：按 User seq34
+升级原生 CLI 到 1.1.71，真实 LLM 仍为后继轮；核查十五种 Runtime 的实际通道版本依据。
+区分上游功能首发、当前接线所需字段与真实通过版本；Pi 0.99.0、Qwen 0.18.4 的协议门槛有源码与发布依据。
+
 2026-10-14 [TRAE 本机升级与 Steer 支持边界复核](steer-trae-upgrade-2026-10-14.md)：按 User seq32
 升级官方 CLI 至 0.209.1、完成企业登录并真实 LLM 验证 ACP 同轮插话；修正全局参数顺序。
 产品八种已支持、TRAE 通道通过待适配；区分 Qoder 官方 IDE Steer 与 CLI ACP，收窄 Antigravity 的否定范围。

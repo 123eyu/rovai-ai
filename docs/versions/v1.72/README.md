@@ -26,6 +26,9 @@ User seq23 随后要求接入 Claude Code、Pi、CodeBuddy、Qwen Code、Grok Bu
 User seq26 要求补齐其他 Runtime 测试；[完整清单](../../research/runtime-monitoring/steer-complete-2026-10-14.md)
 记录九种 Runtime 的十五次新增尝试。Kimi、Copilot、ZCode、OpenCode 原生路径通过，尚未接入 Rovai，
 产品范围仍为六种；本轮没有上下文或生产代码改动。
+User seq28 随后要求仅按 Rovai 实际接入通道重新核验，结论以[当前通道清单](../../research/runtime-monitoring/steer-current-transport-2026-10-14.md)为准：
+十五种均重新使用真实 LLM，六种已接入者复测通过；Kiro ACP `_session/steer` 和 ZCode 官方内核 guide
+在现有通道同轮通过、待产品适配。Kimi REST、Copilot SDK、OpenCode HTTP 不纳入当前支持数量。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 

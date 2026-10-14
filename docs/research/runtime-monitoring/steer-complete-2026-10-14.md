@@ -7,6 +7,10 @@ last_updated: 2026-10-14
 
 # Steer 完整实测清单（2026-10-14）
 
+> User seq28 已纠正清单范围。当前支持结论请读[按 Rovai 实际通道重测的清单](steer-current-transport-2026-10-14.md)。
+> 下文保留 seq26 的跨通道历史记录；Kimi REST、Copilot SDK、OpenCode HTTP 不再作为当前 ACP 支持证据。
+> Kiro 后续已补测其现有 ACP 的 `_session/steer` 并通过，不能继续按下表的普通 Prompt 负例判断其整个 ACP 能力。
+
 **Rovai 当前分支已接入六种 Runtime；另有四种的原生 Steer 本次实测通过，尚未接入 Rovai。**
 十五种纳入核验，Cursor、Cline、Command Code 按用户要求排除。不能把“当前 ACP 入口拒绝插话”
 写成“这个智能体没有 Steer”：Kimi、Copilot、OpenCode 换用其原生接口后均取得了正向证据。

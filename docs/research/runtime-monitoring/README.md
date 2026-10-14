@@ -9,8 +9,12 @@ baseline_ref: "4b4fe088b15ef785cd76f54f221e5d87c9d639a4"
 
 # Rovai AI 运行监控指标可采集性审计
 
-2026-10-14 [Steer 完整实测清单](steer-complete-2026-10-14.md)：补测九种 Runtime，十五次尝试；当前产品六种，
-新增四种原生路径通过但尚未接入，另五种受测入口拒绝或排队；明确排除 Cursor、Cline、Command Code。
+2026-10-14 [Steer 当前通道完整清单](steer-current-transport-2026-10-14.md)：按 User seq28 纠正范围，
+十五种 Runtime 全部重新真实 LLM 核验；六种产品已接入，Kiro ACP / ZCode 官方内核同轮通过但待接入。
+其余当前通道分别拒绝、排队或取消替换；排除 Cursor、Cline、Command Code。
+
+2026-10-14 [Steer 跨通道历史补测](steer-complete-2026-10-14.md)：保留 seq26 的九种 Runtime、十五次尝试。
+其中其他 SDK/HTTP 路径不再用于当前通道支持清单，后续 Kiro ACP 正向证据以上一项为准。
 
 2026-10-14 [五种 Runtime 的 Steer 扩展验收](steer-five-runtimes-2026-10-14.md)：Claude 使用 sub2api，逐项记录产品实测与限制。
 

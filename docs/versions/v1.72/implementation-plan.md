@@ -96,6 +96,16 @@ Kimi REST、Copilot SDK immediate、ZCode guide、OpenCode HTTP steer 原生通�
 只提交研究文档和索引；不修改生产代码、提示词、上下文版本或准入开关，不重复运行 Rust 全套。
 文档门禁为 `pnpm docs:test`、`pnpm docs:check` 和以本轮基线执行的 `pnpm docs:check:ci`。
 
+## Steer 按当前通道重测与范围纠正（2026-10-14）
+
+User seq28 指定只看 Rovai 实际接入方式，继续排除 Cursor、Cline、Command Code，允许真实 LLM。
+基线 `44ca038df8591f8207f48f821053db01620b6f1e`；十五种 Runtime 重新实测，逐次结果见
+[当前通道清单](../../research/runtime-monitoring/steer-current-transport-2026-10-14.md)及其结构化证据。
+六种已接入 Runtime 均再次通过；新增确认 Kiro 默认 v2 ACP 的 `_session/steer`，
+另复核 ZCode 现有官方内核 guide，二者产品适配尚未补接。先前其他 SDK/HTTP 能力不计入当前支持清单。
+保留探针失败、普通 Prompt 反例和清理确认缺项；不将直接通道测试宣称为完整 Core 产品验收。
+没有生产、上下文或提示词改动。检查文档三项门禁、探针语法和结构化证据；没有重复运行 Rust 产品套件。
+
 ## 会话切换读取回归修复（2026-10-13）
 
 基线 `50d50d3a46ec409420a9c1382ab5101ba16892bd`，分支 `codex/remove-session-rebuild-notice`。

@@ -13,9 +13,17 @@ import type {
 import { RunExecutionDisclosure } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { buildLiveExecutionProgress, liveRuntimeEventFromExecutionEvidence } from '../../../apps/desktop/src/renderer/src/ui-model'
 import { SingleChatPanel } from '../../../apps/desktop/src/renderer/src/SingleChatPanel'
+import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
+import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
 const threadId = 'rvcamp_01m1jkkpkzfvgraw1p4r9zfb7v'
+const copiedLinks: string[] = []
+const recoveredDrafts = new Map<string, unknown>()
+let recoveryWrites = 0
+const fixtureClient = new Proxy(desktopThreadClient, { get: (target, key) => key === 'editingRecovery'
+  ? { get: (id: string) => recoveredDrafts.get(id), set: (id: string, value: unknown) => { recoveryWrites++; recoveredDrafts.set(id, structuredClone(value)) } }
+  : Reflect.get(target, key) }) as ThreadClient
 const conversationId = 'single-chat-fixture-conversation'
 const members: ThreadMemberView[] = [
   {
@@ -177,6 +185,7 @@ function runningSnapshot(): SingleChatSnapshot {
 }
 
 type Phase = 'terminal' | 'queued' | 'thinking' | 'narration' | 'running' | 'returned' | 'continuation' | 'complete' | 'waiting' | 'failed'
+let currentPhase: Phase = 'terminal'
 const eventListeners = new Set<(event: CoreEvent) => void>()
 let phaseListener: ((phase: Phase) => void) | null = null
 let currentSnapshot = terminalSnapshot
@@ -195,6 +204,7 @@ let lastCancelledLeave: LeavePreparation | undefined
 const bindLeaveGuard = (guard: (() => LeavePreparation) | null): void => { leaveGuard = guard }
 
 function setMode(phase: Phase, notify = true): void {
+  currentPhase = phase
   if (phase === 'terminal') currentSnapshot = terminalSnapshot
   else {
     const next = runningSnapshot()
@@ -239,6 +249,11 @@ function setMode(phase: Phase, notify = true): void {
     currentSnapshot = next
   }
   phaseListener?.(phase)
+  // Running status alone no longer implies thinking; provide the same ephemeral
+  // phase signal the production panel receives from Core.
+  for (const listener of eventListeners) listener({ method: 'agent_run.runtime_phase_changed', params: {
+    agentRunId: 'run-running', executionEpoch: 1, phase: phase === 'thinking' ? 'thinking' : 'executing'
+  } })
   if (notify) emitChange()
 }
 
@@ -278,13 +293,15 @@ function PublicExecutionFixture({ phase }: { phase: Phase }): React.JSX.Element 
   return <section className="public-execution-fixture" style={{ width: 440, margin: '36px 24px', padding: 16 }}>
     <p style={{ color: 'var(--muted)', fontSize: 12 }}>执行台 · 独立合成公共任务</p>
     <RunExecutionDisclosure run={run} threadId={threadId} focused
-      progress={buildLiveExecutionProgress(events.map(liveRuntimeEventFromExecutionEvidence), run.id)} />
+      progress={{ ...buildLiveExecutionProgress(events.map(liveRuntimeEventFromExecutionEvidence), run.id),
+        runtimePhase: phase === 'thinking' ? 'thinking' : 'executing', runtimePhaseEpoch: run.executionEpoch }} />
   </section>
 }
 
 Object.assign(window, {
   rovai: {
     platform: 'darwin',
+    clipboard: { write: async (payload: { text: string }) => { copiedLinks.push(payload.text) } },
     onEvent: (listener: (event: CoreEvent) => void) => {
       eventListeners.add(listener)
       return () => eventListeners.delete(listener)
@@ -298,6 +315,7 @@ Object.assign(window, {
       requests.push({ method, params })
       if (method === 'singleChat.list') return [currentSnapshot.conversation]
       if (method === 'singleChat.get') return currentSnapshot
+      if (method === 'agentRunExecution.page') return { runtimePhase: currentPhase === 'thinking' ? 'thinking' : 'executing', runtimeThinkingTitle: null }
       if (method === 'singleChat.pendingInputs.edit') {
         const { commandId, command } = params as unknown as { commandId: string,
           command: { pendingInputId: string, expectedRevision: number,
@@ -371,11 +389,16 @@ Object.assign(window, {
 let locateNotification: (conversation: string) => void
 const notificationPresentations: number[] = []
 let notificationRequest = 0
+let restorePanel: () => void
+let showPanel: (visible: boolean) => void
 const bubbledDragEvents: string[] = []
 
 function Fixture(): React.JSX.Element {
   const [entryHost, setEntryHost] = useState<HTMLDivElement | null>(null)
   const [visible, setVisible] = useState(true)
+  const [mount, setMount] = useState(0)
+  restorePanel = () => setMount(current => current + 1)
+  showPanel = setVisible
   const [phase, setPhase] = useState<Phase>('terminal')
   const [notificationTarget, setNotificationTarget] = useState<(NotificationSingleChatSource & { requestId: number }) | null>(null)
   locateNotification = conversation => {
@@ -400,6 +423,7 @@ function Fixture(): React.JSX.Element {
     >
       <PublicExecutionFixture phase={phase} />
       <SingleChatPanel
+        key={mount}
         onLeaveGuardChange={bindLeaveGuard}
         target={notificationTarget}
         notificationFocus={notificationTarget ? { requestId: notificationTarget.requestId,
@@ -417,10 +441,24 @@ function Fixture(): React.JSX.Element {
   </div>
 }
 
-createRoot(document.getElementById('root')!).render(<Fixture />)
+createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={fixtureClient}><Fixture /></ThreadClientProvider>)
 
 Object.assign(window, {
   singleChatTest: {
+    restoreDraft: () => restorePanel(),
+    showPanel: (visible: boolean) => showPanel(visible),
+    showWebLinks: (target: string) => {
+      currentSnapshot = { ...terminalSnapshot, messages: terminalSnapshot.messages.map(message => ({ ...message,
+        body: message.authorType === 'user' ? '前 [标题](' + target + ') 后' : '[Agent 链接](' + target + ')', attachments: [] })) }
+      for (const listener of eventListeners) listener({ method: 'single_chat.changed', params: { threadId, conversationId } })
+    },
+    webState: () => {
+      const input = document.querySelector<HTMLTextAreaElement>('.single-chat-composer textarea')
+      return { value: input?.value, focused: document.activeElement === input, start: input?.selectionStart, end: input?.selectionEnd,
+        popup: document.querySelector('.composer-web-link-address')?.textContent ?? null, copied: [...copiedLinks], recoveryWrites,
+        sends: requests.filter(request => request.method === 'singleChat.send').map(request => request.params),
+        revision: currentSnapshot.draft.revision }
+    },
     appendReturnHistory: (count: number) => {
       for (let item = 0; item < count; item++) {
         const sequence = currentSnapshot.conversation.lastMessageSequence + 1
@@ -491,6 +529,7 @@ Object.assign(window, {
         sendFeedback: document.querySelector('.single-chat-send-feedback')?.textContent ?? '',
         liveSummaryVisible: Boolean(document.querySelector('.single-chat-run-history.is-live > summary')?.getBoundingClientRect().height),
         liveGroupLabel: document.querySelector('.single-chat-run-history.is-live .tool-group-summary')?.textContent ?? '',
+        liveGroupAccessibleLabel: document.querySelector('.single-chat-run-history.is-live .tool-group-summary')?.getAttribute('aria-label') ?? '',
         publicText: document.querySelector('.public-execution-fixture')?.textContent ?? '',
         publicOpen: document.querySelector<HTMLDetailsElement>('.public-execution-fixture .execution-disclosure')?.open ?? null,
         resultRequests: requests.filter((request) => request.method === 'agentRunEvidence.getContent').length,

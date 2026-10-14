@@ -95,7 +95,7 @@ export async function saveMemberIdentity({
     } catch (error) {
       if (textCommitted)
         throw new Error(
-          uiAttribute('队员文字信息已保存，角色图片未保存：{0}', readErrorMessage(error))
+          uiAttribute('队员文字信息已保存，头像未保存：{0}', readErrorMessage(error))
         )
       throw error
     }

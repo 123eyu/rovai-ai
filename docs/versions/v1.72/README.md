@@ -11,6 +11,12 @@ last_updated: 2026-10-14
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 队员头像简化（2026-10-14）
+
+按 User 确认的 R8 与消息 27 实施：紧凑身份信息与会话卡、上传后裁切确认、默认折叠更多设定及预设。
+新头像单文件保存，GIF 保留动画，旧 icon/source 兼容；渠道按发布意图冻结静态封面，Agent 素材要求同步简化。
+当前边界见 [Member Avatar v1](../../contracts/member-avatar-v1.md)，验证见[实施记录](implementation-plan.md#队员头像简化2026-10-14)。
+
 ## 消息发送者统一（2026-10-14）
 
 按 User 已确认的 [R2](model-context-change-message-senders.md) 已在独立 worktree 实施并通过自动化回归；R2 移除专用名称冻结，只在实际消息组装时取名。完整真实模型 Gate 待补。

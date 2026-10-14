@@ -3494,7 +3494,17 @@ export interface RecropMemberAvatarAssetInput {
   crop: MemberAvatarCrop
 }
 
+/** A single normalized PNG or original animated GIF, plus display geometry. */
+export interface SaveMemberAvatarImageInput {
+  kind: 'image'
+  source: Uint8Array
+  sourceWidth: number
+  sourceHeight: number
+  crop: MemberAvatarCrop
+}
+
 export type SaveMemberAvatarAssetInput =
+  | SaveMemberAvatarImageInput
   | RecropMemberAvatarAssetInput
   | SaveMemberAvatarRasterInput
   | SaveMemberAvatarGifInput
@@ -3512,6 +3522,8 @@ export interface MemberAvatarRendition {
   width: number
   height: number
   crop: MemberAvatarCrop
+  /** Present only for single-file assets. Legacy icons already contain their crop. */
+  displayCrop?: MemberAvatarCrop
 }
 
 export interface MemberAvatarsApi {

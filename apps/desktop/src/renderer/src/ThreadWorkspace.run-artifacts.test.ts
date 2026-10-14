@@ -87,7 +87,9 @@ function publicMessage(source: AgentRunView): ThreadMessageView {
     presentation: null, createdAt }
 }
 
+// Creation receipts carry their own snapshot avatar, separate from the Run author.
 const avatars = (markup: string): number => (markup.match(/class="member-avatar(?: |")/g) ?? []).length
+  - (markup.match(/class="member-joined-person"/g) ?? []).length
 
 function receipt(overrides: Partial<MemberCreationView> = {}): MemberCreationView {
   return { creationId: 'creation-1', sourceAgentRunId: 'run-1', agentId: 'created-member',

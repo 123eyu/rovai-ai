@@ -23,12 +23,10 @@ describe('member avatar image limits', () => {
     })
   })
 
-  it('rejects invalid, tiny, oversized and excessive-area dimensions', () => {
+  it('rejects invalid, oversized and excessive-area dimensions', () => {
     for (const [width, height] of [
       [0, 512],
       [Number.NaN, 512],
-      [255, 1024],
-      [1024, 255],
       [8193, 512],
       [512, 8193],
       [8000, 5000]
@@ -37,7 +35,8 @@ describe('member avatar image limits', () => {
     }
   })
 
-  it('warns below 512px without rejecting the 256px hard minimum', () => {
+  it('warns below 512px while accepting small valid images', () => {
+    expect(isMemberAvatarSourceLowQuality(64, 128)).toBe(true)
     expect(isMemberAvatarSourceLowQuality(256, 1024)).toBe(true)
     expect(isMemberAvatarSourceLowQuality(511, 800)).toBe(true)
     expect(isMemberAvatarSourceLowQuality(512, 512)).toBe(false)
@@ -52,8 +51,8 @@ describe('member avatar image limits', () => {
       validateGifMemberAvatarSource(256, 256, MEMBER_AVATAR_LIMITS.maximumGifFrames + 1)
     ).toThrow('200 帧')
     expect(() => validateGifMemberAvatarSource(0, 256, 1)).toThrow('尺寸无效')
-    expect(() => validateGifMemberAvatarSource(255, 256, 1)).toThrow('至少需要')
-    expect(() => validateGifMemberAvatarSource(4096, 4096, 10)).toThrow('累计解码')
+    expect(() => validateGifMemberAvatarSource(255, 256, 1)).not.toThrow()
+    expect(() => validateGifMemberAvatarSource(4096, 4096, 10)).toThrow('显示预算')
     expect(() => validateGifMemberAvatarSource(256, 256, 0)).toThrow('帧数无效')
   })
 })

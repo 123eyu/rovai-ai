@@ -7769,7 +7769,7 @@ describe('task event projections', () => {
     expect(markup).not.toContain('role="tablist"')
     expect(markup).toContain('member-editor-identity-layout')
     expect(markup).toContain('保存队员信息')
-    expect(markup).toContain('class="member-runtime-entry-arrow"')
+    expect(markup).not.toContain('class="member-runtime-entry-arrow"')
     expect(markup).toContain('class="member-detail-page"')
     expect(markup).not.toContain('Member / Long-lived identity')
     expect(markup).toContain('<h1>沐瓦</h1>')

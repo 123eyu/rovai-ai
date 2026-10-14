@@ -1212,7 +1212,7 @@ mod tests {
         let get = projection(
             MEMBER_GET_TOOL_NAME,
             json!({"agentId":"agent_27"}),
-            json!({"agentId":"agent_27","version":2,"images":{"icon":"/private/run/managed.png","portrait":null}}),
+            json!({"agentId":"agent_27","version":2,"avatar":{"path":"/private/run/managed.png","status":"available","displayCrop":null}}),
         );
         assert!(
             !serde_json::to_string(&get)

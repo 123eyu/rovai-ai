@@ -1,14 +1,14 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # 长期接口合同
 
 User 的主称呼、结构化提及及冻结恢复见 [User Naming v1](user-naming-v1.md)。
 
-公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v34](context-manifest-evidence-v34.md)、[Built-in Tool Transport v39](builtin-tool-transport-v39.md)。
+公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v34](context-manifest-evidence-v34.md)、[Built-in Tool Transport v40](builtin-tool-transport-v40.md)。
 
 本目录保存跨版本、字段级且可由测试直接验证的接口合同。[Version Decisions](../decisions/README.md)解释为什么选择某个边界，
 Architecture 解释组件如何组成，Version 概览记录交付范围；它们都不复制本目录的完整 wire shape。
@@ -21,7 +21,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## 队员头像
 
-- [Member Avatar v1（当前）](member-avatar-v1.md)：单文件资产、显示取景、旧 icon 兼容和按发布意图冻结静态封面。
+- [Member Avatar v2（当前）](member-avatar-v2.md)：继承单文件资产与旧取景兼容；Agent get 统一为一个 avatar，保留显示裁切元数据。
+- [Member Avatar v1（历史）](member-avatar-v1.md)：单文件资产、显示取景、旧 icon 兼容和渠道静态封面；Agent 双图片结果由 v2 替代。
 
 ## Navigation
 
@@ -381,7 +382,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Memory Capture v3（当前）](memory-capture-v3.md) | v2 边界加 complete exact-Scope View、copyable Revision target、active body aggregate quota、64 KiB production projection limit 与 Memory-domain clean break |
 | [Memory Capture v2 (historical)](memory-capture-v2.md) | v1 捕获/Review/Forget 边界加 flat Agent-relative Scope identity、revise target assertion、durable domain rejection 与 Supersession 原子顺序 |
 | [Memory Capture v1 (historical)](memory-capture-v1.md) | 初版 best-effort 在线捕获、actor-bounded add/revise、隔离 Hearth Review Item、双 CAS、候选清除与 Forget safeguard；不含 Scope-identified revise |
-| [Built-in Tool Transport v39（当前）](builtin-tool-transport-v39.md) | 职责 10,000 scalar，member list 四字段、get 全文；Agent Output 11 |
+| [Built-in Tool Transport v40（当前）](builtin-tool-transport-v40.md) | get 单一 avatar 路径／状态／裁切，保留完整身份及四字段 list；Agent Output 13 |
+| [Built-in Tool Transport v39（历史）](builtin-tool-transport-v39.md) | 职责 10,000 scalar，member list 四字段、get 全文；初始 Agent Output 11，后由 History v13 升为 12 |
 | [Built-in Tool Transport v38（历史）](builtin-tool-transport-v38.md) | 删除工具结果和目录摘要，静态目录复用；IPC 3、Envelope 2 |
 | [Domain Command Result v2（当前）](domain-command-result-v2.md) | 取消请求摘要；同命令身份与归属返回首次结果，保留查询 |
 | [Input Snapshot Storage v1（当前）](input-snapshot-storage-v1.md) | 最终输入与必要材料、当前结构准入、Migration 196/schema 146 |

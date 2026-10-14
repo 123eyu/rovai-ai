@@ -658,21 +658,26 @@ fn builtin_avatar_bytes(role: BuiltinMemberAvatar, portrait: bool) -> &'static [
 
 /// The caller supplies the authenticated lease's existing Run tmp directory.
 /// Files are new/private and share that lease's existing cleanup lifecycle.
-/// Managed GIF assets materialize as `.gif` so the animation is preserved for
-/// portrait and icon consumers.
+/// Keep the displayed avatar rendition and its framing together. Legacy assets
+/// already contain their crop; single-file assets retain their saved crop and GIF.
+#[derive(Debug)]
+pub struct MaterializedMemberAvatar {
+    pub path: String,
+    pub display_crop: Option<MemberAvatarCrop>,
+}
+
 pub fn materialize_member_avatar(
     data_dir: &Path,
     run_tmp: &Path,
     avatar_ref: &str,
-    portrait: bool,
-) -> Result<String> {
+) -> Result<MaterializedMemberAvatar> {
     anyhow::ensure!(run_tmp.is_absolute(), "Run tmp must be absolute");
     let metadata = fs::symlink_metadata(run_tmp)?;
     anyhow::ensure!(
         metadata.is_dir() && !metadata.file_type().is_symlink(),
         "Run tmp is unavailable"
     );
-    let rendition = managed_member_avatar_rendition(data_dir, avatar_ref, portrait)?;
+    let rendition = managed_member_avatar_rendition(data_dir, avatar_ref, false)?;
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD.decode(&rendition.base64)?;
     let extension = if rendition.media_type == "image/gif" {
@@ -680,19 +685,18 @@ pub fn materialize_member_avatar(
     } else {
         "png"
     };
-    let path = run_tmp.join(format!(
-        "member-{}-{}.{extension}",
-        Uuid::new_v4(),
-        if portrait { "portrait" } else { "icon" }
-    ));
+    let path = run_tmp.join(format!("member-{}-avatar.{extension}", Uuid::new_v4()));
     if let Err(error) = write_private_file(&path, &bytes) {
         let _ = fs::remove_file(&path);
         return Err(error.into());
     }
-    Ok(path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Run tmp path is not UTF-8"))?
-        .to_string())
+    Ok(MaterializedMemberAvatar {
+        path: path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Run tmp path is not UTF-8"))?
+            .to_string(),
+        display_crop: rendition.display_crop,
+    })
 }
 
 fn managed_member_avatar_rendition(
@@ -2484,13 +2488,22 @@ mod tests {
             MIANZHI_AVATAR_REF,
             QILU_AVATAR_REF,
             &saved.avatar_ref,
+            &framed.avatar_ref,
         ] {
-            for portrait in [false, true] {
-                let path = materialize_member_avatar(&directory, &directory, avatar_ref, portrait)
-                    .unwrap();
-                assert!(Path::new(&path).is_file());
-                assert!(Path::new(&path).starts_with(&directory));
-                assert!(image::load_from_memory(&fs::read(path).unwrap()).is_ok());
+            let avatar = materialize_member_avatar(&directory, &directory, avatar_ref).unwrap();
+            assert!(Path::new(&avatar.path).is_file());
+            assert!(Path::new(&avatar.path).starts_with(&directory));
+            let bytes = fs::read(&avatar.path).unwrap();
+            let image = image::load_from_memory(&bytes).unwrap();
+            assert_eq!(
+                bytes,
+                member_avatar_bytes(&directory, avatar_ref, false).unwrap()
+            );
+            if avatar_ref == framed.avatar_ref {
+                assert_eq!(avatar.display_crop, Some(framed.crop.clone()));
+            } else {
+                assert_eq!(image.dimensions(), (192, 192));
+                assert_eq!(avatar.display_crop, None);
             }
         }
         let builtin_crop = recrop_member_avatar(
@@ -2511,8 +2524,7 @@ mod tests {
             materialize_member_avatar(
                 &directory,
                 &directory.join("missing-run-tmp"),
-                &saved.avatar_ref,
-                true
+                &saved.avatar_ref
             )
             .is_err()
         );
@@ -2698,10 +2710,11 @@ mod tests {
         );
 
         // Materialization exposes a .gif file so consumers keep the animation.
-        let portrait_path =
-            materialize_member_avatar(&directory, &directory, &summary.avatar_ref, true).unwrap();
-        assert!(portrait_path.ends_with(".gif"));
-        assert!(Path::new(&portrait_path).is_file());
+        let avatar =
+            materialize_member_avatar(&directory, &directory, &summary.avatar_ref).unwrap();
+        assert!(avatar.path.ends_with(".gif"));
+        assert_eq!(fs::read(&avatar.path).unwrap(), source);
+        assert_eq!(avatar.display_crop, Some(summary.crop));
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2841,6 +2854,12 @@ mod tests {
             save_managed_member_avatar_gif(&directory, &source_bytes, 400, 500, crop.clone(), 2)
                 .unwrap();
         assert_eq!(first, second);
+        let avatar = materialize_member_avatar(&directory, &directory, &first.avatar_ref).unwrap();
+        assert_eq!(avatar.display_crop, None);
+        assert_eq!(
+            fs::read(avatar.path).unwrap(),
+            member_avatar_bytes(&directory, &first.avatar_ref, false).unwrap()
+        );
         assert_eq!(
             read_managed_member_avatar(&directory, &first.avatar_ref, false)
                 .unwrap()

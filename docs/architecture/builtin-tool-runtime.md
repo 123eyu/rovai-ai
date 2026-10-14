@@ -11,7 +11,7 @@ last_updated: 2026-10-12
 人类用户的主称呼、双别名、结构化搜索与冻结投影边界见 [User Naming v1](../contracts/user-naming-v1.md)。
 
 本文件说明 Rovai built-in operations 的长期组件结构。当前字段与版本以
-[Built-in Tool Transport v39](../contracts/builtin-tool-transport-v39.md)、
+[Built-in Tool Transport v40](../contracts/builtin-tool-transport-v40.md)、
 [Built-in Tool Agent Output Projection v1](../contracts/builtin-tool-agent-output-projection-v1.md)、
 [Camp History v11](../contracts/camp-history-v11.md)、
 [Durable Task v5](../contracts/durable-task-v5.md) 和
@@ -149,7 +149,7 @@ create/update 的 `avatarFile` 由 CLI 原样传入；Core 在 Run 认证后复�
 用冻结的 `execution_root` 解析相对路径，绝对路径原样保留。路径 helper 与 Agent 附件共用，
 头像继续直接导入 immutable asset，不创建附件记录或新增路径授权机制。
 内置素材与 managed 图片在授权 Run tmp 中物化，复用 lease 清理；每次 get 重验权限和重取文件。
-完整字段、裁切及错误见 [Transport v36](../contracts/builtin-tool-transport-v36.md)。
+完整字段、裁切及错误见 [Transport v40](../contracts/builtin-tool-transport-v40.md)。
 
 Mission read uses a distinct global read seam: every effective authenticated AgentRun may list all Missions or
 read one opaque internal `rvm_...` ID, including saved structured attachment paths. Omitted-ID `get` resolves only the
@@ -232,8 +232,12 @@ payload 门禁仍在 Domain Service。
 `member.create` 只接受 attested active、direct user-triggered AgentRun。Agent 按
 `member-studio` 展示完整身份卡并取得用户确认，可选提交当前 Run 中 Core 可读的头像文件。
 Core 在身份提交前验证并物化受管头像；格式、取景、资源预算与旧资产兼容由
-[Member Avatar v1](../contracts/member-avatar-v1.md) 统一定义。临时文件路径不进入
+[Member Avatar v2](../contracts/member-avatar-v2.md) 统一定义。临时文件路径不进入
 Command payload、canonical result 或 Evidence；此入口不承担通用文件导入。
+
+`member.get` 从同一身份快照读取一份头像，返回 `avatar.path/status/displayCrop`。新资产携带显示取景，
+旧／内置头像使用已有 icon；图片不可用不阻断身份读取。此读取不导出 portrait，不重新编码 GIF；
+临时路径只进入授权的 Agent 结果，生命周期与现有 Run lease 一致。
 
 ## Agent Result Projection
 
@@ -684,7 +688,7 @@ Activity。命令文本、时间、cwd 或输出相似度不能建立关联。Sh
 系统不声称能够证明模型主观意图。
 
 - CLI 从 direct flags、JSON stdin/heredoc 或 `--input-file` 构造一个对象。Send 文件按
-  [Transport v39](../contracts/builtin-tool-transport-v39.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
+  [Transport v40](../contracts/builtin-tool-transport-v40.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
   完整请求文件和其他 operation 保持来源互斥。所有来源共用
   catalog canonical input Schema validator，只有通过后才加载 lease/context 并发送 IPC。`camp.read`
   直接发送 `messageId | thread | before | limit` 的合法组合，不补写模式或方向，也不接受旧字段。

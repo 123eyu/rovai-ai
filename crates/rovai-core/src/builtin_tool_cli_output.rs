@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn closed_agent_output_schemas_reject_extra_and_invalid_fields() {
-        let profile = json!({"agentId":"agent_2","displayName":"Nova","teamRole":"","professionalResponsibilities":"","personalityTraits":[],"workingPrinciples":"","growthTopic":"","version":1,"images":{"icon":null,"portrait":null},"imageStatus":{"icon":"absent","portrait":"absent"}});
+        let profile = json!({"agentId":"agent_2","displayName":"Nova","teamRole":"","professionalResponsibilities":"","personalityTraits":[],"workingPrinciples":"","growthTopic":"","version":1,"avatar":{"path":null,"status":"absent","displayCrop":null}});
         let profile_schema = agent_output_schema("member.get").unwrap();
         validate_schema(&profile, &profile_schema).unwrap();
         for field in [
@@ -787,17 +787,40 @@ mod tests {
             "memberOrder",
             "avatarRef",
             "portraitRef",
+            "images",
+            "imageStatus",
         ] {
             let mut leaked = profile.clone();
             leaked[field] = json!("private");
             assert!(validate_schema(&leaked, &profile_schema).is_err());
         }
         let mut leaked = profile.clone();
-        leaked["images"]["base64"] = json!("data");
+        leaked["avatar"]["base64"] = json!("data");
         assert!(validate_schema(&leaked, &profile_schema).is_err());
-        let mut malformed = profile;
-        malformed["imageStatus"]["icon"] = json!("unknown");
-        assert!(validate_schema(&malformed, &profile_schema).is_err());
+        for avatar in [
+            json!({"path":null,"status":"unavailable","displayCrop":null}),
+            json!({"path":"/run/avatar.gif","status":"available","displayCrop":null}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":0.6,"centerY":0.4,"size":0.5}}),
+        ] {
+            let mut available = profile.clone();
+            available["avatar"] = avatar;
+            validate_schema(&available, &profile_schema).unwrap();
+        }
+        for avatar in [
+            json!({"path":null,"status":"unknown","displayCrop":null}),
+            json!({"path":null,"status":"available","displayCrop":null}),
+            json!({"path":"","status":"available","displayCrop":null}),
+            json!({"path":"/run/avatar.png","status":"absent","displayCrop":null}),
+            json!({"path":null,"status":"unavailable","displayCrop":{"centerX":0.5,"centerY":0.5,"size":1}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":1.1,"centerY":0.5,"size":1}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":0.5,"centerY":0.5,"size":0.11}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":0.5,"size":1}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":null,"portrait":null}),
+        ] {
+            let mut malformed = profile.clone();
+            malformed["avatar"] = avatar;
+            assert!(validate_schema(&malformed, &profile_schema).is_err());
+        }
 
         let schema = agent_output_schema("thread.message.send").unwrap();
         assert!(
@@ -955,9 +978,9 @@ mod tests {
 
     #[test]
     fn every_operation_has_a_schema_valid_golden_projection() {
-        // v12 unifies message senders; older successful outputs stay byte-stable.
+        // v13 exposes one avatar; older successful outputs stay byte-stable.
         let golden: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/builtin-tool-agent-output-v12.json"
+            "../tests/fixtures/builtin-tool-agent-output-v13.json"
         ))
         .unwrap();
         // Old results are projected to current names without content receipts.

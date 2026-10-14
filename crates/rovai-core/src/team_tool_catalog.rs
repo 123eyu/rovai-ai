@@ -1194,7 +1194,7 @@ fn build_builtin_tool_definitions() -> Vec<Value> {
         json!({
             "name": MEMBER_GET_TOOL_NAME,
             "title": "Member get",
-            "description": "Read a member's full identity, version and image paths.\nTarget a current Thread member or one you created here. Image paths last for this Run.",
+            "description": "Read a member's full identity, version and avatar file path.\nTarget a current Thread member or one you created in this Thread. The avatar path lasts for this Run; avatar.displayCrop describes its saved framing.",
             "inputSchema": member_get_input_schema(),
             "outputSchema": member_get_output_schema()
         }),

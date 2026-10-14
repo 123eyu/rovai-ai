@@ -2619,7 +2619,10 @@ mod tests {
                 [&full_responsibilities],
             )
             .unwrap();
+        let file_count = || std::fs::read_dir(&tmp).unwrap().count();
+        let before_count = file_count();
         let before = read(&fixture.database, "agent_2");
+        assert_eq!(file_count(), before_count + 1, "one avatar file per read");
         assert_eq!(
             before["professionalResponsibilities"],
             full_responsibilities
@@ -2634,22 +2637,26 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(unavailable["images"], json!({"icon":null,"portrait":null}));
         assert_eq!(
-            unavailable["imageStatus"],
-            json!({"icon":"unavailable","portrait":"unavailable"})
+            unavailable["avatar"],
+            json!({"path":null,"status":"unavailable","displayCrop":null})
+        );
+        assert_eq!(file_count(), before_count + 1);
+        assert_eq!(
+            unavailable["professionalResponsibilities"],
+            full_responsibilities
         );
 
         validate_schema(&before, &member_get_output_schema()).unwrap();
-        for variant in ["icon", "portrait"] {
-            let path = std::path::Path::new(before["images"][variant].as_str().unwrap());
-            assert!(path.starts_with(&tmp) && path.is_file());
-            std::fs::remove_file(path).unwrap();
-        }
+        assert_eq!(before["avatar"]["status"], "available");
+        assert!(before["avatar"]["displayCrop"].is_null());
+        let path = std::path::Path::new(before["avatar"]["path"].as_str().unwrap());
+        assert!(path.starts_with(&tmp) && path.is_file());
+        std::fs::remove_file(path).unwrap();
         let refreshed = read(&fixture.database, "agent_2");
-        for variant in ["icon", "portrait"] {
-            assert!(std::path::Path::new(refreshed["images"][variant].as_str().unwrap()).is_file());
-        }
+        assert!(std::path::Path::new(refreshed["avatar"]["path"].as_str().unwrap()).is_file());
+        assert_ne!(refreshed["avatar"]["path"], before["avatar"]["path"]);
+        assert_eq!(file_count(), before_count + 1);
         let parse_patch = |database: &Database, mut value: Value| {
             crate::team_tool_catalog::validate_builtin_tool_input(MEMBER_UPDATE_TOOL_NAME, &value)
                 .unwrap();
@@ -2759,7 +2766,6 @@ mod tests {
             "personalityTraits",
             "workingPrinciples",
             "growthTopic",
-            "imageStatus",
         ] {
             assert_eq!(
                 after_failure[field], updated[field],
@@ -2815,7 +2821,12 @@ mod tests {
         let image_updated = read(&fixture.database, "agent_2");
         assert_eq!(image_updated["teamRole"], "Image and text");
         assert_eq!(
-            image::open(image_updated["images"]["portrait"].as_str().unwrap())
+            image_updated["avatar"]["displayCrop"],
+            json!({"centerX":0.5,"centerY":0.5,"size":1.0})
+        );
+        validate_schema(&image_updated, &member_get_output_schema()).unwrap();
+        assert_eq!(
+            image::open(image_updated["avatar"]["path"].as_str().unwrap())
                 .unwrap()
                 .to_rgba8()
                 .get_pixel(0, 0)
@@ -2937,7 +2948,7 @@ mod tests {
         assert!(path_replay.replayed);
         assert_eq!(path_replay.result.payload, image_execution.result.payload);
         let original_source =
-            std::fs::read(image_updated["images"]["portrait"].as_str().unwrap()).unwrap();
+            std::fs::read(image_updated["avatar"]["path"].as_str().unwrap()).unwrap();
         let crop_patch = parse_patch(
             &fixture.database,
             json!({"agentId":"agent_2","requestId":Uuid::new_v4().to_string(),"expectedVersion":image_updated["version"],"avatarCenterX":0.5,"avatarCenterY":0.5,"avatarSize":0.5}),
@@ -2956,7 +2967,11 @@ mod tests {
         );
         let cropped = read(&fixture.database, "agent_2");
         assert_eq!(
-            std::fs::read(cropped["images"]["portrait"].as_str().unwrap()).unwrap(),
+            cropped["avatar"]["displayCrop"],
+            json!({"centerX":0.5,"centerY":0.5,"size":0.5})
+        );
+        assert_eq!(
+            std::fs::read(cropped["avatar"]["path"].as_str().unwrap()).unwrap(),
             original_source
         );
         let invalid_crop = parse_patch(
@@ -2987,10 +3002,9 @@ mod tests {
         );
         update_member(&mut fixture.database, &fixture.directory, &run, clear_patch).unwrap();
         let cleared = read(&fixture.database, "agent_2");
-        assert_eq!(cleared["images"], json!({"icon":null,"portrait":null}));
         assert_eq!(
-            cleared["imageStatus"],
-            json!({"icon":"absent","portrait":"absent"})
+            cleared["avatar"],
+            json!({"path":null,"status":"absent","displayCrop":null})
         );
         assert_eq!(cleared["teamRole"], "");
         assert_eq!(cleared["personalityTraits"], json!([]));
@@ -3397,15 +3411,18 @@ mod tests {
                 serde_json::from_value::<MemberCreateInput>(value).unwrap(),
             )
             .unwrap();
-            let portrait = crate::member_avatar::materialize_member_avatar(
+            let avatar = crate::member_avatar::materialize_member_avatar(
                 &fixture.directory,
                 &fixture.directory,
                 with_image.avatar_ref.as_deref().unwrap(),
-                true,
             )
             .unwrap();
             assert_eq!(
-                image::open(&portrait).unwrap().to_rgba8().get_pixel(0, 0).0,
+                image::open(&avatar.path)
+                    .unwrap()
+                    .to_rgba8()
+                    .get_pixel(0, 0)
+                    .0,
                 color
             );
         }

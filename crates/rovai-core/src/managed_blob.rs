@@ -14,6 +14,13 @@ use crate::db::Database;
 
 pub(crate) const MAX_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 
+#[cfg(test)]
+thread_local! { static BLOB_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+pub(crate) fn take_read_count() -> u64 {
+    BLOB_READS.replace(0)
+}
+
 pub(crate) const GC_OWNER_EXECUTION_LIFECYCLE: &str = "execution_lifecycle";
 pub(crate) const GC_OWNER_CAMP_DELETION: &str = "camp_deletion";
 pub(crate) const GC_OWNER_FILE_CHANGE_PROJECTION: &str = "file_change_projection";
@@ -423,6 +430,8 @@ impl ManagedBlobStore {
     }
 
     pub fn read_bytes(&self, database: &Database, blob_id: &str) -> Result<Vec<u8>> {
+        #[cfg(test)]
+        BLOB_READS.set(BLOB_READS.get() + 1);
         let metadata = load_blob_metadata(database.connection(), blob_id)?
             .context("Managed Blob does not exist")?;
         if metadata.state != "present" || metadata.byte_size > self.max_blob_bytes {

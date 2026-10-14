@@ -10760,6 +10760,7 @@ impl Core {
                 let canonical = rovai_core::execution_window::content_canonical(
                     &database,
                     &params.evidence_id,
+                    &payload,
                 )?;
                 let (revision, change_sequence, output_truncated) = database.connection().query_row(
                     "SELECT revision, change_sequence, output_truncated FROM agent_run_execution_evidence WHERE id = ?1",

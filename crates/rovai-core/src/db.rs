@@ -30,6 +30,8 @@ mod run_continuation;
 mod simplification;
 #[path = "db_thread_names.rs"]
 mod thread_names;
+#[path = "db_unified_activity.rs"]
+mod unified_activity;
 #[path = "db_user_anchors.rs"]
 mod user_anchors;
 #[path = "db_user_projection.rs"]
@@ -64,6 +66,11 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
 #[cfg(test)]
 pub(crate) fn assert_execution_storage_upgrade(database: &mut Database) {
     execution_storage::assert_upgrade(database);
+}
+
+#[cfg(test)]
+pub(crate) fn assert_unified_activity_upgrade(database: &mut Database) {
+    unified_activity::assert_upgrade(database);
 }
 
 #[cfg(all(test, feature = "slow-tests"))]
@@ -371,7 +378,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 150;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 151;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -846,6 +853,7 @@ struct CurrentMigrationState {
     v198: bool,
     v199: bool,
     v200: bool,
+    v201: bool,
 }
 
 impl CurrentMigrationState {
@@ -867,6 +875,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v201 {
+            let mut previous = *self;
+            previous.v201 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 151
+                && self.v200
+                && previous.admits("v1.72", 150, classifier);
+        }
         if self.v200 {
             let mut previous = *self;
             previous.v200 = false;
@@ -3011,7 +3027,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
         .and_then(Option::as_ref)
         .is_some_and(|(contract, schema, _)| {
             contract == CURRENT_DATA_CONTRACT_VERSION
-                && matches!(schema, 145 | 146 | 147 | 148 | 149 | 150)
+                && matches!(schema, 145 | 146 | 147 | 148 | 149 | 150 | 151)
         })
     {
         return Ok(matches!(
@@ -3420,7 +3436,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149 | 150
+            145 | 146 | 147 | 148 | 149 | 150 | 151
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3443,7 +3459,9 @@ pub(crate) fn classify_database_contract(
             && (marker.projection_schema_version < 149
                 || execution_storage::schema_matches(connection)?)
             && (marker.projection_schema_version < 150
-                || live_directory::schema_matches(connection)?);
+                || live_directory::schema_matches(connection)?)
+            && (marker.projection_schema_version < 151
+                || unified_activity::schema_matches(connection)?);
         return Ok(if !valid {
             DatabaseContractClassification::Unknown(Some(marker))
         } else if marker.projection_schema_version == CURRENT_PROJECTION_SCHEMA_VERSION {
@@ -5674,7 +5692,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 197),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 198),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 199),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 200)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 200),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 201)
         "#,
         [],
         |row| {
@@ -5810,6 +5829,7 @@ fn load_current_migration_state(
                 v198: row.get(128)?,
                 v199: row.get(129)?,
                 v200: row.get(130)?,
+                v201: row.get(131)?,
             })
         },
     )
@@ -9054,6 +9074,9 @@ impl Database {
             if !self.schema_migration_applied(200)? {
                 migration_step!("migration_200", live_directory::migrate(self));
             }
+            if !self.schema_migration_applied(201)? {
+                migration_step!("migration_201", unified_activity::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -9872,6 +9895,9 @@ impl Database {
         }
         if !self.schema_migration_applied(200)? {
             migration_step!("migration_200", live_directory::migrate(self));
+        }
+        if !self.schema_migration_applied(201)? {
+            migration_step!("migration_201", unified_activity::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41643,6 +41669,7 @@ mod tests {
             v198: version >= 198,
             v199: version >= 199,
             v200: version >= 200,
+            v201: version >= 201,
         }
     }
 
@@ -41837,7 +41864,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                200,
+                201,
             ),
             (
                 "v1.72/schema 143 before async Usage settlement",

@@ -3587,10 +3587,47 @@ pub(crate) fn attach_canonical_activity_projection(
     if evidence.is_empty() {
         return Ok(());
     }
-    let requested = evidence
+    let mut requested = evidence
         .iter()
         .map(|item| (&item.id, &item.agent_run_id, item.execution_epoch))
         .collect::<Vec<_>>();
+    let requested_json = serde_json::to_string(&requested)?;
+    // Format 3 owns its metadata. Resolve only requested primary keys, without scanning
+    // every activity (or patch) in these Runs to attach a page or one expanded result.
+    let mut canonical_by_evidence_id = BTreeMap::new();
+    let mut unified = connection.prepare("SELECT e.id,e.activity_meta_json,e.operation_id,e.sequence,e.revision
+        FROM json_each(?1) requested JOIN agent_run_execution_evidence e ON e.id=json_extract(requested.value,'$[0]')
+        WHERE e.agent_run_id=json_extract(requested.value,'$[1]') AND e.execution_epoch=json_extract(requested.value,'$[2]')
+          AND e.storage_version=3 AND e.activity_meta_json IS NOT NULL")?;
+    let rows = unified.query_map([&requested_json], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, i64>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, metadata, operation, sequence, revision) = row?;
+        let mut activity = crate::execution_evidence::activity_from_stored_metadata(
+            &metadata, &id, &operation, sequence, revision,
+        )?;
+        if metadata_only {
+            if let Some(diff) = activity.diff_projection.as_mut() {
+                diff.entries = Some(Vec::new());
+            }
+        }
+        canonical_by_evidence_id.insert(id, activity);
+    }
+    drop(unified);
+    requested.retain(|(id, _, _)| !canonical_by_evidence_id.contains_key(*id));
+    if requested.is_empty() {
+        for item in evidence {
+            item.canonical = canonical_by_evidence_id.remove(&item.id);
+        }
+        return Ok(());
+    }
     let requested_json = serde_json::to_string(&requested)?;
     let mut statement = connection.prepare(
         r#"
@@ -3683,7 +3720,6 @@ pub(crate) fn attach_canonical_activity_projection(
             Ok((row.get::<_, String>(0)?, canonical))
         },
     )?;
-    let mut canonical_by_evidence_id = BTreeMap::new();
     for row in rows {
         let (evidence_id, canonical) = row?;
         canonical_by_evidence_id
@@ -5987,6 +6023,7 @@ mod slow_tests {
             .unwrap();
         let camp_id = created.result.payload["threadId"].as_str().unwrap();
         let agent_run_id = created.result.payload["agentRunIds"][0].as_str().unwrap();
+        crate::execution_storage_probe::compare(&database, camp_id, agent_run_id, &directory);
         let now = chrono::Utc::now().to_rfc3339();
         for sequence in 1..=3 {
             database

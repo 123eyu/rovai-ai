@@ -542,7 +542,7 @@ fn run_activity_authorizes_file(
             JOIN agent_run ON agent_run.id = evidence.agent_run_id
             LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
             JOIN camp ON camp.id = COALESCE(agent_run.camp_id, camp_turn.camp_id)
-            JOIN canonical_runtime_activity AS activity
+            JOIN execution_activity AS activity
               ON activity.agent_run_id = evidence.agent_run_id
              AND activity.execution_epoch = evidence.execution_epoch
             WHERE evidence.id = ?1

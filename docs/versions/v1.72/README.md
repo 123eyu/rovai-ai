@@ -711,3 +711,8 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 按 User 要求移除会话队员列表中 Desktop“…”菜单与 Mobile 按钮的“重置队员会话”，
 同时清理专用确认弹窗、前端状态与不再适用的弹窗验收。其他队员操作和后端会话恢复保持。
 边界见 [Runtime Launch v61](../../contracts/runtime-launch-and-verification-v61.md)。
+
+## 执行记录存储精简（2026-10-14）
+
+新操作组合预览去重与正常删除 Blob 回收登记见 [保存合同](../../contracts/execution-record-storage-v1.md)
+及[实施记录](implementation-plan.md#执行记录存储精简组合预览与删除回收2026-10-14)。旧记录继续可读，日常实例不做历史清理。

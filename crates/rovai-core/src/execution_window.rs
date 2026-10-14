@@ -466,7 +466,7 @@ fn supporting_builtin_invocation(
     }
     let payload_json: Option<String> = connection
         .query_row(
-            "SELECT payload_preview_json FROM agent_run_execution_evidence WHERE id = ?1",
+            "SELECT rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json) FROM agent_run_execution_evidence WHERE id = ?1",
             [&item.id],
             |row| row.get(0),
         )
@@ -499,7 +499,7 @@ fn supporting_builtin_invocation(
         return Ok(None);
     }
     let mut statement = connection.prepare(
-        "SELECT c.operation_id, e.payload_preview_json FROM canonical_runtime_activity c
+        "SELECT c.operation_id, rovai_execution_preview(e.storage_version, e.payload_preview_json, e.input_preview_json, e.result_preview_json) FROM canonical_runtime_activity c
          JOIN json_each(c.source_evidence_ids_json) source
          JOIN agent_run_execution_evidence e ON e.id = source.value
          WHERE c.agent_run_id = ?1 AND c.execution_epoch = ?2
@@ -605,9 +605,9 @@ fn load_summaries(
     let mut statement = connection.prepare(
         r#"SELECT id, agent_run_id, execution_epoch, sequence, event_type, kind, phase,
            CASE WHEN event_type IN ('activity.started', 'activity.completed', 'runtime.action')
-             THEN json_remove(payload_preview_json, '$.output', '$.item.aggregatedOutput', '$.item.output',
+             THEN json_remove(rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json), '$.output', '$.item.aggregatedOutput', '$.item.output',
                '$.item.changes', '$.changes', '$.patch', '$.runtimeDiff', '$.coreEnvelope', '$.operationProjection.canonicalResult')
-             ELSE payload_preview_json END,
+             ELSE rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json) END,
            content_blob_id, content_byte_count,
            CASE WHEN event_type IN ('activity.started', 'activity.completed', 'runtime.action') THEN 1 ELSE is_truncated END,
            occurred_at, operation_id, revision, change_sequence

@@ -2212,3 +2212,27 @@ User 在当前 Thread 确认交互稿后，明确要求去掉失效接收者的�
 
 浏览器验收使用独立临时 Electron userData、Skill Library 与闭合 transport，Rust 测试使用隔离 SQLite 数据库；没有调用真实 Runtime 或写入日常数据。
 工作树路径与生命周期由当前 Thread 交接记录维护；PR 视觉对照见[生产组件截图](../../../.github/assets/empty-thread-members/README.md)。
+
+
+## 执行记录存储精简：组合预览与删除回收（2026-10-14）
+
+基线 main `a72d58840` 已包含 #743；Pi 入站预算保持 64 MiB。
+本项对应 [Execution Record Storage v1](../../contracts/execution-record-storage-v1.md)。
+
+- 新操作格式 2 只保留输入／结果，组合预览读取时生成；分页预选 ID 后才组合，薄索引只读取小字段。
+  后台 ZCode 身份与完成判断、Trace 和文件授权读取同时衔接。旧格式 1 继续原路径收尾。
+- migration 200 / schema 150 只增加标记与触发器、扩展 Blob 元数据 GC owner；不转换历史正文或 Blob。
+  删除聚合在原业务事务中登记实际解除的引用；公共 GC 检查补齐无外键 Action 结果，沿用原回收与恢复。
+- 扩展既有 lifecycle owner：升级 receipt 失败回滚、旧字节及 Blob 引用保持、重新打开、新旧分页、128 次
+  进度归并、UTF-8 预算／短结果替换／状态更新；普通输出后缀在 SQL、event_log、活动 diff 及 Blob 中均不存在。
+  扩展同一夹具验证正常删除的回滚、宽限期、最后引用释放、共享与无外键引用保护。
+- 工作区 Rust：471 通过，1 项人工 Runtime smoke 跳过。定向 Evidence 17、文件授权 10、回收 3、删除 3、
+  Trace 2 均通过；另运行当前 schema／准入矩阵、v168 升级 owner 和 10,000 条操作折叠／组分页 owner。
+  准入测试中旧的 196/197 receipt 与 v33 trigger 期望同步到实际当前版本，不减少拒绝条件。
+- 合成混合夹具中 6 条新操作：原本需重复保存的组合预览为 10,128 UTF-8 字节，现在固定标记合计 12 字节，
+  少写 10,116 字节（此项 99.88%）。独立输入、结果和必要的长内容 Blob 保留；这不是整个数据库降幅。
+  10,000 条既有夹具的单次折叠页为 1,621 字节；本次并行测试下读取 468 ms、载体夹具 527 ms，仅作功能
+  回归记录，正式同环境性能／物理占用比较由第三项独立验收。未运行日常 App、历史清理或迁移。
+
+交付对齐：main 随后合入 #748／#749（`3d4db22df`）。保留消息发送者投影和 migration 199，
+本项改用 migration 200 / schema 150；升级夹具按顺序回退／推进，不重写日常实例。

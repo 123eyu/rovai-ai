@@ -1551,7 +1551,7 @@ impl ReadModelService {
             let mut statement = transaction.prepare(
                 r#"
                 SELECT id, agent_run_id, execution_epoch, sequence,
-                       event_type, kind, phase, payload_preview_json,
+                       event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json),
                        content_blob_id, content_byte_count,
                        is_truncated, occurred_at,
                        operation_id, revision, change_sequence, output_truncated
@@ -3423,15 +3423,8 @@ fn load_execution_evidence(
 ) -> Result<Vec<AgentRunExecutionEvidenceView>> {
     let mut statement = transaction.prepare(
         r#"
-        SELECT *
-        FROM (
-          SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
-                 evidence.sequence, evidence.event_type, evidence.kind,
-                 evidence.phase, evidence.payload_preview_json,
-                 evidence.content_blob_id, evidence.content_byte_count,
-                 evidence.is_truncated, evidence.occurred_at,
-                 evidence.operation_id, evidence.revision, evidence.change_sequence,
-                 evidence.output_truncated
+        WITH selected AS MATERIALIZED (
+          SELECT evidence.id, evidence.occurred_at, evidence.agent_run_id, evidence.sequence
           FROM agent_run_execution_evidence AS evidence
           JOIN agent_run ON agent_run.id = evidence.agent_run_id
           LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
@@ -3442,7 +3435,13 @@ fn load_execution_evidence(
                    evidence.agent_run_id DESC, evidence.sequence DESC
           LIMIT ?2
         )
-        ORDER BY occurred_at, agent_run_id, sequence
+        SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
+               evidence.sequence, evidence.event_type, evidence.kind, evidence.phase,
+               rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
+               evidence.content_blob_id, evidence.content_byte_count, evidence.is_truncated, evidence.occurred_at,
+               evidence.operation_id, evidence.revision, evidence.change_sequence, evidence.output_truncated
+        FROM selected JOIN agent_run_execution_evidence AS evidence ON evidence.id=selected.id
+        ORDER BY selected.occurred_at, selected.agent_run_id, selected.sequence
         "#,
     )?;
     let mut evidence = statement
@@ -3464,7 +3463,7 @@ pub(crate) fn public_execution_evidence_for_agent_run(
         r#"
         SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
                evidence.sequence, evidence.event_type, evidence.kind,
-               evidence.phase, evidence.payload_preview_json,
+               evidence.phase, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
                evidence.content_blob_id, evidence.content_byte_count,
                evidence.is_truncated, evidence.occurred_at,
                evidence.operation_id, evidence.revision, evidence.change_sequence,

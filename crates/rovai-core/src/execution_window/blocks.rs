@@ -143,25 +143,25 @@ fn index(connection: &Connection, run: &str) -> Result<Vec<Block>> {
     let mut statement = connection.prepare(r#"
         SELECT id, agent_run_id, execution_epoch, sequence, event_type, kind, phase,
           json_object(
-            'item', json_object('type', json_extract(payload_preview_json, '$.item.type'),
-              'command', json_extract(payload_preview_json, '$.item.command'),
-              'tool', json_extract(payload_preview_json, '$.item.tool'),
-              'title', json_extract(payload_preview_json, '$.item.title')),
-            'command', json_extract(payload_preview_json, '$.command'),
-            'canonicalTool', json_extract(payload_preview_json, '$.canonicalTool'),
-            'sourceAuthority', json_extract(payload_preview_json, '$.sourceAuthority'),
-            'resultDigest', json_extract(payload_preview_json, '$.resultDigest'),
-            'agentOutputDigest', json_extract(payload_preview_json, '$.agentOutputDigest'),
-            'coreEnvelope', json_object('ok', json_extract(payload_preview_json, '$.coreEnvelope.ok'),
-              'operation', json_extract(payload_preview_json, '$.coreEnvelope.operation')),
-            'input', CASE WHEN json_type(payload_preview_json, '$.input') = 'text'
-              THEN json_extract(payload_preview_json, '$.input')
-              ELSE json_object('command', COALESCE(json_extract(payload_preview_json, '$.input.command'),
-                json_extract(payload_preview_json, '$.input.commandLine'),
-                json_extract(payload_preview_json, '$.input.CommandLine'), json_extract(payload_preview_json, '$.input.cmd'))) END,
-            'title', json_extract(payload_preview_json, '$.title'),
-            'status', COALESCE(json_extract(payload_preview_json, '$.status'), json_extract(payload_preview_json, '$.item.status')),
-            'tool', json_extract(payload_preview_json, '$.tool'),
+            'item', json_object('type', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.item.type') ELSE COALESCE(json_extract(result_preview_json, '$.item.type'), json_extract(input_preview_json, '$.item.type')) END,
+              'command', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.item.command') ELSE COALESCE(json_extract(result_preview_json, '$.item.command'), json_extract(input_preview_json, '$.item.command')) END,
+              'tool', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.item.tool') ELSE COALESCE(json_extract(result_preview_json, '$.item.tool'), json_extract(input_preview_json, '$.item.tool')) END,
+              'title', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.item.title') ELSE COALESCE(json_extract(result_preview_json, '$.item.title'), json_extract(input_preview_json, '$.item.title')) END),
+            'command', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.command') ELSE COALESCE(json_extract(result_preview_json, '$.command'), json_extract(input_preview_json, '$.command')) END,
+            'canonicalTool', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.canonicalTool') ELSE COALESCE(json_extract(result_preview_json, '$.canonicalTool'), json_extract(input_preview_json, '$.canonicalTool')) END,
+            'sourceAuthority', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.sourceAuthority') ELSE COALESCE(json_extract(result_preview_json, '$.sourceAuthority'), json_extract(input_preview_json, '$.sourceAuthority')) END,
+            'resultDigest', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.resultDigest') ELSE COALESCE(json_extract(result_preview_json, '$.resultDigest'), json_extract(input_preview_json, '$.resultDigest')) END,
+            'agentOutputDigest', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.agentOutputDigest') ELSE COALESCE(json_extract(result_preview_json, '$.agentOutputDigest'), json_extract(input_preview_json, '$.agentOutputDigest')) END,
+            'coreEnvelope', json_object('ok', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.coreEnvelope.ok') ELSE COALESCE(json_extract(result_preview_json, '$.coreEnvelope.ok'), json_extract(input_preview_json, '$.coreEnvelope.ok')) END,
+              'operation', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.coreEnvelope.operation') ELSE COALESCE(json_extract(result_preview_json, '$.coreEnvelope.operation'), json_extract(input_preview_json, '$.coreEnvelope.operation')) END),
+            'input', CASE WHEN CASE WHEN storage_version = 1 THEN json_type(payload_preview_json, '$.input') ELSE COALESCE(NULLIF(json_type(result_preview_json, '$.input'), 'null'), json_type(input_preview_json, '$.input')) END = 'text'
+              THEN CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.input') ELSE COALESCE(json_extract(result_preview_json, '$.input'), json_extract(input_preview_json, '$.input')) END
+              ELSE json_object('command', COALESCE(CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.input.command') ELSE COALESCE(json_extract(result_preview_json, '$.input.command'), json_extract(input_preview_json, '$.input.command')) END,
+                CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.input.commandLine') ELSE COALESCE(json_extract(result_preview_json, '$.input.commandLine'), json_extract(input_preview_json, '$.input.commandLine')) END,
+                CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.input.CommandLine') ELSE COALESCE(json_extract(result_preview_json, '$.input.CommandLine'), json_extract(input_preview_json, '$.input.CommandLine')) END, CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.input.cmd') ELSE COALESCE(json_extract(result_preview_json, '$.input.cmd'), json_extract(input_preview_json, '$.input.cmd')) END)) END,
+            'title', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.title') ELSE COALESCE(json_extract(result_preview_json, '$.title'), json_extract(input_preview_json, '$.title')) END,
+            'status', COALESCE(CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.status') ELSE COALESCE(json_extract(result_preview_json, '$.status'), json_extract(input_preview_json, '$.status')) END, CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.item.status') ELSE COALESCE(json_extract(result_preview_json, '$.item.status'), json_extract(input_preview_json, '$.item.status')) END),
+            'tool', CASE WHEN storage_version = 1 THEN json_extract(payload_preview_json, '$.tool') ELSE COALESCE(json_extract(result_preview_json, '$.tool'), json_extract(input_preview_json, '$.tool')) END,
             'hasContent', CASE WHEN event_type IN ('agent.text.block', 'agent.text.delta')
               THEN json_extract(payload_preview_json, '$.status') = 'streaming'
                 OR length(COALESCE(json_extract(payload_preview_json, '$.text'), json_extract(payload_preview_json, '$.delta'), '')) > 0

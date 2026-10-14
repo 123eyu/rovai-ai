@@ -314,3 +314,5 @@ Cline 认证交还原生、撤销 D25 后续的专属认证独占与强制 cold�
 和 [Session continuity](../architecture/foundational-invariants.md#session-continuity-与-bootstrap)，取舍见
 [V1.72-D37](../versions/v1.72/decisions.md#v1-72-d37)。
 v62 移除原生会话重建提示和展示查询，保留恢复及审计行为。
+
+- 执行记录保存与删除回收：[Execution Record Storage v1](../contracts/execution-record-storage-v1.md)；理由见 [V1.72-D43](../versions/v1.72/decisions.md#v1-72-d43)。

@@ -13,9 +13,10 @@ last_updated: 2026-10-13
 
 ## 待审阅：普通消息与 Steer 共用上下文（2026-10-14）
 
-[R2 前后对比报告](model-context-change-steer-shared-input.md)按每个区段紧邻列出当前内容与拟改内容，
+[R3 前后对比报告](model-context-change-steer-shared-input.md)按每个区段紧邻列出当前内容与拟改内容，
 覆盖共同 Builder／Formatter、逐次投递的 RUN_INPUT、冻结恢复、多队员、附件与版本边界。
-R2 去掉 historyHint 中的 Run 时点限定，不向模型解释投递／快照；Additional Skills 文案保持原样。
+R3 将 historyHint 收缩为四种单句，其余提示词保持原样；补清冻结执行环境、本次来源资源、
+多输入回执与 Run 收尾规则，撤回按旧 Manifest 号一概禁止 Steer 的限制。
 当前仅完成报告，尚未确认实施或修改产品上下文。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）

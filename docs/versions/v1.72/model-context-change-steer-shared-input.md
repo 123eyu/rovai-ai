@@ -2,7 +2,7 @@
 document_type: model-context-change
 version: v1.72
 change_id: steer-shared-input
-revision: 2
+revision: 3
 confirmation_status: pending
 authority: proposed-model-input-change-statement
 implementation_status: not_started
@@ -10,18 +10,29 @@ review_baseline: 41c8ca19238de8465c23ff0c030f5c7620dd2c02
 last_updated: 2026-10-14
 ---
 
-# 普通消息与 Steer 共用上下文：R2 前后对比报告
+# 普通消息与 Steer 共用上下文：R3 前后对比报告
 
 这是一份**拟改报告，尚未实施**。每个项目都将变更前、变更后紧挨着放。
 “变更前”来自上述代码基线；“变更后”是本报告提出的完整规则，不能作为当前产品能力证明。
 
 核心变化是：**每次新的投递生成自己的动态上下文，普通消息和 Steer 使用同一套构建及格式化规则。**
-模型可见的结构保持现状；只去掉 historyHint 中不适用于运行中消息的 Run 时点限定，
-不向 Agent 解释“投递快照”或“已接受输入”。Additional Skills 文案保持原样。
+模型可见的结构保持现状；historyHint 只说哪些消息在当前输入中、是否还有额外消息，
+直接用已有序号限定范围。Additional Skills 和其余提示词保持原样。
 内部需要解除“一个 Run 只有一份输入上下文”的限制，但不另建 Steer 消息类型、补充消息库或提示词体系。
 
-R2 收缩 R1 的文案改动：第 4 节撤回内部概念的解释，只保留既有历史范围信息；
-第 5 节撤回 `run` → `input` 的替换。内部冻结与恢复规则仍用于保证投递正确，不作为模型学习要求。
+本轮复查不扩大提示词改动。以下是 R2 提案中的问题及 R3 修正，不是已经实施的产品缺陷修复：
+
+| R2 的问题 | R3 修正 |
+| --- | --- |
+| historyHint 仍用一句话介绍“记录的公屏边界”，紧接着又重复该范围 | 直接说 `after sequence {P}`，每种提示只留一句，不增加术语教学 |
+| 说“共用 Builder”，但没区分动态构建和当前会读取最新身份的 Run 启动准备 | 动态构建共用；执行身份、权限、模型、Bootstrap 来自当前执行的冻结环境 |
+| 明确了本次正文，却没有明确附件、Skill 链接和恢复材料也必须来自同一组消息 | 这些内容一起按本次来源消息选择，不能复用 Run 初始输入的资源选择 |
+| 默认一 Run 一份输入的查找／ACK 规则可直接扩展 | 按具体输入关联 Manifest 与回执；同队员按既有消息顺序提交，旧回执不覆盖新标记 |
+| 未说明 Run 结束时如何处理已关联但尚未送出的插话 | 未提交的插话继续普通投递；Run 成功不能代替该条输入的投递证据 |
+| “恢复原字节”容易被读成允许重发；“共用”容易被读成跨不同 Session 的整包必须相同 | 恢复不授权重发；只在相同构建事实和发送条件下比较动态内容，Runtime 包装沿用原规则 |
+| 按旧 Manifest 版本一概禁止活跃 Run 插话，没有实际能力依据 | 旧输入原样恢复；是否能插话按实际活跃执行与 Runtime 能力判断 |
+
+后面新增的实施约束不进入模型提示词。不为这些工程问题增加 Steer 指导、消息标签或新的历史说明。
 
 当前基线为 public Manifest／Formatter 36、Profile 13、Run Facts 9。本文仅覆盖公开 Thread 的
 用户 Steer 和它与普通公开消息共用的上下文路径；Agent 消息仍走普通投递，Single Chat 和渠道入站不扩展 Steer。
@@ -48,7 +59,7 @@ R2 收缩 R1 的文案改动：第 4 节撤回内部概念的解释，只保留�
 ### 变更后
 
 ```text
-本队员本次投递的消息集合
+本队员本次投递的消息集合 + 当前执行的冻结环境
   → 共用 Context Builder：读取并冻结本次动态上下文
   → 共用 Formatter：生成普通的 RUN_INPUT 与其余现有区段
   → Runtime 投递层
@@ -59,9 +70,14 @@ R2 收缩 R1 的文案改动：第 4 节撤回内部概念的解释，只保留�
   → 恢复该次投递的原 payload
 ```
 
-Builder 和 Formatter 不接受 `isSteer` 来改变内容。它们需要的是接收队员、执行环境、
+Builder 和 Formatter 不接受 `isSteer` 来改变内容。它们需要的是接收队员、已确定的执行环境、
 本次消息集合及共同的上下文／预算策略。目标活跃 Run、执行代次、原生输入关联和能力检查归 Runtime 投递侧。
 这不取消投递层的 Steer 准入检查，也不意味着所有 Runtime 已支持注入。
+
+这里共用的是动态上下文构建，不能直接把现有整段 Run 启动准备拿来再次运行。
+当前 `ClaimedBatchContext::prepare` 会读取最新 Bootstrap 和成员身份；普通新 Run 仍按原流程准备，
+向已有执行投递时则使用该执行已冻结的身份、Bootstrap、模型、权限及工作区归属。
+动态 Tasks、协作名单、Mission 状态和本次消息按共同规则刷新；两类数据的来源不能混用。
 
 ## 2. 动态上下文区段与顺序
 
@@ -179,6 +195,9 @@ RUN_INPUT
 不能导致 Builder／Formatter 产生不同格式。`messageId`、`senderId` 等均为普通消息已有字段，
 不是为 Steer 新增身份。`mentions` 保留整条消息的全部有效目标，不裁成只剩当前接收队员。
 
+整份动态内容的字节比较还要固定执行环境和区段发送条件。新 Session 与已有 Session 需要发送的
+Bootstrap、协作或工作区可能不同，这些现有条件差异不构成一套 Steer 格式；Runtime 原生包装也不要求相同。
+
 完整字段与省略规则继续如下；Steer 仅限制外层消息作者必须是用户，不限制被引用内容的作者：
 
 | 字段 | 必选／可选与含义 | 本次是否改变 |
@@ -221,14 +240,21 @@ Run A 启动输入：msg-101、msg-102
 `msg-103`。历史按现有读取能力获取，不为了 Steer 拼接对话历史或模型上一段输出。
 上例每次 Steer 含一条，是举例；共用结构仍为数组，不为 Steer 单独改成单消息对象。
 
+同一组来源消息必须同时决定正文、引用、附件、Skill 选择及相应恢复材料。
+例如启动消息引用附件 A、插话引用附件 B，本次输入与附件准备都只能从本次消息选出 B，不能因
+只替换 JSON 正文而继续沿用 A 的 Run 级资源选择。Skill 也不能继续使用启动时的消息选择。
+这里限定的是本次消息触发的 Skill 链接；成员已配置的通用 Skill 索引仍按普通规则构建。
+普通路径现有的来源解析与可用性检查继续复用；已冻结的原生工具配置和权限不随新 Skill 链接扩张。
+
 ## 4. RUN_FACTS.historyHint：四种完整文本相邻对照
 
 当前提示由历史边界 `P` 和“是否存在额外可见消息”选出。Agent 只需要知道这个历史范围和
 当前输入是否包含该范围内的消息，不需要理解 ACK、投递或快照。
 
 保留这次小幅修正的原因是：插话在 Run 已经开始后到达，动态上下文描述的是新输入时的消息范围，
-继续写“上次 Run”或“本 Run 开始时”会指向错误时点。R1 为解释这个区别引入了内部概念，没有必要。
-R2 直接删去 Run 时点限定，不新增另一套时点说明。普通消息和 Steer 共用以下文本。
+继续写“上次 Run”或“本 Run 开始时”会指向错误时点。R3 也删去 R2 的边界介绍句，
+直接用已有序号限定范围。既有“是否存在额外消息”的意义保持，不增加读取要求或工程术语。
+普通消息和 Steer 共用以下四种单句文本。
 
 ### 4.1 已有边界，没有额外可见消息
 
@@ -241,7 +267,7 @@ The latest public message before your last recorded run in this Thread had seque
 **变更后**
 
 ```text
-The recorded public-message boundary in this Thread is sequence {P}. All visible messages after that sequence are already in RUN_INPUT or were written by you.
+All visible messages after sequence {P} are in RUN_INPUT or were written by you.
 ```
 
 ### 4.2 已有边界，存在额外可见消息
@@ -255,7 +281,7 @@ The latest public message before your last recorded run in this Thread had seque
 **变更后**
 
 ```text
-The recorded public-message boundary in this Thread is sequence {P}. There are additional visible messages after that sequence beyond RUN_INPUT and messages written by you.
+There are additional visible messages after sequence {P} beyond RUN_INPUT and messages written by you.
 ```
 
 ### 4.3 没有既有边界，没有额外可见消息
@@ -269,7 +295,7 @@ As of this run's start, all visible messages in this Thread are already in RUN_I
 **变更后**
 
 ```text
-All visible messages in this Thread are already in RUN_INPUT or were written by you.
+All visible messages in this Thread are in RUN_INPUT or were written by you.
 ```
 
 ### 4.4 没有既有边界，存在额外可见消息
@@ -306,7 +332,7 @@ There are additional visible messages in this Thread beyond RUN_INPUT and messag
 
 ## 5. ROVAI_ADDITIONAL_SKILLS：保持原文
 
-R1 提出的 `Current for this run` → `Current for this input` 没有必要。
+本节不改提示词；`Current for this run` → `Current for this input` 没有必要。
 现有句子已经明确“替换此前索引”，在同一个 Run 中收到更新后的索引并不与它矛盾。
 这与 historyHint 明确断言“Run 开始时”的历史范围不同，不需要为了术语统一而修改。
 
@@ -342,7 +368,7 @@ JSON 仍为 `root` 与 `skills`，每项仍为 `name`、`desc`，
 | --- | --- | --- |
 | `COLLABORATION_STATE` | Run claim 时构建；按 Session／accepted marker 判断发送 | 每次新投递构建；使用同一发送规则 |
 | `SELF_ACTIVE_TASKS` | Run claim 时读取当前队员的活跃任务，至多 8 项，再按预算减项 | 每次新投递读取当前队员的活跃任务；8 项与预算规则保持 |
-| `RUN_FACTS` 的其他字段 | Run claim 时读取事实并冻结；真实会话恢复仍按既有规则添加事实 | 每次新投递读取动态事实并冻结；运行绑定事实仍来自该执行，不换目标 |
+| `RUN_FACTS` 的其他字段 | Run claim 时读取事实并冻结；真实会话恢复仍按既有规则添加事实 | 每次新投递读取动态事实并冻结；任务绑定仍来自目标 Run，不改变既有字段或重定向执行 |
 | `WORKSPACE` | 使用 workspace owner 准备的真实执行目录和 Git 观察；按 accepted marker 判断发送 | 使用当前执行的真实目录和相同 owner 的有效观察，按同一规则发送；Steer 不切目录、分支或工作区归属 |
 
 这些区段完整业务 shape 沿用现状：
@@ -406,6 +432,7 @@ MEMORY_ENTRYPOINT?
 
 文本、结构与触发规则不变。Steer 只刷新动态上下文，不把成员身份、Charter 或 Memory 入口
 在同一执行中换成最新编辑版本；需要补发时仍走既有 Bootstrap 恢复流程。
+这要求共用动态 Builder 消费已确定的启动内容，不能在每次动态构建中调用最新身份／Bootstrap 读取。
 每次新投递的预算须覆盖实际可能出现的启动／补发字节，不因“这是插话”而漏算。
 不添加“插话优先于原任务”“忽略前面要求”“停止当前工作”之类专用指导。
 运行模型、权限、执行预算和工作区归属不因插话重置，实时 Memory 读取继续按既有权限检查。
@@ -429,13 +456,18 @@ MEMORY_ENTRYPOINT?
 
 各人的任务、历史边界和协作视角可能不同；共用 Builder 不等于给所有人复制同一个 payload。
 同一消息的正文、作者、引用、附件及完整 `mentions` 沿用共同消息投影。
+发布后，一位队员的投递失败或结果未知不撤销其他队员已成功的投递，也不把全体接收者重新发送一遍。
+能力与预算针对目标执行已冻结的 Runtime／模型检查，不使用用户后来修改的队员设置替代。
 
 附件继续以 `{name,mediaType,path}` 传递，并使用普通消息已有的路径可达性和授权规则。
 不把“带附件”设为全局禁止 Steer 的条件，不剥离附件只注入正文；纯附件消息也可使用同一结构。
 单个 Runtime 的真实能力不足时，由它的普通投递路径处理，不能伪称已注入。
+路径 JSON 相同不等于实际文件已经可读：附件准备须解析本次来源，并检查目标活跃执行中的可达性。
+文件缺失等本身无法正常发送的问题仍使用已有失败规则，不伪装成“仅不支持 Steer”而无限排队。
 Agent 发出的消息即使 @ 多位队员，仍只走普通投递。
 
-正常结束导致发送前回到普通路径时，沿用普通消息回执，不添加
+目标正常结束且能确认尚未提交原生输入时，复用该接收者原 Message Delivery 继续普通投递，
+不再发布一条公屏消息，也不把后继 Run 当作原目标继续注入。沿用普通消息回执，不添加
 “爱丽丝的当前执行已结束，发给该队员的消息已排队。”这类提示。
 已发送而接受结果未知的输入不能按正常结束处理后自动再排队；这是防重复执行的证据边界。
 
@@ -470,10 +502,31 @@ Runtime Input Delivery：同一 Run 可关联多次输入，各自保留原生�
 不复制另一份消息正文，不添加一组 Steer 专属摘要、状态机或格式版本。
 消息 Delivery 与一次 Runtime 输入可能是多对一，不能假设一个普通消息 ID 就等于一份批次 Manifest。
 
+以下现有假设必须一起解除，不能只增加一条 Runtime 调用：
+
+| 当前查找／结算 | 本次扩展要求 |
+| --- | --- |
+| `materialize_inner`、Skill 恢复按 Run 查已有 Manifest | 查本次输入的 Manifest；初始输入仍可定位自己的原版本 |
+| `prepare_input_delivery_inner`／`load_delivery` 按 Run + epoch 找唯一输入 | 同一执行可有多个输入，复用既有输入 ID 关联准确的 Manifest |
+| ACK 中工作区标记有按 Run 查询 Manifest 的路径 | 所有受理标记取本次输入关联的 Manifest，不能任取该 Run 的一行 |
+| `settle_run_deliveries` 按 Run 批量结算 claimed 消息 | 纳入每次输入是否提交／接受的证据，尚未投递的插话不能随 Run 成功被结算为成功 |
+
+同一队员复用 Runtime 的串行输入准备与提交，按既有 Message Delivery 顺序处理已选择的插话，
+不为排序建立新的消息身份或模型可见序号。尚未确认的原生提交先对账，后续插话不越过它；
+这不要求停止当前执行，也不阻塞其他队员。旧回执只补原输入的证据，不覆盖较新的协作／工作区／
+Mission 标记；相同公屏尾序号也不能被当作“同一输入”。
+
 “每次投递正常构建”指**新的一次逻辑投递**：准备时读取并冻结，正式组包消费同一快照。
-恢复／重试同次投递复用已准备字节，不读取后来消息、成员、Mission 或 Skill 配置重渲染。
+恢复同次输入复用已准备字节，不读取后来消息、成员、Mission 或 Skill 配置重渲染。
+恢复 payload 不等于再次提交：只有既有恢复规则能够证明未被接收时才允许安全传输重试，
+accepted／unknown 不因恢复成功而重发。
 最终物化前仍保留现有附件授权、Skill 可用性等必要检查；物化后保留最终原字节。
 保留现有实际 Blob、版本、来源关联和恢复材料，遵守输入快照存储的减重约定。
+
+若输入准备后、原生提交前目标结束，记录这次准备没有发送，再让原 Message Delivery 等待普通领取。
+后续普通领取是一次新的输入准备，按当时状态构建；原准备记录不覆写，也不当作同一次传输重试。
+已开始原生提交且结果未知时不能这样转换。Run 收尾与这次转换须互斥结算，不能丢消息或双重领取。
+Run 的完成和用量仍只结算一次，不能因补充输入多次创建 Run 或重复结算。
 
 ## 10. 选择、容量与恢复
 
@@ -485,7 +538,7 @@ Runtime Input Delivery：同一 Run 可关联多次输入，各自保留原生�
 | 计算 | 实际 UTF-8 字节，含可能发送的协作／WORKSPACE／Bootstrap wrapper | 不变，使用同一快照与最终 Formatter |
 | 可选内容 | 先保完整输入，再减少可选 Tasks；上限 8 项 | 不变 |
 | 超限 | 单条或不可拆原子输入超限明确失败；正文不截断 | 不变；不为 Steer 删除附件、引用或另做短摘要 |
-| 已物化恢复 | 原 Manifest / payload 原字节 | 按对应投递恢复原字节，不覆盖启动输入 |
+| 已物化恢复 | 原 Manifest / payload 原字节 | 按对应输入恢复原字节；恢复本身不授权重发，也不覆盖启动输入 |
 | accepted／unknown | 不自动重播 | 不变；不能同一输入既注入又排队执行 |
 | 目标与 ACK | 与 Run、epoch、Binding 对应才可结算当前证据 | 扩展到同一 Run 的具体输入；旧输入的 ACK 不结算另一条输入、不复活旧执行 |
 
@@ -512,8 +565,9 @@ Runtime Input Delivery：同一 Run 可关联多次输入，各自保留原生�
 
 迁移保留旧 Run、消息、Delivery、Manifest、Blob、accepted／unknown 记录和原生 Session。
 旧的已冻结输入沿原版本恢复，不把旧文案原地替换成新句子，也不为历史记录补造 Steer。
-升级后新创建的输入采用新共同格式；升级时已经活跃、仍按旧单输入合同运行的执行不追补 Steer，
-直到正常进入支持新合同的执行。新快照缺失时仍明确报存储错误，不以实时状态补出另一个 payload。
+升级后新准备的输入采用新共同格式；不改写原 Run 的旧输入，也不把原有普通 waiting 消息自动改为插话。
+活跃执行是否支持 Steer 由实际目标、绑定及 Runtime 能力判定，不因旧 Manifest 号一概禁用；
+同样不能仅凭升级成功就声称已支持。新输入缺少必需快照时明确报存储错误，不以实时状态补出另一个 payload。
 原生 Session 不因本次格式变化自动失效；只有既有运行恢复条件触发原恢复流程。
 精确迁移 DDL 和编号在实现前落定，不用报告中的概念图冒充已完成的数据库设计。
 
@@ -531,16 +585,20 @@ Bootstrap 原文、模型与权限、原 Run 的启动输入、消息／附件�
 
 | 检查 | 固定输入／动作 | 必须得到的结果 |
 | --- | --- | --- |
-| 共用 Formatter | 同接收者、同消息集合、同动态快照，分别选择普通或 Steer | 动态 payload 字节一致；差异只在 Runtime 调用 |
+| 共用 Formatter | 同接收者、同消息集合、同冻结执行环境、同动态事实与发送条件，分别选择普通或 Steer | 动态 payload 字节一致；新 Session 的合法区段差异和原生包装另按原规则核对 |
 | 不累计输入 | 初始 101、102；连续注入 103、104 | 三份 RUN_INPUT 分别为 `[101,102]`、`[103]`、`[104]` |
 | 动态刷新与恢复 | 两次投递间修改 Task、Lead、Mission；物化后再修改 | 新投递反映当时状态；恢复旧投递字节不变 |
+| 执行环境冻结 | Run 期间修改成员身份、模型、权限或 Bootstrap 来源 | Steer 仍使用目标执行原环境与启动内容；正常新 Run 按原规则使用新配置 |
 | historyHint | 覆盖四模板；边界前／后、首轮、自己写的消息与额外消息 | 选择准确，句子逐字匹配，查询失败不领取 |
 | 旧消息不丢 | 102 waiting，103 Steer accepted | 102 仍可被普通领取；接受边界不能代替 Delivery 状态 |
 | 附件与引用 | 中文多行、纯附件、附件＋文字、用户／Agent 引文、Skill 链接 | 投影与普通消息相同；不丢附件、不提升引用权限 |
+| 来源一致 | 初始输入带附件 A／Skill A，插话带附件 B／Skill B | 本次消息、附件解析与消息 Skill 链接均来自 B；通用 Skill 索引仍按普通规则；不扩张原工具与权限 |
 | 多接收者 | 支持 Steer／不支持且忙／空闲各一位 | 一条公屏消息，三份接收责任，各自选正确投递路径 |
+| 单个接收者失败 | 一人 accepted，一人 unknown，另一人仍排队 | 保留各自状态，不整条回滚或重发，不阻塞其他队员 |
 | 作者限制 | Agent 发送同样内容 | 只普通投递，不 Steer |
 | 容量 | 精确边界、超一个 UTF-8 字节、可选 Tasks、Bootstrap 补发 | 同一容量判断；不截正文或附件，不漏算补发 |
-| 结束与重复 | 发送前结束、发送后回执丢失、重复请求、迟到 ACK、停止后恢复 | 发送前走已确定的普通路径；unknown 不再排队／重播，旧 ACK 不串输入 |
+| 结束与重复 | 准备后提交前结束、Run 收尾竞态、发送后回执丢失、重复请求、停止后恢复 | 未提交输入不被 Run 成功吞掉；原 Delivery 只转普通领取一次；unknown 不再排队／重播 |
+| 多输入 ACK | 同 Run 两次输入具有相同公屏尾，重复或迟到回执到达 | 回执只归对应输入；旧回执不覆盖新标记，Run 完成与用量不重复结算 |
 | 数据升级 | 旧 36/13/9 冻结输入与新输入并存，重启恢复 | 旧字节不变，关联准确，缺失快照不能重建冒充 |
 
 实现时扩展既有 Context、Delivery、Runtime 和 migration 测试 owner；新增 Rust 测试前遵循
@@ -561,24 +619,26 @@ Bootstrap 原文、模型与权限、原 Run 的启动输入、消息／附件�
 
 | 检查 | 实际结果 |
 | --- | --- |
-| 示例与源码核对 | 两份 JSON 均可解析且内容相同；4 个旧 historyHint 模板与基线一致；R2 新句不含 snapshot、accepted input 或投递解释；Additional Skills 前后逐字相同且与基线一致；代码围栏成对 |
+| 示例与源码核对 | 两份 JSON 均可解析且内容相同；4 个旧 historyHint 模板与基线一致；R3 四种新提示均为单句且保留范围／额外消息判断；Additional Skills 前后逐字相同且与基线一致；代码围栏成对 |
+| 提案与实现假设核对 | 对照当前 Bootstrap 准备、来源附件／Skill 选择、Manifest 查找、ACK 标记及 Run 结算路径，确认上述改动点仍需实现；未将文档修正算作功能通过 |
 | 文档治理测试 | `node --test scripts/lib/doc-decisions.test.mjs`：10 passed、0 failed |
 | 文档链接／决定治理及固定基线冻结 | `DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 node scripts/check-doc-decisions.mjs --require-base`：通过 |
-| 当前版本与上下文确认门禁 | `node scripts/check-doc-version.mjs`：未通过；仅 4 项 R2 确认记录缺失／待确认，无其他错误 |
+| 当前版本与上下文确认门禁 | `node scripts/check-doc-version.mjs`：未通过；仅 4 项 R3 确认记录缺失／待确认，无其他错误 |
 | 差异空白检查 | `git diff --check`：通过 |
 | 候选实现、真实 Runtime 与完整语义 Gate | 未运行；本次没有候选实现 |
 
 以上 Node 命令是仓库 `docs:test`、`docs:check`、`docs:check:ci` 脚本的实际检查入口。
 R1 首次 pnpm 调用触发本地依赖自动准备，主动中止后改用这些入口完整重跑；中止的尝试不计通过。
-R2 继续使用这些入口核对修改后的报告。
+R3 继续使用这些入口核对修改后的报告。
 版本门禁会拒绝尚未确认的提案，这是本报告当前的真实状态；没有伪造确认字段或修改检查器。
 
 ## 二次确认
 
-R2 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共用上下文方向，
+R3 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共用上下文方向，
 消息 `dbdbfde2-2ac9-4826-ad07-91a94b5adcf0` 要求这份紧邻前后对照报告；
 消息 `b1262396-a0a4-4b20-821f-5119035b6da9` 质疑第 4、5 节修改的必要性，R2 据此收缩。
-这些讨论不等同于已授权实施本 R2，故不填写虚假的确认人、时间或 `confirmed_revision`。
+消息 `232a40b6-c144-427a-bdcf-ffdb16cbdb8e` 要求提示词简洁有效并全面复查，R3 据此收缩文字、修正实施漏项。
+这些讨论不等同于已授权实施本 R3，故不填写虚假的确认人、时间或 `confirmed_revision`。
 
 仓库[核心上下文变更治理](../../development/model-context-change-governance.md#二次确认门槛)规定：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
@@ -596,4 +656,7 @@ R2 待用户审阅。消息 `ceb40a67-500b-4e82-b7bf-ba6b0dc49638` 提出了共�
 | 额外可见消息的实际查询 | `crates/rovai-core/src/delivery_queue.rs`：`has_additional_public_messages` |
 | 区段顺序与 Skill 时点句子 | `crates/rovai-core/src/context.rs`：`render_payload`、`prepare_additional_skills` |
 | 动态协作、Task、Mission 与工作区 | `crates/rovai-core/src/context.rs`：`build_collaboration_state`、`self_active_task_projection`、`selected_mission_facts`、`prepare_workspace_fact` |
+| 现有 Run 级来源附件准备 | `crates/rovai-core/src/application.rs`：`resolve_agent_run_source_attachment_paths`；`local_attachment_source.rs`：`load_agent_run_source_attachments` |
+| 输入查找与 ACK 标记 | `crates/rovai-core/src/context.rs`：`prepare_input_delivery_inner`、`load_delivery`、`acknowledge_input_delivery_transaction` |
+| Run 收尾批量结算 | `crates/rovai-core/src/delivery_queue.rs`：`settle_run_deliveries` |
 

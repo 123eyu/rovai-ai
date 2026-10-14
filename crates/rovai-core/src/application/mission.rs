@@ -203,17 +203,36 @@ impl Core {
         &self,
         candidate: &rovai_core::runtime::QueuedAgentRunCandidate,
     ) -> Result<Option<rovai_core::runtime::AgentRunWorkspace>> {
+        self.prepare_mission_execution_workspace(
+            &candidate.camp_id,
+            candidate.execution_workspace(),
+            Some(candidate),
+        )
+        .await
+    }
+
+    // Both waiting batches and historical queued Runs use the same workspace
+    // preparation owner. Git and filesystem operations stay outside SQLite locks.
+    pub(super) async fn prepare_mission_execution_workspace(
+        &self,
+        camp_id: &str,
+        mut execution: rovai_core::runtime::AgentRunWorkspace,
+        candidate: Option<&rovai_core::runtime::QueuedAgentRunCandidate>,
+    ) -> Result<Option<rovai_core::runtime::AgentRunWorkspace>> {
         let _preparation = self.mission_workspace_gate.lock().await;
         let (mission, existing, host) = {
             let mut database = self.database.lock().await;
-            let Some(mission) =
-                crate::mission::mission_for_camp(database.connection(), &candidate.camp_id)?
+            let Some(mission) = crate::mission::mission_for_camp(database.connection(), camp_id)?
             else {
-                return Ok(Some(candidate.execution_workspace()));
+                return Ok(Some(execution));
             };
-            if !ExecutionRuntimeService::default()
-                .begin_workspace_preparation(&mut database, candidate)?
-            {
+            if let Some(candidate) = candidate {
+                if !ExecutionRuntimeService::default()
+                    .begin_workspace_preparation(&mut database, candidate)?
+                {
+                    return Ok(None);
+                }
+            } else if !camp_accepts_workspace_preparation(database.connection(), camp_id)? {
                 return Ok(None);
             }
             let host: String = database.connection().query_row(
@@ -227,7 +246,6 @@ impl Core {
             )?;
             (mission, existing, host)
         };
-        let mut execution = candidate.execution_workspace();
         let source = Path::new(&mission.project_path);
         if existing.is_empty() && !mission_workspace::has_git_marker(source) {
             // An unavailable Git executable cannot change non-Git execution behavior.
@@ -239,11 +257,10 @@ impl Core {
                 .is_none()
             {
                 let database = self.database.lock().await;
-                return Ok(camp_accepts_workspace_preparation(
-                    database.connection(),
-                    &candidate.camp_id,
-                )?
-                .then_some(execution));
+                return Ok(
+                    camp_accepts_workspace_preparation(database.connection(), camp_id)?
+                        .then_some(execution),
+                );
             }
         }
         let git = self.mission_git().await?;
@@ -256,15 +273,14 @@ impl Core {
         } else {
             let Some(repository) = git.inspect(source).await? else {
                 let database = self.database.lock().await;
-                return Ok(camp_accepts_workspace_preparation(
-                    database.connection(),
-                    &candidate.camp_id,
-                )?
-                .then_some(execution));
+                return Ok(
+                    camp_accepts_workspace_preparation(database.connection(), camp_id)?
+                        .then_some(execution),
+                );
             };
             let workspace = select_candidate(&git, &repository, &mission, &host, 1).await?;
             let database = self.database.lock().await;
-            if !camp_accepts_workspace_preparation(database.connection(), &candidate.camp_id)? {
+            if !camp_accepts_workspace_preparation(database.connection(), camp_id)? {
                 return Ok(None);
             }
             mission_workspace::persist_plan(database.connection(), &workspace)?;
@@ -564,7 +580,7 @@ impl Core {
         drop(database);
         execution.execution_root = workspace.working_directory;
         execution.isolation = "git_worktree".into();
-        if let Some(frozen) = &candidate.workspace {
+        if let Some(frozen) = candidate.and_then(|candidate| candidate.workspace.as_ref()) {
             anyhow::ensure!(frozen == &execution, "mission.frozen_workspace_mismatch");
         }
         Ok(Some(execution))

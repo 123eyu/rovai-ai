@@ -206,7 +206,7 @@ unsendable staging state；Observer 无法在其间提交，crash recovery 会�
 pending 后才能创建 Delivery。因而逻辑 cutoff 是 Delivery `prepared`，并不存在可送出而未经过
 redelivery selection 的 payload。prepared 后提交的 observation 留给下一输入，不能修改冻结 bytes。
 
-补发组装在每次 eligible redelivery 时读取最新完整六字段 `MEMBER_IDENTITY`，但不把这些字段写入
+新 public v36 Run 的补发组装读取 claim 时冻结的完整六字段 `MEMBER_IDENTITY`；旧 Run 和非 batch 保留原来准备时读取身份的规则。它们不把这些字段写入
 ContextManifest、Delivery digest 或 Collaboration State。`MEMBER_IDENTITY` 始终是 Session 唯一
 self identity；Dynamic Context 的 Collaboration State v4 只含 peers。身份编辑本身不创建
 Requirement、Input、Run 或新 Session，也不改变这里的 eligible delivery matrix。

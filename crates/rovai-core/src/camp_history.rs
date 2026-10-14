@@ -738,18 +738,8 @@ fn load_live_history_camps(
     transaction: &Transaction<'_>,
     current_camp_id: &str,
 ) -> Result<Vec<HistoryThread>> {
-    let publication_cte = public_camp_message_publication_cte();
-    let mut statement = transaction.prepare(&format!(r#"
-        WITH {publication_cte}
-        SELECT camp.id, camp.title,
-            COALESCE((SELECT message.created_at FROM camp_message AS message
-                JOIN public_camp_message_publication AS publication ON publication.message_id=message.id
-                WHERE message.camp_id=camp.id AND message.tombstoned_at IS NULL
-                  AND message.recall_state <> 'withdrawn'
-                ORDER BY julianday(message.created_at) DESC, message.id ASC LIMIT 1), camp.created_at) AS activity_at
-        FROM camp WHERE camp.id <> ?1 AND camp.deletion_operation_id IS NULL
-        ORDER BY julianday(activity_at) DESC, camp.id ASC
-    "#))?;
+    let sql = crate::camp_message_publication::live_directory_sql(transaction)?;
+    let mut statement = transaction.prepare(&sql)?;
     Ok(statement
         .query_map([current_camp_id], |row| {
             Ok(HistoryThread {

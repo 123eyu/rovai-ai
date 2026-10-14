@@ -10353,6 +10353,12 @@ mod slow_tests {
                 .unwrap()
         };
         let before = list(&mut fixture.database);
+        // Unknown old Camps use the correct indexed fallback; initialization only
+        // changes reconstructible summary metadata, not the directory result.
+        while crate::camp_message_publication::initialize_directory_activity(&mut fixture.database)
+            .unwrap()
+        {}
+        assert_eq!(before, list(&mut fixture.database));
         assert_eq!(
             before["threads"][0]["threadId"], second_camp_id,
             "updated_at is not message activity"

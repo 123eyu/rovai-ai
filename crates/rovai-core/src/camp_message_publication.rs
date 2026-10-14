@@ -30,6 +30,73 @@ pub(crate) fn public_camp_message_publication_cte() -> String {
     )
 }
 
+/// An ordered, covering-index publication check for one Camp, never a global event aggregate.
+pub(crate) const LAST_VISIBLE_MESSAGE_SQL: &str = r#"SELECT m.created_at, m.id FROM camp_message AS m
+        WHERE m.camp_id=camp.id AND m.tombstoned_at IS NULL AND m.recall_state <> 'withdrawn'
+          AND EXISTS(SELECT 1 FROM event_log AS e WHERE e.entity_type='camp_message'
+              AND e.entity_id=m.id AND e.event_type IN ('camp_message.sent','camp_message.public_a2a_sent')
+              AND e.global_sequence IS NOT NULL)
+        ORDER BY julianday(m.created_at) DESC, m.id ASC LIMIT 1"#;
+
+pub(crate) const LIVE_DIRECTORY_SQL: &str =
+    "SELECT id,title,COALESCE(history_activity_at,created_at)
+    FROM camp WHERE id<>?1 AND deletion_operation_id IS NULL
+    ORDER BY julianday(COALESCE(history_activity_at,created_at)) DESC,id ASC";
+
+pub(crate) fn directory_needs_initialization(
+    connection: &rusqlite::Connection,
+) -> rusqlite::Result<bool> {
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM camp WHERE history_activity_initialized=0
+        AND deletion_operation_id IS NULL)",
+        [],
+        |r| r.get(0),
+    )
+}
+
+pub(crate) fn live_directory_sql(connection: &rusqlite::Connection) -> rusqlite::Result<String> {
+    if !directory_needs_initialization(connection)? {
+        return Ok(LIVE_DIRECTORY_SQL.into());
+    }
+    // The CASE only seeks within uninitialized Camps. Reads do not initialize or
+    // rewrite anything; already initialized rows use their maintained summary.
+    let last_time = LAST_VISIBLE_MESSAGE_SQL.replace("m.created_at, m.id", "m.created_at");
+    Ok(format!(
+        "SELECT id,title,COALESCE(CASE WHEN history_activity_initialized=1 THEN history_activity_at
+        ELSE ({last_time}) END,created_at) AS activity_at FROM camp
+        WHERE id<>?1 AND deletion_operation_id IS NULL ORDER BY julianday(activity_at) DESC,id ASC"
+    ))
+}
+
+/// Resume the existing housekeeping loop's bounded metadata initialization.
+/// One transaction per small batch; crashes roll it back, and unknown != empty.
+pub(crate) fn initialize_directory_activity(
+    database: &mut crate::db::Database,
+) -> anyhow::Result<bool> {
+    let tx = database
+        .connection_mut()
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let ids = tx
+        .prepare(
+            "SELECT id FROM camp WHERE history_activity_initialized=0
+        AND deletion_operation_id IS NULL ORDER BY id LIMIT 32",
+        )?
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let started = std::time::Instant::now();
+    let sql = format!("UPDATE camp SET (history_activity_at,history_activity_message_id)=({LAST_VISIBLE_MESSAGE_SQL}),
+        history_activity_initialized=1 WHERE id=?1 AND history_activity_initialized=0");
+    for id in ids {
+        tx.execute(&sql, [id])?;
+        if started.elapsed() >= std::time::Duration::from_millis(10) {
+            break;
+        }
+    }
+    let pending = directory_needs_initialization(&tx)?;
+    tx.commit()?;
+    Ok(pending)
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;

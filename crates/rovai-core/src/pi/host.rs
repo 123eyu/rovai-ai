@@ -52,8 +52,9 @@ use crate::{
 };
 
 use super::{
-    PI_COMMAND_TIMEOUT, PI_HOST_EXTENSION_VERSION, PI_MAX_JSONL_RECORD_BYTES, PI_PROTOCOL_VERSION,
-    PiIncoming, assistant_message_text, completed_action, read_jsonl_record, value_id,
+    PI_COMMAND_TIMEOUT, PI_HOST_EXTENSION_VERSION, PI_MAX_INBOUND_RECORD_BYTES,
+    PI_MAX_OUTBOUND_RECORD_BYTES, PI_PROTOCOL_VERSION, PiIncoming, PiTransportFailure,
+    assistant_message_text, completed_action, read_jsonl_record, value_id,
 };
 
 const MANAGED_HOST_EXTENSION: &str = include_str!("managed-host.ts");
@@ -209,7 +210,7 @@ impl PiManagedContextUsage {
 
 struct PendingPiCommand {
     command_type: String,
-    sender: oneshot::Sender<std::result::Result<Value, String>>,
+    sender: oneshot::Sender<Result<Value>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -599,11 +600,19 @@ impl PiHost {
             let mut startup_prelude_lines = 0usize;
             let mut startup_prelude_bytes = 0usize;
             let mut consecutive_malformed = 0usize;
+            let mut failure = None;
             loop {
-                let record = match read_jsonl_record(&mut reader, PI_MAX_JSONL_RECORD_BYTES).await {
+                let record = match read_jsonl_record(&mut reader, PI_MAX_INBOUND_RECORD_BYTES).await
+                {
                     Ok(Some(record)) => record,
                     Ok(None) => break,
                     Err(error) => {
+                        failure = Some(
+                            error
+                                .downcast_ref::<PiTransportFailure>()
+                                .copied()
+                                .unwrap_or(PiTransportFailure::ReadFailed),
+                        );
                         host.emit_diagnostic(
                             if protocol_started {
                                 "running"
@@ -626,13 +635,11 @@ impl PiHost {
                                 startup_prelude_bytes.saturating_add(record.len());
                             host.emit_diagnostic(
                                 "startup",
-                                &format!(
-                                    "Pi stdout startup prelude: {}",
-                                    String::from_utf8_lossy(&record)
-                                ),
+                                &format!("Pi stdout startup prelude: {} bytes", record.len()),
                             )
                             .await;
                             if startup_prelude_lines > 32 || startup_prelude_bytes > 64 * 1024 {
+                                failure = Some(PiTransportFailure::ProtocolViolation);
                                 host.poisoned.store(true, Ordering::Release);
                                 break;
                             }
@@ -641,12 +648,13 @@ impl PiHost {
                             host.emit_diagnostic(
                                 "running",
                                 &format!(
-                                    "Pi stdout skipped malformed record: {}",
-                                    String::from_utf8_lossy(&record)
+                                    "Pi stdout skipped malformed record: {} bytes",
+                                    record.len()
                                 ),
                             )
                             .await;
                             if consecutive_malformed >= 3 {
+                                failure = Some(PiTransportFailure::ProtocolViolation);
                                 host.poisoned.store(true, Ordering::Release);
                                 break;
                             }
@@ -658,12 +666,14 @@ impl PiHost {
                 consecutive_malformed = 0;
                 if message.get("type").and_then(Value::as_str) == Some("response") {
                     let Some(id) = message.get("id").and_then(value_id) else {
+                        failure = Some(PiTransportFailure::ProtocolViolation);
                         host.emit_diagnostic("running", "Pi RPC response omitted its request id")
                             .await;
                         host.poisoned.store(true, Ordering::Release);
                         break;
                     };
                     let Some(pending) = host.pending.lock().await.remove(&id) else {
+                        failure = Some(PiTransportFailure::ProtocolViolation);
                         host.emit_diagnostic(
                             "running",
                             "Pi RPC response did not match a pending request",
@@ -675,10 +685,10 @@ impl PiHost {
                     if message.get("command").and_then(Value::as_str)
                         != Some(pending.command_type.as_str())
                     {
-                        let _ = pending.sender.send(Err(format!(
-                            "Pi RPC response command identity mismatch: expected {}",
-                            pending.command_type
-                        )));
+                        failure = Some(PiTransportFailure::ProtocolViolation);
+                        let _ = pending
+                            .sender
+                            .send(Err(PiTransportFailure::ProtocolViolation.into()));
                         host.emit_diagnostic(
                             "running",
                             "Pi RPC response command identity mismatch",
@@ -691,16 +701,19 @@ impl PiHost {
                     {
                         Ok(message)
                     } else {
-                        Err(host
-                            .redact_text(
-                                message
-                                    .get("error")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("Pi RPC command failed"),
-                            )
-                            .chars()
-                            .take(2_000)
-                            .collect())
+                        Err(anyhow::Error::new(PiRpcCommandRejected {
+                            command: pending.command_type,
+                            message: host
+                                .redact_text(
+                                    message
+                                        .get("error")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("Pi RPC command failed"),
+                                )
+                                .chars()
+                                .take(2_000)
+                                .collect(),
+                        }))
                     };
                     let _ = pending.sender.send(response);
                     continue;
@@ -714,13 +727,17 @@ impl PiHost {
             }
             host.alive.store(false, Ordering::Release);
             for (_, pending) in host.pending.lock().await.drain() {
-                let _ = pending.sender.send(Err("Pi RPC Host exited".to_string()));
+                let error = failure
+                    .map(anyhow::Error::new)
+                    .unwrap_or_else(|| anyhow::anyhow!("Pi RPC Host exited"));
+                let _ = pending.sender.send(Err(error));
             }
             if let Some(owner) = host.owner.read().await.clone() {
                 let _ = host.incoming.send(PiIncoming::Exited {
                     host_instance_id: host.host_instance_id.clone(),
                     agent_run_id: owner.agent_run_id,
                     execution_epoch: owner.execution_epoch,
+                    failure,
                 });
             }
         });
@@ -924,10 +941,7 @@ impl PiHost {
         }
         match timeout(PI_COMMAND_TIMEOUT, receiver).await {
             Ok(Ok(Ok(response))) => Ok(response),
-            Ok(Ok(Err(message))) => Err(anyhow::Error::new(PiRpcCommandRejected {
-                command: command_type.to_string(),
-                message,
-            })),
+            Ok(Ok(Err(error))) => Err(error),
             Ok(Err(_)) => bail!("Pi RPC response channel closed: {command_type}"),
             Err(_) => {
                 // Keep the correlation entry as a tombstone. A caller (or an
@@ -942,7 +956,7 @@ impl PiHost {
 
     async fn send(&self, message: Value) -> Result<()> {
         let encoded = serde_json::to_vec(&message)?;
-        if encoded.len() > PI_MAX_JSONL_RECORD_BYTES {
+        if encoded.len() > PI_MAX_OUTBOUND_RECORD_BYTES {
             bail!("Pi RPC outbound record exceeds the safety limit");
         }
         let mut stdin = self.stdin.lock().await;
@@ -2993,6 +3007,16 @@ while IFS= read -r request; do
       if [ "$thinking_level" = max ]; then thinking_level=high; fi
       printf '{"type":"response","id":"%s","success":true,"command":"set_thinking_level","data":{"level":"%s"}}\n' "$request_id" "$thinking_level"
       ;;
+    emit_record)
+      /bin/cat "$fixture_dir/record.jsonl"
+      printf '{"type":"response","id":"%s","success":true,"command":"emit_record","data":{}}\n' "$request_id"
+      ;;
+    close_stdout)
+      exit 0
+      ;;
+    reject_command)
+      printf '{"type":"response","id":"%s","success":false,"command":"reject_command","error":"fixture rejection"}\n' "$request_id"
+      ;;
     prompt)
       event='{"type":"agent_settled"}'
       printf '%s\n' "$event" >> "$event_log"
@@ -3348,6 +3372,143 @@ done
         assert_eq!(commands, ["get_state", "abort", "get_state"]);
         host.shutdown_and_reap().await;
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // Owns the pipe/Host boundary: the parser alone cannot prove that a large
+    // valid frame keeps the Host alive or that a terminal cause reaches its owner.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn inbound_image_frames_preserve_host_health_and_typed_loss() {
+        for exit_case in ["oversize", "protocol", "eof"] {
+            let root =
+                std::env::temp_dir().join(format!("rovai-pi-frame-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&root).unwrap();
+            let executable = write_pi_host_fixture(&root);
+            let seed = PiBindingSeed {
+                agent_run_id: "run-frame".into(),
+                execution_epoch: 7,
+                native_binding_id: "binding-frame".into(),
+                native_binding_generation: 1,
+                expected_native_session_id: None,
+                bootstrap: String::new(),
+                bootstrap_payload_digest: format!("{:x}", Sha256::digest(b"")),
+            };
+            let (incoming, mut receiver) = mpsc::unbounded_channel();
+            let host = PiHost::spawn(PiHostLaunch {
+                environment: None,
+                executable: &executable,
+                cwd: &root,
+                private_runtime_dir: &root.join("private"),
+                session_dir: None,
+                initial_session_file: Some(&root.join("session.jsonl")),
+                initial_binding: &seed,
+                incoming,
+                builtin_tools: None,
+            })
+            .await
+            .unwrap();
+            host.bind(PiRuntimeOwner {
+                agent_run_id: "run-frame".into(),
+                execution_epoch: 7,
+                native_prompt_id: "prompt-frame".into(),
+                delivery_id: "delivery-frame".into(),
+            })
+            .await
+            .unwrap();
+
+            if exit_case == "oversize" {
+                let rejected = host.command("reject_command", json!({})).await.unwrap_err();
+                assert!(rejected.downcast_ref::<PiRpcCommandRejected>().is_some());
+                assert!(rejected.downcast_ref::<PiTransportFailure>().is_none());
+                assert!(host.is_alive());
+                // Pi 1.1 read repeats base64 in content and structuredContent.
+                let data = "A".repeat(2_481_132);
+                let frame = json!({"type":"tool_execution_end", "toolName":"read", "isError":false,
+                    "result":{"content":[{"type":"image","data":data}],
+                    "structuredContent":{"type":"image","data":data}}});
+                let mut encoded = serde_json::to_vec(&frame).unwrap();
+                encoded.push(b'\n');
+                assert!(encoded.len() > 4 * 1024 * 1024);
+                std::fs::write(root.join("record.jsonl"), &encoded).unwrap();
+                host.command("emit_record", json!({})).await.unwrap();
+                let event = timeout(Duration::from_secs(5), receiver.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let PiIncoming::Message { message, .. } = event else {
+                    panic!("expected the complete image result");
+                };
+                assert_eq!(message, frame);
+                assert!(host.is_alive());
+                // Outbound retains its independent 4 MiB budget.
+                assert!(
+                    host.send(json!({"message":"x".repeat(PI_MAX_OUTBOUND_RECORD_BYTES)}))
+                        .await
+                        .is_err()
+                );
+                assert!(host.is_alive());
+                let file = File::create(root.join("record.jsonl")).unwrap();
+                file.set_len((PI_MAX_INBOUND_RECORD_BYTES + 1) as u64)
+                    .unwrap();
+            } else if exit_case == "protocol" {
+                std::fs::write(
+                    root.join("record.jsonl"),
+                    b"private-payload-marker\ninvalid\ninvalid\n",
+                )
+                .unwrap();
+            }
+            let error = host
+                .command(
+                    if exit_case == "eof" {
+                        "close_stdout"
+                    } else {
+                        "emit_record"
+                    },
+                    json!({}),
+                )
+                .await
+                .unwrap_err();
+            if exit_case != "eof" {
+                assert!(error.downcast_ref::<PiTransportFailure>().is_some());
+            }
+            let failure = timeout(Duration::from_secs(5), async {
+                loop {
+                    match receiver.recv().await.unwrap() {
+                        PiIncoming::Exited {
+                            host_instance_id,
+                            agent_run_id,
+                            execution_epoch,
+                            failure,
+                        } => {
+                            assert_eq!(host_instance_id, host.host_instance_id());
+                            assert_eq!(agent_run_id, "run-frame");
+                            assert_eq!(execution_epoch, 7);
+                            break failure;
+                        }
+                        PiIncoming::Diagnostic { message, .. } => {
+                            assert!(!message.contains("private-payload-marker"))
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            match exit_case {
+                "oversize" => assert!(matches!(
+                    failure,
+                    Some(PiTransportFailure::FrameTooLarge {
+                        limit_bytes: PI_MAX_INBOUND_RECORD_BYTES,
+                        ..
+                    })
+                )),
+                "protocol" => assert_eq!(failure, Some(PiTransportFailure::ProtocolViolation)),
+                _ => assert_eq!(failure, None),
+            }
+            assert!(!host.is_alive());
+            host.shutdown_and_reap().await;
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

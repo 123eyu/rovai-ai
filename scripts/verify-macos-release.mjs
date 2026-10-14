@@ -18,6 +18,7 @@ import {
   MACOS_SIGNING_POLICY,
   assertStableMacosSignature
 } from './lib/macos-signing-policy.mjs'
+import { runMacosTicket } from './lib/macos-ticket-retry.mjs'
 import {
   assertUpdateInfoReleaseNotes,
   configuredReleaseNotesFile
@@ -310,8 +311,8 @@ try {
   signatureDetails('rovai-core', corePath)
   signatureDetails('rovai-host', hostPath)
   signatureDetails('rovai', cliPath)
-  run('/usr/bin/xcrun', ['stapler', 'validate', appPath])
-  run('/usr/bin/xcrun', ['stapler', 'validate', dmgPath])
+  runMacosTicket('validate', appPath, { cwd: root })
+  runMacosTicket('validate', dmgPath, { cwd: root })
   run('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', appPath])
   report.push('App and DMG notarization tickets: valid')
   report.push('Gatekeeper app assessment: passed')
@@ -330,7 +331,7 @@ try {
     signatureDetails(`Update ZIP ${binaryName}`, binaryPath)
     assertArchitecture(`Update ZIP ${binaryName}`, binaryPath)
   }
-  run('/usr/bin/xcrun', ['stapler', 'validate', zipAppPath])
+  runMacosTicket('validate', zipAppPath, { cwd: root })
   report.push('Update ZIP App signature and notarization ticket: valid')
   report.push('CDHash-only signature found: no')
   report.push('Result: passed')

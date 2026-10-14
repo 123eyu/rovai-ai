@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: macos-build-and-packaging
-last_updated: 2026-10-03
+last_updated: 2026-10-14
 ---
 
 # macOS 构建、签名与打包
@@ -195,6 +195,17 @@ Application 证书，校验 SHA-256 指纹和 Team ID，使用现有 Hardened Ru
 贴票 App 与 DMG。每个架构的 verifier 检查 Apple Developer ID 签名链、Team ID、designated requirement、
 App/CLI/Core/Host 架构、App/DMG 票据和 Gatekeeper 准入；任何一项失败都不得发布。本地 daily 命令不得
 调用或放宽这两个 Release 入口。证书、密码和公证 API Key 不得写入仓库。
+
+DMG 贴票和 verifier 的 App、DMG、更新 ZIP 票据验证使用同一个有限重试入口。仅在
+Apple `NSURLErrorDomain` / `kCFErrorDomainCFNetwork` 明确报告超时、DNS、连接失败或
+连接中断时重试，最多执行 6 次，等待依次为 20、40、60、60、60 秒；最终仍须原命令成功。
+票据缺失、验证失败、签名异常、未知 Error 68 和进程错误立即失败。证书、签名、公证提交、
+Gatekeeper 与产物校验标准不变；不会把网络重试当作通过证据。
+
+electron-builder 内置的 App 贴票也采用同一上限：仅在其明确报告 App 贴票失败且包含上述
+Apple 网络错误时，在同一工作区重跑原有签名构建命令，复用已完成的 Rust 编译。
+自动公证配置保持启用，原命令成功后仍须完成 DMG 公证和全部 verifier 检查；
+编译、签名、证书或其他构建失败不触发此重试。
 
 ### 首次配置 Apple Developer ID 发布环境
 

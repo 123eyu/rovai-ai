@@ -3561,7 +3561,7 @@ mod tests {
     }
 
     #[test]
-    fn built_in_policy_is_a_closed_allowlist_and_restart_cancels_only_the_reply() {
+    fn built_in_policy_is_closed_and_runtime_loss_cancels_only_the_reply() {
         assert!(!single_chat_operation_is_allowed(1, "mission.list"));
         assert!(!single_chat_operation_is_allowed(1, "mission.get"));
         assert!(single_chat_operation_is_allowed(2, "mission.list"));
@@ -3674,6 +3674,71 @@ mod tests {
             "single-chat-send-after-restart",
         );
         assert_eq!(next.result.status, CommandResultStatus::Accepted);
+        // Live transport loss keeps the same private reply cancellation policy,
+        // while its safe cause remains in the Run record.
+        let next_run_id = next.result.payload["agentRunId"].as_str().unwrap();
+        database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET status = 'running', execution_epoch = 1,
+             runtime_adapter_kind = 'pi', started_at = updated_at WHERE id = ?1",
+                [next_run_id],
+            )
+            .unwrap();
+        let version = database
+            .connection()
+            .query_row(
+                "SELECT version FROM agent_run WHERE id = ?1",
+                [next_run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let failure = crate::pi::PiTransportFailure::ProtocolViolation.public_failure();
+        let result = crate::action::ActionSafetyService::default()
+            .reconcile_runtime_loss(
+                &mut database,
+                &CommandEnvelope {
+                    command_id: "single-chat-pi-transport-loss".into(),
+                    actor: ActorRef::System {
+                        component_id: "runtime-recovery-coordinator".into(),
+                    },
+                    camp_id: Some(camp_id),
+                    expected_versions: vec![],
+                    execution_epoch: None,
+                    payload: crate::action::ReconcileRuntimeLossCommand {
+                        agent_run_id: next_run_id.into(),
+                        expected_version: version,
+                        execution_epoch: 1,
+                        reason: failure.code.clone(),
+                        failure: Some(failure.clone()),
+                    },
+                },
+            )
+            .unwrap();
+        assert_eq!(result.result.code, "agent_run.cancelled");
+        let snapshot = service
+            .snapshot(&database, &conversation_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(snapshot.conversation.status, "active");
+        let run = snapshot
+            .agent_runs
+            .iter()
+            .find(|run| run.id == next_run_id)
+            .unwrap();
+        assert_eq!(run.status, "cancelled");
+        let stored: String = database
+            .connection()
+            .query_row(
+                "SELECT public_runtime_failure_json FROM agent_run WHERE id = ?1",
+                [next_run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<crate::runtime_failure::RuntimeFailureView>(&stored).unwrap(),
+            failure
+        );
     }
 
     #[test]

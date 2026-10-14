@@ -3,10 +3,47 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # v1.72 实施与验收
+
+## Pi 接收容量与连接失败原因（2026-10-14）
+
+User 确认优先修 Pi 接收容量及错误类型，采用单帧默认 64 MiB。基线
+`7a40768ccded50af6e4ec062d355f17e6efc3337`，分支 `rovai/pi-inbound-frame-budget`。
+独立 worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-pi-inbound-frame-budget`；
+无需先行治理提交。当前合同为 [Runtime Launch v63](../../contracts/runtime-launch-and-verification-v63.md)。
+
+- 触发证据：Pi 1.1.0 的图片 read result 在 content 与 structuredContent 重复 base64；
+  本次 1,860,849 字节 GIF 返回的 RPC 事件约 4.73 MiB，超过原 4 MiB 接收限制。
+- Pi 入站改为 64 MiB，保持读取时的有界检查；出站 4 MiB、stderr 64 KiB 及其他 Adapter 不变。
+  错误通过 typed cause 传到 pending command、Host 退出事件与受 Run/epoch 保护的 loss 事务。
+  公开 detail 仅含安全原因/字节数，非法记录诊断不复制正文。
+- 内部 unknown-outcome 代码、禁止重放、终态 fencing、Fleet 停止/reap 与 Single Chat 取消保持。
+  无数据库迁移、头像修改、上下文格式变化或 App 安装。
+
+测试归属：扩展既有 JSONL parser owner，保留 Unicode 分隔符并增加跨块、CRLF、EOF 和 64 MiB
+临界输入；扩展既有 Runtime loss owner 检查持久原因、accepted/unknown、不重试及旧代次/已知终态；
+扩展 Single Chat 原 policy/restart owner 验证 Snapshot 仍显示当前回复已取消，安全原因保留在 Run 记录。
+新增 `pi::host::tests::inbound_image_frames_preserve_host_health_and_typed_loss` 作为管道/Host seam owner：
+修复前大于 4 MiB 的合法图片事件杀死 reader，原 parser owner 不能证明 Host 健康、pending RPC 和
+退出事件的原因传递，既有 Host fixture 只拥有会话切换与 abort correlation，因此复用 fixture 增加一个
+独立扩展层 owner；精确尺寸矩阵仍只由 parser 拥有。
+
+最小验证命令为 `cargo test -p rovai-core --features extended-tests --lib -- pi:: runtime_loss_settles_uncertain_input_and_fences_old_or_terminal_executions built_in_policy_is_closed_and_runtime_loss_cancels_only_the_reply`。
+本机验证结果：
+
+- `cargo test --workspace`：471 项通过、1 项既有人工 Runtime smoke 忽略。
+- 上述定向扩展层命令：27 项通过、1 项既有 Pi Machine Ready smoke 忽略，包含新增管道 owner、
+  64 MiB 精确边界、RPC 原生拒绝/协议错误/EOF、持久原因和 unknown 输入保护。
+- `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`（10 项）、`pnpm docs:check` 与
+  相对上述基线的 `pnpm docs:check:ci` 通过。
+
+User 于 2026-10-14 要求合入 PR #743。合入前同步主干 `321cffdc0a21ef0a2c6b1721e0f75bd430477e8e`，
+仅版本概览的并列新增段落发生冲突，两项记录均保留；七个 Rust 文件相对新主干的修复与原提交一致。
+同步后再次通过默认 Rust 471 项、定向 27 项，以及格式和通用文档门禁，既有人工 smoke 仍忽略。
+验证使用隔离临时数据库及合成 Pi 管道，不启动日常 Core、App 或真实模型。
 
 ## 会话切换读取回归修复（2026-10-13）
 

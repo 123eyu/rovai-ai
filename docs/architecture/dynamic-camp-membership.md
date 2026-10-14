@@ -3,13 +3,13 @@ document_type: architecture
 architecture: dynamic-camp-membership
 authority: dynamic-camp-membership-component-boundaries
 status: accepted
-last_updated: 2026-09-22
+last_updated: 2026-10-13
 ---
 
 # 动态 Camp 队员关系架构
 
-字段级合同见 [Camp Membership v2](../contracts/camp-membership-v2.md)，决定理由见
-[v1.29 决策记录](../versions/v1.29/decisions.md)。
+字段级合同见 [Camp Membership v3](../contracts/camp-membership-v3.md)，决定理由见
+[v1.29 决策记录](../versions/v1.29/decisions.md)与[零成员会话决定](../versions/v1.72/decisions.md#v1-72-d39)。
 
 ## 权威模型
 
@@ -47,7 +47,7 @@ Context freeze 不等于 target roster freeze。仍属于当前 membership lifet
 
 ## 移除与收口
 
-Cutover transaction 先验证 expected generation/version，再结束关系、保证至少一位成员并完成必要 Lead 替换。
+Cutover transaction 先验证 expected generation/version，再结束关系、允许剩余零位成员并完成必要 Lead 替换或清空。
 直接复用 affected deliveries/run IDs 两个 selector：成员当前 lifetime 的 active Run、waiting 收件 Delivery，以及
 它发出但尚未被其他目标 claim 的普通公开 Delivery；不沿消息因果关系递归扩张。waiting Delivery 以成员移除原因
 终结，已经绑定 Run 的 Delivery 经该 Run settlement 收口，开放 Task 恢复 pending/unassigned，未决 approval 和
@@ -67,4 +67,4 @@ status/completed_at 同事务完成。Runtime 后台清理与审计无关。同�
 
 [Camp Open Projection v25](../contracts/camp-open-projection-v25.md)投影当前 generation、成员 version 与历史尚未完成的
 reconciliation；新 cutover 已同事务完成，不产生持续收口等待。Renderer 使用权威 removal preview 解释影响，以 exact values 提交；成功后重读 Camp，不在本地
-模拟关系。最后成员操作保持可发现但禁用，添加候选来自当前存在且不在 active set 的 AgentProfile。
+模拟关系。最后成员允许移出；空会话保留历史与本地草稿，显示邀请入口且没有隐式接收者。添加候选来自当前 present 且不在 active set 的 AgentProfile。首位加入者恢复 Default Lead，不自动发送输入或重分配已释放 Task。永久移除预览逐会话展示空会话/队长交接影响，非终态 Run 仍阻止全局移除。

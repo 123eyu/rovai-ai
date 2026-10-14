@@ -14,6 +14,7 @@ import { MemberPortrait } from './MemberPortrait'
 import { MemberAvatarEditor } from './MemberAvatarEditor'
 import {
   identityDraftFor,
+  PROFESSIONAL_RESPONSIBILITIES_MAX_SCALARS,
   identityDraftIssue,
   unicodeScalarLength,
   normalizeIdentityTag,
@@ -240,7 +241,7 @@ export const MemberIdentityEditor = forwardRef<
         <div className="member-editor-field-label">
           <label htmlFor={fieldId(key)}>{label}</label>
           <small className="member-editor-counter" aria-hidden="true">
-            {unicodeScalarLength(draft[key])} / {max}
+            {unicodeScalarLength(key === 'professionalResponsibilities' ? draft[key].trim() : draft[key])} / {max.toLocaleString('en-US')}
           </small>
         </div>
         <Input {...props} rows={multiline ? 3 : undefined} />
@@ -280,7 +281,7 @@ export const MemberIdentityEditor = forwardRef<
             {field(
               'professionalResponsibilities',
               uiAttribute('专业职责'),
-              300,
+              PROFESSIONAL_RESPONSIBILITIES_MAX_SCALARS,
               true,
               uiAttribute('长期负责什么，通常交付什么结果')
             )}

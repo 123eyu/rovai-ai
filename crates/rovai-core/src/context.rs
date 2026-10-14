@@ -63,17 +63,17 @@ use crate::{
 };
 
 pub const CONTEXT_FORMATTER_VERSION: i64 = AGENT_RUN_CONTEXT_FORMATTER_VERSION;
-pub const DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES: usize = 96 * 1024;
+pub const DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES: usize = 256 * 1024;
 const MIN_CONTEXT_PAYLOAD_BYTES: usize = 8 * 1024;
-const DELIVERY_FIRST_PAYLOAD_BOOTSTRAP_RESERVE_BYTES: usize = 32 * 1024;
+pub const MAX_SESSION_BOOTSTRAP_BYTES: usize = 128 * 1024;
 fn run_facts_schema_version(manifest_version: i64, invocation_kind: &str) -> i64 {
     if invocation_kind == "batch" {
         match manifest_version {
-            32 | 33 => 9,
+            32 | 33 | 34 => 9,
             31 => 8,
             _ => 7,
         }
-    } else if manifest_version == 28 {
+    } else if matches!(manifest_version, 28 | 35) {
         6
     } else {
         5
@@ -601,7 +601,12 @@ impl ContextService {
         }
 
         let members = load_collaboration_projection_members(database, &snapshot.camp_id)?;
-        let collaboration_state = build_collaboration_state(&members, &snapshot.agent_id);
+        let mut collaboration_state = build_collaboration_state(&members, &snapshot.agent_id);
+        // Claimed inputs retain their original serializer. Only new input versions
+        // use the routing-only projection; no historical context is rewritten.
+        if batch_context_manifest_version.is_some_and(|version| version <= 33) {
+            add_legacy_collaboration_responsibilities(database, &mut collaboration_state)?;
+        }
         let collaboration_state_digest = canonical_json_digest(&collaboration_state)?;
         let collaboration_changed = bootstrap_required
             || snapshot.native_collaboration_state_digest.as_deref()
@@ -609,6 +614,10 @@ impl ContextService {
         let profile = match batch_context_manifest_version {
             Some(29) => {
                 crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V9.validate()?
+            }
+            Some(30..=33) => {
+                crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V10
+                    .validate()?
             }
             Some(_) => current_public_camp_batch_context_delivery_profile()?,
             None => current_context_delivery_profile()?,
@@ -1069,7 +1078,7 @@ impl ContextService {
             .inspect(|&version| {
                 debug_assert!(matches!(
                     version,
-                    29 | 30 | 31 | 32 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
+                    29 | 30 | 31 | 32 | 33 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
                 ));
             })
             .unwrap_or(CONTEXT_FORMATTER_VERSION);
@@ -1378,11 +1387,11 @@ impl ContextService {
         // FirstPayload adapter adds its already durable bootstrap in Runtime;
         // the dynamic bytes themselves remain frozen here and are never
         // re-selected on retry/recovery.
-        let runtime_budget = if request.charter_delivery_mode == CharterDeliveryMode::FirstPayload {
-            max_payload_bytes.saturating_sub(DELIVERY_FIRST_PAYLOAD_BOOTSTRAP_RESERVE_BYTES)
-        } else {
-            max_payload_bytes
-        };
+        let runtime_budget = max_payload_bytes.saturating_sub(bootstrap_payload_reserve(
+            request.charter_delivery_mode,
+            bootstrap_required,
+            has_pending_bootstrap_redelivery(transaction, &snapshot)?,
+        ));
         let workspace_fact =
             prepare_workspace_fact(transaction, &snapshot, requires_new_native_session, true)?;
         let additional_skills = prepare_additional_skills(
@@ -3301,6 +3310,35 @@ fn render_bootstrap_redelivery_overlay(bootstrap: &str) -> String {
     )
 }
 
+fn bootstrap_payload_reserve(mode: CharterDeliveryMode, required: bool, redelivery: bool) -> usize {
+    if redelivery {
+        MAX_SESSION_BOOTSTRAP_BYTES + render_bootstrap_redelivery_overlay("").len() + 2
+    } else if mode == CharterDeliveryMode::FirstPayload && required {
+        MAX_SESSION_BOOTSTRAP_BYTES + 2
+    } else {
+        0
+    }
+}
+
+fn has_pending_bootstrap_redelivery(
+    connection: &Connection,
+    snapshot: &RunSnapshot,
+) -> Result<bool> {
+    snapshot
+        .native_binding_id
+        .as_deref()
+        .map(|id| {
+            crate::compaction::pending_redelivery_revision_connection(
+                connection,
+                id,
+                snapshot.native_binding_generation,
+            )
+            .map(|revision| revision.is_some())
+        })
+        .transpose()
+        .map(|value| value.unwrap_or(false))
+}
+
 fn bootstrap_evidence_digest(charter_digest: &str, memory_entrypoint_digest: &str) -> String {
     sha256_text(&format!(
         "native_session_bootstrap_v4\n{charter_digest}\n{memory_entrypoint_digest}"
@@ -3674,7 +3712,6 @@ struct CollaborationProjectionMember {
     agent_id: String,
     display_name: String,
     team_role: String,
-    professional_responsibilities: String,
     membership_status: String,
     profile_status: String,
     is_default_lead: bool,
@@ -3781,7 +3818,6 @@ fn build_collaboration_state(
                 "agentId": member.agent_id,
                 "name": member.display_name,
                 "teamRole": member.team_role,
-                "professionalResponsibilities": member.professional_responsibilities,
             })
         })
         .collect::<Vec<_>>();
@@ -3796,6 +3832,26 @@ fn build_collaboration_state(
         "defaultLeadAgentId": default_lead_agent_id,
         "selfIsDefaultLead": self_is_default_lead,
     })
+}
+
+fn add_legacy_collaboration_responsibilities<R: ContextReadConnection>(
+    database: &R,
+    state: &mut Value,
+) -> Result<()> {
+    for peer in state["peers"]
+        .as_array_mut()
+        .context("collaboration peers are missing")?
+    {
+        let responsibilities: String = database.context_connection().query_row(
+            "SELECT professional_responsibilities FROM agent_profile WHERE id = ?1",
+            [peer["agentId"]
+                .as_str()
+                .context("collaboration peer ID is missing")?],
+            |row| row.get(0),
+        )?;
+        peer["professionalResponsibilities"] = json!(responsibilities);
+    }
+    Ok(())
 }
 
 fn build_run_facts<R: ContextReadConnection>(
@@ -3932,7 +3988,6 @@ fn load_collaboration_projection_members<R: ContextReadConnection>(
     let mut statement = database.context_connection().prepare(
         r#"
         SELECT agent_profile.id, agent_profile.display_name, agent_profile.team_role,
-               agent_profile.professional_responsibilities,
                camp_member.status, agent_profile.profile_status,
                COALESCE(camp.default_lead_agent_id = agent_profile.id, 0)
         FROM camp_member
@@ -3948,10 +4003,9 @@ fn load_collaboration_projection_members<R: ContextReadConnection>(
                 agent_id: row.get(0)?,
                 display_name: row.get(1)?,
                 team_role: row.get(2)?,
-                professional_responsibilities: row.get(3)?,
-                membership_status: row.get(4)?,
-                profile_status: row.get(5)?,
-                is_default_lead: row.get(6)?,
+                membership_status: row.get(3)?,
+                profile_status: row.get(4)?,
+                is_default_lead: row.get(5)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -4216,6 +4270,74 @@ fn model_batch_input_message(
     value
 }
 
+/// Size the entire prospective batch, not just RUN_INPUT. Required sections use
+/// the delivery formatter; Bootstrap reserves its supported body plus the actual
+/// envelope only when it shares this Runtime input. Selection never truncates a message.
+pub(crate) fn batch_claim_payload_len(
+    transaction: &Transaction<'_>,
+    request: &DeliveryContextPreview<'_>,
+    run_input: &Value,
+    skills: &SkillSelectionSnapshot,
+    previous_boundary: i64,
+    additional_messages: bool,
+) -> Result<usize> {
+    let mut snapshot = prospective_delivery_snapshot(transaction, request)?;
+    snapshot.skill_selection_snapshot = skills.clone();
+    let new_session = snapshot.native_binding_id.is_none() || snapshot.native_session_id.is_none();
+    let bootstrap_required = bootstrap_required_for_snapshot(transaction, &snapshot, new_session)?;
+    let members = load_collaboration_projection_members(transaction, &snapshot.camp_id)?;
+    let collaboration = build_collaboration_state(&members, &snapshot.agent_id);
+    let digest = canonical_json_digest(&collaboration)?;
+    let collaboration = (bootstrap_required
+        || snapshot.native_collaboration_state_digest.as_deref() != Some(&digest))
+    .then_some(collaboration);
+    let profile = current_public_camp_batch_context_delivery_profile()?;
+    let (mut tasks, mut omitted) =
+        load_self_active_tasks(transaction, &snapshot, profile.max_self_active_tasks)?;
+    let (mut facts, _) = build_run_facts(transaction, &snapshot, new_session, 0)?;
+    facts.history_hint = Some(public_history_hint(previous_boundary, additional_messages));
+    let facts = render_run_facts(&facts)?;
+    let workspace = prepare_workspace_fact(transaction, &snapshot, new_session, true)?;
+    let additional_skills = prepare_additional_skills(
+        transaction,
+        std::path::Path::new(
+            transaction
+                .path()
+                .context("Core database path is unavailable")?,
+        )
+        .parent()
+        .context("Core data directory is unavailable")?,
+        &snapshot,
+    )?;
+    let reserve = bootstrap_payload_reserve(
+        request.charter_delivery_mode,
+        bootstrap_required,
+        has_pending_bootstrap_redelivery(transaction, &snapshot)?,
+    );
+    loop {
+        let projection = self_active_task_projection(&tasks, omitted);
+        let payload = render_payload(RenderPayloadInput {
+            collaboration_state: collaboration.as_ref(),
+            self_active_tasks: projection.as_ref(),
+            shared_conversation: None,
+            run_facts: &facts,
+            workspace: workspace.section(),
+            additional_skills: Some(&additional_skills.section),
+            a2a_guidance: None,
+            single_chat_guidance: None,
+            current_input: None,
+            run_input: Some(run_input),
+        })?;
+        let bytes = payload.len().saturating_add(reserve);
+        if bytes <= request.max_payload_bytes || tasks.is_empty() {
+            return Ok(bytes);
+        }
+        // Complete RUN_INPUT keeps priority over optional Task context, as at delivery.
+        tasks.pop();
+        omitted += 1;
+    }
+}
+
 /// Projects a prospective Delivery prefix through the same message projector
 /// and `RUN_INPUT` serializer used after the batch has been claimed. This keeps
 /// claim sizing aligned with the delivered bodies, quotes, attachments and
@@ -4326,6 +4448,7 @@ pub(crate) fn project_batch_run_input_for_claim(
     Ok(json!({"messages": messages}))
 }
 
+#[cfg(test)]
 pub(crate) fn serialized_batch_run_input_len(run_input: &Value) -> Result<usize> {
     let mut rendered = String::new();
     append_json_section(&mut rendered, "RUN_INPUT", run_input)?;
@@ -4356,7 +4479,7 @@ fn frozen_batch_context_manifest_version(
     anyhow::ensure!(
         matches!(
             version,
-            29 | 30 | 31 | 32 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
+            29 | 30 | 31 | 32 | 33 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
         ),
         "Batch AgentRun uses an unsupported context version"
     );
@@ -8242,10 +8365,10 @@ mod tests {
                     context_manifest_version INTEGER
                 );
                 INSERT INTO agent_run_input VALUES ('historical', 26);
-                INSERT INTO agent_run_input VALUES ('current', 33);
-                INSERT INTO agent_run_input VALUES ('current', 33);
-                INSERT INTO agent_run_input VALUES ('previous', 30);
-                INSERT INTO agent_run_input VALUES ('previous', 30);
+                INSERT INTO agent_run_input VALUES ('current', 34);
+                INSERT INTO agent_run_input VALUES ('current', 34);
+                INSERT INTO agent_run_input VALUES ('previous', 33);
+                INSERT INTO agent_run_input VALUES ('previous', 33);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
                 INSERT INTO agent_run_input VALUES ('mixed', 26);
@@ -8265,7 +8388,7 @@ mod tests {
         );
         assert_eq!(
             frozen_batch_context_manifest_version(&connection, "previous").unwrap(),
-            30
+            33
         );
         for invalid in ["historical", "mixed", "missing", "absent"] {
             assert!(frozen_batch_context_manifest_version(&connection, invalid).is_err());
@@ -8768,6 +8891,26 @@ mod slow_tests {
 \"personalityTraits\": [],\n  \"workingPrinciples\": \"\",\n  \"growthTopic\": \"\"\n}\n\
 [/MEMBER_IDENTITY]\n\n[MEMORY_ENTRYPOINT]\nentrypoint\n[/MEMORY_ENTRYPOINT]"
         );
+        for mode in [
+            CharterDeliveryMode::NativeAppend,
+            CharterDeliveryMode::ManagedSystemPrompt,
+            CharterDeliveryMode::FirstPayload,
+        ] {
+            for required in [false, true] {
+                assert_eq!(
+                    bootstrap_payload_reserve(mode, required, false),
+                    if mode == CharterDeliveryMode::FirstPayload && required {
+                        MAX_SESSION_BOOTSTRAP_BYTES + 2
+                    } else {
+                        0
+                    }
+                );
+                assert_eq!(
+                    bootstrap_payload_reserve(mode, required, true),
+                    MAX_SESSION_BOOTSTRAP_BYTES + render_bootstrap_redelivery_overlay("").len() + 2
+                );
+            }
+        }
     }
 
     #[test]
@@ -8957,7 +9100,6 @@ mod slow_tests {
                 agent_id: "agent-a".to_string(),
                 display_name: "A".to_string(),
                 team_role: "Builder".to_string(),
-                professional_responsibilities: "Builds the requested change.".to_string(),
                 membership_status: "active".to_string(),
                 profile_status: "present".to_string(),
                 is_default_lead: true,
@@ -8966,7 +9108,6 @@ mod slow_tests {
                 agent_id: "agent-b".to_string(),
                 display_name: "B".to_string(),
                 team_role: "Reviewer".to_string(),
-                professional_responsibilities: "Reviews the requested change.".to_string(),
                 membership_status: "active".to_string(),
                 profile_status: "away".to_string(),
                 is_default_lead: false,
@@ -8983,7 +9124,6 @@ mod slow_tests {
                         "agentId": "agent-b",
                         "name": "B",
                         "teamRole": "Reviewer",
-                        "professionalResponsibilities": "Reviews the requested change.",
                     },
                 ],
                 "defaultLeadAgentId": "agent-a",
@@ -9016,7 +9156,6 @@ mod slow_tests {
                         "agentId": "agent-b",
                         "name": "B",
                         "teamRole": "Reviewer",
-                        "professionalResponsibilities": "Reviews the requested change.",
                     },
                 ],
                 "defaultLeadAgentId": "agent-b",
@@ -9034,7 +9173,6 @@ mod slow_tests {
                         "agentId": "agent-b",
                         "name": "B",
                         "teamRole": "Reviewer",
-                        "professionalResponsibilities": "Reviews the requested change.",
                     },
                 ],
                 "defaultLeadAgentId": null,
@@ -10548,65 +10686,97 @@ mod slow_tests {
 
     // A claimed input without a Manifest must survive an upgrade using its frozen formatter.
     #[test]
-    fn claimed_legacy_batch_keeps_its_format_after_mention_upgrade() {
-        let mut fixture = fixture();
-        crate::db::downgrade_message_mentions_fixture(&fixture.database);
-        crate::db::upgrade_message_mentions_fixture(&mut fixture.database);
-        let store = ManagedBlobStore::new(&fixture.directory);
-        let request = MaterializeContextRequest {
-            agent_run_id: &fixture.run_id,
-            execution_epoch: fixture.execution_epoch,
-            charter_delivery_mode: CharterDeliveryMode::NativeAppend,
-            max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
-        };
-        let ContextMaterialization::Ready(first) = ContextService
-            .materialize(&mut fixture.database, &store, &request)
-            .unwrap()
-        else {
-            panic!("legacy input must remain materializable");
-        };
-        let input: Value = serde_json::from_str(
-            first
-                .rendered_payload
-                .split_once("[RUN_INPUT]\n")
+    fn claimed_legacy_batch_keeps_its_format_after_context_upgrades() {
+        for expected_version in [32, 33] {
+            let mut fixture = fixture();
+            fixture.database.connection().execute(
+                "INSERT INTO camp_member(camp_id,agent_id,status,capability_overrides_json,version,joined_at) VALUES(?1,'agent_2','active','{}',1,datetime('now'))",
+                [&fixture.camp_id],
+            ).unwrap();
+            if expected_version == 32 {
+                crate::db::downgrade_message_mentions_fixture(&fixture.database);
+                crate::db::upgrade_message_mentions_fixture(&mut fixture.database);
+            } else {
+                crate::db::upgrade_member_routing_fixture(&mut fixture.database);
+            }
+            let store = ManagedBlobStore::new(&fixture.directory);
+            let request = MaterializeContextRequest {
+                agent_run_id: &fixture.run_id,
+                execution_epoch: fixture.execution_epoch,
+                charter_delivery_mode: CharterDeliveryMode::NativeAppend,
+                max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+            };
+            let ContextMaterialization::Ready(first) = ContextService
+                .materialize(&mut fixture.database, &store, &request)
                 .unwrap()
-                .1
-                .split_once("\n[/RUN_INPUT]")
-                .unwrap()
-                .0,
-        )
-        .unwrap();
-        assert!(input["messages"][0].get("mentions").is_none());
-        let version: i64 = fixture
-            .database
-            .connection()
-            .query_row(
-                "SELECT context_manifest_version FROM context_manifest WHERE id=?1",
-                [&first.manifest_id],
-                |r| r.get(0),
+            else {
+                panic!("legacy input must remain materializable");
+            };
+            let input: Value = serde_json::from_str(
+                first
+                    .rendered_payload
+                    .split_once("[RUN_INPUT]\n")
+                    .unwrap()
+                    .1
+                    .split_once("\n[/RUN_INPUT]")
+                    .unwrap()
+                    .0,
             )
             .unwrap();
-        assert_eq!(version, 32);
-        fixture
-            .database
-            .connection()
-            .execute(
-                "UPDATE agent_profile SET display_name='Later name' WHERE id='agent_1'",
-                [],
+            assert_eq!(
+                input["messages"][0].get("mentions").is_none(),
+                expected_version == 32
+            );
+            let roster: Value = serde_json::from_str(
+                first
+                    .rendered_payload
+                    .split_once("[COLLABORATION_STATE]\n")
+                    .unwrap()
+                    .1
+                    .split_once("\n[/COLLABORATION_STATE]")
+                    .unwrap()
+                    .0,
             )
             .unwrap();
-        let ContextMaterialization::Ready(replay) = ContextService
-            .materialize(&mut fixture.database, &store, &request)
-            .unwrap()
-        else {
-            panic!("frozen legacy payload must be reusable");
-        };
-        assert_eq!(replay.rendered_payload, first.rendered_payload);
-        assert_eq!(
-            replay.rendered_payload_digest,
-            first.rendered_payload_digest
-        );
-        fixture.cleanup();
+            assert!(!roster["peers"].as_array().unwrap().is_empty());
+            assert!(
+                roster["peers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|peer| peer.get("professionalResponsibilities").is_some())
+            );
+            let version: i64 = fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT context_manifest_version FROM context_manifest WHERE id=?1",
+                    [&first.manifest_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(version, expected_version);
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE agent_profile SET display_name='Later name' WHERE id='agent_1'",
+                    [],
+                )
+                .unwrap();
+            let ContextMaterialization::Ready(replay) = ContextService
+                .materialize(&mut fixture.database, &store, &request)
+                .unwrap()
+            else {
+                panic!("frozen legacy payload must be reusable");
+            };
+            assert_eq!(replay.rendered_payload, first.rendered_payload);
+            assert_eq!(
+                replay.rendered_payload_digest,
+                first.rendered_payload_digest
+            );
+            fixture.cleanup();
+        }
     }
 
     #[test]
@@ -10799,7 +10969,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(
             (manifest_version, formatter_version, facts_version),
-            (33, 33, 9)
+            (34, 34, 9)
         );
         assert_eq!(profile_json, None);
         assert_eq!(
@@ -11513,6 +11683,15 @@ mod slow_tests {
     #[test]
     fn redelivery_overlay_is_frozen_at_prepare_and_acknowledges_only_its_revision() {
         let mut fixture = fixture();
+        let long_responsibilities = "😀".repeat(10_000);
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_1'",
+                [&long_responsibilities],
+            )
+            .unwrap();
         let conversation_id = bind_redelivery_fixture_session(&mut fixture, "redelivery-session");
         insert_redelivery_requirement(&mut fixture, &conversation_id, 1);
         let service = ContextService;
@@ -11529,6 +11708,12 @@ mod slow_tests {
             )
             .unwrap();
         assert!(current.payload.contains("rovai thread"));
+        assert!(current.payload.len() > 32 * 1024);
+        assert!(
+            current
+                .payload
+                .contains(&serde_json::to_string(&long_responsibilities).unwrap())
+        );
         let charter: String = fixture
             .database
             .connection()
@@ -12705,6 +12890,16 @@ mod slow_tests {
     #[test]
     fn newly_bound_session_bootstraps_on_its_current_generation() {
         let mut fixture = fixture();
+        // Worst JSON expansion: each valid scalar becomes six serialized bytes.
+        let long_responsibilities = "\0".repeat(10_000);
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET professional_responsibilities=?1 WHERE id='agent_1'",
+                [&long_responsibilities],
+            )
+            .unwrap();
         bind_fixture_feishu_channel(&fixture);
         let execution = bind_fixture_native_session(&mut fixture, "new-native-session");
 
@@ -12724,6 +12919,31 @@ mod slow_tests {
         let ContextMaterialization::Ready(prepared) = materialized else {
             panic!("newly bound Session should materialize without another generation")
         };
+        let full_json = serde_json::to_string(&long_responsibilities).unwrap();
+        assert!(prepared.runtime_payload.contains(&full_json));
+        assert_eq!(
+            prepared
+                .runtime_payload
+                .matches("[MEMBER_IDENTITY]")
+                .count(),
+            1
+        );
+        let ContextMaterialization::Ready(recovered) = ContextService
+            .materialize(
+                &mut fixture.database,
+                &store,
+                &MaterializeContextRequest {
+                    agent_run_id: &fixture.run_id,
+                    execution_epoch: fixture.execution_epoch,
+                    charter_delivery_mode: CharterDeliveryMode::FirstPayload,
+                    max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("recovery should retain full identity");
+        };
+        assert_eq!(recovered.runtime_payload, prepared.runtime_payload);
         assert!(!prepared.requires_new_native_session);
         assert_eq!(prepared.expected_binding_generation, 1);
         assert!(prepared.bootstrap_in_runtime_payload);
@@ -13266,7 +13486,7 @@ mod slow_tests {
         assert!(initial.rendered_payload.contains("PEER_INITIAL_NAME"));
         assert!(initial.rendered_payload.contains("PEER_INITIAL_ROLE"));
         assert!(
-            initial
+            !initial
                 .rendered_payload
                 .contains("PEER_INITIAL_RESPONSIBILITIES")
         );
@@ -13374,7 +13594,9 @@ mod slow_tests {
             .execute(
                 r#"
                 UPDATE agent_profile
-                SET profile_status = 'away', version = version + 1, updated_at = ?1
+                SET profile_status = 'away', professional_responsibilities = 'PEER_DETAIL_ONLY',
+                    personality_traits_json = '["好奇"]', working_principles = 'DETAIL_ONLY', growth_topic = 'DETAIL_ONLY',
+                    version = version + 1, updated_at = ?1
                 WHERE id = 'agent_2'
                 "#,
                 [&self_edit_at],
@@ -13496,7 +13718,7 @@ mod slow_tests {
         assert!(third.rendered_payload.contains("PEER_UPDATED_NAME"));
         assert!(third.rendered_payload.contains("PEER_UPDATED_ROLE"));
         assert!(
-            third
+            !third
                 .rendered_payload
                 .contains("PEER_UPDATED_RESPONSIBILITIES")
         );

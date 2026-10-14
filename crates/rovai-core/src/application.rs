@@ -8840,50 +8840,122 @@ impl Core {
                 struct Read {
                     avatar_ref: String,
                     rendition: String,
+                    #[serde(default)]
+                    static_png: bool,
                 }
                 let params: Read = serde_json::from_value(request.params.clone())?;
                 anyhow::ensure!(
                     matches!(params.rendition.as_str(), "icon" | "portrait"),
                     "Avatar rendition is invalid"
                 );
-                Ok(serde_json::to_value(
+                anyhow::ensure!(
+                    !params.static_png || params.rendition == "icon",
+                    "Only icons support a static PNG rendition"
+                );
+                let image = if params.static_png {
+                    rovai_core::member_avatar::read_managed_member_avatar_static_icon(
+                        &self.data_dir,
+                        &params.avatar_ref,
+                    )?
+                } else {
                     rovai_core::member_avatar::read_managed_member_avatar(
                         &self.data_dir,
                         &params.avatar_ref,
                         params.rendition == "portrait",
-                    )?,
-                )?)
+                    )?
+                };
+                Ok(serde_json::to_value(image)?)
             }
             "memberAvatars.save" => {
                 use base64::Engine;
                 #[derive(Deserialize)]
-                #[serde(rename_all = "camelCase", deny_unknown_fields)]
-                struct Save {
-                    source_base64: String,
-                    icon_base64: String,
-                    source_width: u32,
-                    source_height: u32,
-                    crop: rovai_core::member_avatar::MemberAvatarCrop,
+                #[serde(
+                    tag = "kind",
+                    rename_all = "camelCase",
+                    rename_all_fields = "camelCase",
+                    deny_unknown_fields
+                )]
+                enum Save {
+                    Raster {
+                        source_base64: String,
+                        icon_base64: String,
+                        source_width: u32,
+                        source_height: u32,
+                        crop: rovai_core::member_avatar::MemberAvatarCrop,
+                    },
+                    Gif {
+                        source_gif_base64: String,
+                        source_width: u32,
+                        source_height: u32,
+                        crop: rovai_core::member_avatar::MemberAvatarCrop,
+                    },
+                    Recrop {
+                        avatar_ref: String,
+                        crop: rovai_core::member_avatar::MemberAvatarCrop,
+                    },
                 }
-                let params: Save = serde_json::from_value(request.params.clone())?;
-                anyhow::ensure!(
-                    params.source_base64.len() <= 23 * 1024 * 1024
-                        && params.icon_base64.len() <= 1400 * 1024,
-                    "Avatar exceeds the managed asset limit"
-                );
-                let source =
-                    base64::engine::general_purpose::STANDARD.decode(params.source_base64)?;
-                let icon = base64::engine::general_purpose::STANDARD.decode(params.icon_base64)?;
-                Ok(serde_json::to_value(
-                    rovai_core::member_avatar::save_managed_member_avatar(
-                        &self.data_dir,
-                        &source,
-                        &icon,
-                        params.source_width,
-                        params.source_height,
-                        params.crop,
-                    )?,
-                )?)
+                let mut value = request.params.clone();
+                // Existing static clients omit kind.
+                if let Some(object) = value.as_object_mut() {
+                    object.entry("kind").or_insert(json!("raster"));
+                }
+                let params: Save = serde_json::from_value(value)?;
+                let summary = match params {
+                    Save::Raster {
+                        source_base64,
+                        icon_base64,
+                        source_width,
+                        source_height,
+                        crop,
+                    } => {
+                        anyhow::ensure!(
+                            source_base64.len() <= 23 * 1024 * 1024
+                                && icon_base64.len() <= 1400 * 1024,
+                            "Avatar exceeds the managed asset limit"
+                        );
+                        let source =
+                            base64::engine::general_purpose::STANDARD.decode(source_base64)?;
+                        let icon = base64::engine::general_purpose::STANDARD.decode(icon_base64)?;
+                        rovai_core::member_avatar::save_managed_member_avatar(
+                            &self.data_dir,
+                            &source,
+                            &icon,
+                            source_width,
+                            source_height,
+                            crop,
+                        )?
+                    }
+                    Save::Gif {
+                        source_gif_base64,
+                        source_width,
+                        source_height,
+                        crop,
+                    } => {
+                        anyhow::ensure!(
+                            source_gif_base64.len() <= 14 * 1024 * 1024,
+                            "Avatar exceeds the managed asset limit"
+                        );
+                        let source =
+                            base64::engine::general_purpose::STANDARD.decode(source_gif_base64)?;
+                        let frame_count = rovai_core::member_avatar::gif_frame_count_for(&source)?;
+                        rovai_core::member_avatar::save_managed_member_avatar_gif(
+                            &self.data_dir,
+                            &source,
+                            source_width,
+                            source_height,
+                            crop,
+                            frame_count,
+                        )?
+                    }
+                    Save::Recrop { avatar_ref, crop } => {
+                        rovai_core::member_avatar::recrop_member_avatar(
+                            &self.data_dir,
+                            &avatar_ref,
+                            crop,
+                        )?
+                    }
+                };
+                Ok(serde_json::to_value(summary)?)
             }
             "members.list" => {
                 let database = self.database.lock().await;

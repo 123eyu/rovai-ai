@@ -157,15 +157,19 @@ pub fn authorize_member_target(
 
 pub fn list_members(connection: &Connection, run: &AuthenticatedTeamToolRun) -> Result<Value> {
     let mut statement = connection.prepare(
-        "SELECT p.id,p.display_name,p.team_role,p.professional_responsibilities,COALESCE(p.id=c.default_lead_agent_id,0)
+        "SELECT p.id,p.display_name,p.team_role,COALESCE(p.id=c.default_lead_agent_id,0)
          FROM camp_member m JOIN agent_profile p ON p.id=m.agent_id JOIN camp c ON c.id=m.camp_id
          WHERE m.camp_id=?1 AND m.status='active' AND m.leave_requested_at IS NULL AND p.profile_status!='removed'
          ORDER BY p.member_order,p.id")?;
-    let items = statement.query_map([&run.camp_id], |row| Ok(json!({
-        "agentId": row.get::<_,String>(0)?, "displayName": row.get::<_,String>(1)?,
-        "teamRole": row.get::<_,String>(2)?, "professionalResponsibilities": row.get::<_,String>(3)?,
-        "isDefaultLead": row.get::<_,bool>(4)?,
-    })))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let items = statement
+        .query_map([&run.camp_id], |row| {
+            Ok(json!({
+                "agentId": row.get::<_,String>(0)?, "displayName": row.get::<_,String>(1)?,
+                "teamRole": row.get::<_,String>(2)?,
+                "isDefaultLead": row.get::<_,bool>(3)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!({"threadId": run.camp_id, "items": items}))
 }
 
@@ -336,7 +340,7 @@ pub fn update_member(
                 json!({ "currentVersion": current.version }),
             ));
         }
-        let next = normalize_member_identity(
+        let mut next = normalize_member_identity(
             input.display_name.as_deref().unwrap_or(&current.display_name),
             input.team_role.as_deref().unwrap_or(&current.team_role),
             input.professional_responsibilities.as_deref()
@@ -344,11 +348,18 @@ pub fn update_member(
             input.personality_traits.as_deref().unwrap_or(&current.personality_traits),
             input.working_principles.as_deref().unwrap_or(&current.working_principles),
             input.growth_topic.as_deref().unwrap_or(&current.growth_topic),
-        ).map_err(|_| MemberOperationError {
+        ).map_err(|error| MemberOperationError {
             code: "member.invalid_identity",
-            message: "One or more member identity fields are invalid",
+            message: if error.to_string() == crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG {
+                crate::agent_profile::PROFESSIONAL_RESPONSIBILITIES_TOO_LONG
+            } else { "One or more member identity fields are invalid" },
             details: None,
         })?;
+        // An omitted optional field must preserve historical bytes, including
+        // FEFF that the old Rust trim accepted at the edges of stored duties.
+        if input.professional_responsibilities.is_none() {
+            next.professional_responsibilities = current.professional_responsibilities.clone();
+        }
         if profile_display_name_exists(transaction, &next.display_name, Some(&input.agent_id))? {
             return Ok(CommandHandlerResult::rejected(
                 "agent_profile.display_name_conflict",
@@ -432,8 +443,8 @@ pub fn member_list_output_schema() -> Value {
     json!({"type":"object","additionalProperties":false,"required":["threadId","items"],"properties":{
         "threadId":{"type":"string"},"items":{"type":"array","items":{
             "type":"object","additionalProperties":false,
-            "required":["agentId","displayName","teamRole","professionalResponsibilities","isDefaultLead"],
-            "properties":{"agentId":{"type":"string"},"displayName":{"type":"string"},"teamRole":{"type":"string"},"professionalResponsibilities":{"type":"string"},"isDefaultLead":{"type":"boolean"}}
+            "required":["agentId","displayName","teamRole","isDefaultLead"],
+            "properties":{"agentId":{"type":"string"},"displayName":{"type":"string"},"teamRole":{"type":"string"},"isDefaultLead":{"type":"boolean"}}
         }}
     }})
 }

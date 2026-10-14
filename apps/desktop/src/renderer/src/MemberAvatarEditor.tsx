@@ -1,6 +1,6 @@
 import { useThreadClient } from './camp-client'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { parseControlledMemberAvatarRef } from '@contracts'
+import { parseControlledMemberAvatarRef, type MemberAvatarAssetSummary } from '@contracts'
 import { MemberAvatar } from './MemberAvatar'
 import { MemberAvatarCropper } from './MemberAvatarCropper'
 import { DialogControlIcon } from './AppDialog'
@@ -35,16 +35,11 @@ export function MemberAvatarEditor({
   const [error, setError] = useState<string | null>(null)
   const generation = useRef(0)
   const loaded = useRef<string | null>(null)
+  const sourceBytes = source?.kind === 'gif' ? source.sourceGif : source?.sourcePng
+  const sourceMediaType = source?.kind === 'gif' ? 'image/gif' : 'image/png'
   const sourceUrl = useMemo(
-    () =>
-      source
-        ? URL.createObjectURL(
-            new Blob([Uint8Array.from(source.sourcePng).buffer], {
-              type: 'image/png'
-            })
-          )
-        : null,
-    [source?.sourcePng]
+    () => sourceBytes ? URL.createObjectURL(new Blob([Uint8Array.from(sourceBytes).buffer], { type: sourceMediaType })) : null,
+    [sourceBytes, sourceMediaType]
   )
   useEffect(
     () => () => {
@@ -78,13 +73,27 @@ export function MemberAvatarEditor({
         if (attempt !== generation.current) return
         if (!image)
           throw new Error(uiAttribute('原角色图片不可读取。可以替换图片或移除当前图片。'))
-        setSource({
-          sourcePng: Uint8Array.from(image.bytes),
-          width: image.width,
-          height: image.height,
-          crop: image.crop,
-          needsSave: false
-        })
+        setSource(
+          image.mediaType === 'image/gif'
+            ? {
+                kind: 'gif',
+                sourceGif: Uint8Array.from(image.bytes),
+                width: image.width,
+                height: image.height,
+                crop: image.crop,
+                sourceAvatarRef: value,
+                needsSave: false
+              }
+            : {
+                kind: 'raster',
+                sourcePng: Uint8Array.from(image.bytes),
+                width: image.width,
+                height: image.height,
+                crop: image.crop,
+                sourceAvatarRef: value,
+                needsSave: false
+              }
+        )
       })
       .catch((issue) => {
         if (attempt === generation.current) setError(readErrorMessage(issue))
@@ -119,16 +128,23 @@ export function MemberAvatarEditor({
     setBusy(true)
     setError(null)
     try {
-      const asset = await deriveMemberAvatarIcon(source, source.crop)
-      const persisted = await client.memberAvatars.save({
-        sourcePng: asset.sourcePng,
-        iconPng: asset.iconPng,
-        sourceWidth: asset.width,
-        sourceHeight: asset.height,
-        crop: asset.crop
-      })
+      let persisted: MemberAvatarAssetSummary
+      if (source.sourceAvatarRef) {
+        persisted = await client.memberAvatars.save({ kind: 'recrop', avatarRef: source.sourceAvatarRef, crop: source.crop })
+      } else if (source.kind === 'gif') {
+        persisted = await client.memberAvatars.save({
+          kind: 'gif', sourceGif: source.sourceGif,
+          sourceWidth: source.width, sourceHeight: source.height, crop: source.crop
+        })
+      } else {
+        const asset = await deriveMemberAvatarIcon(source, source.crop)
+        persisted = await client.memberAvatars.save({
+          sourcePng: asset.sourcePng, iconPng: asset.iconPng,
+          sourceWidth: asset.width, sourceHeight: asset.height, crop: asset.crop
+        })
+      }
       if (attempt !== generation.current) return
-      loaded.current = persisted.avatarRef
+      loaded.current = null
       setSource(null)
       onChange(persisted.avatarRef)
       onClose()
@@ -193,7 +209,7 @@ export function MemberAvatarEditor({
           >
             {busy ? uiAttribute("正在处理…") : uiAttribute("上传图片")}
           </button>
-          <small><UiText zh={"PNG / JPEG · 最大 10 MiB"} /></small>
+          <small><UiText zh={"PNG / JPEG / GIF · 至少 256×256 px · 最大 10 MiB"} /></small>
         </div>
       </div>
       {source && sourceUrl && (
@@ -211,7 +227,7 @@ export function MemberAvatarEditor({
               type="button"
               className="member-editor-cancel"
               disabled={busy}
-              onClick={() => setSource(null)}
+              onClick={() => { loaded.current = null; setSource(null) }}
             ><UiText zh={"取消裁剪"} /></button>
             <button
               type="button"

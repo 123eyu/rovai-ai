@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: current-foundational-invariants
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # 当前基础架构不变量
@@ -157,9 +157,11 @@ last_updated: 2026-10-12
 
 ### 三层身份与命名
 
+专业职责支持 trim 后 0～10,000 个 Unicode scalar values；内部格式保留，超限原子拒绝。本人身份仍完整投递，其他字段限制不变。
+
 - AgentProfile 使用三个当前身份层：SQLite 内部不可公开的 UUID、工具/模型/审计使用且不可复用的 `agent_<positive integer>`、用户可编辑且全局唯一的 Member Name。数字后缀不表达角色、能力、排序或权威。
 - Agent ID 由应用级单调序列在创建事务中分配；已提交身份即使永久移除也不释放。内置成员使用同一格式和分配合同，不形成领域子类型。
-- 模型和工具选择成员时同时投影 Agent ID、名称、团队角色和专业职责，不能从名称或数字猜 ID。旧 handle 只用于解释历史文本，不是当前目标、当前展示或新身份分配层。
+- 模型自动协作名单与 member list 只投影 Agent ID、名称、团队角色（list 另含 Lead 标记），完整职责通过 member get 按需读取，不能从名称或数字猜 ID。旧 handle 只用于解释历史文本，不是当前目标、当前展示或新身份分配层。
 - Member Name 在创建/编辑事务中规范化并执行全局冲突检查。Composer 展示名称但提交结构化 Agent ID；历史文本可投影当前名称而不改写原始 SQLite 正文。
 - 历史的 summary-model 或可变名称配置不是当前身份层。模型配置属于原子 Member Runtime Configuration，不通过另一个“摘要模型”入口改变成员身份或公共历史语义。
 
@@ -170,7 +172,7 @@ last_updated: 2026-10-12
 - `present | away | removed` 是 AgentProfile 的独立生命周期。Runtime 配置、可用性、认证或探测结果不得隐式改变 Presence；`removed` 是不可逆终态。
 - `away` 阻止新 Run，但保留身份、CampMember、Task assignment、Runtime 配置、头像、Memory 和历史；归队只恢复未来活动资格。永久移除只在不存在非终态 Run 时推进 Presence 和审计，不物理删除身份或历史关联。
 - removed 成员从活动名册、寻址、分配、Runtime/Skill/MCP 投影和未来 Memory counterparty 中排除，但历史消息、Task、Run 和审计继续显示原身份。历史配置可以成为不可执行的保留事实，不能阻止当前 Installation 清理。
-- CampMember 表达 Camp 内关系而不是复制全局 Presence。成员顺序稳定，Default Lead 必须是当前有效关系；Camp 至少保留一位 active member。动态添加/移除使用 Camp membership generation 与关系 exact version；曾离开成员再次添加是普通添加但形成新的 membership lifetime，不复活旧授权。对当前 active member（包括 Presence 为 `away`）的相同 capability overrides add 是 no-op，不同 overrides 必须 conflict，不能借 add 静默旋转 lifetime；只有 left/不存在的真实添加要求 Profile 为 `present`。
+- CampMember 表达 Camp 内关系而不是复制全局 Presence。成员顺序稳定，Default Lead 必须是当前有效关系；Camp 允许零位 active member，此时 Default Lead 为 null；历史、工作区和本地草稿保留，邀请首位 present 队员后恢复默认接收者。动态添加/移除使用 Camp membership generation 与关系 exact version；曾离开成员再次添加是普通添加但形成新的 membership lifetime，不复活旧授权。对当前 active member（包括 Presence 为 `away`）的相同 capability overrides add 是 no-op，不同 overrides 必须 conflict，不能借 add 静默旋转 lifetime；只有 left/不存在的真实添加要求 Profile 为 `present`。
 - 移除复用现有定向 membership cutover：结束关系、修复 Lead、释放开放 Task，取消该 membership lifetime 尚未 claim 的 waiting Delivery，并结算其已物化 Run；同一事务完成 reconciliation 审计。重新加入只接受新消息，不能复活旧 waiting/Run/Approval 或历史 Gather 状态。无关 Run 和渠道投递不受影响；外部来源仍受 allowlist、Camp-bound source 与 exact generation 约束。
 
 <a id="member-projection"></a>
@@ -181,7 +183,7 @@ last_updated: 2026-10-12
 - `avatarRef` 是 AgentProfile 唯一头像领域字段，引用受控内置外观或应用受管不可变本地资产。选择、解码、规范化、限尺/重编码、原子保存和引用提交分层校验；先物化不可变资产、再事务提交 ref，失败/替换产生的孤儿由延迟安全 GC 回收。原路径、原图元数据和图像正文不得进入 SQLite、日志、诊断或导出。
 - 每个封闭内置角色只有一套当前 packaged appearance/preset；升级直接替换受控引用背后的当前内容，不维护旧图库，也不从外观推导角色、Capability、Runtime、权限或生命周期。
 - 用户导入图像仅存本地，备份/导出默认只包含安全 ref/受控资产而不恢复原始文件路径；缺失、损坏或未随备份携带时降级为中性展示，不修改身份或从不可信路径回读。
-- `MEMBER_IDENTITY` 是一个 Native Session 唯一完整的 self identity；`COLLABORATION_STATE` 只投影新 AgentRun 冻结时当前 Camp peers 的路由身份和 Lead 引用，不重复 self，也不包含人格、Presence、Runtime、busy、membership generation/version 或成员变化 delta。已冻结 Run 不因名册变化被原位打补丁。
+- `MEMBER_IDENTITY` 是一个 Native Session 唯一完整的 self identity；`COLLABORATION_STATE` 只投影新 AgentRun 冻结时当前 Camp peers 的路由身份和 Lead 引用，不重复 self，也不包含专业职责、人格、Presence、Runtime、busy、membership generation/version 或成员变化 delta。已冻结 Run 不因名册变化被原位打补丁。
 - Collaboration projection digest 对完整最终模型计算，是否实际包含是独立 evidence；只有 Runtime Input accepted ACK 才推进 Conversation 水位，未知或失败投递必须在后续输入重试。
 
 ## 协作、Task、消息与 Delivery
@@ -191,7 +193,7 @@ last_updated: 2026-10-12
 ### 协作与执行准入
 
 - Camp、CampMember、Default Lead、Conversation、CampMessage、Message Delivery、AgentRun 和 Task 由 Core 在同一协作边界协调；历史 CampTurn 只读保留。Presence、membership、Runtime readiness、Capability、权限和 fencing 是独立准入轴，不能互相推导。
-- CampMember 只表达 Camp 内关系，不复制全局 Presence。成员顺序使用稳定、不复用的关系序列；Default Lead 必须是当前有效关系且符合领导资格，Camp 至少保留一位 active member。动态关系命令使用 generation/version CAS，Lead successor 与影响预览由 Core 验证。
+- CampMember 只表达 Camp 内关系，不复制全局 Presence。成员顺序使用稳定、不复用的关系序列；Default Lead 必须是当前有效关系且符合领导资格，Camp 允许零位 active member，此时 Default Lead 为 null；历史、工作区和本地草稿保留，邀请首位 present 队员后恢复默认接收者。动态关系命令使用 generation/version CAS，Lead successor 与影响预览由 Core 验证。
 - Camp 只冻结 workspace binding 和成员关系，Git/Project 是可重观测投影。新 Camp 不预创建 Conversation 或 Run；消息发布事务创建 CampMessage、必要的目标 Conversation 路由和每目标 waiting Delivery，但不创建 AgentRun。Scheduler claim 才冻结当前执行配置并创建多输入 AgentRun。
 - 外部渠道完成 transport dedup 和 live binding recheck 后，复用同一 CampMessage + Delivery 发布 seam。尚未绑定或仍在渠道 FIFO 中的内容不是公共消息，也不进入 History、Context 或执行。`ExternalPrincipal` 只表达作者和渠道来源，不继承 `local_user` 能力。
 - Renderer 可以先本地显示待确认的用户消息，但不得把它当成 CampMessage。Core 接受发送时原子持久公共消息与目标 Delivery；workspace、Runtime、Git、exact membership lifetime、permission 和 isolation fence 在 claim/dispatch 边界重验。再次添加同一 Agent 不恢复旧 lifetime 的权限或输入。
@@ -355,7 +357,7 @@ last_updated: 2026-10-12
 
 ### 公共历史按需读取与实时读取
 
-- 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。正文/作者的各自投影不变，非 batch 和单聊保持旧字段。新 Run 使用 [Manifest v33](../contracts/context-manifest-evidence-v33.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
+- 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。正文/作者的各自投影不变，非 batch 和单聊保持旧字段。新 Run 使用 [Manifest v34](../contracts/context-manifest-evidence-v34.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
 
 - 新公开 batch AgentRun 不自动生成 `SHARED_CONVERSATION`、历史摘要或遗漏 locator。`RUN_INPUT` 仍完整有序。`RUN_FACTS.historyHint` 依据本 Agent 在此 Camp 上一次有效 accepted ACK 对应执行前公屏尾 `P` 以及本轮 claim 冻结的额外可见消息布尔结果选四种完整句子；存在只表示额外可见消息，不增加工作责任、不要求读取。提示是历史参考点，不代表阅读或完成，也不是 `camp.read --before` 游标。Charter 保留不推断遗漏、仅需当前工作时读取的纪律；`RUN_INPUT` 和已有上下文足够就直接推进，仅在缺少当前工作所需 Camp context 时 `rovai camp read`。
 - claim 同一事务用 `P`、本轮公屏尾 `T`、最终领取进入 `RUN_INPUT.messages` 的全部 ID `I` 与当前 Agent `A` 检查额外可见消息：`P > 0` 查 `(P, T]`、`P = 0` 查 `<= T`，首轮也查实际历史。可见性沿用当前 Camp `camp.read` 时间线的同 Camp／非 tombstone 规则，撤回占位符计入；仅排除 `I` 和 `author_type = agent, author_id = A`。发给其他 Agent 的可见消息及未领取队尾仍计入；不能用 waiting Delivery 候选代替历史可见集合。只做无正文、无数量、无分页上限的 `EXISTS`，失败回滚整个 claim，不创建无判断结果的 Run。Run 内部冻结 `P` 与布尔值，不复制历史；后续消息、撤回或水位变化均不重算原提示。
@@ -421,7 +423,7 @@ last_updated: 2026-10-12
 - Core IPC 先返回并校验完整 Envelope，然后按 operation 投影一份 closed Agent result JSON。普通 Agent 输出不包含 envelope wrapper、request identity 或 receipt，也不通过递归删字段得到；每个 operation 有明确 `agentOutputSchema` 与 golden fixture。完整 Envelope 只用于 Core、Evidence、Qualification 和 host-controlled debug 边界。
 - `rovai` CLI 是 Runtime 调用 Rovai-owned built-ins 的唯一运输。内置 MCP/`rovai_team` Bridge、注入、alias map、Runtime 临时配置和 native permission bundle 已 clean break 删除；不存在 fallback 或同 Run 双运输。用户外部 MCP 继续走独立 Library/Runtime-native projection，不经 Built-in Router。
 - CLI 使用领域分组命令，但 请求记录、审计、Activity 与 Envelope 保留 canonical dotted operation identity。Native Session Bootstrap 只教稳定 CLI 入口和通用失败纪律；Agent 侧没有 `tool list`、`tool describe`、generic invoke 或全量 schema discovery。精确输入源和本命令约束由简短 `--help` 给出，复杂选择/恢复由 `cli-operations` Skill 说明。
-- CLI 将输入规范化为一个请求对象；只有 Send 正文文件可与除 `--body` 外的直接参数组合。Send 文件严格命中现有封闭请求 Schema 时保留整个请求，且禁止混入直接参数；其他合法 UTF-8 文本成为原文正文。识别后的业务失败不能降级重发。其他命令仍一次只选 direct arguments、JSON stdin/heredoc 或 JSON `--input-file`，不合并或覆盖；显式文件/参数不读取继承 stdin。文件与兼容边界见 [Built-in Tool Transport v38](../contracts/builtin-tool-transport-v38.md)。`camp.read` 只在所选来源成为 JSON 对象之后、canonical Schema 校验之前补全安全 Timeline 默认；默认 Timeline 发送给 Core 的 canonical JSON 始终包含 mode/direction/limit，其他显式 mode 继续发送各自完整 branch。其他命令不引入业务默认；输入文件路径、Shell quoting 与临时文件不是 Core 信任边界或保密保证。
+- CLI 将输入规范化为一个请求对象；只有 Send 正文文件可与除 `--body` 外的直接参数组合。Send 文件严格命中现有封闭请求 Schema 时保留整个请求，且禁止混入直接参数；其他合法 UTF-8 文本成为原文正文。识别后的业务失败不能降级重发。其他命令仍一次只选 direct arguments、JSON stdin/heredoc 或 JSON `--input-file`，不合并或覆盖；显式文件/参数不读取继承 stdin。文件与兼容边界见 [Built-in Tool Transport v39](../contracts/builtin-tool-transport-v39.md)。`camp.read` 只在所选来源成为 JSON 对象之后、canonical Schema 校验之前补全安全 Timeline 默认；默认 Timeline 发送给 Core 的 canonical JSON 始终包含 mode/direction/limit，其他显式 mode 继续发送各自完整 branch。其他命令不引入业务默认；输入文件路径、Shell quoting 与临时文件不是 Core 信任边界或保密保证。
 - 目标 Runtime 必须在接收 Run 输入前证明 CLI、当前 IPC、Run binding 和当前 contract 可用；否则以结构化理由 fail closed，不启动降级 Agent。发布资格按 Runtime 及宿主平台独立验收，不因一个平台未准入而否定其他已验收组合。
 - Business rejection 投影稳定 code、safe message、closed recovery 和合同允许的 details；不泄露 stack、SQL、内部路径、IPC 地址、secret 或未筛底层错误。乐观冲突要求重读后重新判断；只有 Core 明确允许时才以同一 request identity 有界重试。幂等重试返回原结果而不重复效果；无法证明时返回 outcome indeterminate 并要求核对当前状态。
 - CLI 子进程通过当前 Run 的受保护本地 IPC endpoint 与新 lease 继承调用身份，不从可复用 Runtime 进程身份继承权力。Runtime 及它启动的子进程共享当前 Run/Member 归属和同一 scope/version/quota/fence，不根据父进程名、命令文本或层级猜测模型意图。Run release 先 fence lease，迟到子进程调用不得归属于后续 Run。

@@ -328,7 +328,17 @@ export interface MemberRemovalPreview {
   openAssignedTaskCount: number
   defaultLeadThreadCount: number
   soleMemberThreadCount: number
+  affectedThreads: MemberRemovalThreadImpact[]
   removable: boolean
+}
+
+export interface MemberRemovalThreadImpact {
+  threadId: string
+  title: string
+  remainingMemberCount: number
+  wasDefaultLead: boolean
+  nextDefaultLeadAgentId: string | null
+  nextDefaultLeadDisplayName: string | null
 }
 
 export interface ReorderAgentProfilesCommand {
@@ -1131,13 +1141,14 @@ export interface ThreadMemberRemovalPreview {
   membershipGeneration: number
   membershipVersion: number
   isDefaultLead: boolean
+  remainingMemberCount: number
   nextDefaultLeadAgentId: string | null
   nonTerminalAgentRunCount: number
   openAssignedTaskCount: number
   pendingDeliveryCount: number
   runningDeliveryCount: number
   removable: boolean
-  blockerCode: 'camp.member_not_active' | 'camp.last_member_required' | null
+  blockerCode: 'camp.member_not_active' | null
 }
 
 export interface TaskView {
@@ -2254,9 +2265,9 @@ export interface ContextManifestView {
   historyThreads: ContextManifestHistoryThreadView[]
   rawMessageCount: number
   previousAcceptedPublicBoundarySequence: number
-  contextDeliveryProfileVersion: 4 | 5 | 6 | 7 | 8
+  contextDeliveryProfileVersion: 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
   contextDeliveryProfile: {
-    profileVersion: 4 | 5 | 6 | 7 | 8
+    profileVersion: 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
     maxPublicMessages: number
     maxPublicHistoryChars: number
     maxMessageBodyChars: number
@@ -2295,7 +2306,7 @@ export interface ContextManifestView {
   mcpProjectionDigest: string | null
   selfActiveTaskEvidence: unknown
   selfActiveTaskEvidenceDigest: string | null
-  formatterVersion: 22 | 23 | 24 | 25
+  formatterVersion: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35
   renderedPayloadDigest: string | null
   delivery: RuntimeInputDeliveryView | null
   createdAt: string
@@ -3446,7 +3457,7 @@ export interface MemberAvatarCrop {
   size: number
 }
 
-export type MemberAvatarInputMediaType = 'image/png' | 'image/jpeg'
+export type MemberAvatarInputMediaType = 'image/png' | 'image/jpeg' | 'image/gif'
 
 export interface MemberAvatarSourceSelection {
   displayName: string
@@ -3455,15 +3466,38 @@ export interface MemberAvatarSourceSelection {
   inspectedWidth: number
   inspectedHeight: number
   byteLength: number
+  /** Present only for animated GIF selections (frame/loop semantics). */
+  frameCount?: number
+  loopCount?: number | null
 }
 
-export interface SaveMemberAvatarAssetInput {
+export interface SaveMemberAvatarRasterInput {
+  kind?: 'raster'
   sourcePng: Uint8Array
   iconPng: Uint8Array
   sourceWidth: number
   sourceHeight: number
   crop: MemberAvatarCrop
 }
+
+export interface SaveMemberAvatarGifInput {
+  kind: 'gif'
+  sourceGif: Uint8Array
+  sourceWidth: number
+  sourceHeight: number
+  crop: MemberAvatarCrop
+}
+
+export interface RecropMemberAvatarAssetInput {
+  kind: 'recrop'
+  avatarRef: string
+  crop: MemberAvatarCrop
+}
+
+export type SaveMemberAvatarAssetInput =
+  | RecropMemberAvatarAssetInput
+  | SaveMemberAvatarRasterInput
+  | SaveMemberAvatarGifInput
 
 export interface MemberAvatarAssetSummary {
   avatarRef: string
@@ -3473,7 +3507,7 @@ export interface MemberAvatarAssetSummary {
 }
 
 export interface MemberAvatarRendition {
-  mediaType: 'image/png'
+  mediaType: 'image/png' | 'image/gif'
   bytes: Uint8Array
   width: number
   height: number
@@ -4427,3 +4461,5 @@ export interface MissionChangedFile { id: string; path: string; oldPath: string 
 export type CheckoutState = { kind: 'branch'; branch: string; head: string } | { kind: 'detached'; head: string } | { kind: 'unavailable' }
 export interface MissionWorkspaceChangesView { checkoutState: CheckoutState; viewId: string | null; files: MissionChangedFile[] | null; diffError: string | null }
 export interface MissionFileDiff { file: MissionChangedFile; patch: string; hunks: { oldStart: number; newStart: number; lines: { kind: 'addition' | 'deletion' | 'context' | 'metadata'; text: string; oldLine: number | null; newLine: number | null }[] }[] }
+
+export * from './member-avatar-image'

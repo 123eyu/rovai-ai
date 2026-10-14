@@ -1,10 +1,19 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-10
+last_updated: 2026-10-14
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-14 用户 Steer 完整核验
+
+[完整实测清单](research/runtime-monitoring/steer-complete-2026-10-14.md)覆盖十五种 Runtime，
+并明确排除 Cursor、Cline、Command Code。当前分支已接入 Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build，
+真实产品场景及失败见[五种扩展验收](research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)与其引用的 Codex 验收。
+补测另确认 Kimi REST、Copilot SDK immediate、ZCode guide、OpenCode HTTP steer 的原生同轮能力，尚未接入产品。
+TRAE、DeepSeek Harness、Kiro 当前 ACP 忙碌拒绝；Qoder ACP、Antigravity Stream JSON 的受测路径是后继排队。
+结论限定于表中版本和入口，不把 ACP 限制扩大为整个 Runtime 没有能力；本轮未安装或重启日常 App。
 
 ## 2026-10-10 关闭原生自动记忆
 

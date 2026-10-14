@@ -86,6 +86,16 @@ Steer Host owner 1 项通过（与前述有重叠，不相加）。`cargo check`
 逐 Runtime 成败、冻结二进制摘要和未通过场景见[实测报告](../../research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)
 与[证据索引](steer-five-runtimes-verification.json)。不安装或重启日常 App，不创建 PR。
 
+## Steer 原生入口补测与完整清单（2026-10-14）
+
+User seq26 要求补齐其他 Runtime，继续排除 Cursor、Cline、Command Code。基线 `040980b71642bb34075c3ec2621a8dc97908ca7f`，
+九种 Runtime 十五次新增尝试，详细结果、全部失败、原生存储隔离限制和后续接入边界见
+[完整清单](../../research/runtime-monitoring/steer-complete-2026-10-14.md)及其结构化证据。
+Kimi REST、Copilot SDK immediate、ZCode guide、OpenCode HTTP steer 原生通过，当前产品仍只开放此前六种。
+其余受测入口有拒绝、排队或取消替换的直接证据，不据此否定其他未知原生接口。
+只提交研究文档和索引；不修改生产代码、提示词、上下文版本或准入开关，不重复运行 Rust 全套。
+文档门禁为 `pnpm docs:test`、`pnpm docs:check` 和以本轮基线执行的 `pnpm docs:check:ci`。
+
 ## 会话切换读取回归修复（2026-10-13）
 
 基线 `50d50d3a46ec409420a9c1382ab5101ba16892bd`，分支 `codex/remove-session-rebuild-notice`。

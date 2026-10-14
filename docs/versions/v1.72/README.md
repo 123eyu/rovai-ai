@@ -23,6 +23,9 @@ User 在消息 `52de18ca-e5df-4c91-b2a7-ee998f8068b0` 确认开始实施 R3，�
 完整 12 Case 语义 Gate 缺固定 Judge 配置，尚未运行。
 User seq23 随后要求接入 Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build，
 并授权真实 LLM 验证，Claude 使用 sub2api。结果见[扩展验收](../../research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)。
+User seq26 要求补齐其他 Runtime 测试；[完整清单](../../research/runtime-monitoring/steer-complete-2026-10-14.md)
+记录九种 Runtime 的十五次新增尝试。Kimi、Copilot、ZCode、OpenCode 原生路径通过，尚未接入 Rovai，
+产品范围仍为六种；本轮没有上下文或生产代码改动。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 

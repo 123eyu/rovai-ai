@@ -9,6 +9,9 @@ baseline_ref: "4b4fe088b15ef785cd76f54f221e5d87c9d639a4"
 
 # Rovai AI 运行监控指标可采集性审计
 
+2026-10-14 [Steer 完整实测清单](steer-complete-2026-10-14.md)：补测九种 Runtime，十五次尝试；当前产品六种，
+新增四种原生路径通过但尚未接入，另五种受测入口拒绝或排队；明确排除 Cursor、Cline、Command Code。
+
 2026-10-14 [五种 Runtime 的 Steer 扩展验收](steer-five-runtimes-2026-10-14.md)：Claude 使用 sub2api，逐项记录产品实测与限制。
 
 2026-10-14 [Steer 实施与 15 类 Runtime 检查](steer-2026-10-14.md)：12 类启动原生探针，逐项记录接收、

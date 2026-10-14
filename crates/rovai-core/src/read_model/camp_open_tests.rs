@@ -61,10 +61,15 @@ fn business_fixture() -> (OwnedTestDatabase, String, String, String) {
          WHERE id = ?1",
         params![completed_run, now],
     ).unwrap();
-    connection.execute(
-        "UPDATE agent_run SET execution_epoch = 1, status = 'running', started_at = ?2 WHERE id = ?1",
-        params![active_run, now],
-    ).unwrap();
+    connection
+        .execute(
+            "UPDATE agent_run SET execution_epoch = 1, status = 'running', started_at = ?2,
+         runtime_adapter_kind = 'claude-code-cli',
+         runtime_model_selection_json = '{\"source\":\"runtime_default\"}',
+         runtime_observed_model_id = 'observed-model' WHERE id = ?1",
+            params![active_run, now],
+        )
+        .unwrap();
     connection
         .execute(
             r#"INSERT INTO task (
@@ -375,6 +380,20 @@ fn camp_open_preserves_business_state_without_reading_event_history() {
     assert_eq!(open_json["thread"], snapshot_json["thread"]);
     let frozen_model =
         json!({"adapterKind":"codex-cli", "modelId":"frozen-model", "reasoningEffort":"high"});
+    // Snapshot and bounded Open carry explicit selection and an active Run's
+    // observed default. Provider/options matrices belong to message_model's
+    // pure test; both public surfaces reuse that projector.
+    for projection in [&open_json, &snapshot_json] {
+        let runs = projection["agentRuns"].as_array().unwrap();
+        assert_eq!(
+            runs.iter().find(|run| run["id"] == completed_run).unwrap()["runtimeModel"],
+            frozen_model
+        );
+        assert_eq!(
+            runs.iter().find(|run| run["id"] == active_run).unwrap()["runtimeModel"],
+            json!({"adapterKind":"claude-code-cli", "modelId":"observed-model", "reasoningEffort":null})
+        );
+    }
     assert_eq!(
         open_json["messages"]
             .as_array()

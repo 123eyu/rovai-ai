@@ -1,5 +1,5 @@
 import * as Popover from '@radix-ui/react-popover'
-import type { AdapterInstallation, AgentProfile, ThreadMessageView } from '@contracts'
+import type { AdapterInstallation, AgentProfile, AgentRunView, ThreadMessageView } from '@contracts'
 import { MemberAvatar, type MemberAvatarProps } from './MemberAvatar'
 import { runtimeEditorInstallation } from './MemberRuntimeParameters'
 import { UiText, uiAttribute } from './interface-language'
@@ -66,11 +66,34 @@ export function MessageModelSummary({ message, installations, displayName, avata
   displayName: string
   avatarRef: string | null
 }): React.JSX.Element {
-  const model = message.runtimeModel
+  return <RuntimeModelSummary model={message.runtimeModel} installations={installations}
+    identity={{ agentId: message.authorId, displayName, avatarRef }} />
+}
+
+export function RunModelSummary({ run, installations, displayName, avatarRef }: {
+  run: AgentRunView
+  installations: AdapterInstallation[]
+  displayName: string
+  avatarRef: string | null
+}): React.JSX.Element {
+  return <RuntimeModelSummary model={run.runtimeModel} installations={installations}
+    identity={{ agentId: run.agentId, displayName, avatarRef }} />
+}
+
+function RuntimeModelSummary({ model, installations, identity }: {
+  model: AgentRunView['runtimeModel'] | undefined
+  installations: AdapterInstallation[]
+  identity: Identity
+}): React.JSX.Element {
   const installation = installations.find(candidate => candidate.adapterKind === model?.adapterKind
     && candidate.installationClass === 'managed_default' && candidate.authScope === 'default') ?? null
-  return <ModelInformation identity={{ agentId: message.authorId, displayName, avatarRef }}
-    presentation={messageRuntimeModelPresentation(model, installation)} adapterKind={model?.adapterKind}
+  // Old Hosts provide only the observed model ID. Preserve it without guessing
+  // an adapter or effort from the member's mutable current configuration.
+  const presentation = model?.adapterKind
+    ? messageRuntimeModelPresentation({ ...model, adapterKind: model.adapterKind, reasoningEffort: model.reasoningEffort ?? null }, installation)
+    : model ? { model: model.modelId ?? uiAttribute('智能体默认'), effort: null } : null
+  return <ModelInformation identity={identity}
+    presentation={presentation} adapterKind={model?.adapterKind}
     className="message-model-summary" />
 }
 

@@ -5,6 +5,7 @@ import { ConversationRunPresence } from './ConversationRunPresence'
 import { conversationRunPresenceTimeline } from './conversation-run-presence'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
+import { MessageAuthorProfileTrigger } from './MessageAuthorProfileTrigger'
 import { memberRuntimeConfigurationPresentation, modelSummary, runtimeAdapterLabel } from './runtime-model-presentation'
 export { memberRuntimeConfigurationPresentation, type MemberRuntimeConfigurationPresentation } from './runtime-model-presentation'
 import { memberCreationStarters } from './member-creation-flow'
@@ -4971,7 +4972,8 @@ export function ThreadWorkspace({
                   if (timelineItem.kind === 'run_presence') {
                     previousMessageAuthorKey = null
                     items.push(<ConversationRunPresence key={timelineItem.id} snapshot={snapshot}
-                      slot={timelineItem.slot} profiles={agents} eventsByRunId={executionEventsByRunId}
+                      slot={timelineItem.slot} profiles={agents} installations={installations}
+                      onActivateMember={openMemberProfilePopover} eventsByRunId={executionEventsByRunId}
                       windowedEvidence={openCoverage !== null}
                       stopState={run => agentRunStopViewState(run, snapshot.turns.find(turn => turn.id === run.threadTurnId) ?? null, {
                         cancelling: cancellingRunIds.has(run.id) || run.cancelRequestedAt !== null,
@@ -7760,41 +7762,6 @@ function ExecutionDrawer({
           }}
         />
     </section>
-  )
-}
-
-function MessageAuthorProfileTrigger({
-  agentId,
-  displayName,
-  variant,
-  onActivate,
-  children
-}: {
-  agentId: string
-  displayName: string
-  variant: 'avatar' | 'name'
-  onActivate(agentId: string, trigger: HTMLElement, focusPanel: boolean): void
-  children: React.ReactNode
-}): JSX.Element {
-  const label = uiAttribute("查看{0}的基础信息", String(displayName))
-  return (
-    <button
-      className={`message-author-trigger message-author-${variant}-trigger`}
-      type="button"
-      data-agent-id={agentId}
-      aria-label={label}
-      aria-haspopup="dialog"
-      aria-expanded={false}
-      title={label}
-      onClick={(event) => onActivate(agentId, event.currentTarget, event.detail === 0)}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        event.preventDefault()
-        onActivate(agentId, event.currentTarget, true)
-      }}
-    >
-      {children}
-    </button>
   )
 }
 

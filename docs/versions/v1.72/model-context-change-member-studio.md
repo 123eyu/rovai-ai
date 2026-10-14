@@ -9,7 +9,7 @@ confirmed_by: User
 confirmed_at: 2026-10-14T12:45:22Z
 confirmation_message_id: c84ee334-1e63-446f-81ba-9b11c1fe4670
 authority: confirmed-model-input-change-statement
-implementation_status: in_progress
+implementation_status: implemented
 last_updated: 2026-10-14
 ---
 
@@ -561,10 +561,34 @@ User 已在消息 `c84ee334-1e63-446f-81ba-9b11c1fe4670`（2026-10-14T12:45:22Z�
 
 ## 实施与验证记录
 
-实施已按 R3 落地，验证进行中；尚未声明真实 Gate 通过。
+实施已按 R3 落地，代码验证完成；真实任务 Gate 被既有基线合同测试阻断，未通过完整验收。
 
-Judge 预检查被阻断：本机 Codex CLI 0.162.1 即使应用既有禁用配置，仍提交
-`request_user_input_async` 与 `clock.curr_time` 工具定义；既有适配器以
-`judge.cli_tools_not_disabled` 拒绝准入。没有改动适配器或放宽无工具要求。
-本次保留 capability-probe.json，实际新旧任务先按 `judge: null` 运行，只能形成规则证据，
-不能把其结果视为语义 Gate 通过。
+- `cargo test --workspace`：471 通过、1 项原有 ignored；覆盖成员创建／更新、头像文件预算、
+  GIF、裁切、旧资产和重试 owner。`cargo fmt --all -- --check` 通过。
+- `pnpm skills:check`、Skill Creator `quick_validate.py` 通过。
+- `pnpm docs:test`：10 通过；`docs:check` 和以实施基线为 DOCS_BASE_REF 的 `docs:check:ci` 通过。
+- 独立 Standards 审查：产品规范违例 0；Spec 审查：遗漏／越界／错误实现 0。
+  两者均保留真实 Gate 的证据缺口，不把静态审查当作模型执行结果。
+
+初始 Judge 预检查失败：Codex CLI 0.162.1 的模型目录额外声明
+`request_user_input_async` 与 `clock.curr_time`，既有 adapter 报
+`judge.cli_tools_not_disabled`。本次临时评测 adapter 在生成的模型目录中清空
+`experimental_supported_tools` 后，实际传输预检查捕获 1 个请求、0 个工具定义，准入通过。
+该修正仅在临时评测配置中验证，没有修改仓库 adapter 或放宽其无工具校验。
+
+冻结计划 `rovai-062-prompts-frozen-plan.json` 的第一轮仍使用原先的 `judge: null` 配置，
+没有原地修改已启动的计划。其基线、候选各运行 25 项合同检查，均为 22 通过、3 失败：
+
+| 既有 slow-tests 用例 | 两版相同的失败 |
+| --- | --- |
+| `current_migration_state_admission_matrix` | `current must remain an explicit upgrade source` |
+| `current_schema_contains_required_contract_objects` | 预期存在 `context_manifest_v33_only_insert`，实际不存在 |
+| `v172_preserves_historical_context_rows_and_gates_new_writes` | `public_history_claim_v174_schema_matches` 返回 false |
+
+失败位置均在未改动的 `db.rs`，两版该文件 sourceDigest 相同。Runner 因合同检查失败，
+没有启动 DEMO-101–112 的 24 个基线／候选槽位；本轮真实模型任务执行数为 **0**。
+报告为 `degraded`，`candidate_contract_failure.newRegression=false`，有 56 项证据缺口。
+没有跳过失败、改评分标准或修补冻结基线来获得通过；修复既有测试或决定如何处理该验收缺口后才能收口。
+
+本地原始证据目录：`/tmp/rovai-062-prompts-gate-20261014`；新旧产品、两个 Judge 预检查及
+冻结源码分别留在同前缀目录。评测报告与关键日志另打包到本次 Thread 附件保存，PR 为 #755。

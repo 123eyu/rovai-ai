@@ -5,8 +5,10 @@ import { FileReferenceIcon } from './FilePreviewTabIcon'
 import {
   fileReferenceSpacingClassName,
   projectMessageFileReferences,
-  projectMessageInlineCodes
+  projectMessageInlineCodes,
+  projectWebLinkRanges
 } from './safe-markdown-model'
+import { WebLink } from './WebLink'
 
 export const FILE_REFERENCE_FRAGMENT = '#rovai-file-reference='
 export type FileReferenceActivation = (rawReference: string, source: HTMLElement, target?: FileLocationTarget) => void
@@ -70,8 +72,11 @@ export function FileReferenceText({
     [enabled, text]
   )
   const inlineCodes = useMemo(() => enabled ? projectMessageInlineCodes(text) : [], [enabled, text])
-  if (!onActivate || (references.length === 0 && inlineCodes.length === 0)) return <>{text}</>
+  const webLinks = useMemo(() => projectWebLinkRanges(text), [text])
+  if (references.length === 0 && inlineCodes.length === 0 && webLinks.length === 0) return <>{text}</>
   const parts = [
+    ...webLinks.filter(link => !references.some(reference => link.start < reference.end && link.end > reference.start))
+      .map(link => ({ kind: 'web' as const, ...link })),
     ...references.map((reference) => ({ kind: 'reference' as const, ...reference })),
     ...inlineCodes
       .filter((inlineCode) => !references.some((reference) => (
@@ -83,6 +88,11 @@ export function FileReferenceText({
   let offset = 0
   for (const part of parts) {
     if (part.start > offset) output.push(text.slice(offset, part.start))
+    if (part.kind === 'web') {
+      output.push(<WebLink key={`web-${part.start}`} target={part.target}>{text.slice(part.start, part.end)}</WebLink>)
+      offset = part.end
+      continue
+    }
     if (part.kind === 'code') {
       output.push(<code key={`code-${part.start}`}>{part.value}</code>)
       offset = part.end
@@ -96,7 +106,7 @@ export function FileReferenceText({
         ].filter(Boolean).join(' ')}
         rawReference={part.rawReference}
         key={`${part.start}:${part.rawReference}`}
-        onActivate={onActivate}
+        onActivate={onActivate!}
       >
         {part.label}
       </FileReferenceLink>

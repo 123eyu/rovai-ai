@@ -5,6 +5,8 @@ import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly'
 import remarkCjkFriendlyStrikethrough from 'remark-cjk-friendly-gfm-strikethrough/parseOnly'
 import { FILE_REFERENCE_FRAGMENT, FileReferenceLink, type FileReferenceActivation } from './FileReferenceLink'
 import { ResourceReferenceIcon } from './FilePreviewTabIcon'
+import { WebLink } from './WebLink'
+import { isWebUrl } from '../../web-url'
 import { remarkRepairCjkUrlTail } from './remark-repair-cjk-url-tail'
 import { parseFileReference } from '../../file-preview-reference'
 import { MarkdownCodeBlock } from './MarkdownCodeBlock'
@@ -313,14 +315,14 @@ export function SafeMarkdown({
                 </a>
               )
             }
-            if (!href?.startsWith('https://')) {
+            if (!href || !isWebUrl(href)) {
               return <code className="markdown-inert-link">{linkChildren}</code>
             }
             return (
-              <a className="markdown-web-reference" href={href} target="_blank" rel="noreferrer noopener">
+              <WebLink className="markdown-web-reference" target={href}>
                 <ResourceReferenceIcon kind="web" className="resource-reference-icon web-reference-icon" />
                 <span className="resource-reference-label">{linkChildren}</span>
-              </a>
+              </WebLink>
             )
           },
           img({ src, alt }) {

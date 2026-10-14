@@ -326,7 +326,7 @@ fn map_avatar_error(error: MemberAvatarImportError) -> MemberOperationError {
     match error.kind {
         MemberAvatarImportErrorKind::Invalid => MemberOperationError {
             code: "member.avatar_invalid",
-            message: "The avatar file could not be safely imported; fix the image or retry without --avatar-file",
+            message: "Could not import the avatar. Check that the file is readable and meets the format and size limits in this command's --help.",
             details: None,
         },
         MemberAvatarImportErrorKind::CreationKeyConflict => MemberOperationError {

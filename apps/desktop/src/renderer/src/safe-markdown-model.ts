@@ -6,6 +6,8 @@ import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { decodeString } from 'micromark-util-decode-string'
 import { parseFileReference } from '../../file-preview-reference'
+import { isWebUrl } from '../../web-url'
+import { bareWebLinks, type WebLinkRange } from './web-link-ranges'
 
 export type MarkdownNode = {
   type?: string
@@ -22,6 +24,62 @@ const safeMarkdownParser = unified()
   .use(remarkGfm, { singleTilde: false })
   .use(remarkCjkFriendly)
   .use(remarkCjkFriendlyStrikethrough, { singleTilde: false })
+
+/** Literal source ranges only: no rendered labels, wrappers, or editor mutations. */
+export function projectWebLinkRanges(source: string): WebLinkRange[] {
+  if (!/https?:\/\//iu.test(source)) return []
+  if (!/[\u0060~<>\[\]\\\r\n*_]/u.test(source) && !/^(?: {4}|\t)/u.test(source)) return bareWebLinks(source)
+  const links: WebLinkRange[] = []
+  const visit = (node: MarkdownNode): void => {
+    const start = node.position?.start.offset
+    const end = node.position?.end.offset
+    if (start === undefined || end === undefined) return
+    const raw = source.slice(start, end)
+    if (node.type === 'code' || node.type === 'inlineCode' || node.type === 'html'
+      || node.type === 'image' || node.type === 'imageReference' || node.type === 'linkReference') {
+      return
+    }
+    if (node.type === 'link' && (raw.startsWith('[') || raw.startsWith('<')) || node.type === 'definition') {
+      if (!node.url || !isWebUrl(node.url)) return
+      let from = raw.startsWith('<') ? 1 : node.type === 'definition' ? raw.indexOf(':') + 1
+        : source.indexOf('](', node.children?.at(-1)?.position?.end.offset ?? start + 1) - start + 2
+      if (from < 1) return
+      while (from < raw.length && /\s/u.test(raw[from])) from++
+      const angle = raw[from] === '<' || raw.startsWith('<')
+      if (raw[from] === '<') from++
+      let to = from
+      let depth = 0
+      for (; to < raw.length; to++) {
+        const char = raw[to]
+        if (char === '\\') { to++; continue }
+        if (angle ? char === '>' : /\s/u.test(char) || char === ')' && depth === 0) break
+        if (char === '(') depth++
+        if (char === ')') depth--
+      }
+      if (/^https?:\/\//iu.test(raw.slice(from, to))) links.push({ start: start + from, end: start + to, target: node.url })
+      return
+    }
+    if (node.type === 'text' || node.type === 'link') {
+      links.push(...bareWebLinks(raw, start))
+      return
+    }
+    const children = node.children ?? []
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index]
+      const implicit = (part: MarkdownNode): boolean => part.position?.start.offset !== undefined
+        && part.position?.end.offset !== undefined && (part.type === 'text'
+          || part.type === 'link' && !/^[\[<]/u.test(source.slice(part.position.start.offset, part.position.end.offset)))
+      if (!implicit(child)) { visit(child); continue }
+      let last = child
+      while (index + 1 < children.length && implicit(children[index + 1])) last = children[++index]
+      const from = child.position?.start.offset
+      const to = last.position?.end.offset
+      if (from !== undefined && to !== undefined) links.push(...bareWebLinks(source.slice(from, to), from))
+    }
+  }
+  visit(safeMarkdownParser.parse(source) as MarkdownNode)
+  return links
+}
 
 // Check decoded Markdown text as well as raw source: an entity such as &#82;
 // must never turn ordinary text into a trusted structured-content placeholder.

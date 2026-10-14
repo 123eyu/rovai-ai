@@ -37,7 +37,6 @@ use crate::{
         render_agent_plain_text_for_audience, render_agent_plain_text_with_names,
         render_member_mention_plain_text, valid_agent_projection_audience,
     },
-    camp_message_publication::public_camp_message_publication_cte,
     command::{EntityReference, canonical_json_digest},
     compaction::{
         BOOTSTRAP_REDELIVERY_ENVELOPE_VERSION, BOOTSTRAP_REDELIVERY_FORMATTER_VERSION,
@@ -1118,8 +1117,7 @@ impl ContextService {
         if revalidated_skill_resolution != current_input_skill_resolution {
             anyhow::bail!("Current Input Skill availability changed during materialization");
         }
-        let (global_public_message_boundary, history_camps) =
-            capture_cross_camp_history_fence(&transaction, &snapshot)?;
+        let global_public_message_boundary = capture_history_body_boundary(&transaction)?;
         let context_manifest_version =
             batch_context_manifest_version.unwrap_or(CONTEXT_MANIFEST_VERSION);
         let context_formatter_version = batch_context_manifest_version
@@ -1139,7 +1137,7 @@ impl ContextService {
                 native_binding_generation,
                 camp_message_boundary_sequence,
                 conversation_message_boundary_sequence,
-                history_fence_version, global_public_message_boundary,
+                history_fence_version, global_public_message_boundary, live_history_directory,
                 previous_accepted_public_boundary_sequence,
                 context_delivery_profile_version,
                 context_delivery_profile_json, context_delivery_profile_digest,
@@ -1170,7 +1168,7 @@ impl ContextService {
                 workspace_fact_json,workspace_fact_digest,workspace_fact_included,
                 mission_details_version
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10,
                 ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
                 ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
                 ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40,
@@ -1266,22 +1264,6 @@ impl ContextService {
                     &additional_skills.omitted,
                 )?;
             }
-            for camp in &history_camps {
-                transaction.execute(
-                    r#"
-                    INSERT INTO context_manifest_history_camp(
-                        context_manifest_id, camp_id, camp_title,
-                        last_visible_activity_at
-                    ) VALUES (?1, ?2, ?3, ?4)
-                    "#,
-                    params![
-                        manifest_id,
-                        camp.camp_id,
-                        camp.camp_title,
-                        camp.last_visible_activity_at,
-                    ],
-                )?;
-            }
             append_context_event(
                 &transaction,
                 "context.manifest_created",
@@ -1292,7 +1274,8 @@ impl ContextService {
                     "boundarySequence": snapshot.camp_message_boundary_sequence,
                     "historyFenceVersion": 1,
                     "globalPublicMessageBoundary": global_public_message_boundary,
-                    "historyCampCount": history_camps.len(),
+                    "historyCampCount": 0,
+            "liveHistoryDirectory": true,
                     "previousAcceptedPublicBoundarySequence": previous_accepted_public_boundary_sequence,
                     "contextDeliveryProfileVersion": profile.profile_version,
 
@@ -7655,8 +7638,7 @@ fn materialize_frozen_delivery_context(
     if revalidated_skill_resolution != current_input_skill_resolution {
         anyhow::bail!("Current Input Skill availability changed during materialization");
     }
-    let (global_public_message_boundary, history_camps) =
-        capture_cross_camp_history_fence(&transaction, snapshot)?;
+    let global_public_message_boundary = capture_history_body_boundary(&transaction)?;
     transaction.execute(
         r#"
         INSERT INTO context_manifest(
@@ -7664,7 +7646,7 @@ fn materialize_frozen_delivery_context(
             native_binding_generation,
             camp_message_boundary_sequence,
             conversation_message_boundary_sequence,
-            history_fence_version, global_public_message_boundary,
+            history_fence_version, global_public_message_boundary, live_history_directory,
             previous_accepted_public_boundary_sequence,
             context_delivery_profile_version,
             context_delivery_profile_json, context_delivery_profile_digest,
@@ -7695,7 +7677,7 @@ fn materialize_frozen_delivery_context(
             workspace_fact_json,workspace_fact_digest,workspace_fact_included,
             mission_details_version
         ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10,
             ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
             ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
             ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40,
@@ -7768,21 +7750,6 @@ fn materialize_frozen_delivery_context(
     if let Some(prepared_additional_skills) = &prepared_additional_skills {
         persist_additional_skill_omissions(&transaction, &manifest_id, prepared_additional_skills)?;
     }
-    for camp in &history_camps {
-        transaction.execute(
-            r#"
-            INSERT INTO context_manifest_history_camp(
-                context_manifest_id, camp_id, camp_title, last_visible_activity_at
-            ) VALUES (?1, ?2, ?3, ?4)
-            "#,
-            params![
-                manifest_id,
-                camp.camp_id,
-                camp.camp_title,
-                camp.last_visible_activity_at,
-            ],
-        )?;
-    }
     append_context_event(
         &transaction,
         "context.manifest_created",
@@ -7793,7 +7760,8 @@ fn materialize_frozen_delivery_context(
             "boundarySequence": snapshot.camp_message_boundary_sequence,
             "historyFenceVersion": 1,
             "globalPublicMessageBoundary": global_public_message_boundary,
-            "historyCampCount": history_camps.len(),
+            "historyCampCount": 0,
+            "liveHistoryDirectory": true,
             "previousAcceptedPublicBoundarySequence": previous_boundary,
             "contextDeliveryProfileVersion": profile_version,
 
@@ -7843,57 +7811,13 @@ fn queue_context_event_payload(snapshot: &RunSnapshot) -> Value {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CrossThreadHistorySnapshot {
-    camp_id: String,
-    camp_title: String,
-    last_visible_activity_at: String,
-}
-
-fn capture_cross_camp_history_fence(
-    transaction: &Transaction<'_>,
-    snapshot: &RunSnapshot,
-) -> Result<(i64, Vec<CrossThreadHistorySnapshot>)> {
-    let global_boundary = transaction.query_row(
+// The message-body fence remains frozen. A new Run never captures a directory.
+fn capture_history_body_boundary(transaction: &Transaction<'_>) -> Result<i64> {
+    Ok(transaction.query_row(
         "SELECT COALESCE(MAX(global_sequence), 0) FROM event_log",
         [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    let publication_cte = public_camp_message_publication_cte();
-    let sql = format!(
-        r#"
-        WITH {publication_cte}
-        SELECT camp.id, camp.title,
-               COALESCE(
-                   (
-                       SELECT message.created_at
-                       FROM camp_message AS message
-                       JOIN public_camp_message_publication AS publication
-                         ON publication.message_id = message.id
-                       WHERE message.camp_id = camp.id
-                         AND message.tombstoned_at IS NULL
-                         AND publication.global_sequence <= ?1
-                       ORDER BY publication.global_sequence DESC, message.id DESC
-                       LIMIT 1
-                   ),
-                   camp.created_at
-               )
-        FROM camp
-        WHERE camp.id <> ?2
-        ORDER BY camp.id
-        "#
-    );
-    let mut statement = transaction.prepare(&sql)?;
-    let camps = statement
-        .query_map(params![global_boundary, snapshot.camp_id], |row| {
-            Ok(CrossThreadHistorySnapshot {
-                camp_id: row.get(0)?,
-                camp_title: row.get(1)?,
-                last_visible_activity_at: row.get(2)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok((global_boundary, camps))
+        |row| row.get(0),
+    )?)
 }
 
 fn append_context_event(
@@ -10142,19 +10066,20 @@ mod slow_tests {
     }
 
     #[test]
-    fn history_snapshot_order_and_titles_remain_frozen() {
+    fn legacy_directory_stays_frozen_and_new_runs_use_live_activity() {
         let mut fixture = fixture();
-        let (first_camp_id, _) = create_history_camp(
+        let (first_camp_id, first_message_id) = create_history_camp(
             &mut fixture.database,
             &fixture.directory,
             "FIRST_HISTORY_CAMP",
         );
-        let (second_camp_id, _) = create_history_camp(
+        let (second_camp_id, second_message_id) = create_history_camp(
             &mut fixture.database,
             &fixture.directory,
             "SECOND_HISTORY_CAMP",
         );
         let run = materialize_history_fixture(&mut fixture);
+        crate::db::assert_legacy_history_directory_upgrade(&mut fixture.database);
         let manifest_id: String = fixture
             .database
             .connection()
@@ -10230,7 +10155,7 @@ mod slow_tests {
                 &run,
                 &HistorySearchInput {
                     query: "AFTER_FROZEN_BOUNDARY".to_string(),
-                    camp_ids: Some(vec![first_camp_id]),
+                    camp_ids: Some(vec![first_camp_id.clone()]),
                     date_from: None,
                     date_to: None,
                     limit: None,
@@ -10238,6 +10163,217 @@ mod slow_tests {
             )
             .unwrap();
         assert!(late["results"].as_array().unwrap().is_empty());
+        let run_id = fixture.run_id.clone();
+        let (next_id, next_epoch) =
+            complete_run_and_start_followup(&mut fixture, &run_id, "Use the live directory");
+        let live_run = materialize_history_run(&mut fixture, &next_id, next_epoch);
+        let (live_manifest, live_mode): (String, bool) = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT id,live_history_directory FROM context_manifest WHERE agent_run_id=?1",
+                [&next_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(live_mode);
+        let old_rows: i64 = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM context_manifest_history_camp WHERE context_manifest_id=?1",
+                [&manifest_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_rows, 2);
+        assert_eq!(fixture.database.connection().query_row("SELECT count(*) FROM context_manifest_history_camp WHERE context_manifest_id=?1",[&live_manifest],|r|r.get::<_,i64>(0)).unwrap(),0);
+        assert!(
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE context_manifest SET live_history_directory=0 WHERE id=?1",
+                    [&live_manifest]
+                )
+                .is_err()
+        );
+        assert!(fixture.database.connection().execute("INSERT INTO context_manifest_history_camp VALUES(?1,?2,'forbidden','2026-01-01')",params![live_manifest,first_camp_id]).is_err());
+        fixture.database.connection().execute("UPDATE camp SET title='HISTORY_FIRST_RENAMED',created_at='2026-07-01T00:00:00Z',updated_at='2099-01-01T00:00:00Z' WHERE id=?1",[&first_camp_id]).unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp SET created_at='2026-07-02T00:00:00Z' WHERE id=?1",
+                [&second_camp_id],
+            )
+            .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET created_at='2026-08-01T00:00:00Z' WHERE camp_id=?1",
+                [&first_camp_id],
+            )
+            .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET created_at='2026-08-02T00:00:00Z' WHERE camp_id=?1",
+                [&second_camp_id],
+            )
+            .unwrap();
+        let list = |db: &mut Database| {
+            ThreadHistoryService
+                .list_camps(
+                    db,
+                    &live_run,
+                    &ThreadListInput {
+                        query: None,
+                        limit: None,
+                    },
+                )
+                .unwrap()
+        };
+        let before = list(&mut fixture.database);
+        assert_eq!(
+            before["threads"][0]["threadId"], second_camp_id,
+            "updated_at is not message activity"
+        );
+        assert_eq!(before["threads"][1]["title"], "HISTORY_FIRST_RENAMED");
+        let late = CollaborationService::default()
+            .send_test_camp_message(
+                &mut fixture.database,
+                &CommandEnvelope {
+                    command_id: Uuid::new_v4().to_string(),
+                    actor: ActorRef::User {
+                        user_id: "test-user".into(),
+                    },
+                    camp_id: Some(first_camp_id.clone()),
+                    expected_versions: Vec::new(),
+                    execution_epoch: None,
+                    payload: TestThreadMessageCommand {
+                        camp_id: first_camp_id.clone(),
+                        draft_revision: None,
+                        body: "LIVE_DIRECTORY_BODY_FENCE".into(),
+                        prepared_attachment_ids: Vec::new(),
+                        address: TestThreadMessageAddress::Default,
+                        reply_to_camp_message_id: None,
+                        execution: None,
+                    },
+                },
+            )
+            .unwrap();
+        let late_id = late.result.payload["threadMessageId"].as_str().unwrap();
+        assert_eq!(
+            list(&mut fixture.database)["threads"][0]["threadId"],
+            first_camp_id
+        );
+        let late_search = ThreadHistoryService
+            .search_history(
+                &mut fixture.database,
+                &live_run,
+                &HistorySearchInput {
+                    query: "LIVE_DIRECTORY_BODY_FENCE".into(),
+                    camp_ids: Some(vec![first_camp_id.clone()]),
+                    date_from: None,
+                    date_to: None,
+                    limit: None,
+                },
+            )
+            .unwrap();
+        assert!(
+            late_search["results"].as_array().unwrap().is_empty(),
+            "live directory cannot lift the body fence"
+        );
+        fixture.database.connection().execute("UPDATE camp_message SET recall_state='withdrawn',body='',structured_content_json='[]' WHERE id=?1",[late_id]).unwrap();
+        let withdrawn = list(&mut fixture.database);
+        assert_eq!(withdrawn["threads"][0]["threadId"], second_camp_id);
+        assert_eq!(
+            withdrawn["threads"][1]["lastVisibleActivityAt"],
+            "2026-08-01T00:00:00Z"
+        );
+        // Equal visible send times use the stable ID, independent of title or publication order.
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET created_at='2026-08-01T00:00:00Z' WHERE id=?1",
+                [&second_message_id],
+            )
+            .unwrap();
+        let tied = list(&mut fixture.database);
+        let mut ids = [first_camp_id.as_str(), second_camp_id.as_str()];
+        ids.sort();
+        assert_eq!(tied["threads"][0]["threadId"], ids[0]);
+        let filtered = ThreadHistoryService
+            .list_camps(
+                &mut fixture.database,
+                &live_run,
+                &ThreadListInput {
+                    query: Some("HISTORY".into()),
+                    limit: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(filtered, tied);
+        // No remaining visible public message falls back to creation, never updated_at.
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET tombstoned_at='2026-10-14T00:00:00Z' WHERE camp_id=?1",
+                [&first_camp_id],
+            )
+            .unwrap();
+        let empty = list(&mut fixture.database);
+        assert_eq!(
+            empty["threads"][1]["lastVisibleActivityAt"],
+            "2026-07-01T00:00:00Z"
+        );
+        assert!(
+            fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT tombstoned_at IS NOT NULL FROM camp_message WHERE id=?1",
+                    [first_message_id],
+                    |r| r.get::<_, bool>(0)
+                )
+                .unwrap()
+        );
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp SET deletion_operation_id='directory-delete' WHERE id=?1",
+                [&second_camp_id],
+            )
+            .unwrap();
+        assert_eq!(
+            list(&mut fixture.database)["threads"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT count(*) FROM context_manifest_history_camp",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            old_rows
+        );
+        let old_bytes: i64 = fixture.database.connection().query_row("SELECT sum(length(CAST(camp_id||camp_title||last_visible_activity_at AS BLOB))) FROM context_manifest_history_camp",[],|r|r.get(0)).unwrap();
+        println!(
+            "directory_pr2 old_rows={old_rows} new_rows=0 old_catalog_text_bytes={old_bytes} new_catalog_text_bytes=0"
+        );
         fixture.cleanup();
     }
 

@@ -29,3 +29,6 @@ Native Binding，并由有效 accepted ACK 推进水位；新旧 Input 都不因
 仍按 accepted digest 和 delivery mode 判断。其他既有 Evidence 和恢复规则保持。
 
 范围、确认和验证记录见 [R1](../versions/v1.72/model-context-change-bootstrap-claim-budget.md)。
+
+新 ContextManifest 的目录模式与正文 fence 分离，参见 [Camp History v13](camp-history-v13.md)。
+新 Run 不再保存整份跨会话目录；旧 Manifest、目录行、正文与 Blob 不转换。

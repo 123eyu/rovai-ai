@@ -54,6 +54,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             matches!(
                 classify_database_contract(&tx)?,
                 DatabaseContractClassification::Current(_)
+                    | DatabaseContractClassification::SupportedMigrationSource(_)
             ),
             "Execution storage admission failed"
         );
@@ -69,6 +70,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 // Only synthetic migration fixtures call this; product code never downgrades a row.
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
+    super::live_directory::downgrade_for_test(connection);
     if !schema_matches(connection).unwrap() {
         return;
     }
@@ -129,6 +131,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .unwrap();
     migrate(database).unwrap();
     assert_eq!(snapshot(database.connection()), before);
+    super::live_directory::migrate(database).unwrap();
     assert!(matches!(
         classify_database_contract(database.connection()).unwrap(),
         DatabaseContractClassification::Current(_)

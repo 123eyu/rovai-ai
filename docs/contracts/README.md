@@ -47,7 +47,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Context Delivery Profile v13（当前 public batch）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
-- [Camp History v12（当前）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
+- [Camp History v13（当前）](camp-history-v13.md)：新 Run 实时目录、消息发送时间排序、撤回回退与独立的冻结正文边界；旧目录原样读取。
+- [Camp History v12（历史）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
 
 ## 生命周期
 

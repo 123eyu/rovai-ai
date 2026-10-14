@@ -691,3 +691,6 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 
 新操作组合预览去重与正常删除 Blob 回收登记见 [保存合同](../../contracts/execution-record-storage-v1.md)
 及[实施记录](implementation-plan.md#执行记录存储精简组合预览与删除回收2026-10-14)。旧记录继续可读，日常实例不做历史清理。
+
+新 Run 使用[实时会话目录](../../contracts/camp-history-v13.md)，停止写入开工目录快照；旧模式和消息正文边界保持。
+验证见[实时目录实施记录](implementation-plan.md#执行记录存储精简实时会话目录2026-10-14)。

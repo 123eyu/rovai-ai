@@ -11,11 +11,12 @@ last_updated: 2026-10-13
 
 # Rovai-ai v1.72：Lark 独立渠道
 
-## Bootstrap 领取预算一致性（2026-10-14）
+## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 
 按 User 确认的 [R1](model-context-change-bootstrap-claim-budget.md)，以本 Run 快照统一 FIFO 选批与实际组包，
 覆盖 Memory 更新、同包补发与 Session 更换。新 public 36/13/9；历史与非 batch 保持。
-实施、验证和合并结果见上述独立说明。
+真实 OpenCode 对照复现旧版同批超限，候选分成两个 Run 成功且保留 Session。
+实施与验证见上述独立说明及 [验收索引](bootstrap-claim-budget-verification.json)；完整 12 Case Gate 未运行。
 
 ## 已实现：成员路由与专业职责扩容，语义 Gate 待补（2026-10-13）
 

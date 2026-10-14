@@ -9,7 +9,7 @@ confirmed_by: User
 confirmed_at: 2026-10-14
 confirmation_message_id: a5582ebd-b926-4993-88d5-c83d9d3e3623
 authority: proposed-model-input-change-statement
-implementation_status: in_progress
+implementation_status: implemented
 review_baseline: 7a40768ccded50af6e4ec062d355f17e6efc3337
 last_updated: 2026-10-14
 ---
@@ -100,5 +100,54 @@ Migration 198 从 schema 147 升级至 148，增加每 Run 唯一的 claim 上�
 ## 实施记录
 
 Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-bootstrap-claim-budget`。
-分支：`rovai/bootstrap-claim-budget`。基线见 Front Matter。状态：active。
-验证与合并结果在完成后追加。
+分支：`rovai/bootstrap-claim-budget`。基线见 Front Matter；最终代码 `2cf6f692`。
+代码与专项验收已完成；worktree 在 PR 合并并核对 main 后清理，不触碰日常 Core 或数据。
+
+### 验证结果
+
+真实对照与原始报告摘要见 [验收索引](bootstrap-claim-budget-verification.json)。
+可重复入口为 `scripts/smoke-bootstrap-claim-budget.mjs`；基线和候选分别使用独立 data-dir、
+Skill Library、MCP、project 与 runtime cache。实际 Runtime 为 OpenCode v2.0.25，观察模型为
+`sub2api/gpt-6.1-sol`。先完成预热，再在原 Session 活跃期间新增 Memory 并排入两条各含
+120,000 字节中文填充的消息，成员启动身份包含 36,000 字节填充。
+
+- 基线：两条消息一起冻结，随后因 `context_payload_too_large` 失败，复现原问题。
+- 候选：两个 Run 各领取一条、均成功，真实模型写出的两个文件内容正确；Session ID 和绑定 generation 保持。
+- 两轮测试准备失败的报告仍保留：第一轮在 ACK 前检查接受摘要；第二轮 Memory 检索键超长。
+  修正测试准备后运行第三轮；没有修改验收条件或将前两轮记成产品通过。
+
+| 检查 | 结果 |
+| --- | --- |
+| 默认 Rust workspace | 471 passed、1 ignored（既有手工 Runtime smoke），0 failed |
+| Rust 编译与格式 | `cargo check --workspace`、`cargo fmt --all --check` 通过 |
+| FIFO / claim owner | `cargo test -p rovai-core --features slow-tests delivery_queue::tests::`：26 passed |
+| Context materializer owner | `context::slow_tests::`：45 passed；最终投影与 Mission facts `context::tests::`：8 passed |
+| Migration owner | `routing_upgrade_preserves_frozen_evidence_and_rolls_back_atomically`：1 passed，含 Migration 198 来源格式拒绝、rollback 与历史证据保留 |
+| Mission preparation / deletion race | `late_mission_preparation_cannot_erase_camp_deletion_cleanup_owner`：1 passed |
+| TypeScript / Vitest | `pnpm typecheck`；243 个文件、2668 项测试通过 |
+| 文档 | `pnpm docs:test` 10 passed；`pnpm docs:check:ci` 通过 |
+| 完整真实语义 Gate | `not_run`：缺固定 Judge 配置，DEMO-101–112 未运行；专项对照不代替完整 Gate |
+
+默认测试第一轮的三处 Mission fixture 仍假设无准备结果就能领取；现在显式提供 workspace owner 的
+测试结果后领取，保留原投影、cleanup 与执行状态断言，最终全量通过。真实 Git 准备与删除竞态仍由
+原 application owner 验证，没有以 fixture 模拟替代真实专项。
+
+### Rust 测试准入
+
+唯一新增独立 owner 为 `changed_bootstrap_splits_before_claim_and_materializes_the_frozen_snapshot`。
+它拥有“accepted Session → 新 Memory → claim 分批 → 冻结组包与恢复 → 下一 Run 更新”的跨事务回归。
+修复前两条可分别处理的大消息同批冻结后超限；已有 selector 边界测试只计算单次容量，不经过持久化、
+Bootstrap ACK 和恢复，不能证明这些状态一致，因此需要隔离 SQLite 与 Skill 目录，使用上述队列命令验证。
+该 owner 同时检查独立系统层不会被普通 Bootstrap 挤占；其余 Skill、迁移和 Mission 条件均扩展既有 owner。
+
+### Standards
+
+`2cf6f692` 代码复审通过：实际 WORKSPACE 准备与事务外 Git 边界保持；migration 所需替换片段逐一检查，
+来源格式变化和 receipt 写失败都回滚。无剩余代码问题。完整 12 Case Gate 的证据缺口单列保留。
+
+### Spec
+
+`2cf6f692` 复审通过：恢复使用冻结身份；Mission 实际目录与 branch 参与完整预算；重复 Skill 引用按
+已验证来源的精确路径收缩，保留每条消息的冻结 alias，不增加链接。已核对真实前后对照报告与产物断言。
+
+两轴最终代码问题均为 0；Standards 仍保留完整语义 Gate 未运行的验证限制。

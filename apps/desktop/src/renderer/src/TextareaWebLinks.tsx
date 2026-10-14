@@ -38,7 +38,9 @@ export function TextareaWebLinks({ inputRef, value, enabled }: {
       if (event.button !== 0 || event.detail > 1 || dragged || composing.current || input.disabled
         || input.selectionStart !== input.selectionEnd) return
       const source = input.value
-      const link = projectWebLinkRanges(source).find(link => link.start <= input.selectionStart && input.selectionStart <= link.end)
+      // Blank/padding clicks can place the native caret at either URL endpoint.
+      // Conservatively activate only positions strictly inside the URL.
+      const link = projectWebLinkRanges(source).find(link => link.start < input.selectionStart && input.selectionStart < link.end)
       if (!link) return
       const mac = window.rovai?.platform === 'darwin' || /Mac|iPhone|iPad/u.test(navigator.platform)
       if (mac ? event.metaKey : event.ctrlKey) { event.preventDefault(); openWebLink(link.target, setError) }

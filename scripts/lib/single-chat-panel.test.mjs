@@ -61,7 +61,7 @@ async function runFixture(t, mode = '--panel') {
     const report = JSON.parse(reportLine)
     assert.equal(report.ok, true)
     if (mode === '--web-links') {
-      assert.deepEqual(report.verified, { literalMessages: true, textareaLinks: true, editingRecovery: true, noExtraWrites: true })
+      assert.deepEqual(report.verified, { literalMessages: true, textareaLinks: true, blankAreaEditing: true, editingRecovery: true, noExtraWrites: true })
       process.stdout.write(`${JSON.stringify(report)}\n`)
       return
     }

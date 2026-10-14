@@ -104,13 +104,42 @@ app.whenReady().then(async () => {
       const url = 'http://localhost:8766/a?x=1&y=2#part'
       const input = '.single-chat-composer textarea'
       const webState = () => run('window.singleChatTest.webState()')
-      const clickInput = async (modifiers = [], clickCount = 1) => {
-        const point = await run(`(() => {const n=document.querySelector('${input}'),r=n.getBoundingClientRect(),s=getComputedStyle(n);return {x:Math.round(r.left+parseFloat(s.paddingLeft)+14),y:Math.round(r.top+parseFloat(s.paddingTop)+parseFloat(s.lineHeight)/2)}})()`)
+      const clickInput = async (modifiers = [], clickCount = 1, point = null) => {
+        point ??= await run(`(() => {const n=document.querySelector('${input}'),r=n.getBoundingClientRect(),s=getComputedStyle(n);return {x:Math.round(r.left+parseFloat(s.paddingLeft)+14),y:Math.round(r.top+parseFloat(s.paddingTop)+parseFloat(s.lineHeight)/2)}})()`)
         window.webContents.sendInputEvent({type:'mouseMove',...point})
         window.webContents.sendInputEvent({type:'mouseDown',...point,button:'left',clickCount,modifiers})
         window.webContents.sendInputEvent({type:'mouseUp',...point,button:'left',clickCount,modifiers})
         await settle()
       }
+      const shortUrl = 'https://example.com/a'
+      await fillComposer(shortUrl)
+      const blankBefore = await webState()
+      const blanks = await run(`(() => {
+        const n=document.querySelector('${input}'),r=n.getBoundingClientRect(),s=getComputedStyle(n)
+        const y=Math.round(r.top+parseFloat(s.paddingTop)+parseFloat(s.lineHeight)/2)
+        return [{name:'left padding',x:Math.round(r.left+1),y,offset:0},
+          {name:'right blank',x:Math.round(r.right-2),y,offset:n.value.length},
+          {name:'below text',x:Math.round(r.left+r.width/2),y:Math.round(r.bottom-2),offset:n.value.length}]
+      })()`)
+      for (const {name,x,y,offset} of blanks) for (const modifiers of [[],['meta']]) {
+        await clickInput()
+        assert.equal((await webState()).popup,shortUrl,'Interior clicks still activate the URL')
+        await clickInput(modifiers,1,{x,y})
+        const state = await webState()
+        assert.equal(state.start,offset,name+' keeps native caret placement')
+        assert.equal(state.end,offset)
+        assert.equal(state.focused,true)
+        assert.equal(state.popup,null,name+' must not show link actions')
+        assert.equal(webOpens.length,0,name+' must not open a link')
+        assert.equal(state.value,shortUrl)
+        assert.equal(state.recoveryWrites,blankBefore.recoveryWrites)
+      }
+      await window.webContents.insertText('x')
+      await settle()
+      assert.equal((await webState()).value,shortUrl+'x','Typing after a blank click uses the native caret')
+      window.webContents.undo()
+      await settle()
+      assert.equal((await webState()).value,shortUrl)
       await run('window.singleChatTest.showWebLinks('+JSON.stringify(url)+')')
       await waitFor('!!document.querySelector(".single-chat-user-bubble a")')
       assert.equal(await run('document.querySelector(".single-chat-user-bubble").textContent'), '前 [标题]('+url+') 后')
@@ -217,7 +246,7 @@ app.whenReady().then(async () => {
       await enter()
       await waitFor('window.singleChatTest.webState().sends.length === 1')
       assert.equal((await webState()).sends[0].command.body,url+'x')
-      console.log(JSON.stringify({ok:true,verified:{literalMessages:true,textareaLinks:true,editingRecovery:true,noExtraWrites:true}}))
+      console.log(JSON.stringify({ok:true,verified:{literalMessages:true,textareaLinks:true,blankAreaEditing:true,editingRecovery:true,noExtraWrites:true}}))
       window.destroy()
       app.quit()
       return

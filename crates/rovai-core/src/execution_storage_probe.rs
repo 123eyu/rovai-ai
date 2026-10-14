@@ -154,6 +154,8 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
         let write_ms = write_start.elapsed().as_millis();
         // Updating an old operation outside the fixture override must keep its first format.
         let mut progress_samples = Vec::new();
+        let mut previous_progress_revision = None;
+        let mut progress_changed_rows = 0;
         for step in 0..128 {
             let (recorded, sample) = measured(|| {
                 let record = || {
@@ -168,7 +170,12 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
                     record()
                 }
             });
-            write_bytes += operation_json_bytes(&db, &recorded.id);
+            // A clipped identical snapshot is observed but does not rewrite the row.
+            if recorded.revision != previous_progress_revision {
+                write_bytes += operation_json_bytes(&db, &recorded.id);
+                previous_progress_revision = recorded.revision;
+                progress_changed_rows += 1;
+            }
             progress_samples.push(sample);
             peak_wal = peak_wal.max(file_size(&directory.join("rovai.sqlite-wal")));
         }
@@ -265,6 +272,7 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
             OR instr(result_preview_json,'DISCARDED_')>0 OR instr(activity_meta_json,'DISCARDED_')>0)",[],|r|r.get(0)).unwrap();
         assert!(!leaked);
         let report = json!({"storageFormat":format,"operations":OPERATIONS,"events":events,"progressUpdates":128,
+            "progressChangedRows":progress_changed_rows,
             "operationRows":rows.0,"activityCopyRows":rows.1,"previewAndDiffLogicalBytes":logical,
             "eventValueWriteBytes":write_bytes,"dbPagesBytes":pages*page_size,"dbGrowthBytes":(pages-initial_pages)*page_size,
             "dbFileBytes":file_size(db.path()),"walPeakBytes":peak_wal,"blobPeakBytes":blob_bytes,

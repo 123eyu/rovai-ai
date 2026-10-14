@@ -437,7 +437,7 @@ async function readRunFacts(databasePath, agentRunId) {
     SELECT operation_id AS operationId, activity_domain AS activityDomain,
            semantic_kind AS semanticKind, tool_name AS toolName,
            phase, outcome
-    FROM canonical_runtime_activity
+    FROM execution_activity
     WHERE agent_run_id = ${id}
       AND (tool_name IS NOT NULL OR activity_domain NOT IN ('runtime', 'unknown'))
     ORDER BY first_evidence_sequence;

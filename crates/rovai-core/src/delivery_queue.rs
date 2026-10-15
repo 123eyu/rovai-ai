@@ -3160,6 +3160,19 @@ mod tests {
             0,
             "over-budget input cannot leave a partial Manifest"
         );
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET status='waiting',wait_reason='approval' WHERE id=?1",
+                [&run],
+            )
+            .unwrap();
+        assert!(
+            crate::steer::active_input_availability(fixture.database.connection(), &run, 1)
+                .unwrap()
+                .can_steer
+        );
         let one_context = materialize(&mut fixture, &one);
         assert!(one_context.rendered_payload.contains("visible history"));
         let projected: serde_json::Value = serde_json::from_str(
@@ -3215,6 +3228,27 @@ mod tests {
             .unwrap();
         ContextService
             .acknowledge_input_delivery(&mut fixture.database, &one_input.id, "same-native-turn")
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT status,wait_reason FROM agent_run WHERE id=?1",
+                    [&run],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                )
+                .unwrap(),
+            ("waiting".into(), "approval".into()),
+            "Steer receipt must not resolve the original wait"
+        );
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET status='running',wait_reason=NULL WHERE id=?1",
+                [&run],
+            )
             .unwrap();
         let digest: String = fixture.database.connection().query_row("SELECT native_collaboration_state_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r|r.get(0)).unwrap();
         assert_eq!(digest, two_context.collaboration_state_digest);

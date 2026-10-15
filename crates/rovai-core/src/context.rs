@@ -2227,7 +2227,8 @@ impl ContextService {
                 }
                 (binding_id, row.4)
             };
-        if row.5 != "running" || row.6 != execution_epoch {
+        let accepts_input = row.5 == "running" || (!is_initial && row.5 == "waiting");
+        if !accepts_input || row.6 != execution_epoch {
             anyhow::bail!("AgentRun or Native Binding changed before input delivery");
         }
         let (runtime_attachment_auth_receipt, runtime_attachment_auth_receipt_digest) =

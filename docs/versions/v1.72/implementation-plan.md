@@ -19,6 +19,8 @@ Desktop Main 精确开放 `runtimeInputs.reconcile`；生产 Composer 以 contin
 提交时依据 flush 后正文和点击时 Run 快照计算目标。Pi Start／Steer 共用图片授权字节准备、
 模型能力校验、MIME／大小检查和发送前证据；扩展既有 RPC owner 检查原字节与拒绝零写入。
 规范与需求审查分别复核以上修复；既有 CodeBuddy #762 不关闭。
+收尾复现了 waiting／approval 状态下准备 Steer 的拒绝；仅补充输入接受 waiting，普通首次输入仍要求 running。
+沿用多输入 owner 验证回执不解除原等待，修正前红测、修正后定向绿测分别保留。
 
 User seq49 的存储复核沿用普通输入和执行记录的现有合同：Steer 不复制最终输入的各节正文，
 也不持久化 `canSteer` 或原生输入回显。既有多输入恢复 owner 补上退役快照列保持 NULL、最终 Blob

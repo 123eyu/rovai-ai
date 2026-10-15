@@ -7,10 +7,11 @@ last_updated: 2026-10-15
 
 # Steer 入队回执与阻塞工具实测
 
-本轮由 User seq90–95 触发。以 main `6dcb86f48` 加本次局部修复为代码基线，macOS arm64；
+本轮由 User seq90–96 触发。以 main `6dcb86f48` 加本次局部修复为代码基线，macOS arm64；
 只测试 Rovai 已接入的通道，使用生产 Core、共同 Builder／Formatter、真实 LLM 和每个场景独立的
 data／Skill Library／MCP／native 配置副本。日常数据库和原生会话只读，不取消或重发 User 的真实任务。
-版本发现／展示与 Pi、Qwen 的启动摘要回归已交独立会话，不由本报告宣称修复。
+版本缓存／展示由独立会话处理。seq96 复核该分支后，确认它未处理 Pi、Qwen 的启动摘要回归；
+本次另行修复这个 Core 错误，不把两个原因合并解释。
 
 ## User 场景的原因
 
@@ -22,6 +23,8 @@ data／Skill Library／MCP／native 配置副本。日常数据库和原生会�
   这证明接收发生在本次执行中，也证明该样本没有即时中断等待；不能把“插话”解释成“停止工具”。
 - Pi／Kiro 修复前真实复测：15 秒受控工具等待内只形成第一条 prepared 输入，第二条留在 Core；
   工具释放后才依次确认。二者均存在额外消费门禁。
+- Pi／Qwen 普通启动失败：冻结配置补齐 reported_version 后仍使用旧 config_digest，生产 rebind
+  因摘要不匹配拒绝。仅在版本变化时刷新现有摘要；版本检测失败仍允许普通执行，不增加探测或门禁。
 - Kiro 初次调整后暴露第二个边界：两条输入间隔约 100 ms，原生第二条 queued 通知把 A、B 正文合并，
   每次 RPC 却分别返回 queued=true。逐通知正文匹配把第二条误记未知；最终文件实际已执行 B。
   最终采用逐 RPC 回执，不实现正文拼接解析或额外服务。
@@ -40,7 +43,7 @@ data／Skill Library／MCP／native 配置副本。日常数据库和原生会�
 | CodeBuddy 2.133.1 | gpt-6.1-sol | A、B 均已接收 | 本次样本通过；不关闭既有 #762 |
 | Qwen Code 0.25.0 | gpt-6.1-sol (openai-responses) | A 等原生拉取，B 尚未投递 | 工具结束后两条均在原 Run 完成 |
 | Grok Build 1.0.50 | gpt-6.1-sol | A、B 均已接收 | 单 Run 连续更正通过 |
-| Kiro CLI 2.21.1 | auto（未透露底层模型） | 修复前等消费；逐正文方案仍会误记 B 未确认 | 最终逐 RPC 方案复测中 |
+| Kiro CLI 2.21.1 | auto（未透露底层模型） | 最终逐 RPC 方案三次均在工具释放前接收 A、B | 3/3 单 Run 连续更正通过 |
 | ZCode App 3.14.5／内核 0.16.9 | new-provider / gpt-6.1-sol | 修复后 A、B 均已接收 | 单 Run 连续更正通过 |
 | TRAE CLI CN 0.209.1 | glm-5.3/high | A、B 均已接收 | 单 Run 连续更正通过，工具继续等待至测试端释放 |
 
@@ -52,7 +55,7 @@ Claude 与 Qwen 的等待来自当前原生回显／拉取时机；本轮未发�
 
 Pi、Kiro、ZCode 分别追加“已入队但工具未结束 → 停止 → 普通新任务”：均已通过；新任务不含任何
 忽略旧指令的提示，原禁止文件未出现。原 Run 取消与普通后继成功独立核对，不把全部结束视作通过。
-最终 Kiro 回执调整后的停止复测仍需补验。
+Kiro 最终逐 RPC 方案另做停止复测，同样通过。
 
 Kiro 尝试记录完整保留：第一次修复后模型自行 touch release，未形成预定工具边界，属无效场景；
 明确 fixture 约束后的第二次及透明协议记录复测，均复现第二条回执未知但 B 结果已完成，不被成功样本覆盖。
@@ -62,4 +65,24 @@ Kiro 尝试记录完整保留：第一次修复后模型自行 touch release，�
 只导出版本、模型、输入状态、文件结果和必要的脱敏错误。本轮原始失败与后续通过分开记录。
 ZCode 修复批次 Core SHA-256 为 `3f55ae803b918fcf9b1cee003f91843da85d10768baf6434ae8e40399918729e`；
 Pi 及初次 Kiro 调整批次为 `68450834c72ecb66a718266ec0909663f5641f59281154ba44581ed14cb84ee4`。
+Kiro 最终三次连续输入与停止复测使用 `0a150aeb` 的代码，Core SHA-256 为
+`3a483408a03c87b58f578772f0b69b5b0c12511a57765651bf4abfd93ed13dc5`。
 本次只调整内存回执与队列清理；没有迁移、额外正文、持久回执状态或产品提示词变化。
+
+## 独立版本会话复核
+
+`rvcamp_01m501c22ve4htyd2ngke2ceyx` 的 `49b2dd5ef` 分支保留同路径、同程序指纹的已知版本，
+并让设置与队员页使用一致的 Core 投影。其作用是避免轻量扫描的空版本盖掉已知版本；涉及缓存和展示，
+并非新增一套启动全量健康检查。程序被替换后不能继续借用旧版本。
+该分支没有修改 `prepare_runtime_identity`，不能据此宣布本轮摘要错误已经解决。
+
+## 确定性回归
+
+- Pi 与 ACP 既有回执 owner 通过。ACP 增补 reader 顺序配对：ACK 后终态仍已接收，终态后 ACK
+  不误判原执行接收。两条事件处理完才读取回执，排除 waiter 调度顺序影响。
+- Pi／Qwen 的 launch-version owner 通过真实 Core prepare／rebind／claim，分别覆盖补齐版本和
+  版本检测失败仍普通执行。临时禁用摘要刷新后，该测试重现 User 原错误
+  `Refreshed Runtime configuration digest is invalid`；恢复修复后通过。
+- 新增夹具首轮遗漏执行请求，次轮只在受保护附件视图清理失败；修正测试设置与精确目录清理后通过。
+  这些失败不计作真实 Runtime 失败，也不省略负向验证。
+- 独立规范审查无发现；需求审查指出 ACK 与终态的调度竞态，按上述 reader 顺序修复后复审无新增发现。

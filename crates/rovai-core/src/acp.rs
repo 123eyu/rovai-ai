@@ -702,12 +702,19 @@ enum PendingRpc {
     Response {
         method: String,
         sender: oneshot::Sender<Result<Value>>,
+        steer_target: Option<PendingSteerTarget>,
     },
     Prompt {
         owner: AcpRuntimeOwner,
         session_id: String,
         prompt_id: String,
     },
+}
+
+struct PendingSteerTarget {
+    owner: AcpRuntimeOwner,
+    session_id: String,
+    prompt_id: String,
 }
 
 const ACP_CLIENT_TERMINAL_DEFAULT_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -2411,7 +2418,27 @@ impl AcpHost {
             Ok(message.get("result").cloned().unwrap_or(Value::Null))
         };
         match pending {
-            PendingRpc::Response { sender, .. } => {
+            PendingRpc::Response {
+                sender,
+                steer_target,
+                ..
+            } => {
+                if let Some(target) = steer_target {
+                    // The stdout reader holds ingress_fence here. Record the
+                    // receipt's owner before a following terminal can advance
+                    // the route; waiter scheduling must not change its meaning.
+                    let active = self.routes.read().await.get(&target.session_id).is_some_and(|route|
+                        route.owner == target.owner && !route.client_terminal_create_cancelled
+                        && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == target.prompt_id));
+                    let explicit_rejection = self.adapter_kind == AdapterKind::CodebuddyCli
+                        && message["result"]["steered"] == false;
+                    if !active && response_error.is_none() && !explicit_rejection {
+                        let _ = sender.send(Err(anyhow::anyhow!(
+                            "ACP input response arrived after the target execution ended"
+                        )));
+                        return;
+                    }
+                }
                 // Keep the machine-readable rejection through the correlated RPC.
                 // Diagnostic fields still cross the same credential redaction boundary.
                 let response = match response_error {
@@ -3966,6 +3993,7 @@ impl AcpHost {
             PendingRpc::Response {
                 method: method.to_string(),
                 sender,
+                steer_target: None,
             },
         );
         if let Err(error) = self
@@ -5427,6 +5455,15 @@ impl AcpRuntime {
             PendingRpc::Response {
                 method: method.to_string(),
                 sender,
+                // The ZCode facade already associates its exact queue event
+                // with the target Turn before returning a receipt.
+                steer_target: (self.adapter_kind() != AdapterKind::ZcodeApp).then(|| {
+                    PendingSteerTarget {
+                        owner: self.owner.clone(),
+                        session_id: session.clone(),
+                        prompt_id: expected_prompt.to_string(),
+                    }
+                }),
             },
         );
         // Some transports cannot atomically bind to a native turn. Retire the
@@ -5492,12 +5529,6 @@ impl AcpRuntime {
             // A correlated explicit rejection remains not-accepted even when
             // the original Prompt completes before this response is observed.
             return Err(rovai_core::steer::ActiveInputNotAccepted.into());
-        }
-        let routes = self.host.routes.read().await;
-        if !routes.get(&session).is_some_and(|route| route.owner == self.owner
-            && !route.client_terminal_create_cancelled
-            && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == expected_prompt)) {
-            bail!("ACP input response arrived after the target execution ended");
         }
         // Kiro merges queued notification bodies when inputs arrive together.
         // The correlated RPC receipt is per request; notifications are not.
@@ -9989,7 +10020,7 @@ while IFS= read -r ignored; do :; done
             let (sender, error_response) = oneshot::channel();
             host.complete_pending(
                 999,
-                PendingRpc::Response { sender, method: method.into() },
+                PendingRpc::Response { sender, method: method.into(), steer_target: None },
                 json!({"id":999,"error":{"code":code,"message":"wire-stdout test IDENTIFIER failure 1","data":data}}),
             ).await;
             let detail = error_response.await.unwrap().unwrap_err();
@@ -12225,6 +12256,64 @@ while IFS= read -r ignored; do :; done
                         !runtime.preserve_zcode_host_after_cancel(),
                         "a retired Host cannot wait for the reusable-Host cancellation fence"
                     );
+                }
+                if kind == AdapterKind::KiroCli && !late && !unsupported && !bad_owner {
+                    // Consume both reader events before polling the receipt. A
+                    // scheduler delay must not turn ACK -> terminal into the
+                    // same outcome as terminal -> ACK.
+                    for ack_first in [true, false] {
+                        let _ingress = host.ingress_fence.lock().await;
+                        host.bind_session("session-steer", &runtime.owner, AcpSessionPhase::Ready)
+                            .await
+                            .unwrap();
+                        let prepared = host
+                            .prepare_prompt("session-steer", &runtime.owner, "reader-order")
+                            .await
+                            .unwrap();
+                        let terminal = host
+                            .pending
+                            .lock()
+                            .await
+                            .remove(&prepared.request_id)
+                            .unwrap();
+                        let (sender, receipt) = oneshot::channel();
+                        let pending = PendingRpc::Response {
+                            method: "_session/steer".into(),
+                            sender,
+                            steer_target: Some(PendingSteerTarget {
+                                owner: runtime.owner.clone(),
+                                session_id: "session-steer".into(),
+                                prompt_id: prepared.prompt_id,
+                            }),
+                        };
+                        let ack = json!({"id":999,"result":{"queued":true}});
+                        let end =
+                            json!({"id":prepared.request_id,"result":{"stopReason":"end_turn"}});
+                        if ack_first {
+                            host.complete_pending(999, pending, ack).await;
+                            host.complete_pending(prepared.request_id, terminal, end)
+                                .await;
+                        } else {
+                            host.complete_pending(prepared.request_id, terminal, end)
+                                .await;
+                            host.complete_pending(999, pending, ack).await;
+                        }
+                        assert!(matches!(
+                            host.routes.read().await["session-steer"].phase,
+                            AcpSessionPhase::PromptCompleted(_)
+                        ));
+                        let result = receipt.await.unwrap();
+                        if ack_first {
+                            assert_eq!(result.unwrap()["queued"], true);
+                        } else {
+                            assert!(
+                                !result
+                                    .unwrap_err()
+                                    .is::<rovai_core::steer::ActiveInputNotAccepted>(),
+                                "a late response cannot prove that the input was never submitted"
+                            );
+                        }
+                    }
                 }
                 host.shutdown().await;
                 std::fs::remove_dir_all(root).unwrap();

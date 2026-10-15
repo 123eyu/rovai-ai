@@ -24,6 +24,8 @@ last_updated: 2026-10-15
 | ZCode | 当前 Turn 下 inputId、正文、targetTurnId、pendingInputId 匹配的 `turn.steerQueued` | `turn.steerDrained` |
 
 Kiro 连续插话时 queued 通知可能合并正文，不按通知正文重建逐条回执。
+ACP 回执归属按 reader 实际观察顺序判断：有效 ACK 后原 Prompt 结束，不因等待方稍后恢复而改为未知；
+原 Prompt 已结束后才收到的无归属接收响应，仍保留未知。原生明确拒绝沿用既有未接受处理。
 仅写入成功、ZCode 不含目标 Turn 的通用 sendText 响应或模型文字“收到”不能替代上述证据。其他 Runtime 保持既有回执方式；
 Qwen 仍需等原生 `craft/drainMidTurnQueue` 拉取才实际投递，未拉取不伪装为原生已接收。
 

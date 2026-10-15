@@ -14901,6 +14901,7 @@ impl Core {
         &self,
         mut runtime: FrozenAgentRuntimeConfig,
     ) -> std::result::Result<FrozenAgentRuntimeConfig, RuntimeDispatchFailure> {
+        let original_version = runtime.reported_version.clone();
         if rovai_core::steer::supports_active_input(runtime.adapter_kind.as_str())
             && runtime.reported_version.is_none()
         {
@@ -14977,6 +14978,15 @@ impl Core {
                 error,
                 effective_version: None,
             })?;
+        }
+        if runtime.reported_version != original_version {
+            runtime
+                .refresh_config_digest()
+                .map_err(|error| RuntimeDispatchFailure {
+                    code: "runtime_configuration_invalid".to_string(),
+                    error,
+                    effective_version: None,
+                })?;
         }
         Ok(runtime)
     }
@@ -27242,6 +27252,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "slow-tests"))]
     #[tokio::test]
     async fn launch_version_uses_the_frozen_program_without_blocking_ordinary_execution() {
+        use std::os::unix::fs::PermissionsExt;
         let root =
             std::env::temp_dir().join(format!("rovai-launch-version-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
@@ -27345,6 +27356,193 @@ mod tests {
                 .reported_version
                 .is_none()
         );
+        // Follow the prepared identity through the production rebind and claim
+        // seam. A version-only update used to leave its digest stale and reject
+        // ordinary Pi/Qwen runs before a Runtime could even start.
+        for adapter in [AdapterKind::Pi, AdapterKind::QwenCode] {
+            for reported in [Some("1.1.0"), None] {
+                core.runtime_discovery.write().await.clear();
+                let executable = root.join(format!("{}-{}", adapter.as_str(), reported.is_some()));
+                write_runtime_resolution_executable(
+                    &executable,
+                    if reported.is_some() {
+                        "#!/bin/sh\nprintf '1.1.0\\n'\n"
+                    } else {
+                        "#!/bin/sh\nexit 1\n"
+                    },
+                );
+                let camp_id = {
+                    let mut database = core.database.lock().await;
+                    let registry = AgentRuntimeAdapterRegistry::default();
+                    let mut snapshot = registry
+                        .light_ready_snapshot(
+                            adapter,
+                            Some("1.1.0".into()),
+                            fingerprint_executable(&executable).unwrap(),
+                            chrono::Utc::now().to_rfc3339(),
+                        )
+                        .unwrap();
+                    // Ordinary launch admits discovery without a known version.
+                    snapshot.reported_version = None;
+                    AgentProfileService::default()
+                        .commit_discovered_managed_installation(
+                            &mut database,
+                            DiscoveredManagedInstallation {
+                                adapter_kind: adapter,
+                                executable_path: executable.display().to_string(),
+                                command_name: adapter.command_name().into(),
+                                source: InstallationSource::Manual,
+                                auth_scope: "default".into(),
+                                snapshot,
+                                entrypoint_locator_identity: None,
+                            },
+                        )
+                        .unwrap();
+                    let profile = AgentProfileService::default()
+                        .list_profiles(&database)
+                        .unwrap()
+                        .remove(0);
+                    let configured = AgentProfileService::default()
+                        .set_runtime(
+                            &mut database,
+                            &user_command_envelope(
+                                uuid::Uuid::new_v4().to_string(),
+                                SetMemberRuntimeConfigurationCommand {
+                                    agent_id: profile.agent_id.clone(),
+                                    expected_version: profile.version,
+                                    adapter_kind: adapter,
+                                    environment_update: None,
+                                    model:
+                                        rovai_core::agent_profile::ModelSelection::RuntimeDefault,
+                                    permissions:
+                                        rovai_core::agent_profile::AdapterPermissionConfig {
+                                            adapter_kind: adapter,
+                                            schema_version: 1,
+                                            values: registry.member_permission_defaults(adapter),
+                                        },
+                                },
+                            ),
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        configured.result.status,
+                        CommandResultStatus::Applied,
+                        "{configured:?}"
+                    );
+                    let created = CollaborationService::default()
+                        .create_camp(
+                            &mut database,
+                            &user_command_envelope(
+                                uuid::Uuid::new_v4().to_string(),
+                                CreateThreadCommand {
+                                    name: Some("Version-only launch preparation".into()),
+                                    project_binding_kind: ProjectBindingKind::Directory,
+                                    project_path: root
+                                        .canonicalize()
+                                        .unwrap()
+                                        .display()
+                                        .to_string(),
+                                    member_agent_ids: vec![profile.agent_id.clone()],
+                                    default_lead_agent_id: profile.agent_id,
+                                    collaboration_mode: ThreadCollaborationMode::Peer,
+                                    activation_state: ThreadActivationState::Active,
+                                },
+                            ),
+                        )
+                        .unwrap();
+                    let camp_id = created.result.payload["threadId"]
+                        .as_str()
+                        .unwrap()
+                        .to_string();
+                    core.attachment_views
+                        .ensure_empty_camp_ready(&mut database, &camp_id)
+                        .unwrap();
+                    camp_id
+                };
+                let sent = core
+                    .send_test_camp_message_request(SendThreadMessageParams {
+                        delivery_mode: Default::default(),
+                        steer_targets: None,
+                        command_id: uuid::Uuid::new_v4().to_string(),
+                        camp_id: ThreadId::parse(&camp_id).unwrap(),
+                        content: text_composer_document("Ordinary execution must remain available"),
+                        source_attachments: Vec::new(),
+                        quotes: Vec::new(),
+                        reply_to_camp_message_id: None,
+                        execution: Some(ExecutionRequest {
+                            task_id: None,
+                            purpose: "Verify ordinary launch after version preparation".into(),
+                            completion_role: "required".into(),
+                            budget: None,
+                        }),
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    sent["commandResult"]["payload"]["deliveryIds"]
+                        .as_array()
+                        .map(Vec::len),
+                    Some(1),
+                    "{sent:#}"
+                );
+                let candidate = {
+                    let mut database = core.database.lock().await;
+                    let id = claim_waiting_delivery_batches(&mut database, 1)
+                        .unwrap()
+                        .remove(0);
+                    ExecutionRuntimeService::default()
+                        .load_dispatchable_agent_run(&database, &id)
+                        .unwrap()
+                        .unwrap()
+                };
+                let frozen = candidate.frozen_runtime().unwrap();
+                assert_eq!(frozen.reported_version, None);
+                let (prepared, version) = core
+                    .prepare_runtime_for_dispatch(
+                        &candidate,
+                        frozen,
+                        &candidate.execution_workspace(),
+                    )
+                    .await
+                    .map_err(|failure| failure.error)
+                    .unwrap();
+                assert_eq!(prepared.reported_version.as_deref(), reported);
+                let mut database = core.database.lock().await;
+                let claimed = ExecutionRuntimeService::default()
+                    .claim_agent_run(
+                        &mut database,
+                        &CommandEnvelope {
+                            command_id: uuid::Uuid::new_v4().to_string(),
+                            actor: ActorRef::System {
+                                component_id: "agent-run-scheduler".into(),
+                            },
+                            camp_id: Some(camp_id.clone()),
+                            expected_versions: Vec::new(),
+                            execution_epoch: None,
+                            payload: ClaimAgentRunCommand {
+                                agent_run_id: candidate.agent_run_id,
+                                expected_version: version,
+                                lease_owner: "launch-version-test".into(),
+                                lease_seconds: 60,
+                                workspace: None,
+                                starting_git_observation: None,
+                            },
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(claimed.result.code, "agent_run.claimed", "{claimed:?}");
+                // The fixture creates protected attachment views. Restore only
+                // its known directories so the final test-root cleanup can run.
+                let camps = core.attachment_views.root().join("camps");
+                for path in [
+                    camps.clone(),
+                    camps.join(&camp_id),
+                    camps.join(&camp_id).join("attachments"),
+                ] {
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+                }
+            }
+        }
         drop(core);
         std::fs::remove_dir_all(root).unwrap();
     }

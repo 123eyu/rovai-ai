@@ -59,6 +59,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         matches!(
             classify_database_contract(&tx)?,
             DatabaseContractClassification::Current(_)
+                | DatabaseContractClassification::SupportedMigrationSource(_)
         ),
         "Unified operation activity admission failed"
     );
@@ -68,6 +69,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
+    super::compact_execution::downgrade_for_test(connection);
     if !schema_matches(connection).unwrap() {
         return;
     }
@@ -117,6 +119,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .execute_batch("DROP TRIGGER reject_activity_receipt;")
         .unwrap();
     migrate(database).unwrap();
+    super::compact_execution::migrate(database).unwrap();
     assert_eq!(snapshot(database.connection()), before);
     let reopened =
         Connection::open_with_flags(&database.path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
@@ -124,5 +127,6 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     assert!(matches!(
         classify_database_contract(&reopened).unwrap(),
         DatabaseContractClassification::Current(_)
+            | DatabaseContractClassification::SupportedMigrationSource(_)
     ));
 }

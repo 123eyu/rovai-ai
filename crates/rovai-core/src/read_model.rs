@@ -1551,7 +1551,7 @@ impl ReadModelService {
             let mut statement = transaction.prepare(
                 r#"
                 SELECT id, agent_run_id, execution_epoch, sequence,
-                       event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json),
+                       event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json, result_digest),
                        content_blob_id, content_byte_count,
                        is_truncated, occurred_at,
                        operation_id, revision, change_sequence, output_truncated
@@ -3437,7 +3437,7 @@ fn load_execution_evidence(
         )
         SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
                evidence.sequence, evidence.event_type, evidence.kind, evidence.phase,
-               rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
+               rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json, evidence.result_digest),
                evidence.content_blob_id, evidence.content_byte_count, evidence.is_truncated, evidence.occurred_at,
                evidence.operation_id, evidence.revision, evidence.change_sequence, evidence.output_truncated
         FROM selected JOIN agent_run_execution_evidence AS evidence ON evidence.id=selected.id
@@ -3463,7 +3463,7 @@ pub(crate) fn public_execution_evidence_for_agent_run(
         r#"
         SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
                evidence.sequence, evidence.event_type, evidence.kind,
-               evidence.phase, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
+               evidence.phase, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json, evidence.result_digest),
                evidence.content_blob_id, evidence.content_byte_count,
                evidence.is_truncated, evidence.occurred_at,
                evidence.operation_id, evidence.revision, evidence.change_sequence,
@@ -3598,7 +3598,7 @@ pub(crate) fn attach_canonical_activity_projection(
     let mut unified = connection.prepare("SELECT e.id,e.activity_meta_json,e.operation_id,e.sequence,e.revision
         FROM json_each(?1) requested JOIN agent_run_execution_evidence e ON e.id=json_extract(requested.value,'$[0]')
         WHERE e.agent_run_id=json_extract(requested.value,'$[1]') AND e.execution_epoch=json_extract(requested.value,'$[2]')
-          AND e.storage_version=3 AND e.activity_meta_json IS NOT NULL")?;
+          AND e.storage_version IN (3,4) AND e.activity_meta_json IS NOT NULL")?;
     let rows = unified.query_map([&requested_json], |r| {
         Ok((
             r.get::<_, String>(0)?,

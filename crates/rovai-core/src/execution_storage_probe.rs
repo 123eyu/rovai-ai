@@ -57,7 +57,7 @@ fn measured<T>(f: impl FnOnce() -> T) -> (T, Value) {
 
 pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
     let mut reports = Vec::new();
-    for format in [1, 2, 3] {
+    for format in [1, 2, 3, 4] {
         let directory = parent.join(format!("storage-probe-{format}"));
         std::fs::create_dir_all(&directory).unwrap();
         seed.connection()
@@ -85,6 +85,19 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
                 )
                 .unwrap();
         }
+        // SQLite statements/JSON values written, not an estimate of physical disk traffic.
+        db.connection().execute_batch("CREATE TEMP TABLE storage_writes(inserts INTEGER,updates INTEGER,body_updates INTEGER,json_bytes INTEGER,digest_bytes INTEGER);
+            INSERT INTO storage_writes VALUES(0,0,0,0,0);
+            CREATE TEMP TRIGGER storage_inserts AFTER INSERT ON agent_run_execution_evidence BEGIN
+                UPDATE storage_writes SET inserts=inserts+1,json_bytes=json_bytes+length(CAST(NEW.payload_preview_json AS BLOB))+COALESCE(length(CAST(NEW.input_preview_json AS BLOB)),0)+COALESCE(length(CAST(NEW.result_preview_json AS BLOB)),0),digest_bytes=digest_bytes+COALESCE(length(NEW.result_digest),0); END;
+            CREATE TEMP TRIGGER storage_updates AFTER UPDATE ON agent_run_execution_evidence BEGIN
+                UPDATE storage_writes SET updates=updates+1; END;
+            CREATE TEMP TRIGGER storage_bodies AFTER UPDATE OF input_preview_json,result_preview_json ON agent_run_execution_evidence BEGIN
+                UPDATE storage_writes SET body_updates=body_updates+1,json_bytes=json_bytes+length(CAST(NEW.payload_preview_json AS BLOB))+COALESCE(length(CAST(NEW.input_preview_json AS BLOB)),0)+COALESCE(length(CAST(NEW.result_preview_json AS BLOB)),0); END;
+            CREATE TEMP TRIGGER storage_metadata AFTER UPDATE OF activity_meta_json ON agent_run_execution_evidence BEGIN
+                UPDATE storage_writes SET json_bytes=json_bytes+COALESCE(length(CAST(NEW.activity_meta_json AS BLOB)),0); END;
+            CREATE TEMP TRIGGER storage_digest AFTER UPDATE OF result_digest ON agent_run_execution_evidence BEGIN
+                UPDATE storage_writes SET digest_bytes=digest_bytes+COALESCE(length(NEW.result_digest),0); END;").unwrap();
         let store = ManagedBlobStore::new(&directory);
         let mut peak_wal = 0;
         let mut write_bytes = 0_i64;
@@ -115,13 +128,19 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
                         "command":format!("printf fixture-{operation}"),
                         "status":if terminal{"completed"}else{"inProgress"}}});
                     if terminal && is_file {
-                        payload["runtimeDiff"] = json!({"adapterKind":"codex-cli","protocolFamily":"codex-app-server",
-                            "sourceEventKind":"item/completed.fileChange.completed","semanticKind":"codex_file_change_snapshot",
-                            "entries":[{"path":format!("src/file-{operation}.rs"),"kind":{"type":"update"},
-                            "diff":format!("@@ -1 +1 @@\n-{}\n+{}\n","a".repeat(20_000),"b".repeat(20_000))}]});
+                        payload["item"]["changes"] = json!([{"path":parent.join(format!("src/file-{operation}.rs")),"kind":{"type":"update"},
+                            "diff":format!("@@ -1 +1 @@\n-{}\n+{}\n","a".repeat(20_000),"b".repeat(20_000))}]);
+                        payload = crate::codex::normalize_event("item/completed", &payload).1;
                     } else if terminal {
                         payload["item"]["aggregatedOutput"] =
                             json!(format!("{}DISCARDED_PROBE_SUFFIX", "x".repeat(7680)));
+                    }
+                    let wide_input = operation % 100 == 0;
+                    if wide_input {
+                        payload = json!({"toolCallId":id,"kind":"execute","toolName":"fixture",
+                            "status":if terminal {"completed"} else {"started"},
+                            "input":(0..24).map(|i|(format!("field{i}"),json!("a".repeat(4000)))).collect::<serde_json::Map<_,_>>(),
+                            "output":if terminal {payload["item"]["aggregatedOutput"].clone()} else {Value::Null}});
                     }
                     let recorded = ExecutionEvidenceService
                         .record_runtime_event(
@@ -129,7 +148,9 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
                             &store,
                             run,
                             0,
-                            if terminal {
+                            if wide_input {
+                                "runtime.action"
+                            } else if terminal {
                                 "activity.completed"
                             } else {
                                 "activity.started"
@@ -250,7 +271,7 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
         let rows:(i64,i64,i64)=db.connection().query_row("SELECT
             (SELECT count(*) FROM agent_run_execution_evidence WHERE operation_id IS NOT NULL),
             (SELECT count(*) FROM canonical_runtime_activity),
-            (SELECT count(*) FROM agent_run_execution_evidence WHERE operation_id IS NOT NULL AND storage_version=3 AND activity_meta_json IS NULL)",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+            (SELECT count(*) FROM agent_run_execution_evidence WHERE operation_id IS NOT NULL AND storage_version IN (3,4) AND activity_meta_json IS NULL)",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
         assert_eq!(rows.0, OPERATIONS as i64 + 1);
         assert_eq!(rows.2, 0);
         assert_eq!(rows.1, if format < 3 { OPERATIONS as i64 + 1 } else { 0 });
@@ -271,10 +292,18 @@ pub(crate) fn compare(seed: &Database, camp: &str, run: &str, parent: &Path) {
             instr(payload_preview_json,'DISCARDED_')>0 OR instr(input_preview_json,'DISCARDED_')>0
             OR instr(result_preview_json,'DISCARDED_')>0 OR instr(activity_meta_json,'DISCARDED_')>0)",[],|r|r.get(0)).unwrap();
         assert!(!leaked);
+        let writes: (i64, i64, i64, i64, i64) = db
+            .connection()
+            .query_row(
+                "SELECT inserts,updates,body_updates,json_bytes,digest_bytes FROM storage_writes",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
         let report = json!({"storageFormat":format,"operations":OPERATIONS,"events":events,"progressUpdates":128,
-            "progressChangedRows":progress_changed_rows,
+            "progressChangedRows":progress_changed_rows,"sqlInserts":writes.0,"sqlUpdates":writes.1,"sqlBodyUpdates":writes.2,"jsonValueWriteBytes":writes.3,"digestWriteBytes":writes.4,
             "operationRows":rows.0,"activityCopyRows":rows.1,"previewAndDiffLogicalBytes":logical,
-            "eventValueWriteBytes":write_bytes,"dbPagesBytes":pages*page_size,"dbGrowthBytes":(pages-initial_pages)*page_size,
+            "eventValueWriteBytes":write_bytes,"inputArgumentCases":OPERATIONS/100,"duplicateNativeDiffCases":OPERATIONS/100,"readSampleCount":READ_SAMPLES,"dbPagesBytes":pages*page_size,"dbGrowthBytes":(pages-initial_pages)*page_size,
             "dbFileBytes":file_size(db.path()),"walPeakBytes":peak_wal,"blobPeakBytes":blob_bytes,
             "writeMs":write_ms,"readSamples":read_samples,"progressSamples":progress_samples});
         eprintln!(

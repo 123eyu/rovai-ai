@@ -528,7 +528,7 @@ fn is_supported_run_evidence_path(path: &str) -> bool {
 // authority. Never enter the Run-wide UNION view on this single-file path.
 const RUN_FILE_EVIDENCE_SQL: &str = r#"
     SELECT evidence.storage_version,evidence.phase,evidence.operation_id,
-           CASE WHEN evidence.storage_version=3 THEN evidence.activity_meta_json END
+           CASE WHEN evidence.storage_version IN (3,4) THEN evidence.activity_meta_json END
     FROM agent_run_execution_evidence AS evidence
     JOIN agent_run ON agent_run.id=evidence.agent_run_id
     LEFT JOIN camp_turn ON camp_turn.id=agent_run.camp_turn_id
@@ -593,12 +593,16 @@ fn run_activity_authorizes_file(
     let Some((storage_version, phase, operation_id, metadata)) = selected else {
         return Ok(false);
     };
+    let mut compact_file_operation = None;
     let (projection, outcome): (Option<CommandDiffProjection>, String) = match storage_version {
-        3 => {
+        3 | 4 => {
             let Some(metadata) = metadata else {
                 return Ok(false);
             };
             let metadata: serde_json::Value = serde_json::from_str(&metadata)?;
+            if storage_version == 4 {
+                compact_file_operation = metadata.get("runtimeFileOperation").cloned();
+            }
             if ![
                 canonical_activity::CLASSIFIER_VERSION,
                 canonical_activity::PREVIOUS_CLASSIFIER_VERSION,
@@ -679,6 +683,12 @@ fn run_activity_authorizes_file(
     }
     if phase != "completed" || outcome != "succeeded" {
         return Ok(false);
+    }
+    if storage_version == 4 {
+        return Ok(runtime_file_operation::operation_from_evidence(
+            &serde_json::json!({"runtimeFileOperation":compact_file_operation}),
+        )
+        .is_some_and(|operation| operation.path == path));
     }
     let (input, result): (Option<String>, Option<String>) =
         database
@@ -1410,29 +1420,32 @@ mod tests {
         std::fs::create_dir_all(execution_root.join("src")).unwrap();
         std::fs::write(project_root.join(operation_path), "project\n").unwrap();
         std::fs::write(execution_root.join(operation_path), "mission\n").unwrap();
-        let operation_evidence = ExecutionEvidenceService
-            .record_runtime_event(
-                &mut database,
-                &ManagedBlobStore::new(&data_dir),
-                "preview-run",
-                1,
-                "runtime.action",
-                &json!({
-                    "eventId": "preview-operation-event",
-                    "toolCallId": "preview-operation-tool",
-                    "status": "completed",
-                    "kind": "edit",
-                    "runtimeFileOperation": {
-                        "adapterKind": "opencode-cli",
-                        "protocolFamily": "acp-v1",
-                        "sourceEventKind": "session/update.tool_call_update.completed",
-                        "operationKind": "write",
-                        "path": operation_path
-                    }
-                }),
-            )
-            .unwrap()
-            .expect("path-only file evidence should be recorded");
+        let operation_evidence =
+            crate::execution_evidence::with_operation_storage_for_test(3, || {
+                ExecutionEvidenceService
+                    .record_runtime_event(
+                        &mut database,
+                        &ManagedBlobStore::new(&data_dir),
+                        "preview-run",
+                        1,
+                        "runtime.action",
+                        &json!({
+                            "eventId": "preview-operation-event",
+                            "toolCallId": "preview-operation-tool",
+                            "status": "completed",
+                            "kind": "edit",
+                            "runtimeFileOperation": {
+                                "adapterKind": "opencode-cli",
+                                "protocolFamily": "acp-v1",
+                                "sourceEventKind": "session/update.tool_call_update.completed",
+                                "operationKind": "write",
+                                "path": operation_path
+                            }
+                        }),
+                    )
+                    .unwrap()
+                    .expect("path-only file evidence should be recorded")
+            });
         let ResolvedFilePreviewSource::FileTarget {
             root_path,
             raw_reference,
@@ -1465,6 +1478,7 @@ mod tests {
                 "runtime.action",
                 &json!({
                     "eventId": "preview-read-event",
+                    "input": (0..24).map(|i| (format!("field{i}"),json!("a".repeat(4000)))).collect::<serde_json::Map<_,_>>(),
                     "toolCallId": "preview-read-tool",
                     "status": "completed",
                     "kind": "read",
@@ -1547,6 +1561,21 @@ mod tests {
             )
             .is_none(),
             "an unavailable operation must not authorize a file"
+        );
+        let input_bytes:i64=database.connection().query_row("SELECT length(CAST(input_preview_json AS BLOB)) FROM agent_run_execution_evidence WHERE id=?1",[&read_evidence.evidence.id],|r|r.get(0)).unwrap();
+        assert!(input_bytes <= 16 * 1024);
+        database.connection().execute("UPDATE agent_run_execution_evidence SET activity_meta_json=json_set(activity_meta_json,'$.runtimeFileOperation.status','unavailable') WHERE id=?1",[&read_evidence.evidence.id]).unwrap();
+        assert!(
+            resolve_run_activity_file(
+                &database,
+                &data_dir,
+                "preview-run",
+                1,
+                &read_evidence.evidence.id,
+                operation_path
+            )
+            .is_none(),
+            "new format authority uses the selected admitted metadata, never an obsolete body preview"
         );
         clean_run_workspace_fixture(database, data_dir, root);
     }

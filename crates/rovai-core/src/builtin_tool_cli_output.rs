@@ -978,7 +978,8 @@ mod tests {
 
     #[test]
     fn every_operation_has_a_schema_valid_golden_projection() {
-        // v13 exposes one avatar; older successful outputs stay byte-stable.
+        // v14 changes legacy avatar contents, not v13's JSON shape. Reuse the
+        // same golden; source/framing semantics belong to member_avatar tests.
         let golden: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/builtin-tool-agent-output-v13.json"
         ))

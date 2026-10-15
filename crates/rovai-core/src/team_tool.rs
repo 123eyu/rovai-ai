@@ -2996,6 +2996,95 @@ mod tests {
                 .unwrap()
                 .replayed
         );
+        // Legacy get and crop-only update must use the same source coordinates.
+        // Image geometry and GIF cases stay in member_avatar's lower-cost owner.
+        let legacy_crop = crate::member_avatar::MemberAvatarCrop {
+            center_x: 0.25,
+            center_y: 0.2,
+            size: 0.5,
+        };
+        let icon = image::load_from_memory(&original_source)
+            .unwrap()
+            .crop_imm(0, 0, 200, 200)
+            .resize_exact(192, 192, image::imageops::FilterType::Lanczos3);
+        let mut icon_bytes = std::io::Cursor::new(Vec::new());
+        icon.write_to(&mut icon_bytes, image::ImageFormat::Png)
+            .unwrap();
+        let legacy = crate::member_avatar::save_managed_member_avatar(
+            &fixture.directory,
+            &original_source,
+            icon_bytes.get_ref(),
+            400,
+            500,
+            legacy_crop.clone(),
+        )
+        .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET avatar_ref=?1 WHERE id='agent_2'",
+                [&legacy.avatar_ref],
+            )
+            .unwrap();
+        let legacy_read = read(&fixture.database, "agent_2");
+        assert_eq!(
+            legacy_read["avatar"]["displayCrop"],
+            serde_json::to_value(&legacy_crop).unwrap()
+        );
+        assert_eq!(
+            std::fs::read(legacy_read["avatar"]["path"].as_str().unwrap()).unwrap(),
+            original_source
+        );
+        let legacy_source = fixture
+            .directory
+            .join("member-avatars")
+            .join(legacy.avatar_ref.rsplit('/').next().unwrap())
+            .join("source.png");
+        std::fs::remove_file(&legacy_source).unwrap();
+        let before_count = file_count();
+        let unavailable = read(&fixture.database, "agent_2");
+        assert_eq!(
+            unavailable["avatar"],
+            json!({"path":null,"status":"unavailable","displayCrop":null})
+        );
+        assert_eq!(
+            unavailable["professionalResponsibilities"],
+            legacy_read["professionalResponsibilities"]
+        );
+        assert_eq!(unavailable["version"], legacy_read["version"]);
+        assert_eq!(file_count(), before_count);
+        assert!(
+            crate::member_avatar::read_managed_member_avatar(
+                &fixture.directory,
+                &legacy.avatar_ref,
+                false,
+            )
+            .unwrap()
+            .is_some(),
+            "existing icon must not mask a missing source in Agent get"
+        );
+        std::fs::write(&legacy_source, &original_source).unwrap();
+        let legacy_patch = parse_patch(
+            &fixture.database,
+            json!({"agentId":"agent_2","requestId":Uuid::new_v4().to_string(),"expectedVersion":legacy_read["version"],"avatarCenterX":0.75,"avatarCenterY":0.8,"avatarSize":0.5}),
+        );
+        update_member(
+            &mut fixture.database,
+            &fixture.directory,
+            &run,
+            legacy_patch,
+        )
+        .unwrap();
+        let cropped = read(&fixture.database, "agent_2");
+        assert_eq!(
+            cropped["avatar"]["displayCrop"],
+            json!({"centerX":0.75,"centerY":0.8,"size":0.5})
+        );
+        assert_eq!(
+            std::fs::read(cropped["avatar"]["path"].as_str().unwrap()).unwrap(),
+            original_source
+        );
         let clear_patch = parse_patch(
             &fixture.database,
             json!({"agentId":"agent_2","requestId":Uuid::new_v4().to_string(),"expectedVersion":cropped["version"],"teamRole":"","personalityTraits":[],"clearAvatar":true}),

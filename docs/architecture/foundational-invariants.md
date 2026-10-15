@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: current-foundational-invariants
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # 当前基础架构不变量
@@ -182,7 +182,7 @@ last_updated: 2026-10-14
 ### 头像、内置外观与 Native Session 身份
 
 - Core 在新队员创建、资料或头像修改、Runtime 配置、Presence、移除或排序命令首次成功提交后，通过同一事件通道发 `members.invalidated { reason }`。Agent 内置 `member.create` 也遵守此提交边界；拒绝和幂等重放不发通知。事件只是名册失效提示，不携带可直接应用的队员状态。Main 原样转发，Renderer 用 `members.list` 重读完整名册。
-- `avatarRef` 是 AgentProfile 唯一头像领域字段，引用受控内置外观或应用受管不可变本地资产。选择、解码、静态规范化、资源限额、原子保存和引用提交分层校验；先物化不可变资产、再事务提交 ref。新资产只保存一份图像及显示取景，GIF 不逐帧裁切、缩放或重编码；旧 icon/source 保持兼容，不在本轮迁移或回收。渠道在发布时导出并冻结静态封面；精确边界见 [Member Avatar v2](../contracts/member-avatar-v2.md)。原路径、原图元数据和图像正文不得进入 SQLite、日志、诊断或导出。
+- `avatarRef` 是 AgentProfile 唯一头像领域字段，引用受控内置外观或应用受管不可变本地资产。选择、解码、静态规范化、资源限额、原子保存和引用提交分层校验；先物化不可变资产、再事务提交 ref。新资产只保存一份图像及显示取景，GIF 不逐帧裁切、缩放或重编码；旧 icon/source 保持兼容，不在本轮迁移或回收。渠道在发布时导出并冻结静态封面；精确边界见 [Member Avatar v3](../contracts/member-avatar-v3.md)。原路径、原图元数据和图像正文不得进入 SQLite、日志、诊断或导出。
 - 每个封闭内置角色只有一套当前 packaged appearance/preset；升级直接替换受控引用背后的当前内容，不维护旧图库，也不从外观推导角色、Capability、Runtime、权限或生命周期。
 - 用户导入图像仅存本地，备份/导出默认只包含安全 ref/受控资产而不恢复原始文件路径；缺失、损坏或未随备份携带时降级为中性展示，不修改身份或从不可信路径回读。
 - `MEMBER_IDENTITY` 是一个 Native Session 唯一完整的 self identity；`COLLABORATION_STATE` 只投影新 AgentRun 冻结时当前 Camp peers 的路由身份和 Lead 引用，不重复 self，也不包含专业职责、人格、Presence、Runtime、busy、membership generation/version 或成员变化 delta。已冻结 Run 不因名册变化被原位打补丁。
@@ -428,7 +428,7 @@ last_updated: 2026-10-14
 - Core IPC 先返回并校验完整 Envelope，然后按 operation 投影一份 closed Agent result JSON。普通 Agent 输出不包含 envelope wrapper、request identity 或 receipt，也不通过递归删字段得到；每个 operation 有明确 `agentOutputSchema` 与 golden fixture。完整 Envelope 只用于 Core、Evidence、Qualification 和 host-controlled debug 边界。
 - `rovai` CLI 是 Runtime 调用 Rovai-owned built-ins 的唯一运输。内置 MCP/`rovai_team` Bridge、注入、alias map、Runtime 临时配置和 native permission bundle 已 clean break 删除；不存在 fallback 或同 Run 双运输。用户外部 MCP 继续走独立 Library/Runtime-native projection，不经 Built-in Router。
 - CLI 使用领域分组命令，但 请求记录、审计、Activity 与 Envelope 保留 canonical dotted operation identity。Native Session Bootstrap 只教稳定 CLI 入口和通用失败纪律；Agent 侧没有 `tool list`、`tool describe`、generic invoke 或全量 schema discovery。精确输入源和本命令约束由简短 `--help` 给出，复杂选择/恢复由 `cli-operations` Skill 说明。
-- CLI 将输入规范化为一个请求对象；只有 Send 正文文件可与除 `--body` 外的直接参数组合。Send 文件严格命中现有封闭请求 Schema 时保留整个请求，且禁止混入直接参数；其他合法 UTF-8 文本成为原文正文。识别后的业务失败不能降级重发。其他命令仍一次只选 direct arguments、JSON stdin/heredoc 或 JSON `--input-file`，不合并或覆盖；显式文件/参数不读取继承 stdin。文件与兼容边界见 [Built-in Tool Transport v40](../contracts/builtin-tool-transport-v40.md)。`camp.read` 只在所选来源成为 JSON 对象之后、canonical Schema 校验之前补全安全 Timeline 默认；默认 Timeline 发送给 Core 的 canonical JSON 始终包含 mode/direction/limit，其他显式 mode 继续发送各自完整 branch。其他命令不引入业务默认；输入文件路径、Shell quoting 与临时文件不是 Core 信任边界或保密保证。
+- CLI 将输入规范化为一个请求对象；只有 Send 正文文件可与除 `--body` 外的直接参数组合。Send 文件严格命中现有封闭请求 Schema 时保留整个请求，且禁止混入直接参数；其他合法 UTF-8 文本成为原文正文。识别后的业务失败不能降级重发。其他命令仍一次只选 direct arguments、JSON stdin/heredoc 或 JSON `--input-file`，不合并或覆盖；显式文件/参数不读取继承 stdin。文件与兼容边界见 [Built-in Tool Transport v41](../contracts/builtin-tool-transport-v41.md)。`camp.read` 只在所选来源成为 JSON 对象之后、canonical Schema 校验之前补全安全 Timeline 默认；默认 Timeline 发送给 Core 的 canonical JSON 始终包含 mode/direction/limit，其他显式 mode 继续发送各自完整 branch。其他命令不引入业务默认；输入文件路径、Shell quoting 与临时文件不是 Core 信任边界或保密保证。
 - 目标 Runtime 必须在接收 Run 输入前证明 CLI、当前 IPC、Run binding 和当前 contract 可用；否则以结构化理由 fail closed，不启动降级 Agent。发布资格按 Runtime 及宿主平台独立验收，不因一个平台未准入而否定其他已验收组合。
 - Business rejection 投影稳定 code、safe message、closed recovery 和合同允许的 details；不泄露 stack、SQL、内部路径、IPC 地址、secret 或未筛底层错误。乐观冲突要求重读后重新判断；只有 Core 明确允许时才以同一 request identity 有界重试。幂等重试返回原结果而不重复效果；无法证明时返回 outcome indeterminate 并要求核对当前状态。
 - CLI 子进程通过当前 Run 的受保护本地 IPC endpoint 与新 lease 继承调用身份，不从可复用 Runtime 进程身份继承权力。Runtime 及它启动的子进程共享当前 Run/Member 归属和同一 scope/version/quota/fence，不根据父进程名、命令文本或层级猜测模型意图。Run release 先 fence lease，迟到子进程调用不得归属于后续 Run。

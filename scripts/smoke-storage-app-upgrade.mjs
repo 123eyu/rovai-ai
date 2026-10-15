@@ -85,6 +85,9 @@ const start=async()=>{
  assert.equal(evidence.at(-1).schema,154)
  const selector=`document.querySelector('[data-sidebar-menu-target="thread:${fixture.campId}"]')?.closest('.camp-nav-row')?.querySelector('.camp-nav-open')`
  await browser.wait(`Boolean(${selector})`,30000)
+ // The sidebar can paint before startup finishes restoring its route. Core health
+ // alone is not the interaction-ready boundary; wait for navigation to be enabled.
+ await browser.wait(`Boolean(document.querySelector('.navigation-collapse-button:not(:disabled)')) && !document.querySelector('[data-startup-status]')`,45000)
  // This smoke owns storage/UI routing, not native Electron/CDP pointer coordinates.
  // Invoke the exact Renderer button so title-bar/device-metric offsets cannot select a neighbour.
  await browser.evaluate(`(${selector}).click()`)

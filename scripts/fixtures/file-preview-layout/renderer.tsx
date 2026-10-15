@@ -253,6 +253,9 @@ Object.assign(window, { rovai: {
   filePreview: api,
   request: async (method: string, request: { threadId: string; agentRunId: string; executionEpoch: number }): Promise<unknown> => {
     if (method === 'skills.list' || method === 'skills.deliveryGroups.list') return []
+    if (method === 'skills.candidates') return { skills: [], errors: [] }
+    if (method === 'threads.pendingDraft.setPresence') return { changed: true }
+    if (method === 'thread.messages.anchors') return { schemaVersion: 1, threadId: request.threadId, throughGlobalSequence: 0, totalCount: 0, items: [] }
     const source = [changes, pickerChanges].find(card => card.agentRunId === request.agentRunId)
     if (method !== 'agentRunFileChanges.get' || request.threadId !== 'camp-1' || !source) return unsupported()
     reviewRequests.push(request)

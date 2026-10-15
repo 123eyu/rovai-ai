@@ -4816,7 +4816,13 @@ export function ThreadWorkspace({
       rememberExecutionReadingPosition()
       if (executionPlacement === 'right') filePreview?.hidePane()
       else if (executionPlacement === 'inspector') onCloseInspector()
-      else setExecutionShortcutCollapsed(true)
+      else {
+        if (bottomExecutionDrawerHostRef.current?.contains(document.activeElement)) {
+          workspaceShellRef.current?.querySelector<HTMLButtonElement>('.execution-bottom-collapse-button')
+            ?.focus({ preventScroll: true })
+        }
+        setExecutionShortcutCollapsed(true)
+      }
     }
   })
   useShortcutAction('tasks', () => {

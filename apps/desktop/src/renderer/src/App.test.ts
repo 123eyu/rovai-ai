@@ -8189,6 +8189,27 @@ describe('task event projections', () => {
         expect(versionMarkup).toContain('DeepSeek Harness')
         expect(versionMarkup).not.toMatch(/测试|试运行|实验性/)
         expect(versionMarkup).toContain('<strong>ZCode</strong></div>')
+        const memberMarkup = renderToStaticMarkup(createElement(MemberRuntimeForm, {
+          agent: {
+            ...agentProfile(),
+            runtimeConfiguration: configuredRuntime('codex-cli'),
+            runtimeReadiness: { status: 'ready', blockers: [] }
+          },
+          installations: [codexInstallation()],
+          runtimeAvailability: [{ ...productAvailability('codex-cli', 'ready'), reportedVersion }],
+          hostPlatform,
+          runtimePlatformAdmission: runtimeAdmissionRows(hostPlatform, status),
+          busy: null,
+          onSave: async () => undefined,
+          onClear: async () => undefined,
+          onReload: async () => undefined,
+          onOpenRuntimeSettings: () => undefined
+        }))
+        // Both surfaces consume Core's identity-checked version. A stale
+        // installation snapshot must not override an explicitly unknown result.
+        expect(memberMarkup).not.toContain('codex-cli 0.144.6')
+        if (version) expect(memberMarkup).toContain(`<code>${version}</code>`)
+        else expect(memberMarkup).not.toContain('member-editor-runtime-health-wrap')
       }
     }
   })

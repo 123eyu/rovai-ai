@@ -3571,7 +3571,9 @@ impl AgentProfileService {
                         ?10, ?11, ?12, ?12, NULL, NULL, ?13
                     )
                     ON CONFLICT(installation_id) DO UPDATE SET
-                        reported_version = excluded.reported_version,
+                        reported_version = COALESCE(NULLIF(TRIM(excluded.reported_version), ''),
+                            CASE WHEN NULLIF(excluded.executable_fingerprint, '') = adapter_capability_snapshot.executable_fingerprint
+                                THEN adapter_capability_snapshot.reported_version END),
                         executable_fingerprint = excluded.executable_fingerprint,
                         authentication_status = excluded.authentication_status,
                         probe_status = 'ready',
@@ -3998,7 +4000,9 @@ fn upsert_successful_capability_snapshot(
             ?10, ?11, ?12, ?12, NULL, NULL, ?13
         )
         ON CONFLICT(installation_id) DO UPDATE SET
-            reported_version = excluded.reported_version,
+            reported_version = COALESCE(NULLIF(TRIM(excluded.reported_version), ''),
+                CASE WHEN NULLIF(excluded.executable_fingerprint, '') = adapter_capability_snapshot.executable_fingerprint
+                    THEN adapter_capability_snapshot.reported_version END),
             executable_fingerprint = excluded.executable_fingerprint,
             authentication_status = excluded.authentication_status,
             probe_status = 'ready',
@@ -4123,7 +4127,9 @@ fn upsert_static_capability_snapshot(
             ?11, ?12, ?13, NULL, NULL, ?14, NULL
         )
         ON CONFLICT(installation_id) DO UPDATE SET
-            reported_version = excluded.reported_version,
+            reported_version = COALESCE(NULLIF(TRIM(excluded.reported_version), ''),
+                CASE WHEN NULLIF(excluded.executable_fingerprint, '') = adapter_capability_snapshot.executable_fingerprint
+                    THEN adapter_capability_snapshot.reported_version END),
             executable_fingerprint = excluded.executable_fingerprint,
             authentication_status = excluded.authentication_status,
             probe_status = excluded.probe_status,
@@ -7806,6 +7812,69 @@ mod slow_tests {
                     .map(|attempt| attempt.failure_class.as_str()),
                 Some("transient")
             );
+            // All three snapshot writers must retain a known version when a
+            // later observation omits it, but never carry it to different bytes.
+            for writer in ["command", "managed", "static"] {
+                let transaction = database.connection_mut().transaction().unwrap();
+                upsert_successful_capability_snapshot(&transaction, &installation_id, &ready)
+                    .unwrap();
+                transaction.commit().unwrap();
+                for changed_program in [false, true] {
+                    let mut next = ready.clone();
+                    next.reported_version = None;
+                    if changed_program {
+                        next.executable_fingerprint = Some("sha256:replacement".into());
+                    }
+                    if writer == "command" {
+                        service
+                            .record_snapshot(
+                                &mut database,
+                                &user_command(
+                                    &format!("versionless-{writer}-{changed_program}"),
+                                    RecordAdapterCapabilitySnapshotCommand {
+                                        installation_id: installation_id.clone(),
+                                        expected_installation_version: 1,
+                                        snapshot: next,
+                                        failure: None,
+                                    },
+                                ),
+                            )
+                            .unwrap();
+                    } else {
+                        let transaction = database.connection_mut().transaction().unwrap();
+                        if writer == "managed" {
+                            upsert_successful_capability_snapshot(
+                                &transaction,
+                                &installation_id,
+                                &next,
+                            )
+                            .unwrap();
+                        } else {
+                            next.probe_status = "light_ready".into();
+                            upsert_static_capability_snapshot(
+                                &transaction,
+                                &installation_id,
+                                &next,
+                            )
+                            .unwrap();
+                        }
+                        transaction.commit().unwrap();
+                    }
+                    let saved: Option<String> = database.connection().query_row(
+                        "SELECT reported_version FROM adapter_capability_snapshot WHERE installation_id = ?1",
+                        [&installation_id], |row| row.get(0),
+                    ).unwrap();
+                    assert_eq!(
+                        saved.as_deref(),
+                        if changed_program {
+                            None
+                        } else {
+                            ready.reported_version.as_deref()
+                        },
+                        "{writer}, changed program: {changed_program}"
+                    );
+                }
+            }
             drop(database);
             std::fs::remove_dir_all(directory).expect("temporary database should be removable");
         }

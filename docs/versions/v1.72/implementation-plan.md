@@ -36,6 +36,37 @@ config_digest；扩展已有 launch-version slow owner，沿真实 prepare／reb
 最小入口：`cargo test -p rovai-core --features slow-tests --lib launch_version_uses_the_frozen_program_without_blocking_ordinary_execution`。
 本次属于局部可逆的回执语义对齐，未达到新版本决策的准入门槛；既有 Run／Host 边界保持。
 
+## 智能体已知版本保留（2026-10-15）
+
+按 [Runtime Launch v64](../../contracts/runtime-launch-and-verification-v64.md) 修复正式版本投影：
+静态发现没有重读版本时，以当前路径及非空 fingerprint 关联同一 Installation 的历史值，不再按搜索代次
+切换版本来源。三条快照写入路径在程序 fingerprint 相同时保留已有非空版本，程序替换后清除旧值。
+队员配置去掉本地 snapshot 回退，与设置目录统一消费 Core 的版本字段；执行准入和启动发现保持。
+
+验证覆盖：
+
+- 新增唯一纯投影 owner `runtime_versions_follow_program_identity_instead_of_search_generation`，覆盖静态发现、
+  读取空值／失败、真实新版本、路径变化、指纹变化／缺失和搜索代次切换；原代码的同代次空值会丢失版本。
+  现有 readiness owner 不拥有版本字段，因此单独建立最低成本的无进程矩阵。
+- 扩展 `failed_probe_keeps_the_last_successful_catalog_and_marks_it_stale`，在原 SQLite fixture 中验证
+  Command、managed 和 static 三条保存路径的空值保留与程序替换；没有新增平行数据库 fixture。
+- 扩展 `discovered_runtime_verification_keeps_database_available_and_identity_after_restart`，通过真实隔离
+  数据库重开与公开 health 投影验证版本恢复。持久化／重启链路不能只由纯函数证明；沿用原 fixture。
+- 上述 owner，以及 `runtime_check_manager_rebinds_after_version_replacement_and_commits_ready`、
+  `detected_entry_remains_launchable_after_an_explicit_diagnostic_failure`、
+  `launch_version_uses_the_frozen_program_without_blocking_ordinary_execution` 的定向测试通过。
+  命令为 `cargo test -p rovai-core --features slow-tests --lib <owner>`，每个筛选均实际运行一项。
+- `App.test.ts` 既有平台矩阵同时渲染设置与队员表单，确认二者使用同一版本、未知时不复活原 snapshot。
+  与 `runtime-check.test.ts`、`runtime-status.test.ts` 合计 211 项通过；`pnpm typecheck`、
+  `pnpm build:desktop`、`cargo fmt --all --check` 通过。
+- `pnpm test:rust:pr` 默认 workspace 回归通过。干净副本的 `pnpm test` 首轮 Vitest 为
+  2715 通过、1 项语言目录扫描超过既有 5 秒预算；该文件单独重跑 2 项均通过，未改超时或测试内容。
+  随后执行原脚本剩余 Node 阶段，355 通过、2 项 Windows 专用验证按原条件跳过。
+
+本次没有真实模型调用或日常 App 安装。原主 checkout 的文档检查会扫描 Git 忽略的本地原型并报告旧坏链接；
+提交内容的文档门禁在隔离的干净提交副本通过（包括真实 base SHA 的 diff-aware 检查），
+不修改原型或添加 checker 例外。
+
 ## Claude 受管执行回执与启动期待插话（2026-10-15）
 
 按 User seq86、seq88 实施 [Delivery v17](../../contracts/message-delivery-v17.md)。不调用真实 LLM，

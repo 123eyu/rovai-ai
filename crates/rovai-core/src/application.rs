@@ -4232,16 +4232,8 @@ impl Core {
                         product_diagnostic,
                         is_checking,
                     );
-                    // A current observation with no version is deliberately unknown;
-                    // do not relabel this check using a previous installation's version.
-                    let reported_version = if discovery.search_generation == search.generation() {
-                        discovery.reported_version.as_deref()
-                    } else {
-                        installation
-                            .and_then(|installation| installation.snapshot.as_ref())
-                            .and_then(|snapshot| snapshot.reported_version.as_deref())
-                            .or(discovery.reported_version.as_deref())
-                    };
+                    let reported_version =
+                        product_runtime_reported_version(&discovery, installation);
                     json!({
                         "runtimeKind": kind,
                         "status": status,
@@ -18421,6 +18413,44 @@ fn note_product_runtime_diagnostic(
     });
 }
 
+fn product_runtime_reported_version<'a>(
+    discovery: &'a RuntimeDiscoveryObservation,
+    installation: Option<&'a AdapterInstallationView>,
+) -> Option<&'a str> {
+    if discovery.discovery_status != RuntimeDiscoveryStatus::Found {
+        return None;
+    }
+    if let Some(version) = discovery
+        .reported_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+    {
+        return Some(version);
+    }
+    // Static discovery and a failed version read do not invalidate a version
+    // already observed for this program. Search generations fence check writes;
+    // changing one must not change which program a displayed version describes.
+    let installation = installation?;
+    let snapshot = installation.snapshot.as_ref()?;
+    let fingerprint = discovery
+        .executable_fingerprint
+        .as_deref()
+        .filter(|fingerprint| !fingerprint.is_empty())?;
+    if !installation.enabled
+        || installation.path_state != "valid"
+        || discovery.executable_path.as_deref() != Some(installation.executable_path.as_str())
+        || snapshot.executable_fingerprint.as_deref() != Some(fingerprint)
+    {
+        return None;
+    }
+    snapshot
+        .reported_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+}
+
 fn product_runtime_availability_status(
     discovery_status: RuntimeDiscoveryStatus,
     installation: Option<&AdapterInstallationView>,
@@ -28542,6 +28572,43 @@ done
                         ExecutableIntegrityStatus::Unchanged
                     ));
                 }
+                // Once a version is known, reopening the database and publishing
+                // a versionless static observation must keep the public version.
+                // The fixture's --version sleeps: discovery must never invoke it.
+                let snapshot = AgentRuntimeAdapterRegistry::default()
+                    .light_ready_snapshot(
+                        AdapterKind::CodexCli,
+                        Some("1.2.3".into()),
+                        observation.executable_fingerprint.clone().unwrap(),
+                        observation.observed_at.clone(),
+                    )
+                    .unwrap();
+                service
+                    .commit_discovered_managed_installation(
+                        &mut *core.database.lock().await,
+                        DiscoveredManagedInstallation {
+                            adapter_kind: AdapterKind::CodexCli,
+                            executable_path: executable.to_string_lossy().into_owned(),
+                            command_name: "codex".into(),
+                            source: InstallationSource::Manual,
+                            auth_scope: "default".into(),
+                            snapshot,
+                            entrypoint_locator_identity: None,
+                        },
+                    )
+                    .unwrap();
+                drop(core);
+                core = runtime_resolution_test_core(&root).unwrap();
+                core.publish_runtime_discovery(observation.clone()).await;
+                let health = core.runtime_health_payload().await.unwrap();
+                let codex = health["runtimeAvailability"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|item| item["runtimeKind"] == "codex-cli")
+                    .unwrap();
+                assert_eq!(codex["reportedVersion"], "1.2.3");
+                assert!(codex["discovery"]["reportedVersion"].is_null());
                 drop(core);
                 std::fs::remove_dir_all(root).unwrap();
             });
@@ -30190,6 +30257,90 @@ done
             ),
             "found_uninspected"
         );
+    }
+
+    // Owns version projection independently from machine readiness. The former
+    // generation-based projection erased these persisted versions on every scan.
+    #[test]
+    fn runtime_versions_follow_program_identity_instead_of_search_generation() {
+        let installation = managed_runtime_fixture("2026-10-15T00:00:00Z", None);
+        for (name, path, fingerprint, version, expected) in [
+            (
+                "static discovery",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:test"),
+                None,
+                Some("1.2.3"),
+            ),
+            (
+                "empty version",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:test"),
+                Some("  "),
+                Some("1.2.3"),
+            ),
+            (
+                "reported version",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:test"),
+                Some(" 2.0.0 "),
+                Some("2.0.0"),
+            ),
+            (
+                "replaced program",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:replacement"),
+                None,
+                None,
+            ),
+            (
+                "different path",
+                "/another/codex",
+                Some("sha256:test"),
+                None,
+                None,
+            ),
+            (
+                "unknown fingerprint",
+                "/opt/homebrew/bin/codex",
+                None,
+                None,
+                None,
+            ),
+            (
+                "empty fingerprint",
+                "/opt/homebrew/bin/codex",
+                Some(""),
+                None,
+                None,
+            ),
+        ] {
+            // A check of another Runtime advances the global generation without
+            // changing this program; it must not make an old version reappear.
+            for generation in [1, 2] {
+                let mut discovery =
+                    RuntimeDiscoveryObservation::detecting(AdapterKind::CodexCli, generation);
+                discovery.discovery_status = RuntimeDiscoveryStatus::Found;
+                discovery.executable_path = Some(path.to_string());
+                discovery.executable_fingerprint = fingerprint.map(str::to_string);
+                discovery.reported_version = version.map(str::to_string);
+                discovery.version_probe_succeeded = Some(false);
+                let mut installation = installation.clone();
+                installation.snapshot.as_mut().unwrap().stale_at =
+                    Some("2026-10-15T01:00:00Z".into());
+                assert_eq!(
+                    product_runtime_reported_version(&discovery, Some(&installation)),
+                    expected,
+                    "{name}, generation {generation}"
+                );
+                discovery.discovery_status = RuntimeDiscoveryStatus::Missing;
+                assert_eq!(
+                    product_runtime_reported_version(&discovery, Some(&installation)),
+                    None,
+                    "missing entry must not display a historical version"
+                );
+            }
+        }
     }
 
     #[test]

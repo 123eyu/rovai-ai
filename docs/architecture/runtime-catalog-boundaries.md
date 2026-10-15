@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-12
+last_updated: 2026-10-15
 ---
 
 # Runtime Catalog Boundaries
@@ -14,7 +14,7 @@ last_updated: 2026-10-12
 [Runtime Platform Admission v2](../contracts/runtime-platform-admission-v2.md)拥有；Runtime 启动与延迟验证边界见
 [Runtime 进程与校验不变量](foundational-invariants.md#runtime-process-verification)、
 [Runtime 恢复与关闭不变量](foundational-invariants.md#runtime-recovery-shutdown)及
-[Runtime Launch and Verification v55](../contracts/runtime-launch-and-verification-v55.md)。实测版本和能力只由
+[Runtime Launch and Verification v64](../contracts/runtime-launch-and-verification-v64.md)。实测版本和能力只由
 [Runtime 兼容性清单](../runtime-compatibility.md)记录。
 
 ## 四层权威
@@ -187,7 +187,13 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 
 启动与 rescan 只解析入口、检查平台与执行条件、保存同次稳定的 fingerprint/file identity；
 不执行 `--version` 或协议深检。发现安装即可保存配置并尝试运行，版本未知不影响普通运行准入。
-安装记录不伪造 Ready、认证或能力；旧快照只供主动诊断和模型 Picker 参考。
+安装记录不伪造 Ready、认证或能力；旧健康证据只供主动诊断和模型 Picker 参考，已知版本的展示复用单独判断。
+
+已知程序版本复用现有快照保存，独立于健康状态：本次静态发现未读取版本或版本读取失败时，Core
+仅在 Installation 路径与当前发现一致、非空 executable fingerprint 匹配时复用已知版本。
+搜索代次变化不改变这条取值规则；程序身份变化或缺失时不显示旧版本。快照写入的空版本也不得
+清空同一程序已有的版本。设置与队员配置统一使用 Core 的版本投影，不各自回退历史快照。
+这不新增检查、轮询、运行准入或第二套持久缓存；字段规则见 [Runtime Launch v64](../contracts/runtime-launch-and-verification-v64.md)。
 
 配置冻结保存精确模型/权限意图，Scheduler 检查工作区、平台、目标及文件身份后启动真实 Host。
 真实初始化先确认必要协议、认证、显式模型/选项与权限，再在同一 Host 发送正文。

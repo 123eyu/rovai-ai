@@ -11,6 +11,8 @@ app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: process.platform === 'linux', width: 1040, height: 700, useContentSize: true, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } })
   const run = code => window.webContents.executeJavaScript(code, true)
   const settle = () => run('window.navigationTest.settle()')
+  const frame = () => run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const width = () => run('document.querySelector(".unified-sidebar").getBoundingClientRect().width')
   const point = selector => run(`(() => {const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+Math.min(350,r.height/2))}})()`)
   let mousePressed = false
@@ -20,7 +22,7 @@ app.whenReady().then(async () => {
     window.webContents.sendInputEvent({ type, ...p, button: 'left', clickCount: 1, modifiers: mousePressed ? ['leftButtonDown'] : [] })
   }
   const key = async (keyCode, modifiers = []) => { window.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers}); window.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers}); await settle() }
-  const drag = async (delta, release = true) => { const p=await point('.navigation-resize-handle'); mouse('mouseMove',p); mouse('mouseDown',p); await settle(); const end={...p,x:p.x+delta}; mouse('mouseMove',end); await settle(); if(release) {mouse('mouseUp',end);await settle()} return {start:p,end} }
+  const drag = async (delta, release = true) => { const p=await point('.navigation-resize-handle'); mouse('mouseMove',p); mouse('mouseDown',p); await settle(); const end={...p,x:p.x+delta}; mouse('mouseMove',end); await frame(); if(release) {mouse('mouseUp',end);await settle()} return {start:p,end} }
   const click = async selector => {const p=await point(selector);mouse('mouseMove',p);mouse('mouseDown',p);mouse('mouseUp',p);await settle()}
   const capture = async name => writeFileSync(join(dirname(userData),name+'.png'),(await window.webContents.capturePage()).toPNG())
   try {
@@ -195,12 +197,16 @@ app.whenReady().then(async () => {
     await drag(-150);assert.equal(await width(),200)
     await moveAway();await capture('sidecar-v3-compact')
     assert.equal((await status(runningSelector)).slots,2,'Compact layout retains both facts')
-    const gesture=await drag(-20,false);assert.equal(await width(),0)
-    // Reverse one captured gesture back across the threshold, including the starting dead zone.
+    await drag(-20);assert.equal(await width(),200, 'Release in the detent keeps the minimum')
+    await pause(400);assert.equal(await width(),200, 'An early release cannot fold later')
+    const gesture=await drag(-100,false);assert.equal(await width(),200, 'A fast inward drag visibly pauses')
+    await pause(400);assert.equal(await width(),0, 'Continued inward drag folds before mouseup')
+    // Reverse one captured gesture back across the threshold, including its starting point.
     mouse('mouseMove',gesture.start);await settle();assert.equal(await width(),200)
-    mouse('mouseMove',gesture.end);await settle();assert.equal(await width(),0)
+    mouse('mouseMove',gesture.end);await pause(400);await frame();assert.equal(await width(),0)
     await key('Escape');mouse('mouseUp',gesture.end);await settle();assert.equal(await width(),200)
-    await drag(-20);assert.equal(await width(),0)
+    const fold=await drag(-100,false);await pause(220);mouse('mouseUp',fold.end)
+    await pause(220);await frame();assert.equal(await width(),0, 'Release during folding does not rebound')
     await drag(260);assert.equal(await width(),260)
     await run('document.querySelector(".navigation-resize-handle").focus()')
     await key('Home');assert.equal(await width(),200)

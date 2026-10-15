@@ -1,5 +1,5 @@
 ---
-version: 20
+version: 21
 slug: "member-workspace"
 primary_target: "apps/desktop/src/renderer/src/MemberManagement.tsx"
 related_targets:
@@ -32,8 +32,10 @@ All split boundaries, including the roster, highlight their full 1px line with `
 The roster shares the detail's workspace
 surface (white in Day), with a 1px divider separating the two reading planes. Its default width is 256px;
 expanded widths range from 192px to 360px and protect 400px for the detail when space permits.
-Dragging below 176px snaps to the 76px avatar rail; dragging a
-collapsed rail past 208px expands it. The different thresholds prevent jitter around the boundary.
+Dragging holds at 192px; a 180ms dwell plus 64px further inward folds to the 76px avatar rail
+over 160ms. Releasing at the stop retains the minimum; reduced motion omits the fold animation.
+Dragging a collapsed rail past 208px expands it. Escape, lost capture, blur or resizing the window
+restores the pre-gesture layout; mouseup during an accepted fold lets it finish.
 The 9px pointer target stays mounted through collapse so the gesture can reverse without losing capture.
 Expanding restores the useful width before the collapse gesture. Remember width and
 collapse locally, accepting the previous collapse-only preference; viewport clamping does not overwrite

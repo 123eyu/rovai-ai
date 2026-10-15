@@ -20,6 +20,7 @@ import {
   type AutomationDraft, type AutomationFilter, type AutomationIssue, type SaveState, type TemplateId
 } from './automation-workspace-model'
 import { UiText, uiAttribute } from './interface-language'
+import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 
 
 export type AutomationLeaveGuard = () => Promise<boolean>
@@ -68,7 +69,6 @@ export function AutomationWorkspace({
   const createTriggerRef = useRef<HTMLButtonElement>(null)
   const [availableWidth, setAvailableWidth] = useState(1100)
   const splitRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ pointerId: number; x: number; width: number } | null>(null)
   const saveStateRef = useRef(saveState)
   saveStateRef.current = saveState
 
@@ -487,6 +487,32 @@ export function AutomationWorkspace({
     }
   }
 
+  const paintDetailWidth = (size: number): void => {
+    splitRef.current?.style.setProperty('--automation-list-width', `${availableWidth - size - 7}px`)
+  }
+  const previewDetailWidth = (size: number): void => {
+    paintDetailWidth(size)
+    setEditorClosed(false)
+    setListWidth(availableWidth - size - 7)
+  }
+  const splitter = useCollapsibleSplitter({
+    size: editorClosed ? 0 : Math.max(0, availableWidth - width - 7), collapsed: editorClosed,
+    minimum: 320, maximum: Math.max(320, availableWidth - 7 - AUTOMATION_MIN_LIST_WIDTH), direction: -1,
+    disabled: overview, scopeKey: selectedId,
+    scale: () => splitterScale(splitRef.current),
+    capture: () => ({ listWidth, editorClosed }),
+    onPreview: previewDetailWidth,
+    onCommit: previewDetailWidth,
+    onCollapseFrame: paintDetailWidth,
+    onCollapse: before => { paintDetailWidth(0); setListWidth(before.listWidth); setEditorClosed(true) },
+    onCancel: before => {
+      paintDetailWidth(before.editorClosed ? 0 : availableWidth - automationListWidth(before.listWidth, availableWidth) - 7)
+      setListWidth(before.listWidth)
+      setEditorClosed(before.editorClosed)
+    },
+    prepareCollapse: flushBeforeLeave
+  })
+
   const filters = (
     <div className="automation-filter-tabs" role="group" aria-label={uiAttribute("筛选定时任务")}>
       {(['all', 'enabled', 'closed'] as const).map((value, index) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{uiAttribute(['全部', '开启', '关闭'][index])}</button>)}
@@ -566,13 +592,11 @@ export function AutomationWorkspace({
           </section>}
         </aside>
         {!overview && <>
-          <div className="automation-splitter" role="separator" tabIndex={0} aria-label={uiAttribute("调整任务列表宽度")} aria-orientation="vertical" aria-valuemin={AUTOMATION_MIN_LIST_WIDTH} aria-valuemax={Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7)} aria-valuenow={editorClosed ? Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7) : width} aria-valuetext={editorClosed ? uiAttribute("详情已收起，向左调整可重新打开") : uiAttribute("任务列表宽度 {0} 像素", String(width))} title={editorClosed ? uiAttribute("向左拖动打开任务页") : uiAttribute("拖动调整宽度，拖到最右侧收起详情")}
-            onPointerDown={(event) => { if (event.button !== 0) return; event.currentTarget.dataset.resizing = 'true'; dragRef.current = { pointerId: event.pointerId, x: event.clientX, width: editorClosed ? availableWidth - 7 : width }; event.currentTarget.setPointerCapture(event.pointerId) }}
-            onPointerMove={(event) => { const drag = dragRef.current; if (drag?.pointerId === event.pointerId) resize(drag.width + event.clientX - drag.x) }}
-            onPointerUp={(event) => { delete event.currentTarget.dataset.resizing; dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
-            onPointerCancel={(event) => { delete event.currentTarget.dataset.resizing; dragRef.current = null }} onLostPointerCapture={(event) => { delete event.currentTarget.dataset.resizing; dragRef.current = null }}
-            onDoubleClick={() => { setListWidth(AUTOMATION_DEFAULT_LIST_WIDTH); setEditorClosed(false) }}
+          <div className="automation-splitter" role="separator" tabIndex={0} aria-label={uiAttribute("调整任务列表宽度")} aria-orientation="vertical" aria-valuemin={AUTOMATION_MIN_LIST_WIDTH} aria-valuemax={Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7)} aria-valuenow={editorClosed ? Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7) : width} aria-valuetext={editorClosed ? uiAttribute("详情已收起，向左调整可重新打开") : uiAttribute("任务列表宽度 {0} 像素", String(width))} title={editorClosed ? uiAttribute("向左拖动打开任务页") : uiAttribute("拖动调整宽度，详情最窄处停留后继续向右拖动收起；Escape 取消拖动")}
+            {...splitter.handlers}
+            onDoubleClick={() => { splitter.cancel(); setListWidth(AUTOMATION_DEFAULT_LIST_WIDTH); setEditorClosed(false) }}
             onKeyDown={(event) => {
+              if (splitter.active) return
               if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); resize((editorClosed ? availableWidth - 327 : width) + (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 24 : 8)) }
               else if (event.key === 'Home') { event.preventDefault(); setListWidth(AUTOMATION_MIN_LIST_WIDTH); setEditorClosed(false) }
               else if (event.key === 'End') { event.preventDefault(); void closeEditor() }

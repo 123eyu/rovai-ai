@@ -121,6 +121,10 @@ App，以受控本机 API 和时钟验证首帧画布、就绪交接与 authorit
 修改文件预览分栏、Tab 或 File Change 详情时运行 `pnpm test:file-preview-layout`：真实 Electron 中组合生产标题栏、分栏、Tab 和 Viewer，
 验证鼠标/键盘调整、关闭与取消、比例持久化、单 Pane 替换、420–480px 会话紧凑排版与阅读位置保留；
 并验证常驻预览按钮、变更 Tab/当前文件切换、历史来源隔离、加载重试与原生拖拽区排除点击控件；不启动 Core 或模型。
+可折叠分栏共享最小尺寸停留与继续拖动收起行为；导航和预览沿用上述回归，队员列表运行
+`node --test scripts/lib/member-editor.test.mjs`，底部执行台运行 `pnpm test:execution-avatar-rail`。
+定时任务详情运行 `pnpm test:automation-splitter`，用独立 Renderer fixture 验证最小宽度、同次手势反向展开、
+取消、保存失败保留草稿与迟到保存结果隔离；`ROVAI_KEEP_AUTOMATION_SPLITTER_FIXTURE=1` 保留截图。
 
 真实 Runtime Smoke、完整 macOS 打包、Windows 打包/安装和 UI 截图验收耗时更长，且部分命令会调用上游
 模型。它们保持独立，不进入普通 commit 门禁；运行前先阅读对应文档。

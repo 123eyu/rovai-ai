@@ -64,6 +64,23 @@ test('production composer uses Core per-target eligibility and honest receipt la
         await browser.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
         await browser.wait('!document.querySelector(".steer-send-choice")')
         assert.equal(await browser.evaluate('document.querySelector(".composer:not(.single-chat-composer) .composer-actions .composer-primary-action").getAttribute("aria-label")'), '发送消息')
+        await click('#camp-message')
+        await browser.send('Input.insertText', { text: '@' })
+        await browser.send('Input.insertText', { text: '奥黛丽' })
+        await browser.wait('[...document.querySelectorAll("button[role=option]")].some(e => e.textContent.includes("奥黛丽"))')
+        await browser.click('[...document.querySelectorAll("button[role=option]")].find(e => e.textContent.includes("奥黛丽"))')
+        await pause(100)
+        assert.equal(await browser.evaluate('document.querySelector(".composer:not(.single-chat-composer) .composer-actions .composer-primary-action").getAttribute("aria-label")'), '发送消息', 'live mention immediately replaces the busy default lead')
+        await browser.capture(join(root, 'live-mention.png'))
+        await browser.send('Input.insertText', { text: ' @' })
+        await browser.wait('[...document.querySelectorAll("button[role=option]")].some(e => e.textContent.includes("所有队员"))')
+        await browser.click('[...document.querySelectorAll("button[role=option]")].find(e => e.textContent.includes("所有队员"))')
+        await pause(100)
+        assert.equal(await browser.evaluate('document.querySelector(".composer:not(.single-chat-composer) .composer-actions .composer-primary-action").getAttribute("aria-label")'), '优先插话', 'all-members overrides the individual mention immediately')
+        await browser.evaluate(`(() => { const e = document.querySelector('#camp-message'); const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); e.focus() })()`)
+        await browser.send('Input.insertText', { text: '恢复发给队长' })
+        await pause(100)
+        assert.equal(await browser.evaluate('document.querySelector(".composer:not(.single-chat-composer) .composer-actions .composer-primary-action").getAttribute("aria-label")'), '插话', 'removing all recipient atoms immediately restores the default target')
       }
       if (['empty', 'attachment', 'idle', 'other-member', 'ready', 'not-ready'].includes(kind)) { report.push({ kind, actionLabel }); continue }
       const selector = '[data-message-id="steer-example"] .user-message-receipt'

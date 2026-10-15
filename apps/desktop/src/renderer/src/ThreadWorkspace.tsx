@@ -1769,6 +1769,7 @@ export function ThreadWorkspace({
   const [composerLocalStatus, setComposerLocalStatus] = useState<ComposerLocalStatus>({
     hasContent: false,
     hasExplicitRecipient: false,
+    hasAllMembers: false,
     hasUnavailableAtom: false,
     memberAgentIds: []
   })
@@ -2542,7 +2543,7 @@ export function ThreadWorkspace({
     && continuationRecipient.profilePresence === 'present'
   const hasReadyAttachment = (composerDraft?.attachments.length ?? 0) > 0
   const hasSendablePayload = composerLocalStatus.hasContent || hasReadyAttachment
-  const composerDeliveryPlans = hasSendablePayload ? deliveryPlans(snapshot, composerDraft, deliveryMode) : []
+  const composerDeliveryPlans = hasSendablePayload ? deliveryPlans(snapshot, composerDraft, deliveryMode, composerLocalStatus) : []
   const composerDeliveryLabel = deliveryActionLabel(composerDeliveryPlans)
   const hasLocalDraftPayload = Boolean(
     hasSendablePayload
@@ -3418,6 +3419,7 @@ export function ThreadWorkspace({
     setComposerLocalStatus({
       hasContent: false,
       hasExplicitRecipient: false,
+      hasAllMembers: false,
       hasUnavailableAtom: false,
       memberAgentIds: []
     })

@@ -19,7 +19,12 @@ last_updated: 2026-10-15
 - 生产 UI 夹具扩展既有 Steer owner：12 类 Composer／回执路径、10 组消息回执 × 日夜 × 1440/1040，
   覆盖左右对齐、hover 不位移、键盘／复制／展开、失败／停止／无 Run、已接收但 Run 失败的互斥计数与图标。
   失败／停止汇总为“未完成”，详情区分两者；成功普通目标退出摘要。
-- 自动化与隔离打包验证结果在交付时回填；本次不调用真实 LLM，不把可控写入测试解释为真实 Claude 事故复现。
+- 验证通过：`pnpm typecheck`、`pnpm test`（Vitest 2714、Node 355 通过／2 平台跳过）、
+  `pnpm test:rust:pr`（473 通过／1 既有忽略）、显式 extended-tests 的 Claude 3 个 owner（先核对清单），
+  `pnpm test:steer-ui`、格式检查与差异文档门禁。
+- `pnpm package:mac:daily` 的 arm64 签名检查通过；隔离 packaged Desktop/Core 冷启动、独立数据库／Skill／MCP 路径、
+  日夜主题与零 Renderer 错误通过。验收脚本首轮因 `/var` 与 `/private/var` 的路径表示断言失败，改用同一目录的规范路径后通过，产品代码未为此改变。
+- 本次不调用真实 LLM，不把可控写入测试解释为真实 Claude 事故复现。PR #769 只交付这些局部修复。
 
 ## Steer 局部修正（User seq54–63）
 

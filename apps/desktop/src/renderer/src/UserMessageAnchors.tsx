@@ -1,5 +1,6 @@
 import { useId, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { AnchorPreviewState } from './thread-user-anchor-navigation'
+import { MemberAvatar } from './MemberAvatar'
 import { uiAttribute } from './interface-language'
 import { captureTimelineReadingAnchor, restoreTimelineReadingAnchor, type TimelineReadingAnchor } from './timeline-reading-anchor'
 import { USER_ANCHOR_MIN_COUNT, USER_ANCHOR_MIN_WIDTH, USER_ANCHOR_ROW_HEIGHT,
@@ -152,7 +153,7 @@ export function UserMessageAnchors({ anchors, viewportRef, enabled, followingLat
     : anchors.find(anchor => visibleIds.has(anchor.id))?.id ?? anchors[0].id
   const previewAnchor = preview && anchors.find(anchor => anchor.id === preview.id)
   const previewState = previewAnchor ? previews?.get(previewAnchor.id) : undefined
-  const firstReply = previewState?.status === 'ready' ? previewState.value.firstReply?.summary : null
+  const firstReply = previewState?.status === 'ready' ? previewState.value.firstReply : null
   return (
     <nav className="conversation-anchor-nav" ref={navRef} aria-label={uiAttribute('用户消息锚点')}
       style={{ '--user-anchor-height': `${room.height}px` } as CSSProperties}
@@ -229,7 +230,14 @@ export function UserMessageAnchors({ anchors, viewportRef, enabled, followingLat
         <div className="conversation-anchor-preview" ref={previewRef} id={previewId} role={previewState?.status === 'error' ? 'group' : 'tooltip'}
           style={{ top: preview.top }}>
           <div className="conversation-anchor-preview-title">{previewAnchor.title}</div>
-          {firstReply && <p className="conversation-anchor-preview-copy">{firstReply}</p>}
+          {firstReply && <div className={firstReply.author ? 'conversation-anchor-preview-reply' : undefined}>
+            {firstReply.author && <div className="conversation-anchor-preview-author">
+              <MemberAvatar agentId={firstReply.author.agentId} avatarRef={firstReply.author.avatarRef}
+                displayName={firstReply.author.displayName} size="execution" decorative />
+              <span className="conversation-anchor-preview-author-name">{firstReply.author.displayName}</span>
+            </div>}
+            <p className="conversation-anchor-preview-copy">{firstReply.summary}</p>
+          </div>}
           {previewState?.status === 'loading' && <p className="conversation-anchor-preview-copy" role="status">{uiAttribute('正在读取回复…')}</p>}
           {previewState?.status === 'error' && <p className="conversation-anchor-preview-copy">
             {uiAttribute('回复暂时不可用')} · <button type="button" className="camp-history-text-button"

@@ -13,9 +13,12 @@ const agent: AgentProfile = { agentId: 'agent-fixture', displayName: '爱丽丝'
   growthTopic: '', defaultCapabilities: [], presence: 'present', runtimeConfiguration: null,
   runtimeReadiness: { status: 'ready', blockers: [] }, memberOrder: 0, version: 1,
   createdAt: now, updatedAt: now, removedAt: null }
+const replier: AgentProfile = { ...agent, agentId: 'agent-replier', displayName: '雾切响子',
+  avatarRef: 'rovai://member-avatar/builtin/qilu/v1', memberOrder: 1 }
+let authorMode: 'present' | 'missing' | 'legacy' = 'present'
 function message(id: string, sequence: number, authorType: ThreadMessageView['authorType'], body: string,
   replyToThreadMessageId: string | null = null): ThreadMessageView {
-  return { id, sequence, authorType, authorId: authorType === 'agent' ? agent.agentId : 'local_user',
+  return { id, sequence, authorType, authorId: authorType === 'agent' ? replier.agentId : 'local_user',
     timelineGlobalSequence: null, sourceAgentRunId: null, body, content: [{ kind: 'text', text: body }],
     attachments: [], quotes: [], addressMode: 'default', addressedAgentIds: [], replyToThreadMessageId,
     threadTurnId: null, presentation: null, createdAt: now, withdrawn: false, canWithdraw: false, version: 1 }
@@ -35,9 +38,10 @@ const initial: ThreadSnapshot = { schemaVersion: 35, throughGlobalSequence: 1,
   thread: { id: threadId, title: '会话内消息锚点', activationState: 'active', projectBindingKind: 'directory',
     projectPath: '/fixture/workspace', defaultLeadAgentId: agent.agentId, membershipGeneration: 1,
     version: 1, createdAt: now, updatedAt: now },
-  members: [{ agentId: agent.agentId, displayName: agent.displayName, avatarRef: null, teamRole: agent.teamRole,
-    accent: '', membershipStatus: 'active', leaveRequestedAt: null, profilePresence: 'present', memberOrder: 0,
-    isDefaultLead: true, version: 1 }],
+  members: [agent, replier].map(profile => ({ agentId: profile.agentId, displayName: profile.displayName,
+    avatarRef: profile.avatarRef, teamRole: profile.teamRole,
+    accent: '', membershipStatus: 'active', leaveRequestedAt: null, profilePresence: 'present', memberOrder: profile.memberOrder,
+    isDefaultLead: profile.agentId === agent.agentId, version: 1 })),
   membershipReconciliations: [], tasks: [], messages: messages(12), messageDeliveries: [], turns: [], agentRuns: [],
   executionEvidence: [], agentRunFileChanges: [], agentRunImages: [], contextManifests: [], approvals: [], actions: [], timeline: [] }
 let fullMessages = initial.messages
@@ -65,7 +69,11 @@ Object.assign(window, { rovai: {
       if (previewFailure) { previewFailure = false; throw new Error('fixture preview failure') }
       const reply = fullMessages.find(message => message.replyToThreadMessageId === params?.messageId)
       return { schemaVersion: 1, throughGlobalSequence: watermark, threadId, messageId: params?.messageId,
-        sourceAvailable: true, firstReply: reply ? { messageId: reply.id, sequence: reply.sequence, summary: reply.body, messageVersion: reply.version } : null }
+        sourceAvailable: true, firstReply: reply ? { messageId: reply.id, sequence: reply.sequence,
+          summary: reply.body, messageVersion: reply.version,
+          ...(authorMode === 'legacy' ? {} : { author: authorMode === 'missing' ? null : {
+            agentId: replier.agentId, displayName: replier.displayName, avatarRef: replier.avatarRef
+          } }) } : null }
     }
     if (method === 'thread.messages.around') {
       const index = fullMessages.findIndex(message => message.id === params?.messageId)
@@ -97,7 +105,7 @@ function Fixture(): React.JSX.Element {
     <AppHeader threadTitle={snapshot.thread.title} contextLabel="rovai-ai" thread={snapshot}
       detailEntryHostRef={setEntryHost} onFocusApprovals={() => {}} />
     <main className="content task-content" style={{ width: paneWidth }}>
-      <ThreadWorkspace workspaceEntrySnapshotReady={bodyReady} snapshot={snapshot} projectName="rovai-ai" agents={[agent]} busy={false} stopping={false}
+      <ThreadWorkspace workspaceEntrySnapshotReady={bodyReady} snapshot={snapshot} projectName="rovai-ai" agents={[agent, replier]} busy={false} stopping={false}
         onSend={async () => {}} onChangeLead={async () => {}} onTasksChanged={async () => {}}
         onResolveApproval={() => {}} worldMapEnabled={false} detailEntryHost={entryHost}
         messageHistory={history} onLoadEarlierMessages={async () => {
@@ -128,6 +136,13 @@ const point = (node: Element): { x: number; y: number } => {
 }
 Object.assign(window, { anchorsTest: {
   settle, longTitle, firstReply,
+  authorMode: async (mode: typeof authorMode) => { authorMode = mode; emitChange(false); await settle() },
+  authorIdentity: async (identity: Pick<AgentProfile, 'displayName' | 'avatarRef'>) => {
+    Object.assign(replier, identity)
+    updateSnapshot(current => ({ ...current, members: current.members.map(member => member.agentId === replier.agentId
+      ? { ...member, ...identity } : member) }))
+    await settle()
+  },
   bodyReady: async () => { updateBodyReady(true); await settle() },
   indexBodyMounted: () => indexBodyMounted,
   count: async (count: number, start = 1) => {
@@ -203,6 +218,18 @@ Object.assign(window, { anchorsTest: {
     focusedAnchor: (document.activeElement as HTMLElement)?.dataset.userMessageAnchor,
     title: document.querySelector('.conversation-anchor-preview-title')?.textContent ?? null,
     reply: document.querySelector('.conversation-anchor-preview-copy')?.textContent ?? null,
+    author: document.querySelector('.conversation-anchor-preview-author-name')?.textContent ?? null,
+    authorStyle: document.querySelector('.conversation-anchor-preview-author-name') ? {
+      overflow: getComputedStyle(document.querySelector('.conversation-anchor-preview-author-name')!).textOverflow,
+      width: document.querySelector('.conversation-anchor-preview-author-name')!.clientWidth,
+      scrollWidth: document.querySelector('.conversation-anchor-preview-author-name')!.scrollWidth
+    } : null,
+    avatar: document.querySelector('.conversation-anchor-preview-author .member-avatar') ? {
+      width: document.querySelector('.conversation-anchor-preview-author .member-avatar')!.getBoundingClientRect().width,
+      fallback: document.querySelector('.conversation-anchor-preview-author .member-avatar-fallback')?.textContent ?? null,
+      image: Boolean(document.querySelector<HTMLImageElement>('.conversation-anchor-preview-author img')?.naturalWidth),
+      decorative: document.querySelector('.conversation-anchor-preview-author .member-avatar')!.getAttribute('aria-hidden')
+    } : null,
     titleStyle: document.querySelector('.conversation-anchor-preview-title') ? {
       color: getComputedStyle(document.querySelector('.conversation-anchor-preview-title')!).color,
       whiteSpace: getComputedStyle(document.querySelector('.conversation-anchor-preview-title')!).whiteSpace,

@@ -21,7 +21,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## 队员头像
 
-- [Member Avatar v3（当前）](member-avatar-v3.md)：Agent 对新旧上传头像统一读取源图与原取景，UI／渠道旧 icon 不变。
+- [Member Avatar v4（当前）](member-avatar-v4.md)：内置头像裁切使用 Agent 读取的同一 packaged icon；受管头像继续使用源图与原取景。
+- [Member Avatar v3（历史）](member-avatar-v3.md)：Agent 对新旧上传头像统一读取源图与原取景，UI／渠道旧 icon 不变。
 - [Member Avatar v2（历史）](member-avatar-v2.md)：继承单文件资产与旧取景兼容；Agent get 统一为一个 avatar，保留显示裁切元数据。
 - [Member Avatar v1（历史）](member-avatar-v1.md)：单文件资产、显示取景、旧 icon 兼容和渠道静态封面；Agent 双图片结果由 v2 替代。
 

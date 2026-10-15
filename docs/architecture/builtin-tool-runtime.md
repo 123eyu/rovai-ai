@@ -232,11 +232,12 @@ payload 门禁仍在 Domain Service。
 `member.create` 只接受 attested active、direct user-triggered AgentRun。Agent 按
 `member-studio` 展示完整身份卡并取得用户确认，可选提交当前 Run 中 Core 可读的头像文件。
 Core 在身份提交前验证并物化受管头像；格式、取景、资源预算与旧资产兼容由
-[Member Avatar v3](../contracts/member-avatar-v3.md) 统一定义。临时文件路径不进入
+[Member Avatar v4](../contracts/member-avatar-v4.md) 统一定义。临时文件路径不进入
 Command payload、canonical result 或 Evidence；此入口不承担通用文件导入。
 
 `member.get` 从同一身份快照读取一份头像，返回 `avatar.path/status/displayCrop`。新旧受管头像均使用源图与原取景，
-使读取与 crop-only 修改的坐标一致；内置头像使用已有 icon。源图不可用不回退旧 icon，且不阻断身份读取。此读取不导出 portrait，不重新编码 GIF；
+使读取与 crop-only 修改的坐标一致；内置头像读取和 crop-only 修改均使用已有 icon，首次修改后成为受管单文件头像。
+源图不可用不回退旧 icon，且不阻断身份读取。此读取不导出 portrait，不重新编码 GIF；
 临时路径只进入授权的 Agent 结果，生命周期与现有 Run lease 一致。
 
 ## Agent Result Projection

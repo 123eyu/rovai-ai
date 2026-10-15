@@ -80,6 +80,7 @@ let pastedFileCount = 0
 let localStatus = {
   hasContent: false,
   hasExplicitRecipient: false,
+  hasAllMembers: false,
   hasUnavailableAtom: false,
   memberAgentIds: [] as string[]
 }

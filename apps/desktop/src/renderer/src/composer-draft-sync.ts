@@ -61,6 +61,7 @@ export class StaleComposerSyncEpochError extends Error {
 interface NodeContribution {
   content: number
   explicitRecipient: number
+  allMembers: number
   unavailableAtom: number
   memberAgentId: string | null
 }
@@ -70,6 +71,7 @@ type AtomAvailabilityBinding = Pick<ComposerDraftSyncBindings<never>, 'atomIsAva
 const EMPTY_CONTRIBUTION: NodeContribution = {
   content: 0,
   explicitRecipient: 0,
+  allMembers: 0,
   unavailableAtom: 0,
   memberAgentId: null
 }
@@ -395,6 +397,7 @@ export class ComposerDraftSync<Draft = unknown> {
     if (previous) {
       this.totals.content -= previous.content
       this.totals.explicitRecipient -= previous.explicitRecipient
+      this.totals.allMembers -= previous.allMembers
       this.totals.unavailableAtom -= previous.unavailableAtom
     }
     if (!next) {
@@ -404,6 +407,7 @@ export class ComposerDraftSync<Draft = unknown> {
     this.contributions.set(key, next)
     this.totals.content += next.content
     this.totals.explicitRecipient += next.explicitRecipient
+    this.totals.allMembers += next.allMembers
     this.totals.unavailableAtom += next.unavailableAtom
   }
 
@@ -411,6 +415,7 @@ export class ComposerDraftSync<Draft = unknown> {
     return {
       hasContent: this.totals.content > 0,
       hasExplicitRecipient: this.totals.explicitRecipient > 0,
+      hasAllMembers: this.totals.allMembers > 0,
       hasUnavailableAtom: this.totals.unavailableAtom > 0,
       memberAgentIds: [...new Set([...this.contributions.values()]
         .flatMap((contribution) => contribution.memberAgentId ? [contribution.memberAgentId] : []))].sort()
@@ -422,6 +427,7 @@ export class ComposerDraftSync<Draft = unknown> {
     if (
       this.lastStatus?.hasContent === status.hasContent
       && this.lastStatus.hasExplicitRecipient === status.hasExplicitRecipient
+      && this.lastStatus.hasAllMembers === status.hasAllMembers
       && this.lastStatus.hasUnavailableAtom === status.hasUnavailableAtom
       && this.lastStatus.memberAgentIds.length === status.memberAgentIds.length
       && this.lastStatus.memberAgentIds.every((id, index) => id === status.memberAgentIds[index])
@@ -440,6 +446,7 @@ function contributionForNode(
     return {
       content: 1,
       explicitRecipient: type === 'member' || type === 'all_members' ? 1 : 0,
+      allMembers: type === 'all_members' ? 1 : 0,
       unavailableAtom: bindings.atomIsAvailable(node) ? 0 : 1,
       memberAgentId: type === 'member' ? node.getReferenceId() : null
     }
@@ -448,6 +455,7 @@ function contributionForNode(
   return {
     content: node.getTextContent().trim().length > 0 ? 1 : 0,
     explicitRecipient: 0,
+    allMembers: 0,
     unavailableAtom: 0,
     memberAgentId: null
   }

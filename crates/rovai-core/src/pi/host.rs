@@ -300,7 +300,7 @@ pub(crate) struct PiHost {
     provider_registration_failed: AtomicBool,
     streaming: AtomicBool,
     input_settled: Notify,
-    steering: StdMutex<Option<(String, oneshot::Sender<()>)>>,
+    steering: StdMutex<Option<(String, oneshot::Sender<Result<()>>)>>,
     retire_after_steer: AtomicBool,
     sequence: AtomicU64,
     executable_path: PathBuf,
@@ -821,7 +821,7 @@ impl PiHost {
                 .is_some_and(|(expected, _)| text.as_deref() == Some(expected.as_str()))
                 && let Some((_, receipt)) = steering.take()
             {
-                let _ = receipt.send(());
+                let _ = receipt.send(Ok(()));
             }
         }
         // Native RPC exposes extension registration failures separately from a
@@ -953,6 +953,15 @@ impl PiHost {
     }
 
     pub(super) async fn command(&self, command_type: &str, fields: Value) -> Result<Value> {
+        let receiver = self.submit_command(command_type, fields).await?;
+        Self::command_response(command_type, receiver).await
+    }
+
+    async fn submit_command(
+        &self,
+        command_type: &str,
+        fields: Value,
+    ) -> Result<oneshot::Receiver<Result<Value>>> {
         if !self.is_alive() {
             bail!("Pi RPC Host is not alive");
         }
@@ -972,6 +981,13 @@ impl PiHost {
             self.pending.lock().await.remove(&id);
             return Err(error);
         }
+        Ok(receiver)
+    }
+
+    async fn command_response(
+        command_type: &str,
+        receiver: oneshot::Receiver<Result<Value>>,
+    ) -> Result<Value> {
         match timeout(PI_COMMAND_TIMEOUT, receiver).await {
             Ok(Ok(Ok(response))) => Ok(response),
             Ok(Ok(Err(error))) => Err(error),
@@ -985,6 +1001,21 @@ impl PiHost {
                 bail!("Pi RPC command timed out: {command_type}")
             }
         }
+    }
+
+    async fn clear_steering_queue(&self) -> Result<()> {
+        let cleared = self.command("clear_queue", json!({})).await?;
+        let mut pending = self.steering.lock().unwrap();
+        if pending.as_ref().is_some_and(|(text, _)| {
+            cleared
+                .pointer("/data/steering")
+                .and_then(Value::as_array)
+                .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(text)))
+        }) && let Some((_, receipt)) = pending.take()
+        {
+            let _ = receipt.send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+        }
+        Ok(())
     }
 
     async fn send(&self, message: Value) -> Result<()> {
@@ -1391,6 +1422,8 @@ pub struct PiRuntime {
     session_file: PathBuf,
     model_fingerprint: String,
     text_state: Mutex<super::PiTextState>,
+    input_submission: Mutex<()>,
+    stopping: AtomicBool,
 }
 
 impl PiRuntime {
@@ -1419,6 +1452,8 @@ impl PiRuntime {
             session_file: activation.session_file,
             model_fingerprint: activation.model_fingerprint,
             text_state: Mutex::new(super::PiTextState::default()),
+            input_submission: Mutex::new(()),
+            stopping: AtomicBool::new(false),
         })
     }
 
@@ -1428,6 +1463,7 @@ impl PiRuntime {
 
     pub(crate) async fn steer(&self, text: &str, images: &[PiPromptImage]) -> Result<String> {
         self.validate_images(images)?;
+        let submission = self.input_submission.lock().await;
         let settled = self.host.input_settled.notified();
         tokio::pin!(settled);
         settled.as_mut().enable();
@@ -1435,6 +1471,7 @@ impl PiRuntime {
         // A later Run must never inherit a native idle steering queue.
         let owner = self.host.owner.read().await;
         if owner.as_ref() != Some(&self.owner)
+            || self.stopping.load(Ordering::Acquire)
             || !self.host.is_alive()
             || !self.host.streaming.load(Ordering::Acquire)
         {
@@ -1453,7 +1490,11 @@ impl PiRuntime {
         if !images.is_empty() {
             fields["images"] = serde_json::to_value(images)?;
         }
-        let response = self.host.command("steer", fields).await?;
+        // Stop waits for bytes to finish crossing stdin, never for model
+        // consumption or a delayed RPC acknowledgement.
+        let response = self.host.submit_command("steer", fields).await?;
+        drop(submission);
+        let response = PiHost::command_response("steer", response).await?;
         if response
             .pointer("/data/disposition")
             .and_then(Value::as_str)
@@ -1461,29 +1502,24 @@ impl PiRuntime {
         {
             bail!("Pi did not confirm the steering queue disposition");
         }
-        let result = tokio::select! {
+        tokio::select! {
             biased;
             accepted = &mut receipt => {
-                accepted.context("Pi lost the native input receipt")?;
+                accepted.context("Pi lost the native input receipt")??;
                 Ok(self.prompt_id().to_string())
             }
             _ = &mut settled => {
                 // Native queued is not consumed. Only exact queue removal proves
                 // a source may return to ordinary delivery after normal success.
-                let cleared = self.host.command("clear_queue", json!({})).await?;
-                if cleared.pointer("/data/steering").and_then(Value::as_array)
-                    .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(text))) {
-                    Err(rovai_core::steer::ActiveInputNotAccepted.into())
-                } else if receipt.try_recv().is_ok() {
-                    Ok(self.prompt_id().to_string())
-                } else { bail!("Pi ended without evidence for this input"); }
+                let _submission = self.input_submission.lock().await;
+                self.host.clear_steering_queue().await?;
+                receipt.try_recv().context("Pi ended without evidence for this input")??;
+                Ok(self.prompt_id().to_string())
             }
             _ = tokio::time::sleep(Duration::from_secs(600)) => {
                 bail!("Pi input consumption receipt timed out");
             }
-        };
-        self.host.steering.lock().unwrap().take();
-        result
+        }
     }
 
     pub(crate) fn validate_images(&self, images: &[PiPromptImage]) -> Result<()> {
@@ -1617,7 +1653,14 @@ impl PiRuntime {
     }
 
     pub async fn cancel(&self) -> Result<()> {
+        self.stopping.store(true, Ordering::Release);
         self.host.streaming.store(false, Ordering::Release);
+        let _submission = self.input_submission.lock().await;
+        // Pi abort may drain queued input. This path must remove it first;
+        // waking the steer waiter alone does not establish native write order.
+        if self.host.retire_after_steer.load(Ordering::Acquire) {
+            self.host.clear_steering_queue().await?;
+        }
         self.host.input_settled.notify_waiters();
         self.host.command("abort", json!({})).await?;
         Ok(())
@@ -3384,6 +3427,8 @@ set -eu
 fixture_dir=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$0")" && pwd)
 request_log="$fixture_dir/requests.jsonl"
 trap 'exit 0' TERM INT
+queued_probe=''
+delayed_id=''
 while IFS= read -r request; do
   printf '%s\n' "$request" >> "$request_log"
   request_id=$(printf '%s\n' "$request" | /usr/bin/sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
@@ -3393,6 +3438,7 @@ while IFS= read -r request; do
       printf '{"type":"response","id":"%s","success":true,"command":"get_state","data":{}}\n' "$request_id"
       ;;
     steer)
+      case "$request" in *STOP_PROBE*) queued_probe=STOP_PROBE; delayed_id=$request_id; continue ;; esac
       printf '{"type":"response","id":"%s","success":true,"command":"steer","data":{"disposition":"queued"}}\n' "$request_id"
       case "$request" in
         *unconsumed*) printf '%s\n' '{"type":"agent_settled"}' ;;
@@ -3400,9 +3446,16 @@ while IFS= read -r request; do
       esac
       ;;
     clear_queue)
-      printf '{"type":"response","id":"%s","success":true,"command":"clear_queue","data":{"steering":["unconsumed"],"followUp":[]}}\n' "$request_id"
+      removed=${queued_probe:-unconsumed}
+      queued_probe=''
+      printf '{"type":"response","id":"%s","success":true,"command":"clear_queue","data":{"steering":["%s"],"followUp":[]}}\n' "$request_id" "$removed"
+      if [ -n "$delayed_id" ]; then
+        printf '{"type":"response","id":"%s","success":true,"command":"steer","data":{"disposition":"queued"}}\n' "$delayed_id"
+        delayed_id=''
+      fi
       ;;
     abort)
+      printf '%s' "$queued_probe" > "$fixture_dir/queued-at-abort"
       /bin/sleep 0.15
       printf '{"type":"response","id":"%s","success":true,"command":"abort","data":{}}\n' "$request_id"
       ;;
@@ -3495,6 +3548,59 @@ done
                 .unwrap_err()
                 .is::<rovai_core::steer::ActiveInputNotAccepted>()
         );
+        // Hold the native write after admission, then cancel before releasing
+        // it. The fake withholds the steer ACK until clear_queue: stop cannot
+        // depend on either that ACK or the steer task winning the schedule.
+        host.streaming.store(true, Ordering::Release);
+        let locked_stdin = host.stdin.lock().await;
+        let steering = runtime.steer("STOP_PROBE", &[]);
+        tokio::pin!(steering);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(steering.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert!(host.steering.lock().unwrap().is_some());
+        let cancelling = runtime.cancel();
+        tokio::pin!(cancelling);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(cancelling.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert!(!host.streaming.load(Ordering::Acquire));
+        assert!(
+            !std::fs::read_to_string(root.join("requests.jsonl"))
+                .unwrap()
+                .contains("STOP_PROBE")
+        );
+        drop(locked_stdin);
+        let (steered, cancelled) = timeout(Duration::from_secs(2), async {
+            tokio::join!(steering, cancelling)
+        })
+        .await
+        .expect("cancel must not wait for the delayed steer ACK");
+        assert!(
+            steered
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
+        cancelled.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("queued-at-abort")).unwrap(),
+            "",
+            "abort must see an empty native queue"
+        );
+        // Native agent_start can race with cancellation too. It must not reopen
+        // this Runtime's input admission, even if streaming becomes true again.
+        host.streaming.store(true, Ordering::Release);
+        assert!(
+            runtime
+                .steer("AFTER_STOP", &[])
+                .await
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
         assert!(host.retire_after_steer.load(Ordering::Acquire));
         assert!(
             timeout(Duration::from_millis(20), runtime.cancel())
@@ -3535,6 +3641,10 @@ done
                 "get_state",
                 "steer",
                 "steer",
+                "clear_queue",
+                "steer",
+                "clear_queue",
+                "abort",
                 "clear_queue",
                 "abort",
                 "get_state"

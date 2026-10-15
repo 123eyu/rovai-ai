@@ -111,7 +111,7 @@ function Workbench() {
   useEffect(() => {
     Object.assign(window, { __presence: { setScenario: model.setScenario, setStage: model.setStage, setTheme, setProposal, setMemberName, setIdentityFields,
       setLanguage: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async (interfaceLanguage: string) => ({ interfaceLanguage }) } as any, language),
-      getState: model.get, showSteerCase: model.showSteerCase.bind(model), setRunModel: model.setRunModel, setMemberAvailability: model.setMemberAvailability,
+      getState: model.get, finishSteerRuns: model.finishSteerRuns, showSteerCase: model.showSteerCase.bind(model), setRunModel: model.setRunModel, setMemberAvailability: model.setMemberAvailability,
       showNarration: model.showNarration, showStartupStatus: model.showStartupStatus, controls: model.controls, resync: model.resync, stop: model.stop, retry: model.retry, failRun: model.failRun, verify: () => {
         const s = model.get().snapshot
         const ids = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].map(e => e.dataset.messageId)
@@ -160,7 +160,7 @@ function Workbench() {
             workspaceEntrySnapshotReady={!model.controls.holdEntrySnapshot}
             openCoverage={params.has('windowed') ? openCoverage : null} projectName="rovai-ai" agents={profiles.map((profile, index) => index === 0 ? { ...profile, ...identityFields } : profile) as any}
             installations={installations as any} initialComposerDraft={state.draft} busy={state.busy}
-            onSend={model.send} onChangeLead={model.changeLead} onTasksChanged={async () => {}}
+            onSend={model.send} onWithdrawMessage={model.withdrawMessage} onReconcileDelivery={async () => 'delivery_unknown'} onChangeLead={model.changeLead} onTasksChanged={async () => {}}
             onResolveApproval={() => {}} stopping={false} onCancelAgentRun={model.cancel}
             executionPlacement={placement} onExecutionPlacementChange={async next => { setPlacement(next); return next }}
             worldMapEnabled={false} inspectorVisible={inspector !== null} inspectorTab={inspector ?? 'members'}

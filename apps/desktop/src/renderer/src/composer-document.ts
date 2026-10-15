@@ -24,6 +24,7 @@ export interface ComposerCatalogMember {
 export interface ComposerLocalStatus {
   hasContent: boolean
   hasExplicitRecipient: boolean
+  hasAllMembers: boolean
   hasUnavailableAtom: boolean
   memberAgentIds: string[]
 }
@@ -253,6 +254,7 @@ export function composerDocumentStatus(
   const memberById = new Map(members.map((member) => [member.agentId, member]))
   let hasContent = false
   let hasExplicitRecipient = false
+  let hasAllMembers = false
   let hasUnavailableAtom = false
   for (const segment of document.segments) {
     if (segment.kind === 'text') {
@@ -263,6 +265,7 @@ export function composerDocumentStatus(
     const atom = segment.atom
     if (atom.type === 'all_members') {
       hasExplicitRecipient = true
+      hasAllMembers = true
       continue
     }
     if (atom.type === 'member') {
@@ -278,6 +281,7 @@ export function composerDocumentStatus(
   return {
     hasContent,
     hasExplicitRecipient,
+    hasAllMembers,
     hasUnavailableAtom,
     memberAgentIds: composerMemberMentionIds(document)
   }

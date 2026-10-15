@@ -3672,6 +3672,56 @@ mod tests {
                 ("agent_3".into(), "start".into(), "waiting".into())
             ]
         );
+        assert_eq!(
+            multi
+                .database
+                .connection()
+                .query_row(
+                    "SELECT recall_state FROM camp_message WHERE id=?1",
+                    [message],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "closed",
+            "Steer claim closes the same withdrawal window as ordinary claim"
+        );
+        // Preserve old records as-is while projecting the actual recognition
+        // boundary. A mixed message is not withdrawable once any target claimed it.
+        multi
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET recall_state='recallable' WHERE id=?1",
+                [message],
+            )
+            .unwrap();
+        let snapshot = crate::read_model::ReadModelService
+            .camp_snapshot(&mut multi.database, &multi.camp_id)
+            .unwrap();
+        let projected = snapshot.messages.iter().find(|m| m.id == message).unwrap();
+        assert!(!projected.can_withdraw);
+        let withdraw = multi.user_command(crate::collaboration::WithdrawThreadMessageCommand {
+            camp_id: multi.camp_id.clone(),
+            message_id: message.to_string(),
+            expected_version: projected.version,
+        });
+        let denied = CollaborationService::default()
+            .withdraw_camp_message(&mut multi.database, &withdraw)
+            .unwrap();
+        assert_eq!(denied.result.code, "message.withdraw_too_late");
+        assert_eq!(
+            multi
+                .database
+                .connection()
+                .query_row(
+                    "SELECT recall_state FROM camp_message WHERE id=?1",
+                    [message],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "recallable",
+            "projection does not rewrite historical message facts"
+        );
         let starts = claim_waiting_delivery_batches(&mut multi.database, 3).unwrap();
         assert_eq!(
             starts.len(),

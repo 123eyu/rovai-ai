@@ -2167,7 +2167,7 @@ User 反馈独立执行行缺少头像／姓名卡片入口与模型展示。基
 - 模型摘要与浮层复用消息组件。Run 的模型投影复用公开消息的冻结选择／默认观察函数，
   补齐适配器与强度；不读取当前队员配置，也不增加查询、数据库字段、事件或配置副本。
   旧 Host 的仅 modelId、null、未观察默认值分别按已有事实呈现。
-- 当前合同为 [Camp Open Projection v28](../../contracts/camp-open-projection-v28.md) 与
+- 当前合同为 [Camp Open Projection v29](../../contracts/camp-open-projection-v29.md) 与
   [Run Process Detail Surface v54](../../contracts/run-process-detail-surface-v54.md)。
 - 扩展既有 Camp Open 零事件历史访问 owner，核对 Snapshot / Open 的显式选择和默认观察。
   选项矩阵仍由 `message_model` 纯函数 owner 负责，没有新增独立 Rust 测试或数据库 fixture。
@@ -2462,6 +2462,7 @@ User 消息 66（1f83dd0c-00c9-45ce-8711-34650afd5914）授权修复内置头像
 
 User seq40 授权整个收口。主线 d6ae891f 与 Mission 064 b8349985 合并；新增 Migration 203／schema 153、
 public Manifest 39，分支 37／14／10 与主线 37／12／6、38／13／9 保留原字节。
+最终同步 main 2d4c61af7 的日期标记及锚点作者读取，补验普通测试、读取 owner 和生产界面。
 Core 按活跃 Run 冻结身份提供 canSteer／reason；普通执行资格独立，实际发送前及原生 owner 校验继续收口。
 TRAE CN 接入 `_session/steering`；CodeBuddy 异常保留原样并追踪。模型可见变化只继承主线发送者投影，
 [逐段对照](model-context-change-steer-merge.md)不增加 Steer 提示词。

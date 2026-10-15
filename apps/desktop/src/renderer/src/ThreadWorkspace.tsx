@@ -2449,8 +2449,14 @@ export function ThreadWorkspace({
   const anchorText = useCallback((message: ThreadMessageView) => message.content?.length
     ? structuredThreadContentPlainText(message.content, messageMentionNames, currentUserName)
     : message.body, [messageMentionNames, currentUserName])
+  const anchorIdentityKeys = useMemo(() => ({
+    names: JSON.stringify([currentUserName, messageMentionNames.map(member => [member.agentId,
+      profileById.get(member.agentId)?.displayName ?? member.displayName])]),
+    avatars: JSON.stringify(messageMentionNames.map(member => [member.agentId,
+      (profileById.get(member.agentId) ?? member).avatarRef]))
+  }), [currentUserName, messageMentionNames, profileById])
   const anchorNavigation = useThreadUserAnchors(snapshot.thread.id, client, snapshot.messages, optimisticMessages,
-    JSON.stringify([currentUserName, messageMentionNames.map(member => [member.agentId, agents.find(agent => agent.agentId === member.agentId)?.displayName ?? member.displayName])]), anchorText, userAnchorNavigation, workspaceEntrySnapshotReady)
+    anchorIdentityKeys, anchorText, userAnchorNavigation, workspaceEntrySnapshotReady)
   const visibleThreadMessages = useMemo(() => mergeNavigationMessages(
     anchoredMessages, anchorNavigation.navigation.windowMessages(), optimisticMessages, snapshot.messages
   ).filter(message => !message.missionStart),
@@ -4991,13 +4997,15 @@ export function ThreadWorkspace({
                   }
                   const dayKey = localDayKey(timelineItem.createdAt)
                   if (dayKey && dayKey !== lastDayKey) {
+                    if (lastDayKey) {
+                      items.push(
+                        <div className="timeline-node timeline-day" key={`day-${dayKey}-${timelineItem.id}`}>
+                          {timelineDayLabel(timelineItem.createdAt, interfaceLanguage)}
+                        </div>
+                      )
+                    }
                     lastDayKey = dayKey
                     previousMessageAuthorKey = null
-                    items.push(
-                      <div className="timeline-node timeline-day" key={`day-${dayKey}-${timelineItem.id}`}>
-                        {timelineDayLabel(timelineItem.createdAt)}
-                      </div>
-                    )
                   }
                   if (timelineItem.kind === 'member_joined') {
                     previousMessageAuthorKey = null

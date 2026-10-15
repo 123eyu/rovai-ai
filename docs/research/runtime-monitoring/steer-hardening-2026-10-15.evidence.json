@@ -1660,6 +1660,159 @@
           "protocol": "acp-v1",
           "fingerprint": "sha256:e0c5d500b2b3d97d30f57f52a3a9a058098eb76116d1c9fd095951572318f808"
         }
+      ],
+      "recordedRuns": [
+        {
+          "id": "2f8c95dd-6998-474d-a504-1a08d8c0b921",
+          "agent_id": "agent_1",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "303e0460-1ab9-4703-ab77-6d6e9fcc06c9",
+          "agent_id": "agent_1",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "38186b33-8aab-4e34-9d62-4e4d59d2a287",
+          "agent_id": "agent_1",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "632750e1-6153-4432-9b32-59e607eaf1e2",
+          "agent_id": "agent_2",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "36e999b7-d180-46a6-8f86-2153d297b5ef",
+          "agent_id": "agent_3",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "be4039c9-b0dc-45f1-8834-71974a818404",
+          "agent_id": "agent_2",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        }
+      ],
+      "finalRuns": [
+        {
+          "id": "2f8c95dd-6998-474d-a504-1a08d8c0b921",
+          "agent_id": "agent_1",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "303e0460-1ab9-4703-ab77-6d6e9fcc06c9",
+          "agent_id": "agent_1",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "38186b33-8aab-4e34-9d62-4e4d59d2a287",
+          "agent_id": "agent_1",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "632750e1-6153-4432-9b32-59e607eaf1e2",
+          "agent_id": "agent_2",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "36e999b7-d180-46a6-8f86-2153d297b5ef",
+          "agent_id": "agent_3",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        },
+        {
+          "id": "be4039c9-b0dc-45f1-8834-71974a818404",
+          "agent_id": "agent_2",
+          "status": "succeeded",
+          "execution_epoch": 1,
+          "last_error_code": null
+        }
+      ],
+      "finalInputs": [
+        {
+          "id": "d56feae5-898e-4d92-aed5-1c09e0eacca2",
+          "agent_run_id": "2f8c95dd-6998-474d-a504-1a08d8c0b921",
+          "status": "accepted",
+          "input_kind": "start",
+          "native_input_id": "01a13e52-6d32-7633-86f9-6f446ad1154b"
+        },
+        {
+          "id": "68685fa7-99f8-4a65-8c35-7543be8e69b4",
+          "agent_run_id": "2f8c95dd-6998-474d-a504-1a08d8c0b921",
+          "status": "accepted",
+          "input_kind": "steer",
+          "native_input_id": "01a13e52-6d32-7633-86f9-6f446ad1154b"
+        },
+        {
+          "id": "4ea8767d-f966-4d99-9d21-26ac519341fd",
+          "agent_run_id": "2f8c95dd-6998-474d-a504-1a08d8c0b921",
+          "status": "accepted",
+          "input_kind": "steer",
+          "native_input_id": "01a13e52-6d32-7633-86f9-6f446ad1154b"
+        },
+        {
+          "id": "334441d6-6079-4c9b-a57d-a4abd8b501dd",
+          "agent_run_id": "303e0460-1ab9-4703-ab77-6d6e9fcc06c9",
+          "status": "accepted",
+          "input_kind": "start",
+          "native_input_id": "01a13e53-5709-7fa1-b19b-d4dc5325a53d"
+        },
+        {
+          "id": "2e796e00-4a4f-4a14-92d8-390657056075",
+          "agent_run_id": "38186b33-8aab-4e34-9d62-4e4d59d2a287",
+          "status": "accepted",
+          "input_kind": "start",
+          "native_input_id": "01a13e53-7922-7f82-8cf6-b9a04fda4d17"
+        },
+        {
+          "id": "2851606c-95b4-4e9b-863e-ca0b41769cee",
+          "agent_run_id": "632750e1-6153-4432-9b32-59e607eaf1e2",
+          "status": "accepted",
+          "input_kind": "start",
+          "native_input_id": "acp-prompt-e019d0b6-4e5b-4767-a357-8e536e396b0f-3"
+        },
+        {
+          "id": "2b04f290-8704-4b92-b909-fb02117c5556",
+          "agent_run_id": "38186b33-8aab-4e34-9d62-4e4d59d2a287",
+          "status": "accepted",
+          "input_kind": "steer",
+          "native_input_id": "01a13e53-7922-7f82-8cf6-b9a04fda4d17"
+        },
+        {
+          "id": "2a9f99c7-8c73-45f8-a15e-efca015e19dd",
+          "agent_run_id": "36e999b7-d180-46a6-8f86-2153d297b5ef",
+          "status": "accepted",
+          "input_kind": "start",
+          "native_input_id": "01a13e53-9a9b-73c3-ba61-a1e32c591ad3"
+        },
+        {
+          "id": "e4d72b69-f926-477b-957d-ed57832e7efa",
+          "agent_run_id": "be4039c9-b0dc-45f1-8834-71974a818404",
+          "status": "accepted",
+          "input_kind": "start",
+          "native_input_id": "acp-prompt-e019d0b6-4e5b-4767-a357-8e536e396b0f-4"
+        }
       ]
     },
     {
@@ -5491,6 +5644,129 @@
       "name": "docs-ci-final",
       "logSha256": "289f24954390438e26234c6b9092b70b7ec154146c0618bf1fb8f8c439b5a554",
       "summary": []
+    },
+    {
+      "name": "rust-pr-latest-main",
+      "exitCode": 101,
+      "logSha256": "194299d95812db985f50cd033a5bcf8d34824f41caa722c2098b73853ee33afc",
+      "summary": [
+        "test result: FAILED. 425 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 182.75s"
+      ]
+    },
+    {
+      "name": "rust-pr-latest-main-r2",
+      "exitCode": 0,
+      "logSha256": "999015642a37a1f48d06dfd053865bee20d547d51808b8a45313ac6f174e20f3",
+      "summary": [
+        "test result: ok. 426 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 170.53s",
+        "test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "name": "js-test-latest-main",
+      "exitCode": 0,
+      "logSha256": "e3c5c51c62b4a68df6f6c243bde90e2fda30c4713636d789676f650c7b7aa59c",
+      "summary": [
+        "ℹ tests 10",
+        "ℹ pass 10",
+        "ℹ fail 0",
+        "ℹ skipped 0",
+        "Documentation version checks passed for v1.72 across 172 version directories.",
+        "Decision governance checks passed: 220 archived ADRs, 151 source ADRs audited, 391 normative kernels (309 migrated, 80 replaced, 2 retired), 151 version decision files.",
+        "ℹ tests 3",
+        "ℹ pass 3",
+        "ℹ fail 0",
+        "ℹ skipped 0",
+        "ℹ tests 7",
+        "ℹ pass 7",
+        "ℹ fail 0",
+        "ℹ skipped 0",
+        " Test Files  243 passed (243)",
+        "      Tests  2686 passed (2686)",
+        "ℹ tests 357",
+        "ℹ pass 355",
+        "ℹ fail 0",
+        "ℹ skipped 2"
+      ]
+    },
+    {
+      "name": "typecheck-latest-main",
+      "exitCode": 0,
+      "logSha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+      "summary": []
+    },
+    {
+      "name": "ui-latest-main",
+      "exitCode": 0,
+      "logSha256": "5ea0c2d494cf2fc936d62a6bfed806e2b0ba740d9ea87e2781c39ae926fb68fb",
+      "summary": [
+        "ℹ tests 1",
+        "ℹ pass 1",
+        "ℹ fail 0",
+        "ℹ skipped 0"
+      ]
+    },
+    {
+      "name": "anchor-latest-main",
+      "exitCode": 0,
+      "logSha256": "0bda85f100ea98fc33f306ff4eff219c6c479d427029affca567becde3feef6b",
+      "summary": [
+        "ℹ tests 1",
+        "ℹ pass 1",
+        "ℹ fail 0",
+        "ℹ skipped 0"
+      ]
+    },
+    {
+      "name": "desktop-build-latest-main",
+      "exitCode": 0,
+      "logSha256": "8a3f5377d0a75b3b8970fb23f632ee451b116a47402cf9088fb4d73c234a6afb",
+      "summary": []
+    },
+    {
+      "name": "anchor-read-latest-main",
+      "exitCode": 0,
+      "logSha256": "812a5bc1a6ed23524bb9f94bcead78e4f57d6582d7483394601290272691676b",
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1021 filtered out; finished in 8.15s"
+      ]
+    },
+    {
+      "name": "anchor-read-slow-latest-main",
+      "exitCode": 0,
+      "logSha256": "494dae38900c3e56d8fc7c5168ed361798376a9a89a339b4b80a5f38ac209a6f",
+      "summary": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1352 filtered out; finished in 5.30s"
+      ]
+    },
+    {
+      "name": "cargo-check-latest-main",
+      "exitCode": 0,
+      "logSha256": "8302a65c8933640a0ad0373ac51c32dbdad44224d00a623aead74d29bd547522",
+      "summary": []
+    },
+    {
+      "name": "build-final-latest-main",
+      "exitCode": 0,
+      "logSha256": "757f3554b7f1cf2099bff299d4babb57f1a2b63912c6388b86d7df65e5ab7b3a",
+      "summary": []
+    },
+    {
+      "name": "docs-ci-final-delivery",
+      "exitCode": 0,
+      "logSha256": "289f24954390438e26234c6b9092b70b7ec154146c0618bf1fb8f8c439b5a554",
+      "summary": [
+        "Documentation version checks passed for v1.72 across 172 version directories.",
+        "Decision governance checks passed: 220 archived ADRs, 151 source ADRs audited, 391 normative kernels (309 migrated, 80 replaced, 2 retired), 151 version decision files."
+      ]
     }
   ],
   "extendedRecheck": {
@@ -5529,6 +5805,25 @@
     "dailyConfigurationTouched": false,
     "evidenceRetainedPrivately": true
   },
-  "finalCoreSha256": "b601e83b4d949348b7b645d101fb99d788f22dedc11c0a2e4519e5cf57d4fbdb",
-  "buildQualification": "Each real attempt records its exact Core binary hash from the merged working tree. Final build additionally fixes the historical Antigravity binding compatibility input; the nine Steer transports are unchanged by that last fix. The final whole extended suite was not rerun; all 24 initially failing owners passed together after corrections."
+  "finalCoreSha256": "bfa3f06bc562adbabe94b99722943bbb715e9926e8636af042e4200e48078a2d",
+  "buildQualification": "Each real attempt records its exact Core binary hash from the initial merged working tree. Final build also includes the Antigravity historical binding fix, later main date/anchor presentation and read changes, and the compatibility-register evidence digest refresh; these do not change the nine Steer transports or model context. The 24 initially failing extended owners passed together after corrections; the entire extended suite was not rerun. Default workspace tests and affected latest-main read/UI owners passed on the final code.",
+  "followupMainSync": {
+    "commit": "2d4c61af71b452c327398ae4f6b5614c7b043c0b",
+    "changes": [
+      "conversation date markers",
+      "reply author in user-anchor preview"
+    ],
+    "changesSteerTransport": false,
+    "changesModelContext": false,
+    "changesMigrationIdentity": false,
+    "initialDefaultRegression": "425 passed, 1 failed, 1 ignored; compatibility register digest required refreshing after the documented register revision",
+    "compatibilityRegisterRevision": "sha256:b9d2e044ac0b9e8bbd479832c24c49bfc33657119535c6f4b3d35dcd722ae4c3",
+    "realLlmAttemptsRerun": false,
+    "qualification": "Real attempts retain their exact tested binary hash; subsequent changes affect presentation/read projection and the compatibility register evidence revision.",
+    "finalDefaultRegression": "472 passed, 0 failed, 1 ignored",
+    "affectedReadTests": "2 user-anchor slow tests passed; direct-reply migration test passed",
+    "rendererRegression": "pnpm test, typecheck, desktop build, Steer UI and message-anchor UI passed",
+    "checksAndBuild": "all-targets extended check, Core/CLI build and documentation CI passed"
+  },
+  "postHardeningCoreSha256": "b601e83b4d949348b7b645d101fb99d788f22dedc11c0a2e4519e5cf57d4fbdb"
 }

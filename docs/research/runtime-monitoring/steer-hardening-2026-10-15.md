@@ -9,6 +9,8 @@ last_updated: 2026-10-15
 
 本轮执行 User seq40：合并 main `d6ae891fcfb4a4a4e4ab41865fc47456b74413a8` 与
 Mission 064 `b834998599c6624003c7106cb5cf475eb9a64e37`，在合并工作树构建真实 Core／Adapter。
+验收期间主线又合入日期标记和锚点作者读取，最终同步到 `2d4c61af7`；两项不改变迁移身份、模型上下文
+或九种 Steer 传输，合入后另做普通测试、锚点读取及界面回归。真实 LLM 的逐次二进制摘要仍按实际执行记录。
 **产品现支持九种 Runtime 的用户 Steer，包含 TRAE CLI CN。** Agent 消息仍走普通投递。
 仅在本次活跃 Run 满足 Core 资格时开放插话；普通执行资格独立。
 
@@ -128,6 +130,7 @@ Host 检查分别误认 launcher 名称、包含无关 warm Host。它们标为�
 | `pnpm typecheck`、`pnpm build:desktop` | 通过 |
 | `cargo check --workspace --all-targets --features extended-tests`、Core／CLI build | 通过 |
 | `pnpm docs:test`、`pnpm docs:check`、指定合入主线基线的 `pnpm docs:check:ci` | 通过 |
+| 最终同步 main `2d4c61af7` 后的增量复验 | 普通 Rust 472 passed／1 ignored；`pnpm test`、类型检查、桌面构建、Steer UI 及锚点端到端通过；锚点后端 `slow-tests` 两项通过 |
 
 扩展首轮的问题包括 TRAE 初始 ACK 顺序断言、历史格式名单／触发器名称、升级测试链重复执行、
 旧夹具的 `now` 时间字符串与新增索引不兼容、最小读取夹具缺新列，以及恢复夹具的虚构 Manifest
@@ -137,7 +140,9 @@ Host 检查分别误认 launcher 名称、包含无关 warm Host。它们标为�
 也已独立及组合复验通过。原始失败日志摘要保留在 JSON，不删测试、不新增 checker 例外。
 
 每次真实试验保存对应 Core 二进制摘要；最后构建另含 Antigravity 历史兼容输入修正，九种 Steer
-传输未因该修正改变。原始报告及原生 JSONL 保留在私有诊断目录，已移除本轮 **50 项配置／凭据副本**，
+传输未因该修正改变。最终同步主线后的首次普通 Rust 回归发现兼容性登记页的证据摘要未随登记更新，
+按实际文件字节更新对应 revision，保留摘要校验；逐次检查结果在 JSON 中分列。
+原始报告及原生 JSONL 保留在私有诊断目录，已移除本轮 **50 项配置／凭据副本**，
 公开附件只含白名单导出的结构化证据和截图。
 
 TRAE 产品适配已完成。更早 Codex／Kiro 的协议适配仍为后续扩展，不通过删参数、放宽回执或降低全局

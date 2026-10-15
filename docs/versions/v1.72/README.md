@@ -14,6 +14,7 @@ last_updated: 2026-10-15
 ## 用户 Steer 合并与资格收口（2026-10-15）
 
 按 User seq40 合入 main d6ae891f，收敛两种 Migration 199 来源至 203／schema 153，新 public Manifest 39。
+最终同步 main 2d4c61af7 的日期标记与锚点作者读取，两项不改变 Steer 协议及模型上下文。
 历史输入与接受证据保留；Core 统一活跃 Run 的版本、协议资格，UI 展示原因；加入 TRAE CN 产品路径，
 回执统一为“运行时已接收”。当前合同见 [Manifest 39](../../contracts/context-manifest-evidence-v39.md)、
 [Delivery v16](../../contracts/message-delivery-v16.md)，模型正文的紧邻对照见[合并报告](model-context-change-steer-merge.md)。
@@ -683,8 +684,12 @@ Runtime Smoke 为证据，不从合同 accepted 状态推断所有 Provider 都�
 
 按 User 确认的范围，将左侧锚点改为完整用户消息目录，保留正文分页和现有外观。Core 只读取首条有效直接 reply 队员回复，
 预览按需读取；锚点定位窗口独立且有界，分页入口与自动加载跟随正常连续区间。合同见
-[Camp Open Projection v28](../../contracts/camp-open-projection-v28.md)，实现与验证见
+[Camp Open Projection v29](../../contracts/camp-open-projection-v29.md)，实现与验证见
 [用户锚点验收](thread-user-anchors-verification.md)。这是局部读取正确性修复，不增加持久副本、全局缓存框架或时间线重构。
+
+User 选定的 C 方案在悬浮／键盘预览中增加独立的 16px 回复队员头像与姓名行，下方继续保留三行摘要。
+作者来自实际首条有效回复；旧 Host／缺失 Profile 保留原摘要。读取与样式规则分别归 v29 合同和
+[会话 UI](../../ui/components/conversation-workspace.md#用户消息锚点)，验证追加到同一验收记录。
 
 本轮以 `4563d23d` 为修正基线，修复缓存清窗和重同步可信状态，正文先显示再请求目录，格式化移出数据库锁，
 消息提示在实际写入路径收集、提交后发送。主干最初的 Migration 186 / schema 136 仅增加直接回复组合索引，无历史回填；

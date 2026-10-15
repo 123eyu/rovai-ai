@@ -109,7 +109,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Runtime Images v3（历史）](runtime-images-v3.md) | v2 来源/保存/读取不变；同 Run 的已发送同摘要图片优先展示；统一图片几何与附件原序规则由 v4 替代 |
 | [Runtime Images v2（历史）](runtime-images-v2.md) | 本地结构化图片、ACP 增量累积、混合存储与 Camp-scoped 读取；允许显式附件重复展示的规则由 v3 替代 |
 | [Member Creation Flow v1（当前）](member-creation-flow-v1.md) | AI 优先入口、可用协助者、原子静态入队回执与配置链接 |
-| [Camp Open Projection v28（当前）](camp-open-projection-v28.md) | Run 与公开消息共用冻结模型 / 强度投影，补齐执行行模型信息；兼容旧 Host |
+| [Camp Open Projection v29（当前）](camp-open-projection-v29.md) | 惰性锚点预览补充实际回复队员的姓名与头像，保留索引、正文窗口及旧 Host 兼容 |
+| [Camp Open Projection v28（历史）](camp-open-projection-v28.md) | Run 与公开消息共用冻结模型 / 强度投影，补齐执行行模型信息；兼容旧 Host |
 | [Camp Open Projection v27（历史）](camp-open-projection-v27.md) | Run 投影冻结的启动公开消息边界，初始执行行不回插到已领取输入；读取与分页边界不变 |
 | [Camp Open Projection v26（历史）](camp-open-projection-v26.md) | 全会话用户目录、Core 权威按需回复预览、独立定位窗口与定向刷新；正文保持分页 |
 | [Camp Open Projection v25（历史）](camp-open-projection-v25.md) | 增加按 Thread 索引读取的静态创建回执与消息 source Run 模型展示；继承 v24 读取边界 |

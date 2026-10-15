@@ -16,6 +16,7 @@ last_updated: 2026-10-15
 # Steer 合并主线：紧邻前后对照
 
 User seq40 已授权合并和收口。基线：Mission 064 `b8349985`，合入 main `d6ae891f`。
+最终再同步 main `2d4c61af7` 的日期标记及锚点作者读取；这两项仅影响读取和界面，不改变以下模型投影。
 本次新增的版本准入、TRAE 和恢复处理不增加提示词。唯一模型投影差异来自已经在主线确认的
 [发送者统一](model-context-change-message-senders.md)，普通消息与 Steer 同步采用。
 

@@ -1,43 +1,49 @@
-# Rovai AI v0.4.10
+# Rovai AI v0.4.11
 
 <!-- lang:zh-CN -->
 
-本次增加了 GIF 队员头像和代码块复制，将专业职责上限提高到 10,000 字符，并允许移除最后一位队员后保留会话。同时补齐执行行的队员与模型信息，修复执行行排序问题。
+本次更新新增执行中插话和快捷键设置，改进消息处理状态、队员头像与会话阅读体验，并减少新增执行记录的存储占用。
 
-- 【功能】**专业职责上限提高到 10,000 字符。** 原上限为 300 字符，现在可以填写更完整的职责、工作范围和交付要求，保存及传给队员本人时保留全文。
-- 【功能】**队员头像支持 GIF 动画。** 上传、保存、重新裁剪和刷新后均保留动画，桌面端与网页端都可使用。
-- 【功能】**代码块支持一键复制。** 会话消息、Markdown 文件预览和官网文档的代码块右上角增加复制按钮，保留缩进、空行和末尾换行；复制成功显示勾号，失败时可重试或手动复制。
-- 【功能】**移除最后一位队员后，会话仍可保留。** 可移出或永久移除最后一位队员，历史记录和输入草稿继续保留，重新邀请队员后可继续使用。永久移除前会列出受影响的会话、队长交接和任务释放情况；正在执行任务的队员仍需先结束执行。
-- 【交互】**执行行可直接查看队员资料和模型信息。** 点击头像或姓名打开队员卡片，点击模型摘要查看本次执行记录的模型与推理强度。
-- 【修复】**修复连续追加消息时的执行行排序。** 新一轮执行不会插回上一轮回复之前，也不会拆开回复与入队、文件变更卡片。
-- 【交互】**停止确认改为按钮旁的文字气泡。** 就近显示队员姓名和“取消 / 停止”操作，支持 Esc 和点击外部关闭；提交失败时在原位提示并可重试。
-- 【性能】**减少协作上下文中的重复职责信息。** 协作名单保留队员名称和团队角色，完整职责按需查看；队员本人仍接收自己的完整职责。
-- 【修复】**修复恢复会话后长消息批量处理失败的问题。** 按完整输入容量分批处理排队消息，后续消息继续等待；恢复后仍使用原会话。
-- 【修复】**改善头像上传与重新裁剪。** 修复部分 PNG 图片无法上传的问题，并改善超宽、超高图片保存后重新打开和裁剪的处理。
-- 【界面】**调整侧栏与执行卡片的细节。** “查看更多”和“收起”与会话标题对齐；执行卡片的“协作投递”简化为“协作”，悬浮时说明消息接收队员。
+- 【功能】**支持执行中插话。** 队员执行任务时，可以继续发送补充说明，也可手动选择排队。启动阶段提交的补充消息会在初始输入接收后投递。已接入 Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、Kiro CLI、ZCode 和 TRAE CLI CN，按实际版本与执行状态启用。
+- 【交互】**消息处理状态更清楚。** 区分“待插话”“发送中”“已插话”和普通处理中等状态，多队员的接收、排队与失败情况分别显示。回执固定靠右，复制和撤回操作出现时不再挤动位置。“已插话”表示运行时已接收，不代表已经处理完成。
+- 【功能】**新增快捷键设置。** 可为导航、执行台、任务、队员、单聊和文件操作等 23 个动作配置键盘组合或鼠标侧键，支持冲突替换、清除和恢复默认。鼠标侧键默认不绑定；消息发送可选择 Enter 或 ⌘/Ctrl + Enter，自定义查找快捷键在 HTML 预览中同样生效。
+- 【交互】**消息和输入框中的网页链接可直接操作。** 公屏与单聊中的 HTTP、HTTPS 地址支持直接打开；输入框内可选择打开或复制，也可使用 ⌘/Ctrl 点击打开，保留原有编辑与撤销行为。
+- 【交互】**简化队员头像设置与身份卡。** 上传、裁切和确认在同一弹窗内完成，预设头像按需展开。身份卡改为紧凑单列，优先展示专业职责，“更多设定”默认收起，移除半身照展示。
+- 【交互】**减少创建队员时的额外设定。** 通过会话创建队员时，保留用户提供的信息，未指定外观时使用默认头像；有明确形象要求时再提出自定义方案。“工作准则”和“成长课题”不再默认补写，用户提供的设定仍会保留。
+- 【功能】**补齐协作消息中的发送者名称。** 队员接收消息、读取或搜索历史时，可直接看到发言队员的名称，便于区分不同成员的消息。
+- 【界面】**消息锚点预览增加回复者信息。** 在会话左侧查看消息预览时，会同时显示回复队员的头像、名称和回复摘要。
+- 【界面】**简化会话日期标记。** 只在跨日处显示日期，移除两侧横线，日期格式跟随中英文界面语言。
+- 【交互】**改善面板拖动与收起。** 侧栏、文件预览、执行详情、队员列表和定时任务详情缩到最小时会先停住，继续向内拖动才收起。修复底部执行台收起后仍显示、占位，以及连续切换时快捷键失效的问题。
+- 【性能】**减少新增执行记录的存储占用。** 减少工具输入、结果、文件差异和会话目录的重复保存，避免无变化的进度反复重写正文；文件变更预览按选中操作读取。主要作用于后续新增记录，不会自动压缩已有历史。
+- 【修复】**修复头像裁切位置不一致的问题。** 统一旧上传头像与内置头像的读取、裁切基准，避免队员调整头像时出现取景偏移。
+- 【修复】**修复 Pi 读取较大图片或 GIF 时执行中断的问题。** 调整图片结果的接收容量，并区分容量超限、协议异常和连接读取失败。
+- 【修复】**修复智能体版本号偶尔变为未知的问题。** 设置页与队员配置统一显示版本信息；同一程序暂未返回版本或检查失败时，保留已识别的版本号，更换程序后不会误用旧版本信息。
 
-感谢 [@liuqiong0319](https://github.com/liuqiong0319) 提交 GIF 头像与 PNG 上传兼容改进（[#718](https://github.com/murray17/rovai-ai/pull/718)），感谢 [@liangxyz](https://github.com/liangxyz) 在 [#706](https://github.com/murray17/rovai-ai/issues/706) 中反馈专业职责长度限制问题。
+感谢 [@arschlochnop](https://github.com/arschlochnop) 在 [#668](https://github.com/murray17/rovai-ai/issues/668) 中反馈鼠标侧键与系统操作冲突的问题。
 
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.9...v0.4.10)
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.10...v0.4.11)
 
 ---
 
 <!-- lang:en -->
 
-This release adds animated GIF teammate avatars and code block copying, raises the professional responsibilities limit to 10,000 characters, and keeps conversations available after their last teammate is removed. It also adds teammate and model details to execution rows and fixes their ordering.
+This release adds mid-execution steering and configurable shortcuts, improves message delivery status, teammate avatars, and conversation reading, and reduces storage used by new execution records.
 
-- [Feature] **Professional responsibilities now allow up to 10,000 characters.** The previous limit was 300. You can describe responsibilities, scope, and expected deliverables in more detail; the full text is saved and provided to the teammate.
-- [Feature] **Teammate avatars support animated GIFs.** Animation is preserved after uploading, saving, recropping, and refreshing, on both desktop and web.
-- [Feature] **Copy individual code blocks with one click.** Conversation messages, Markdown file previews, and website documentation have a copy button in the upper-right corner of each code block. Indentation, blank lines, and trailing newlines are preserved. A check mark confirms success; failed copies can be retried or copied manually.
-- [Feature] **Keep a conversation after removing its last teammate.** You can remove the last teammate from a conversation or permanently remove their profile while retaining conversation history and the input draft. Invite another teammate to continue. Permanent removal lists affected conversations, lead handoffs, and released tasks; a teammate's active executions must finish first.
-- [Interaction] **Open teammate and model details from execution rows.** Click an avatar or name to open the teammate card, or click the model summary to inspect the model and reasoning effort recorded for that execution.
-- [Fix] **Correct execution row ordering when more messages are queued.** A new execution no longer appears before the previous reply or separates a reply from its teammate-joining and file-change cards.
-- [Interaction] **Confirm stopping an execution beside the button you clicked.** A nearby popover shows the teammate's name and Cancel / Stop actions. Escape or clicking outside closes it; failed requests show an inline error and can be retried.
-- [Performance] **Reduce repeated responsibility text in collaboration context.** Teammate lists retain names and team roles, with full responsibilities available on demand. Each teammate still receives their own complete responsibilities.
-- [Fix] **Handle queued long messages correctly after resuming a session.** Messages are split into batches based on the complete input size, with remaining messages kept in the queue. Resuming continues to use the original session.
-- [Fix] **Improve avatar uploading and recropping.** Fix uploads for some PNG files and improve reopening and recropping unusually wide or tall images after saving.
-- [UI] **Refine sidebar and execution card details.** Show more and Collapse align with conversation titles. The execution card label is shortened to Collaboration, with a tooltip explaining the message recipients.
+- [Feature] **Send follow-up instructions during an execution.** Add instructions while a teammate is working, or choose to queue them instead. Follow-ups submitted during startup are delivered after the initial input is accepted. Steering is integrated with Codex, Claude Code, Pi, CodeBuddy, Qwen Code, Grok Build, Kiro CLI, ZCode, and TRAE CLI CN, subject to the actual version and execution state.
+- [Interaction] **See clearer message delivery status.** Pending steering, sending, accepted steering, and ordinary processing are shown separately, including each teammate's queued and failed deliveries. Receipts stay right-aligned when copy and recall actions appear. Accepted steering means the runtime has received the input, not that processing is complete.
+- [Feature] **Configure keyboard and mouse shortcuts.** Assign keyboard combinations or mouse side buttons to 23 actions covering navigation, executions, tasks, teammates, private chats, and files. Replace conflicts, clear bindings, or restore defaults. Mouse side buttons are unbound by default. Choose Enter or Cmd/Ctrl + Enter to send; custom find shortcuts also work in HTML previews.
+- [Interaction] **Open web links in messages and composers.** HTTP and HTTPS addresses in public and private conversations can be opened directly. In a composer, choose to open or copy a link, or Cmd/Ctrl-click to open it, while retaining normal editing and undo behavior.
+- [Interaction] **Simplify avatar settings and teammate cards.** Upload, crop, and confirm an avatar in one dialog, with preset avatars available on demand. Teammate cards use a compact single-column layout that prioritizes professional responsibilities, collapses additional settings by default, and removes portrait displays.
+- [Interaction] **Avoid unnecessary additions when creating teammates.** Creation through a conversation retains the information you supply and uses a default avatar unless an appearance is specified. Custom avatar plans are proposed for explicit visual requirements. Working principles and growth topics are no longer filled in by default; supplied settings are preserved.
+- [Feature] **Include teammate names in collaboration messages.** Teammates can see the speaking teammate's name when receiving messages or reading and searching history, making it easier to distinguish participants.
+- [UI] **Show reply authors in message anchor previews.** Previews on the left side of a conversation include the replying teammate's avatar, name, and reply summary.
+- [UI] **Simplify conversation date markers.** Dates appear only at day changes, without horizontal rules, and follow the selected English or Chinese interface language.
+- [Interaction] **Improve panel resizing and collapsing.** The sidebar, file preview, execution details, teammate list, and scheduled-task details pause at their minimum size before further inward dragging collapses them. Fix the bottom execution drawer remaining visible or taking space after collapse, and shortcuts failing during repeated toggling.
+- [Performance] **Reduce storage used by new execution records.** Avoid duplicate copies of tool inputs, results, file diffs, and conversation directories, and skip body rewrites for unchanged progress. File-change previews read the selected operation. These changes mainly affect new records and do not automatically compress existing history.
+- [Fix] **Keep avatar crop coordinates consistent.** Use matching image and crop coordinates for older uploaded avatars and built-in avatars, preventing misplaced crops when a teammate adjusts an avatar.
+- [Fix] **Prevent Pi executions from disconnecting when reading larger images or GIFs.** Increase capacity for incoming image results and distinguish capacity limits, protocol errors, and connection read failures.
+- [Fix] **Keep known runtime versions from unexpectedly becoming unknown.** Settings and teammate configuration use the same version information. A known version is retained when the same program omits it or a check fails, without carrying an old version over to a different program.
 
-Thanks to [@liuqiong0319](https://github.com/liuqiong0319) for the GIF avatar and PNG upload improvements ([#718](https://github.com/murray17/rovai-ai/pull/718)), and [@liangxyz](https://github.com/liangxyz) for reporting the professional responsibilities limit in [#706](https://github.com/murray17/rovai-ai/issues/706).
+Thanks to [@arschlochnop](https://github.com/arschlochnop) for reporting mouse side-button conflicts with system actions in [#668](https://github.com/murray17/rovai-ai/issues/668).
 
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.9...v0.4.10)
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.10...v0.4.11)

@@ -658,8 +658,8 @@ fn builtin_avatar_bytes(role: BuiltinMemberAvatar, portrait: bool) -> &'static [
 
 /// The caller supplies the authenticated lease's existing Run tmp directory.
 /// Files are new/private and share that lease's existing cleanup lifecycle.
-/// Keep the displayed avatar rendition and its framing together. Legacy assets
-/// already contain their crop; single-file assets retain their saved crop and GIF.
+/// Managed avatars expose the source and its saved framing so reads and crop-only
+/// updates share coordinates. Built-ins keep their packaged display icon.
 #[derive(Debug)]
 pub struct MaterializedMemberAvatar {
     pub path: String,
@@ -677,7 +677,11 @@ pub fn materialize_member_avatar(
         metadata.is_dir() && !metadata.file_type().is_symlink(),
         "Run tmp is unavailable"
     );
-    let rendition = managed_member_avatar_rendition(data_dir, avatar_ref, false)?;
+    let managed = matches!(
+        parse_member_avatar_ref(avatar_ref)?,
+        MemberAvatarReference::Managed(_)
+    );
+    let rendition = managed_member_avatar_rendition(data_dir, avatar_ref, managed)?;
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD.decode(&rendition.base64)?;
     let extension = if rendition.media_type == "image/gif" {
@@ -695,7 +699,7 @@ pub fn materialize_member_avatar(
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Run tmp path is not UTF-8"))?
             .to_string(),
-        display_crop: rendition.display_crop,
+        display_crop: managed.then_some(rendition.crop),
     })
 }
 
@@ -2497,15 +2501,75 @@ mod tests {
             let image = image::load_from_memory(&bytes).unwrap();
             assert_eq!(
                 bytes,
-                member_avatar_bytes(&directory, avatar_ref, false).unwrap()
+                member_avatar_bytes(
+                    &directory,
+                    avatar_ref,
+                    avatar_ref == saved.avatar_ref || avatar_ref == framed.avatar_ref,
+                )
+                .unwrap()
             );
             if avatar_ref == framed.avatar_ref {
                 assert_eq!(avatar.display_crop, Some(framed.crop.clone()));
+            } else if avatar_ref == saved.avatar_ref {
+                assert_eq!(image.dimensions(), (400, 500));
+                assert_eq!(avatar.display_crop, Some(saved.crop.clone()));
             } else {
                 assert_eq!(image.dimensions(), (192, 192));
                 assert_eq!(avatar.display_crop, None);
             }
         }
+        // An offset legacy crop must be editable in the returned source's
+        // coordinates, while the old display/channel icon remains unchanged.
+        let legacy_icon = read_managed_member_avatar_static_icon(&directory, &framed.avatar_ref)
+            .unwrap()
+            .unwrap();
+        let legacy_icon_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&legacy_icon.base64)
+            .unwrap();
+        let legacy = save_managed_member_avatar(
+            &directory,
+            &pattern_bytes,
+            &legacy_icon_bytes,
+            400,
+            500,
+            framed.crop.clone(),
+        )
+        .unwrap();
+        let file_count = fs::read_dir(&directory).unwrap().count();
+        let avatar = materialize_member_avatar(&directory, &directory, &legacy.avatar_ref).unwrap();
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), file_count + 1);
+        assert_eq!(fs::read(&avatar.path).unwrap(), pattern_bytes);
+        assert_eq!(avatar.display_crop, Some(framed.crop.clone()));
+        let mut next_crop = avatar.display_crop.unwrap();
+        next_crop.center_x += 0.5;
+        next_crop.center_y += 0.6;
+        let adjusted =
+            recrop_member_avatar(&directory, &legacy.avatar_ref, next_crop.clone()).unwrap();
+        let adjusted_avatar =
+            materialize_member_avatar(&directory, &directory, &adjusted.avatar_ref).unwrap();
+        assert_eq!(fs::read(adjusted_avatar.path).unwrap(), pattern_bytes);
+        assert_eq!(adjusted_avatar.display_crop, Some(next_crop));
+        let adjusted_icon =
+            read_managed_member_avatar_static_icon(&directory, &adjusted.avatar_ref)
+                .unwrap()
+                .unwrap();
+        let pixels = image::load_from_memory(
+            &base64::engine::general_purpose::STANDARD
+                .decode(adjusted_icon.base64)
+                .unwrap(),
+        )
+        .unwrap()
+        .to_rgba8();
+        assert!(pixels.pixels().all(|pixel| pixel.0 == [0, 0, 255, 255]));
+        assert_eq!(
+            member_avatar_bytes(&directory, &legacy.avatar_ref, false).unwrap(),
+            legacy_icon_bytes
+        );
+        let legacy_export = read_managed_member_avatar_static_icon(&directory, &legacy.avatar_ref)
+            .unwrap()
+            .unwrap();
+        assert_eq!(legacy_export.base64, legacy_icon.base64);
+        assert!(legacy_export.display_crop.is_none());
         let builtin_crop = recrop_member_avatar(
             &directory,
             LUOKE_AVATAR_REF,
@@ -2538,6 +2602,10 @@ mod tests {
         )
         .unwrap();
         assert!(read_managed_member_avatar(&directory, &saved.avatar_ref, true).is_err());
+        let file_count = fs::read_dir(&directory).unwrap().count();
+        assert!(materialize_member_avatar(&directory, &directory, &saved.avatar_ref).is_err());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), file_count);
+        assert!(read_managed_member_avatar(&directory, &saved.avatar_ref, false).is_ok());
 
         write_test_png(&input, [96, 48, 24, 255]);
         let conflict = import_managed_member_avatar(&directory, asset_id, &input).unwrap_err();
@@ -2829,8 +2897,8 @@ mod tests {
         let asset_id = Uuid::new_v4();
         let summary = import_managed_member_avatar(&directory, asset_id, &input).unwrap();
         let crop = MemberAvatarCrop {
-            center_x: 0.5,
-            center_y: 0.5,
+            center_x: 0.25,
+            center_y: 0.2,
             size: 0.5,
         };
         let recropped =
@@ -2855,10 +2923,27 @@ mod tests {
                 .unwrap();
         assert_eq!(first, second);
         let avatar = materialize_member_avatar(&directory, &directory, &first.avatar_ref).unwrap();
-        assert_eq!(avatar.display_crop, None);
+        assert_eq!(avatar.display_crop, Some(first.crop.clone()));
+        assert_eq!(fs::read(&avatar.path).unwrap(), source_bytes);
         assert_eq!(
-            fs::read(avatar.path).unwrap(),
-            member_avatar_bytes(&directory, &first.avatar_ref, false).unwrap()
+            parse_gif_info(&fs::read(&avatar.path).unwrap())
+                .unwrap()
+                .frame_count,
+            2
+        );
+        let legacy_icon = member_avatar_bytes(&directory, &first.avatar_ref, false).unwrap();
+        let mut next_crop = avatar.display_crop.unwrap();
+        next_crop.center_x += 0.5;
+        next_crop.center_y += 0.6;
+        let adjusted =
+            recrop_member_avatar(&directory, &first.avatar_ref, next_crop.clone()).unwrap();
+        let adjusted_avatar =
+            materialize_member_avatar(&directory, &directory, &adjusted.avatar_ref).unwrap();
+        assert_eq!(adjusted_avatar.display_crop, Some(next_crop));
+        assert_eq!(fs::read(adjusted_avatar.path).unwrap(), source_bytes);
+        assert_eq!(
+            member_avatar_bytes(&directory, &first.avatar_ref, false).unwrap(),
+            legacy_icon
         );
         assert_eq!(
             read_managed_member_avatar(&directory, &first.avatar_ref, false)
@@ -2867,6 +2952,11 @@ mod tests {
                 .media_type,
             "image/gif"
         );
+        let crop = MemberAvatarCrop {
+            center_x: 0.5,
+            center_y: 0.5,
+            size: 0.5,
+        };
         for (width, height) in [(4096, 256), (256, 4096), (4097, 256)] {
             write_test_gif(&input, &[solid_rgba(width, height, [24, 48, 96, 255])]);
             let left_edge_crop = MemberAvatarCrop {

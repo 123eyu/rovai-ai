@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # v1.72 实施与验收
@@ -2424,3 +2424,13 @@ node scripts/smoke-storage-app-upgrade.mjs /private/tmp/rovai-storage-upgrade-ex
 6 文件 114 项 Renderer/Main 定向测试、6 项恢复协议 Node 测试及文档三项门禁通过。
 首轮并行构建期间一个既有 500 ms Runtime 清理测试超时，未修改超时阈值；该项独立重跑及随后完整 workspace 重跑均通过。
 本轮只补具体查询和验收；审批、command.result、投递／结算、分页算法、权限系统及 Pi 入站预算没有变更。
+
+
+## 旧上传头像坐标统一（2026-10-15）
+
+按 User 消息 61 实施[已确认方案](model-context-change-legacy-avatar-source.md)：仅 Agent get 统一源图与原取景，
+不迁移旧资产，不改变 UI/渠道。契约为 Member Avatar v3、Transport/CLI 41、Agent Output 14。
+默认 workspace 471 通过、1 原有 ignored；头像 14、成员读写 1、CLI 29 通过。
+Claude Code/sub2api 新旧共 8 Run 完成，候选四场景满足标准；基线复现空取景导致首次误设后纠正。
+通用 Gate 两版同样两项数据库断言失败，24 槽位未运行，不作通过声明；
+详见[验证索引](legacy-avatar-source-verification.json)。本次 PR/合并已由消息 61 授权。

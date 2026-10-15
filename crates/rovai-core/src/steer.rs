@@ -102,9 +102,9 @@ pub fn protocol_unavailable(
         "zcode-app" => ([0, 16, 5], 0),
         "trae-cn-cli" => ([0, 207, 1], 0),
         // The unresolved 2.132.0 business outcome is not an established ABI break.
-        // Use the verified protocol floor for the current major; observed release
-        // results remain separate from this compatibility policy.
-        "codebuddy-cli" => ([2, 109, 1], 2),
+        // CodeBuddy uses a minimum-only version policy; observed release results
+        // remain separate from this compatibility policy.
+        "codebuddy-cli" => ([2, 109, 1], v[0]),
         _ => return Some(RuntimeUnsupported),
     };
     if v[0] != major {

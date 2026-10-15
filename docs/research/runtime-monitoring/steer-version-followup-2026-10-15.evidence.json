@@ -6014,10 +6014,8 @@
     }
   ],
   "credentialCopiesRemoved": 24,
-  "recommendedCodeBuddyVersion": "2.167.0",
   "codeBuddySteerAdmission": {
     "minimum": "2.109.1",
-    "major": 2,
     "allVersionsTested": false,
     "legacySequentialInputAnomaliesRemain": true
   }

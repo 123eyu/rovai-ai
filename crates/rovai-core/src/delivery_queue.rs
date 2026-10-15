@@ -3464,12 +3464,7 @@ mod tests {
                 "acp-v1",
                 Some(R::VersionUnverified),
             ),
-            (
-                "codebuddy-cli",
-                Some("3.0.0"),
-                "acp-v1",
-                Some(R::VersionUnverified),
-            ),
+            ("codebuddy-cli", Some("3.0.0"), "acp-v1", None),
             (
                 "opencode-cli",
                 Some("1.0.0"),

@@ -13,7 +13,7 @@ last_updated: 2026-10-15
 
 ## Steer 版本复核与 CodeBuddy 新旧 ACP（2026-10-15）
 
-按 User seq44，将 CodeBuddy 改为 major 2 的 `>=2.109.1` 连续门槛；优先专用 `session/steer`，
+按 User seq44、seq46，CodeBuddy 稳定版仅设 `>=2.109.1` 下限，不设大版本上限或推荐版本；优先专用 `session/steer`，
 仅在方法明确不存在时使用旧并发 Prompt。ZCode 对 User 标注官方 App 3.12.2，内部保持捆绑内核检查。
 Claude 2.1.83 是当前完整结束协议的边界；TRAE CN 0.207.1 补验当前 Core 的完整产品链路。
 具体逐次结果见[版本复核报告](../../research/runtime-monitoring/steer-version-followup-2026-10-15.md)，

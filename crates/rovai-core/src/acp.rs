@@ -702,12 +702,19 @@ enum PendingRpc {
     Response {
         method: String,
         sender: oneshot::Sender<Result<Value>>,
+        steer_target: Option<PendingSteerTarget>,
     },
     Prompt {
         owner: AcpRuntimeOwner,
         session_id: String,
         prompt_id: String,
     },
+}
+
+struct PendingSteerTarget {
+    owner: AcpRuntimeOwner,
+    session_id: String,
+    prompt_id: String,
 }
 
 const ACP_CLIENT_TERMINAL_DEFAULT_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -1382,11 +1389,6 @@ struct QueuedSteeringInput {
     receipt: oneshot::Sender<Result<String>>,
 }
 
-struct KiroSteeringInput {
-    source: QueuedSteeringInput,
-    native_id: Option<String>,
-}
-
 pub(crate) struct AcpHost {
     credential_redactor: Option<rovai_core::runtime_custom_api::CredentialRedactor>,
     adapter_kind: AdapterKind,
@@ -1403,7 +1405,6 @@ pub(crate) struct AcpHost {
     grok_acceptance_auto_compact_armed: AtomicBool,
     retire_after_steer: AtomicBool,
     qwen_steering: Mutex<HashMap<String, QueuedSteeringInput>>,
-    kiro_steering: Mutex<HashMap<String, KiroSteeringInput>>,
     routes: RwLock<HashMap<String, AcpSessionRoute>>,
     late_context_owners: RwLock<HashMap<String, (AcpRuntimeOwner, Instant)>>,
     ingress_fence: Mutex<()>,
@@ -1788,7 +1789,6 @@ impl AcpHost {
             grok_acceptance_auto_compact_armed: AtomicBool::new(false),
             retire_after_steer: AtomicBool::new(false),
             qwen_steering: Mutex::new(HashMap::new()),
-            kiro_steering: Mutex::new(HashMap::new()),
             routes: RwLock::new(HashMap::new()),
             late_context_owners: RwLock::new(HashMap::new()),
             ingress_fence: Mutex::new(()),
@@ -2059,7 +2059,15 @@ impl AcpHost {
                         let method = message.get("method").and_then(Value::as_str);
                         if host.adapter_kind == AdapterKind::KiroCli
                             && method == Some("_kiro.dev/session/update")
-                            && host.observe_kiro_steering(&message).await
+                            && matches!(
+                                message
+                                    .pointer("/params/update/sessionUpdate")
+                                    .and_then(Value::as_str),
+                                Some(
+                                    "AgentExecutionUserMessageQueued"
+                                        | "AgentExecutionSteeringInjected"
+                                )
+                            )
                         {
                             continue;
                         }
@@ -2362,54 +2370,7 @@ impl AcpHost {
         });
     }
 
-    // A queued response is not consumption. Correlate Kiro's queue identity and
-    // exact payload before accepting its injected notification under this owner.
-    async fn observe_kiro_steering(&self, message: &Value) -> bool {
-        let update = &message["params"]["update"];
-        let kind = update["sessionUpdate"].as_str();
-        if !matches!(
-            kind,
-            Some("AgentExecutionUserMessageQueued" | "AgentExecutionSteeringInjected")
-        ) {
-            return false;
-        }
-        let (Some(session), Some(native_id), Some(text)) = (
-            message["params"]["sessionId"].as_str(),
-            update["messageId"].as_str().filter(|id| !id.is_empty()),
-            update["content"].as_str(),
-        ) else {
-            return true;
-        };
-        let routes = self.routes.read().await;
-        let mut pending = self.kiro_steering.lock().await;
-        let matched = pending.iter().find(|(_, input)| {
-            let source = &input.source;
-            // Kiro 2.21.1 trims the notification content. Keep the submitted
-            // Builder bytes intact; normalize only this receipt comparison.
-            source.session_id == session && source.text.trim() == text
-                && routes.get(session).is_some_and(|route| route.owner == source.owner
-                    && !route.client_terminal_create_cancelled
-                    && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == source.prompt_id))
-                && if kind == Some("AgentExecutionSteeringInjected") {
-                    input.native_id.as_deref() == Some(native_id)
-                } else { input.native_id.is_none() }
-        }).map(|(id, _)| id.clone());
-        if let Some(id) = matched {
-            if kind == Some("AgentExecutionUserMessageQueued") {
-                pending.get_mut(&id).unwrap().native_id = Some(native_id.to_string());
-            } else if let Some(input) = pending.remove(&id) {
-                let _ = input.source.receipt.send(Ok(native_id.to_string()));
-            }
-        }
-        true
-    }
-
     async fn handle_exit(&self) {
-        for (_, input) in self.kiro_steering.lock().await.drain() {
-            let _ = input.source.receipt.send(Err(anyhow::anyhow!(
-                "Kiro exited before confirming steering injection"
-            )));
-        }
         for (_, input) in self.qwen_steering.lock().await.drain() {
             let _ = input
                 .receipt
@@ -2457,7 +2418,27 @@ impl AcpHost {
             Ok(message.get("result").cloned().unwrap_or(Value::Null))
         };
         match pending {
-            PendingRpc::Response { sender, .. } => {
+            PendingRpc::Response {
+                sender,
+                steer_target,
+                ..
+            } => {
+                if let Some(target) = steer_target {
+                    // The stdout reader holds ingress_fence here. Record the
+                    // receipt's owner before a following terminal can advance
+                    // the route; waiter scheduling must not change its meaning.
+                    let active = self.routes.read().await.get(&target.session_id).is_some_and(|route|
+                        route.owner == target.owner && !route.client_terminal_create_cancelled
+                        && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == target.prompt_id));
+                    let explicit_rejection = self.adapter_kind == AdapterKind::CodebuddyCli
+                        && message["result"]["steered"] == false;
+                    if !active && response_error.is_none() && !explicit_rejection {
+                        let _ = sender.send(Err(anyhow::anyhow!(
+                            "ACP input response arrived after the target execution ended"
+                        )));
+                        return;
+                    }
+                }
                 // Keep the machine-readable rejection through the correlated RPC.
                 // Diagnostic fields still cross the same credential redaction boundary.
                 let response = match response_error {
@@ -2479,24 +2460,6 @@ impl AcpHost {
                 session_id,
                 prompt_id,
             } => {
-                let mut kiro = self.kiro_steering.lock().await;
-                let ids: Vec<_> = kiro
-                    .iter()
-                    .filter(|(_, input)| {
-                        input.source.owner == owner
-                            && input.source.session_id == session_id
-                            && input.source.prompt_id == prompt_id
-                    })
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                for id in ids {
-                    if let Some(input) = kiro.remove(&id) {
-                        let _ = input.source.receipt.send(Err(anyhow::anyhow!(
-                            "Kiro target ended before confirming steering injection"
-                        )));
-                    }
-                }
-                drop(kiro);
                 // An undrained Qwen callback item has never crossed stdin.
                 let mut queued = self.qwen_steering.lock().await;
                 let ids: Vec<_> = queued
@@ -4030,6 +3993,7 @@ impl AcpHost {
             PendingRpc::Response {
                 method: method.to_string(),
                 sender,
+                steer_target: None,
             },
         );
         if let Err(error) = self
@@ -5407,8 +5371,8 @@ impl AcpRuntime {
         if !active {
             return Err(rovai_core::steer::ActiveInputNotAccepted.into());
         }
-        let (sender, receipt) = oneshot::channel();
         if self.adapter_kind() == AdapterKind::QwenCode {
+            let (sender, receipt) = oneshot::channel();
             self.host.qwen_steering.lock().await.insert(
                 input_id.to_string(),
                 QueuedSteeringInput {
@@ -5440,23 +5404,6 @@ impl AcpRuntime {
             };
         }
         let kiro = self.adapter_kind() == AdapterKind::KiroCli;
-        if kiro {
-            self.host.kiro_steering.lock().await.insert(
-                input_id.to_string(),
-                KiroSteeringInput {
-                    source: QueuedSteeringInput {
-                        owner: self.owner.clone(),
-                        session_id: session.clone(),
-                        prompt_id: expected_prompt.to_string(),
-                        text: text.to_string(),
-                        receipt: sender,
-                    },
-                    native_id: None,
-                },
-            );
-        } else {
-            drop(sender);
-        }
         let codebuddy_request = routes.get(&session).and_then(|route| match &route.phase {
             AcpSessionPhase::PromptActive(p) => p.codebuddy_request_id.clone(),
             _ => None,
@@ -5508,6 +5455,15 @@ impl AcpRuntime {
             PendingRpc::Response {
                 method: method.to_string(),
                 sender,
+                // The ZCode facade already associates its exact queue event
+                // with the target Turn before returning a receipt.
+                steer_target: (self.adapter_kind() != AdapterKind::ZcodeApp).then(|| {
+                    PendingSteerTarget {
+                        owner: self.owner.clone(),
+                        session_id: session.clone(),
+                        prompt_id: expected_prompt.to_string(),
+                    }
+                }),
             },
         );
         // Some transports cannot atomically bind to a native turn. Retire the
@@ -5548,7 +5504,6 @@ impl AcpRuntime {
                         .downcast_ref::<AcpRpcError>()
                         .is_some_and(|e| e.code == Some(-32601)) =>
             {
-                self.host.kiro_steering.lock().await.remove(input_id);
                 return Err(rovai_core::steer::ActiveInputNotAccepted.into());
             }
             Err(error)
@@ -5561,20 +5516,9 @@ impl AcpRuntime {
             }
             result => result?,
         };
-        if kiro {
-            if result["queued"] != true {
-                self.host.kiro_steering.lock().await.remove(input_id);
-                bail!("Kiro did not confirm its steering queue");
-            }
-            let result = timeout(Duration::from_secs(600), receipt).await;
-            self.host.kiro_steering.lock().await.remove(input_id);
-            return result
-                .context("Kiro steering injection timed out")?
-                .context("Kiro steering receipt disconnected")?;
-        }
         if self.adapter_kind() == AdapterKind::ZcodeApp {
-            if result["inputId"] != input_id || result["injected"] != true {
-                bail!("ZCode did not confirm steering consumption");
+            if result["inputId"] != input_id || result["accepted"] != true {
+                bail!("ZCode did not confirm steering queue admission");
             }
             return Ok(input_id.to_string());
         }
@@ -5586,11 +5530,10 @@ impl AcpRuntime {
             // the original Prompt completes before this response is observed.
             return Err(rovai_core::steer::ActiveInputNotAccepted.into());
         }
-        let routes = self.host.routes.read().await;
-        if !routes.get(&session).is_some_and(|route| route.owner == self.owner
-            && !route.client_terminal_create_cancelled
-            && matches!(&route.phase, AcpSessionPhase::PromptActive(p) if p.prompt_id == expected_prompt)) {
-            bail!("ACP input response arrived after the target execution ended");
+        // Kiro merges queued notification bodies when inputs arrive together.
+        // The correlated RPC receipt is per request; notifications are not.
+        if kiro && result["queued"] != true {
+            bail!("Kiro did not confirm its steering queue");
         }
         if self.adapter_kind() == AdapterKind::GrokBuild
             && result.pointer("/result/status").and_then(Value::as_str) != Some("queued")
@@ -10077,7 +10020,7 @@ while IFS= read -r ignored; do :; done
             let (sender, error_response) = oneshot::channel();
             host.complete_pending(
                 999,
-                PendingRpc::Response { sender, method: method.into() },
+                PendingRpc::Response { sender, method: method.into(), steer_target: None },
                 json!({"id":999,"error":{"code":code,"message":"wire-stdout test IDENTIFIER failure 1","data":data}}),
             ).await;
             let detail = error_response.await.unwrap().unwrap_err();
@@ -12018,7 +11961,9 @@ while IFS= read -r ignored; do :; done
                 if late && unsupported && (kind != AdapterKind::CodebuddyCli || legacy) {
                     continue;
                 }
-                if bad_owner && (kind != AdapterKind::CodebuddyCli || legacy) {
+                if bad_owner
+                    && (!matches!(kind, AdapterKind::CodebuddyCli | AdapterKind::KiroCli) || legacy)
+                {
                     continue;
                 }
                 if unsupported
@@ -12080,20 +12025,15 @@ printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{}}'"#
                         "printf '%s\\n' '{{\"id\":{supplement_request},\"error\":{{\"code\":-32601,\"message\":\"Method not found\"}}}}'\nIFS= read -r finish || exit 1\n{terminal}"
                     )
                 } else if kind == AdapterKind::KiroCli {
-                    let queued = r#"printf '%s\n' '{"method":"_kiro.dev/session/update","params":{"sessionId":"session-steer","update":{"sessionUpdate":"AgentExecutionUserMessageQueued","messageId":"native-steer","content":"STEER"}}}'"#;
-                    let injected = queued.replace(
-                        "AgentExecutionUserMessageQueued",
-                        "AgentExecutionSteeringInjected",
-                    );
+                    let queued = r#"printf '%s\n' '{"method":"_kiro.dev/session/update","params":{"sessionId":"session-steer","update":{"sessionUpdate":"AgentExecutionUserMessageQueued","messageId":"native-steer","content":"PRIOR\n\nSTEER"}}}'"#;
+                    let queued_result = !bad_owner;
                     let ack = format!(
-                        "printf '%s\\n' '{{\"id\":{supplement_request},\"result\":{{\"queued\":true}}}}'"
+                        "printf '%s\\n' '{{\"id\":{supplement_request},\"result\":{{\"queued\":{queued_result}}}}}'"
                     );
                     if late {
-                        format!("{ack}\n{queued}\n{terminal}\n{injected}")
+                        format!("{queued}\n{terminal}\n{ack}")
                     } else {
-                        format!(
-                            "{ack}\n{queued}\nIFS= read -r inject || exit 1\n{injected}\nIFS= read -r finish || exit 1\n{terminal}"
-                        )
+                        format!("{queued}\n{ack}\nIFS= read -r finish || exit 1\n{terminal}")
                     }
                 } else if kind == AdapterKind::QwenCode {
                     if late {
@@ -12244,35 +12184,6 @@ while IFS= read -r ignored; do :; done
                     );
                     host.notify("fixture/boundary", json!({})).await.unwrap();
                 }
-                if kind == AdapterKind::KiroCli && !late && !unsupported {
-                    timeout(Duration::from_secs(2), async {
-                        while !host
-                            .kiro_steering
-                            .lock()
-                            .await
-                            .values()
-                            .any(|input| input.native_id.is_some())
-                        {
-                            tokio::task::yield_now().await;
-                        }
-                    })
-                    .await
-                    .unwrap();
-                    for (session, native, text) in [
-                        ("other", "native-steer", "STEER"),
-                        ("session-steer", "other", "STEER"),
-                        ("session-steer", "native-steer", "OTHER"),
-                    ] {
-                        host.observe_kiro_steering(&json!({"params":{"sessionId":session,"update":{
-                            "sessionUpdate":"AgentExecutionSteeringInjected","messageId":native,"content":text}}})).await;
-                    }
-                    assert!(
-                        !future.is_finished(),
-                        "queue ack and foreign notifications cannot accept a source"
-                    );
-                    assert_eq!(host.kiro_steering.lock().await.len(), 1);
-                    host.notify("fixture/inject", json!({})).await.unwrap();
-                }
                 let result = timeout(Duration::from_secs(5), future)
                     .await
                     .unwrap()
@@ -12300,7 +12211,6 @@ while IFS= read -r ignored; do :; done
                             .unwrap_err()
                             .is::<rovai_core::steer::ActiveInputNotAccepted>()
                     );
-                    assert!(host.kiro_steering.lock().await.is_empty());
                     host.notify("fixture/finish", json!({})).await.unwrap();
                 } else if bad_owner {
                     assert!(
@@ -12346,6 +12256,64 @@ while IFS= read -r ignored; do :; done
                         !runtime.preserve_zcode_host_after_cancel(),
                         "a retired Host cannot wait for the reusable-Host cancellation fence"
                     );
+                }
+                if kind == AdapterKind::KiroCli && !late && !unsupported && !bad_owner {
+                    // Consume both reader events before polling the receipt. A
+                    // scheduler delay must not turn ACK -> terminal into the
+                    // same outcome as terminal -> ACK.
+                    for ack_first in [true, false] {
+                        let _ingress = host.ingress_fence.lock().await;
+                        host.bind_session("session-steer", &runtime.owner, AcpSessionPhase::Ready)
+                            .await
+                            .unwrap();
+                        let prepared = host
+                            .prepare_prompt("session-steer", &runtime.owner, "reader-order")
+                            .await
+                            .unwrap();
+                        let terminal = host
+                            .pending
+                            .lock()
+                            .await
+                            .remove(&prepared.request_id)
+                            .unwrap();
+                        let (sender, receipt) = oneshot::channel();
+                        let pending = PendingRpc::Response {
+                            method: "_session/steer".into(),
+                            sender,
+                            steer_target: Some(PendingSteerTarget {
+                                owner: runtime.owner.clone(),
+                                session_id: "session-steer".into(),
+                                prompt_id: prepared.prompt_id,
+                            }),
+                        };
+                        let ack = json!({"id":999,"result":{"queued":true}});
+                        let end =
+                            json!({"id":prepared.request_id,"result":{"stopReason":"end_turn"}});
+                        if ack_first {
+                            host.complete_pending(999, pending, ack).await;
+                            host.complete_pending(prepared.request_id, terminal, end)
+                                .await;
+                        } else {
+                            host.complete_pending(prepared.request_id, terminal, end)
+                                .await;
+                            host.complete_pending(999, pending, ack).await;
+                        }
+                        assert!(matches!(
+                            host.routes.read().await["session-steer"].phase,
+                            AcpSessionPhase::PromptCompleted(_)
+                        ));
+                        let result = receipt.await.unwrap();
+                        if ack_first {
+                            assert_eq!(result.unwrap()["queued"], true);
+                        } else {
+                            assert!(
+                                !result
+                                    .unwrap_err()
+                                    .is::<rovai_core::steer::ActiveInputNotAccepted>(),
+                                "a late response cannot prove that the input was never submitted"
+                            );
+                        }
+                    }
                 }
                 host.shutdown().await;
                 std::fs::remove_dir_all(root).unwrap();

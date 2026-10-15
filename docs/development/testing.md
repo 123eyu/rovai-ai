@@ -42,6 +42,8 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 ```
 
 第五参数 `positive` 验证三个独立 Thread 的同轮连续输入及逐消息 `RUN_INPUT` 引用；
+`receipts` 在同样场景额外保留工具释放前最多 15 秒的回执观察，分别记录原生接收与最终结果；
+没有及时回执不自动算作最终失败，也不把工具仍运行解释为未收到输入。
 `boundaries` 验证待接收输入／首条回执后停止、普通续接、工具释放附近插话和失效目标；
 `preflight` 仅运行当前生产准入；`ineligible` 验证普通执行可用、Steer 在原生写入前被 Core 排队，
 随后普通后继成功且没有 Steer 输入行。每次使用不同的新目录。`ROVAI_STEER_PROBE_FILTER`

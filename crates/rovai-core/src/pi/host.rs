@@ -37,7 +37,7 @@ use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncWriteExt, BufReader},
     process::Command,
-    sync::{Mutex, Notify, RwLock, mpsc, oneshot},
+    sync::{Mutex, RwLock, mpsc, oneshot},
     time::timeout,
 };
 use url::Url;
@@ -299,8 +299,6 @@ pub(crate) struct PiHost {
     poisoned: AtomicBool,
     provider_registration_failed: AtomicBool,
     streaming: AtomicBool,
-    input_settled: Notify,
-    steering: StdMutex<Option<(String, oneshot::Sender<Result<()>>)>>,
     retire_after_steer: AtomicBool,
     sequence: AtomicU64,
     executable_path: PathBuf,
@@ -574,8 +572,6 @@ impl PiHost {
             poisoned: AtomicBool::new(false),
             provider_registration_failed: AtomicBool::new(false),
             streaming: AtomicBool::new(false),
-            input_settled: Notify::new(),
-            steering: StdMutex::new(None),
             retire_after_steer: AtomicBool::new(false),
             sequence: AtomicU64::new(0),
             executable_path: launch.executable.to_path_buf(),
@@ -728,15 +724,12 @@ impl PiHost {
                     Some("agent_start") => host.streaming.store(true, Ordering::Release),
                     Some("agent_settled") => {
                         host.streaming.store(false, Ordering::Release);
-                        host.input_settled.notify_waiters();
                     }
                     _ => {}
                 }
                 host.route_message(message).await;
             }
             host.alive.store(false, Ordering::Release);
-            host.steering.lock().unwrap().take();
-            host.input_settled.notify_waiters();
             for (_, pending) in host.pending.lock().await.drain() {
                 let error = failure
                     .map(anyhow::Error::new)
@@ -802,28 +795,6 @@ impl PiHost {
     }
 
     async fn route_message(&self, message: Value) {
-        if message.get("type").and_then(Value::as_str) == Some("message_start")
-            && message.pointer("/message/role").and_then(Value::as_str) == Some("user")
-        {
-            let content = &message["message"]["content"];
-            let text = content.as_str().map(str::to_owned).or_else(|| {
-                content.as_array().map(|parts| {
-                    parts
-                        .iter()
-                        .filter(|p| p["type"] == "text")
-                        .filter_map(|p| p["text"].as_str())
-                        .collect::<String>()
-                })
-            });
-            let mut steering = self.steering.lock().unwrap();
-            if steering
-                .as_ref()
-                .is_some_and(|(expected, _)| text.as_deref() == Some(expected.as_str()))
-                && let Some((_, receipt)) = steering.take()
-            {
-                let _ = receipt.send(Ok(()));
-            }
-        }
         // Native RPC exposes extension registration failures separately from a
         // successful get_available_models response. Only this typed event is
         // catalog evidence; generic stderr and unrelated extension errors aren't.
@@ -1004,17 +975,7 @@ impl PiHost {
     }
 
     async fn clear_steering_queue(&self) -> Result<()> {
-        let cleared = self.command("clear_queue", json!({})).await?;
-        let mut pending = self.steering.lock().unwrap();
-        if pending.as_ref().is_some_and(|(text, _)| {
-            cleared
-                .pointer("/data/steering")
-                .and_then(Value::as_array)
-                .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(text)))
-        }) && let Some((_, receipt)) = pending.take()
-        {
-            let _ = receipt.send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
-        }
+        self.command("clear_queue", json!({})).await?;
         Ok(())
     }
 
@@ -1464,11 +1425,7 @@ impl PiRuntime {
     pub(crate) async fn steer(&self, text: &str, images: &[PiPromptImage]) -> Result<String> {
         self.validate_images(images)?;
         let submission = self.input_submission.lock().await;
-        let settled = self.host.input_settled.notified();
-        tokio::pin!(settled);
-        settled.as_mut().enable();
-        // Retain the exact Host owner until the receipt/queue removal resolves.
-        // A later Run must never inherit a native idle steering queue.
+        // Keep the exact Host owner until its correlated RPC receipt resolves.
         let owner = self.host.owner.read().await;
         if owner.as_ref() != Some(&self.owner)
             || self.stopping.load(Ordering::Acquire)
@@ -1476,14 +1433,6 @@ impl PiRuntime {
             || !self.host.streaming.load(Ordering::Acquire)
         {
             return Err(rovai_core::steer::ActiveInputNotAccepted.into());
-        }
-        let (sender, mut receipt) = oneshot::channel();
-        {
-            let mut pending = self.host.steering.lock().unwrap();
-            if pending.is_some() {
-                bail!("Pi already has an unresolved input");
-            }
-            *pending = Some((text.to_string(), sender));
         }
         self.host.retire_after_steer.store(true, Ordering::Release);
         let mut fields = json!({"message":text});
@@ -1502,24 +1451,9 @@ impl PiRuntime {
         {
             bail!("Pi did not confirm the steering queue disposition");
         }
-        tokio::select! {
-            biased;
-            accepted = &mut receipt => {
-                accepted.context("Pi lost the native input receipt")??;
-                Ok(self.prompt_id().to_string())
-            }
-            _ = &mut settled => {
-                // Native queued is not consumed. Only exact queue removal proves
-                // a source may return to ordinary delivery after normal success.
-                let _submission = self.input_submission.lock().await;
-                self.host.clear_steering_queue().await?;
-                receipt.try_recv().context("Pi ended without evidence for this input")??;
-                Ok(self.prompt_id().to_string())
-            }
-            _ = tokio::time::sleep(Duration::from_secs(600)) => {
-                bail!("Pi input consumption receipt timed out");
-            }
-        }
+        // The matching command ID and queued disposition prove Runtime receipt.
+        // A user message_start is later consumption, not an admission gate.
+        Ok(self.prompt_id().to_string())
     }
 
     pub(crate) fn validate_images(&self, images: &[PiPromptImage]) -> Result<()> {
@@ -1661,7 +1595,6 @@ impl PiRuntime {
         if self.host.retire_after_steer.load(Ordering::Acquire) {
             self.host.clear_steering_queue().await?;
         }
-        self.host.input_settled.notify_waiters();
         self.host.command("abort", json!({})).await?;
         Ok(())
     }
@@ -3411,7 +3344,7 @@ done
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn active_input_consumption_and_late_abort_keep_exact_rpc_correlation() {
+    async fn active_input_receipts_and_late_abort_keep_exact_rpc_correlation() {
         use std::os::unix::fs::PermissionsExt;
 
         let root = std::env::temp_dir().join(format!(
@@ -3440,10 +3373,6 @@ while IFS= read -r request; do
     steer)
       case "$request" in *STOP_PROBE*) queued_probe=STOP_PROBE; delayed_id=$request_id; continue ;; esac
       printf '{"type":"response","id":"%s","success":true,"command":"steer","data":{"disposition":"queued"}}\n' "$request_id"
-      case "$request" in
-        *unconsumed*) printf '%s\n' '{"type":"agent_settled"}' ;;
-        *) printf '%s\n' '{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"STEER"}]}}' ;;
-      esac
       ;;
     clear_queue)
       removed=${queued_probe:-unconsumed}
@@ -3531,22 +3460,17 @@ done
                 .to_string()
                 .contains("image input support")
         );
-        assert!(host.steering.lock().unwrap().is_none());
         Arc::get_mut(&mut runtime).unwrap().model_supports_images = true;
         let mut malformed = images[0].clone();
         malformed.data = "not base64!".to_string();
         assert!(runtime.steer("STEER", &[malformed]).await.is_err());
-        assert!(host.steering.lock().unwrap().is_none());
         assert_eq!(
             runtime.steer("STEER", &images).await.unwrap(),
             "prompt-abort"
         );
-        assert!(
-            runtime
-                .steer("unconsumed", &[])
-                .await
-                .unwrap_err()
-                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        assert_eq!(
+            runtime.steer("unconsumed", &[]).await.unwrap(),
+            "prompt-abort"
         );
         // Hold the native write after admission, then cancel before releasing
         // it. The fake withholds the steer ACK until clear_queue: stop cannot
@@ -3560,7 +3484,6 @@ done
             std::task::Poll::Ready(())
         })
         .await;
-        assert!(host.steering.lock().unwrap().is_some());
         let cancelling = runtime.cancel();
         tokio::pin!(cancelling);
         std::future::poll_fn(|cx| {
@@ -3580,11 +3503,9 @@ done
         })
         .await
         .expect("cancel must not wait for the delayed steer ACK");
-        assert!(
-            steered
-                .unwrap_err()
-                .is::<rovai_core::steer::ActiveInputNotAccepted>()
-        );
+        // Even a late queue ACK means received, not consumed; cancel still
+        // removes it before abort and never starts a successor.
+        assert_eq!(steered.unwrap(), "prompt-abort");
         cancelled.unwrap();
         assert_eq!(
             std::fs::read_to_string(root.join("queued-at-abort")).unwrap(),
@@ -3641,7 +3562,6 @@ done
                 "get_state",
                 "steer",
                 "steer",
-                "clear_queue",
                 "steer",
                 "clear_queue",
                 "abort",

@@ -3619,13 +3619,28 @@ impl Core {
         }
         if let Some(verified) = verified {
             let result = match verified {
-                Ok(verified) => AgentProfileService::default()
-                    .commit_discovered_runtime_entry(
-                        &mut *self.database.lock().await,
-                        verified,
-                        None,
-                    )
-                    .map(|_| ()),
+                Ok(verified) => {
+                    let mut database = self.database.lock().await;
+                    let service = AgentProfileService::default();
+                    service
+                        .commit_discovered_runtime_entry(&mut database, verified, None)
+                        .and_then(|id| {
+                            if let (Some(version), Some(path), Some(fingerprint)) = (
+                                observation.reported_version.as_deref(),
+                                observation.executable_path.as_deref(),
+                                observation.executable_fingerprint.as_deref(),
+                            ) {
+                                service.record_runtime_version(
+                                    &mut database,
+                                    &id,
+                                    path,
+                                    fingerprint,
+                                    version,
+                                )?;
+                            }
+                            Ok(())
+                        })
+                }
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
@@ -4232,16 +4247,8 @@ impl Core {
                         product_diagnostic,
                         is_checking,
                     );
-                    // A current observation with no version is deliberately unknown;
-                    // do not relabel this check using a previous installation's version.
-                    let reported_version = if discovery.search_generation == search.generation() {
-                        discovery.reported_version.as_deref()
-                    } else {
-                        installation
-                            .and_then(|installation| installation.snapshot.as_ref())
-                            .and_then(|snapshot| snapshot.reported_version.as_deref())
-                            .or(discovery.reported_version.as_deref())
-                    };
+                    let reported_version =
+                        product_runtime_reported_version(&discovery, installation);
                     json!({
                         "runtimeKind": kind,
                         "status": status,
@@ -5444,6 +5451,17 @@ impl Core {
                 _ => ("transient", "runtime_probe_transient_failure"),
             };
             let mut database = self.database.lock().await;
+            if let (Some(installation), Some(version)) =
+                (existing.as_ref(), snapshot.reported_version.as_deref())
+            {
+                AgentProfileService::default().record_runtime_version(
+                    &mut database,
+                    &installation.id,
+                    &canonical.to_string_lossy(),
+                    &candidate_fingerprint,
+                    version,
+                )?;
+            }
             AgentProfileService::default().record_managed_probe_failure(
                 &mut database,
                 ManagedProbeFailure {
@@ -14901,6 +14919,7 @@ impl Core {
         &self,
         mut runtime: FrozenAgentRuntimeConfig,
     ) -> std::result::Result<FrozenAgentRuntimeConfig, RuntimeDispatchFailure> {
+        let original_version = runtime.reported_version.clone();
         if rovai_core::steer::supports_active_input(runtime.adapter_kind.as_str())
             && runtime.reported_version.is_none()
         {
@@ -14977,6 +14996,27 @@ impl Core {
                 error,
                 effective_version: None,
             })?;
+        }
+        if runtime.reported_version != original_version {
+            runtime
+                .refresh_config_digest()
+                .map_err(|error| RuntimeDispatchFailure {
+                    code: "runtime_configuration_invalid".to_string(),
+                    error,
+                    effective_version: None,
+                })?;
+            if let Some(version) = runtime.reported_version.as_deref()
+                && let Err(error) = AgentProfileService::default().record_runtime_version(
+                    &mut *self.database.lock().await,
+                    &runtime.installation_id,
+                    &runtime.executable_path,
+                    &runtime.executable_fingerprint,
+                    version,
+                )
+            {
+                // A display cache failure must not reject an ordinary launch.
+                eprintln!("failed to persist Runtime version observation: {error:#}");
+            }
         }
         Ok(runtime)
     }
@@ -18409,6 +18449,44 @@ fn note_product_runtime_diagnostic(
         priority,
         failure,
     });
+}
+
+fn product_runtime_reported_version<'a>(
+    discovery: &'a RuntimeDiscoveryObservation,
+    installation: Option<&'a AdapterInstallationView>,
+) -> Option<&'a str> {
+    if discovery.discovery_status != RuntimeDiscoveryStatus::Found {
+        return None;
+    }
+    if let Some(version) = discovery
+        .reported_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+    {
+        return Some(version);
+    }
+    // Static discovery and a failed version read do not invalidate a version
+    // already observed for this program. Search generations fence check writes;
+    // changing one must not change which program a displayed version describes.
+    let installation = installation?;
+    let snapshot = installation.snapshot.as_ref()?;
+    let fingerprint = discovery
+        .executable_fingerprint
+        .as_deref()
+        .filter(|fingerprint| !fingerprint.is_empty())?;
+    if !installation.enabled
+        || installation.path_state != "valid"
+        || discovery.executable_path.as_deref() != Some(installation.executable_path.as_str())
+        || snapshot.executable_fingerprint.as_deref() != Some(fingerprint)
+    {
+        return None;
+    }
+    snapshot
+        .reported_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
 }
 
 fn product_runtime_availability_status(
@@ -27242,6 +27320,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "slow-tests"))]
     #[tokio::test]
     async fn launch_version_uses_the_frozen_program_without_blocking_ordinary_execution() {
+        use std::os::unix::fs::PermissionsExt;
         let root =
             std::env::temp_dir().join(format!("rovai-launch-version-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
@@ -27345,6 +27424,225 @@ mod tests {
                 .reported_version
                 .is_none()
         );
+        // Follow the prepared identity through the production rebind and claim
+        // seam. A version-only update used to leave its digest stale and reject
+        // ordinary Pi/Qwen runs before a Runtime could even start.
+        for adapter in [AdapterKind::Pi, AdapterKind::QwenCode] {
+            for reported in [Some("1.1.0"), None] {
+                core.runtime_discovery.write().await.clear();
+                let executable = root.join(format!("{}-{}", adapter.as_str(), reported.is_some()));
+                write_runtime_resolution_executable(
+                    &executable,
+                    if reported.is_some() {
+                        "#!/bin/sh\nprintf '1.1.0\\n'\n"
+                    } else {
+                        "#!/bin/sh\nexit 1\n"
+                    },
+                );
+                let camp_id = {
+                    let mut database = core.database.lock().await;
+                    let registry = AgentRuntimeAdapterRegistry::default();
+                    let mut snapshot = registry
+                        .light_ready_snapshot(
+                            adapter,
+                            Some("1.1.0".into()),
+                            fingerprint_executable(&executable).unwrap(),
+                            chrono::Utc::now().to_rfc3339(),
+                        )
+                        .unwrap();
+                    // Ordinary launch admits discovery without a known version.
+                    snapshot.reported_version = None;
+                    AgentProfileService::default()
+                        .commit_discovered_managed_installation(
+                            &mut database,
+                            DiscoveredManagedInstallation {
+                                adapter_kind: adapter,
+                                executable_path: executable.display().to_string(),
+                                command_name: adapter.command_name().into(),
+                                source: InstallationSource::Manual,
+                                auth_scope: "default".into(),
+                                snapshot,
+                                entrypoint_locator_identity: None,
+                            },
+                        )
+                        .unwrap();
+                    let profile = AgentProfileService::default()
+                        .list_profiles(&database)
+                        .unwrap()
+                        .remove(0);
+                    let configured = AgentProfileService::default()
+                        .set_runtime(
+                            &mut database,
+                            &user_command_envelope(
+                                uuid::Uuid::new_v4().to_string(),
+                                SetMemberRuntimeConfigurationCommand {
+                                    agent_id: profile.agent_id.clone(),
+                                    expected_version: profile.version,
+                                    adapter_kind: adapter,
+                                    environment_update: None,
+                                    model:
+                                        rovai_core::agent_profile::ModelSelection::RuntimeDefault,
+                                    permissions:
+                                        rovai_core::agent_profile::AdapterPermissionConfig {
+                                            adapter_kind: adapter,
+                                            schema_version: 1,
+                                            values: registry.member_permission_defaults(adapter),
+                                        },
+                                },
+                            ),
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        configured.result.status,
+                        CommandResultStatus::Applied,
+                        "{configured:?}"
+                    );
+                    let created = CollaborationService::default()
+                        .create_camp(
+                            &mut database,
+                            &user_command_envelope(
+                                uuid::Uuid::new_v4().to_string(),
+                                CreateThreadCommand {
+                                    name: Some("Version-only launch preparation".into()),
+                                    project_binding_kind: ProjectBindingKind::Directory,
+                                    project_path: root
+                                        .canonicalize()
+                                        .unwrap()
+                                        .display()
+                                        .to_string(),
+                                    member_agent_ids: vec![profile.agent_id.clone()],
+                                    default_lead_agent_id: profile.agent_id,
+                                    collaboration_mode: ThreadCollaborationMode::Peer,
+                                    activation_state: ThreadActivationState::Active,
+                                },
+                            ),
+                        )
+                        .unwrap();
+                    let camp_id = created.result.payload["threadId"]
+                        .as_str()
+                        .unwrap()
+                        .to_string();
+                    core.attachment_views
+                        .ensure_empty_camp_ready(&mut database, &camp_id)
+                        .unwrap();
+                    camp_id
+                };
+                let sent = core
+                    .send_test_camp_message_request(SendThreadMessageParams {
+                        delivery_mode: Default::default(),
+                        steer_targets: None,
+                        command_id: uuid::Uuid::new_v4().to_string(),
+                        camp_id: ThreadId::parse(&camp_id).unwrap(),
+                        content: text_composer_document("Ordinary execution must remain available"),
+                        source_attachments: Vec::new(),
+                        quotes: Vec::new(),
+                        reply_to_camp_message_id: None,
+                        execution: Some(ExecutionRequest {
+                            task_id: None,
+                            purpose: "Verify ordinary launch after version preparation".into(),
+                            completion_role: "required".into(),
+                            budget: None,
+                        }),
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    sent["commandResult"]["payload"]["deliveryIds"]
+                        .as_array()
+                        .map(Vec::len),
+                    Some(1),
+                    "{sent:#}"
+                );
+                let candidate = {
+                    let mut database = core.database.lock().await;
+                    let id = claim_waiting_delivery_batches(&mut database, 1)
+                        .unwrap()
+                        .remove(0);
+                    ExecutionRuntimeService::default()
+                        .load_dispatchable_agent_run(&database, &id)
+                        .unwrap()
+                        .unwrap()
+                };
+                let frozen = candidate.frozen_runtime().unwrap();
+                assert_eq!(frozen.reported_version, None);
+                let (prepared, version) = core
+                    .prepare_runtime_for_dispatch(
+                        &candidate,
+                        frozen,
+                        &candidate.execution_workspace(),
+                    )
+                    .await
+                    .map_err(|failure| failure.error)
+                    .unwrap();
+                assert_eq!(prepared.reported_version.as_deref(), reported);
+                if adapter == AdapterKind::Pi && reported.is_some() {
+                    core.database.lock().await.connection().execute_batch(
+                        "CREATE TEMP TRIGGER fail_version_cache BEFORE UPDATE OF reported_version
+                         ON adapter_capability_snapshot BEGIN SELECT RAISE(ABORT, 'injected version cache failure'); END;",
+                    ).unwrap();
+                    let mut retry_identity = prepared.clone();
+                    retry_identity.reported_version = None;
+                    let resolved = core
+                        .prepare_runtime_identity(retry_identity)
+                        .await
+                        .map_err(|failure| failure.error)
+                        .unwrap();
+                    assert_eq!(
+                        resolved.reported_version.as_deref(),
+                        reported,
+                        "display cache writes must not reject ordinary execution"
+                    );
+                    core.database
+                        .lock()
+                        .await
+                        .connection()
+                        .execute_batch("DROP TRIGGER fail_version_cache")
+                        .unwrap();
+                }
+                let mut database = core.database.lock().await;
+                let installed = AgentProfileService::default()
+                    .managed_installation(&database, adapter, "default")
+                    .unwrap()
+                    .unwrap();
+                let snapshot = installed.snapshot.unwrap();
+                assert_eq!(snapshot.reported_version.as_deref(), reported);
+                assert_eq!(snapshot.probe_status, "light_ready");
+                assert!(snapshot.last_successful_probe_at.is_none());
+                let claimed = ExecutionRuntimeService::default()
+                    .claim_agent_run(
+                        &mut database,
+                        &CommandEnvelope {
+                            command_id: uuid::Uuid::new_v4().to_string(),
+                            actor: ActorRef::System {
+                                component_id: "agent-run-scheduler".into(),
+                            },
+                            camp_id: Some(camp_id.clone()),
+                            expected_versions: Vec::new(),
+                            execution_epoch: None,
+                            payload: ClaimAgentRunCommand {
+                                agent_run_id: candidate.agent_run_id,
+                                expected_version: version,
+                                lease_owner: "launch-version-test".into(),
+                                lease_seconds: 60,
+                                workspace: None,
+                                starting_git_observation: None,
+                            },
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(claimed.result.code, "agent_run.claimed", "{claimed:?}");
+                // The fixture creates protected attachment views. Restore only
+                // its known directories so the final test-root cleanup can run.
+                let camps = core.attachment_views.root().join("camps");
+                for path in [
+                    camps.clone(),
+                    camps.join(&camp_id),
+                    camps.join(&camp_id).join("attachments"),
+                ] {
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+                }
+            }
+        }
         drop(core);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -28344,6 +28642,24 @@ done
                         ExecutableIntegrityStatus::Unchanged
                     ));
                 }
+                // Once a version is known, reopening the database and publishing
+                // a versionless static observation must keep the public version.
+                // The fixture's --version sleeps: discovery must never invoke it.
+                let mut versioned = observation.clone();
+                versioned.reported_version = Some("1.2.3".into());
+                core.publish_runtime_discovery(versioned).await;
+                drop(core);
+                core = runtime_resolution_test_core(&root).unwrap();
+                core.publish_runtime_discovery(observation.clone()).await;
+                let health = core.runtime_health_payload().await.unwrap();
+                let codex = health["runtimeAvailability"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|item| item["runtimeKind"] == "codex-cli")
+                    .unwrap();
+                assert_eq!(codex["reportedVersion"], "1.2.3");
+                assert!(codex["discovery"]["reportedVersion"].is_null());
                 drop(core);
                 std::fs::remove_dir_all(root).unwrap();
             });
@@ -28490,6 +28806,22 @@ done
                 .map(|attempt| attempt.status.as_str()),
             Some("failed")
         );
+        assert_eq!(
+            installation
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.reported_version.as_deref()),
+            Some("trae-cli version stable-failure"),
+            "a successful version read survives a later protocol failure"
+        );
+        assert!(
+            installation
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .last_successful_probe_at
+                .is_none()
+        );
         drop(database);
         assert_eq!(
             std::fs::read_to_string(&invocations)
@@ -28499,6 +28831,32 @@ done
                 .count(),
             2
         );
+        drop(core);
+        let core = runtime_resolution_test_core(&root).unwrap();
+        let search = RuntimeSearchEnvironment::for_test_paths(1, Vec::new());
+        let observation =
+            rovai_core::runtime_discovery::discover_runtime_path_with_manual_candidates(
+                AdapterKind::TraeCnCli,
+                &search,
+                [runtime.clone()],
+            );
+        core.publish_runtime_discovery(observation).await;
+        let health = core.runtime_health_payload().await.unwrap();
+        let trae = health["runtimeAvailability"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["runtimeKind"] == "trae-cn-cli")
+            .unwrap();
+        assert_eq!(trae["reportedVersion"], "trae-cli version stable-failure");
+        let database = core.database.lock().await;
+        let installation = AgentProfileService::default()
+            .managed_installation(&database, AdapterKind::TraeCnCli, "default")
+            .unwrap()
+            .unwrap();
+        assert_eq!(installation.last_probe_attempt.unwrap().status, "failed");
+        assert_ne!(installation.snapshot.unwrap().probe_status, "ready");
+        drop(database);
         drop(core);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -29992,6 +30350,90 @@ done
             ),
             "found_uninspected"
         );
+    }
+
+    // Owns version projection independently from machine readiness. The former
+    // generation-based projection erased these persisted versions on every scan.
+    #[test]
+    fn runtime_versions_follow_program_identity_instead_of_search_generation() {
+        let installation = managed_runtime_fixture("2026-10-15T00:00:00Z", None);
+        for (name, path, fingerprint, version, expected) in [
+            (
+                "static discovery",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:test"),
+                None,
+                Some("1.2.3"),
+            ),
+            (
+                "empty version",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:test"),
+                Some("  "),
+                Some("1.2.3"),
+            ),
+            (
+                "reported version",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:test"),
+                Some(" 2.0.0 "),
+                Some("2.0.0"),
+            ),
+            (
+                "replaced program",
+                "/opt/homebrew/bin/codex",
+                Some("sha256:replacement"),
+                None,
+                None,
+            ),
+            (
+                "different path",
+                "/another/codex",
+                Some("sha256:test"),
+                None,
+                None,
+            ),
+            (
+                "unknown fingerprint",
+                "/opt/homebrew/bin/codex",
+                None,
+                None,
+                None,
+            ),
+            (
+                "empty fingerprint",
+                "/opt/homebrew/bin/codex",
+                Some(""),
+                None,
+                None,
+            ),
+        ] {
+            // A check of another Runtime advances the global generation without
+            // changing this program; it must not make an old version reappear.
+            for generation in [1, 2] {
+                let mut discovery =
+                    RuntimeDiscoveryObservation::detecting(AdapterKind::CodexCli, generation);
+                discovery.discovery_status = RuntimeDiscoveryStatus::Found;
+                discovery.executable_path = Some(path.to_string());
+                discovery.executable_fingerprint = fingerprint.map(str::to_string);
+                discovery.reported_version = version.map(str::to_string);
+                discovery.version_probe_succeeded = Some(false);
+                let mut installation = installation.clone();
+                installation.snapshot.as_mut().unwrap().stale_at =
+                    Some("2026-10-15T01:00:00Z".into());
+                assert_eq!(
+                    product_runtime_reported_version(&discovery, Some(&installation)),
+                    expected,
+                    "{name}, generation {generation}"
+                );
+                discovery.discovery_status = RuntimeDiscoveryStatus::Missing;
+                assert_eq!(
+                    product_runtime_reported_version(&discovery, Some(&installation)),
+                    None,
+                    "missing entry must not display a historical version"
+                );
+            }
+        }
     }
 
     #[test]

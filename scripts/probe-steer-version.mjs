@@ -1,5 +1,5 @@
 // Historical-version acceptance using the unchanged production Core and Adapter.
-// node scripts/probe-steer-version.mjs <new-root> <core> <adapter> <native-binary> [positive|boundaries|preflight|ineligible]
+// node scripts/probe-steer-version.mjs <new-root> <core> <adapter> <native-binary> [positive|receipts|boundaries|preflight|ineligible]
 import assert from 'node:assert/strict'
 import { assertSteerRaceOutcome } from './lib/steer-race-outcome.mjs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -13,7 +13,7 @@ import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 const [root, executable, adapter, nativeExecutable, mode = 'positive'] = process.argv.slice(2)
 const caseFilter = process.env.ROVAI_STEER_PROBE_FILTER ?? ''
 assert.ok([root, executable, nativeExecutable].every(isAbsolute))
-assert.ok(['positive', 'boundaries', 'preflight', 'ineligible'].includes(mode))
+assert.ok(['positive', 'receipts', 'boundaries', 'preflight', 'ineligible'].includes(mode))
 const specs = {
   'codex-cli': ['ROVAI_CODEX_BIN', 'CODEX_HOME', '.codex', ['auth.json', 'config.toml']],
   pi: ['ROVAI_PI_BIN', 'PI_CODING_AGENT_DIR', '.pi/agent', ['auth.json', 'models.json', 'models-store.json', 'settings.json']],
@@ -61,7 +61,7 @@ if (adapter === 'claude-code-cli') {
   await writeFile(join(native, 'settings.json'), JSON.stringify(settings), { mode: 0o600 })
 }
 // This fixture tool always terminates, including after a failed acceptance process.
-await writeFile(join(project, 'hold.mjs'), `import {access,writeFile} from 'node:fs/promises';const id=process.argv[2];await writeFile(id+'.ready','ready');const end=Date.now()+150000;while(Date.now()<end){try{await access(id+'.release');break}catch{await new Promise(r=>setTimeout(r,50))}}console.log('HOLD_COMPLETE');\n`)
+await writeFile(join(project, 'hold.mjs'), `import {access,writeFile} from 'node:fs/promises';const id=process.argv[2];await writeFile(id+'.ready','ready');const end=Date.now()+150000;while(Date.now()<end){try{await access(id+'.release');break}catch{await new Promise(r=>setTimeout(r,50))}}await writeFile(id+'.finished','finished');console.log('HOLD_COMPLETE');\n`)
 let core, db, threadId, activeCase
 const notifications = []
 const exists = async name => { try { await access(join(project, name)); return true } catch { return false } }
@@ -132,7 +132,7 @@ async function runCase(name, fn) {
   activeCase = { name, startedAt: new Date().toISOString(), status: 'running' }
   report.cases.push(activeCase)
   try { await fn(activeCase); activeCase.status = 'passed' }
-  catch (error) { activeCase.status = 'failed'; activeCase.error = error.message; if (mode !== 'positive') throw error }
+  catch (error) { activeCase.status = 'failed'; activeCase.error = error.message; if (!['positive', 'receipts'].includes(mode)) throw error }
   finally { activeCase.finishedAt = new Date().toISOString(); if (db && threadId) { Object.assign(activeCase, capture()); activeCase.nativeEvidence = await nativeEvidence() }; await persist() }
 }
 try {
@@ -179,11 +179,11 @@ try {
         assert.ok(runs().flatMap(r => inputs(r.id)).every(i => i.input_kind === 'start' && i.status === 'accepted'))
         assert.equal((await readFile(join(project, 'queued-old.txt'), 'utf8')).trim(), 'QUEUED_OLD_VERSION')
       })
-    } else if (mode === 'positive') {
+    } else if (['positive', 'receipts'].includes(mode)) {
       for (let trial = 1; trial <= 3; trial++) await runCase(`independent same-run trial ${trial}`, async result => {
         await newThread(`Steer ${adapter} trial ${trial}`)
         const id = `trial-${trial}`
-        await send(`隔离验证：必须实际执行 node ./hold.mjs ${id} 一次，等待工具完成。不要改脚本。这是有 150 秒上限的测试等待。完成后把 ORIGINAL_${trial} 写入 ${id}.txt；若收到后续用户更正，按新要求写入。最后公开报告并回复，不联系其他队员。`)
+        await send(`隔离验证：必须实际执行 node ./hold.mjs ${id} 一次，等待工具完成。由外部测试程序释放等待，不得创建或修改 .release/.ready/.finished 文件，不得后台化命令或改脚本。这是有 150 秒上限的测试等待。完成后把 ORIGINAL_${trial} 写入 ${id}.txt；若收到后续用户更正，按新要求写入。最后公开报告并回复，不联系其他队员。`)
         await wait(() => exists(`${id}.ready`), 'controlled tool is running')
         const target = runs().find(r => r.status === 'running')
         assert.ok(target)
@@ -191,7 +191,19 @@ try {
         await wait(() => inputs(target.id).some(i => i.source_delivery_id === deliveries(a)[0].id && i.dispatch_started_at), 'first input dispatched', 60000)
         const b = await send(`第二条更正：完成上一条后，把 STEER_${trial}_B 写入 ${id}.txt，覆盖 A；并把 BOTH_${trial} 写入 ${id}-both.txt。`, 'steer')
         result.initialRun = target.id; result.messages = [a, b]
+        if (mode === 'receipts') {
+          // Observe a bounded blocked-tool interval, then release even when a
+          // Runtime only acknowledges consumption. The final outcome and the
+          // before-release receipt evidence are reported separately.
+          const deadline = Date.now() + 15000
+          while (Date.now() < deadline && inputs(target.id).filter(i => i.input_kind === 'steer' && i.status === 'accepted').length < 2) {
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+          assert.equal(await exists(`${id}.finished`), false, 'controlled tool must remain blocked during receipt observation')
+          result.beforeToolRelease = { observedAt: new Date().toISOString(), inputs: inputs(target.id), runs: runs() }
+        }
         await writeFile(join(project, `${id}.release`), 'release')
+        result.toolReleasedAt = new Date().toISOString()
         await wait(() => runs().find(r => r.id === target.id && r.status === 'succeeded'), 'original run succeeded')
         const delivered = inputs(target.id)
         assert.equal(runs().length, 1, 'steer must not create a successor Run')
@@ -210,7 +222,7 @@ try {
       for (const partial of [false, true]) await runCase(partial ? 'first receipt then stop and continue' : 'stop during pending input and continue', async result => {
         await newThread(`Steer stop ${adapter} ${partial}`)
         const id = partial ? 'partial' : 'unconsumed'
-        await send(`隔离验证：实际执行 node ./hold.mjs ${id}-first${partial ? `，再单独执行 node ./hold.mjs ${id}-second` : ''}。不要改脚本。工具完成后回复 ORIGINAL，不做其他工作。`)
+        await send(`隔离验证：实际执行 node ./hold.mjs ${id}-first${partial ? `，再单独执行 node ./hold.mjs ${id}-second` : ''}。由外部测试程序释放等待，不得创建或修改 .release/.ready/.finished 文件，不得后台化命令或改脚本。工具完成后回复 ORIGINAL，不做其他工作。`)
         await wait(() => exists(`${id}-first.ready`), 'first tool running')
         const target = runs().find(r => r.status === 'running')
         if (partial) {
@@ -223,6 +235,10 @@ try {
         }
         const b = await send(`工具完成后把 STALE_SIDE_EFFECT 写入 ${id}-forbidden.txt。`, 'steer')
         await wait(() => inputs(target.id).some(i => i.source_delivery_id === deliveries(b)[0].id && i.dispatch_started_at), 'pending input dispatched')
+        if (['pi', 'kiro-cli', 'zcode-app'].includes(adapter)) {
+          await wait(() => inputs(target.id).some(i => i.source_delivery_id === deliveries(b)[0].id && i.status === 'accepted'), 'queued input acknowledged before stop')
+          assert.equal(await exists(`${id}-${partial ? 'second' : 'first'}.finished`), false)
+        }
         result.atStop = inputs(target.id)
         result.processesAtStop = await ownedProcesses()
         await cancel(target)

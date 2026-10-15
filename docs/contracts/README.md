@@ -135,7 +135,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Open Projection v10（历史）](camp-open-projection-v10.md) | main Snapshot 34/Open 6；Open 不读取 event_log，移除 timeline/coverage.timeline，保留 high-water 与业务卡片 |
 | [Camp Open Projection v10（渠道分支历史）](camp-open-projection-channel-v10.md) | v9 保留；Camp/Navigation 增加可选 channelSource，原始 title 不变；合并时保留原文以区分同号合同 |
 | [Camp Open Projection v9（历史）](camp-open-projection-v9.md) | v8 保留；Snapshot 34/Open 5 增加可选 member.fast，仅查询安全缓存 |
-| [Runtime Launch and Verification v63（当前）](runtime-launch-and-verification-v63.md) | Pi 入站单帧 64 MiB、独立出站/stderr 预算、有类型连接失败及既有输入保护 |
+| [Runtime Launch and Verification v64（当前）](runtime-launch-and-verification-v64.md) | 同一程序已知版本保留、按路径与指纹投影、设置与队员展示统一；不增加启动健康检查 |
+| [Runtime Launch and Verification v63（历史）](runtime-launch-and-verification-v63.md) | Pi 入站单帧 64 MiB、独立出站/stderr 预算、有类型连接失败及既有输入保护 |
 | [Runtime Launch and Verification v62（历史）](runtime-launch-and-verification-v62.md) | 移除原生会话重建提示、展示字段及公聊/单聊事件历史查询；恢复行为保持 |
 | [Runtime Launch and Verification v61（历史）](runtime-launch-and-verification-v61.md) | 移除 Desktop / Mobile 会话队员列表中的重置入口及其弹窗；启动与恢复保持 |
 | [Runtime Launch and Verification v60（历史）](runtime-launch-and-verification-v60.md) | 同类 CLI 优先原 ID 恢复、Adapter 证据限定一次降级、历史上下文不阻断新输入 |
@@ -544,7 +545,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Gather v3（历史）](gather-v3.md) | v2 lifecycle/limits 不变；Completion Input 使用 `agent_v1` request/captured 投影、projected digest 与 schema v3 |
 | [Gather v2（历史）](gather-v2.md) | v1 lifecycle 加当前代最后 captured result、独立回传限额、完整 request 与 completion input v2 |
 | [Gather v1（历史）](gather-v1.md) | GatherRecord/Item、Default Lead 接受、持久 capture/Barrier、completion snapshot/FIFO 与旧 capture budget/input v1 |
-| [Message Delivery v17（当前）](message-delivery-v17.md) | Claude 受管执行内回执、启动期待插话与终态独立结算 |
+| [Message Delivery v18（当前）](message-delivery-v18.md) | Pi／Kiro／ZCode 入队即确认接收，消费与工具边界独立 |
+| [Message Delivery v17（历史）](message-delivery-v17.md) | Claude 受管执行内回执、启动期待插话与终态独立结算 |
 | [Message Delivery v16（历史）](message-delivery-v16.md) | Core 统一 Steer 版本资格、TRAE CN、接收语义与未知不重发 |
 | [Message Delivery v15（历史）](message-delivery-v15.md) | Kiro 与 ZCode 插话 |
 | [Message Delivery v14（历史）](message-delivery-v14.md) | Claude、Pi、CodeBuddy、Qwen、Grok 插话 |

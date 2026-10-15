@@ -8,6 +8,76 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## Steer 入队回执与阻塞工具核验（2026-10-15）
+
+User seq90–96 的可用性反馈由 [Delivery v18](../../contracts/message-delivery-v18.md) 收口。
+Pi、Kiro、ZCode 在原生入队证据成立后确认接收，不等待消费；不改普通输入、版本门槛、数据库或上下文。
+Pi 去掉额外消费等待和正文匹配状态，停止仍先清队列后 abort。ZCode 已接收但未 drained 的 guide
+仍参加原执行结束清理；Provider 过载只映射固定安全错误，不自动重试。
+
+- Pi 扩展既有 RPC／取消 owner，改为原生完全不发送消费事件：连续两条仍收到回执，延迟写入、
+  延迟 ACK、停止先清队列、晚到 ACK 不污染后继继续覆盖。原消费门禁退出，取消和精确 RPC 关联不变。
+- Kiro 扩展既有 ACP 回执 owner：原生 queued 通知合并正文仍按逐 RPC 回执确认，错误目标、
+  queued=false 和终态后 ACK 不能接受。退出逐正文／injected 门禁，其他 ACP 的拒绝、迟到、owner 关联矩阵保留。
+  回执归属在 reader 接收时判断；配对覆盖 ACK 后终态、终态后 ACK，避免 waiter 调度顺序把已接收改成未知。
+- ZCode 扩展既有事件 owner 的精确 queued、重复与错误关联矩阵；新增
+  `guide_receipts_precede_consumption_and_terminal_clears_the_queue` 扩展 owner，以内存双向流证明
+  两条输入不依赖消费而返回，结束必须先清队列。仅事件 parser 不能覆盖回执 sender 已移除后 transport
+  是否仍清理的跨 worker 回归；不使用进程、数据库或模型。
+- 最小验证：`cargo test -p rovai-core --features extended-tests --lib active_input_` 与
+  `cargo test -p rovai-core --features extended-tests --lib zcode::`。
+- 真实模型统一通过 `probe-steer-version.mjs receipts` 的隔离 Core／Builder／Adapter 路径，记录工具释放前
+  与最终结果；停止用例在确认入队但工具仍阻塞后取消，再普通续接。结果见
+  [九种 Runtime 回执报告](../../research/runtime-monitoring/steer-queued-receipts-2026-10-15.md)。
+
+版本缓存与展示分支按 User seq98 合入同一 PR。复核确认该分支未处理启动摘要错误，本次在补齐版本时刷新现有
+config_digest；扩展已有 launch-version slow owner，沿真实 prepare／rebind／claim 路径验证 Pi、Qwen
+版本补齐与版本检测失败两种普通启动均可领取。不新增 owner 或全局健康检查。
+最小入口：`cargo test -p rovai-core --features slow-tests --lib launch_version_uses_the_frozen_program_without_blocking_ordinary_execution`。
+本次属于局部可逆的回执语义对齐，未达到新版本决策的准入门槛；既有 Run／Host 边界保持。
+
+## 智能体已知版本保留（2026-10-15）
+
+按 [Runtime Launch v64](../../contracts/runtime-launch-and-verification-v64.md) 修复正式版本投影：
+静态发现没有重读版本时，以当前路径及非空 fingerprint 关联同一 Installation 的历史值，不再按搜索代次
+切换版本来源。三条快照写入路径在程序 fingerprint 相同时保留已有非空版本，程序替换后清除旧值。
+队员配置去掉本地 snapshot 回退，与设置目录统一消费 Core 的版本字段；执行准入和启动发现保持。
+
+验证覆盖：
+
+- 新增唯一纯投影 owner `runtime_versions_follow_program_identity_instead_of_search_generation`，覆盖静态发现、
+  读取空值／失败、真实新版本、路径变化、指纹变化／缺失和搜索代次切换；原代码的同代次空值会丢失版本。
+  现有 readiness owner 不拥有版本字段，因此单独建立最低成本的无进程矩阵。
+- 扩展 `failed_probe_keeps_the_last_successful_catalog_and_marks_it_stale`，在原 SQLite fixture 中验证
+  Command、managed 和 static 三条保存路径的空值保留与程序替换；没有新增平行数据库 fixture。
+- 扩展 `discovered_runtime_verification_keeps_database_available_and_identity_after_restart`，通过真实隔离
+  数据库重开与公开 health 投影验证版本恢复。持久化／重启链路不能只由纯函数证明；沿用原 fixture。
+- 上述 owner，以及 `runtime_check_manager_rebinds_after_version_replacement_and_commits_ready`、
+  `detected_entry_remains_launchable_after_an_explicit_diagnostic_failure`、
+  `launch_version_uses_the_frozen_program_without_blocking_ordinary_execution` 的定向测试通过。
+  命令为 `cargo test -p rovai-core --features slow-tests --lib <owner>`，每个筛选均实际运行一项。
+- `App.test.ts` 既有平台矩阵同时渲染设置与队员表单，确认二者使用同一版本、未知时不复活原 snapshot。
+  与 `runtime-check.test.ts`、`runtime-status.test.ts` 合计 211 项通过；`pnpm typecheck`、
+  `pnpm build:desktop`、`cargo fmt --all --check` 通过。
+- `pnpm test:rust:pr` 默认 workspace 回归通过。干净副本的 `pnpm test` 首轮 Vitest 为
+  2715 通过、1 项语言目录扫描超过既有 5 秒预算；该文件单独重跑 2 项均通过，未改超时或测试内容。
+  随后执行原脚本剩余 Node 阶段，355 通过、2 项 Windows 专用验证按原条件跳过。
+
+以上为版本分支合并前记录。组合审查另补首次版本保存遗漏：实际读取成功后，认证／协议检查失败或
+普通启动和静态发现也保存既有版本字段；无快照时保持 `installed_unverified`。程序升级后重置旧健康证据，
+同程序只更新版本；保存失败不阻断普通启动。没有新增表、字段、探测或缓存服务。
+扩展既有 `discovered_entry_configures_and_freezes_without_health_evidence` 的首次版本、空值、错路径、
+旧指纹及升级矩阵；扩展 `runtime_check_manager_binds_stable_failure_to_rebound_fingerprint` 的检查失败／重启
+公开投影；扩展 launch-version owner 的启动补存。原 launch owner 新断言在修复前为 None 对 Some 红测，
+另以临时 SQLite trigger 注入版本缓存保存失败，普通 prepare／claim 仍成功。
+既有 discovery／restart owner 从实际 versioned observation 入口保存，再验证重启和无版本发现保留值；
+保留原本无健康快照重启、全局锁不跨文件等待的断言，不为静态版本增加探测。
+不新增 Rust owner。最小命令为 `cargo test -p rovai-core --features slow-tests --lib <owner>`。
+
+该独立分支此前没有真实模型调用或日常 App 安装。原主 checkout 的文档检查会扫描 Git 忽略的本地原型并报告旧坏链接；
+提交内容的文档门禁在隔离的干净提交副本通过（包括真实 base SHA 的 diff-aware 检查），
+不修改原型或添加 checker 例外。
+
 ## Claude 受管执行回执与启动期待插话（2026-10-15）
 
 按 User seq86、seq88 实施 [Delivery v17](../../contracts/message-delivery-v17.md)。不调用真实 LLM，

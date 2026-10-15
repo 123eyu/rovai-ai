@@ -3052,7 +3052,7 @@ button.camp-world-map-live-caption { cursor: pointer; font: inherit; }
   align-self: flex-end;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 8px;
   margin-top: 3px;
 }
 .message-action-line > .user-message-receipt-row,
@@ -3099,7 +3099,7 @@ button.camp-world-map-live-caption { cursor: pointer; font: inherit; }
   background: var(--surface-hover);
 }
 @media (min-width: 761px) and (pointer: fine) {
-  .user-message-receipt.is-progress {
+  .user-message-receipt.is-progress:not(.has-mixed-status) {
     opacity: 0;
     pointer-events: none;
   }

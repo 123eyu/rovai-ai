@@ -18,6 +18,13 @@ last_updated: 2026-10-15
 当前合同见 [Desktop Shortcuts v1](../../contracts/desktop-shortcuts-v1.md)与[快捷键 UI](../../ui/components/shortcut-settings.md)。
 此变更不改变模型输入、Core 协议或日常数据；#668 保持开放，随发布验收处理。
 
+## 消息回执对齐与 Claude 写入边界（2026-10-15，User seq74–75）
+
+已确认交互稿落到生产组件：回执整组靠右，复制／撤回在左，显隐不改变位置；多人回执逐目标互斥计数，
+混合处理中、普通失败和停止不会被已插话摘要掩盖。成功普通目标仍安静退出摘要，详情保留各自执行结果。
+Claude 首次实际写入与准入检查同步；零字节 Pending 在取消／原轮结束后撤销，部分写入仍须原生回执且不能重发。
+不增加持久状态或模型上下文，后台任务及 Session idle 保持。实现与验证见[实施记录](implementation-plan.md#消息回执对齐与-claude-写入边界2026-10-15)。
+
 ## Steer 停止、回执与交互修正（2026-10-15，User seq54–63）
 
 Pi 用 Run 内的提交锁协调停止，清队列先于 abort，锁不等待消费或 Steer ACK；Claude 在前台 result

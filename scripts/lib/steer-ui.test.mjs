@@ -97,6 +97,80 @@ test('production composer uses Core per-target eligibility and honest receipt la
       report.push({ kind, actionLabel, rows, summary, receipt })
       await closeMenu()
     }
+    const receiptCases = [
+      { routes: ['steer'], label: '已插话' },
+      { routes: ['running', 'running'], label: '处理中 2' },
+      { routes: ['steer', 'running'], label: '已插话 1 · 处理中 1' },
+      { routes: ['steer', 'failed'], label: '已插话 1 · 未完成 1' },
+      { routes: ['steer', 'cancelled'], label: '已插话 1 · 未完成 1' },
+      { routes: ['steer-failed', 'failed-before-run', 'cancelled-before-run', 'unknown'], label: '已插话 1 · 待核对 1 · 未完成 2' },
+      { routes: ['steer', 'running', 'waiting', 'failed'], label: '已插话 1 · 处理中 1 · 待处理 1 · 未完成 1' },
+      { routes: ['running', 'waiting'], label: '处理中 1 · 待处理 1' },
+      { routes: ['steer', 'running', 'waiting', 'unknown'], label: '已插话 1 · 处理中 1 · 待处理 1 · 待核对 1' },
+      { routes: ['waiting', 'waiting'], label: '待处理 2' }
+    ]
+    const receiptSelector = '[data-message-id="receipt-example"] .user-message-receipt'
+    const receiptGeometry = () => browser.evaluate(`(() => {
+      const m = document.querySelector('[data-message-id="receipt-example"]');
+      const r = m.querySelector('.user-message-receipt').getBoundingClientRect();
+      const c = m.querySelector('.message-copy-button').getBoundingClientRect();
+      return { left:r.left, right:r.right, y:r.y, copyRight:c.right,
+        bubbleRight:m.querySelector('.message-bubble').getBoundingClientRect().right,
+        receiptOpacity:getComputedStyle(m.querySelector('.user-message-receipt')).opacity,
+        copyOpacity:getComputedStyle(m.querySelector('.message-actions')).opacity };
+    })()`)
+    for (const theme of ['day', 'night']) {
+      await browser.evaluate(`__presence.setTheme('${theme}')`)
+      for (const width of [1440, 1040]) {
+        await browser.send('Emulation.setDeviceMetricsOverride', { width, height: 920, deviceScaleFactor: 1, mobile: false })
+        for (const { routes, label } of receiptCases) {
+          await browser.evaluate(`__presence.showReceiptCase(${JSON.stringify(routes)})`)
+          await browser.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 10, y: 10 }); await pause(180)
+          assert.equal(await browser.evaluate(`document.querySelector('${receiptSelector}').textContent`), label)
+          const incomplete = routes.some(route => ['failed', 'cancelled', 'failed-before-run', 'cancelled-before-run'].includes(route))
+          const expectedClass = routes.includes('unknown') ? 'is-unknown' : incomplete ? 'is-incomplete'
+            : routes.includes('running') ? 'is-progress' : routes.includes('waiting') ? 'is-queued' : 'is-confirmed'
+          assert.equal(await browser.evaluate(`document.querySelector('${receiptSelector}').classList.contains('${expectedClass}')`), true, 'the icon reflects all targets')
+          const before = await receiptGeometry()
+          assert.equal(before.copyOpacity, '0')
+          assert.equal(before.receiptOpacity, routes.every(route => route === 'running') ? '0' : '1')
+          assert.ok(before.copyRight < before.left, 'copy precedes the unified receipt')
+          assert.ok(Math.abs(before.right - before.bubbleRight) < 1, 'receipt owns the bubble right edge')
+          assert.equal(await browser.evaluate('document.documentElement.scrollWidth > innerWidth'), false)
+          const point = await browser.evaluate(`(() => { const r=document.querySelector('${receiptSelector}').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2} })()`)
+          await browser.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point }); await pause(150)
+          const hovered = await receiptGeometry()
+          assert.equal(hovered.copyOpacity, '1'); assert.equal(hovered.receiptOpacity, '1')
+          assert.deepEqual([hovered.left, hovered.right, hovered.y], [before.left, before.right, before.y], 'hover never shifts receipt')
+          if (routes.length === 2 && routes[0] === 'steer') await browser.capture(join(root, `receipt-mixed-${routes[1]}-${theme}-${width}.png`))
+          await click(receiptSelector); await pause(60)
+          const detail = await browser.evaluate('document.querySelector(".user-message-receipt-menu").innerText')
+          if (routes.some(route => route.startsWith('steer'))) assert.match(detail, /运行时已接收/)
+          if (routes.includes('running')) assert.match(detail, /处理中/)
+          if (routes.includes('unknown')) assert.match(detail, /是否送达待核对/)
+          if (routes.some(route => route.startsWith('failed'))) assert.match(detail, /未完成/)
+          if (routes.some(route => route.startsWith('cancelled'))) assert.match(detail, /已停止/)
+          assert.equal(detail.includes('撤回消息'), routes.every(route => route === 'waiting'))
+          assert.equal(await browser.evaluate('document.querySelectorAll(".user-message-receipt-recipient").length'), routes.length)
+          await closeMenu(); await pause(60)
+          report.push({ kind: 'receipt', theme, width, routes, label, before, hovered, detail })
+        }
+      }
+    }
+    await browser.evaluate('__presence.showReceiptCase(["steer", "running"])'); await pause(120)
+    await browser.evaluate('document.querySelector("[data-message-id=receipt-example] .message-copy-button").focus()')
+    await browser.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+    await browser.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+    assert.equal(await browser.evaluate(`document.activeElement === document.querySelector('${receiptSelector}')`), true)
+    await browser.key('Enter'); await browser.wait('!!document.querySelector(".user-message-receipt-menu")'); await closeMenu()
+    await click('[data-message-id=receipt-example] .message-copy-button')
+    await browser.wait('document.querySelector("[data-message-id=receipt-example] .message-copy-button").getAttribute("aria-label") === "已复制这条消息"')
+    assert.equal(await browser.evaluate(`document.querySelector('${receiptSelector}').textContent`), '已插话 1 · 处理中 1')
+    await browser.evaluate('__presence.showReceiptCase(["steer", "running"], true)'); await pause(120)
+    assert.equal(await browser.evaluate(`document.querySelector('${receiptSelector}').textContent`), '已插话 1')
+    await browser.evaluate('__presence.showReceiptCase(["running"], true)'); await pause(120)
+    assert.equal(await browser.evaluate(`!!document.querySelector('${receiptSelector}')`), false)
+    assert.deepEqual(browser.errors, [])
     await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2))
     console.log(`Steer UI evidence: ${root}`)
   } finally { await browser.close() }

@@ -2595,6 +2595,8 @@
   "查看{0}的 {1} 条输入": "View {0}'s {1} inputs",
   "待处理 · {0}": "Pending · {0}",
   "处理中 · {0}": "Processing · {0}",
+  "处理中 {0}": "Processing {0}",
+  "未完成 {0}": "Incomplete {0}",
   "{0}的个人资料": "{0}'s profile",
   "{0}的基础信息": "{0}'s basic info",
   "{0} 位队员已加入；将在之后新建的执行中生效": "{0} teammates have joined; will take effect in new runs",

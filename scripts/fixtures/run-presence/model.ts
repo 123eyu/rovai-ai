@@ -295,6 +295,34 @@ export const model = {
         ...(multiple ? [0,1,2] : kind === 'other-member' ? [2] : []).map(index => ({ kind: 'atom', atom: { type: 'member', agentId: aid(index) } })),
         { kind: 'text', text: '采用这条更正。' }] } } })
   },
+  showReceiptCase(routes: Array<'steer' | 'running' | 'waiting' | 'unknown' | 'failed' | 'cancelled' | 'failed-before-run' | 'cancelled-before-run' | 'steer-failed'>, completed = false) {
+    this.setScenario('stream'); halt(); controls.steerReview = true
+    const message = { ...makeMessage('receipt-example', 4,
+      routes.map((_, index) => '@' + profiles[index].displayName).join(' ') + ' 请按这条补充继续处理。'),
+      addressedAgentIds: routes.map((_, index) => aid(index)), canWithdraw: routes.every(route => route === 'waiting') }
+    const runs: any[] = [], deliveries: any[] = []
+    routes.forEach((route, index) => {
+      const runId = `receipt-run-${index}`
+      const steered = route === 'steer' || route === 'steer-failed'
+      const noRun = route === 'waiting' || route.endsWith('-before-run')
+      const status = route.startsWith('failed') || route === 'steer-failed' ? 'failed' : route.startsWith('cancelled') ? 'cancelled' : completed ? 'succeeded' : 'running'
+      if (!noRun && route !== 'unknown') runs.push({
+        ...makeRun(runId, index, status,
+          steered ? ['history-user', message.id] : [message.id]),
+        canSteer: !completed, steerUnavailableReason: null,
+        executionEvidenceCount: 0, executionEvidenceChangeSequence: 0
+      })
+      deliveries.push({ ...delivery(`receipt-delivery-${index}`, message.id, aid(index), noRun ? null : runId,
+        route === 'waiting' ? 'waiting' : route === 'unknown' || status === 'failed' ? 'failed' : status === 'cancelled' ? 'cancelled' : route === 'running' && !completed ? 'running' : 'settled'),
+        requestedMode: steered || route === 'unknown' ? 'steer' : 'send',
+        inputDeliveryStatus: steered ? 'accepted' : route === 'unknown' ? 'delivery_unknown' : null })
+    })
+    update({ streamPaused: true, generation: state.generation + 1,
+      snapshot: { ...state.snapshot, messages: [...state.snapshot.messages.slice(0, 2), message],
+        agentRuns: runs, messageDeliveries: deliveries, executionEvidence: [] },
+      draft: { ...state.draft, body: '', attachments: [], content: { version: 2, segments: [] } }
+    })
+  },
   finishSteerRuns() {
     update({ streamPaused: true, snapshot: { ...state.snapshot, agentRuns: state.snapshot.agentRuns.map((run: any) =>
       ({ ...run, status: 'succeeded', endedAt: at(90), canSteer: false, steerUnavailableReason: null })) } })

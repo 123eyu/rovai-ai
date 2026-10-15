@@ -1179,10 +1179,7 @@ export const MemberRuntimeForm = forwardRef<
     selectedAdmission,
     hostPlatform !== null
   )
-  const reportedVersion =
-    availability?.reportedVersion ??
-    installation?.snapshot?.reportedVersion ??
-    null
+  const reportedVersion = availability?.reportedVersion?.trim() || null
 
   const resetFromAgent = useCallback((): void => {
     environment.reset()

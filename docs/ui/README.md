@@ -4,7 +4,7 @@ authority: renderer-ui-routing
 status: accepted
 design_direction: porcelain-day-steel-night
 target_version: cross-version
-last_updated: 2026-09-28
+last_updated: 2026-10-15
 ---
 
 # Rovai AI UI 规范
@@ -132,6 +132,9 @@ brief 只拥有具体 surface 的信息优先级和构图；它不能覆盖全�
 智能体名称保留，配置区可显示已知版本，未配置、检查中及需要处理的问题按需提示。不暗示认证或协议已验证。
 正在启动的 Run 显示“正在初始化 Runtime”，配置及启动失败显示具体可操作原因，修复后正常重试。
 Fast 直接保存三态偏好，运行时传递原生参数；页面、浮层及切换不启动资格检查。
+设置目录与队员配置的版本均来自 Core 的 `runtimeAvailability.reportedVersion`；同一程序的已知版本
+可在未重读或读取失败时保留，Renderer 不自行回退安装快照。身份变化后的未知版本不显示副文案，
+保留版本不表示本次检查成功。版本边界见 [Runtime Launch v64](../contracts/runtime-launch-and-verification-v64.md)。
 行为由 [Runtime Launch v48](../contracts/runtime-launch-and-verification-v48.md)与
 [Camp Member Fast v3](../contracts/camp-member-fast-v3.md)拥有。
 

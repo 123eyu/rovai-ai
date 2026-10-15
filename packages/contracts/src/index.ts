@@ -2584,7 +2584,14 @@ export interface ThreadUserAnchorPreview {
   throughGlobalSequence: number
   sourceAvailable: boolean
   /** Earliest valid direct child Agent reply; null does not imply the question was unanswered. */
-  firstReply: { messageId: string; sequence: number; summary: string; messageVersion: number } | null
+  firstReply: {
+    messageId: string
+    sequence: number
+    summary: string
+    messageVersion: number
+    /** Current profile of this reply's author; absent on older Hosts, null if unavailable. */
+    author?: { agentId: string; displayName: string; avatarRef: string | null } | null
+  } | null
 }
 
 export interface ThreadMessageAroundParams {

@@ -1,10 +1,29 @@
 ---
 document_type: verification-report
 version: v1.72
-last_updated: 2026-10-08
+last_updated: 2026-10-15
 ---
 
 # 全会话用户消息锚点验收
+
+## 2026-10-15：C 方案回复作者
+
+基线 `d6ae891fcfb4a4a4e4ab41865fc47456b74413a8`。按 User 选择，在原 260px 预览卡中增加独立的
+16px 头像和 11px 姓名行，下方保持三行回复摘要。Core 只在选中回复的主键读取中关联其当前作者资料，
+与摘要同事务；沿用既有 `MemberAvatar` 的受控引用及回退，没有迁移或完整目录字段扩张。
+当前合同为 [Camp Open Projection v29](../../contracts/camp-open-projection-v29.md)。
+
+| 命令 | 验证结果 |
+| --- | --- |
+| `pnpm typecheck` / `pnpm build:desktop` | 通过，Desktop/Web 共用合同与生产 Renderer 构建一致 |
+| `pnpm test:message-anchors` | 生产 ThreadWorkspace 的隔离 Electron fixture 共 16 项通过；双主题、实际回复作者与 Default Lead 区分、16px 装饰头像、长姓名省略、无头像首字回退、旧 Host／缺失 Profile、无直接回复、头像失效不重读目录；原 240／1,000 条目录、窗口、阅读位置、键盘及失败重试回归保留。核对日间／夜间与长姓名截图 |
+| `cargo test -p rovai-core --features slow-tests --lib user_anchor -- --nocapture` | 3 项通过；扩展既有回复 SQL owner 覆盖真实作者、改名／清除头像、读取与格式化之间的快照一致性、缺失 Profile 仍保留摘要与只读边界。增加 10,001 条无关消息前后候选查询均为 18 VM steps |
+| 文档三项通用门禁 | `docs:test`、`docs:check` 与基于上述真实 base 的 `docs:check:ci` 通过；在只包含提交内容的临时副本运行，保留主目录被 Git 忽略的本地原型草稿及其历史断链，没有改 checker 或增加例外 |
+
+未新增 Rust 测试 owner、进程夹具或真实 Runtime；Electron 使用临时 userData，未连接 Core／Skill Library。
+这里只证明既有查询边界与导航行为保持，不作为真实会话端到端延时或跨设备压测承诺。
+
+## 原完整目录范围
 
 范围依据 User 确认：完整用户目录、Core 权威首条有效直接回复、按需预览、单个独立定位窗口及必要失效处理。
 保留正文分页、单行标题、三行回复、原有宽度门槛、横线样式、内部滚动与键盘操作；不增加通用历史窗口框架。

@@ -2167,7 +2167,7 @@ User 反馈独立执行行缺少头像／姓名卡片入口与模型展示。基
 - 模型摘要与浮层复用消息组件。Run 的模型投影复用公开消息的冻结选择／默认观察函数，
   补齐适配器与强度；不读取当前队员配置，也不增加查询、数据库字段、事件或配置副本。
   旧 Host 的仅 modelId、null、未观察默认值分别按已有事实呈现。
-- 当前合同为 [Camp Open Projection v28](../../contracts/camp-open-projection-v28.md) 与
+- 当前合同为 [Camp Open Projection v29](../../contracts/camp-open-projection-v29.md) 与
   [Run Process Detail Surface v54](../../contracts/run-process-detail-surface-v54.md)。
 - 扩展既有 Camp Open 零事件历史访问 owner，核对 Snapshot / Open 的显式选择和默认观察。
   选项矩阵仍由 `message_model` 纯函数 owner 负责，没有新增独立 Rust 测试或数据库 fixture。

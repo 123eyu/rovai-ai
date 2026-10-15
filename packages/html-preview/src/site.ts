@@ -2,6 +2,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { pipeline } from 'node:stream/promises'
+import { normalizeShortcut } from '../../contracts/src/shortcut-key'
 import { previewBrowserBridge, type PreviewBridgeConfig } from './browser-bridge'
 import { injectPreviewScript } from './document'
 import { createFileFindDomIndex } from './find-dom'
@@ -142,7 +143,7 @@ export class HtmlPreviewSite {
     const injected = injectPreviewScript(html, scriptPath)
     const config: PreviewBridgeConfig = { previewId: this.descriptor.previewId, generation: this.descriptor.generation, origin: this.descriptor.origin, documentId, hostOrigin: this.#options.hostOrigin,
       documentUrl: url, map: injected.map, documentError }
-    this.#scripts.set(scriptPath, `(${previewBrowserBridge.toString()})(${jsonForScript(config)},(${createFileFindDomIndex.toString()}),(${parseHtmlPreviewDiagnostic.toString()}));`)
+    this.#scripts.set(scriptPath, `(${previewBrowserBridge.toString()})(${jsonForScript(config)},(${createFileFindDomIndex.toString()}),(${parseHtmlPreviewDiagnostic.toString()}),(${normalizeShortcut.toString()}));`)
     this.#documentStarts.set(documentId, this.#requestSequence)
     // A bounded collection retains outstanding document requests and subframes.
     while (this.#documentStarts.size > 128) {

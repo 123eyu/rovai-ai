@@ -12,6 +12,7 @@ interface ShortcutContextValue {
   save(preferences: ShortcutPreferences): Promise<void>
   record(listener: ((side: ShortcutMouseSide) => void) | null): Promise<void>
   register(id: ShortcutActionId, handler: Handler): () => void
+  dispatch(id: ShortcutActionId, target: EventTarget | null): boolean
 }
 const Context = createContext<ShortcutContextValue | null>(null)
 export function useShortcuts(): ShortcutContextValue | null { return useContext(Context) }
@@ -75,16 +76,16 @@ export function ShortcutProvider({ api, platform, children }: { api?: ShortcutPr
     handlers.current.set(id, entries); entries.add(handler)
     return () => { entries.delete(handler) }
   }, [])
+  const dispatch = useCallback((id: ShortcutActionId, target: EventTarget | null): boolean => {
+    if (recording.current || !current.current || document.querySelector('.app-dialog, [role="dialog"][aria-modal="true"], [role="menu"]:not([hidden]), .startup-loading-canvas, .shutdown-scrim')) return false
+    const element = target instanceof Element ? target : null
+    if (element?.closest('.xterm, [inert]')) return false
+    if (!SHORTCUTS.find(row => row.id === id)?.editable && element?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], .cm-editor')) return false
+    for (const handler of [...(handlers.current.get(id) ?? [])].sort((a, b) => b.priority - a.priority)) if (handler.run(target) !== false) return true
+    return false
+  }, [])
   useEffect(() => {
     if (!api) return
-    const dispatch = (id: ShortcutActionId, target: EventTarget | null): boolean => {
-      if (recording.current || !current.current || document.querySelector('.app-dialog, [role="dialog"][aria-modal="true"], [role="menu"]:not([hidden]), .startup-loading-canvas, .shutdown-scrim')) return false
-      const element = target instanceof Element ? target : null
-      if (element?.closest('.xterm, [inert]')) return false
-      if (!SHORTCUTS.find(row => row.id === id)?.editable && element?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], .cm-editor')) return false
-      for (const handler of [...(handlers.current.get(id) ?? [])].sort((a, b) => b.priority - a.priority)) if (handler.run(target) !== false) return true
-      return false
-    }
     const readingTarget = (target: EventTarget | null): EventTarget | null => {
       if (target !== document.body) return target
       const cached = lastTarget.current
@@ -133,7 +134,7 @@ export function ShortcutProvider({ api, platform, children }: { api?: ShortcutPr
       window.removeEventListener('auxclick', finishMouse, true)
       window.removeEventListener('blur', blur)
     }
-  }, [api, platform])
-  const value = useMemo(() => ({ platform, snapshot, error, reload, save, record, register }), [platform, snapshot, error, reload, save, record, register])
+  }, [api, platform, dispatch])
+  const value = useMemo(() => ({ platform, snapshot, error, reload, save, record, register, dispatch }), [platform, snapshot, error, reload, save, record, register, dispatch])
   return <Context.Provider value={api ? value : null}>{children}</Context.Provider>
 }

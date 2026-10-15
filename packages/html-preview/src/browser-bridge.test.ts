@@ -1,3 +1,4 @@
+import { normalizeShortcut } from '../../contracts/src/shortcut-key'
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { previewBrowserBridge } from './browser-bridge'
@@ -37,7 +38,7 @@ function fixture(fetcher: typeof fetch) {
   const close = () => { frame.dispatchEvent(new Event('pagehide')); detach() }
   cleanup.push(close)
   previewBrowserBridge({ ...preview, documentId: 'root', hostOrigin: host.location.origin,
-    map: { line: 1, column: 1, length: 0 }, documentError: null }, createFileFindDomIndex, parseHtmlPreviewDiagnostic)
+    map: { line: 1, column: 1, length: 0 }, documentError: null }, createFileFindDomIndex, parseHtmlPreviewDiagnostic, normalizeShortcut)
   const policy = (patch: Record<string, unknown> = {}) => {
     const event = new Event('securitypolicyviolation')
     const { isTrusted = true, ...fields } = patch

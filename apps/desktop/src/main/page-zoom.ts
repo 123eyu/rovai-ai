@@ -1,39 +1,7 @@
 import { APPEARANCE_ZOOM_FACTORS, APPEARANCE_ZOOM_OPTIONS } from '../shared/appearance'
-
-export interface PageZoomKeyboardInput {
-  type: string
-  key: string
-  code: string
-  isComposing: boolean
-  control: boolean
-  alt: boolean
-  meta: boolean
-}
-
-export type PageZoomAction = 'in' | 'out' | 'reset'
-
+import type { PageZoomAction } from '../shared/page-zoom-shortcut'
+export { pageZoomAction, type PageZoomAction, type PageZoomKeyboardInput } from '../shared/page-zoom-shortcut'
 export { MIN_PAGE_ZOOM_PERCENTAGE, MAX_PAGE_ZOOM_PERCENTAGE } from '../shared/appearance'
-
-export function pageZoomAction(
-  input: PageZoomKeyboardInput,
-  platform: NodeJS.Platform
-): PageZoomAction | null {
-  if (input.type !== 'keyDown' || input.isComposing || input.alt) return null
-  const primaryModifier = platform === 'darwin' ? input.meta : input.control
-  const secondaryModifier = platform === 'darwin' ? input.control : input.meta
-  if (!primaryModifier || secondaryModifier) return null
-
-  if (input.key === '-' || input.code === 'Minus' || input.code === 'NumpadSubtract') {
-    return 'out'
-  }
-  if (input.key === '=' || input.key === '+' || input.code === 'Equal' || input.code === 'NumpadAdd') {
-    return 'in'
-  }
-  if (input.key === '0' || input.code === 'Digit0' || input.code === 'Numpad0') {
-    return 'reset'
-  }
-  return null
-}
 
 export function pageZoomPercentage(zoomFactor: number): number | null {
   if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) return null

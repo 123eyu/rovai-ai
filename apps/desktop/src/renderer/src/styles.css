@@ -1,6 +1,13 @@
 @import '../../../../../packages/ui/src/theme.css';
 @import './settings-workspace.css';
 
+/* Each split owner receives this value directly. Keep drag updates out of the
+   inherited styles of every message, tab and editor below those owners. */
+@property --file-preview-width {
+  syntax: '<length-percentage>';
+  inherits: false;
+  initial-value: 56%;
+}
 
 
 

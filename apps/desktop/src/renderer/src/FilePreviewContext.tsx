@@ -49,31 +49,34 @@ function PreviewDeck({ resources, anchor, resolvedTheme, missionActivity, regist
   registerExecutionHost(threadId: string, element: HTMLDivElement | null): void
 }): React.JSX.Element {
   const layout = useOptionalFilePreviewLayout()
-  const [bounds, setBounds] = useState<CSSProperties | null>(null)
+  const workspace = layout?.workspace
+  const [bounds, setBounds] = useState<{ right: number; top: number; height: number; fallbackWidth: number } | null>(null)
   useLayoutEffect(() => {
     if (!anchor) return
     const measure = (): void => {
       const bounds = anchor.getBoundingClientRect()
       if (!bounds.width || !bounds.height || !anchor.clientWidth) return
       const scale = bounds.width / anchor.clientWidth
-      const rect = { left: bounds.left / scale, top: bounds.top / scale, width: bounds.width / scale, height: bounds.height / scale }
-      setBounds(previous => previous?.left === rect.left && previous.top === rect.top
-        && previous.width === rect.width && previous.height === rect.height ? previous
-        : { left: rect.left, top: rect.top, width: rect.width, height: rect.height })
+      // The right edge stays fixed while the split moves. Width already belongs
+      // to the layout context; measuring it into state would add a second commit
+      // and forced layout to every drag frame.
+      const rect = { right: bounds.right / scale, top: bounds.top / scale, height: bounds.height / scale,
+        fallbackWidth: workspace ? 0 : bounds.width / scale }
+      setBounds(previous => previous?.right === rect.right && previous.top === rect.top
+        && previous.height === rect.height && previous.fallbackWidth === rect.fallbackWidth ? previous : rect)
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(anchor)
+    if (workspace) observer.observe(workspace)
     window.addEventListener('resize', measure)
     window.addEventListener('scroll', measure, true)
     return () => { observer.disconnect(); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true) }
-  }, [anchor, layout?.width, layout?.availableWidth, layout?.compact])
+  }, [anchor, workspace])
   // The split context updates before a ResizeObserver delivery on a window resize.
-  const width = layout?.workspace ? (layout.compact ? layout.availableWidth : Math.round(layout.width)) : undefined
+  const width = workspace && layout ? (layout.compact ? layout.availableWidth : Math.round(layout.width)) : bounds?.fallbackWidth ?? 0
   const positioned = bounds && {
-    ...bounds, width: width ?? bounds.width,
-    left: typeof bounds.left === 'number' && typeof bounds.width === 'number' && width !== undefined
-      ? bounds.left + bounds.width - width : bounds.left
+    top: bounds.top, height: bounds.height, width, left: bounds.right - width
   }
   return <>{[...resources.sessions.values()].map(session => <RetainedPreview key={session.id} session={session}
     resolvedTheme={resolvedTheme} current={resources.isCurrent(session.threadId)} bounds={positioned} resizing={!!layout?.resizing}

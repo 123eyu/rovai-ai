@@ -14930,11 +14930,13 @@ impl Core {
             };
             // The cache and the frozen Run must describe the same executable.
             // Failure to read a version only disables Steer, not ordinary execution.
-            if fingerprint_executable(Path::new(&runtime.executable_path))
-                .ok()
-                .as_deref()
-                == Some(runtime.executable_fingerprint.as_str())
-            {
+            let executable = PathBuf::from(&runtime.executable_path);
+            let fingerprint =
+                tokio::task::spawn_blocking(move || fingerprint_executable(&executable))
+                    .await
+                    .ok()
+                    .and_then(Result::ok);
+            if fingerprint.as_deref() == Some(runtime.executable_fingerprint.as_str()) {
                 runtime.reported_version = version.clone();
                 if let Some(observed) = self
                     .runtime_discovery

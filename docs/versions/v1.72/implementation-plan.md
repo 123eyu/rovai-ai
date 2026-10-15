@@ -22,7 +22,9 @@ last_updated: 2026-10-15
   冻结配置的传递。隔离 Core＋假程序覆盖精确路径、旧摘要拒绝、有效缓存和版本失败仍普通运行。
   最小入口：`cargo test -p rovai-core --features slow-tests --lib launch_version_uses_the_frozen_program_without_blocking_ordinary_execution`。
 - 既有生产 UI 夹具补启动期入口、待插话／发送中及多人互斥摘要；版本表仍由 Core 拥有。
-- 验证状态：定向 Claude、Delivery 和 UI 已通过；其余通用门禁完成后补记。
+- 定向 Claude、Delivery、冻结版本、迁移／故障恢复、生产 UI、TypeScript、`pnpm test` 和文档门禁已通过。
+  主线同步后的完整回归与安装证据见 [PR #772](https://github.com/murray17/rovai-ai/pull/772) 验收记录；
+  不把可控协议测试解释为新增真实 LLM 实测。
 
 ## 消息回执对齐与 Claude 写入边界（2026-10-15）
 

@@ -655,11 +655,11 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
                                     return Err(std::io::ErrorKind::WriteZero.into());
                                 }
                                 state.steering.get_mut(id).unwrap().write_started = true;
-                                // An idle/result observed before this write cannot
-                                // close stdin behind a newly submitted message.
-                                state.has_result = false;
+                                // Require a fresh native idle after new input.
+                                // Writing a frame does not itself prove native work.
                                 state.session_state = None;
-                                state.turn_in_progress = true;
+                                state.refresh_end_wait();
+                                control.changed.notify_one();
                                 Ok(Some(count))
                             }))
                         }
@@ -1061,6 +1061,9 @@ mod tests {
             assert_eq!(input["uuid"], id);
         }
         // Receipt waiting has no foreground-duration deadline of its own.
+        control
+            .observe(&json!({"type":"assistant","session_id":"queued-session"}))
+            .unwrap();
         tokio::time::advance(RUN_END_TIMEOUT + Duration::from_secs(1)).await;
         poll_fn(|cx| {
             assert!(queued.as_mut().poll(cx).is_pending());

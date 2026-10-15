@@ -107,8 +107,52 @@ app.whenReady().then(async () => {
       await key('4', [primary]); assert(await run('!document.querySelector(".single-chat-popover").hidden'))
       await key('4', [primary]); assert(await run('document.querySelector(".single-chat-popover").hidden'))
       await key('1', [primary]); assert(await run('!document.querySelector(".execution-sidecar-panel").hidden'))
-      await run('window.shortcutTest.placement("bottom")'); await settle(); await key('1', [primary]); assert(await run('document.querySelector(".execution-drawer-host-bottom").hidden'))
-      await key('1', [primary]); assert(await run('!document.querySelector(".execution-drawer-host-bottom").hidden'))
+      await run('window.shortcutTest.placement("bottom")'); await settle()
+      // Measure the real drawer: its display:contents host has no box even while open.
+      const measureDrawer = () => run(`(() => {
+        const drawer = document.querySelector('.execution-drawer-host-bottom .execution-drawer')
+        return { visible: drawer.checkVisibility(), height: drawer.getBoundingClientRect().height,
+          rects: drawer.getClientRects().length,
+          conversationHeight: document.querySelector('.camp-conversation-stage').getBoundingClientRect().height }
+      })()`)
+      const expandedDrawer = await measureDrawer()
+      assert(expandedDrawer.visible && expandedDrawer.height > 0, 'The actual bottom drawer starts visible')
+      await run('window.shortcutTest.drawerBeforeCollapse = document.querySelector(".execution-drawer-host-bottom .execution-drawer")')
+      await capture('bottom-expanded')
+      await key('1', [primary])
+      const collapsedDrawer = await measureDrawer()
+      console.log(`Bottom drawer collapse (${platform}): ${JSON.stringify({ expanded: expandedDrawer, collapsed: collapsedDrawer })}`)
+      await capture('bottom-collapsed')
+      assert.equal(collapsedDrawer.visible, false, 'Collapsed bottom drawer must actually be invisible')
+      assert.equal(collapsedDrawer.rects, 0, 'Collapsed bottom drawer must have no layout boxes')
+      assert.equal(collapsedDrawer.height, 0, 'Collapsed bottom drawer must occupy no height')
+      assert(collapsedDrawer.conversationHeight >= expandedDrawer.conversationHeight + expandedDrawer.height - 2,
+        'Collapsing returns the drawer space to the conversation')
+      await key('1', [primary])
+      const reopenedDrawer = await measureDrawer()
+      assert(reopenedDrawer.visible && reopenedDrawer.height > 0, 'The actual bottom drawer reopens')
+      assert(await run('window.shortcutTest.drawerBeforeCollapse === document.querySelector(".execution-drawer-host-bottom .execution-drawer")'), 'Reopening preserves the mounted drawer')
+      // Use native pointer and keyboard input, since element.click() bypasses inert hit testing.
+      const toggle = '.execution-drawer-host-bottom .execution-run-toggle'
+      const toggleBefore = await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-expanded')`)
+      const point = await run(`(() => {
+        const button = document.querySelector(${JSON.stringify(toggle)}), rect = button.getBoundingClientRect()
+        const x = Math.round(rect.x + rect.width / 2), y = Math.round(rect.y + rect.height / 2)
+        return { x, y, reachable: button.contains(document.elementFromPoint(x, y)) }
+      })()`)
+      assert(point.reachable, 'The reopened drawer control is hit-testable')
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y })
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      await settle()
+      assert.notEqual(await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-expanded')`), toggleBefore,
+        'The reopened drawer button responds to native pointer input')
+      await run(`document.querySelector(${JSON.stringify(toggle)}).focus()`)
+      assert(await run(`document.activeElement === document.querySelector(${JSON.stringify(toggle)})`), 'The reopened drawer button accepts focus')
+      await key('Enter')
+      assert.equal(await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-expanded')`), toggleBefore,
+        'The reopened drawer button responds to native keyboard input')
+      await capture('bottom-reopened')
       // Bound side buttons trigger exactly once; unbound DOM side buttons do nothing.
       const mousePreferences = structuredClone(defaults); mousePreferences.mouse.side1 = 'tasks'
       await run(`window.shortcutTest.save(${JSON.stringify(mousePreferences)})`); await settle()
@@ -124,7 +168,7 @@ app.whenReady().then(async () => {
       await run(`window.shortcutTest.save(${JSON.stringify(defaults)})`); await settle()
       await key('L', [primary]); assert(await run('!!document.activeElement.closest(".structured-mention-editor")'))
       await run('document.activeElement.blur()'); await key('B', [primary, 'shift']); assert(await run('!!document.querySelector(".file-preview-pane")'))
-      await run('document.activeElement.blur()'); await key('F', [primary]); assert(await run('!!document.querySelector(".conversation-find-surface")'))
+      await run('document.querySelector(".timeline-pane").focus()'); await key('F', [primary]); assert(await run('!!document.querySelector(".conversation-find-surface")'))
       await click('[aria-label="关闭会话查找"]')
       await run('window.shortcutTest.openFile()'); await settle()
       await run('const pane=document.querySelector(".file-preview-pane");pane.tabIndex=-1;pane.focus()'); await key('F', [primary])

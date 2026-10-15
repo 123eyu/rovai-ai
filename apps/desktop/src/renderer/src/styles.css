@@ -2299,6 +2299,7 @@ button.file-preview-html-feedback:hover,
 .activity-pane { display: flex; grid-column: 2; grid-row: 1 / span 2; flex-direction: column; border-left: 1px solid var(--conversation-inspector-line); color: var(--ink); background: var(--inspector-surface); }
 .conversation-controls { min-width: 0; grid-column: 1; grid-row: 2; background: var(--conversation-surface); }
 .execution-drawer-host-bottom, .execution-drawer-portal { display: contents; }
+.execution-drawer-host-bottom[hidden] { display: none; }
 .execution-preview-host { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; background: var(--conversation-surface); }
 .execution-preview-host > .run-pulse { order: 0; flex: 0 0 auto; }
 .execution-preview-host > .execution-drawer-portal { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; order: 1; }

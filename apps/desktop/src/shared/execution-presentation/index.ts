@@ -4,6 +4,7 @@ import type {
   CanonicalRuntimeDiffProjectionView,
   CanonicalRuntimeActivityView,
   CoreEvent,
+  InterfaceLanguage,
   NavigationThreadItem,
   NavigationSnapshot
 } from '@contracts'
@@ -42,10 +43,12 @@ export function localDayKey(iso: string): string {
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
 }
 
-export function timelineDayLabel(dayIso: string): string {
+export function timelineDayLabel(dayIso: string, language: InterfaceLanguage = 'zh-CN'): string {
   const date = new Date(dayIso)
   if (Number.isNaN(date.getTime())) return ''
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+  return new Intl.DateTimeFormat(language === 'en' ? 'en-US' : 'zh-CN', {
+    year: 'numeric', month: 'long', day: 'numeric'
+  }).format(date)
 }
 
 export function messageClockTime(createdAtIso: string): string {

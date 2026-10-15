@@ -4985,13 +4985,15 @@ export function ThreadWorkspace({
                   }
                   const dayKey = localDayKey(timelineItem.createdAt)
                   if (dayKey && dayKey !== lastDayKey) {
+                    if (lastDayKey) {
+                      items.push(
+                        <div className="timeline-node timeline-day" key={`day-${dayKey}-${timelineItem.id}`}>
+                          {timelineDayLabel(timelineItem.createdAt, interfaceLanguage)}
+                        </div>
+                      )
+                    }
                     lastDayKey = dayKey
                     previousMessageAuthorKey = null
-                    items.push(
-                      <div className="timeline-node timeline-day" key={`day-${dayKey}-${timelineItem.id}`}>
-                        {timelineDayLabel(timelineItem.createdAt)}
-                      </div>
-                    )
                   }
                   if (timelineItem.kind === 'member_joined') {
                     previousMessageAuthorKey = null

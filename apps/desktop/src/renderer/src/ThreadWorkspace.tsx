@@ -1,3 +1,4 @@
+import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
@@ -150,7 +151,6 @@ import { ExecutionAvatarRail } from './ExecutionAvatarRail'
 import { ExecutionIcon, ExecutionOverviewMark, ExecutionStopIcon } from './ExecutionIcons'
 import { ExecutionStatusGlyph, type ExecutionStatusShape } from './ExecutionStatusGlyph'
 import { AgentRunDeliveryRecipients } from './AgentRunDeliveryRecipients'
-import { MemberPortrait } from './MemberPortrait'
 import { localizeExecutionEngineTerms } from './product-copy'
 import { formatThreadTitle } from './camp-title'
 import { writeClipboardText } from './clipboard'
@@ -7002,16 +7002,11 @@ function ExecutionDrawer({
   const fastControl = overview ? null : memberFast.get(process.agentId)
   const drawerRef = useRef<HTMLElement>(null)
   const drawerBodyRef = useRef<HTMLDivElement>(null)
-  const resizeGestureRef = useRef<{
-    pointerId: number
-    startY: number
-    startHeight: number
-    moved: boolean
-  } | null>(null)
   const [heightBounds, setHeightBounds] = useState<ExecutionDrawerHeightBounds | null>(null)
   const [preferredHeight, setPreferredHeight] = useState<number | null>(storedExecutionDrawerHeight)
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
+  const [dragHeight, setDragHeight] = useState<number | null>(null)
   const [submittingStopRunIds, setSubmittingStopRunIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
@@ -7105,9 +7100,9 @@ function ExecutionDrawer({
     window.cancelAnimationFrame(resumeFollowingLatestFrames.current[1])
   }, [])
   useExecutionDisclosureAnchor(drawerBodyRef, `${threadId}:${process.agentId}`, () => setFollowingLatest(false))
-  const appliedHeight = placement === 'bottom' && preferredHeight !== null && heightBounds
+  const appliedHeight = placement !== 'bottom' ? null : dragHeight ?? (preferredHeight !== null && heightBounds
     ? clampExecutionDrawerHeight(preferredHeight, heightBounds)
-    : null
+    : null)
 
   const applyPreferredHeight = useCallback((height: number): void => {
     const bounds = heightBounds ?? {
@@ -7125,42 +7120,23 @@ function ExecutionDrawer({
     persistExecutionDrawerHeight(null)
   }, [])
 
-  const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    const drawer = drawerRef.current
-    if (!drawer) return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizeGestureRef.current = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      startHeight: drawer.getBoundingClientRect().height,
-      moved: false
-    }
-    setResizing(true)
-  }
-
-  const handleResizePointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const gesture = resizeGestureRef.current
-    if (!gesture || gesture.pointerId !== event.pointerId) return
-    const delta = gesture.startY - event.clientY
-    if (!gesture.moved && Math.abs(delta) < 2) return
-    gesture.moved = true
-    event.preventDefault()
-    applyPreferredHeight(gesture.startHeight + delta)
-  }
-
-  const finishResizeGesture = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const gesture = resizeGestureRef.current
-    if (!gesture || gesture.pointerId !== event.pointerId) return
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    resizeGestureRef.current = null
-    setResizing(false)
-  }
+  const heightSplitter = useCollapsibleSplitter({
+    size: appliedHeight ?? measuredHeight ?? heightBounds?.min ?? EXECUTION_DRAWER_HARD_MIN_HEIGHT,
+    collapsed: false, minimum: heightBounds?.min ?? EXECUTION_DRAWER_HARD_MIN_HEIGHT,
+    maximum: heightBounds?.max ?? EXECUTION_DRAWER_MAX_HEIGHT, axis: 'y', direction: -1,
+    disabled: placement !== 'bottom' || !heightBounds, scopeKey: `${threadId}:${process.agentId}`,
+    readSize: () => drawerRef.current?.offsetHeight ?? heightBounds?.min ?? EXECUTION_DRAWER_HARD_MIN_HEIGHT,
+    scale: () => splitterScale(drawerRef.current, 'y'),
+    capture: () => undefined,
+    onPreview: setDragHeight,
+    onCommit: height => { setDragHeight(null); applyPreferredHeight(height) },
+    onCollapse: () => { setDragHeight(null); onClose() },
+    onCancel: () => setDragHeight(null),
+    onActiveChange: setResizing
+  })
 
   const handleResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (heightSplitter.active) return
     const bounds = heightBounds
     if (!bounds) return
     const currentHeight = preferredHeight
@@ -7169,6 +7145,11 @@ function ExecutionDrawer({
       ?? bounds.min
     let nextHeight: number | null = null
     switch (event.key) {
+      case 'Delete':
+      case 'Backspace':
+        event.preventDefault()
+        onClose()
+        return
       case 'ArrowUp':
       case 'ArrowRight':
         nextHeight = currentHeight + EXECUTION_DRAWER_KEYBOARD_STEP
@@ -7625,7 +7606,7 @@ function ExecutionDrawer({
     <section
       id="agent-execution-drawer"
       ref={drawerRef}
-      className={`execution-drawer execution-drawer-${placement}${placement === 'right' ? ' execution-drawer-inspector' : ''}${preferredHeight !== null && placement === 'bottom' ? ' is-user-sized' : ''}${resizing ? ' is-resizing' : ''}`}
+      className={`execution-drawer execution-drawer-${placement}${placement === 'right' ? ' execution-drawer-inspector' : ''}${(preferredHeight !== null || dragHeight !== null) && placement === 'bottom' ? ' is-user-sized' : ''}${resizing ? ' is-resizing' : ''}`}
       role="region"
       aria-labelledby="execution-drawer-title"
       tabIndex={-1}
@@ -7640,22 +7621,15 @@ function ExecutionDrawer({
           role="separator"
           aria-label={uiAttribute("调整执行详情高度")}
           aria-orientation="horizontal"
-          aria-valuemin={accessibleBounds.min}
+          aria-valuemin={heightSplitter.phase === 'closing' ? 0 : accessibleBounds.min}
           aria-valuemax={accessibleBounds.max}
           aria-valuenow={accessibleHeight}
           aria-valuetext={uiAttribute("{0} 像素；上下方向键调整，Enter 恢复默认高度", String(accessibleHeight))}
           tabIndex={0}
-          title={uiAttribute("上下拖拽调整；按 Enter 恢复默认高度")}
-          onPointerDown={handleResizePointerDown}
-          onPointerMove={handleResizePointerMove}
-          onPointerUp={finishResizeGesture}
-          onPointerCancel={finishResizeGesture}
-          onLostPointerCapture={() => {
-            resizeGestureRef.current = null
-            setResizing(false)
-          }}
+          title={uiAttribute("上下拖动调整，最矮处停留后继续向下拖动收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
+          {...heightSplitter.handlers}
           onKeyDown={handleResizeKeyDown}
-          onDoubleClick={resetPreferredHeight}
+          onDoubleClick={() => { heightSplitter.cancel(); resetPreferredHeight() }}
         />
       )}
         <header className={`execution-drawer-header${overview ? ' is-overview' : ''}`}>
@@ -7901,7 +7875,7 @@ function UserMessageDeliveryReceipt({
   const presentation = unknown.length > 0
     ? { className: 'is-queued', label: uiAttribute('待核对 · {0}', String(unknown.length)) }
     : steered.length > 0
-      ? { className: 'is-progress', label: [uiAttribute('已插话 {0}', String(steered.length)), pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : ''].filter(Boolean).join(' · ') }
+      ? { className: 'is-progress', label: [uiAttribute('运行时已接收 {0}', String(steered.length)), pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : ''].filter(Boolean).join(' · ') }
       : pending.length > 0
     ? { className: 'is-queued', label: uiAttribute("待处理 · {0}", String(pending.length)) }
     : inProgress.length > 0
@@ -7932,7 +7906,7 @@ function UserMessageDeliveryReceipt({
               const displayName = member?.displayName ?? agentId
               return <div className="user-message-receipt-recipient" key={agentId}>
                 <MemberAvatar agentId={agentId} avatarRef={member?.avatarRef ?? null} displayName={displayName} size="mention" decorative />
-                <span><strong>{displayName}</strong><small>{delivery?.requestedMode === 'steer' ? delivery.inputDeliveryStatus === 'accepted' ? uiAttribute('已加入当前执行') : delivery.inputDeliveryStatus === 'delivery_unknown' ? uiAttribute('是否送达待核对') : ['failed','cancelled'].includes(delivery.status) ? uiAttribute(delivery.status === 'cancelled' ? '已停止' : '未完成') : uiAttribute('正在投递') : userMessageRunStatusLabel(run)}</small></span>
+                <span><strong>{displayName}</strong><small>{delivery?.requestedMode === 'steer' ? delivery.inputDeliveryStatus === 'accepted' ? uiAttribute('运行时已接收') : delivery.inputDeliveryStatus === 'delivery_unknown' ? uiAttribute('是否送达待核对') : ['failed','cancelled'].includes(delivery.status) ? uiAttribute(delivery.status === 'cancelled' ? '已停止' : '未完成') : uiAttribute('正在投递') : userMessageRunStatusLabel(run)}</small></span>
                 {delivery?.inputDeliveryStatus === 'delivery_unknown' && onReconcile ? <button type="button" disabled={checking === delivery.id} onClick={async () => {
                   setChecking(delivery.id); setCheckResult(null)
                   try {
@@ -8126,64 +8100,38 @@ function MentionProfilePopover({
         )}
         {profile && member
           ? (
-              <div className="mention-profile-side-shell">
-                <div className="mention-profile-media">
-                  <MemberPortrait
-                    agentId={profile.agentId}
-                    avatarRef={profile.avatarRef}
-                    displayName={profile.displayName}
-                    decorative
-                    className="mention-profile-portrait"
-                  />
-                  <span className="mention-profile-portrait-label">PORTRAIT</span>
-                </div>
-                <div className="mention-profile-copy">
-                  <header className="mention-profile-header">
-                    <h2>{profile.displayName}</h2>
-                    <p>{profile.teamRole.trim() ||uiAttribute("未设置角色")}</p>
-                  </header>
-                  <div className="mention-profile-status" aria-label={uiAttribute("队员状态")}>
-                    <span className={`presence-${profile.presence}`}>
-                      <i aria-hidden="true" />
-                      {mentionPresenceLabel(profile.presence)}
-                    </span>
-                    <span className={`runtime-${profile.runtimeReadiness.status}`}>
-                      <i aria-hidden="true" />
-                      {mentionRuntimeLabel(profile)}
-                    </span>
+              <article className="identity-card">
+                <header className="identity-card-header">
+                  <MemberAvatar agentId={profile.agentId} avatarRef={profile.avatarRef} displayName={profile.displayName}
+                    size="profile" decorative className="identity-card-avatar" />
+                  <div className="identity-card-heading">
+                    <div className="identity-card-title">
+                      <h2>{profile.displayName}</h2>
+                      <span className={`identity-card-presence presence-${profile.presence}`}><i aria-hidden="true" />{mentionPresenceLabel(profile.presence)}</span>
+                    </div>
+                    {profile.teamRole.trim() && <p>{profile.teamRole}</p>}
                   </div>
+                  <button className="identity-card-close" type="button" aria-label={uiAttribute('关闭身份卡')} onClick={() => onClose(true)}>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+                  </button>
+                </header>
+                <section className="identity-card-responsibilities">
+                  <h3><UiText zh="专业职责" /></h3>
+                  <p>{profile.professionalResponsibilities.trim() || uiAttribute('未设置')}</p>
+                </section>
+                <div className="identity-card-runtime">
+                  <dl className="thread-model-fields"><div><dt><UiText zh="智能体" /></dt><dd className={`runtime-${profile.runtimeReadiness.status}`}>{mentionRuntimeLabel(profile)}</dd></div></dl>
                   <ProfileModelFields profile={profile} installations={installations} />
-                  <div className="mention-profile-fields">
-                    <dl>
-                      <div>
-                        <dt><UiText zh={"专业职责"} /></dt>
-                        <dd>{profile.professionalResponsibilities.trim() ||uiAttribute("未设置")}</dd>
-                      </div>
-                    </dl>
-                    <details className="app-dialog-disclosure">
-                      <summary><UiText zh={"工作准则与性格底色"} /></summary>
-                      <dl>
-                        <div>
-                          <dt><UiText zh={"工作准则"} /></dt>
-                          <dd>{profile.workingPrinciples.trim() ||uiAttribute("未设置")}</dd>
-                        </div>
-                        <div>
-                          <dt><UiText zh={"性格底色"} /></dt>
-                          <dd>
-                            {profile.personalityTraits.length > 0
-                              ? (
-                                  <span className="mention-profile-traits">
-                                    {profile.personalityTraits.map((trait) => <span key={trait}>{trait}</span>)}
-                                  </span>
-                                )
-                              : uiAttribute("未设置")}
-                          </dd>
-                        </div>
-                      </dl>
-                    </details>
-                  </div>
                 </div>
-              </div>
+                {(profile.personalityTraits.length > 0 || profile.workingPrinciples.trim() || profile.growthTopic.trim()) && <details className="identity-card-more">
+                  <summary><span><UiText zh="更多设定" /></span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg></summary>
+                  <dl>
+                    {profile.personalityTraits.length > 0 && <div><dt><UiText zh="性格底色" /></dt><dd className="identity-card-traits">{profile.personalityTraits.map(trait => <span key={trait}>{trait}</span>)}</dd></div>}
+                    {profile.workingPrinciples.trim() && <div><dt><UiText zh="工作准则" /></dt><dd>{profile.workingPrinciples}</dd></div>}
+                    {profile.growthTopic.trim() && <div><dt><UiText zh="成长课题" /></dt><dd>{profile.growthTopic}</dd></div>}
+                  </dl>
+                </details>}
+              </article>
             )
           : request.target.kind === 'all_members'
             ? (
@@ -9254,12 +9202,13 @@ function FirstRunThreadWelcome({
   return (
     <section className="empty-camp-welcome first-run-camp-welcome" aria-labelledby="first-run-camp-title">
       <div className="first-run-camp-intro">
-        <MemberPortrait
+        <MemberAvatar
           agentId={agentId}
           avatarRef={avatarRef}
           displayName={displayName}
           decorative
-          className="first-run-camp-portrait"
+          size="profile"
+          className="first-run-camp-avatar"
         />
         <div>
           <h2 id="first-run-camp-title">{t('你好，我是{0}。', displayName)}</h2>

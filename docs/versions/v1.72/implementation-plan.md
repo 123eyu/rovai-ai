@@ -3,120 +3,95 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # v1.72 实施与验收
 
-## 用户 Steer（2026-10-14）
+## 队员头像简化（2026-10-14）
 
-User seq18 确认 [R3](model-context-change-steer-shared-input.md)，实施分支 `rovai/mission/064`。
-共用普通动态上下文与 RUN_INPUT，执行身份和环境保持冻结；仅 Runtime 层区分开始执行与注入。
-用户一次多队员发送按队员能力处理，支持附件及纯附件；保留原有视觉风格及普通消息回执。
-首批接入 Codex turn/steer，其余 Runtime 当时忙碌时排队。未安装日常 App，未创建 PR。
-完整 [15 类 Runtime 报告](../../research/runtime-monitoring/steer-2026-10-14.md) 与 [证据索引](steer-verification.json)
-区分原生探针、产品验收和尚未验证的边界。
+Mission `rvm_01a1390f1fc377028f1bae8eb8f78cf0`，分支 `rovai/mission/062`，基线 `3d4db22df`。
+User 消息 27 授权按确认的 R8 实现并 PR 合入 main，解除此前仅设计稿限制。
+实现覆盖队员配置、会话/Mission 身份卡、引导、欢迎区和历史入队回执；回执仍使用创建快照。
+新 schema 3 只存 source 与取景，Desktop/Web/Agent 共用新路径；旧 schema 1/2 和旧确定性创建重试保持。
+渠道冻结静态 PNG 到既有 Core data 的私有资源目录，无数据库迁移；身份、运行配置和模型上下文边界不变。
+`member-studio` 只调整本任务明确授权的可选头像教学，不变更自动 Bootstrap、Skill description 或身份生成规范。
 
-新增的唯一独立 Rust owner 是 `delivery_queue::tests::active_inputs_preserve_initial_context_and_unsubmitted_sources`
-（extended-tests）：一个 Run 的第二条输入在原实现中会复用第一份 Manifest／回执，旧单输入 fixture
-不能覆盖这个事务边界。因此复用 DeliveryQueue fixture 增加该 owner，检查来源隔离、同水位多输入、
-恢复原字节、逆序 ACK、目标 Run／epoch 失效、正常结束回队列、取消后不重启、未知不重发及迟到回执。
-这些是持久化与跨模块事务语义，不能仅以纯函数测试替代。没有删除或禁用原测试。
-迁移 199 回滚与旧证据逐字保留扩展既有 member_routing / claim_context 迁移 owner；
-历史迁移 fixture 先恢复真实旧 schema，再用正式升级链回到当前 schema 后调用新业务 API。
-版本断言更新为当前 37/14/10，既有旧数据、错误分支、FK、事务回滚断言保留。
-既有 Codex 真实子进程夹具补充指定 turn 的正向接受／读取、目标不匹配、校验拒绝、内部错误与
-Host 退出矩阵；只有明确的原生校验拒绝允许回队列，内部错误和传输中断保持未知。未为此增加独立测试。
+测试 owner：扩展 `member_avatar::tests` 原有 14 项，不新增或移除 Rust 测试；旧协议、恶意路径、损坏、
+格式及幂等矩阵保持。渠道 resolver owner 增加持久冻结/并发/重启验证，UI 使用生产组件夹具，真实 GIF
+seam 连接隔离 Core 与 Web adapter。原型内存模拟不是生产验收证据。
 
-主要复现入口（Rust 使用本机已配置的 rustup）：
+本机验证（macOS arm64，Apple M5 / 32 GiB）：
 
-```sh
-cargo test --workspace
-cargo test -p rovai-core --features slow-tests --lib context::
-cargo test -p rovai-core --features extended-tests --lib delivery_queue::tests::
-cargo test -p rovai-core --features extended-tests --lib db::member_routing::tests::
-pnpm typecheck
-pnpm exec vitest run apps/desktop/src/renderer/src/ThreadWorkspace*.test.ts apps/desktop/src/renderer/src/composer-*.test.ts apps/desktop/src/renderer/src/camp-composer-local-store.test.ts
-node --test --test-name-pattern='Steer uses' scripts/lib/camp-open-projection.test.mjs
-pnpm test:composer-input
-pnpm docs:test
-pnpm docs:check
-DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 pnpm docs:check:ci
-```
+- TypeScript、完整 Vitest 243 个文件 / 2,669 项、Desktop/Web/Execution Web 构建通过。
+- 队员页生产组件 22 组检查通过，包括上传后裁切、取消/坏图/晚到读取、确认失败重试、一次主保存清除 dirty，
+  以及原有分区保存、部分成功、冲突、个人资料、移除与菜单。双主题、窄窗口、2K、缩放截图已检查。
+- Chrome 生产会话 fixture 的 38 个状态及交互回归通过；身份卡覆盖鼠标/键盘、焦点恢复、非模态关闭、
+  折叠/展开、当前与未配置 Runtime，以及 1440×920、375×812、844×390 的长资料与双主题截图。
+- 真实隔离 Core + Web 图片 adapter 的 GIF 六组检查通过：动画预览/稳定 URL、单文件保真、保存/重选/刷新，
+  以及 192/240 静态封面。静态非居中取景与 GIF 首帧局部画布、旧资产/replay、安全输入由 Rust owner 覆盖。
+- 文档单元 10 项、普通与基线 `3d4db22df` 的 diff-aware 门禁、Skill 单元 3 项及 12 个 Skill 检查通过。
 
-真实 Smoke：先构建 Core 和 `rovai` CLI，放在同一产品 bin 目录；创建一个新的空绝对路径目录，运行
-`node scripts/smoke-steer.mjs <空目录> <Core绝对路径>`。脚本明示独立 data、Skill Library、MCP、cache、
-workspace，记录 Core SHA-256、实际 Runtime 版本、每条输入 Manifest、目标及结果文件。
-使用现有登录和 Runtime 默认模型，本次不是固定模型质量 A/B。
+直接显示预算使用两组低字节但接近 3200 万累计像素的合成 GIF：512×512×120 帧（109,473 B）和
+1024×1024×30 帧（57,213 B），40 ms/帧，三色轮换，12 个独立受管引用与 Blob URL 同时显示。
+上传受 Core 完整校验；读取新资产核对 hash/结构/元数据，不再重复解码整段动画。
+Electron 两组均 12/12 实际截图颜色变化，3 秒帧间隔 p95 分别 17.6 / 16.8 ms，无 >50 ms 主线程长任务；
+Renderer 峰值工作集约 281 / 268 MiB。1024 组的 12 张首读至图片加载完成为 54 ms。
+Chrome 在桌面和 375px 视口均 12/12 动画，p95 16.7–16.8 ms，无长任务；最大观测帧间隔 33.3 ms。
+因此保留单边 1024、累计 3200 万像素、200 帧和 10 MiB 的联合预算，不按压缩文件大小单独准入。
+这些结果证明本机桌面与浏览器渲染路径，不代表实体手机、Safari、Windows 或全部设备性能。
 
-最终默认 Rust workspace **471 passed，0 failed，1 个既有 ignored**；上下文 slow owner 53 项、
-Delivery 与迁移定向 39 项通过，首次扩展失败项修正后的 19 项定向 owner 也已逐项通过。
-Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer 集成、类型检查、双主题 UI
-12 组（含 900 px / 200% 缩放）、文档测试及带基线治理均通过。未重跑整个扩展集；首次
-992 passed / 16 failed / 8 ignored 的原日志保留，15 项在定向复测中修复，剩余一项为下述基线失败。
+复现入口：生成指定画布/帧数/40ms 三色 GIF 后，以 `ROVAI_AVATAR_STRESS_GIF=<绝对 GIF 路径>`、
+`ROVAI_MEMBER_AVATAR_FIXTURE_ROOT=<新建规范绝对目录>`、`ROVAI_KEEP_MEMBER_AVATAR_FIXTURE=1` 运行
+`pnpm test:member-avatar-flow`；再运行 `node scripts/review-member-avatar-browser-budget.mjs <同一目录>`。
+后者读取前者真实 Core 产生的受管结果，以独立 Chrome profile 验证相同生产组件和浏览器图片 adapter；
+不声明真实远端 Host 或渠道账号验收。计时记录而不设机器相关的 CI 断言；实际动画、文件数、字节和导出为硬断言。
+Rust `cargo test --workspace` 通过（471 项，1 项既有人工 smoke 忽略）；
+`cargo test -p rovai-core --features extended-tests --lib -- member_avatar::tests member_profile_reads_and_patches_preserve_scope_atomicity_and_replay confirmed_user_input_can_create_one_idempotent_member_but_agent_input_cannot`
+16 项通过，涵盖头像 codec/存储及 Agent 创建、修改、重放/回滚 seam。Rust 格式检查通过。
 
-验证结果以 [JSON 索引](steer-verification.json) 为准。完整 12 Case 语义 Gate 缺固定 Judge 未运行，
-保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
-中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。
+合并前按代码规范与 Mission/R8 需求分别独立审查，规范轴 4 项（3 P2、1 P3）、需求轴 2 项（P2）已全部修复并复核：
+旧 GIF 确定性重放恢复规范化后的取景夹紧；钉钉空图不会冻结为不可恢复的发布快照，补图可在同一 intent 重试；
+外部指定的验收目录一律保留；删除新增焦点外框；头像 Dialog 按 R8 返回实际入口的限定例外同步到上层规范；
+读屏与视觉缩放倍率一致。修正后渠道 resolver/钉钉 79 项、扩展 Rust 16 项、队员页 22 组、TypeScript 及
+diff-aware 文档门禁再次通过。未新增剩余审查发现；真实渠道账号、实体移动端和 Windows 不在本次执行证据内。
 
-## Steer 扩展到五种 Runtime（2026-10-14）
+## Pi 接收容量与连接失败原因（2026-10-14）
 
-User seq23 授权 Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build 产品接入与真实 LLM 测试，
-Claude 使用 sub2api。基线 `82352292da8a47df71e08f0d2c264d70ea1b2b32`，继续当前任务分支。
-当前合同为 [Message Delivery v14](../../contracts/message-delivery-v14.md)；沿用共同动态 Builder、
-Formatter、RUN_INPUT 和 R3 的全部提示词，不新增 Migration、消息类型或上下文版本。
+User 确认优先修 Pi 接收容量及错误类型，采用单帧默认 64 MiB。基线
+`7a40768ccded50af6e4ec062d355f17e6efc3337`，分支 `rovai/pi-inbound-frame-budget`。
+独立 worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-pi-inbound-frame-budget`；
+无需先行治理提交。当前合同为 [Runtime Launch v63](../../contracts/runtime-launch-and-verification-v63.md)。
 
-传输层各自等待有来源关联的原生回执，并保留 Run/epoch、原 Prompt、取消和 unknown 不重发边界。
-Claude 用原生 replay UUID；Pi 等待实际消费，结束后精确清除未消费来源；Qwen 响应原生拉取回调；
-CodeBuddy/Grok 的补充请求不改变原 Prompt 的终态归属。后三者初始输入根据当前 Prompt 的真实活动
-提前确认，metadata 与 user echo 不作为证据。Pi、CodeBuddy、Grok 使用过插话的 Host 不进入 warm pool。
+- 触发证据：Pi 1.1.0 的图片 read result 在 content 与 structuredContent 重复 base64；
+  本次 1,860,849 字节 GIF 返回的 RPC 事件约 4.73 MiB，超过原 4 MiB 接收限制。
+- Pi 入站改为 64 MiB，保持读取时的有界检查；出站 4 MiB、stderr 64 KiB 及其他 Adapter 不变。
+  错误通过 typed cause 传到 pending command、Host 退出事件与受 Run/epoch 保护的 loss 事务。
+  公开 detail 仅含安全原因/字节数，非法记录诊断不复制正文。
+- 内部 unknown-outcome 代码、禁止重放、终态 fencing、Fleet 停止/reap 与 Single Chat 取消保持。
+  无数据库迁移、头像修改、上下文格式变化或 App 安装。
 
-测试准入：扩展现有 DeliveryQueue、Claude Control 和 Pi Host owner；新增唯一独立 ACP owner
-`active_input_receipts_preserve_the_original_prompt_and_fence_late_sources`。旧 fixture 不拥有补充 RPC
-与原 Prompt 的双重关联，纯 payload 测试无法发现补充 end_turn 错误结束原 Run，所以使用最小真实
-子进程协议夹具（无 Core/数据库/模型），覆盖三种适配器、迟到回执、未拉取来源、错误目标和初始 ACK。
-无测试删除或永久禁用。真实验收扩展现有 `scripts/smoke-steer.mjs`，不建立平行 Core harness。
+测试归属：扩展既有 JSONL parser owner，保留 Unicode 分隔符并增加跨块、CRLF、EOF 和 64 MiB
+临界输入；扩展既有 Runtime loss owner 检查持久原因、accepted/unknown、不重试及旧代次/已知终态；
+扩展 Single Chat 原 policy/restart owner 验证 Snapshot 仍显示当前回复已取消，安全原因保留在 Run 记录。
+新增 `pi::host::tests::inbound_image_frames_preserve_host_health_and_typed_loss` 作为管道/Host seam owner：
+修复前大于 4 MiB 的合法图片事件杀死 reader，原 parser owner 不能证明 Host 健康、pending RPC 和
+退出事件的原因传递，既有 Host fixture 只拥有会话切换与 abort correlation，因此复用 fixture 增加一个
+独立扩展层 owner；精确尺寸矩阵仍只由 parser 拥有。
 
-本轮默认 Rust workspace 471 passed / 0 failed / 1 既有 ignored；ACP 定向 68 passed / 2 ignored、
-Pi 24 passed / 1 ignored、Claude 45 passed / 1 ignored。最终 active_input 3 项及 Codex 既有
-Steer Host owner 1 项通过（与前述有重叠，不相加）。`cargo check`、格式、脚本语法与文档治理通过。
-未重跑整个 extended 集，也没有把此前的完整语义 Gate 缺项改为通过。
+最小验证命令为 `cargo test -p rovai-core --features extended-tests --lib -- pi:: runtime_loss_settles_uncertain_input_and_fences_old_or_terminal_executions built_in_policy_is_closed_and_runtime_loss_cancels_only_the_reply`。
+本机验证结果：
 
-真实产品测试覆盖同 Run 两次输入（文字、纯附件）、普通队列分离、多队员混合投递和取消。
-逐 Runtime 成败、冻结二进制摘要和未通过场景见[实测报告](../../research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)
-与[证据索引](steer-five-runtimes-verification.json)。不安装或重启日常 App，不创建 PR。
+- `cargo test --workspace`：471 项通过、1 项既有人工 Runtime smoke 忽略。
+- 上述定向扩展层命令：27 项通过、1 项既有 Pi Machine Ready smoke 忽略，包含新增管道 owner、
+  64 MiB 精确边界、RPC 原生拒绝/协议错误/EOF、持久原因和 unknown 输入保护。
+- `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`（10 项）、`pnpm docs:check` 与
+  相对上述基线的 `pnpm docs:check:ci` 通过。
 
-## Steer 原生入口补测与完整清单（2026-10-14）
-
-User seq26 要求补齐其他 Runtime，继续排除 Cursor、Cline、Command Code。基线 `040980b71642bb34075c3ec2621a8dc97908ca7f`，
-九种 Runtime 十五次新增尝试，详细结果、全部失败、原生存储隔离限制和后续接入边界见
-[完整清单](../../research/runtime-monitoring/steer-complete-2026-10-14.md)及其结构化证据。
-Kimi REST、Copilot SDK immediate、ZCode guide、OpenCode HTTP steer 原生通过，当前产品仍只开放此前六种。
-其余受测入口有拒绝、排队或取消替换的直接证据，不据此否定其他未知原生接口。
-只提交研究文档和索引；不修改生产代码、提示词、上下文版本或准入开关，不重复运行 Rust 全套。
-文档门禁为 `pnpm docs:test`、`pnpm docs:check` 和以本轮基线执行的 `pnpm docs:check:ci`。
-
-## Steer 按当前通道重测与范围纠正（2026-10-14）
-
-User seq28 指定只看 Rovai 实际接入方式，继续排除 Cursor、Cline、Command Code，允许真实 LLM。
-基线 `44ca038df8591f8207f48f821053db01620b6f1e`；十五种 Runtime 重新实测，逐次结果见
-[当前通道清单](../../research/runtime-monitoring/steer-current-transport-2026-10-14.md)及其结构化证据。
-六种已接入 Runtime 均再次通过；新增确认 Kiro 默认 v2 ACP 的 `_session/steer`，
-另复核 ZCode 现有官方内核 guide，二者产品适配尚未补接。先前其他 SDK/HTTP 能力不计入当前支持清单。
-保留探针失败、普通 Prompt 反例和清理确认缺项；不将直接通道测试宣称为完整 Core 产品验收。
-没有生产、上下文或提示词改动。检查文档三项门禁、探针语法和结构化证据；没有重复运行 Rust 产品套件。
-
-## Kiro / ZCode Steer 接入与专用入口复核（2026-10-14）
-
-User seq30；基线 `d6afc8c484b1d30dfe5cf112a05e9ce7169097dc`。当前合同升级为
-[Message Delivery v15](../../contracts/message-delivery-v15.md)，保持共同上下文与现有数据库不变。
-Kiro 使用默认 v2 ACP 的 queued/injected 回执，ZCode 使用官方内核 guide 的 queued/drained 回执；
-二者都在 Run/epoch/Session 下关联，原 Prompt 终态保持独立，使用过 Steer 的 Host 不复用。
-扩展既有 ACP receipt 与 ZCode event owner，复用生产 smoke；补齐文本、纯附件、普通队列、多队员与取消。
-ZCode 的退休 Host 取消路径及已消失进程组的 EPERM 确认同步修复，保留真实信号失败的负例。
-验收发现既有 Probe 依赖已被终止 watcher 的报告；改用与执行 Host 相同的进程树退出证据，并要求终止与回收成功，独立检查恢复 ready。
-完整版本与逐次验收见[本次报告](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)和
-[结构化证据](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.evidence.json)。
+User 于 2026-10-14 要求合入 PR #743。合入前同步主干 `321cffdc0a21ef0a2c6b1721e0f75bd430477e8e`，
+仅版本概览的并列新增段落发生冲突，两项记录均保留；七个 Rust 文件相对新主干的修复与原提交一致。
+同步后再次通过默认 Rust 471 项、定向 27 项，以及格式和通用文档门禁，既有人工 smoke 仍忽略。
+验证使用隔离临时数据库及合成 Pi 管道，不启动日常 Core、App 或真实模型。
 
 ## 会话切换读取回归修复（2026-10-13）
 
@@ -2237,3 +2212,316 @@ User 在当前 Thread 确认交互稿后，明确要求去掉失效接收者的�
 
 浏览器验收使用独立临时 Electron userData、Skill Library 与闭合 transport，Rust 测试使用隔离 SQLite 数据库；没有调用真实 Runtime 或写入日常数据。
 工作树路径与生命周期由当前 Thread 交接记录维护；PR 视觉对照见[生产组件截图](../../../.github/assets/empty-thread-members/README.md)。
+
+
+## 执行记录存储精简：组合预览与删除回收（2026-10-14）
+
+基线 main `a72d58840` 已包含 #743；Pi 入站预算保持 64 MiB。
+本项对应 [Execution Record Storage v1](../../contracts/execution-record-storage-v1.md)。
+
+- 新操作格式 2 只保留输入／结果，组合预览读取时生成；分页预选 ID 后才组合，薄索引只读取小字段。
+  后台 ZCode 身份与完成判断、Trace 和文件授权读取同时衔接。旧格式 1 继续原路径收尾。
+- migration 200 / schema 150 只增加标记与触发器、扩展 Blob 元数据 GC owner；不转换历史正文或 Blob。
+  删除聚合在原业务事务中登记实际解除的引用；公共 GC 检查补齐无外键 Action 结果，沿用原回收与恢复。
+- 扩展既有 lifecycle owner：升级 receipt 失败回滚、旧字节及 Blob 引用保持、重新打开、新旧分页、128 次
+  进度归并、UTF-8 预算／短结果替换／状态更新；普通输出后缀在 SQL、event_log、活动 diff 及 Blob 中均不存在。
+  扩展同一夹具验证正常删除的回滚、宽限期、最后引用释放、共享与无外键引用保护。
+- 工作区 Rust：471 通过，1 项人工 Runtime smoke 跳过。定向 Evidence 17、文件授权 10、回收 3、删除 3、
+  Trace 2 均通过；另运行当前 schema／准入矩阵、v168 升级 owner 和 10,000 条操作折叠／组分页 owner。
+  准入测试中旧的 196/197 receipt 与 v33 trigger 期望同步到实际当前版本，不减少拒绝条件。
+- 合成混合夹具中 6 条新操作：原本需重复保存的组合预览为 10,128 UTF-8 字节，现在固定标记合计 12 字节，
+  少写 10,116 字节（此项 99.88%）。独立输入、结果和必要的长内容 Blob 保留；这不是整个数据库降幅。
+  10,000 条既有夹具的单次折叠页为 1,621 字节；本次并行测试下读取 468 ms、载体夹具 527 ms，仅作功能
+  回归记录，正式同环境性能／物理占用比较由第三项独立验收。未运行日常 App、历史清理或迁移。
+
+交付对齐：main 随后合入 #748／#749（`3d4db22df`）。保留消息发送者投影和 migration 199，
+本项改用 migration 200 / schema 150；升级夹具按顺序回退／推进，不重写日常实例。
+
+## 执行记录存储精简：实时会话目录（2026-10-14）
+
+基于组合预览 PR #750，独立于活动存储整合。对应 [Camp History v14](../../contracts/camp-history-v14.md)。
+
+- migration 201 / schema 151 为 ContextManifest 增加创建后固定的目录模式标记，旧行默认冻结模式；
+  两条新 Run 物化路径仅捕获原消息正文边界，不复制会话目录。数据库触发器拒绝为实时模式添加快照。
+- 实时目录复用公开消息发布／撤回／删除规则，按可见消息发送时间排序；无消息回退创建时间，稳定 ID 破同时间。
+  当前名称、改名和新消息即时生效；消息正文读取仍执行原边界，不借目录开放正文。
+- 扩展既有冻结目录测试，覆盖旧快照、升级失败回滚／重新打开、旧会话后续 Run 零新增、模式固定、
+  改名／消息／撤回／删除、updated_at 无效和同时间排序。另运行现有历史 7 项及 5 项上下文边界 owner。
+- 工作区 Rust 471 项通过，1 项人工 Runtime smoke 跳过；文档三项治理通过。
+- 合成夹具原快照 2 行／目录正文 143 字节，新 Run 为 0 行／0 字节，只保留一个模式字段；旧 2 行保持。
+  此项每个新 Run 省去整份目录，不改变旧数据库的现有占用。
+
+评审定点修正（User 28）：目录当前摘要与后台初始化
+
+- 同一未发布 migration 201 增加 Camp 的消息时间／ID 和初始化标志，公开发布及可见性维护在原事务中完成。
+  新 Camp 已确认无消息；旧 Camp 未初始化时走会话内有序索引回退。既有 housekeeping 每秒最多 32 个 Camp，
+  会话间检查 10 ms 预算；完成后停止。目录不再全局聚合发布事件，正文边界及旧目录读取不变。
+- 扩展原冻结／实时目录 owner（无新增 Rust 测试函数），在完整表结构与生产 WAL/NORMAL 配置、应用 bundled
+  SQLite 3.53.2 上构造 601 个会话／120,000 条消息。目录每种状态 7 次、发布与撤回各 12 次，小样本仅报告范围。
+  修改前读取 423.20–458.62 ms，全部未初始化回退 2.12–4.07 ms，初始化完成后 0.40–0.78 ms；不据此承诺稳定倍数。
+- 升级含建索引 208.49 ms；601 个旧会话共 19 批，批耗时 1.19–2.14 ms，合计 30.31 ms（不含调度间隔）。
+  发布语句含现有导航触发器为 1.29–1.84 ms，最新消息撤回语句 0.085–0.160 ms；这是事务内语句成本，
+  不包含完整业务请求及提交。初始化不在 App 启动事务内汇总正文。
+- 完成后的 SQL 只使用 camp_history_directory_idx；回退／重算只按 camp_message_history_activity_idx 定位本会话，
+  用 event_log_entity_sequence_idx 判断发布。目录／摘要不选择 message.body、structured_content_json、event payload
+  或 Blob。报告保留 EXPLAIN QUERY PLAN、Column/OpenRead/临时表等 VM 指令及对应 schema root，避免以应用计数代替 SQL 证据。
+- 覆盖初始化期间排序一致、空与未知区分、发布／撤回事务回滚、旧消息撤回及 recall 关闭不触发摘要更新、删除最后
+  发布事件／消息回退。既有 owner 继续覆盖新模式目录零新增、改名、正文边界及旧格式升级收尾。
+
+原始样本及查询计划：[实时目录定向比较](live-directory-query-comparison.json)。这些数字只描述合成工作负载，
+不代表日常实例耗时，也不声称现有存量自动缩小。
+
+该修正的目标基线为 #750 `7c47ab128`：`cargo test --workspace` 471 通过／1 项人工 Runtime smoke 跳过，
+`context::slow_tests` 44 项通过，另行运行含大历史测量的目录 owner 1 项通过；三项文档治理通过。
+
+
+## 执行记录存储精简：操作与活动统一保存（2026-10-14）
+
+第三项基于 #751，单独验收；三份 PR 已对齐 main `9d9f216b5`，保留 #743 的 Pi 64 MiB 入站预算、
+#748 的发送者投影及 #752 的头像改动。当前合同为 [Execution Record Storage v2](../../contracts/execution-record-storage-v2.md)。
+
+- migration 202 / schema 152 在 Evidence 上增加活动小字段；新操作固定格式 3，不再写独立活动行或完整 diff 副本。
+  格式 1、2 按创建格式收尾，旧正文、Blob 和活动表不迁移。三份分别要求 schema 150、151、152 的 Core；
+  正式 App 版本由发布流程分配，旧实现被既有数据库版本准入拒绝写入，不提供逆向迁移。
+- 复用既有分类、生命周期归并和输出裁剪。固定只读视图兼容旧活动与新操作；分页／筛选、文件授权、
+  Trace 和恢复 smoke 的 SQL 使用兼容来源。后台完成判断读取独立结构字段，不从截断输出推断成功。
+  请求页按 Evidence 主键读取活动小字段；展开修改复用该次已授权的原正文，保留 diff 冲突状态。
+- 保留 #615 的轻量索引、主线折叠、组内分页、计数及 Renderer 状态，不新增整轮正文或 Blob 扫描。
+  没有可靠操作 ID 时保持独立观察，仅精确来源事件重放去重；同命令文本不合并。
+- 扩展现有 lifecycle、迁移、Trace 和分页 owner，没有增加独立 Rust test function。最新基线工作区 Rust
+  471 项通过、1 项既有人工 Runtime smoke 跳过，包含 doctest 阶段；定向 50 项通过（与工作区有重叠）：
+  Evidence 17、文件授权 10、GC 3、删除 3、Trace 3、准入 2、旧领取格式／实时目录 2、历史查询 7、取消／未知结果 3。
+  旧 v32／v33／v36／v38 领取输入走正式升级链后仍按冻结格式物化。
+- `pnpm typecheck`、Renderer 的 ExecutionToolGroup／execution-window／execution-group-window／agent-run-file-preview
+  四个文件 54 项通过；恢复协议 Node 测试 6 项通过。该阶段未运行打包 App smoke，后续补测见下文；日常实例未作验收对象。
+- 生命周期夹具覆盖 128 次进度归并、UTF-8 预算、完整结果替换及状态更新；后缀 canary 不存在于 Evidence、
+  活动元数据、event_log 或任何测试 Blob。Rovai 的持久化与日志调用链没有新增原始输出备份；不检查模型自己的原生日志。
+  正常删除的候选登记沿用现有事务及 GC，覆盖回滚、宽限期、共享／无外键引用、重新引用与中断恢复。
+
+以下空间／耗时来自隔离合成数据，不能推算现有日常数据库上线后自动缩小。PR 不自动合并，不停止或更新日常 App。
+
+### 同负载空间与读取测量
+
+原始样本：[execution-storage-comparison.json](execution-storage-comparison.json)。macOS 26.6／arm64、Rust 1.97.1、
+未优化 test build，三个隔离数据库来自同一 seed，按格式 1、2、3 顺序重放同一事件流。基线为本次保留的旧格式写入／读取路径，
+不是三款已发布 App 的端到端对比；旧格式测试视图直接读取原活动表，恢复原查询计划。测量时没有并行运行本任务其他构建或测试。
+
+负载为 10,000 次操作（9,900 次普通命令、100 次约 40 KB 文件修改），20,000 次开始／结束事件，10 个叙述分隔；
+另一个操作接收 128 次超限进度快照。三种格式均只有 10,001 条操作，进度操作实际 revision 更新均为 128 次。
+普通输出截断后缀不落库；完整修改内容留在原 Blob，展开断言仍可获得大于 40 KB 的 patch。
+
+| 指标 | 原格式 1 | 仅组合去重 2 | 统一活动 3 |
+|---|---:|---:|---:|
+| 操作行数 | 10,001 | 10,001 | 10,001 |
+| 独立活动行数 | 10,001 | 10,001 | 0 |
+| 选定 JSON 字段最终字节 | 163,421,487 | 83,907,024 | 82,566,788 |
+| 相同字段按变更累计值字节 | 169,518,391 | 86,974,510 | 88,297,402 |
+| 数据库页字节 | 186,716,160 | 104,497,152 | 94,928,896 |
+| 数据库相对 seed 增长字节 | 183,611,392 | 101,392,384 | 91,824,128 |
+| 主文件长度字节 | 186,716,160 | 104,497,152 | 94,896,128 |
+| WAL 峰值字节 | 4,202,432 | 4,218,912 | 4,194,192 |
+| Blob 正文字节／峰值 | 4,041,089 | 4,041,089 | 4,041,089 |
+
+数据库页按 page_count × page_size，含索引、空闲页和固定 seed；主文件长度单列，最后未 checkpoint 的页可能仍在 WAL。
+未以 VACUUM 或强制 checkpoint 制造比较结果。WAL 峰值为每次写入后的文件长度采样；该负载 Blob 单调新增，
+末值即峰值。上述是 SQLite 页／文件长度口径，不是 APFS 独占 extent 或实际可回收字节。
+
+JSON 口径为 Evidence 的组合／输入／结果预览及活动小字段，再加旧活动表的 diff JSON；不重复计 Blob 引用长度。
+累计值只在操作 revision 改变时计同一组字段，不是操作系统累计写盘字节，也不含所有标量、索引及 WAL 重写量。
+格式 3 把部分原标量放入小 JSON，因此该累计指标相对格式 2 增加 1.52%；数据库页仍减少 9.16%，独立活动行归零。
+相对原格式 1，最终选定 JSON 减少 **49.48%**，数据库页减少 **49.16%**，相对 seed 的页增长减少 **49.99%**；
+选定字段累计值减少 **47.91%**。必要 Blob 保持 4,041,089 字节，没有把应保留的修改内容当普通日志删除。
+
+每项读取 5 个样本，下表是中位数（最小–最大），单位 ms，不用 5 个样本推导 P95。
+
+| 读取 | 原格式 1 | 仅组合去重 2 | 统一活动 3 |
+|---|---:|---:|---:|
+| 首屏折叠页 | 767.380（707.731–1619.307） | 795.303（791.787–812.782） | 601.761（599.314–605.074） |
+| 下一页 | 792.033（701.615–821.670） | 794.349（792.569–804.985） | 601.010（598.221–612.525） |
+| 展开组（24 条） | 776.038（726.847–810.248） | 795.945（795.405–802.550） | 665.986（663.605–668.427） |
+| 组内下一页（24 条） | 723.552（698.014–943.048） | 798.392（794.927–805.887） | 666.657（664.081–667.537） |
+| 展开普通结果 | 0.227（0.210–0.236） | 0.212（0.205–0.229） | 0.185（0.167–0.197） |
+| 展开文件修改 | 60.974（56.852–72.650） | 55.807（55.523–61.222） | 0.545（0.481–4.820） |
+
+三个格式首屏／下一页均仅组合 2 条预览，组页各 24 条；这些读取完整正文次数与 Blob 读取次数均为 0。
+展开普通结果为 1 次完整正文、0 次 Blob；展开文件修改为 1 次完整正文、1 次 Blob。计数位于应用读取入口，
+不是 SQLite 的页 I/O 计数，也不把允许的单 Run 轻量元数据扫描算成完整正文读取。
+
+128 个进度更新样本的 P50／P95（nearest rank）：
+- 格式 1：1.3795／2.518 ms；每次 0 次显式完整正文读取、0 次 Blob 读取。
+- 格式 2：0.9440／1.146 ms；每次 0 次显式完整正文读取、0 次 Blob 读取。
+- 格式 3：0.7600／0.876 ms；每次 0 次显式完整正文读取、0 次 Blob 读取。
+
+三种格式主负载总计时分别为 45,670／33,955／13,962 ms，包含事件构造和测量查询，不作纯事务吞吐承诺。
+首次测量发现按 Run 查找新活动会拖慢展开；已改为选中 Evidence 主键读取，上表为修正后的最终对比。
+最终格式相对原格式的首屏、下一页、组展开及结果展开均无该样本内的明显退化；仍保留既有轻量扫描，
+没有声称消除所有长 Run 延迟。既有 10,000 条折叠／载体 owner 同次通过：折叠响应 1,621 字节、读取 289 ms，载体 501 ms。
+
+复现入口：先按仓库说明准备依赖，再运行下列现有 owner（仅临时合成库，不启动真实 Runtime）：
+
+```sh
+cargo test -p rovai-core --features slow-tests --lib read_model::slow_tests::execution_evidence_is_counted_in_snapshot_and_paged_by_agent_run -- --exact --nocapture
+```
+
+定向失败已修复：旧领取输入夹具曾仅升级到旧 schema，缺少新目录列；现在走正式升级链，旧输入格式断言全部保留。
+本阶段未执行真实模型组合；打包 App 升级 smoke 由下方补测覆盖。合并与发布留给 User，现存几 GB 不因上线自动缩小。
+
+
+### 单文件授权定点修正与升级后旧数据测量
+
+目标基线 #751 `2c8c30d8c`；文件授权按 Evidence 主键与存储格式分流。旧格式只选旧活动小主键后读取那条 diff，
+新格式只读选中活动元数据；无 diff 的成功 Read/Write 按需提取本行预览的准入对象。原 Camp／Run／epoch、工作目录、
+路径检查保留，不改 Renderer、分页／分组或权限系统。
+
+复用 exact-evidence/worktree owner，生产 SQLite 3.53.2、完整表结构及 WAL/NORMAL，构造同 Run 的 512 条旧操作和
+256 条新操作，每次 patch 输入 66,007 字节。先经正式 151→152 migration 测全旧，再添新记录测混合；旧 append-only
+无 operation ID 单列。始终保留升级后的真实 UNION ALL 视图，未换为简化旧视图。每类 7 次，未并行运行本任务构建／测试。
+
+| 状态 | 修正前授权 SQL（ms） | 修正后实际 Core 文件来源入口（ms） |
+|---|---:|---:|
+| 全旧，生命周期记录 | 15.54–26.29 | 0.86–1.33 |
+| 全旧，append-only 记录 | 15.34–18.93 | 1.31–1.70 |
+| 混合，选旧记录 | 16.86–21.05 | 0.86–1.03 |
+| 混合，选新记录 | 16.99–18.83 | 0.079–0.221 |
+
+前列是原 PR 的 SQL，后列包含真实 resolve_file_preview_source 的归属／工作目录校验；实际文件内容验证在计时后执行。
+这是同机小样本范围，不作稳定倍数或 P95 声明。原查询计划明确 MATERIALIZE execution_activity 并装入同 Run 旧 diff；
+修正后选中 Evidence 走主键，旧活动先筛小键再主键取单条 diff，新格式不访问旧活动表、不读输入／输出预览和 Blob。
+仅无 diff 的文件操作会取选中行预览里的小对象；SQLite 为 JSON 提取仍须读取该列，不能声称从未读过预览列。
+
+原始 [文件授权查询证据](file-authority-query-comparison.json) 保留实际计划、VM Column/OpenRead/临时表指令、
+schema root 对应及实际入口经 SQLite authorizer 请求的列。authorizer 是列访问证据，不是磁盘页读取次数；旧格式仍读取
+选中的完整 diff_projection_json，无操作 ID 时仍可能扫同 Run 的旧 source-ID 元数据，但不临时复制整轮 diff。
+该修正不改变先前 10,000 操作同负载的存储减量；常规输出预算与必要修改 Blob 保持。
+
+
+### 隔离打包升级与最终回归
+
+`pnpm package:mac` 产物通过显式临时 userData、独立 Skill Library／MCP 启动；合成 schema 149 库经
+Desktop → Host → Core 正式链升级至 152，未直接打开日常数据库。使用既有测试 downgrade/export helper 构造旧库，
+只有合成夹具会执行该构造过程，产品启动和读取没有逆向迁移入口。
+
+- 60 条旧公开消息在真实页面可读；512 条旧操作保持 12+12 翻页、不重叠，折叠组计数 512、展开组 12 条。
+- 经真实 preload/Main/Core 文件入口读取旧文件，按需展开大于 60 KB 的旧修改详情；添加新 Run 后再次验证新旧历史。
+- 显式指定合成 Codex app-server，并在发送前核对可执行文件。一次命令经历 40 次输出进度后仍为一条操作，正常结束，
+  持久输出恰为 7,680 UTF-8 字节且标记截断；另一个文件修改操作可预览。新活动副本 0 行、新目录副本 0 行。
+- 检查隔离 data-dir 的 614 个普通文件（包括数据库、WAL 和 Blob），截断后缀 canary 未出现；合成输入脚本位于其外。
+  此检查不包含 provider 自有原生日志，不改变智能体实际接收结果。
+- 关闭并重启这个验收 App，新旧预览及分页仍通过；旧操作预览列／Blob 引用摘要不变，合成输入仅投递一次。
+  两个独立临时夹具均通过，提交第二次完整脚本结果；单次首次就绪约 1.086 s，重启约 0.523 s，包含壳层启动，
+  不将两个样本当作稳定启动性能。
+
+原始聚合结果：[storage-app-upgrade-comparison.json](storage-app-upgrade-comparison.json)。复现（两个路径须为新临时目录和隔离候选 App）：
+
+```sh
+ROVAI_STORAGE_UPGRADE_FIXTURE=/private/tmp/rovai-storage-upgrade-example \
+cargo test -p rovai-core --features extended-tests --lib file_preview_authority::tests::run_activity_file_uses_the_exact_evidence_and_mission_worktree -- --exact
+node scripts/smoke-storage-app-upgrade.mjs /private/tmp/rovai-storage-upgrade-example '/absolute/candidate/Rovai AI.app'
+```
+
+最终目标基线 #751 `2c8c30d8c`：`cargo test --workspace` 471 通过／1 项既有人工 Runtime smoke 忽略；
+文件授权 10、旧领取操作升级 1、执行记录 17、升级后大 diff 查询 owner 1 通过；TypeScript 检查、
+6 文件 114 项 Renderer/Main 定向测试、6 项恢复协议 Node 测试及文档三项门禁通过。
+首轮并行构建期间一个既有 500 ms Runtime 清理测试超时，未修改超时阈值；该项独立重跑及随后完整 workspace 重跑均通过。
+本轮只补具体查询和验收；审批、command.result、投递／结算、分页算法、权限系统及 Pi 入站预算没有变更。
+
+
+## 旧上传头像坐标统一（2026-10-15）
+
+按 User 消息 61 实施[已确认方案](model-context-change-legacy-avatar-source.md)：仅 Agent get 统一源图与原取景，
+不迁移旧资产，不改变 UI/渠道。契约为 Member Avatar v3、Transport/CLI 41、Agent Output 14。
+默认 workspace 471 通过、1 原有 ignored；头像 14、成员读写 1、CLI 29 通过。
+Claude Code/sub2api 新旧共 8 Run 完成，候选四场景满足标准；基线复现空取景导致首次误设后纠正。
+通用 Gate 两版同样两项数据库断言失败，24 槽位未运行，不作通过声明；
+详见[验证索引](legacy-avatar-source-verification.json)。本次 PR/合并已由消息 61 授权。
+
+
+## 内置头像裁切坐标统一（2026-10-15）
+
+User 消息 66（1f83dd0c-00c9-45ce-8711-34650afd5914）授权修复内置头像读取／修改底图不一致。
+沿用使命 checkout，从 main `059ef5157` 实施；当前契约为 [Member Avatar v4](../../contracts/member-avatar-v4.md)。
+
+- 修改前：get 返回 packaged icon，crop-only 更新却读取保留的大图；修改后：二者使用同一 packaged icon。
+- 首次修改生成 schema 3 源图与取景，后续编辑不累积裁切；保留内置文件及旧大图，不迁移任何已有头像。
+- 读取字段、文件选择、空值语义和所有提示词保持，不改变核心模型上下文或工具输出格式；这是写入底图选择的修复。
+  Transport/CLI 41、Agent Output 14、IPC 3、Envelope 2 保持，不触发新的上下文替换、冻结基线或真实模型 Gate。
+- 测试扩展既有 `member_avatar::tests::imports_four_by_five_image_with_lightweight_crop_and_deterministic_identity`：
+  四个内置头像的非居中区域按像素验证，随后从受管结果恢复完整取景；替换原来只证明“大图仍保留”的错误预期。
+  `team_tool::tests::member_profile_reads_and_patches_preserve_scope_atomicity_and_replay` 只拥有 get/update、引用提交及回放衔接，
+  不复制像素矩阵。不新增或退役 Rust 测试函数。
+- 最小验证为上述两个 owner（后者显式启用 `extended-tests`），再运行头像 owner、默认 workspace、格式及通用文档门禁。
+
+验证：增强后的头像用例在修复前失败，明确得到 768×960 大图而非 get 返回的 192×192 头像；修复后
+头像 owner 14 项通过，成员读写／幂等 owner 1 项通过。默认 `cargo test --workspace` 为 471 passed、
+0 failed、1 既有 ignored；`cargo fmt --all --check`、`git diff --check`、文档测试 10 项及
+`docs:check`、以 `059ef5157` 为 base 的 `docs:check:ci` 均通过。
+没有启动 App/Core/真实模型进程或修改日常数据；此前通用模型 Gate 的既有失败记录不被本次测试替代。
+
+
+## Steer 合并与资格收口（2026-10-15）
+
+User seq40 授权整个收口。主线 d6ae891f 与 Mission 064 b8349985 合并；新增 Migration 203／schema 153、
+public Manifest 39，分支 37／14／10 与主线 37／12／6、38／13／9 保留原字节。
+Core 按活跃 Run 冻结身份提供 canSteer／reason；普通执行资格独立，实际发送前及原生 owner 校验继续收口。
+TRAE CN 接入 `_session/steering`；CodeBuddy 异常保留原样并追踪。模型可见变化只继承主线发送者投影，
+[逐段对照](model-context-change-steer-merge.md)不增加 Steer 提示词。
+
+新增测试 owner：来源收敛拥有两条 199 的结构识别及幂等；populated legacy upgrade 拥有 accepted／unknown／
+未完成来源的精确保全；Steer admission 拥有 UI/Core 共同冻结资格，fault recovery 拥有 ACK 崩溃窗口与后继 fence。
+均需 SQLite 事务验证，不能由 Adapter 小文本探针替代。已有 ACP 回执 owner 扩充 TRAE；新 race outcome
+断言器的反例证明重复、错轮和全失败会被发现。命令、结果、真实版本及模型见
+[收口报告](../../research/runtime-monitoring/steer-hardening-2026-10-15.md)与其逐次证据。
+九种 Runtime 均有合并后正例，TRAE 3/3；旧 Pi 0.87／Kiro 2.7 普通执行和提前排队真实通过。
+CodeBuddy 2.132 新试验 3/3 通过，原失败保持未知归因，在问题 #762 追踪；不自动关闭。
+
+
+## 用户 Steer（2026-10-14）
+
+User seq18 确认 [R3](model-context-change-steer-shared-input.md)，实施分支 `rovai/mission/064`。
+共用普通动态上下文与 RUN_INPUT，执行身份和环境保持冻结；仅 Runtime 层区分开始执行与注入。
+用户一次多队员发送按队员能力处理，支持附件及纯附件；保留原有视觉风格及普通消息回执。
+首批接入 Codex turn/steer，其余 Runtime 当时忙碌时排队。未安装日常 App，未创建 PR。
+完整 [15 类 Runtime 报告](../../research/runtime-monitoring/steer-2026-10-14.md) 与 [证据索引](steer-verification.json)
+区分原生探针、产品验收和尚未验证的边界。
+
+新增的唯一独立 Rust owner 是 `delivery_queue::tests::active_inputs_preserve_initial_context_and_unsubmitted_sources`
+（extended-tests）：一个 Run 的第二条输入在原实现中会复用第一份 Manifest／回执，旧单输入 fixture
+不能覆盖这个事务边界。因此复用 DeliveryQueue fixture 增加该 owner，检查来源隔离、同水位多输入、
+恢复原字节、逆序 ACK、目标 Run／epoch 失效、正常结束回队列、取消后不重启、未知不重发及迟到回执。
+这些是持久化与跨模块事务语义，不能仅以纯函数测试替代。没有删除或禁用原测试。
+迁移 199 回滚与旧证据逐字保留扩展既有 member_routing / claim_context 迁移 owner；
+历史迁移 fixture 先恢复真实旧 schema，再用正式升级链回到当前 schema 后调用新业务 API。
+版本断言更新为当前 37/14/10，既有旧数据、错误分支、FK、事务回滚断言保留。
+既有 Codex 真实子进程夹具补充指定 turn 的正向接受／读取、目标不匹配、校验拒绝、内部错误与
+Host 退出矩阵；只有明确的原生校验拒绝允许回队列，内部错误和传输中断保持未知。未为此增加独立测试。
+
+主要复现入口（Rust 使用本机已配置的 rustup）：
+
+```sh
+cargo test --workspace
+cargo test -p rovai-core --features slow-tests --lib context::
+cargo test -p rovai-core --features extended-tests --lib delivery_queue::tests::
+cargo test -p rovai-core --features extended-tests --lib db::member_routing::tests::
+pnpm typecheck
+pnpm exec vitest run apps/desktop/src/renderer/src/ThreadWorkspace*.test.ts apps/desktop/src/renderer/src/composer-*.test.ts apps/desktop/src/renderer/src/camp-composer-local-store.test.ts
+node --test --test-name-pattern='Steer uses' scripts/lib/camp-open-projection.test.mjs
+pnpm test:composer-input
+pnpm docs:test
+pnpm docs:check
+DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 pnpm docs:check:ci
+```
+
+真实 Smoke：先构建 Core 和 `rovai` CLI，放在同一产品 bin 目录；创建一个新的空绝对路径目录，运行
+`node scripts/smoke-steer.mjs <空目录> <Core绝对路径>`。脚本明示独立 data、Skill Library、MCP、cache、
+workspace，记录 Core SHA-256、实际 Runtime 版本、每条输入 Manifest、目标及结果文件。
+使用现有登录和 Runtime 默认模型，本次不是固定模型质量 A/B。
+
+最终默认 Rust workspace **471 passed，0 failed，1 个既有 ignored**；上下文 slow owner 53 项、
+Delivery 与迁移定向 39 项通过，首次扩展失败项修正后的 19 项定向 owner 也已逐项通过。
+Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer 集成、类型检查、双主题 UI
+12 组（含 900 px / 200% 缩放）、文档测试及带基线治理均通过。未重跑整个扩展集；首次
+992 passed / 16 failed / 8 ignored 的原日志保留，15 项在定向复测中修复，剩余一项为下述基线失败。
+
+验证结果以 [JSON 索引](steer-verification.json) 为准。完整 12 Case 语义 Gate 缺固定 Judge 未运行，
+保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
+中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。

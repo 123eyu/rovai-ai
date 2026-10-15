@@ -6,38 +6,66 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
 
-## 已实现：用户 Steer 与共同上下文，语义 Gate 待补（2026-10-14）
+## 用户 Steer 合并与资格收口（2026-10-15）
 
-[R3 前后对比报告](model-context-change-steer-shared-input.md)按每个区段紧邻列出变更前后的内容，
-覆盖共同 Builder／Formatter、逐次投递的 RUN_INPUT、冻结恢复、多队员、附件与版本边界。
-R3 将 historyHint 收缩为四种单句，其余提示词保持原样；补清冻结执行环境、本次来源资源、
-多输入回执与 Run 收尾规则，撤回按旧 Manifest 号一概禁止 Steer 的限制。
-User 在消息 `52de18ca-e5df-4c91-b2a7-ee998f8068b0` 确认开始实施 R3，并要求最终交付逐 Runtime 实测结果。
-首批产品接入 Codex；多队员、附件、纯附件及普通队列独立，未增加插话专用提示词。
-15 类 Runtime 检查、12 类原生探针、真实 Core 与生产 UI 验收见[实测报告](../../research/runtime-monitoring/steer-2026-10-14.md)。
-完整 12 Case 语义 Gate 缺固定 Judge 配置，尚未运行。
-User seq23 随后要求接入 Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build，
-并授权真实 LLM 验证，Claude 使用 sub2api。结果见[扩展验收](../../research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)。
-User seq26 要求补齐其他 Runtime 测试；[完整清单](../../research/runtime-monitoring/steer-complete-2026-10-14.md)
-记录九种 Runtime 的十五次新增尝试。Kimi、Copilot、ZCode、OpenCode 原生路径通过，尚未接入 Rovai，
-产品范围仍为六种；本轮没有上下文或生产代码改动。
-User seq28 随后要求仅按 Rovai 实际接入通道重新核验，结论以[当前通道清单](../../research/runtime-monitoring/steer-current-transport-2026-10-14.md)为准：
-十五种均重新使用真实 LLM，六种已接入者复测通过；Kiro ACP `_session/steer` 和 ZCode 官方内核 guide
-在现有通道同轮通过、待产品适配。Kimi REST、Copilot SDK、OpenCode HTTP 不纳入当前支持数量。
+按 User seq40 合入 main d6ae891f，收敛两种 Migration 199 来源至 203／schema 153，新 public Manifest 39。
+历史输入与接受证据保留；Core 统一活跃 Run 的版本、协议资格，UI 展示原因；加入 TRAE CN 产品路径，
+回执统一为“运行时已接收”。当前合同见 [Manifest 39](../../contracts/context-manifest-evidence-v39.md)、
+[Delivery v16](../../contracts/message-delivery-v16.md)，模型正文的紧邻对照见[合并报告](model-context-change-steer-merge.md)。
+实现与验收见[合并后完整清单](../../research/runtime-monitoring/steer-hardening-2026-10-15.md)；
+九种 Runtime 有本轮真实正例，CodeBuddy 原始异常在 #762 保留，不由原低版本报告推断合并后通过。
 
-User seq30 随后要求接入 Kiro 与 ZCode，二者已完成 Runtime 投递与真实 Core 验证，产品 Steer 扩展为八种。
-[新完整清单](../../research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)给出忙碌拒绝项的版本核查、
-Qoder 当前/最新版本及 Antigravity 的实际结果、失败尝试与认证边界；不变更模型上下文、Schema 或 UI。
+## 内置头像裁切坐标统一（2026-10-15）
 
-User seq32 授权升级本机 TRAE CN 至官方 0.209.1。企业登录后 ACP 同轮 Steer 真实模型验证通过，
-产品投递尚未接入；本分支修正新版全局参数顺序，日常 Rovai App 未安装或重启。
-[升级与边界复核](../../research/runtime-monitoring/steer-trae-upgrade-2026-10-14.md)同时纠正先前认证表述，
-区分 Qoder 官方 IDE 的 Steer 与当前 CLI ACP 能力；不改模型上下文、Schema 或 UI。
+按 User 消息 66，内置头像仅调整取景时使用 Agent 读到的 packaged icon，修复“看小图、改大图”。
+首次修改保存为单文件受管头像；再次修改保持同一底图。读取输出、提示词、普通显示与旧上传头像保持。
+当前边界见 [Member Avatar v4](../../contracts/member-avatar-v4.md)，验证见[实施记录](implementation-plan.md#内置头像裁切坐标统一2026-10-15)。
+
+## 旧上传头像读取与修改的坐标统一（2026-10-15）
+
+按 User 消息 61 确认的[源图与取景方案](model-context-change-legacy-avatar-source.md)，
+Agent 对旧静态／GIF 上传头像返回源图与原取景；所有受管头像读取与修改共用坐标。
+界面、渠道、内置头像、历史资产与保存边界保持；不迁移旧图片。
+当前合同为 [Member Avatar v4](../../contracts/member-avatar-v4.md)和
+[Transport v41](../../contracts/builtin-tool-transport-v41.md)，验证结果见独立说明。
+
+## 成员头像读取统一（2026-10-14）
+
+按 User 消息 53 确认的 [R3 完整对照](model-context-change-member-avatar-read.md)，
+`member get` 统一为一个 avatar 对象，包含路径、状态和已保存的显示裁切；只物化一份头像，移除 portrait。
+完整身份、四字段 list、旧资产取景与 Session 恢复保持。当前合同为
+[Transport v41](../../contracts/builtin-tool-transport-v41.md)与[Member Avatar v4](../../contracts/member-avatar-v4.md)。
+实现与 16 轮真实模型专项已完成；完整通用 Gate 仍受既有数据库断言阻塞，见独立说明与[验证索引](member-avatar-read-verification.json)。
+
+## 队员头像简化（2026-10-14）
+
+按 User 确认的 R8 与消息 27 实施：紧凑身份信息与会话卡、上传后裁切确认、默认折叠更多设定及预设。
+新头像单文件保存，GIF 保留动画，旧 icon/source 兼容；渠道按发布意图冻结静态封面，Agent 素材要求同步简化。
+当前边界见 [Member Avatar v4](../../contracts/member-avatar-v4.md)，验证见[实施记录](implementation-plan.md#队员头像简化2026-10-14)。
+
+提示词按 User 消息 39 确认的 [R3](model-context-change-member-studio.md) 收口：按角色／外观线索选择头像方案，
+工作准则与成长课题默认留空，CLI 导入限制与 Core 共源，用户说明使用“智能体／运行配置”。
+Bootstrap、身份投影与数据不变，验证状态见该记录。
+
+## 消息发送者统一（2026-10-14）
+
+按 User 已确认的 [R2](model-context-change-message-senders.md) 已在独立 worktree 实施并通过自动化回归；R2 移除专用名称冻结，只在实际消息组装时取名。完整真实模型 Gate 待补。
+公开输入、SHARED_THREAD、读取和搜索统一发送者与名称；内部身份、正文、Mention、渠道与旧恢复保持。
+当前合同为 [Message Senders v1](../../contracts/message-senders-v1.md)、[History v14](../../contracts/camp-history-v14.md)
+和 [Manifest v38](../../contracts/context-manifest-evidence-v38.md)。验证状态见 R2 实施记录。
+
+## Pi 接收容量与连接失败原因（2026-10-14）
+
+Pi 入站单帧从 4 MiB 提高到 64 MiB，出站与 stderr 保留各自预算；不压缩头像、不修改其他 Runtime。
+读取层区分容量超限、协议损坏和连接读取失败，并沿既有 Runtime loss 事务保存公开原因；
+accepted/unknown 输入不重放，Host 清理和单聊取消语义保持。精确边界见
+[Runtime Launch v63](../../contracts/runtime-launch-and-verification-v63.md)，验证见
+[实施记录](implementation-plan.md#pi-接收容量与连接失败原因2026-10-14)。
 
 ## 已实现：Bootstrap 领取预算一致性，语义 Gate 待补（2026-10-14）
 
@@ -552,12 +580,12 @@ Claude Code 保留 `--print` 结构化输出，增加 stream-json 输入与 stdi
 | --- | --- | --- |
 | Version lifecycle | 已更新 | v1.71 冻结为 historical；本概览、[实施计划](implementation-plan.md)、[版本决定](decisions.md)与[版本索引](../README.md)建立唯一 current v1.72 |
 | Decisions | 已更新 | [V1.72-D01](decisions.md#v1-72-d01)记录独立 Lark provider；[V1.72-D02](decisions.md#v1-72-d02)记录侧栏摘要与范围读取；[V1.72-D03](decisions.md#v1-72-d03)记录 Lark 入站附件复用与 Host 隔离；[V1.72-D04](decisions.md#v1-72-d04)记录钉钉签名链接与旧排队卡收口；[V1.72-D05](decisions.md#v1-72-d05)记录发送前邀请；[V1.72-D06](decisions.md#v1-72-d06)记录 Claude 原生双向审批，并新增 [V1.72-D07](decisions.md#v1-72-d07) 记录 Thread 命名及旧绑定兼容，均同步当前决定导航 |
-| Contracts | 已更新 | 新增 [First-run Onboarding v6](../../contracts/first-run-onboarding-v6.md)，以 Desktop schema 3 冻结逐人 Runtime 复制与恢复；发布 [Lark Channel v1](../../contracts/lark-channel-v1.md)与 [Feishu Channel v17](../../contracts/feishu-channel-v17.md)，Feishu v16 降为历史；补充 [Navigation Read v1](../../contracts/navigation-read-v1.md)、[Skills Rebuild v2](../../contracts/skills-rebuild-v2.md)、[App Update v7](../../contracts/app-update-v7.md)（继承 v6 日期来源，增加双语发布与 Renderer 显示副本选择）、[Runtime Launch v49](../../contracts/runtime-launch-and-verification-v49.md)与钉钉出站 [DingTalk Channel v14](../../contracts/dingtalk-channel-v14.md)；Composer 邀请只组合现有成员加入与发送命令，不改变两者合同；公开命名由 [Thread Naming v1](../../contracts/thread-naming-v1.md) 覆盖，新上下文与工具输出分别为 [ContextManifest v32](../../contracts/context-manifest-evidence-v32.md) 和 [Built-in Transport v33](../../contracts/builtin-tool-transport-v33.md) |
-| Architecture | 已更新 | 新增 [Lark 渠道架构](../../architecture/lark-channel.md)；[飞书渠道架构](../../architecture/feishu-channel.md)移除 `larksuite.com` 并改指 v17；[侧栏刷新](../../architecture/desktop-navigation-refresh.md)与[Skills 来源](../../architecture/skills.md)说明局部读取及目录缓存；[钉钉渠道架构](../../architecture/dingtalk-channel.md)补齐原生附件出站与重试边界；[Public Camp Composer](../../architecture/camp-composer-draft.md#发送)说明邀请与发布命令边界；[Desktop App Updates](../../architecture/desktop-app-updates.md)补齐随包发布日期来源；[架构导航](../../architecture/README.md) 明确 Thread 命名覆盖与稳定存储边界；[Built-in Tool Runtime](../../architecture/builtin-tool-runtime.md#claude-code-权限审批回调)说明 Claude 权限回调边界 |
+| Contracts | 已更新 | 新增 [First-run Onboarding v6](../../contracts/first-run-onboarding-v6.md)，以 Desktop schema 3 冻结逐人 Runtime 复制与恢复；发布 [Lark Channel v1](../../contracts/lark-channel-v1.md)与 [Feishu Channel v17](../../contracts/feishu-channel-v17.md)，Feishu v16 降为历史；补充 [Navigation Read v1](../../contracts/navigation-read-v1.md)、[Skills Rebuild v2](../../contracts/skills-rebuild-v2.md)、[App Update v7](../../contracts/app-update-v7.md)（继承 v6 日期来源，增加双语发布与 Renderer 显示副本选择）、[Runtime Launch v49](../../contracts/runtime-launch-and-verification-v49.md)与钉钉出站 [DingTalk Channel v14](../../contracts/dingtalk-channel-v14.md)；Composer 邀请只组合现有成员加入与发送命令，不改变两者合同；公开命名由 [Thread Naming v1](../../contracts/thread-naming-v1.md) 覆盖，新上下文与工具输出分别为 [ContextManifest v32](../../contracts/context-manifest-evidence-v32.md) 和 [Built-in Transport v33](../../contracts/builtin-tool-transport-v33.md)；新增 [Transport v41](../../contracts/builtin-tool-transport-v41.md) 与 [Member Avatar v4](../../contracts/member-avatar-v4.md)，统一 Agent 头像读取及内置取景坐标 |
+| Architecture | 已更新 | 新增 [Lark 渠道架构](../../architecture/lark-channel.md)；[飞书渠道架构](../../architecture/feishu-channel.md)移除 `larksuite.com` 并改指 v17；[侧栏刷新](../../architecture/desktop-navigation-refresh.md)与[Skills 来源](../../architecture/skills.md)说明局部读取及目录缓存；[钉钉渠道架构](../../architecture/dingtalk-channel.md)补齐原生附件出站与重试边界；[Public Camp Composer](../../architecture/camp-composer-draft.md#发送)说明邀请与发布命令边界；[Desktop App Updates](../../architecture/desktop-app-updates.md)补齐随包发布日期来源；[架构导航](../../architecture/README.md) 明确 Thread 命名覆盖与稳定存储边界；[Built-in Tool Runtime](../../architecture/builtin-tool-runtime.md#claude-code-权限审批回调)说明 Claude 权限回调边界；[Built-in Tool Runtime](../../architecture/builtin-tool-runtime.md)同步单头像物化与失败隔离 |
 | UI | 已更新 | [渠道设置](../../ui/components/channel-settings.md)增加 Lark 页签、品牌显示与未验收提示，并明确只读网页执行台的历史区、生产组件及重连呈现；[Camp 命名](../../contracts/channel-camp-naming-v1.md)和[统一侧栏](../../ui/components/app-shell-navigation.md)补齐 Lark 来源及范围刷新；[结构化 Mention](../../ui/components/structured-mentions.md#member-typeahead)和[会话工作区](../../ui/components/conversation-workspace.md#camp-composer)说明待邀请反馈；公开英文名称统一为 Thread，中文继续用对话，草稿和导航持久状态兼容旧字段 |
 | Runtime Activity | 确认无需更新 | Canonical Activity、Adapter mapping 与 Registry 的事件语义保持；Thread 只更新公开范围字段及读取投影，原始证据先验摘要 |
 | Runtime compatibility | 已更新 | Claude Code 使用 `--print` 双向 stream-json 与原生 ID 审批；真实 Runtime 与 Desktop 点击证据记录在[兼容性台账](../../runtime-compatibility.md)，平台资格不据此扩大。Agent 指令英文化保持 Binding 兼容轴，生效边界见[变更说明](model-context-change-agent-english.md)；Thread 更名保留 Charter compatibility 16 与 Antigravity 原绑定工具身份 |
-| Documentation routing | 已更新 | 文档任务入口、合同索引、架构索引、当前决定导航与版本指针路由到 Lark v1、Feishu v17、Navigation Read v1、DingTalk v14 与 v1.72；版本内新增[Agent 指令变更说明](model-context-change-agent-english.md)及完整对照；新增 Thread r2、前后对照、验收记录及上述当前合同入口 |
+| Documentation routing | 已更新 | 文档任务入口、合同索引、架构索引、当前决定导航与版本指针路由到 Lark v1、Feishu v17、Navigation Read v1、DingTalk v14 与 v1.72；版本内新增[Agent 指令变更说明](model-context-change-agent-english.md)及完整对照；新增 Thread r2、前后对照、验收记录及上述当前合同入口；成员头像／CLI 当前入口切至 v2／v40，加入 [get R3 确认稿](model-context-change-member-avatar-read.md) |
 | Root README | 确认无需更新 | Lark 未完成真实租户验收，按 Lark Channel v1 第 8 节不得在根 README 宣称支持 |
 
 2026-10-01 的 Qoder／Grok／OpenCode Context 与 Copilot 重新核验见[字段与场景证据](../../research/runtime-monitoring/native-context-ratio-verification-2026-10-01.md)。schema 127 → 128 → 129 和已安装 schema 128 → 129 均有迁移 owner；179 失败时回滚字段、收据和 marker，旧数量保留且原生比例为空。
@@ -706,3 +734,14 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 按 User 要求移除会话队员列表中 Desktop“…”菜单与 Mobile 按钮的“重置队员会话”，
 同时清理专用确认弹窗、前端状态与不再适用的弹窗验收。其他队员操作和后端会话恢复保持。
 边界见 [Runtime Launch v61](../../contracts/runtime-launch-and-verification-v61.md)。
+
+## 执行记录存储精简（2026-10-14）
+
+新操作组合预览去重与正常删除 Blob 回收登记见 [保存合同](../../contracts/execution-record-storage-v2.md)
+及[实施记录](implementation-plan.md#执行记录存储精简组合预览与删除回收2026-10-14)。旧记录继续可读，日常实例不做历史清理。
+
+新 Run 使用[实时会话目录](../../contracts/camp-history-v14.md)，停止写入开工目录快照；旧模式和消息正文边界保持。
+验证见[实时目录实施记录](implementation-plan.md#执行记录存储精简实时会话目录2026-10-14)。
+
+新操作自身承载活动元数据与按需 diff 展开，兼容旧活动读取；
+独立验收与同负载测量见[第三项实施记录](implementation-plan.md#执行记录存储精简操作与活动统一保存2026-10-14)。

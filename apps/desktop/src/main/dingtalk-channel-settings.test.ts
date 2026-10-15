@@ -1,10 +1,11 @@
-import { readFile, access, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises'
+import { readFile, access, mkdtemp, readdir, rm, truncate, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PendingChannelAttachments } from './channel-inbound-attachments'
 import { describe, expect, it, vi } from 'vitest'
 import type { CoreClient } from './core-client'
+import { ControlledMemberBotAvatarSourceResolver } from './member-bot-avatar-source'
 import {
   DINGTALK_REQUIRED_SCOPE_VALUES,
   DingTalkChannelSettingsService,
@@ -433,6 +434,29 @@ describe('DingTalk channel account connection', () => {
       )
     } finally {
       warn.mockRestore()
+    }
+  })
+
+  it('retries the same publication after an initially missing avatar is supplied', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rovai-dingtalk-avatar-retry-'))
+    let avatarRef: string | null = null
+    const bytes = await readFile(join(import.meta.dirname, '../renderer/src/assets/characters/luoke/icon-192.png'))
+    const avatarSource = new ControlledMemberBotAvatarSourceResolver({ read: vi.fn() }, async () => bytes, directory)
+    const fixture = completedBotFixture({ beforeApp: 'created', avatarSource, memberAvatarRef: () => avatarRef })
+    try {
+      await expect(fixture.service.publish('agent-a')).rejects.toThrow('dingtalk_member_bot_avatar_unavailable')
+      expect(fixture.provision).not.toHaveBeenCalled()
+      expect(fixture.intent()).toMatchObject({ state: 'failed_recoverable', publicationIntentId: 'intent-a' })
+      expect(await readdir(directory)).toEqual([])
+
+      avatarRef = 'rovai://member-avatar/builtin/luoke/v1'
+      await expect(fixture.service.publish('agent-a')).resolves.toBeUndefined()
+      expect(fixture.provision).toHaveBeenCalledOnce()
+      expect(fixture.intent()).toMatchObject({ state: 'completed', publicationIntentId: 'intent-a' })
+      expect(await readdir(directory)).toEqual([expect.stringMatching(/-240\.json$/u)])
+    } finally {
+      await fixture.service.stop()
+      await rm(directory, { recursive: true, force: true })
     }
   })
 
@@ -1142,6 +1166,8 @@ function completedBotFixture(options: {
   otherAccount?: boolean
   emptyFrozenAppId?: boolean
   beforeApp?: 'created' | 'account_verified'
+  avatarSource?: DingTalkChannelHostDependencies['avatarSource']
+  memberAvatarRef?: () => string | null
   deliveries?: Array<Record<string, unknown>>
   attachments?: PendingChannelAttachments[]
   completeAttachments?: (command: Record<string, unknown>) => Promise<void>
@@ -1193,7 +1219,7 @@ function completedBotFixture(options: {
         transportConversations: [], pendingAggregates: []
       }
       if (method === 'members.get') return {
-        agentId: 'agent-a', displayName: '芝士', avatarRef: null, teamRole: '鉴定士'
+        agentId: 'agent-a', displayName: '芝士', avatarRef: options.memberAvatarRef?.() ?? null, teamRole: '鉴定士'
       }
       const command = params.command ?? {}
       commands.push(method)
@@ -1266,7 +1292,7 @@ function completedBotFixture(options: {
       }] : [])
     },
     provisioner: { create: provision },
-    avatarSource: { resolve: async () => ({ pngBytes: new Uint8Array([1, 2, 3]) }) },
+    avatarSource: options.avatarSource ?? { resolve: async () => ({ pngBytes: new Uint8Array([1, 2, 3]) }) },
     streamRegistry: stream,
     createApiClient: () => { apiAvailable = true; return api }
   })

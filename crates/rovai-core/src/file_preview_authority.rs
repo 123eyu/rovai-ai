@@ -524,6 +524,48 @@ fn is_supported_run_evidence_path(path: &str) -> bool {
         })
 }
 
+// The selected Evidence PK and its creation-time storage format are the routing
+// authority. Never enter the Run-wide UNION view on this single-file path.
+const RUN_FILE_EVIDENCE_SQL: &str = r#"
+    SELECT evidence.storage_version,evidence.phase,evidence.operation_id,
+           CASE WHEN evidence.storage_version=3 THEN evidence.activity_meta_json END
+    FROM agent_run_execution_evidence AS evidence
+    JOIN agent_run ON agent_run.id=evidence.agent_run_id
+    LEFT JOIN camp_turn ON camp_turn.id=agent_run.camp_turn_id
+    JOIN camp ON camp.id=COALESCE(agent_run.camp_id,camp_turn.camp_id)
+    WHERE evidence.id=?1 AND evidence.agent_run_id=?2 AND evidence.execution_epoch=?3
+      AND camp.id=?4 AND camp.activation_state='active' AND camp.deletion_operation_id IS NULL
+"#;
+
+fn legacy_file_activity_key_sql(has_operation_id: bool) -> String {
+    let operation = if has_operation_id {
+        "operation_id=?7"
+    } else {
+        "?7 IS NULL"
+    };
+    format!(
+        r#"SELECT operation_id,classifier_version FROM canonical_runtime_activity
+        WHERE agent_run_id=?1 AND execution_epoch=?2 AND {operation}
+          AND classifier_version IN (?3,?4,?5,?6)
+          AND EXISTS(SELECT 1 FROM json_each(source_evidence_ids_json) WHERE value=?8)
+        ORDER BY CASE classifier_version WHEN ?3 THEN 0 WHEN ?4 THEN 1 WHEN ?5 THEN 2 ELSE 3 END
+        LIMIT 1"#
+    )
+}
+
+const LEGACY_FILE_ACTIVITY_SQL: &str = "SELECT diff_projection_json,outcome
+    FROM canonical_runtime_activity WHERE agent_run_id=?1 AND execution_epoch=?2
+    AND operation_id=?3 AND classifier_version=?4";
+
+// Preview JSON is bounded independently from full detail/Blob storage. Read it
+// only when the selected diff did not authorize the path and this is a successful
+// path-only operation.
+const RUN_FILE_OPERATION_SQL: &str = "SELECT CASE WHEN storage_version=1 THEN
+    json_extract(payload_preview_json,'$.runtimeFileOperation')
+    ELSE json_extract(input_preview_json,'$.runtimeFileOperation') END,
+    CASE WHEN storage_version<>1 THEN json_extract(result_preview_json,'$.runtimeFileOperation') END
+    FROM agent_run_execution_evidence WHERE id=?1";
+
 fn run_activity_authorizes_file(
     database: &Database,
     camp_id: &str,
@@ -532,87 +574,131 @@ fn run_activity_authorizes_file(
     evidence_id: &str,
     path: &str,
 ) -> Result<bool> {
-    let authorization = database
+    let selected = database
         .connection()
         .query_row(
-            r#"
-            SELECT activity.diff_projection_json, evidence.payload_preview_json,
-                   evidence.phase, activity.outcome
-            FROM agent_run_execution_evidence AS evidence
-            JOIN agent_run ON agent_run.id = evidence.agent_run_id
-            LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
-            JOIN camp ON camp.id = COALESCE(agent_run.camp_id, camp_turn.camp_id)
-            JOIN canonical_runtime_activity AS activity
-              ON activity.agent_run_id = evidence.agent_run_id
-             AND activity.execution_epoch = evidence.execution_epoch
-            WHERE evidence.id = ?1
-              AND evidence.agent_run_id = ?2
-              AND evidence.execution_epoch = ?3
-              AND camp.id = ?4
-              AND camp.activation_state = 'active'
-              AND camp.deletion_operation_id IS NULL
-              AND activity.classifier_version IN (?5, ?6, ?7, ?8)
-              AND EXISTS (
-                  SELECT 1
-                  FROM json_each(activity.source_evidence_ids_json)
-                  WHERE json_each.value = evidence.id
-              )
-            ORDER BY CASE activity.classifier_version
-                WHEN ?5 THEN 0
-                WHEN ?6 THEN 1
-                WHEN ?7 THEN 2
-                ELSE 3
-            END
-            LIMIT 1
-            "#,
-            params![
-                evidence_id,
-                agent_run_id,
-                execution_epoch,
-                camp_id,
-                canonical_activity::CLASSIFIER_VERSION,
-                canonical_activity::PREVIOUS_CLASSIFIER_VERSION,
-                canonical_activity::INTERMEDIATE_CLASSIFIER_VERSION,
-                canonical_activity::LEGACY_CLASSIFIER_VERSION,
-            ],
-            |row| {
+            RUN_FILE_EVIDENCE_SQL,
+            params![evidence_id, agent_run_id, execution_epoch, camp_id],
+            |r| {
                 Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
                 ))
             },
         )
         .optional()
-        .context("failed to resolve the Run activity file projection")?;
-    let Some((projection_json, payload_json, evidence_phase, activity_outcome)) = authorization
-    else {
+        .context("failed to resolve the selected Run file evidence")?;
+    let Some((storage_version, phase, operation_id, metadata)) = selected else {
         return Ok(false);
     };
-    if let Some(projection_json) = projection_json {
-        let projection: CommandDiffProjection = serde_json::from_str(&projection_json)
-            .context("Run activity file projection is invalid")?;
-        if projection.status == "available"
-            && projection
-                .source_evidence_ids
-                .iter()
-                .any(|candidate| candidate == evidence_id)
-            && projection
-                .entries
-                .as_ref()
-                .is_some_and(|entries| entries.iter().any(|entry| entry.path == path))
-        {
-            return Ok(true);
+    let (projection, outcome): (Option<CommandDiffProjection>, String) = match storage_version {
+        3 => {
+            let Some(metadata) = metadata else {
+                return Ok(false);
+            };
+            let metadata: serde_json::Value = serde_json::from_str(&metadata)?;
+            if ![
+                canonical_activity::CLASSIFIER_VERSION,
+                canonical_activity::PREVIOUS_CLASSIFIER_VERSION,
+                canonical_activity::INTERMEDIATE_CLASSIFIER_VERSION,
+                canonical_activity::LEGACY_CLASSIFIER_VERSION,
+            ]
+            .contains(&metadata["classifierVersion"].as_str().unwrap_or_default())
+            {
+                return Ok(false);
+            }
+            (
+                metadata
+                    .get("diffProjection")
+                    .filter(|v| !v.is_null())
+                    .map(|v| serde_json::from_value(v.clone()))
+                    .transpose()?,
+                metadata["outcome"].as_str().unwrap_or_default().to_string(),
+            )
         }
+        1 | 2 => {
+            // Reliable lifecycle IDs use the existing primary key. Append-only
+            // old evidence may lack that ID; retain its original source-ID lookup,
+            // selecting only small keys before fetching the ONE chosen old diff.
+            let find_key = |operation: Option<&str>| -> Result<Option<(String, String)>> {
+                Ok(database
+                    .connection()
+                    .query_row(
+                        &legacy_file_activity_key_sql(operation.is_some()),
+                        params![
+                            agent_run_id,
+                            execution_epoch,
+                            canonical_activity::CLASSIFIER_VERSION,
+                            canonical_activity::PREVIOUS_CLASSIFIER_VERSION,
+                            canonical_activity::INTERMEDIATE_CLASSIFIER_VERSION,
+                            canonical_activity::LEGACY_CLASSIFIER_VERSION,
+                            operation,
+                            evidence_id
+                        ],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional()?)
+            };
+            let key = if let Some(operation) = operation_id.as_deref() {
+                match find_key(Some(operation))? {
+                    Some(key) => Some(key),
+                    None => find_key(None)?,
+                }
+            } else {
+                find_key(None)?
+            };
+            let Some((operation, classifier)) = key else {
+                return Ok(false);
+            };
+            let (projection, outcome): (Option<String>, String) = database.connection().query_row(
+                LEGACY_FILE_ACTIVITY_SQL,
+                params![agent_run_id, execution_epoch, operation, classifier],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            (
+                projection.map(|v| serde_json::from_str(&v)).transpose()?,
+                outcome,
+            )
+        }
+        _ => return Ok(false),
+    };
+    if let Some(projection) = projection
+        && projection.status == "available"
+        && projection
+            .source_evidence_ids
+            .iter()
+            .any(|id| id == evidence_id)
+        && projection
+            .entries
+            .as_ref()
+            .is_some_and(|entries| entries.iter().any(|entry| entry.path == path))
+    {
+        return Ok(true);
     }
-    if evidence_phase != "completed" || activity_outcome != "succeeded" {
+    if phase != "completed" || outcome != "succeeded" {
         return Ok(false);
     }
-    let payload: serde_json::Value =
-        serde_json::from_str(&payload_json).context("Run activity file evidence is invalid")?;
-    Ok(runtime_file_operation::operation_from_evidence(&payload)
-        .is_some_and(|operation| operation.path == path))
+    let (input, result): (Option<String>, Option<String>) =
+        database
+            .connection()
+            .query_row(RUN_FILE_OPERATION_SQL, [evidence_id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?;
+    let input = input
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?
+        .unwrap_or(serde_json::Value::Null);
+    let result = result.as_deref().map(serde_json::from_str).transpose()?;
+    // Lifecycle results may be sparse differences. Reuse the writer/read
+    // reducer on this small admitted object, preserving its recursive/null rules.
+    let operation = crate::execution_evidence::combine_lifecycle_values(&input, result.as_ref());
+    Ok(runtime_file_operation::operation_from_evidence(
+        &serde_json::json!({"runtimeFileOperation":operation}),
+    )
+    .is_some_and(|operation| operation.path == path))
 }
 
 fn run_activity_file(
@@ -1248,8 +1334,15 @@ mod tests {
         clean_run_workspace_fixture(database, data_dir, root);
     }
 
+    #[cfg(feature = "extended-tests")]
+    mod query_probe {
+        include!("file_preview_authority_probe.rs");
+    }
+
     #[test]
     fn run_activity_file_uses_the_exact_evidence_and_mission_worktree() {
+        #[cfg(feature = "extended-tests")]
+        query_probe::verify_upgraded_file_reads();
         let (mut database, data_dir, root, execution_root) = run_workspace_fixture();
         let evidence_id = record_run_activity_diff(
             &mut database,
@@ -1417,12 +1510,28 @@ mod tests {
                 "path-only evidence must not authorize another Run, epoch or path"
             );
         }
+        database.connection().execute("UPDATE agent_run_execution_evidence SET
+            input_preview_json=json_set(input_preview_json,'$.runtimeFileOperation',json(?2)),
+            result_preview_json=json_set(result_preview_json,'$.runtimeFileOperation',json('{\"status\":\"available\"}'))
+            WHERE id=?1", params![operation_evidence.evidence.id, json!({"schemaVersion":2,"status":"available","operationKind":"write","path":operation_path}).to_string()]).unwrap();
+        assert!(
+            resolve_run_activity_file(
+                &database,
+                &data_dir,
+                "preview-run",
+                1,
+                &operation_evidence.evidence.id,
+                operation_path
+            )
+            .is_some(),
+            "a sparse result must retain the admitted input fields under the existing reducer"
+        );
         database
             .connection()
             .execute(
                 "UPDATE agent_run_execution_evidence
-                 SET payload_preview_json=json_set(
-                   payload_preview_json, '$.runtimeFileOperation.status', 'unavailable'
+                 SET result_preview_json=json_set(
+                   COALESCE(result_preview_json, '{}'), '$.runtimeFileOperation.status', 'unavailable'
                  ) WHERE id=?1",
                 [&operation_evidence.evidence.id],
             )

@@ -146,8 +146,9 @@ DingTalk-only Snapshot 直接把
 错误状态。欢迎卡失败不得把该行改回“需处理”。
 
 重新发布 Dialog 必须显示已经冻结的 App ID，明确“不会创建或换绑其他应用”；进度中的创建阶段改为“正在核对已绑定应用…”。Renderer
-头像只从现有 `MemberAvatar` 读取；发布时 Main 独立解析同一个受控 `avatarRef` 并上传 exact icon rendition，渠道页不
-解析或接收本机头像路径。非空头像引用无法安全读取时，发布失败而不是展示或上传另一身份。
+头像显示复用 `MemberAvatar`；发布前 Main 从受控 `avatarRef` 按 [Member Avatar v1](../../contracts/member-avatar-v1.md)
+导出方形静态 PNG，GIF 使用第一张完整合成帧。同次发布及重试冻结导出内容，渠道页不解析或接收本机路径。
+非空引用无法安全读取时发布失败，本地头像不变；更换头像不自动同步已发布 Bot。
 
 ## Owner identity 与绑定诊断
 

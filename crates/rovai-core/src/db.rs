@@ -2,6 +2,10 @@
 mod attachment_paths;
 #[path = "db_claim_context.rs"]
 mod claim_context;
+#[path = "db_execution_storage.rs"]
+mod execution_storage;
+#[path = "db_live_directory.rs"]
+mod live_directory;
 #[path = "db_member_creation.rs"]
 mod member_creation;
 #[path = "db_member_environment.rs"]
@@ -10,6 +14,8 @@ mod member_environment;
 mod member_routing;
 #[path = "db_message_mentions.rs"]
 mod message_mentions;
+#[path = "db_message_senders.rs"]
+mod message_senders;
 #[path = "db_mission_context.rs"]
 mod mission_context;
 #[path = "db_mission_description.rs"]
@@ -26,8 +32,13 @@ mod run_continuation;
 mod simplification;
 #[path = "db_steer.rs"]
 mod steer;
+#[cfg(test)]
+#[path = "db_steer_legacy_test.rs"]
+mod steer_legacy_test;
 #[path = "db_thread_names.rs"]
 mod thread_names;
+#[path = "db_unified_activity.rs"]
+mod unified_activity;
 #[path = "db_user_anchors.rs"]
 mod user_anchors;
 #[path = "db_user_projection.rs"]
@@ -40,11 +51,13 @@ pub(crate) fn downgrade_message_mentions_fixture(database: &Database) {
 
 #[cfg(all(test, feature = "extended-tests"))]
 pub(crate) use run_continuation::assert_legacy_request_upgrade;
+#[cfg(all(test, feature = "extended-tests"))]
+pub(crate) use steer::assert_legacy_upgrade as assert_legacy_steer_upgrade;
 
 #[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn upgrade_message_mentions_fixture(database: &mut Database) {
-    message_mentions::migrate(database).unwrap();
-    run_continuation::migrate_requests(database).unwrap();
+    // Restore the current schema through the production upgrade chain while the
+    // claimed input keeps its frozen v32 formatter and body.
     database.migrate(false).unwrap();
 }
 
@@ -54,11 +67,75 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
     let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
     member_routing::migrate(database).unwrap();
     claim_context::migrate(database).unwrap();
+    message_senders::migrate(database).unwrap();
+    execution_storage::migrate(database).unwrap();
+    live_directory::migrate(database).unwrap();
+    unified_activity::migrate(database).unwrap();
     steer::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
     );
+}
+
+// Synthetic packaged-App fixture only; never reachable from product startup/read paths.
+#[cfg(all(test, feature = "extended-tests"))]
+pub(crate) fn export_legacy_storage_fixture(database: &Database, path: &Path) {
+    let mut target = Connection::open(path).unwrap();
+    rusqlite::backup::Backup::new(database.connection(), &mut target)
+        .unwrap()
+        .run_to_completion(128, std::time::Duration::ZERO, None)
+        .unwrap();
+    execution_storage::downgrade_for_test(&target);
+    assert!(matches!(classify_database_contract(&target).unwrap(),
+        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version==149));
+}
+
+#[cfg(test)]
+pub(crate) fn assert_unified_activity_upgrade(database: &mut Database) {
+    unified_activity::assert_upgrade(database);
+}
+
+#[cfg(all(test, feature = "slow-tests"))]
+pub(crate) fn assert_legacy_history_directory_upgrade(database: &mut Database) {
+    live_directory::assert_legacy_upgrade(database);
+}
+
+#[cfg(test)]
+pub(crate) fn assert_execution_storage_upgrade(database: &mut Database) {
+    execution_storage::assert_upgrade(database);
+}
+
+#[cfg(all(test, feature = "slow-tests"))]
+pub(crate) fn upgrade_message_senders_fixture(database: &mut Database) {
+    message_senders::downgrade_for_test(database.connection());
+    let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
+    let claims: Vec<String> = database
+        .connection()
+        .prepare("SELECT context_json FROM agent_run_claim_context ORDER BY agent_run_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    message_senders::migrate(database).unwrap();
+    execution_storage::migrate(database).unwrap();
+    live_directory::migrate(database).unwrap();
+    unified_activity::migrate(database).unwrap();
+    steer::migrate(database).unwrap();
+    assert_eq!(
+        before,
+        public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
+    );
+    let after: Vec<String> = database
+        .connection()
+        .prepare("SELECT context_json FROM agent_run_claim_context ORDER BY agent_run_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(claims, after);
 }
 
 // Exercise upgrade against the context owner's populated, isolated legacy fixture.
@@ -362,7 +439,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 149;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 153;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -836,6 +913,10 @@ struct CurrentMigrationState {
     v197: bool,
     v198: bool,
     v199: bool,
+    v200: bool,
+    v201: bool,
+    v202: bool,
+    v203: bool,
 }
 
 impl CurrentMigrationState {
@@ -857,6 +938,38 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v203 {
+            let mut previous = *self;
+            previous.v203 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 153
+                && self.v202
+                && previous.admits("v1.72", 152, classifier);
+        }
+        if self.v202 {
+            let mut previous = *self;
+            previous.v202 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 152
+                && self.v201
+                && previous.admits("v1.72", 151, classifier);
+        }
+        if self.v201 {
+            let mut previous = *self;
+            previous.v201 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 151
+                && self.v200
+                && previous.admits("v1.72", 150, classifier);
+        }
+        if self.v200 {
+            let mut previous = *self;
+            previous.v200 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 150
+                && self.v199
+                && previous.admits("v1.72", 149, classifier);
+        }
         if self.v199 {
             let mut previous = *self;
             previous.v199 = false;
@@ -2993,7 +3106,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
         .and_then(Option::as_ref)
         .is_some_and(|(contract, schema, _)| {
             contract == CURRENT_DATA_CONTRACT_VERSION
-                && matches!(schema, 145 | 146 | 147 | 148 | 149)
+                && matches!(schema, 145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153)
         })
     {
         return Ok(matches!(
@@ -3402,7 +3515,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149
+            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3422,8 +3535,19 @@ pub(crate) fn classify_database_contract(
                 } else if marker.projection_schema_version == 148 {
                     claim_context::schema_matches(connection)
                 } else {
-                    steer::schema_matches(connection)
-                });
+                    if marker.projection_schema_version == 153 {
+                        steer::schema_matches(connection)
+                    } else {
+                        message_senders::schema_matches(connection)
+                            || steer::legacy_schema_matches(connection)
+                    }
+                })
+            && (marker.projection_schema_version < 150
+                || execution_storage::schema_matches(connection)?)
+            && (marker.projection_schema_version < 151
+                || live_directory::schema_matches(connection)?)
+            && (marker.projection_schema_version < 152
+                || unified_activity::schema_matches(connection)?);
         return Ok(if !valid {
             DatabaseContractClassification::Unknown(Some(marker))
         } else if marker.projection_schema_version == CURRENT_PROJECTION_SCHEMA_VERSION {
@@ -5653,7 +5777,11 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 196),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 197),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 198),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 199)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 199),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 200),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 201),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 202),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 203)
         "#,
         [],
         |row| {
@@ -5788,6 +5916,10 @@ fn load_current_migration_state(
                 v197: row.get(127)?,
                 v198: row.get(128)?,
                 v199: row.get(129)?,
+                v200: row.get(130)?,
+                v201: row.get(131)?,
+                v202: row.get(132)?,
+                v203: row.get(133)?,
             })
         },
     )
@@ -7058,7 +7190,8 @@ impl Database {
             "measurement requires an existing absolute database path"
         );
         let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        crate::monitoring::register_monitoring_sql_functions(&connection)?;
+        crate::monitoring::register_monitoring_sql_functions(&connection)
+            .and_then(|()| crate::execution_evidence::register_preview_function(&connection))?;
         let runtime_camp_files_root = path
             .parent()
             .context("database parent")?
@@ -7124,14 +7257,16 @@ impl Database {
     ) -> std::result::Result<Self, DatabaseOpenError> {
         let path = open.path.clone();
         let connection = open_existing_authority_connection(&path)?;
-        crate::monitoring::register_monitoring_sql_functions(&connection).map_err(|error| {
-            DatabaseOpenError::operation(
-                "authority_sql_function_registration_failed",
-                "register monitoring SQL functions for",
-                &path,
-                error,
-            )
-        })?;
+        crate::monitoring::register_monitoring_sql_functions(&connection)
+            .and_then(|()| crate::execution_evidence::register_preview_function(&connection))
+            .map_err(|error| {
+                DatabaseOpenError::operation(
+                    "authority_sql_function_registration_failed",
+                    "register monitoring SQL functions for",
+                    &path,
+                    error,
+                )
+            })?;
         register_runtime_camp_files_functions(
             &connection,
             runtime_camp_files_root,
@@ -7267,14 +7402,16 @@ impl Database {
                     error,
                 ))
             })?;
-            crate::monitoring::register_monitoring_sql_functions(&connection).map_err(|error| {
-                DatabaseInitializeError(DatabaseOpenError::operation(
-                    "authority_sql_function_registration_failed",
-                    "register monitoring SQL functions for",
-                    &temporary,
-                    error,
-                ))
-            })?;
+            crate::monitoring::register_monitoring_sql_functions(&connection)
+                .and_then(|()| crate::execution_evidence::register_preview_function(&connection))
+                .map_err(|error| {
+                    DatabaseInitializeError(DatabaseOpenError::operation(
+                        "authority_sql_function_registration_failed",
+                        "register monitoring SQL functions for",
+                        &temporary,
+                        error,
+                    ))
+                })?;
             register_runtime_camp_files_functions(
                 &connection,
                 runtime_camp_files_root,
@@ -7342,14 +7479,16 @@ impl Database {
         let connection =
             open_existing_authority_connection(&target).map_err(DatabaseInitializeError)?;
         configure_runtime_connection(&connection, &target).map_err(DatabaseInitializeError)?;
-        crate::monitoring::register_monitoring_sql_functions(&connection).map_err(|error| {
-            DatabaseInitializeError(DatabaseOpenError::operation(
-                "authority_sql_function_registration_failed",
-                "register monitoring SQL functions for",
-                &target,
-                error,
-            ))
-        })?;
+        crate::monitoring::register_monitoring_sql_functions(&connection)
+            .and_then(|()| crate::execution_evidence::register_preview_function(&connection))
+            .map_err(|error| {
+                DatabaseInitializeError(DatabaseOpenError::operation(
+                    "authority_sql_function_registration_failed",
+                    "register monitoring SQL functions for",
+                    &target,
+                    error,
+                ))
+            })?;
         register_runtime_camp_files_functions(
             &connection,
             runtime_camp_files_root,
@@ -7425,6 +7564,7 @@ impl Database {
             open.revalidate()
                 .map_err(DatabaseMigrationError::from_ticket)?;
             crate::monitoring::register_monitoring_sql_functions(&connection)
+                .and_then(|()| crate::execution_evidence::register_preview_function(&connection))
                 .map_err(DatabaseMigrationError::from_migration)?;
             register_runtime_camp_files_functions(
                 &connection,
@@ -7462,14 +7602,16 @@ impl Database {
         runtime_camp_files_root_identity_digest: &str,
     ) -> std::result::Result<(), DatabaseOpenError> {
         let connection = open_existing_authority_connection(path)?;
-        crate::monitoring::register_monitoring_sql_functions(&connection).map_err(|error| {
-            DatabaseOpenError::operation(
-                "authority_migration_sql_function_registration_failed",
-                "register monitoring SQL functions for migration copy",
-                path,
-                error,
-            )
-        })?;
+        crate::monitoring::register_monitoring_sql_functions(&connection)
+            .and_then(|()| crate::execution_evidence::register_preview_function(&connection))
+            .map_err(|error| {
+                DatabaseOpenError::operation(
+                    "authority_migration_sql_function_registration_failed",
+                    "register monitoring SQL functions for migration copy",
+                    path,
+                    error,
+                )
+            })?;
         register_runtime_camp_files_functions(
             &connection,
             runtime_camp_files_root,
@@ -7629,7 +7771,8 @@ impl Database {
         let path = preferred_path;
         let connection = Connection::open(&path)
             .with_context(|| format!("failed to open SQLite at {}", path.display()))?;
-        crate::monitoring::register_monitoring_sql_functions(&connection)?;
+        crate::monitoring::register_monitoring_sql_functions(&connection)
+            .and_then(|()| crate::execution_evidence::register_preview_function(&connection))?;
         register_runtime_camp_files_functions(
             &connection,
             runtime_camp_files_root,
@@ -7686,7 +7829,8 @@ impl Database {
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .with_context(|| format!("failed to open verified SQLite clone at {}", path.display()))?;
-        crate::monitoring::register_monitoring_sql_functions(&connection)?;
+        crate::monitoring::register_monitoring_sql_functions(&connection)
+            .and_then(|()| crate::execution_evidence::register_preview_function(&connection))?;
         let runtime_camp_files_root = data_dir.join("runtime-files");
         let runtime_camp_files_root_identity_digest =
             crate::camp_attachment_view::runtime_root_identity_digest_for_database(
@@ -9015,7 +9159,19 @@ impl Database {
                 migration_step!("migration_198", claim_context::migrate(self));
             }
             if !self.schema_migration_applied(199)? {
-                migration_step!("migration_199", steer::migrate(self));
+                migration_step!("migration_199", message_senders::migrate(self));
+            }
+            if !self.schema_migration_applied(200)? {
+                migration_step!("migration_200", execution_storage::migrate(self));
+            }
+            if !self.schema_migration_applied(201)? {
+                migration_step!("migration_201", live_directory::migrate(self));
+            }
+            if !self.schema_migration_applied(202)? {
+                migration_step!("migration_202", unified_activity::migrate(self));
+            }
+            if !self.schema_migration_applied(203)? {
+                migration_step!("migration_203", steer::migrate(self));
             }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
@@ -9831,7 +9987,19 @@ impl Database {
             migration_step!("migration_198", claim_context::migrate(self));
         }
         if !self.schema_migration_applied(199)? {
-            migration_step!("migration_199", steer::migrate(self));
+            migration_step!("migration_199", message_senders::migrate(self));
+        }
+        if !self.schema_migration_applied(200)? {
+            migration_step!("migration_200", execution_storage::migrate(self));
+        }
+        if !self.schema_migration_applied(201)? {
+            migration_step!("migration_201", live_directory::migrate(self));
+        }
+        if !self.schema_migration_applied(202)? {
+            migration_step!("migration_202", unified_activity::migrate(self));
+        }
+        if !self.schema_migration_applied(203)? {
+            migration_step!("migration_203", steer::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -40050,7 +40218,7 @@ mod tests {
         assert!(
             old_insert
                 .to_string()
-                .contains("must use ContextManifest v37")
+                .contains("must use ContextManifest v39")
         );
         for (column, invalid) in [
             ("claim_previous_public_boundary_sequence", -1),
@@ -41603,6 +41771,10 @@ mod tests {
             v197: version >= 197,
             v198: version >= 198,
             v199: version >= 199,
+            v200: version >= 200,
+            v201: version >= 201,
+            v202: version >= 202,
+            v203: version >= 203,
         }
     }
 
@@ -41797,7 +41969,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                199,
+                203,
             ),
             (
                 "v1.72/schema 143 before async Usage settlement",
@@ -42367,7 +42539,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(199);
+        let current = migration_state_through(203);
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;
@@ -42931,7 +43103,7 @@ mod tests {
         simplification::migrate(&mut database).unwrap();
         member_routing::migrate(&mut database).unwrap();
         claim_context::migrate(&mut database).unwrap();
-        steer::migrate(&mut database).unwrap();
+        database.migrate(false).unwrap();
         assert!(connection_has_current_data_contract(database.connection()).unwrap());
         database.connection().execute_batch("DROP INDEX native_session_bootstrap_binding_idx;
             CREATE UNIQUE INDEX native_session_bootstrap_binding_idx ON native_session_bootstrap_evidence(native_binding_id,native_binding_generation)").unwrap();
@@ -43014,7 +43186,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(199));
+        assert_eq!(state, migration_state_through(203));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43036,9 +43208,9 @@ mod tests {
                 .unwrap();
             match change {
                 "equivalent_sql" => {
-                    let sql: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='context_manifest_v37_only_insert'", [], |r| r.get(0)).unwrap();
+                    let sql: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='context_manifest_v39_only_insert'", [], |r| r.get(0)).unwrap();
                     connection
-                        .execute_batch("DROP TRIGGER context_manifest_v37_only_insert")
+                        .execute_batch("DROP TRIGGER context_manifest_v39_only_insert")
                         .unwrap();
                     connection
                         .execute_batch(&sql.replacen(
@@ -43067,7 +43239,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=199", [])
+                        .execute("DELETE FROM schema_migration WHERE version=203", [])
                         .unwrap();
                 }
                 _ => unreachable!(),
@@ -43102,7 +43274,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<199;
+                "DELETE FROM schema_migration WHERE version<203;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();
@@ -44708,7 +44880,7 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39))"
         ));
         let conversation: (Option<String>, Option<String>, i64, i64) = reopened
             .connection()
@@ -45042,7 +45214,7 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39))"
         ));
         assert!(manifest_schema.contains(
             "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14))"
@@ -52371,7 +52543,7 @@ mod tests {
                 ) VALUES (
                     'legacy-camp', 'legacy', 'default', 'peer',
                     'directory', '/tmp/legacy',
-                    'agent_1', 0, 1, 'now', 'now'
+                    'agent_1', 0, 1, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
                 );
                 INSERT INTO camp_member(
                     camp_id, agent_id, status, capability_overrides_json,
@@ -52380,7 +52552,7 @@ mod tests {
                     version, joined_at, left_at
                 ) VALUES (
                     'legacy-camp', 'agent_1', 'active', '{}',
-                    NULL, NULL, NULL, 1, 'now', NULL
+                    NULL, NULL, NULL, 1, '2026-09-23T00:00:00Z', NULL
                 );
                 INSERT INTO conversation(
                     id, camp_id, agent_id,
@@ -52389,7 +52561,7 @@ mod tests {
                     last_message_sequence, version, created_at, updated_at
                 ) VALUES (
                     'legacy-conversation', 'legacy-camp', 'agent_1',
-                    NULL, NULL, NULL, NULL, NULL, 0, 0, 1, 'now', 'now'
+                    NULL, NULL, NULL, NULL, NULL, 0, 0, 1, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
                 );
 
                 DELETE FROM runtime_resolution_job;
@@ -52435,7 +52607,7 @@ mod tests {
                 ) VALUES (
                     'legacy-create-intent', 'camps.createFromFirstMessage', NULL,
                     '{}', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                    'pending', NULL, 'now', 'now'
+                    'pending', NULL, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
                 );
 
                 ALTER TABLE camp DROP COLUMN name_origin;
@@ -52472,7 +52644,7 @@ mod tests {
             ) VALUES (
                 'forbidden-old-method', 'camps.createFromFirstMessage', NULL,
                 '{}', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                'pending', NULL, 'now', 'now'
+                'pending', NULL, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
             )
             "#,
             [],
@@ -55750,9 +55922,9 @@ mod tests {
             connection,
             "trigger",
             &[
-                "context_manifest_v37_only_insert",
+                "context_manifest_v39_only_insert",
                 "context_manifest_version_immutable",
-                "agent_run_input_v37_only_insert",
+                "agent_run_input_v39_only_insert",
                 "agent_run_input_context_projection_immutable",
                 "runtime_input_delivery_attachment_auth_insert",
                 "camp_attachment_view_camp_insert",

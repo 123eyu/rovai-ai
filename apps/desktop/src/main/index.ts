@@ -3,7 +3,7 @@ import { createHostChannelHandler } from './host-channels'
 import { FilePreviewFrameNavigation } from './file-preview/file-preview-navigation'
 import { installWindowNavigation } from './window-navigation'
 import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
-import { openHostWebLink } from './host-web-link'
+import { webLinkWindowHandler } from './web-link-window-handler'
 import { randomUUID } from 'node:crypto'
 import bundledReleaseNotes from '../../../../build/release-notes.md?raw'
 import bundledReleaseMetadata from '../../../../build/release-metadata.json'
@@ -443,13 +443,13 @@ const wakeNetworkRecoveryAfterSystemResume = (): void => {
 }
 
 const memberBotAvatarSource = new ControlledMemberBotAvatarSourceResolver({
-  read: async (avatarRef) => {
+  read: async (avatarRef, _rendition, targetEdge) => {
     const image = await core.request<{
       base64: string; mediaType: 'image/png'; width: number; height: number; crop: import('@contracts').MemberAvatarCrop
-    } | null>('memberAvatars.read', { avatarRef, rendition: 'icon', staticPng: true })
+    } | null>('memberAvatars.read', { avatarRef, rendition: 'icon', staticPng: true, targetEdge })
     return image ? { ...image, bytes: Uint8Array.from(Buffer.from(image.base64, 'base64')) } : null
   }
-})
+}, undefined, coreDataPath ? join(coreDataPath, 'member-bot-avatar-exports') : undefined)
 const channelCredentialStore = new SqliteChannelCredentialStore(core)
 const channelDeveloperSessionStore = new SqliteChannelDeveloperSessionStore(core)
 const executionView = new ExecutionViewService({
@@ -899,11 +899,15 @@ function createWindow(): void {
   })
 
   window.once('ready-to-show', () => window.show())
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) void shell.openExternal(url)
-    else if (url.startsWith('http://')) void openHostWebLink(url, () => core.request('host.web.status'), value => shell.openExternal(value)).catch(() => undefined)
-    return { action: 'deny' }
-  })
+  window.webContents.setWindowOpenHandler(webLinkWindowHandler(url => shell.openExternal(url), async () => {
+    if (window.isDestroyed()) return
+    const english = requireGeneralPreferences().get().interfaceLanguage === 'en'
+    await dialog.showMessageBox(window, {
+      type: 'error',
+      message: english ? 'Unable to open the link. Try again or copy the address.' : '无法打开链接，请重试或复制地址。',
+      buttons: [english ? 'OK' : '好']
+    })
+  }))
   window.webContents.on('will-navigate', (event, url) => {
     const current = window.webContents.getURL()
     if (current && url !== current) event.preventDefault()
@@ -1727,7 +1731,7 @@ ipcMain.handle('rovai:navigation-preferences-restore-project', async (_event, ta
 
 ipcMain.handle('rovai:member-avatar-select-source', async () => {
   const options = {
-    title: '选择角色图片',
+    title: '选择头像',
     buttonLabel: '选择图片',
     filters: [
       { name: '静态与动态图片', extensions: ['png', 'jpg', 'jpeg', 'gif'] }
@@ -1744,6 +1748,12 @@ ipcMain.handle('rovai:member-avatar-select-source', async () => {
 ipcMain.handle(
   'rovai:member-avatar-save',
   async (_event, input: SaveMemberAvatarAssetInput) => {
+    if (input.kind === 'image') {
+      return core.request('memberAvatars.save', {
+        kind: 'image', sourceBase64: Buffer.from(input.source).toString('base64'),
+        sourceWidth: input.sourceWidth, sourceHeight: input.sourceHeight, crop: input.crop
+      })
+    }
     if (input.kind === 'recrop') {
       return core.request('memberAvatars.save', { kind: 'recrop', avatarRef: input.avatarRef, crop: input.crop })
     }

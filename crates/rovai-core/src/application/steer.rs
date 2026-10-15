@@ -54,6 +54,16 @@ impl Core {
     async fn deliver_active_input(&self, pending: &rovai_core::steer::PendingInput) -> Result<()> {
         let execution = {
             let database = self.database.lock().await;
+            if !rovai_core::steer::active_input_availability(
+                database.connection(),
+                &pending.agent_run_id,
+                pending.execution_epoch,
+            )?
+            .can_steer
+            {
+                drop(database);
+                return self.queue_unsubmitted_input(&pending.delivery_id).await;
+            }
             ExecutionRuntimeService::default().load_agent_run_execution(
                 &database,
                 &pending.agent_run_id,
@@ -118,13 +128,19 @@ impl Core {
                 .context("Source Attachment input resolver task failed")??;
         let (context, input) = {
             let mut database = self.database.lock().await;
-            if ExecutionRuntimeService::default()
-                .load_agent_run_execution(
-                    &database,
-                    &pending.agent_run_id,
-                    pending.execution_epoch,
-                )?
-                .is_none()
+            if !rovai_core::steer::active_input_availability(
+                database.connection(),
+                &pending.agent_run_id,
+                pending.execution_epoch,
+            )?
+            .can_steer
+                || ExecutionRuntimeService::default()
+                    .load_agent_run_execution(
+                        &database,
+                        &pending.agent_run_id,
+                        pending.execution_epoch,
+                    )?
+                    .is_none()
             {
                 let tx = database.connection_mut().transaction()?;
                 rovai_core::steer::return_to_queue(

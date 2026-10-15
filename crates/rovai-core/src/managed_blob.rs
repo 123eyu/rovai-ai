@@ -14,7 +14,15 @@ use crate::db::Database;
 
 pub(crate) const MAX_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 
+#[cfg(test)]
+thread_local! { static BLOB_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+pub(crate) fn take_read_count() -> u64 {
+    BLOB_READS.replace(0)
+}
+
 pub(crate) const GC_OWNER_EXECUTION_LIFECYCLE: &str = "execution_lifecycle";
+pub(crate) const GC_OWNER_CAMP_DELETION: &str = "camp_deletion";
 pub(crate) const GC_OWNER_FILE_CHANGE_PROJECTION: &str = "file_change_projection";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -422,6 +430,8 @@ impl ManagedBlobStore {
     }
 
     pub fn read_bytes(&self, database: &Database, blob_id: &str) -> Result<Vec<u8>> {
+        #[cfg(test)]
+        BLOB_READS.set(BLOB_READS.get() + 1);
         let metadata = load_blob_metadata(database.connection(), blob_id)?
             .context("Managed Blob does not exist")?;
         if metadata.state != "present" || metadata.byte_size > self.max_blob_bytes {
@@ -581,7 +591,7 @@ impl ManagedBlobStore {
                 SELECT id, sha256 FROM managed_blob
                 WHERE gc_candidate_at IS NOT NULL
                   AND datetime(gc_candidate_at) < datetime(?1)
-                  AND gc_candidate_owner IN ('execution_lifecycle', 'file_change_projection')
+                  AND gc_candidate_owner IN ('execution_lifecycle', 'file_change_projection', 'camp_deletion')
                 ORDER BY gc_candidate_at, id
                 LIMIT ?2
                 "#,
@@ -675,7 +685,7 @@ pub(crate) fn attach_gc_candidate(transaction: &Transaction<'_>, blob_id: &str) 
 }
 
 pub(crate) fn detach_gc_candidate(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     blob_id: &str,
     owner: &str,
     detached_at: &str,
@@ -691,7 +701,7 @@ pub(crate) fn detach_gc_candidate(
 fn validate_gc_owner(owner: &str) -> Result<()> {
     if !matches!(
         owner,
-        GC_OWNER_EXECUTION_LIFECYCLE | GC_OWNER_FILE_CHANGE_PROJECTION
+        GC_OWNER_EXECUTION_LIFECYCLE | GC_OWNER_FILE_CHANGE_PROJECTION | GC_OWNER_CAMP_DELETION
     ) {
         anyhow::bail!("Managed Blob GC owner is invalid");
     }
@@ -729,7 +739,62 @@ fn managed_blob_reference_columns(connection: &Connection) -> Result<Vec<(String
             }
         }
     }
+    // This historical scalar reference predates the FK. It is still authoritative.
+    let action_result_exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('action_execution') WHERE name='result_blob_id')",
+        [], |row| row.get(0),
+    )?;
+    if action_result_exists
+        && !references
+            .iter()
+            .any(|(table, column)| table == "action_execution" && column == "result_blob_id")
+    {
+        references.push(("action_execution".into(), "result_blob_id".into()));
+    }
     Ok(references)
+}
+
+// Called before the aggregate releases its actual references. This only selects IDs;
+// the deletion transaction never opens, moves or removes files.
+pub(crate) fn camp_blob_references(
+    connection: &Connection,
+    camp_id: &str,
+    camp_agent_run_ids: &str,
+) -> Result<std::collections::BTreeSet<String>> {
+    // Legacy migration fixtures can delete Camps before candidate GC was introduced.
+    let gc_available: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('managed_blob') WHERE name='gc_candidate_owner')
+         AND EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_blob' AND instr(sql, '''camp_deletion''')>0)", [], |row| row.get(0),
+    )?;
+    let mut ids = std::collections::BTreeSet::new();
+    if !gc_available {
+        return Ok(ids);
+    }
+    for (table, column) in managed_blob_reference_columns(connection)? {
+        let scope = match table.as_str() {
+            "agent_run_execution_evidence"
+            | "agent_run_file_change_projection"
+            | "agent_run_image"
+            | "action_execution"
+            | "context_manifest" => format!("agent_run_id IN ({camp_agent_run_ids})"),
+            "native_session_bootstrap_evidence" => {
+                "conversation_id IN (SELECT id FROM conversation WHERE camp_id=?1)".to_owned()
+            }
+            _ => continue, // Other owners are retained and protected by the final reference check.
+        };
+        let mut query = connection.prepare(&format!(
+            "SELECT {} FROM {} WHERE {scope} AND {} IS NOT NULL",
+            quote_identifier(&column),
+            quote_identifier(&table),
+            quote_identifier(&column)
+        ))?;
+        ids.extend(
+            query
+                .query_map([camp_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        );
+    }
+    Ok(ids)
 }
 
 fn blob_is_referenced(

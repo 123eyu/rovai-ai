@@ -38,7 +38,6 @@ use crate::{
         render_agent_plain_text_for_audience, render_agent_plain_text_with_names,
         render_member_mention_plain_text, valid_agent_projection_audience,
     },
-    camp_message_publication::public_camp_message_publication_cte,
     command::{EntityReference, canonical_json_digest},
     compaction::{
         BOOTSTRAP_REDELIVERY_ENVELOPE_VERSION, BOOTSTRAP_REDELIVERY_FORMATTER_VERSION,
@@ -62,6 +61,7 @@ use crate::{
     managed_blob::ManagedBlobStore,
     mcp_projection::{McpExposureSnapshot, PreparedMcpProjection},
     memory::{MemoryScopeKind, RelationshipDirection},
+    message_sender::{MessageSender, SenderNames},
     skill::SkillLibraryService,
     skill_projection::{PreparedSkillExposure, SkillExposureSnapshot},
 };
@@ -73,12 +73,12 @@ pub const MAX_SESSION_BOOTSTRAP_BYTES: usize = 128 * 1024;
 fn run_facts_schema_version(manifest_version: i64, invocation_kind: &str) -> i64 {
     if invocation_kind == "batch" {
         match manifest_version {
-            37 => 10,
-            32 | 33 | 34 | 36 => 9,
+            37 | 39 => 10,
+            32 | 33 | 34 | 36 | 38 => 9,
             31 => 8,
             _ => 7,
         }
-    } else if matches!(manifest_version, 28 | 35) {
+    } else if matches!(manifest_version, 28 | 35 | 37) {
         6
     } else {
         5
@@ -585,7 +585,7 @@ impl ContextService {
             source_delivery_id.is_some()
                 || batch_context_manifest_version.is_none_or(|version| version < 36)
                 || claimed_context.is_some(),
-            "Public v36 Run has no claimed context snapshot"
+            "Public Run has no claimed context snapshot"
         );
         if batch_context_manifest_version == Some(30) {
             anyhow::bail!(
@@ -704,8 +704,10 @@ impl ContextService {
             }
             Some(34) => crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V11
                 .validate()?,
-            Some(36) => crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V13
-                .validate()?,
+            Some(36 | 38) => {
+                crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V13
+                    .validate()?
+            }
             Some(_) => current_public_camp_batch_context_delivery_profile()?,
             None => current_context_delivery_profile()?,
         };
@@ -785,6 +787,20 @@ impl ContextService {
                 &mut omission_entries,
                 profile.max_public_history_chars,
             );
+        }
+        // Resolve only selected message authors, sharing lookups across this
+        // projection. Saved payloads use the existing restoration path above.
+        let mut sender_names = SenderNames::default();
+        for message in originating_public_user_message
+            .iter_mut()
+            .chain(reference_closure.iter_mut().map(|entry| &mut entry.message))
+            .chain(recent_messages.iter_mut())
+        {
+            message.model_sender = Some(sender_names.project(
+                database.context_connection(),
+                &message.sender_type,
+                &message.sender_id,
+            )?);
         }
         let current_input = load_current_input(database, &snapshot)?;
         let attachment_refs = load_current_attachment_refs(database, &current_input)?;
@@ -1200,15 +1216,22 @@ impl ContextService {
         if revalidated_skill_resolution != current_input_skill_resolution {
             anyhow::bail!("Current Input Skill availability changed during materialization");
         }
-        let (global_public_message_boundary, history_camps) =
-            capture_cross_camp_history_fence(&transaction, &snapshot)?;
+        let global_public_message_boundary = capture_history_body_boundary(&transaction)?;
         let context_manifest_version =
             batch_context_manifest_version.unwrap_or(CONTEXT_MANIFEST_VERSION);
         let context_formatter_version = batch_context_manifest_version
             .inspect(|&version| {
                 debug_assert!(matches!(
                     version,
-                    29 | 30 | 31 | 32 | 33 | 34 | 36 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
+                    29 | 30
+                        | 31
+                        | 32
+                        | 33
+                        | 34
+                        | 36
+                        | 37
+                        | 38
+                        | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
                 ));
             })
             .unwrap_or(CONTEXT_FORMATTER_VERSION);
@@ -1221,7 +1244,7 @@ impl ContextService {
                 native_binding_generation,
                 camp_message_boundary_sequence,
                 conversation_message_boundary_sequence,
-                history_fence_version, global_public_message_boundary,
+                history_fence_version, global_public_message_boundary, live_history_directory,
                 previous_accepted_public_boundary_sequence,
                 context_delivery_profile_version,
                 context_delivery_profile_json, context_delivery_profile_digest,
@@ -1252,7 +1275,7 @@ impl ContextService {
                 workspace_fact_json,workspace_fact_digest,workspace_fact_included,
                 mission_details_version, source_delivery_id
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10,
                 ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
                 ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
                 ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40,
@@ -1349,22 +1372,6 @@ impl ContextService {
                     &additional_skills.omitted,
                 )?;
             }
-            for camp in &history_camps {
-                transaction.execute(
-                    r#"
-                    INSERT INTO context_manifest_history_camp(
-                        context_manifest_id, camp_id, camp_title,
-                        last_visible_activity_at
-                    ) VALUES (?1, ?2, ?3, ?4)
-                    "#,
-                    params![
-                        manifest_id,
-                        camp.camp_id,
-                        camp.camp_title,
-                        camp.last_visible_activity_at,
-                    ],
-                )?;
-            }
             append_context_event(
                 &transaction,
                 "context.manifest_created",
@@ -1375,7 +1382,8 @@ impl ContextService {
                     "boundarySequence": snapshot.camp_message_boundary_sequence,
                     "historyFenceVersion": 1,
                     "globalPublicMessageBoundary": global_public_message_boundary,
-                    "historyCampCount": history_camps.len(),
+                    "historyCampCount": 0,
+                    "liveHistoryDirectory": true,
                     "previousAcceptedPublicBoundarySequence": previous_accepted_public_boundary_sequence,
                     "contextDeliveryProfileVersion": profile.profile_version,
 
@@ -4206,6 +4214,7 @@ struct SharedMessage {
     content_digest: String,
     default_recipient_mention: Option<DefaultRecipientMention>,
     mentions: Option<Vec<MessageMention>>,
+    model_sender: Option<MessageSender>,
     mentions_current_user: bool,
     skill_names: Vec<String>,
     skill_mentions: Vec<(String, String)>,
@@ -4371,6 +4380,9 @@ fn model_batch_message(message: &SharedMessage) -> Value {
         "senderId": message.sender_id,
         "body": message.body,
     });
+    if let Some(sender) = &message.model_sender {
+        sender.insert_into(&mut value);
+    }
     if let Some(anchor_message_id) = message.reply_to_message_id.as_deref() {
         value["anchorMessageId"] = json!(anchor_message_id);
     }
@@ -4446,6 +4458,7 @@ pub(crate) fn project_batch_run_input_for_claim(
     through_sequence: i64,
     message_ids: &[String],
     skill_links: &[CurrentInputSkillLink],
+    sender_names: &mut SenderNames,
 ) -> Result<Value> {
     Ok(project_public_input_messages(
         transaction,
@@ -4453,6 +4466,7 @@ pub(crate) fn project_batch_run_input_for_claim(
         viewer_agent_id,
         through_sequence,
         message_ids,
+        sender_names,
     )?
     .run_input_projection(skill_links))
 }
@@ -4463,6 +4477,7 @@ fn project_public_input_messages(
     viewer_agent_id: &str,
     through_sequence: i64,
     message_ids: &[String],
+    sender_names: &mut SenderNames,
 ) -> Result<BatchModelContext> {
     let base_profile = current_public_camp_batch_context_delivery_profile()?;
     let complete_profile = ContextDeliveryProfile {
@@ -4544,6 +4559,8 @@ fn project_public_input_messages(
             true,
             Some(&claimed_source_message_ids),
         )?;
+        message.model_sender =
+            Some(sender_names.project(transaction, &message.sender_type, &message.sender_id)?);
         message.default_recipient_mention = default_recipient_mention;
         message.mentions = Some(message_mentions(
             transaction,
@@ -4591,7 +4608,7 @@ fn frozen_batch_context_manifest_version(
     anyhow::ensure!(
         matches!(
             version,
-            29 | 30 | 31 | 32 | 33 | 34 | 36 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
+            29 | 30 | 31 | 32 | 33 | 34 | 36 | 37 | 38 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
         ),
         "Batch AgentRun uses an unsupported context version"
     );
@@ -4789,8 +4806,8 @@ struct ModelSharedMessage<'a> {
     quotes: Vec<Value>,
     message_id: &'a str,
     sequence: i64,
-    sender_type: &'a str,
-    sender_id: &'a str,
+    #[serde(flatten)]
+    sender: MessageSender,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_to_message_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -4821,8 +4838,10 @@ impl SharedMessage {
                 .collect(),
             message_id: &self.message_id,
             sequence: self.sequence,
-            sender_type: &self.sender_type,
-            sender_id: &self.sender_id,
+            sender: self
+                .model_sender
+                .clone()
+                .unwrap_or_else(|| MessageSender::legacy(&self.sender_type, &self.sender_id)),
             reply_to_message_id: self.reply_to_message_id.as_deref(),
             attachments: self
                 .attachments
@@ -5561,6 +5580,7 @@ fn project_shared_message<R: ContextReadConnection>(
         content_digest,
         default_recipient_mention: None,
         mentions: None,
+        model_sender: None,
         mentions_current_user,
         skill_names: Vec::new(),
         skill_mentions: Vec::new(),
@@ -7805,8 +7825,7 @@ fn materialize_frozen_delivery_context(
     if revalidated_skill_resolution != current_input_skill_resolution {
         anyhow::bail!("Current Input Skill availability changed during materialization");
     }
-    let (global_public_message_boundary, history_camps) =
-        capture_cross_camp_history_fence(&transaction, snapshot)?;
+    let global_public_message_boundary = capture_history_body_boundary(&transaction)?;
     transaction.execute(
         r#"
         INSERT INTO context_manifest(
@@ -7814,7 +7833,7 @@ fn materialize_frozen_delivery_context(
             native_binding_generation,
             camp_message_boundary_sequence,
             conversation_message_boundary_sequence,
-            history_fence_version, global_public_message_boundary,
+            history_fence_version, global_public_message_boundary, live_history_directory,
             previous_accepted_public_boundary_sequence,
             context_delivery_profile_version,
             context_delivery_profile_json, context_delivery_profile_digest,
@@ -7845,7 +7864,7 @@ fn materialize_frozen_delivery_context(
             workspace_fact_json,workspace_fact_digest,workspace_fact_included,
             mission_details_version
         ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10,
             ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
             ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
             ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40,
@@ -7918,21 +7937,6 @@ fn materialize_frozen_delivery_context(
     if let Some(prepared_additional_skills) = &prepared_additional_skills {
         persist_additional_skill_omissions(&transaction, &manifest_id, prepared_additional_skills)?;
     }
-    for camp in &history_camps {
-        transaction.execute(
-            r#"
-            INSERT INTO context_manifest_history_camp(
-                context_manifest_id, camp_id, camp_title, last_visible_activity_at
-            ) VALUES (?1, ?2, ?3, ?4)
-            "#,
-            params![
-                manifest_id,
-                camp.camp_id,
-                camp.camp_title,
-                camp.last_visible_activity_at,
-            ],
-        )?;
-    }
     append_context_event(
         &transaction,
         "context.manifest_created",
@@ -7943,7 +7947,8 @@ fn materialize_frozen_delivery_context(
             "boundarySequence": snapshot.camp_message_boundary_sequence,
             "historyFenceVersion": 1,
             "globalPublicMessageBoundary": global_public_message_boundary,
-            "historyCampCount": history_camps.len(),
+            "historyCampCount": 0,
+            "liveHistoryDirectory": true,
             "previousAcceptedPublicBoundarySequence": previous_boundary,
             "contextDeliveryProfileVersion": profile_version,
 
@@ -7993,57 +7998,13 @@ fn queue_context_event_payload(snapshot: &RunSnapshot) -> Value {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CrossThreadHistorySnapshot {
-    camp_id: String,
-    camp_title: String,
-    last_visible_activity_at: String,
-}
-
-fn capture_cross_camp_history_fence(
-    transaction: &Transaction<'_>,
-    snapshot: &RunSnapshot,
-) -> Result<(i64, Vec<CrossThreadHistorySnapshot>)> {
-    let global_boundary = transaction.query_row(
+// The message-body fence remains frozen. A new Run never captures a directory.
+fn capture_history_body_boundary(transaction: &Transaction<'_>) -> Result<i64> {
+    Ok(transaction.query_row(
         "SELECT COALESCE(MAX(global_sequence), 0) FROM event_log",
         [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    let publication_cte = public_camp_message_publication_cte();
-    let sql = format!(
-        r#"
-        WITH {publication_cte}
-        SELECT camp.id, camp.title,
-               COALESCE(
-                   (
-                       SELECT message.created_at
-                       FROM camp_message AS message
-                       JOIN public_camp_message_publication AS publication
-                         ON publication.message_id = message.id
-                       WHERE message.camp_id = camp.id
-                         AND message.tombstoned_at IS NULL
-                         AND publication.global_sequence <= ?1
-                       ORDER BY publication.global_sequence DESC, message.id DESC
-                       LIMIT 1
-                   ),
-                   camp.created_at
-               )
-        FROM camp
-        WHERE camp.id <> ?2
-        ORDER BY camp.id
-        "#
-    );
-    let mut statement = transaction.prepare(&sql)?;
-    let camps = statement
-        .query_map(params![global_boundary, snapshot.camp_id], |row| {
-            Ok(CrossThreadHistorySnapshot {
-                camp_id: row.get(0)?,
-                camp_title: row.get(1)?,
-                last_visible_activity_at: row.get(2)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok((global_boundary, camps))
+        |row| row.get(0),
+    )?)
 }
 
 fn append_context_event(
@@ -8488,8 +8449,8 @@ mod tests {
                     context_manifest_version INTEGER
                 );
                 INSERT INTO agent_run_input VALUES ('historical', 26);
-                INSERT INTO agent_run_input VALUES ('current', 37);
-                INSERT INTO agent_run_input VALUES ('current', 37);
+                INSERT INTO agent_run_input VALUES ('current', 39);
+                INSERT INTO agent_run_input VALUES ('current', 39);
                 INSERT INTO agent_run_input VALUES ('previous', 36);
                 INSERT INTO agent_run_input VALUES ('previous', 36);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
@@ -8560,6 +8521,7 @@ mod tests {
             content_digest: "sha256:test".to_string(),
             default_recipient_mention: None,
             mentions: None,
+            model_sender: None,
             mentions_current_user: false,
             skill_names: vec!["review-code".to_string()],
             skill_mentions: Vec::new(),
@@ -8589,6 +8551,86 @@ mod tests {
         assert_eq!(current["mentions"], json!([{"id":"user"}]));
         assert!(current.get("mentionsCurrentUser").is_none());
         assert_eq!(current["body"], legacy["body"]);
+        connection.execute_batch("CREATE TABLE agent_profile(id TEXT PRIMARY KEY, display_name TEXT);
+            INSERT INTO agent_profile VALUES('agent_1','Alice'),('agent_2','Alice'),('agent_3','');").unwrap();
+        let mut names = SenderNames::default();
+        for (kind, id, expected) in [
+            (
+                "user",
+                "local_user",
+                json!({"senderType":"user","senderId":"user"}),
+            ),
+            (
+                "external_principal",
+                "external_principal_private",
+                json!({"senderType":"user","senderId":"user"}),
+            ),
+            (
+                "system",
+                "automation-run-id",
+                json!({"senderType":"system","senderId":"system","senderName":null}),
+            ),
+            (
+                "agent",
+                "agent_1",
+                json!({"senderType":"agent","senderId":"agent_1","senderName":"Alice"}),
+            ),
+            (
+                "agent",
+                "agent_2",
+                json!({"senderType":"agent","senderId":"agent_2","senderName":"Alice"}),
+            ),
+            (
+                "agent",
+                "agent_3",
+                json!({"senderType":"agent","senderId":"agent_3","senderName":null}),
+            ),
+            (
+                "agent",
+                "agent_99",
+                json!({"senderType":"agent","senderId":"agent_99","senderName":null}),
+            ),
+        ] {
+            message.sender_type = kind.into();
+            message.sender_id = id.into();
+            message.model_sender = Some(names.project(&connection, kind, id).unwrap());
+            let batch = model_batch_message(&message);
+            let shared = serde_json::to_value(message.model_projection()).unwrap();
+            for key in ["senderType", "senderId", "senderName"] {
+                assert_eq!(batch.get(key), expected.get(key));
+                assert_eq!(shared.get(key), expected.get(key));
+            }
+            assert_eq!(batch["body"], legacy["body"]);
+            assert_eq!(shared["body"], legacy["body"]);
+            assert_eq!(
+                message.sender_id, id,
+                "stored author remains available to evidence"
+            );
+        }
+        connection
+            .execute_batch(
+                "UPDATE agent_profile SET display_name='Renamed' WHERE id='agent_1';
+            INSERT INTO agent_profile VALUES('agent_99','Newly available');",
+            )
+            .unwrap();
+        for (id, before, after) in [
+            ("agent_1", json!("Alice"), json!("Renamed")),
+            ("agent_99", Value::Null, json!("Newly available")),
+        ] {
+            assert_eq!(
+                serde_json::to_value(names.project(&connection, "agent", id).unwrap()).unwrap()["senderName"],
+                before
+            );
+            assert_eq!(
+                serde_json::to_value(
+                    SenderNames::default()
+                        .project(&connection, "agent", id)
+                        .unwrap()
+                )
+                .unwrap()["senderName"],
+                after
+            );
+        }
         let context = BatchModelContext {
             run_input_messages: vec![message],
         };
@@ -8630,6 +8672,7 @@ mod tests {
             content_digest: "sha256:test".to_string(),
             default_recipient_mention: None,
             mentions: None,
+            model_sender: None,
             mentions_current_user: false,
             skill_names: vec!["review-code".to_string()],
             skill_mentions: vec![("native:one".to_string(), "review-code".to_string())],
@@ -9582,14 +9625,22 @@ mod slow_tests {
             &fixture.directory,
         )
         .unwrap();
-        let input = load_batch_model_context(
+        let mut context = load_batch_model_context(
             &tx,
             &snapshot,
             current_public_camp_batch_context_delivery_profile().unwrap(),
-            36,
+            PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION,
         )
-        .unwrap()
-        .run_input_projection(&links);
+        .unwrap();
+        let mut sender_names = SenderNames::default();
+        for message in &mut context.run_input_messages {
+            message.model_sender = Some(
+                sender_names
+                    .project(&tx, &message.sender_type, &message.sender_id)
+                    .unwrap(),
+            );
+        }
+        let input = context.run_input_projection(&links);
         let frozen = ClaimedBatchContext::prepare(&tx, &preview, None)
             .unwrap()
             .with_input(
@@ -10301,19 +10352,20 @@ mod slow_tests {
     }
 
     #[test]
-    fn history_snapshot_order_and_titles_remain_frozen() {
+    fn legacy_directory_stays_frozen_and_new_runs_use_live_activity() {
         let mut fixture = fixture();
-        let (first_camp_id, _) = create_history_camp(
+        let (first_camp_id, first_message_id) = create_history_camp(
             &mut fixture.database,
             &fixture.directory,
             "FIRST_HISTORY_CAMP",
         );
-        let (second_camp_id, _) = create_history_camp(
+        let (second_camp_id, second_message_id) = create_history_camp(
             &mut fixture.database,
             &fixture.directory,
             "SECOND_HISTORY_CAMP",
         );
         let run = materialize_history_fixture(&mut fixture);
+        crate::db::assert_legacy_history_directory_upgrade(&mut fixture.database);
         let manifest_id: String = fixture
             .database
             .connection()
@@ -10389,7 +10441,7 @@ mod slow_tests {
                 &run,
                 &HistorySearchInput {
                     query: "AFTER_FROZEN_BOUNDARY".to_string(),
-                    camp_ids: Some(vec![first_camp_id]),
+                    camp_ids: Some(vec![first_camp_id.clone()]),
                     date_from: None,
                     date_to: None,
                     limit: None,
@@ -10397,6 +10449,223 @@ mod slow_tests {
             )
             .unwrap();
         assert!(late["results"].as_array().unwrap().is_empty());
+        let run_id = fixture.run_id.clone();
+        let (next_id, next_epoch) =
+            complete_run_and_start_followup(&mut fixture, &run_id, "Use the live directory");
+        let live_run = materialize_history_run(&mut fixture, &next_id, next_epoch);
+        let (live_manifest, live_mode): (String, bool) = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT id,live_history_directory FROM context_manifest WHERE agent_run_id=?1",
+                [&next_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(live_mode);
+        let old_rows: i64 = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM context_manifest_history_camp WHERE context_manifest_id=?1",
+                [&manifest_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_rows, 2);
+        assert_eq!(fixture.database.connection().query_row("SELECT count(*) FROM context_manifest_history_camp WHERE context_manifest_id=?1",[&live_manifest],|r|r.get::<_,i64>(0)).unwrap(),0);
+        assert!(
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE context_manifest SET live_history_directory=0 WHERE id=?1",
+                    [&live_manifest]
+                )
+                .is_err()
+        );
+        assert!(fixture.database.connection().execute("INSERT INTO context_manifest_history_camp VALUES(?1,?2,'forbidden','2026-01-01')",params![live_manifest,first_camp_id]).is_err());
+        fixture.database.connection().execute("UPDATE camp SET title='HISTORY_FIRST_RENAMED',created_at='2026-07-01T00:00:00Z',updated_at='2099-01-01T00:00:00Z' WHERE id=?1",[&first_camp_id]).unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp SET created_at='2026-07-02T00:00:00Z' WHERE id=?1",
+                [&second_camp_id],
+            )
+            .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET created_at='2026-08-01T00:00:00Z' WHERE camp_id=?1",
+                [&first_camp_id],
+            )
+            .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET created_at='2026-08-02T00:00:00Z' WHERE camp_id=?1",
+                [&second_camp_id],
+            )
+            .unwrap();
+        let list = |db: &mut Database| {
+            ThreadHistoryService
+                .list_camps(
+                    db,
+                    &live_run,
+                    &ThreadListInput {
+                        query: None,
+                        limit: None,
+                    },
+                )
+                .unwrap()
+        };
+        let before = list(&mut fixture.database);
+        // Unknown old Camps use the correct indexed fallback; initialization only
+        // changes reconstructible summary metadata, not the directory result.
+        while crate::camp_message_publication::initialize_directory_activity(&mut fixture.database)
+            .unwrap()
+        {}
+        assert_eq!(before, list(&mut fixture.database));
+        assert_eq!(
+            before["threads"][0]["threadId"], second_camp_id,
+            "updated_at is not message activity"
+        );
+        assert_eq!(before["threads"][1]["title"], "HISTORY_FIRST_RENAMED");
+        let late = CollaborationService::default()
+            .send_test_camp_message(
+                &mut fixture.database,
+                &CommandEnvelope {
+                    command_id: Uuid::new_v4().to_string(),
+                    actor: ActorRef::User {
+                        user_id: "test-user".into(),
+                    },
+                    camp_id: Some(first_camp_id.clone()),
+                    expected_versions: Vec::new(),
+                    execution_epoch: None,
+                    payload: TestThreadMessageCommand {
+                        camp_id: first_camp_id.clone(),
+                        draft_revision: None,
+                        body: "LIVE_DIRECTORY_BODY_FENCE".into(),
+                        prepared_attachment_ids: Vec::new(),
+                        address: TestThreadMessageAddress::Default,
+                        reply_to_camp_message_id: None,
+                        execution: None,
+                    },
+                },
+            )
+            .unwrap();
+        let late_id = late.result.payload["threadMessageId"].as_str().unwrap();
+        assert_eq!(
+            list(&mut fixture.database)["threads"][0]["threadId"],
+            first_camp_id
+        );
+        let late_search = ThreadHistoryService
+            .search_history(
+                &mut fixture.database,
+                &live_run,
+                &HistorySearchInput {
+                    query: "LIVE_DIRECTORY_BODY_FENCE".into(),
+                    camp_ids: Some(vec![first_camp_id.clone()]),
+                    date_from: None,
+                    date_to: None,
+                    limit: None,
+                },
+            )
+            .unwrap();
+        assert!(
+            late_search["results"].as_array().unwrap().is_empty(),
+            "live directory cannot lift the body fence"
+        );
+        fixture.database.connection().execute("UPDATE camp_message SET recall_state='withdrawn',body='',structured_content_json='[]' WHERE id=?1",[late_id]).unwrap();
+        let withdrawn = list(&mut fixture.database);
+        assert_eq!(withdrawn["threads"][0]["threadId"], second_camp_id);
+        assert_eq!(
+            withdrawn["threads"][1]["lastVisibleActivityAt"],
+            "2026-08-01T00:00:00Z"
+        );
+        // Equal visible send times use the stable ID, independent of title or publication order.
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET created_at='2026-08-01T00:00:00Z' WHERE id=?1",
+                [&second_message_id],
+            )
+            .unwrap();
+        let tied = list(&mut fixture.database);
+        let mut ids = [first_camp_id.as_str(), second_camp_id.as_str()];
+        ids.sort();
+        assert_eq!(tied["threads"][0]["threadId"], ids[0]);
+        let filtered = ThreadHistoryService
+            .list_camps(
+                &mut fixture.database,
+                &live_run,
+                &ThreadListInput {
+                    query: Some("HISTORY".into()),
+                    limit: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(filtered, tied);
+        // No remaining visible public message falls back to creation, never updated_at.
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp_message SET tombstoned_at='2026-10-14T00:00:00Z' WHERE camp_id=?1",
+                [&first_camp_id],
+            )
+            .unwrap();
+        let empty = list(&mut fixture.database);
+        assert_eq!(
+            empty["threads"][1]["lastVisibleActivityAt"],
+            "2026-07-01T00:00:00Z"
+        );
+        assert!(
+            fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT tombstoned_at IS NOT NULL FROM camp_message WHERE id=?1",
+                    [first_message_id],
+                    |r| r.get::<_, bool>(0)
+                )
+                .unwrap()
+        );
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE camp SET deletion_operation_id='directory-delete' WHERE id=?1",
+                [&second_camp_id],
+            )
+            .unwrap();
+        assert_eq!(
+            list(&mut fixture.database)["threads"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT count(*) FROM context_manifest_history_camp",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            old_rows
+        );
+        let old_bytes: i64 = fixture.database.connection().query_row("SELECT sum(length(CAST(camp_id||camp_title||last_visible_activity_at AS BLOB))) FROM context_manifest_history_camp",[],|r|r.get(0)).unwrap();
+        println!(
+            "directory_pr2 old_rows={old_rows} new_rows=0 old_catalog_text_bytes={old_bytes} new_catalog_text_bytes=0"
+        );
         fixture.cleanup();
     }
 
@@ -10913,13 +11182,51 @@ mod slow_tests {
     // A claimed input without a Manifest must survive an upgrade using its frozen formatter.
     #[test]
     fn claimed_legacy_batch_keeps_its_format_after_context_upgrades() {
-        for expected_version in [32, 33] {
+        for expected_version in [32, 33, 36, 38] {
             let mut fixture = fixture();
             fixture.database.connection().execute(
                 "INSERT INTO camp_member(camp_id,agent_id,status,capability_overrides_json,version,joined_at) VALUES(?1,'agent_2','active','{}',1,datetime('now'))",
                 [&fixture.camp_id],
             ).unwrap();
-            if expected_version == 32 {
+            let author_name: String = fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT display_name FROM agent_profile WHERE id='agent_2'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            if expected_version >= 36 {
+                fixture.database.connection().execute("UPDATE camp_message SET author_type='agent',author_id='agent_2' WHERE id=(SELECT message_id FROM agent_run_input WHERE agent_run_id=?1)", [&fixture.run_id]).unwrap();
+                freeze_fixture_claim(&mut fixture);
+                if expected_version == 36 {
+                    let mut claimed = claim::load(fixture.database.connection(), &fixture.run_id)
+                        .unwrap()
+                        .unwrap();
+                    for message in claimed.run_input["messages"].as_array_mut().unwrap() {
+                        message.as_object_mut().unwrap().remove("senderName");
+                    }
+                    let tx = fixture.database.connection_mut().transaction().unwrap();
+                    tx.execute(
+                        "DELETE FROM agent_run_claim_context WHERE agent_run_id=?1",
+                        [&fixture.run_id],
+                    )
+                    .unwrap();
+                    claimed.persist(&tx, &fixture.run_id).unwrap();
+                    tx.commit().unwrap();
+                    crate::db::upgrade_message_senders_fixture(&mut fixture.database);
+                }
+                // A later profile change and departure cannot change already claimed names.
+                fixture
+                    .database
+                    .connection()
+                    .execute_batch(
+                        "UPDATE agent_profile SET display_name='After claim' WHERE id='agent_2';
+                    UPDATE camp_member SET status='left' WHERE agent_id='agent_2';",
+                    )
+                    .unwrap();
+            } else if expected_version == 32 {
                 crate::db::downgrade_message_mentions_fixture(&fixture.database);
                 crate::db::upgrade_message_mentions_fixture(&mut fixture.database);
             } else {
@@ -10953,6 +11260,17 @@ mod slow_tests {
                 input["messages"][0].get("mentions").is_none(),
                 expected_version == 32
             );
+            if expected_version >= 36 {
+                assert_eq!(input["messages"][0]["senderId"], "agent_2");
+                if expected_version == 38 {
+                    assert_eq!(input["messages"][0]["senderName"], author_name);
+                } else {
+                    assert!(input["messages"][0].get("senderName").is_none());
+                }
+            } else {
+                assert_eq!(input["messages"][0]["senderId"], "test-user");
+                assert!(input["messages"][0].get("senderName").is_none());
+            }
             let roster: Value = serde_json::from_str(
                 first
                     .rendered_payload
@@ -10970,7 +11288,8 @@ mod slow_tests {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .all(|peer| peer.get("professionalResponsibilities").is_some())
+                    .all(|peer| peer.get("professionalResponsibilities").is_some()
+                        == (expected_version <= 33))
             );
             let version: i64 = fixture
                 .database
@@ -11196,7 +11515,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(
             (manifest_version, formatter_version, facts_version),
-            (37, 37, 10)
+            (39, 39, 10)
         );
         assert_eq!(profile_json, None);
         assert_eq!(
@@ -13522,6 +13841,11 @@ mod slow_tests {
     #[test]
     fn single_chat_materializes_conversation_input_with_a_memory_free_bootstrap() {
         let mut fixture = fixture();
+        send_explicit_public_output(
+            &mut fixture,
+            "shared-sender-before-claim",
+            "PUBLIC_SENDER_CURRENT",
+        );
         let single_chat = SingleChatService::default();
         let opened = single_chat
             .open(
@@ -13604,6 +13928,19 @@ mod slow_tests {
             )
             .unwrap();
         let execution_epoch = claimed.result.payload["executionEpoch"].as_i64().unwrap();
+        assert!(
+            !fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM agent_run_claim_context WHERE agent_run_id=?1)",
+                    [&run_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap(),
+            "non-batch claim must not add a sender-name snapshot"
+        );
+        fixture.database.connection().execute("UPDATE agent_profile SET display_name='NAME_AFTER_SHARED_CLAIM' WHERE id='agent_1'", []).unwrap();
         let binding = TeamToolService::default()
             .prepare_binding_credential(&mut fixture.database, &run_id, execution_epoch, false)
             .unwrap();
@@ -13623,6 +13960,66 @@ mod slow_tests {
         else {
             panic!("Single Chat context should be ready")
         };
+        let shared: Value = serde_json::from_str(
+            prepared
+                .rendered_payload
+                .split_once("[SHARED_THREAD]\n")
+                .unwrap()
+                .1
+                .split_once("\n[/SHARED_THREAD]")
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        let message = shared["recentMessages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["body"] == "PUBLIC_SENDER_CURRENT")
+            .unwrap();
+        assert_eq!(message["senderType"], "agent");
+        assert_eq!(message["senderId"], "agent_1");
+        assert_eq!(message["senderName"], "NAME_AFTER_SHARED_CLAIM");
+        let current_input: Value = serde_json::from_str(
+            prepared
+                .rendered_payload
+                .split_once("[CURRENT_INPUT]\n")
+                .unwrap()
+                .1
+                .split_once("\n[/CURRENT_INPUT]")
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        assert_eq!(current_input["source"], json!({"type":"user"}));
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET display_name='NAME_AFTER_RENDER' WHERE id='agent_1'",
+                [],
+            )
+            .unwrap();
+        let ContextMaterialization::Ready(replayed) = ContextService
+            .materialize(
+                &mut fixture.database,
+                &store,
+                &MaterializeContextRequest {
+                    agent_run_id: &run_id,
+                    execution_epoch,
+                    charter_delivery_mode: CharterDeliveryMode::FirstPayload,
+                    max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("frozen Single Chat context should be ready")
+        };
+        assert_eq!(replayed.rendered_payload, prepared.rendered_payload);
+        assert_eq!(
+            replayed.rendered_payload_digest,
+            prepared.rendered_payload_digest
+        );
         assert!(prepared.runtime_payload.starts_with("[SESSION_CHARTER]\n"));
         assert!(prepared.runtime_payload.contains("[MEMBER_IDENTITY]"));
         assert!(!prepared.runtime_payload.contains("[MEMORY_ENTRYPOINT]"));
@@ -14458,6 +14855,7 @@ mod slow_tests {
                 content_digest: sha256_text(&body),
                 default_recipient_mention: None,
                 mentions: None,
+                model_sender: None,
                 mentions_current_user: false,
                 skill_names: Vec::new(),
                 skill_mentions: Vec::new(),
@@ -15789,6 +16187,7 @@ mod slow_tests {
                             expected_versions: Vec::new(),
                             execution_epoch: None,
                             payload: crate::action::ReconcileRuntimeLossCommand {
+                                failure: None,
                                 agent_run_id: fixture.run_id.clone(),
                                 expected_version: current.version + 1,
                                 execution_epoch: fixture.execution_epoch,

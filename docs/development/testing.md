@@ -20,7 +20,7 @@ last_updated: 2026-10-15
 node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qwen-code
 ```
 
-第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 或 `zcode-app`。
+第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 、`zcode-app` 或 `trae-cn-cli`。
 可选第四参数 `steer-only` 仅验同轮文字与纯附件，`mixed-only` 仅验多队员混合投递，`cancel-only`
 仅验取消后的副作用与后继 Run；默认顺序验证同轮输入、普通后继和多队员混合。混合场景额外调用
 OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint
@@ -33,17 +33,21 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 ```
 
 第五参数 `positive` 验证三个独立 Thread 的同轮连续输入及逐消息 `RUN_INPUT` 引用；
-`boundaries` 验证未完成消费／部分消费时停止、普通续接、工具释放附近插话和失效目标；
-`preflight` 仅运行当前生产准入。每次使用不同的新目录。`ROVAI_STEER_PROBE_FILTER`
+`boundaries` 验证待接收输入／首条回执后停止、普通续接、工具释放附近插话和失效目标；
+`preflight` 仅运行当前生产准入；`ineligible` 验证普通执行可用、Steer 在原生写入前被 Core 排队，
+随后普通后继成功且没有 Steer 输入行。每次使用不同的新目录。`ROVAI_STEER_PROBE_FILTER`
 可按 case 名称子串只复查某个异常，必须保留原失败记录，不能把筛选后的通过当成全套通过。
 脚本保存明确的 Runtime 启动路径并核对真实入口，避免自动发现回退到本机新版；不删除生产必传参数，
 不绕过普通 Runtime 或 Steer 门槛。特殊原生配置可通过对应 Runtime 的 Home 环境变量指向隔离副本，
 报告中必须注明差异。原生小文本探针与本脚本的生产 Builder／Adapter 验收分别记账。
 
+`node --test scripts/lib/steer-race-outcome.test.mjs scripts/lib/steer-ui.test.mjs` 分别验证三种合法竞态结果及反例、生产 UI 的逐目标路线／原因和接收文案。
+
 `report.json` 和 fixture 原生日志属于私有诊断，可能含本机路径、服务地址、上下文和原生错误；
 不得直接作为公开附件。只导出版本、摘要、回执关联、case 结果与必要的脱敏错误，并清理本次复制的凭据。
 有限次数通过只覆盖已执行的场景，不证明所有结束竞态或所有历史版本；边界未覆盖时使用“最早已测通过”，
-不用“最低兼容”。本轮完整证据见[低版本验证报告](../research/runtime-monitoring/steer-low-versions-2026-10-15.md)。
+不用“最低兼容”。合并后产品证据见[Steer 收口报告](../research/runtime-monitoring/steer-hardening-2026-10-15.md)，
+此前低版本边界见[低版本验证报告](../research/runtime-monitoring/steer-low-versions-2026-10-15.md)。
 
 ## Rust 测试准入与退役门槛
 

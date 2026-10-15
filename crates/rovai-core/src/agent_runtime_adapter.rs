@@ -77,7 +77,7 @@ pub fn pi_minimum_version_satisfied(reported_version: Option<&str>) -> bool {
         })
 }
 
-fn parse_reported_runtime_version(value: &str) -> Option<([u64; 3], bool)> {
+pub(crate) fn parse_reported_runtime_version(value: &str) -> Option<([u64; 3], bool)> {
     value
         .split(|character: char| {
             !(character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '+' | '_'))
@@ -3727,7 +3727,9 @@ fn antigravity_binding_compatibility_digest(
         "installationId": installation_id,
         "protocolVersion": protocol_version,
         "contextContract": native_binding_context_contract(),
-        "builtinToolContractVersion": crate::builtin_tool_transport::BUILTIN_TOOL_CONTRACT_VERSION,
+        // CLI output revisions do not invalidate a native conversation. Preserve the
+        // deployed binding identity, just as native_binding_context_contract does.
+        "builtinToolContractVersion": 39,
     }))
 }
 
@@ -5059,6 +5061,23 @@ mod tests {
         let current =
             antigravity_binding_compatibility_digest("agy-local", "antigravity-app-cli-v1")
                 .unwrap();
+        // Sender-only output changes must preserve the deployed binding input,
+        // including Antigravity's historical transport-version field.
+        assert_eq!(
+            current,
+            canonical_json_digest(&json!({
+                "adapterKind": AdapterKind::AntigravityApp,
+                "installationId": "agy-local",
+                "protocolVersion": "antigravity-app-cli-v1",
+                "contextContract": {
+                    "nativeSessionBootstrap":"native_session_bootstrap_v4",
+                    "bootstrapFormatterVersion":4, "sessionCharterRevision":16,
+                    "agentRunContextFormatterVersion":26, "contextManifestVersion":26,
+                },
+                "builtinToolContractVersion":39,
+            }))
+            .unwrap()
+        );
         for (installation, protocol) in [
             ("agy-other", "antigravity-app-cli-v1"),
             ("agy-local", "antigravity-app-cli-v2"),

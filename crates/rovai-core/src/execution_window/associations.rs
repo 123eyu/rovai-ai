@@ -129,7 +129,7 @@ fn historical_payload<'a>(
 ) -> Result<&'a Value> {
     if !cache.contains_key(id) {
         let raw: String = connection.query_row(
-            "SELECT payload_preview_json FROM agent_run_execution_evidence WHERE id = ?1",
+            "SELECT rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json) FROM agent_run_execution_evidence WHERE id = ?1",
             [id],
             |row| row.get(0),
         )?;

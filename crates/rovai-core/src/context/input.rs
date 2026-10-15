@@ -116,6 +116,7 @@ pub(super) fn select_delivery(
         &snapshot.agent_id,
         boundary,
         &[message_id],
+        &mut SenderNames::default(),
     )?;
     tx.commit()?;
     Ok(messages)

@@ -5469,6 +5469,18 @@ pub(crate) fn delete_camp_aggregate(transaction: &Connection, camp_id: &str) -> 
         WHERE camp_turn.camp_id = ?1
         "#
     };
+    let detached_blobs =
+        crate::managed_blob::camp_blob_references(transaction, camp_id, camp_agent_run_ids)?;
+    // Registration and reference removal share the caller's business transaction.
+    let detached_at = chrono::Utc::now().to_rfc3339();
+    for blob_id in detached_blobs {
+        crate::managed_blob::detach_gc_candidate(
+            transaction,
+            &blob_id,
+            crate::managed_blob::GC_OWNER_CAMP_DELETION,
+            &detached_at,
+        )?;
+    }
     let delivery_queue_exists: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'camp_message_delivery')",
         [],

@@ -8,6 +8,7 @@ import { navigationShortcut } from './desktop-navigation-input'
 import { primaryShortcutLabel } from './renderer-platform'
 import { clampNavigationWidth, navigationDragLayout, navigationMaxWidth, parseNavigationLayout, NAVIGATION_DEFAULT_WIDTH, NAVIGATION_LAYOUT_KEY, NAVIGATION_MIN_WIDTH, type NavigationLayout } from './navigation-layout'
 import { UiText, uiAttribute } from './interface-language'
+import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 
 const NavigationContext = createContext(false)
 export const useNavigationCollapsed = (): boolean => useContext(NavigationContext)
@@ -58,44 +59,49 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
   const [menuOpen, setMenuOpen] = useState(false)
   const [chromeSlot, setChromeSlot] = useState<HTMLElement | null>(null)
   const handle = useRef<HTMLDivElement>(null)
-  const gesture = useRef<{ id: number; x: number; width: number; before: NavigationLayout; moved: boolean } | null>(null)
-  const frame = useRef<number | null>(null)
   const maximum = navigationMaxWidth(viewport)
   const fixedSettings = mobile || settings && (browser || platform === 'darwin')
   // Web settings always expose their categories; ordinary-page layout stays saved.
   const collapsed = layout.collapsed && !mobile && !(browser && settings)
   const width = collapsed ? 0 : fixedSettings ? NAVIGATION_DEFAULT_WIDTH : clampNavigationWidth(layout.width, maximum)
+  const paintWidth = (value: number): void => {
+    handle.current?.closest<HTMLElement>('.navigation-shell')?.style.setProperty('--rail-width', `${value}px`)
+  }
+  const previewWidth = (value: number): void => {
+    paintWidth(value)
+    setLayout({ width: value, collapsed: false })
+  }
+  const splitter = useCollapsibleSplitter({
+    size: width, collapsed, minimum: NAVIGATION_MIN_WIDTH, maximum, direction: 1,
+    disabled: disabled || fixedSettings,
+    scale: () => splitterScale(handle.current?.closest<HTMLElement>('.navigation-shell') ?? null),
+    capture: () => layout,
+    onPreview: previewWidth,
+    onCommit: previewWidth,
+    onCollapseFrame: paintWidth,
+    onCollapse: before => { paintWidth(0); setLayout({ ...before, collapsed: true }) },
+    onCancel: before => { paintWidth(before.collapsed ? 0 : clampNavigationWidth(before.width, maximum)); setLayout(before) },
+    onActiveChange: setResizing
+  })
   const label = collapsed ? uiAttribute('展开导航侧栏') : uiAttribute('收起导航侧栏')
-  const toggle = (): void => setLayout(current => fixedSettings && !current.collapsed ? current : { ...current, collapsed: !current.collapsed })
-  const resizeTo = (value: number): void => setLayout({ width: clampNavigationWidth(value, maximum), collapsed: false })
-  const cancelFrame = (): void => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null }
-  const finish = (cancel = false): void => {
-    const active = gesture.current
-    if (!active) return
-    cancelFrame(); gesture.current = null
-    if (cancel) setLayout(active.before)
-    setResizing(false)
-    if (handle.current?.hasPointerCapture(active.id)) handle.current.releasePointerCapture(active.id)
+  const toggle = (): void => {
+    splitter.cancel()
+    setLayout(current => fixedSettings && !current.collapsed ? current : { ...current, collapsed: !current.collapsed })
   }
-  const resizeAt = (clientX: number): void => {
-    const active = gesture.current
-    if (active) setLayout(navigationDragLayout(active.width + clientX - active.x, active.before, navigationMaxWidth(window.innerWidth)))
-  }
+  const resizeTo = (value: number): void => { splitter.cancel(); previewWidth(clampNavigationWidth(value, maximum)) }
   useLayoutEffect(() => {
     setChromeSlot(platform === 'win32' ? document.getElementById('navigation-chrome-toggle-slot') : null)
   }, [platform])
   useEffect(() => {
-    const resize = (): void => { finish(true); setViewport(window.innerWidth) }
-    const cancel = (): void => finish(true)
-    const escape = (event: KeyboardEvent): void => { if (event.key === 'Escape' && gesture.current) { event.preventDefault(); cancel() } }
-    window.addEventListener('resize', resize); window.addEventListener('blur', cancel); window.addEventListener('keydown', escape)
-    return () => { cancelFrame(); window.removeEventListener('resize', resize); window.removeEventListener('blur', cancel); window.removeEventListener('keydown', escape) }
+    const resize = (): void => setViewport(window.innerWidth)
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
   }, [])
   useEffect(() => {
     if (resizing) return
     try { window.localStorage.setItem(NAVIGATION_LAYOUT_KEY, JSON.stringify(layout)) } catch { /* Preferences may be unavailable; in-window layout still works. */ }
   }, [layout, resizing])
-  useEffect(() => { if (disabled || fixedSettings) { finish(true); setMenuOpen(false) } }, [disabled, fixedSettings])
+  useEffect(() => { if (disabled || fixedSettings) setMenuOpen(false) }, [disabled, fixedSettings])
   const control = fixedSettings && !collapsed ? null : <div className="navigation-chrome-controls"><button className="navigation-collapse-button" type="button" disabled={disabled} title={label} aria-label={label} aria-expanded={!layout.collapsed} aria-controls="global-navigation" onClick={toggle}>
     <PanelToggleIcon side="left" visible={!layout.collapsed} />
   </button>
@@ -121,32 +127,12 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
           <div ref={handle} className="navigation-resize-handle" role="separator" tabIndex={disabled ? -1 : 0} aria-disabled={disabled || undefined}
             aria-label={uiAttribute("导航侧栏宽度")} aria-orientation="vertical" aria-valuemin={0} aria-valuemax={maximum} aria-valuenow={width}
             aria-valuetext={layout.collapsed ? uiAttribute("已完全收起") : uiAttribute("{0} 像素", String(width))} aria-controls="global-navigation" aria-describedby="navigation-resize-help"
-            title={uiAttribute("拖动调宽，低于 200px 完全收起；双击复位；右键选择宽度")}
-            onPointerDown={event => {
-              event.preventDefault()
-              if (disabled || event.button !== 0 || !event.isPrimary || gesture.current) return
-              event.currentTarget.setPointerCapture(event.pointerId)
-              gesture.current = { id: event.pointerId, x: event.clientX, width, before: layout, moved: false }
-              setResizing(true)
-            }}
-            onPointerMove={event => {
-              const active = gesture.current
-              if (!active || active.id !== event.pointerId || (!active.moved && Math.abs(event.clientX - active.x) < 3)) return
-              active.moved = true
-              const x = event.clientX
-              cancelFrame(); frame.current = requestAnimationFrame(() => { frame.current = null; resizeAt(x) })
-            }}
-            onPointerUp={event => {
-              const active = gesture.current
-              if (!active || active.id !== event.pointerId) return
-              if (active.moved || Math.abs(event.clientX - active.x) >= 3) resizeAt(event.clientX)
-              finish()
-            }}
-            onPointerCancel={() => finish(true)} onLostPointerCapture={() => finish(true)}
+            title={uiAttribute("拖动调宽，最窄处停留后继续向左拖动收起；双击复位；右键选择宽度")}
+            {...splitter.handlers}
             onDoubleClick={() => { if (!disabled) resizeTo(NAVIGATION_DEFAULT_WIDTH) }}
             onContextMenu={event => { event.preventDefault(); if (!disabled) setMenuOpen(true) }}
             onKeyDown={event => {
-              if (disabled || event.nativeEvent.isComposing || gesture.current) { event.preventDefault(); return }
+              if (disabled || event.nativeEvent.isComposing || resizing) { event.preventDefault(); return }
               const step = event.shiftKey ? 40 : 10
               switch (event.key) {
                 case 'ArrowLeft': if (!layout.collapsed) setLayout(navigationDragLayout(width - step, layout, maximum)); break
@@ -165,7 +151,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
           <DropdownMenu.Item className="sidebar-action-menu-item" onSelect={toggle}>{label}</DropdownMenu.Item>
         </DropdownMenu.Content></DropdownMenu.Portal>
       </DropdownMenu.Root>}
-      {!fixedSettings && <span id="navigation-resize-help" className="sr-only"><UiText zh={"方向键调宽，Shift 加速，Home 最窄，End 最宽，Enter 折叠，空格选择宽度。低于 200 像素完全收起；从左边缘拖出恢复。Escape 取消拖拽。"} /></span>}
+      {!fixedSettings && <span id="navigation-resize-help" className="sr-only"><UiText zh={"方向键调宽，Shift 加速，Home 最窄，End 最宽，Enter 折叠，空格选择宽度。拖到 200 像素先停留，继续向左拖动收起；从左边缘拖出恢复。Escape 取消拖拽。"} /></span>}
       {/* Electron applies drag regions in DOM order; keep this no-drag control after the sidebar and topbar drag regions. */}
       {!browser && platform === 'win32' ? chromeSlot && createPortal(control, chromeSlot) : <div className={browser ? "navigation-browser-control" : "navigation-macos-control"}>{control}</div>}
     </div>

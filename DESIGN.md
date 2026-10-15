@@ -110,8 +110,9 @@ macOS and Web settings use a fixed 270px rail without collapse, resize or histor
 macOS preserves an inherited collapsed rail with an expand button. Web settings always expand their categories
 and remove the native drag spacer above the brand; leaving settings restores the ordinary-page layout. Ordinary pages show back/forward
 beside the sidebar toggle while expanded, and only the expand button while collapsed.
-The global rail resizes from 200px to 420px within the window. Dragging below 200px or using the
-window-chrome toggle collapses it completely to 0px, without an icon strip. Restore through the toggle,
+The global rail resizes from 200px to 420px within the window. Dragging to 200px pauses at the minimum; after a 180ms dwell, another 64px inward folds it
+to 0px over 160ms. Releasing at the stop keeps 200px. The window-chrome toggle also collapses
+it completely, without an icon strip. Restore through the toggle,
 keyboard, or a drag from the left edge; retain the previous expanded width and mounted page state.
 The minimum supported window is `1040×700`; reference checks also cover `1440×920` and
 `2560×1440`, 200% zoom and reduced motion.
@@ -149,7 +150,7 @@ without extra focus outlines or halos; higher contrast preferences restore the s
 ## Components
 
 - **Buttons:** compact, direct and text-first. Primary actions use Steel by default. Conversation send, conversation/project renaming, new-conversation dialog creation, task creation and member creation/invitation use
-  the neutral `--conversation-action` family, as do first-run onboarding, teammate Runtime permission switches, Host workspace confirmation, teammate save, Memory, Automation and MCP/Skills actions. Teammate save and workspace creation entries use light tonal buttons. Home creation uses a quiet tonal entry; danger marks destructive actions and sidebar removal. Active buttons move down 1px; disabled controls retain legible content at
+  the neutral `--conversation-action` family, as do first-run onboarding, teammate Runtime permission switches, Host workspace confirmation, teammate save, Memory, Automation and MCP/Skills actions. Teammate saves and avatar crop sliders use the neutral primary action; workspace creation entries use light tonal buttons. Home creation uses a quiet tonal entry; danger marks destructive actions and sidebar removal. Active buttons move down 1px; disabled controls retain legible content at
   reduced opacity. Floating return-to-latest icon controls keep their hit area stationary while pressed;
   their face uses a tonal change for feedback. Mission creation/start buttons also keep their position
   when pressed; their primary actions use the neutral `--conversation-action` family.
@@ -161,7 +162,10 @@ without extra focus outlines or halos; higher contrast preferences restore the s
 - **Resizable boundaries:** navigation, member roster, file preview, MCP/Skills, Automation and execution-panel splitters
   share a single `1px` line. Hover and dragging change the entire boundary to neutral `--resize-line`,
   without a short grip or increased thickness. Invisible hit areas remain wider. Preserve keyboard resizing,
-  cancellation and reset. Collapse icons use an unfilled rounded window with an inner line near the corresponding
+  cancellation and reset. Collapsible panes share the 180ms minimum stop, 64px continuation and 160ms
+  fold; reduced motion skips the fold animation while retaining the intentional stop. Release before
+  folding keeps the minimum; release during a fold finishes it. Settings lists and Diff file trees
+  retain their minimum widths, and the Mission drawer retains its own full-expansion gesture. Collapse icons use an unfilled rounded window with an inner line near the corresponding
   edge when collapsed; the navigation control sits right of macOS traffic lights or left of Windows File.
 - **Containers:** prefer one open surface with dividers over card walls. A card is justified only
   when it represents a bounded object, decision or independent state.
@@ -171,7 +175,9 @@ without extra focus outlines or halos; higher contrast preferences restore the s
   and only necessary status. Destructive dialog actions use `--danger-soft` with `--danger` text. The standalone
   Mission Worktree cleanup action is a narrow product-specific exception: it uses the neutral conversation
   action while its concise dialog states the exact Worktree/branch scope.
-  Preserve identity portraits and functional context icons. Closing menus or dialogs does not automatically refocus an entry button; retain input positioning, focus trapping and keyboard navigation. Runtime configuration dropdown bodies remain unchanged.
+  Preserve identity avatars and functional context icons. Closing menus or dialogs does not automatically refocus an entry button; retain input positioning, focus trapping and keyboard navigation.
+  The member avatar picker/crop dialog is a scoped exception: its confirmed interaction returns focus to the actual avatar entry after closing, without scrolling or adding focus decoration.
+  Runtime configuration dropdown bodies remain unchanged.
 - **Evidence:** uses the dedicated evidence and diff tokens, monospaced type where appropriate, and
   structural `+`/`-`, line numbers or labels in addition to color.
 - **Code:** shared SafeMarkdown surfaces use a quiet inline canvas with `0 2px` padding and a `3px`

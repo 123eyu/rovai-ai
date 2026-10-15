@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -18,7 +17,6 @@ import {
   FILE_PREVIEW_RATIO_STORAGE_KEY,
   MIN_CONVERSATION_WIDTH,
   MIN_FILE_PREVIEW_WIDTH,
-  filePreviewCloseThreshold,
   filePreviewDragWidth,
   filePreviewRatioForWidth,
   filePreviewRatioFromStoredValue,
@@ -27,8 +25,10 @@ import {
   maximumFilePreviewWidth
 } from './file-preview-layout'
 import { UiText, uiAttribute } from './interface-language'
+import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 
 interface FilePreviewLayoutValue {
+  threadId: string | null
   visible: boolean
   activityMode: boolean
   compact: boolean
@@ -148,6 +148,7 @@ export function FilePreviewLayoutProvider({
   const ratio = preferredRatio ?? initialRatios.get(threadId ?? '') ?? DEFAULT_FILE_PREVIEW_RATIO
   const width = dragWidth ?? filePreviewWidthForRatio(availableWidth, ratio)
   const value = useMemo<FilePreviewLayoutValue>(() => ({
+    threadId,
     visible,
     activityMode,
     compact,
@@ -157,7 +158,6 @@ export function FilePreviewLayoutProvider({
     className: [
       compact ? 'file-preview-compact' : '',
       dragWidth !== null ? 'is-file-preview-resizing' : '',
-      dragWidth !== null && width < filePreviewCloseThreshold(activityMode) ? 'is-file-preview-close-armed' : '',
       snapping ? 'is-file-preview-snapping' : ''
     ].filter(Boolean).join(' '),
     style: { '--file-preview-width': `${Math.round(width)}px` } as CSSProperties,
@@ -167,7 +167,7 @@ export function FilePreviewLayoutProvider({
     commitWidth,
     cancelResize,
     resetRatio
-  }), [activityMode, availableWidth, cancelResize, commitWidth, compact, dragWidth, previewWidth, resetRatio, snapping, visible, width, workspace])
+  }), [activityMode, availableWidth, cancelResize, commitWidth, compact, dragWidth, previewWidth, resetRatio, snapping, threadId, visible, width, workspace])
 
   return <FilePreviewInitialWidthContext.Provider value={initializeMinimumWidth}>
     <FilePreviewLayoutContext.Provider value={value}>{children}</FilePreviewLayoutContext.Provider>
@@ -192,75 +192,12 @@ export function FilePreviewWorkspace({ children, hidden }: { children: ReactNode
   >{children}</div>
 }
 
-interface ResizeGesture {
-  scale: number
-  pointerId: number
-  target: HTMLDivElement
-  availableWidth: number
-  right: number
-  grabOffset: number
-  startWidth: number
-  width: number
-  moved: boolean
-}
-
 export function FilePreviewResizeHandle({ onClose }: { onClose(): void }): React.JSX.Element | null {
   const layout = useOptionalFilePreviewLayout()
-  const gestureRef = useRef<ResizeGesture | null>(null)
-  const frameRef = useRef<number | null>(null)
   const hintId = useId()
-  const cancelResize = layout?.cancelResize
-
-  const releaseGesture = useCallback((): void => {
-    const gesture = gestureRef.current
-    gestureRef.current = null
-    if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current)
-    frameRef.current = null
-    if (gesture?.target.hasPointerCapture(gesture.pointerId)) gesture.target.releasePointerCapture(gesture.pointerId)
-  }, [])
-
-  const cancelGesture = useCallback((): void => {
-    releaseGesture()
-    cancelResize?.()
-  }, [cancelResize, releaseGesture])
-
-  useEffect(() => {
-    if (!layout?.resizing) {
-      releaseGesture()
-      return
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      cancelGesture()
-    }
-    document.documentElement.classList.add('file-preview-resizing')
-    window.addEventListener('keydown', onKeyDown, true)
-    window.addEventListener('blur', cancelGesture)
-    return () => {
-      document.documentElement.classList.remove('file-preview-resizing')
-      window.removeEventListener('keydown', onKeyDown, true)
-      window.removeEventListener('blur', cancelGesture)
-    }
-  }, [cancelGesture, layout?.resizing, releaseGesture])
-
-  useEffect(() => () => {
-    releaseGesture()
-    cancelResize?.()
-  }, [cancelResize, releaseGesture])
-
-  if (!layout?.visible || layout.compact) return null
-
-  const maximum = maximumFilePreviewWidth(layout.availableWidth)
-  const closeArmed = layout.resizing && layout.width < filePreviewCloseThreshold(layout.activityMode)
-  const atConversationMinimum = layout.width >= maximum
-  const hint = closeArmed ? uiAttribute('松开关闭文件预览')
-    : atConversationMinimum ? uiAttribute("会话区已达最小宽度 {0}px", String(MIN_CONVERSATION_WIDTH))
-      : uiAttribute("会话 {0}px · 文件 {1}px", String(Math.round(layout.availableWidth - layout.width)), String(Math.round(layout.width)))
-
+  const maximum = maximumFilePreviewWidth(layout?.availableWidth ?? 0)
   const closePreview = (): void => {
-    cancelGesture()
+    layout?.cancelResize()
     onClose()
     window.requestAnimationFrame(() => {
       const target = document.querySelector<HTMLElement>('.thread-timeline:not([hidden])')
@@ -268,109 +205,73 @@ export function FilePreviewResizeHandle({ onClose }: { onClose(): void }): React
       target?.focus({ preventScroll: true })
     })
   }
-
-  const widthAtPointer = (gesture: ResizeGesture, clientX: number): number => filePreviewDragWidth(
-    gesture.availableWidth,
-    gesture.right - clientX / gesture.scale + gesture.grabOffset
-  )
-
-  const moveGesture = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const gesture = gestureRef.current
-    if (!gesture || event.pointerId !== gesture.pointerId) return
-    if (layout.availableWidth !== gesture.availableWidth) {
-      cancelGesture()
-      return
+  const splitter = useCollapsibleSplitter({
+    size: layout?.width ?? MIN_FILE_PREVIEW_WIDTH, collapsed: false,
+    minimum: MIN_FILE_PREVIEW_WIDTH, maximum, direction: -1,
+    disabled: !layout?.visible || layout.compact,
+    scopeKey: layout?.threadId,
+    scale: () => splitterScale(layout?.workspace ?? null),
+    capture: () => undefined,
+    onPreview: width => layout?.previewWidth(width),
+    onCommit: width => layout?.commitWidth(width),
+    onCollapse: closePreview,
+    onCancel: () => layout?.cancelResize(),
+    onActiveChange: active => {
+      document.documentElement.classList.toggle('file-preview-resizing', active)
+      if (active && layout) layout.previewWidth(layout.width)
     }
-    gesture.width = widthAtPointer(gesture, event.clientX)
-    gesture.moved ||= Math.abs(gesture.width - gesture.startWidth) > .5
-    if (frameRef.current !== null) return
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = null
-      if (gestureRef.current === gesture) layout.previewWidth(gesture.width)
-    })
-  }
+  })
+
+  if (!layout?.visible || layout.compact) return null
+
+  const atMinimum = splitter.phase === 'detent'
+  const atConversationMinimum = layout.width >= maximum
+  const hint = atMinimum ? uiAttribute('已到最小宽度，继续拖动收起')
+    : atConversationMinimum ? uiAttribute("会话区已达最小宽度 {0}px", String(MIN_CONVERSATION_WIDTH))
+      : uiAttribute("会话 {0}px · 文件 {1}px", String(Math.round(layout.availableWidth - layout.width)), String(Math.round(layout.width)))
 
   // One rail belongs to the shell grid, spanning the shared header and the body without clipping.
   const shell = layout.workspace?.closest('.mission-workspace-host, .app-shell-camp')
   const handle = <div
-    className={`file-preview-resize-handle${shell ? ' is-shell-divider' : ''}${layout.resizing ? ' is-resizing' : ''}${closeArmed ? ' is-close-armed' : ''}`}
+    className={`file-preview-resize-handle${shell ? ' is-shell-divider' : ''}${layout.resizing ? ' is-resizing' : ''}`}
     style={layout.style}
     role="separator"
     aria-label={uiAttribute("调整文件预览宽度")}
     aria-orientation="vertical"
-    aria-valuemin={layout.resizing ? 0 : MIN_FILE_PREVIEW_WIDTH}
+    aria-valuemin={splitter.phase === 'closing' ? 0 : MIN_FILE_PREVIEW_WIDTH}
     aria-valuemax={Math.round(maximum)}
     aria-valuenow={Math.round(layout.width)}
     aria-valuetext={hint}
     aria-describedby={hintId}
     tabIndex={0}
     title={uiAttribute("拖动调整 · 双击恢复 44/56 · 方向键调整 · Delete 关闭")}
-    onPointerDown={(event) => {
-      if (event.button !== 0 || gestureRef.current) return
-      const workspace = layout.workspace
-      if (!workspace) return
-      event.preventDefault()
-      event.currentTarget.focus({ preventScroll: true })
-      const bounds = workspace.getBoundingClientRect()
-      const scale = bounds.width / workspace.clientWidth
-      gestureRef.current = {
-        scale,
-        pointerId: event.pointerId,
-        target: event.currentTarget,
-        availableWidth: workspace.clientWidth,
-        right: bounds.right / scale,
-        grabOffset: (event.clientX - bounds.right) / scale + layout.width,
-        startWidth: layout.width,
-        width: layout.width,
-        moved: false
-      }
-      event.currentTarget.setPointerCapture(event.pointerId)
-      layout.previewWidth(layout.width)
-    }}
-    onPointerMove={moveGesture}
-    onPointerUp={(event) => {
-      const gesture = gestureRef.current
-      if (!gesture || event.pointerId !== gesture.pointerId) return
-      const width = widthAtPointer(gesture, event.clientX)
-      const moved = gesture.moved || Math.abs(width - gesture.startWidth) > .5
-      releaseGesture()
-      if (layout.availableWidth !== gesture.availableWidth || !moved) {
-        layout.cancelResize()
-      } else if (width < filePreviewCloseThreshold(layout.activityMode)) {
-        closePreview()
-      } else {
-        layout.commitWidth(width)
-      }
-    }}
-    onPointerCancel={(event) => {
-      if (event.pointerId === gestureRef.current?.pointerId) cancelGesture()
-    }}
-    onLostPointerCapture={(event) => {
-      if (event.pointerId === gestureRef.current?.pointerId) cancelGesture()
-    }}
+    {...splitter.handlers}
     onDoubleClick={() => {
-      cancelGesture()
+      splitter.cancel()
       layout.resetRatio()
     }}
     onKeyDown={(event) => {
+      if (splitter.active) return
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault()
         closePreview()
       } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         event.preventDefault()
-        cancelGesture()
         const step = event.shiftKey ? 80 : 24
         layout.commitWidth(layout.width + (event.key === 'ArrowLeft' ? step : -step))
-      } else if (event.key === 'Escape') {
+      } else if (event.key === 'Home') {
         event.preventDefault()
-        cancelGesture()
+        layout.commitWidth(MIN_FILE_PREVIEW_WIDTH)
+      } else if (event.key === 'Enter') {
+        event.preventDefault()
+        layout.resetRatio()
       }
     }}
   >
     <span className="file-preview-splitter-grip" aria-hidden="true" />
     <span className="file-preview-splitter-tip" aria-hidden="true">{hint}</span>
-    <span className="sr-only" id={hintId}><UiText zh={"左右方向键调整 24px，按住 Shift 调整 80px；Delete 或 Backspace 关闭；双击恢复默认比例；Escape 取消拖动。"} /></span>
-    <span className="sr-only" role="status">{closeArmed ? uiAttribute("松开关闭文件预览") : ''}</span>
+    <span className="sr-only" id={hintId}><UiText zh={"左右方向键调整 24px，按住 Shift 调整 80px；Home 最窄；Delete 或 Backspace 关闭；双击或 Enter 恢复默认比例；Escape 取消拖动。拖到最窄处先停留，继续向内拖动收起。"} /></span>
+    <span className="sr-only" role="status">{atMinimum ? uiAttribute('已到最小宽度，继续拖动收起') : ''}</span>
   </div>
   return shell ? createPortal(handle, shell) : handle
 }

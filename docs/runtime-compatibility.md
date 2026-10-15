@@ -6,11 +6,24 @@ last_updated: 2026-10-15
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-15 合并收口：九种产品 Steer 与逐 Run 准入
+
+User seq40 后，TRAE CLI CN 已完成产品适配。当前九种为 Codex、Claude Code、Pi、CodeBuddy、
+Qwen Code、Grok Build、Kiro CLI、ZCode、TRAE CLI CN；本轮均通过当前 Core／Adapter 的真实 LLM
+场景，具体版本、场景覆盖及全部尝试见[合并收口完整清单](research/runtime-monitoring/steer-hardening-2026-10-15.md)。
+
+Core 根据目标活跃 Run 冻结的安装、版本、协议与执行绑定统一提供 canSteer，UI、API 准入及实际发送前
+使用同一判断；未知或不兼容的目标仍可普通执行／排队。旧 Pi 0.87.0 与 Kiro 2.7.0 的真实回归确认
+在原生 Steer 写入前降级。没有下调全局 Runtime 最低版本；CodeBuddy 2.132.0 原异常及证据缺口保留在
+[问题 #762](https://github.com/murray17/rovai-ai/issues/762)，本轮成功没有覆盖旧失败。
+
+以下按日期与用户消息记录历史验证范围；其中“八种”“TRAE 产品待适配”为当时状态。
+
 ## 2026-10-15 Qoder 本机升级与 Steer 最低版本核查
 
 User seq34：官方原生 Qoder 从 1.1.65 升级为 1.1.71，普通 ACP 可用性检查通过；真实 LLM
 仍先结束原 prompt，再执行补充 prompt，三个候选 Steer 扩展均不存在。与此前隔离 npm 包结论一致。
-产品 Steer 支持仍为八种，TRAE 通道已通过但产品待适配。
+当时产品 Steer 支持为八种，TRAE 通道已通过但产品待适配。
 
 按当前接线核查：Pi 依赖 0.99.0 新增的 RPC disposition，整体 Runtime 门槛 0.84.4 不能代表 Steer；
 Qwen 的 ACP drain 始于 0.18.0，但 Rovai 使用的结构化 items 回包从 0.18.4 才支持。
@@ -24,7 +37,7 @@ Kiro 2.6.0 无对应方法，2.7.0 安装包新增方法与注入事件，但三
 
 User seq30 后，产品支持增加到八种：Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、
 Kiro CLI、ZCode。后两种的同 Run 文本与纯附件插话、普通队列分离、多队员路由及取消使用真实 Core/LLM 验证。
-[最新完整清单](research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)记录逐次通过、失败、版本依据与边界，
+[当轮完整清单](research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)记录逐次通过、失败、版本依据与边界，
 不把协议回执当作模型行为验收，也不以其他 SDK/HTTP 能力代替当前通道。
 
 seq30 时 Qoder 本机 1.1.65 和隔离下载的 1.1.71 ACP 均实测排到下一轮；Antigravity 1.3.5 Stream JSON

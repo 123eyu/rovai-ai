@@ -1,12 +1,11 @@
 ---
-version: 19
+version: 21
 slug: "member-workspace"
 primary_target: "apps/desktop/src/renderer/src/MemberManagement.tsx"
 related_targets:
   - "apps/desktop/src/renderer/src/MemberSidebar.tsx"
   - "apps/desktop/src/renderer/src/MemberRosterLayout.tsx"
   - "apps/desktop/src/renderer/src/MemberAvatar.tsx"
-  - "apps/desktop/src/renderer/src/MemberPortrait.tsx"
   - "apps/desktop/src/renderer/src/MemberAvatarCropper.tsx"
   - "apps/desktop/src/renderer/src/MemberRuntimeParameters.tsx"
 ---
@@ -33,8 +32,10 @@ All split boundaries, including the roster, highlight their full 1px line with `
 The roster shares the detail's workspace
 surface (white in Day), with a 1px divider separating the two reading planes. Its default width is 256px;
 expanded widths range from 192px to 360px and protect 400px for the detail when space permits.
-Dragging below 176px snaps to the 76px avatar rail; dragging a
-collapsed rail past 208px expands it. The different thresholds prevent jitter around the boundary.
+Dragging holds at 192px; a 180ms dwell plus 64px further inward folds to the 76px avatar rail
+over 160ms. Releasing at the stop retains the minimum; reduced motion omits the fold animation.
+Dragging a collapsed rail past 208px expands it. Escape, lost capture, blur or resizing the window
+restores the pre-gesture layout; mouseup during an accepted fold lets it finish.
 The 9px pointer target stays mounted through collapse so the gesture can reverse without losing capture.
 Expanding restores the useful width before the collapse gesture. Remember width and
 collapse locally, accepting the previous collapse-only preference; viewport clamping does not overwrite
@@ -42,12 +43,9 @@ the chosen width. Double-click or Home restores 256px, arrows resize and collaps
 and Enter toggles collapse. The separate collapse button and roster options menu are absent. A reorder gesture temporarily disables
 the splitter. The detail scrolls internally instead of shrinking identity or actions below usability.
 
-The header uses the controlled portrait plus a separate circular icon. Presence and Runtime are two
-distinct inline facts: “在队” is static; “{Runtime} →” uses arrow, hover, focus and an accessible name
-to show it opens existing Runtime configuration. An unconfigured teammate says “未配置智能体 →” once.
-Keep actionable Runtime status in the accessible name and in the configuration section; normal configured
-states show only the product name, without a readiness suffix or verification explanation. Do not put
-the Runtime fact in a grey card or merge the two meanings.
+The header uses one compact avatar, name, role and Presence. Remove the repeated Runtime shortcut from this
+header; the roster and Runtime configuration retain their existing status and navigation. The entire overflow
+button keeps hover, open and touch feedback outside the window drag region. Avatar changes open a dialog directly.
 
 ## Roster and order
 
@@ -56,7 +54,7 @@ and preserves selection. Identity color and avatar remain stable across reorder.
 Runtime health must not reorder or hide teammates.
 
 Roster rows keep a 40px circular image, 13px name and 11px role in a 60px row without inter-row gaps.
-Use a subtle selected surface, 2px selection rail and aligned Runtime column. The header shows the total
+Use a subtle selected surface without a selection rail and keep the Runtime column aligned. The header shows the total
 once; omit the redundant “在队” group when every teammate is present. If any teammate is away, show
 the meaningful presence groups and their counts. Above eight members, offer compact name/role search;
 the title reports matching / total counts while filtering. Keep one compact “+ Add” action with a separate dropdown arrow,
@@ -64,7 +62,7 @@ without an enclosing border or divider; each button has neutral hover/focus feed
 AI conversation remains the default, manual creation stays in its dropdown. New AI conversations prefill the localized,
 editable request defined by Member Creation Flow v1 without sending; language changes and return navigation preserve edits.
 Reorder rows directly
-(on mobile, drag the avatar); preserve the portrait without an overlay handle. Alt+Up/Down and row context-menu
+(on mobile, drag the avatar); preserve the avatar without an overlay handle. Alt+Up/Down and row context-menu
 actions provide keyboard movement within the same presence group. The resize divider remains available.
 Runtime shortcuts show the existing product logo in a 22px carrier; an unconfigured teammate uses a neutral
 minus glyph. Attention, unsupported and unqualified states add a small `!` marker. Loading retains the
@@ -85,8 +83,8 @@ together, keep drafts when selecting teammates, and include this editor in the w
 The entry remains clickable above the native window drag strip. Its production semantics are owned by
 [Current User Profile v1](../../../../docs/contracts/current-user-profile-v1.md).
 
-Identity editing uses the existing composite avatar asset: circular crop drag, zoom, keyboard nudge
-and actual-size previews. The durable asset and fallback rules are in
+Identity editing uses one avatar file with display framing metadata: crop drag, zoom and keyboard nudge
+after upload, without actual-size previews or an independent half-body portrait. The durable asset and fallback rules are in
 [`member-identity.md`](../../../../docs/ui/components/member-identity.md).
 
 “运行配置” retains the product Runtime, model, reasoning, permission and sandbox fields exposed by
@@ -129,7 +127,7 @@ On Windows, Runtime Platform Admission is evaluated before installation or healt
 uses the Runtime logo with a compact `!` marker with the full label “{Runtime}：Windows 尚未验证”; an unsupported row says
 “此平台不支持”. Neither may be shown as not installed, rescannable or temporarily checking. Opening the
 configuration shows frozen historical values but no Runtime/model/permission mutation or execution action.
-Name, role, portrait and other unrelated edits remain available and save while preserving the Runtime
+Name, role, avatar and other unrelated edits remain available and save while preserving the Runtime
 subobject exactly; the Renderer must not manufacture a default or require users to discard that history.
 
 Cursor Agent remains a closed identity and does not enter the ordinary member Runtime selector until a
@@ -170,20 +168,19 @@ Memory authority.
 
 ## Inline configuration composition
 
-The right pane is one continuous page: “队员信息” followed by “运行配置”, with no identity/Runtime Tabs
-and no create/edit dialogs. Name and team role share a row; professional responsibility and editable
-trait tags follow. A 182px, 4:5 portrait sits to their right. Working principles and growth focus use one
-collapsed disclosure with a filled-field count. Collapsing preserves draft values; field validation expands
-and focuses the relevant field. Counters and input guidance appear on focus.
+The right pane is one continuous page: “身份信息” followed by “运行配置”, with no identity/Runtime Tabs
+and no create/edit dialogs. Name and team role share a row; professional responsibilities follow. Personality,
+principles and growth share a collapsed “更多设定” disclosure with an optional “已设置” label, never a completion count.
+Collapsing preserves drafts; validation expands and focuses the field. Avatar selection and framing use their own dialog.
 
-Each section owns its “放弃更改” and light tonal save control: a 14px outline save icon plus “保存”, with full accessible names “保存队员信息” / “保存运行配置”. Member selection preserves
+Each section owns its “放弃更改” and neutral primary save control: a 14px outline save icon plus “保存”, with full accessible names “保存队员信息” / “保存运行配置”. Member selection preserves
 both sections' pending drafts for each visited teammate. Saving one section advances its accepted baseline
 without resetting the other. A conflicting external update preserves the local draft and blocks that section's
 save until the user reloads its saved values. Leaving the workspace confirms discarding pending changes.
 
 New teammates use the same page. The pending draft has a separate bottom roster row and is excluded from
 saved teammate counts and ordering. Only a name is required. Runtime configuration becomes available after
-creation. Presets, upload and native crop editing expand inline and are committed from the identity section’s “保存” control.
+creation. Avatar changes open a dialog: upload is primary, presets are collapsed by default, and removal is a quiet footer action. Upload switches the same dialog to “裁切头像”; confirm creates a draft and the identity section’s save commits the reference. Cancel retains the existing avatar and text drafts.
 Creation includes the selected image in the existing create command. Existing identity and image changes use
 successive existing commands with receipt versions; partial success explicitly distinguishes committed text
 from an unsaved image, retains the remaining draft and never claims an atomic transaction.
@@ -193,9 +190,10 @@ field is labeled “模型” and its Runtime-default caption is “默认”; t
 raw choices, defaults, platform admission, model discovery and recovery remain unchanged. Do not introduce
 an additional Runtime parameters heading in this continuous form.
 
-The 620px detail breakpoint narrows the portrait to 128px and stacks name/role. Below 390px detail width,
-the portrait and all form columns stack. Both themes keep the same geometry, semantic colors and restrained
-1px input borders. Keep destructive removal confirmation and its Core preview, blockers, failures and keyboard operation without automatically refocusing the entry button.
+The compact header and identity form use one column when space narrows, without a portrait column.
+Personality, principles and growth are collapsed together under “更多设定”; validation reveals the affected fields.
+Both themes keep the same geometry, semantic colors and restrained 1px input borders. Neutral primary buttons
+and sliders follow the current theme. Preserve destructive removal preview, blockers, errors and keyboard operation.
 
 The production-component regression is `node --test scripts/lib/member-editor.test.mjs`. It runs an isolated
 Electron fixture, covers both saves, cross-member drafts, conflicts, inline creation, keyboard focus and

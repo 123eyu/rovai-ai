@@ -155,6 +155,13 @@ fn camp_list_success_schema() -> Value {
 }
 
 fn camp_search_success_schema(include_camp_title: bool) -> Value {
+    let mut schema = legacy_camp_search_success_schema(include_camp_title);
+    let item = &mut schema["properties"]["results"]["items"];
+    *item = message_sender_schema(item.take());
+    schema
+}
+
+pub(crate) fn legacy_camp_search_success_schema(include_camp_title: bool) -> Value {
     let max_items = if include_camp_title { 30 } else { 20 };
     let mut result_properties = json!({
         "threadId": {"type": "string"},
@@ -199,6 +206,39 @@ fn camp_search_success_schema(include_camp_title: bool) -> Value {
             "searchIncomplete": {"type": "boolean"}
         }
     })
+}
+
+// Each sender variant owns a complete, closed normal message shape. Quote authors
+// are independent snapshots and are deliberately left untouched.
+fn message_sender_schema(mut legacy: Value) -> Value {
+    let properties = legacy["properties"]
+        .as_object_mut()
+        .expect("message properties");
+    properties.remove("authorType");
+    properties.remove("authorId");
+    let required = legacy["required"]
+        .as_array_mut()
+        .expect("message required fields");
+    required.retain(|field| field != "authorType" && field != "authorId");
+    required.extend([json!("senderType"), json!("senderId")]);
+    let variants = ["agent", "user", "system"].map(|kind| {
+        let mut variant = legacy.clone();
+        variant["properties"]["senderType"] = json!({"const": kind});
+        variant["properties"]["senderId"] = if kind == "agent" {
+            json!({"type":"string"})
+        } else {
+            json!({"const":kind})
+        };
+        if kind != "user" {
+            variant["required"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!("senderName"));
+            variant["properties"]["senderName"] = json!({"type":["string", "null"], "description":"Display name at projection time, or null if unavailable. Not routing or authorization identity."});
+        }
+        variant
+    });
+    json!({"oneOf": variants})
 }
 
 fn message_mentions_schema(legacy: bool) -> Value {
@@ -366,14 +406,15 @@ fn camp_read_timeline_schema(legacy: bool) -> Value {
 }
 
 fn camp_read_success_schema() -> Value {
-    read_success_schema(false)
+    let mut schema = legacy_camp_read_success_schema(false);
+    for mode in schema["oneOf"].as_array_mut().expect("read modes") {
+        let normal = &mut mode["properties"]["items"]["items"]["oneOf"][0];
+        *normal = message_sender_schema(normal.take());
+    }
+    schema
 }
 
-pub(crate) fn legacy_camp_read_success_schema() -> Value {
-    read_success_schema(true)
-}
-
-fn read_success_schema(legacy: bool) -> Value {
+pub(crate) fn legacy_camp_read_success_schema(legacy: bool) -> Value {
     json!({
         "type": "object",
         "oneOf": [
@@ -1153,7 +1194,7 @@ fn build_builtin_tool_definitions() -> Vec<Value> {
         json!({
             "name": MEMBER_GET_TOOL_NAME,
             "title": "Member get",
-            "description": "Read a member's full identity, version and image paths.\nTarget a current Thread member or one you created here. Image paths last for this Run.",
+            "description": "Read a member's full identity, version and avatar file path.\nTarget a current Thread member or one you created in this Thread. The avatar path lasts for this Run; avatar.displayCrop describes its saved framing.",
             "inputSchema": member_get_input_schema(),
             "outputSchema": member_get_output_schema()
         }),
@@ -1167,7 +1208,7 @@ fn build_builtin_tool_definitions() -> Vec<Value> {
         json!({
             "name": MEMBER_CREATE_TOOL_NAME,
             "title": "Create a confirmed Rovai member",
-            "description": "Create one durable Rovai member from the final member card only after the user explicitly confirms it in this direct user-triggered run. Reuse creationKey only for an exact retry. avatarFile is optional and must name a run-readable local PNG, JPEG or GIF; Rovai safely normalizes and imports it without persisting the path. If image preparation is unavailable or fails, retry without avatarFile to use the default avatar.",
+            "description": "Create one member from the complete card explicitly confirmed by the User in this direct user-triggered Run.",
             "inputSchema": member_create_input_schema(),
             "outputSchema": member_create_success_schema()
         }),
@@ -1616,8 +1657,9 @@ mod tests {
             "items": [{
                 "messageId": "message_123",
                 "sequence": 1,
-                "authorType": "agent",
-                "authorId": "agent_1",
+                "senderType": "agent",
+                "senderId": "agent_1",
+                "senderName": "Alice",
                 "anchorMessageId": null,
                 "createdAt": "2026-08-18T00:00:00Z",
                 "body": "evidence",
@@ -1646,14 +1688,14 @@ mod tests {
         }
         crate::builtin_tool_cli_output::validate_schema(
             &collection,
-            &collection_message_schema(false),
+            &message_sender_schema(collection_message_schema(false)),
         )
         .unwrap();
         collection.as_object_mut().unwrap().remove("mentions");
         assert!(
             crate::builtin_tool_cli_output::validate_schema(
                 &collection,
-                &collection_message_schema(false)
+                &message_sender_schema(collection_message_schema(false))
             )
             .is_err()
         );

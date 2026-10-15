@@ -4334,7 +4334,7 @@ impl ExecutionRuntimeService {
                 )?;
                 if uncertain {
                     return fail_lost_agent_run_in_tx(transaction, &target.agent_run_id, &envelope.actor,
-                        "Codex input outcome could not be reconciled after a nonterminal failure");
+                        "Codex input outcome could not be reconciled after a nonterminal failure", None);
                 }
             }
             if let Some(rejection) = validate_terminal_target(
@@ -4979,6 +4979,7 @@ pub(crate) fn fail_lost_agent_run_in_tx(
     agent_run_id: &str,
     actor: &ActorRef,
     reason: &str,
+    public_failure: Option<&RuntimeFailureView>,
 ) -> Result<CommandHandlerResult> {
     let target =
         load_terminal_target(transaction, agent_run_id)?.context("lost AgentRun does not exist")?;
@@ -5009,7 +5010,9 @@ pub(crate) fn fail_lost_agent_run_in_tx(
             execution_epoch: target.execution_epoch,
             error_code: "accepted_input_outcome_unknown".to_string(),
             error_detail: Some(reason.to_string()),
-            failure: None,
+            // The transport cause explains this loss without claiming a native
+            // terminal outcome or making the accepted input replayable.
+            failure: public_failure.cloned(),
             manual_retry_allowed: false,
             ending_git_observation: None,
         },
@@ -5736,12 +5739,12 @@ fn has_terminal_safety_blocker(transaction: &Transaction<'_>, run_id: &str) -> R
                    WHERE owner.id = action_execution.agent_run_id AND owner.runtime_adapter_kind = 'zcode-app'
                      AND owner.execution_epoch = action_execution.source_agent_run_execution_epoch
                      AND evidence.execution_epoch = owner.execution_epoch AND evidence.event_type = 'runtime.action'
-                     AND json_extract(evidence.payload_preview_json, '$.zcodeBackground.toolCallId') = action_execution.native_item_id
+                     AND CASE WHEN evidence.storage_version = 1 THEN json_extract(evidence.payload_preview_json, '$.zcodeBackground.toolCallId') ELSE COALESCE(json_extract(evidence.result_preview_json, '$.zcodeBackground.toolCallId'), json_extract(evidence.input_preview_json, '$.zcodeBackground.toolCallId')) END = action_execution.native_item_id
                      AND evidence.sequence = (SELECT MAX(latest.sequence) FROM agent_run_execution_evidence AS latest
                        WHERE latest.agent_run_id = owner.id AND latest.execution_epoch = owner.execution_epoch
                          AND latest.event_type = 'runtime.action'
-                         AND json_extract(latest.payload_preview_json, '$.zcodeBackground.toolCallId') = action_execution.native_item_id)
-                     AND json_extract(evidence.payload_preview_json, '$.zcodeBackground.status') IN ('running', 'lost'))))
+                         AND CASE WHEN latest.storage_version = 1 THEN json_extract(latest.payload_preview_json, '$.zcodeBackground.toolCallId') ELSE COALESCE(json_extract(latest.result_preview_json, '$.zcodeBackground.toolCallId'), json_extract(latest.input_preview_json, '$.zcodeBackground.toolCallId')) END = action_execution.native_item_id)
+                     AND CASE WHEN evidence.storage_version = 1 THEN json_extract(evidence.payload_preview_json, '$.zcodeBackground.status') ELSE COALESCE(json_extract(evidence.result_preview_json, '$.zcodeBackground.status'), json_extract(evidence.input_preview_json, '$.zcodeBackground.status')) END IN ('running', 'lost'))))
           + (SELECT COUNT(*) FROM runtime_delivery_checkpoint
              WHERE agent_run_id = ?1 AND status IN ('pending', 'delivering', 'failed'))
           + (SELECT COUNT(*) FROM runtime_input_delivery
@@ -8161,13 +8164,15 @@ mod tests {
     // tests do not exercise. Reuse the existing claimed Run/input fixture.
     #[test]
     fn runtime_loss_settles_uncertain_input_and_fences_old_or_terminal_executions() {
-        for (input_status, waiting, dispatched, launch_failure) in [
-            ("accepted", false, false, false),
-            ("accepted", true, false, false),
-            ("delivery_unknown", true, false, false),
-            ("prepared", false, true, false),
-            ("not_accepted", false, false, false),
-            ("delivery_unknown", false, true, true),
+        for (input_status, waiting, dispatched, launch_failure, pi_failure) in [
+            ("accepted", false, false, false, false),
+            ("accepted", true, false, false, false),
+            ("delivery_unknown", true, false, false, false),
+            ("prepared", false, true, false, false),
+            ("not_accepted", false, false, false, false),
+            ("delivery_unknown", false, true, true, false),
+            ("accepted", false, false, false, true),
+            ("delivery_unknown", false, false, false, true),
         ] {
             let (directory, mut database, camp_id, _, agent_run_id, execution_epoch) =
                 claimed_run_for_planned_shutdown("required");
@@ -8192,6 +8197,20 @@ mod tests {
                     |row| row.get(0),
                 )
                 .unwrap();
+            let public_failure = pi_failure.then(|| {
+                database
+                    .connection()
+                    .execute(
+                        "UPDATE agent_run SET runtime_adapter_kind = 'pi' WHERE id = ?1",
+                        [&agent_run_id],
+                    )
+                    .unwrap();
+                crate::pi::PiTransportFailure::FrameTooLarge {
+                    limit_bytes: 64 * 1024 * 1024,
+                    observed_bytes: 64 * 1024 * 1024 + 1,
+                }
+                .public_failure()
+            });
             let envelope = |epoch, version| CommandEnvelope {
                 command_id: Uuid::new_v4().to_string(),
                 actor: ActorRef::System {
@@ -8201,10 +8220,14 @@ mod tests {
                 expected_versions: Vec::new(),
                 execution_epoch: None,
                 payload: crate::action::ReconcileRuntimeLossCommand {
+                    failure: public_failure.clone(),
                     agent_run_id: agent_run_id.clone(),
                     expected_version: version,
                     execution_epoch: epoch,
-                    reason: "codex_host_exited".to_string(),
+                    reason: public_failure
+                        .as_ref()
+                        .map_or("codex_host_exited", |failure| failure.code.as_str())
+                        .to_string(),
                 },
             };
             let service = crate::action::ActionSafetyService::default();
@@ -8239,6 +8262,18 @@ mod tests {
                 service.reconcile_runtime_loss(&mut database, &envelope(execution_epoch, version))
             }
             .unwrap();
+            let stored: Option<String> = database
+                .connection()
+                .query_row(
+                    "SELECT public_runtime_failure_json FROM agent_run WHERE id = ?1",
+                    [&agent_run_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                stored.map(|value| serde_json::from_str::<RuntimeFailureView>(&value).unwrap()),
+                public_failure
+            );
             if input_status == "not_accepted" {
                 assert_eq!(result.result.code, "agent_run.runtime_loss_reconciled");
                 assert!(
@@ -9209,6 +9244,7 @@ mod tests {
                             expected_versions: vec![],
                             execution_epoch: None,
                             payload: crate::action::ReconcileRuntimeLossCommand {
+                                failure: None,
                                 agent_run_id: agent_run_id.clone(),
                                 expected_version: version,
                                 execution_epoch,

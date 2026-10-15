@@ -31,24 +31,24 @@ export function validateDecodedMemberAvatarDimensions(
   height: number
 ): void {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
-    throw new Error(uiAttribute('角色图片尺寸无效'))
+    throw new Error(uiAttribute('头像尺寸无效'))
   }
   if (
     width < MEMBER_AVATAR_LIMITS.minimumDecodedEdge
     || height < MEMBER_AVATAR_LIMITS.minimumDecodedEdge
   ) {
     throw new Error(
-      uiAttribute('角色图片至少需要 {0}×{1}px', MEMBER_AVATAR_LIMITS.minimumDecodedEdge, MEMBER_AVATAR_LIMITS.minimumDecodedEdge)
+      uiAttribute('头像至少需要 {0}×{1}px', MEMBER_AVATAR_LIMITS.minimumDecodedEdge, MEMBER_AVATAR_LIMITS.minimumDecodedEdge)
     )
   }
   if (
     width > MEMBER_AVATAR_LIMITS.maximumDecodedEdge
     || height > MEMBER_AVATAR_LIMITS.maximumDecodedEdge
   ) {
-    throw new Error(uiAttribute('角色图片单边不能超过 {0}px', MEMBER_AVATAR_LIMITS.maximumDecodedEdge))
+    throw new Error(uiAttribute('头像单边不能超过 {0}px', MEMBER_AVATAR_LIMITS.maximumDecodedEdge))
   }
   if (width * height > MEMBER_AVATAR_LIMITS.maximumDecodedPixels) {
-    throw new Error(uiAttribute('角色图片总像素不能超过 3200 万'))
+    throw new Error(uiAttribute('头像总像素不能超过 3200 万'))
   }
 }
 
@@ -61,15 +61,17 @@ export function validateGifMemberAvatarSource(
 ): void {
   validateDecodedMemberAvatarDimensions(width, height)
   if (!Number.isInteger(frameCount) || frameCount <= 0) {
-    throw new Error(uiAttribute('GIF 角色图片帧数无效'))
+    throw new Error(uiAttribute('GIF 头像帧数无效'))
   }
   if (frameCount > MEMBER_AVATAR_LIMITS.maximumGifFrames) {
     throw new Error(
-      uiAttribute('GIF 角色图片不能超过 {0} 帧', MEMBER_AVATAR_LIMITS.maximumGifFrames)
+      uiAttribute('GIF 头像不能超过 {0} 帧', MEMBER_AVATAR_LIMITS.maximumGifFrames)
     )
   }
-  if (width * height * frameCount > MEMBER_AVATAR_LIMITS.maximumGifCumulativeDecodedPixels) {
-    throw new Error(uiAttribute('GIF 角色图片累计解码资源超出限制'))
+  if (width > MEMBER_AVATAR_LIMITS.displayGifMaximumEdge || height > MEMBER_AVATAR_LIMITS.displayGifMaximumEdge
+    || width * height > MEMBER_AVATAR_LIMITS.displayGifMaximumPixels
+    || width * height * frameCount > MEMBER_AVATAR_LIMITS.displayGifCumulativePixels) {
+    throw new Error(uiAttribute('GIF 超出显示预算，请使用更小的图片'))
   }
 }
 
@@ -108,10 +110,10 @@ export async function normalizeMemberAvatarSource(
   selection: MemberAvatarSourceSelection
 ): Promise<NormalizedMemberAvatarSource> {
   if (selection.byteLength !== selection.bytes.byteLength) {
-    throw new Error('角色图片字节长度不一致')
+    throw new Error('头像字节长度不一致')
   }
   if (selection.byteLength > MEMBER_AVATAR_LIMITS.selectedFileBytes) {
-    throw new Error('角色图片不能超过 10 MiB')
+    throw new Error('头像不能超过 10 MiB')
   }
   validateDecodedMemberAvatarDimensions(
     selection.inspectedWidth,
@@ -123,7 +125,7 @@ export async function normalizeMemberAvatarSource(
       selection.frameCount === undefined
       || selection.loopCount === undefined
     ) {
-      throw new Error(uiAttribute('GIF 角色图片缺少帧信息'))
+      throw new Error(uiAttribute('GIF 头像缺少帧信息'))
     }
     validateGifMemberAvatarSource(
       selection.inspectedWidth,
@@ -149,14 +151,14 @@ export async function normalizeMemberAvatarSource(
     canvas.width = dimensions.width
     canvas.height = dimensions.height
     const context = canvas.getContext('2d', { alpha: true })
-    if (!context) throw new Error('无法创建角色图片画布')
+    if (!context) throw new Error('无法创建头像画布')
     context.imageSmoothingEnabled = true
     context.imageSmoothingQuality = 'high'
     context.clearRect(0, 0, dimensions.width, dimensions.height)
     context.drawImage(bitmap, 0, 0, dimensions.width, dimensions.height)
     const sourcePng = await canvasToPngBytes(canvas)
     if (sourcePng.byteLength > MEMBER_AVATAR_LIMITS.normalizedSourceBytes) {
-      throw new Error('规范化角色图片超过 16 MiB')
+      throw new Error('规范化头像超过 16 MiB')
     }
     return {
       kind: 'raster',
@@ -176,7 +178,7 @@ export async function deriveMemberAvatarIcon(
   if (source.kind !== 'raster') {
     // Frame-accurate icon derivation lives in Core so the animation survives;
     // the renderer must never flatten a GIF through a canvas here.
-    throw new Error(uiAttribute('GIF 角色图片由 Core 派生小头像'))
+    throw new Error(uiAttribute('GIF 头像由 Core 派生小头像'))
   }
   const safeCrop = clampAvatarCrop(crop, source.width, source.height)
   const bitmap = await createImageBitmap(
@@ -184,7 +186,7 @@ export async function deriveMemberAvatarIcon(
   )
   try {
     if (bitmap.width !== source.width || bitmap.height !== source.height) {
-      throw new Error('规范化角色图片尺寸不一致')
+      throw new Error('规范化头像尺寸不一致')
     }
     const rect = avatarCropToPixels(safeCrop, source.width, source.height)
     const canvas = document.createElement('canvas')
@@ -214,7 +216,7 @@ export async function deriveMemberAvatarIcon(
       source.sourcePng.byteLength + iconPng.byteLength
       > MEMBER_AVATAR_LIMITS.saveIpcBytes
     ) {
-      throw new Error('角色图片保存数据超过 17 MiB')
+      throw new Error('头像保存数据超过 17 MiB')
     }
     return {
       ...source,

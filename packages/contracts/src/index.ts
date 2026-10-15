@@ -1868,6 +1868,10 @@ export type AgentRunCancelReasonCode =
 
 export interface AgentRunView {
   canSteer?: boolean
+  /** Core's decision for this Run's frozen installation and active input binding. */
+  steerUnavailableReason?: 'runtime_unsupported' | 'execution_not_ready' | 'execution_changed'
+    | 'input_outcome_unknown' | 'runtime_identity_unknown' | 'protocol_incompatible'
+    | 'version_incompatible' | 'version_unverified' | null
   id: string
   threadTurnId: string | null
   inputMessageIds?: string[]
@@ -3497,7 +3501,17 @@ export interface RecropMemberAvatarAssetInput {
   crop: MemberAvatarCrop
 }
 
+/** A single normalized PNG or original animated GIF, plus display geometry. */
+export interface SaveMemberAvatarImageInput {
+  kind: 'image'
+  source: Uint8Array
+  sourceWidth: number
+  sourceHeight: number
+  crop: MemberAvatarCrop
+}
+
 export type SaveMemberAvatarAssetInput =
+  | SaveMemberAvatarImageInput
   | RecropMemberAvatarAssetInput
   | SaveMemberAvatarRasterInput
   | SaveMemberAvatarGifInput
@@ -3515,6 +3529,8 @@ export interface MemberAvatarRendition {
   width: number
   height: number
   crop: MemberAvatarCrop
+  /** Present only for single-file assets. Legacy icons already contain their crop. */
+  displayCrop?: MemberAvatarCrop
 }
 
 export interface MemberAvatarsApi {

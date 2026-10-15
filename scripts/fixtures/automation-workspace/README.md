@@ -1,7 +1,9 @@
 # 定时任务 Renderer 验收场景
 
 挂载生产 `AutomationWorkspace`、`CampNavigation`、`WindowDragStrip` 和主题样式，RPC 使用确定性的内存数据。
-不启动 Core、Electron 或模型，不读写日常用户目录。执行对话入口显示收到的 Camp ID；它只证明 Renderer 路由参数，
+手动浏览器预览不启动 Core、Electron 或模型，不读写日常用户目录。
+`pnpm test:automation-splitter` 另以隔离 Electron 加载同一生产 Renderer，使用临时 userData/Skill Library，
+覆盖最小宽度停留、松手、反向拖回、保存失败和取消后迟到保存结果；不启动 Core 或模型。执行对话入口显示收到的 Camp ID；它只证明 Renderer 路由参数，
 不替代真实 Camp activation、Runtime 或渠道投递验收。
 
 ```bash

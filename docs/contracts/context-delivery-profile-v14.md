@@ -9,7 +9,7 @@ last_updated: 2026-10-14
 # Context Delivery Profile v14
 
 继承 [Profile 13](context-delivery-profile-v13.md)，新 public 输入冻结
-`{"profileVersion":14,"maxSelfActiveTasks":8}`，配对 [Manifest 37](context-manifest-evidence-v37.md)。
+`{"profileVersion":14,"maxSelfActiveTasks":8}`，配对 [Manifest 39](context-manifest-evidence-v39.md)（历史分支配对 37 保留）。
 非 batch Profile 12 和历史 Profile 不变。
 
 普通启动的 FIFO 领取预算和 claim 快照保持。Steer 也使用相同动态 Builder、完整消息投影和最终

@@ -30,7 +30,167 @@ pub fn supports_active_input(adapter: &str) -> bool {
             | "grok-build"
             | "kiro-cli"
             | "zcode-app"
+            | "trae-cn-cli"
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SteerUnavailableReason {
+    RuntimeUnsupported,
+    ExecutionNotReady,
+    ExecutionChanged,
+    InputOutcomeUnknown,
+    RuntimeIdentityUnknown,
+    ProtocolIncompatible,
+    VersionIncompatible,
+    VersionUnverified,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ActiveInputAvailability {
+    pub can_steer: bool,
+    pub unavailable_reason: Option<SteerUnavailableReason>,
+}
+
+impl ActiveInputAvailability {
+    fn unavailable(reason: SteerUnavailableReason) -> Self {
+        Self {
+            can_steer: false,
+            unavailable_reason: Some(reason),
+        }
+    }
+}
+
+/// This is a Steer ABI policy, never ordinary Runtime eligibility. The bounds
+/// describe the currently implemented request/receipt/end protocol, not a claim
+/// that every release in a range was tested. Unknown protocol families fail closed.
+pub fn protocol_unavailable(
+    adapter: &str,
+    version: Option<&str>,
+    protocol: &str,
+) -> Option<SteerUnavailableReason> {
+    use SteerUnavailableReason::*;
+    if !supports_active_input(adapter) {
+        return Some(RuntimeUnsupported);
+    }
+    let expected = match adapter {
+        "codex-cli" => "codex-app-server-v2",
+        "claude-code-cli" => "claude-code-print-v1",
+        "pi" => "pi-jsonl-rpc-v1",
+        "zcode-app" => "zcode-app-server-v1",
+        _ => "acp-v1",
+    };
+    if protocol != expected {
+        return Some(ProtocolIncompatible);
+    }
+    let Some((v, prerelease)) =
+        version.and_then(crate::agent_runtime_adapter::parse_reported_runtime_version)
+    else {
+        return Some(RuntimeIdentityUnknown);
+    };
+    if prerelease {
+        return Some(VersionUnverified);
+    }
+    let (minimum, major) = match adapter {
+        "codex-cli" => ([0, 162, 1], 0),
+        "claude-code-cli" => ([2, 1, 83], 2),
+        "pi" => ([0, 99, 0], v[0].min(1)),
+        "qwen-code" => ([0, 18, 4], 0),
+        "grok-build" => ([1, 0, 14], 1),
+        "kiro-cli" => ([2, 21, 1], 2),
+        "zcode-app" => ([0, 16, 5], 0),
+        "trae-cn-cli" => ([0, 207, 1], 0),
+        // Published successes are not a monotonic compatibility boundary:
+        // 2.132.0 has an unresolved business outcome, not a demonstrated ABI failure.
+        // Keep that observed ABI admitted; do not infer compatibility for untested releases.
+        "codebuddy-cli" => {
+            return if [[2, 109, 1], [2, 111, 0], [2, 132, 0], [2, 133, 1]].contains(&v) {
+                None
+            } else {
+                Some(VersionUnverified)
+            };
+        }
+        _ => return Some(RuntimeUnsupported),
+    };
+    if v[0] != major {
+        Some(VersionUnverified)
+    } else if v < minimum {
+        Some(VersionIncompatible)
+    } else {
+        None
+    }
+}
+
+/// All callers use the target Run's frozen executable identity and protocol.
+/// Neither member edits nor a replacement binary on disk can retarget a live Host.
+pub fn active_input_availability(
+    c: &Connection,
+    run_id: &str,
+    epoch: i64,
+) -> Result<ActiveInputAvailability> {
+    use SteerUnavailableReason::*;
+    use rusqlite::OptionalExtension;
+    let row=c.query_row("SELECT r.runtime_adapter_kind,r.runtime_reported_version,r.runtime_protocol_version,
+        r.runtime_executable_fingerprint,r.runtime_installation_id,r.runtime_installation_generation,
+        r.runtime_executable_path,r.execution_epoch,r.status,r.cancel_requested_at,r.invocation_kind,
+        r.runtime_binding_compatibility_digest,
+        EXISTS(SELECT 1 FROM runtime_input_delivery i WHERE i.agent_run_id=r.id AND i.execution_epoch=r.execution_epoch
+            AND i.input_kind='start' AND i.status='accepted' AND i.native_binding_id=c.native_binding_id
+            AND i.native_binding_generation=c.native_binding_generation),
+        EXISTS(SELECT 1 FROM runtime_input_delivery i WHERE i.agent_run_id=r.id AND i.execution_epoch=r.execution_epoch AND i.status='delivery_unknown')
+        FROM agent_run r JOIN conversation c ON c.id=r.conversation_id WHERE r.id=?1", [run_id], |r|Ok((
+            r.get::<_,Option<String>>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,Option<String>>(2)?,
+            r.get::<_,Option<String>>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,Option<i64>>(5)?,
+            r.get::<_,Option<String>>(6)?,r.get::<_,i64>(7)?,r.get::<_,String>(8)?,r.get::<_,Option<String>>(9)?,
+            r.get::<_,String>(10)?,r.get::<_,Option<String>>(11)?,r.get::<_,bool>(12)?,r.get::<_,bool>(13)?
+        ))).optional()?;
+    let Some((
+        adapter,
+        version,
+        protocol,
+        fingerprint,
+        installation,
+        generation,
+        path,
+        actual_epoch,
+        status,
+        cancel,
+        kind,
+        binding,
+        accepted,
+        unknown,
+    )) = row
+    else {
+        return Ok(ActiveInputAvailability::unavailable(ExecutionChanged));
+    };
+    let reason = if actual_epoch != epoch {
+        Some(ExecutionChanged)
+    } else if kind != "batch"
+        || !matches!(status.as_str(), "running" | "waiting")
+        || cancel.is_some()
+    {
+        Some(ExecutionNotReady)
+    } else if unknown {
+        Some(InputOutcomeUnknown)
+    } else if [&fingerprint, &installation, &path, &binding]
+        .iter()
+        .any(|v| v.as_deref().is_none_or(|s| s.trim().is_empty()))
+        || generation.is_none_or(|g| g <= 0)
+    {
+        Some(RuntimeIdentityUnknown)
+    } else {
+        protocol_unavailable(
+            adapter.as_deref().unwrap_or(""),
+            version.as_deref(),
+            protocol.as_deref().unwrap_or(""),
+        )
+        .or_else(|| (!accepted).then_some(ExecutionNotReady))
+    };
+    Ok(ActiveInputAvailability {
+        can_steer: reason.is_none(),
+        unavailable_reason: reason,
+    })
 }
 
 /// Proof that this source was not written, or was removed from an unconsumed
@@ -74,6 +234,7 @@ pub(crate) fn route_user_message(
     };
     for (delivery, run, adapter, epoch) in targets {
         if supports_active_input(&adapter)
+            && active_input_availability(tx, &run, epoch)?.can_steer
             && expected_targets.is_none_or(|targets| {
                 targets
                     .iter()

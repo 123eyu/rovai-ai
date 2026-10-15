@@ -628,6 +628,7 @@ mod read_tests {
             INSERT INTO context_manifest VALUES ('manifest', 'caller', 0, 1);
             ALTER TABLE context_manifest ADD COLUMN source_delivery_id TEXT;
             ALTER TABLE context_manifest ADD COLUMN created_at TEXT;
+            ALTER TABLE context_manifest ADD COLUMN live_history_directory INTEGER NOT NULL DEFAULT 0;
             CREATE TABLE runtime_input_delivery(context_manifest_id TEXT, status TEXT);
         "#).unwrap();
         connection

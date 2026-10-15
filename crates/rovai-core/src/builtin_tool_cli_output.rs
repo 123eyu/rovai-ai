@@ -423,20 +423,32 @@ fn validate_projected_document(operation: &str, success: bool, value: &Value) ->
     if success {
         // Historical results retain their original fields. Keep the
         // old, closed read shape at this replay boundary; the live catalog stays strict.
-        let legacy_read = operation == "thread.read"
-            && value
-                .get("items")
-                .and_then(Value::as_array)
+        let legacy_addressing = operation == "thread.read"
+            && value["items"]
+                .as_array()
                 .is_some_and(|items| items.iter().any(|item| item.get("addressing").is_some()));
-        let schema = if legacy_read {
-            crate::team_tool_catalog::legacy_camp_read_success_schema()
+        let legacy_authors = value[if operation == "thread.read" {
+            "items"
         } else {
-            agent_output_schema(operation)?
+            "results"
+        }]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item.get("authorType").is_some()));
+        let schema = match operation {
+            "thread.read" if legacy_addressing || legacy_authors => {
+                crate::team_tool_catalog::legacy_camp_read_success_schema(legacy_addressing)
+            }
+            "thread.search" | "history.search" if legacy_authors => {
+                crate::team_tool_catalog::legacy_camp_search_success_schema(
+                    operation == "history.search",
+                )
+            }
+            _ => agent_output_schema(operation)?,
         };
         validate_schema(value, &schema).with_context(|| {
             format!("Agent output projection does not match {operation} agentOutputSchema")
         })?;
-        if operation == "thread.read" && !legacy_read {
+        if operation == "thread.read" && !legacy_addressing {
             for item in value["items"]
                 .as_array()
                 .context("read items must be an array")?
@@ -764,7 +776,7 @@ mod tests {
 
     #[test]
     fn closed_agent_output_schemas_reject_extra_and_invalid_fields() {
-        let profile = json!({"agentId":"agent_2","displayName":"Nova","teamRole":"","professionalResponsibilities":"","personalityTraits":[],"workingPrinciples":"","growthTopic":"","version":1,"images":{"icon":null,"portrait":null},"imageStatus":{"icon":"absent","portrait":"absent"}});
+        let profile = json!({"agentId":"agent_2","displayName":"Nova","teamRole":"","professionalResponsibilities":"","personalityTraits":[],"workingPrinciples":"","growthTopic":"","version":1,"avatar":{"path":null,"status":"absent","displayCrop":null}});
         let profile_schema = agent_output_schema("member.get").unwrap();
         validate_schema(&profile, &profile_schema).unwrap();
         for field in [
@@ -775,17 +787,40 @@ mod tests {
             "memberOrder",
             "avatarRef",
             "portraitRef",
+            "images",
+            "imageStatus",
         ] {
             let mut leaked = profile.clone();
             leaked[field] = json!("private");
             assert!(validate_schema(&leaked, &profile_schema).is_err());
         }
         let mut leaked = profile.clone();
-        leaked["images"]["base64"] = json!("data");
+        leaked["avatar"]["base64"] = json!("data");
         assert!(validate_schema(&leaked, &profile_schema).is_err());
-        let mut malformed = profile;
-        malformed["imageStatus"]["icon"] = json!("unknown");
-        assert!(validate_schema(&malformed, &profile_schema).is_err());
+        for avatar in [
+            json!({"path":null,"status":"unavailable","displayCrop":null}),
+            json!({"path":"/run/avatar.gif","status":"available","displayCrop":null}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":0.6,"centerY":0.4,"size":0.5}}),
+        ] {
+            let mut available = profile.clone();
+            available["avatar"] = avatar;
+            validate_schema(&available, &profile_schema).unwrap();
+        }
+        for avatar in [
+            json!({"path":null,"status":"unknown","displayCrop":null}),
+            json!({"path":null,"status":"available","displayCrop":null}),
+            json!({"path":"","status":"available","displayCrop":null}),
+            json!({"path":"/run/avatar.png","status":"absent","displayCrop":null}),
+            json!({"path":null,"status":"unavailable","displayCrop":{"centerX":0.5,"centerY":0.5,"size":1}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":1.1,"centerY":0.5,"size":1}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":0.5,"centerY":0.5,"size":0.11}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":{"centerX":0.5,"size":1}}),
+            json!({"path":"/run/avatar.png","status":"available","displayCrop":null,"portrait":null}),
+        ] {
+            let mut malformed = profile.clone();
+            malformed["avatar"] = avatar;
+            assert!(validate_schema(&malformed, &profile_schema).is_err());
+        }
 
         let schema = agent_output_schema("thread.message.send").unwrap();
         assert!(
@@ -943,9 +978,10 @@ mod tests {
 
     #[test]
     fn every_operation_has_a_schema_valid_golden_projection() {
-        // v11 removes responsibilities from member.list; old fixtures remain historical.
+        // v14 changes legacy avatar contents, not v13's JSON shape. Reuse the
+        // same golden; source/framing semantics belong to member_avatar tests.
         let golden: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/builtin-tool-agent-output-v11.json"
+            "../tests/fixtures/builtin-tool-agent-output-v13.json"
         ))
         .unwrap();
         // Old results are projected to current names without content receipts.
@@ -967,6 +1003,66 @@ mod tests {
                 &projected,
             )
             .unwrap();
+        }
+        let old_senders: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/builtin-tool-agent-output-v11.json"
+        ))
+        .unwrap();
+        for operation in ["thread.read", "thread.search", "history.search"] {
+            let mut original = old_senders[operation]["agentOutput"].clone();
+            if operation != "thread.read" {
+                original["results"] = golden[operation]["agentOutput"]["results"].clone();
+                for item in original["results"].as_array_mut().unwrap() {
+                    let item = item.as_object_mut().unwrap();
+                    let kind = item.remove("senderType").unwrap();
+                    let id = item.remove("senderId").unwrap();
+                    item.remove("senderName");
+                    item.insert("authorType".into(), kind);
+                    item.insert("authorId".into(), id);
+                }
+            }
+            let bytes = serde_json::to_vec(&original).unwrap();
+            let replayed = project_envelope(
+                BuiltinToolInvocationEnvelope::success(
+                    operation,
+                    "7b5db24c-4a43-4cab-9217-d982b08f7691",
+                    original.clone(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(serde_json::to_vec(&replayed).unwrap(), bytes);
+            assert!(validate_schema(&original, &agent_output_schema(operation).unwrap()).is_err());
+            let key = if operation == "thread.read" {
+                "items"
+            } else {
+                "results"
+            };
+            for sender in [
+                json!({"senderType":"agent","senderId":"agent_27","senderName":null}),
+                json!({"senderType":"user","senderId":"user"}),
+                json!({"senderType":"system","senderId":"system","senderName":null}),
+            ] {
+                let mut current = golden[operation]["agentOutput"].clone();
+                let message = current[key][0].as_object_mut().unwrap();
+                message.remove("senderName");
+                message.extend(sender.as_object().unwrap().clone());
+                validate_schema(&current, &agent_output_schema(operation).unwrap()).unwrap();
+                validate_projected_document(operation, true, &current).unwrap();
+                let mut mixed = current.clone();
+                mixed[key][0]["authorId"] = json!("old-id");
+                assert!(validate_projected_document(operation, true, &mixed).is_err());
+                if sender["senderType"] == "user" {
+                    current[key][0]["senderName"] = Value::Null;
+                    assert!(validate_projected_document(operation, true, &current).is_err());
+                } else {
+                    current[key][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("senderName");
+                    assert!(validate_projected_document(operation, true, &current).is_err());
+                }
+            }
         }
         let mut quoted = legacy["camp.read"]["canonicalResult"].clone();
         quoted["items"][0]["quotes"] = json!([{"kind":"message_excerpt","source":{"scope":"camp_messages","messageId":"quote-message","author":{"type":"user","displayName":"User"}},"text":"campId and Thread are quoted verbatim"}]);

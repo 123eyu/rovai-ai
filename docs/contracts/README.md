@@ -1,14 +1,14 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-13
+last_updated: 2026-10-15
 ---
 
 # 长期接口合同
 
 User 的主称呼、结构化提及及冻结恢复见 [User Naming v1](user-naming-v1.md)。
 
-公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v34](context-manifest-evidence-v34.md)、[Built-in Tool Transport v39](builtin-tool-transport-v39.md)。
+公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v34](context-manifest-evidence-v34.md)、[Built-in Tool Transport v41](builtin-tool-transport-v41.md)。
 
 本目录保存跨版本、字段级且可由测试直接验证的接口合同。[Version Decisions](../decisions/README.md)解释为什么选择某个边界，
 Architecture 解释组件如何组成，Version 概览记录交付范围；它们都不复制本目录的完整 wire shape。
@@ -18,6 +18,13 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [AgentRun Continuation v3（当前）](agent-run-continuation-v3.md)：续做新请求只入内部队列，不新增消息或公开序号；既有记录、原输入及锚点保留。
 - [AgentRun Continuation v2（历史）](agent-run-continuation-v2.md)：新用户授权、自动会话选择与投递前有界降级，独立 Run 与现有队列。
 - [AgentRun Continuation v1（历史）](agent-run-continuation-v1.md)：独立续做与显式新会话确认；确认规则由 v2 替代。
+
+## 队员头像
+
+- [Member Avatar v4（当前）](member-avatar-v4.md)：内置头像裁切使用 Agent 读取的同一 packaged icon；受管头像继续使用源图与原取景。
+- [Member Avatar v3（历史）](member-avatar-v3.md)：Agent 对新旧上传头像统一读取源图与原取景，UI／渠道旧 icon 不变。
+- [Member Avatar v2（历史）](member-avatar-v2.md)：继承单文件资产与旧取景兼容；Agent get 统一为一个 avatar，保留显示裁切元数据。
+- [Member Avatar v1（历史）](member-avatar-v1.md)：单文件资产、显示取景、旧 icon 兼容和渠道静态封面；Agent 双图片结果由 v2 替代。
 
 ## Navigation
 
@@ -40,19 +47,20 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Mission v2（历史）](mission-v2.md) | 继承 v1，并让当前 Mission 的受认证 Agent 显式读取有序附件原路径；删除即排队清理的规则由 v3 局部替代 |
 | [Mission v1（历史）](mission-v1.md) | 身份、业务状态、当前成员操作、工作区准备与清理、固定基准累计变更；附件 raw path 始终私有的结论由 v2 局部替代 |
 
-## 模型消息 Mention
+## 模型消息发送者与 Mention
+
+- [Message Senders v1（当前）](message-senders-v1.md)：模型发送者统一，按需解析 Profile 当前名称及原输入/结果回放；内部身份不变。
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
-- [ContextManifest v37（当前）](context-manifest-evidence-v37.md)：普通与 Steer 共用动态上下文，多输入精确回执；public 37/14/10。
-- [Context Delivery Profile v14（当前 public batch）](context-delivery-profile-v14.md)：共同预算与本次投递来源，旧输入原字节恢复。
-- [Message Delivery v15（当前）](message-delivery-v15.md)：八种 Runtime 用户 Steer、原生回执与结束隔离。
-- [Message Delivery v14（历史）](message-delivery-v14.md)：首批六种 Runtime 的用户 Steer。
-- [Message Delivery v13（历史）](message-delivery-v13.md)：Codex 用户逐队员 Steer、指定执行与未知结果防重。
-- [ContextManifest v36（历史）](context-manifest-evidence-v36.md)：claim 快照与完整预算，public 36/13/9，non-batch 35/12/6 保持。
-- [Context Delivery Profile v13（历史）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
+- [ContextManifest v39（当前）](context-manifest-evidence-v39.md)：合并发送者与多输入；public 39/14/10、non-batch 37/12/6，Migration 203 保留两种历史 199。
+- [ContextManifest v38（主线历史）](context-manifest-evidence-v38.md)、[v37（Mission 064 历史）](context-manifest-evidence-v37.md)：冻结载荷保持原样。
+- [Context Delivery Profile v14（当前 public batch）](context-delivery-profile-v14.md)：普通与 Steer 共同 Builder、实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
+- [ContextManifest v36（历史）](context-manifest-evidence-v36.md)：首版 claim 上下文冻结，public 36/13/9。
+- [Camp History v12（历史）](camp-history-v12.md)：mentions 统一，作者字段保留原始身份。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
-- [Camp History v12（当前）](camp-history-v12.md)：三种 read 的 mentions、旧回执和 Agent Output 10；Transport/CLI 36 不变。
+- [Camp History v14（当前）](camp-history-v14.md)：新 Run 实时目录、消息发送时间排序、撤回回退与独立正文边界；继承 v13 发送者输出。
+- [Camp History v13（历史）](camp-history-v13.md)：read/search 统一发送者，Agent Output 12；历史回执保持。
 
 ## 生命周期
 
@@ -122,7 +130,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Open Projection v10（历史）](camp-open-projection-v10.md) | main Snapshot 34/Open 6；Open 不读取 event_log，移除 timeline/coverage.timeline，保留 high-water 与业务卡片 |
 | [Camp Open Projection v10（渠道分支历史）](camp-open-projection-channel-v10.md) | v9 保留；Camp/Navigation 增加可选 channelSource，原始 title 不变；合并时保留原文以区分同号合同 |
 | [Camp Open Projection v9（历史）](camp-open-projection-v9.md) | v8 保留；Snapshot 34/Open 5 增加可选 member.fast，仅查询安全缓存 |
-| [Runtime Launch and Verification v62（当前）](runtime-launch-and-verification-v62.md) | 移除原生会话重建提示、展示字段及公聊/单聊事件历史查询；恢复行为保持 |
+| [Runtime Launch and Verification v63（当前）](runtime-launch-and-verification-v63.md) | Pi 入站单帧 64 MiB、独立出站/stderr 预算、有类型连接失败及既有输入保护 |
+| [Runtime Launch and Verification v62（历史）](runtime-launch-and-verification-v62.md) | 移除原生会话重建提示、展示字段及公聊/单聊事件历史查询；恢复行为保持 |
 | [Runtime Launch and Verification v61（历史）](runtime-launch-and-verification-v61.md) | 移除 Desktop / Mobile 会话队员列表中的重置入口及其弹窗；启动与恢复保持 |
 | [Runtime Launch and Verification v60（历史）](runtime-launch-and-verification-v60.md) | 同类 CLI 优先原 ID 恢复、Adapter 证据限定一次降级、历史上下文不阻断新输入 |
 | [Runtime Launch and Verification v59（历史）](runtime-launch-and-verification-v59.md) | 启动时读取队员环境、Warm 保持、快照退役与单任务失败隔离 |
@@ -377,7 +386,9 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Memory Capture v3（当前）](memory-capture-v3.md) | v2 边界加 complete exact-Scope View、copyable Revision target、active body aggregate quota、64 KiB production projection limit 与 Memory-domain clean break |
 | [Memory Capture v2 (historical)](memory-capture-v2.md) | v1 捕获/Review/Forget 边界加 flat Agent-relative Scope identity、revise target assertion、durable domain rejection 与 Supersession 原子顺序 |
 | [Memory Capture v1 (historical)](memory-capture-v1.md) | 初版 best-effort 在线捕获、actor-bounded add/revise、隔离 Hearth Review Item、双 CAS、候选清除与 Forget safeguard；不含 Scope-identified revise |
-| [Built-in Tool Transport v39（当前）](builtin-tool-transport-v39.md) | 职责 10,000 scalar，member list 四字段、get 全文；Agent Output 11 |
+| [Built-in Tool Transport v41（当前）](builtin-tool-transport-v41.md) | 旧上传头像返回源图与原取景，读取与修改共用坐标；Agent Output 14，shape 不变 |
+| [Built-in Tool Transport v40（历史）](builtin-tool-transport-v40.md) | get 单一 avatar 路径／状态／裁切，保留完整身份及四字段 list；Agent Output 13 |
+| [Built-in Tool Transport v39（历史）](builtin-tool-transport-v39.md) | 职责 10,000 scalar，member list 四字段、get 全文；初始 Agent Output 11，后由 History v13 升为 12 |
 | [Built-in Tool Transport v38（历史）](builtin-tool-transport-v38.md) | 删除工具结果和目录摘要，静态目录复用；IPC 3、Envelope 2 |
 | [Domain Command Result v2（当前）](domain-command-result-v2.md) | 取消请求摘要；同命令身份与归属返回首次结果，保留查询 |
 | [Input Snapshot Storage v1（当前）](input-snapshot-storage-v1.md) | 最终输入与必要材料、当前结构准入、Migration 196/schema 146 |
@@ -528,7 +539,11 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Gather v3（历史）](gather-v3.md) | v2 lifecycle/limits 不变；Completion Input 使用 `agent_v1` request/captured 投影、projected digest 与 schema v3 |
 | [Gather v2（历史）](gather-v2.md) | v1 lifecycle 加当前代最后 captured result、独立回传限额、完整 request 与 completion input v2 |
 | [Gather v1（历史）](gather-v1.md) | GatherRecord/Item、Default Lead 接受、持久 capture/Barrier、completion snapshot/FIFO 与旧 capture budget/input v1 |
-| [Message Delivery v12（当前）](message-delivery-v12.md) | 内部续做请求使用独立 FIFO 序号，不创建消息，执行区复用原输入 |
+| [Message Delivery v16（当前）](message-delivery-v16.md) | Core 统一 Steer 版本资格、TRAE CN、接收语义与未知不重发 |
+| [Message Delivery v15（历史）](message-delivery-v15.md) | Kiro 与 ZCode 插话 |
+| [Message Delivery v14（历史）](message-delivery-v14.md) | Claude、Pi、CodeBuddy、Qwen、Grok 插话 |
+| [Message Delivery v13（历史）](message-delivery-v13.md) | 用户 Steer 与逐消息 Runtime Input |
+| [Message Delivery v12（历史）](message-delivery-v12.md) | 内部续做请求使用独立 FIFO 序号，不创建消息，执行区复用原输入 |
 | [Message Delivery v11（历史）](message-delivery-v11.md) | 续做复用 waiting Delivery，独立成批，来源状态不传播；non-batch 改为事件唤醒，移除旧全局维护循环 |
 | [Message Delivery v10（历史）](message-delivery-v10.md) | 继承 v9；claim 原子修复历史 waiting lane 缺失的 Camp-member Conversation，启动扫描与兜底自动恢复 |
 | [Message Delivery v9（历史）](message-delivery-v9.md) | waiting Delivery 是唯一队列；claim 原子创建不可变的多输入 AgentRun，无预算、Gather 或业务重试 |
@@ -585,6 +600,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [ContextManifest Evidence v9 (historical)](context-manifest-evidence-v9.md) | bounded public omission evidence；不作为 Formatter v13 恢复入口 |
 | [Context Delivery Profile v2 (historical)](context-delivery-profile-v2.md) | 公共引用链与历史 budget 的旧当前合同；不选择 self-active Task |
 | [Context Delivery Profile v1 (historical)](context-delivery-profile-v1.md) | AgentRun 公共消息窗口、Unicode scalar 正文截断、历史字符预算与遗漏提示 |
+| [Execution Record Storage v2（当前）](execution-record-storage-v2.md) | 新操作与活动共用一行、小字段兼容读取、按需 diff，保留旧格式与 v1 回收 |
+| [Execution Record Storage v1（历史）](execution-record-storage-v1.md) | 新操作独立输入／结果、按页组合预览、旧格式收尾与会话删除 Blob 候选登记 |
 | [Run Process Detail Surface v54（当前）](run-process-detail-surface-v54.md) | 独立执行行复用队员卡片与模型浮层，显示本 Run 的模型与强度；精确 Run 身份衔接不变 |
 | [Run Process Detail Surface v53（历史）](run-process-detail-surface-v53.md) | 执行行固定启动时公开消息边界；任何 Run 均不能拆开回复与附属卡片 |
 | [Run Process Detail Surface v52（历史）](run-process-detail-surface-v52.md) | 当前轮次活动优先于晚到的输入受理回执，保留新轮次连接反馈；Desktop / Web 共用 |

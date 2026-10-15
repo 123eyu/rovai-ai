@@ -8855,6 +8855,8 @@ impl Core {
                     rendition: String,
                     #[serde(default)]
                     static_png: bool,
+                    #[serde(default)]
+                    target_edge: Option<u32>,
                 }
                 let params: Read = serde_json::from_value(request.params.clone())?;
                 anyhow::ensure!(
@@ -8865,10 +8867,15 @@ impl Core {
                     !params.static_png || params.rendition == "icon",
                     "Only icons support a static PNG rendition"
                 );
+                anyhow::ensure!(
+                    params.static_png || params.target_edge.is_none(),
+                    "Export size requires static PNG"
+                );
                 let image = if params.static_png {
-                    rovai_core::member_avatar::read_managed_member_avatar_static_icon(
+                    rovai_core::member_avatar::read_managed_member_avatar_static_png(
                         &self.data_dir,
                         &params.avatar_ref,
+                        params.target_edge.unwrap_or(192),
                     )?
                 } else {
                     rovai_core::member_avatar::read_managed_member_avatar(
@@ -8889,6 +8896,12 @@ impl Core {
                     deny_unknown_fields
                 )]
                 enum Save {
+                    Image {
+                        source_base64: String,
+                        source_width: u32,
+                        source_height: u32,
+                        crop: rovai_core::member_avatar::MemberAvatarCrop,
+                    },
                     Raster {
                         source_base64: String,
                         icon_base64: String,
@@ -8914,6 +8927,26 @@ impl Core {
                 }
                 let params: Save = serde_json::from_value(value)?;
                 let summary = match params {
+                    Save::Image {
+                        source_base64,
+                        source_width,
+                        source_height,
+                        crop,
+                    } => {
+                        anyhow::ensure!(
+                            source_base64.len() <= 23 * 1024 * 1024,
+                            "Avatar exceeds the managed asset limit"
+                        );
+                        let source =
+                            base64::engine::general_purpose::STANDARD.decode(source_base64)?;
+                        rovai_core::member_avatar::save_member_avatar_image(
+                            &self.data_dir,
+                            &source,
+                            source_width,
+                            source_height,
+                            crop,
+                        )?
+                    }
                     Save::Raster {
                         source_base64,
                         icon_base64,
@@ -10768,6 +10801,7 @@ impl Core {
                 let canonical = rovai_core::execution_window::content_canonical(
                     &database,
                     &params.evidence_id,
+                    &payload,
                 )?;
                 let (revision, change_sequence, output_truncated) = database.connection().query_row(
                     "SELECT revision, change_sequence, output_truncated FROM agent_run_execution_evidence WHERE id = ?1",
@@ -17788,6 +17822,7 @@ impl Core {
         agent_run_id: &str,
         execution_epoch: i64,
         reason: &str,
+        failure: Option<RuntimeFailureView>,
     ) {
         let recovery = {
             let mut database = self.database.lock().await;
@@ -17805,6 +17840,7 @@ impl Core {
                             expected_versions: Vec::new(),
                             execution_epoch: None,
                             payload: ReconcileRuntimeLossCommand {
+                                failure,
                                 agent_run_id: agent_run_id.to_string(),
                                 expected_version: execution.version,
                                 execution_epoch,
@@ -20203,6 +20239,7 @@ async fn process_pi_events(
                 host_instance_id,
                 agent_run_id,
                 execution_epoch,
+                failure,
             } => {
                 process_pi_agent_run_exit(
                     &core,
@@ -20210,6 +20247,7 @@ async fn process_pi_events(
                     &host_instance_id,
                     &agent_run_id,
                     execution_epoch,
+                    failure,
                 )
                 .await;
             }
@@ -20747,6 +20785,7 @@ async fn process_pi_agent_run_exit(
     host_instance_id: &str,
     agent_run_id: &str,
     execution_epoch: i64,
+    failure: Option<pi::PiTransportFailure>,
 ) {
     if core.planned_shutdown.shutdown_started() {
         return;
@@ -20772,8 +20811,25 @@ async fn process_pi_agent_run_exit(
         "runtime_host_exit_unclassified",
     )
     .await;
-    core.reconcile_exited_agent_run(output, agent_run_id, execution_epoch, "pi_host_exited")
-        .await;
+    let public_failure = failure.map(pi::PiTransportFailure::public_failure);
+    let reason = public_failure.as_ref().map_or_else(
+        || "pi_host_exited".to_string(),
+        |failure| {
+            format!(
+                "{}: {}",
+                failure.code,
+                failure.detail.as_deref().unwrap_or(&failure.summary)
+            )
+        },
+    );
+    core.reconcile_exited_agent_run(
+        output,
+        agent_run_id,
+        execution_epoch,
+        &reason,
+        public_failure,
+    )
+    .await;
 }
 
 async fn process_acp_events(
@@ -23619,6 +23675,7 @@ async fn process_acp_agent_run_exit(
         agent_run_id,
         execution_epoch,
         &format!("{}_host_exited", adapter_kind.as_str().replace('-', "_")),
+        None,
     )
     .await;
 }
@@ -24927,8 +24984,14 @@ async fn process_agent_run_exit(
         "runtime_host_exit_unclassified",
     )
     .await;
-    core.reconcile_exited_agent_run(output, agent_run_id, execution_epoch, "codex_host_exited")
-        .await;
+    core.reconcile_exited_agent_run(
+        output,
+        agent_run_id,
+        execution_epoch,
+        "codex_host_exited",
+        None,
+    )
+    .await;
 }
 
 async fn dispatch_pending_single_chat_inputs(core: &Core) -> Result<()> {

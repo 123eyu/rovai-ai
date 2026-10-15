@@ -1,48 +1,16 @@
-# Avatar sourcing
+# Avatar preparation
 
-An avatar identifies a member; it does not establish responsibilities, permissions, Runtime, or team authority.
+## Prepare the chosen image
 
-## Timing and file handling
+- Generation: follow the confirmed reference and appearance. Keep a specified character recognizable and match the requested version. Without a style preference, use illustration.
+- Recommend a single 512 x 512 or 1024 x 1024 square image: a centered face or symbol, key features inside the central circular area, and a simple background. Avoid text, watermarks and decorative borders. These are generation recommendations, not upload requirements.
+- Supplied image: use the user's file. Non-square images are supported; Rovai handles avatar framing.
+- Online source: follow the user's reference and download a suitable image file.
 
-Present the visual plan before card confirmation. After confirmation, generate, download, or prepare the file in the current AgentRun and pass it promptly to `rovai member create`.
+## Validate and submit
 
-Prefer a separate file under `ROVAI_RUN_TMP` when available, or another controlled temporary directory readable by Core in this Run. Do not assume temporary files survive between Runs.
+1. Check file access, format and import limits in `rovai member create --help` before preparing a preview or creation input. Use PNG/JPEG by default; GIF only when supplied or explicitly requested. Use a smaller file if over budget; automatic GIF compression is unavailable.
+2. For generated images, check that the subject matches the plan and remains recognizable at avatar size.
+3. Pass the readable local image path to `--avatar-file`; no specific directory is required.
 
-Pass the local path through `--avatar-file`. Do not write directly to `userData/member-avatars/` or use a remote URL as `avatarRef`. The product decodes, strips metadata, resizes, crops, and stores the managed asset.
-
-## Image requirements
-
-- Use static PNG/JPEG by default. Use GIF only when the user supplies it for the avatar. At least 256 x 256, within the product byte limit.
-- Prefer a 4:5 portrait at 1024 x 1280, with head and shoulders or upper body centered slightly above the middle.
-- Leave crop space; use a simple background without text, logos, watermarks, or complex borders.
-- Keep the central subject suitable for a square avatar.
-
-## Original generation
-
-Follow the confirmed visual preference, name, role, and traits. Default to illustration, semi-realistic art, or the product's specified style; avoid a default likeness that could be mistaken for a real photograph.
-
-For public or historical figures, use public professional references without claiming to reproduce the real person. For fictional characters, preserve requested qualities without copying a particular film, game, or illustration design.
-
-Include the reference or name, role, 2-3 work traits, dimensions, framing, crop space, simple background, and exclusions above in the generation prompt. Optional Rovai details, such as warm lamps, travel gear, or badge motifs, should support distinct identities rather than make everyone share one costume or profession.
-
-## Source online
-
-Use available, authorized search or network capabilities when the user chooses this method or generation is unavailable. Prefer:
-
-1. The user's specified official source.
-2. Public-domain or explicitly reusable collections.
-3. Other sources with a clear source page and license.
-
-Download the original image file, not a search thumbnail or unknown CDN hotlink. Retain the source page and available author, institution, license, or usage information. If provenance or permission is unclear, choose another image or omit the avatar.
-
-## Fallback
-
-The default order is original generation, sourced image, then default avatar. Use only capabilities actually available and authorized. Without image capability, omit `--avatar-file` and report the default avatar; never invent a path, URL, or result. A changed avatar plan follows the card confirmation rule.
-
-## Validate
-
-Visually check a square crop using the image's shorter side, horizontally centered. For a 4:5 portrait, start about 3%-8% below the top. Keep the head, chin, and identifying features visible. The product creates the 192 x 192 icon; a finished icon file is unnecessary.
-
-Before creation, verify the readable PNG/JPEG/GIF, dimensions and bytes against `rovai member create --help`, crop, and current-Run path. Match the confirmed identity without inferring identity facts from the image.
-
-For GIF, pass the animation intact and prefer a stable subject within the square crop. Rovai applies the same crop to every frame.
+Submit GIF animation intact. One avatar file is enough; separate portraits, icons and channel images are unnecessary.

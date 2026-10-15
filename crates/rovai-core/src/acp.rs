@@ -3220,6 +3220,7 @@ impl AcpHost {
                         | AdapterKind::QwenCode
                         | AdapterKind::GrokBuild
                         | AdapterKind::KiroCli
+                        | AdapterKind::TraeCnCli
                 ) && !active_prompt.acceptance_emitted
                     && (matches!(
                         message
@@ -5407,6 +5408,10 @@ impl AcpRuntime {
                 json!({"sessionId":session,"prompt":[{"type":"text","text":text}]}),
             ),
             AdapterKind::GrokBuild => ("_x.ai/interject", json!({"sessionId":session,"text":text})),
+            AdapterKind::TraeCnCli => (
+                "_session/steering",
+                json!({"sessionId":session,"prompt":[{"type":"text","text":text}]}),
+            ),
             AdapterKind::KiroCli => (
                 "_session/steer",
                 json!({"sessionId":session,"message":text}),
@@ -5462,6 +5467,14 @@ impl AcpRuntime {
         .context("ACP active input response disconnected")?;
         let result = match result {
             Err(error)
+                if self.adapter_kind() == AdapterKind::TraeCnCli
+                    && error
+                        .downcast_ref::<AcpRpcError>()
+                        .is_some_and(|e| matches!(e.code, Some(-32600 | -32601 | -32002))) =>
+            {
+                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+            }
+            Err(error)
                 if kiro
                     && error
                         .downcast_ref::<AcpRpcError>()
@@ -5507,6 +5520,9 @@ impl AcpRuntime {
             && result.pointer("/result/status").and_then(Value::as_str) != Some("queued")
         {
             bail!("Grok did not confirm its interjection queue");
+        }
+        if self.adapter_kind() == AdapterKind::TraeCnCli && result["outcome"] != "injected" {
+            bail!("TRAE did not confirm active input injection");
         }
         if self.adapter_kind() == AdapterKind::CodebuddyCli && result["stopReason"] != "end_turn" {
             bail!("CodeBuddy did not confirm the supplemental prompt");
@@ -11886,9 +11902,10 @@ while IFS= read -r ignored; do :; done
             AdapterKind::GrokBuild,
             AdapterKind::QwenCode,
             AdapterKind::KiroCli,
+            AdapterKind::TraeCnCli,
         ] {
             for (late, unsupported) in [(false, false), (true, false), (false, true)] {
-                if unsupported && kind != AdapterKind::KiroCli {
+                if unsupported && !matches!(kind, AdapterKind::KiroCli | AdapterKind::TraeCnCli) {
                     continue;
                 }
                 let root =
@@ -11897,6 +11914,8 @@ while IFS= read -r ignored; do :; done
                 let executable = root.join("fake-agent");
                 let response = if kind == AdapterKind::GrokBuild {
                     r#"{"result":{"status":"queued"}}"#
+                } else if kind == AdapterKind::TraeCnCli {
+                    r#"{"outcome":"injected"}"#
                 } else {
                     r#"{"stopReason":"end_turn"}"#
                 };
@@ -12246,14 +12265,14 @@ while IFS= read -r ignored; do :; done
             if expected_accepted {
                 assert!(matches!(
                     receiver.recv().await,
-                    Some(AcpIncoming::Message { ref message, .. })
-                        if message.pointer("/params/update/content/text").and_then(Value::as_str)
-                            == Some("working")
+                    Some(AcpIncoming::InputAccepted { native_prompt_id, .. })
+                        if native_prompt_id == prompt_id
                 ));
                 assert!(matches!(
                     receiver.recv().await,
-                    Some(AcpIncoming::InputAccepted { native_prompt_id, .. })
-                        if native_prompt_id == prompt_id
+                    Some(AcpIncoming::Message { ref message, .. })
+                        if message.pointer("/params/update/content/text").and_then(Value::as_str)
+                            == Some("working")
                 ));
             } else {
                 assert!(matches!(
@@ -12502,6 +12521,9 @@ while IFS= read -r ignored; do :; done
             .start_prompt("delivery-after-metadata", "continue")
             .await
             .unwrap();
+        assert!(
+            matches!(receiver.recv().await, Some(AcpIncoming::InputAccepted { native_prompt_id, .. }) if native_prompt_id == prompt_id)
+        );
         assert!(matches!(
             receiver.recv().await,
             Some(AcpIncoming::Message {
@@ -12622,7 +12644,7 @@ while IFS= read -r ignored; do :; done
     }
 
     #[tokio::test]
-    async fn history_restore_replay_is_quarantined_and_prompt_response_is_the_only_ack() {
+    async fn history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input() {
         let root = std::env::temp_dir().join(format!(
             "rovai-acp-resume-quarantine-{}",
             uuid::Uuid::new_v4()
@@ -12712,6 +12734,17 @@ while IFS= read -r ignored; do :; done
             .start_prompt("delivery-current", "continue")
             .await
             .unwrap();
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AcpIncoming::InputAccepted {
+                native_session_id,
+                native_prompt_id,
+                delivery_id,
+                ..
+            }) if native_session_id == "session-old"
+                && native_prompt_id == prompt_id
+                && delivery_id == "delivery-current"
+        ));
         let first = receiver
             .recv()
             .await
@@ -12730,17 +12763,6 @@ while IFS= read -r ignored; do :; done
                 && delivery_id == "delivery-current"
                 && message.pointer("/params/update/content/text").and_then(Value::as_str)
                     == Some("current")
-        ));
-        assert!(matches!(
-            receiver.recv().await,
-            Some(AcpIncoming::InputAccepted {
-                native_session_id,
-                native_prompt_id,
-                delivery_id,
-                ..
-            }) if native_session_id == "session-old"
-                && native_prompt_id == prompt_id
-                && delivery_id == "delivery-current"
         ));
         assert!(matches!(
             receiver.recv().await,

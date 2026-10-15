@@ -359,6 +359,7 @@ pub struct RunWorkspaceView {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRunView {
     pub can_steer: bool,
+    pub steer_unavailable_reason: Option<crate::steer::SteerUnavailableReason>,
     pub id: String,
     #[serde(rename = "threadTurnId", alias = "campTurnId")]
     pub camp_turn_id: Option<String>,
@@ -1556,7 +1557,7 @@ impl ReadModelService {
             let mut statement = transaction.prepare(
                 r#"
                 SELECT id, agent_run_id, execution_epoch, sequence,
-                       event_type, kind, phase, payload_preview_json,
+                       event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json),
                        content_blob_id, content_byte_count,
                        is_truncated, occurred_at,
                        operation_id, revision, change_sequence, output_truncated
@@ -3278,15 +3279,16 @@ fn load_agent_runs(
                 has_accepted_continuation,
                 public_tail_sequence_at_start,
                 runtime_adapter_kind,
-                input_accepted,
+                _input_accepted,
             )| {
+                let steer = if matches!(status.as_str(), "queued" | "running" | "waiting") {
+                    crate::steer::active_input_availability(transaction, &id, execution_epoch)?
+                } else {
+                    crate::steer::ActiveInputAvailability::default()
+                };
                 Ok(AgentRunView {
-                    can_steer: input_accepted
-                        && matches!(status.as_str(), "running" | "waiting")
-                        && cancel_requested_at.is_none()
-                        && runtime_adapter_kind
-                            .as_deref()
-                            .is_some_and(crate::steer::supports_active_input),
+                    can_steer: steer.can_steer,
+                    steer_unavailable_reason: steer.unavailable_reason,
                     id,
                     camp_turn_id,
                     input_message_ids: serde_json::from_str(&input_message_ids_json)
@@ -3444,15 +3446,8 @@ fn load_execution_evidence(
 ) -> Result<Vec<AgentRunExecutionEvidenceView>> {
     let mut statement = transaction.prepare(
         r#"
-        SELECT *
-        FROM (
-          SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
-                 evidence.sequence, evidence.event_type, evidence.kind,
-                 evidence.phase, evidence.payload_preview_json,
-                 evidence.content_blob_id, evidence.content_byte_count,
-                 evidence.is_truncated, evidence.occurred_at,
-                 evidence.operation_id, evidence.revision, evidence.change_sequence,
-                 evidence.output_truncated
+        WITH selected AS MATERIALIZED (
+          SELECT evidence.id, evidence.occurred_at, evidence.agent_run_id, evidence.sequence
           FROM agent_run_execution_evidence AS evidence
           JOIN agent_run ON agent_run.id = evidence.agent_run_id
           LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
@@ -3463,7 +3458,13 @@ fn load_execution_evidence(
                    evidence.agent_run_id DESC, evidence.sequence DESC
           LIMIT ?2
         )
-        ORDER BY occurred_at, agent_run_id, sequence
+        SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
+               evidence.sequence, evidence.event_type, evidence.kind, evidence.phase,
+               rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
+               evidence.content_blob_id, evidence.content_byte_count, evidence.is_truncated, evidence.occurred_at,
+               evidence.operation_id, evidence.revision, evidence.change_sequence, evidence.output_truncated
+        FROM selected JOIN agent_run_execution_evidence AS evidence ON evidence.id=selected.id
+        ORDER BY selected.occurred_at, selected.agent_run_id, selected.sequence
         "#,
     )?;
     let mut evidence = statement
@@ -3485,7 +3486,7 @@ pub(crate) fn public_execution_evidence_for_agent_run(
         r#"
         SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
                evidence.sequence, evidence.event_type, evidence.kind,
-               evidence.phase, evidence.payload_preview_json,
+               evidence.phase, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
                evidence.content_blob_id, evidence.content_byte_count,
                evidence.is_truncated, evidence.occurred_at,
                evidence.operation_id, evidence.revision, evidence.change_sequence,
@@ -3609,10 +3610,47 @@ pub(crate) fn attach_canonical_activity_projection(
     if evidence.is_empty() {
         return Ok(());
     }
-    let requested = evidence
+    let mut requested = evidence
         .iter()
         .map(|item| (&item.id, &item.agent_run_id, item.execution_epoch))
         .collect::<Vec<_>>();
+    let requested_json = serde_json::to_string(&requested)?;
+    // Format 3 owns its metadata. Resolve only requested primary keys, without scanning
+    // every activity (or patch) in these Runs to attach a page or one expanded result.
+    let mut canonical_by_evidence_id = BTreeMap::new();
+    let mut unified = connection.prepare("SELECT e.id,e.activity_meta_json,e.operation_id,e.sequence,e.revision
+        FROM json_each(?1) requested JOIN agent_run_execution_evidence e ON e.id=json_extract(requested.value,'$[0]')
+        WHERE e.agent_run_id=json_extract(requested.value,'$[1]') AND e.execution_epoch=json_extract(requested.value,'$[2]')
+          AND e.storage_version=3 AND e.activity_meta_json IS NOT NULL")?;
+    let rows = unified.query_map([&requested_json], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, i64>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, metadata, operation, sequence, revision) = row?;
+        let mut activity = crate::execution_evidence::activity_from_stored_metadata(
+            &metadata, &id, &operation, sequence, revision,
+        )?;
+        if metadata_only {
+            if let Some(diff) = activity.diff_projection.as_mut() {
+                diff.entries = Some(Vec::new());
+            }
+        }
+        canonical_by_evidence_id.insert(id, activity);
+    }
+    drop(unified);
+    requested.retain(|(id, _, _)| !canonical_by_evidence_id.contains_key(*id));
+    if requested.is_empty() {
+        for item in evidence {
+            item.canonical = canonical_by_evidence_id.remove(&item.id);
+        }
+        return Ok(());
+    }
     let requested_json = serde_json::to_string(&requested)?;
     let mut statement = connection.prepare(
         r#"
@@ -3705,7 +3743,6 @@ pub(crate) fn attach_canonical_activity_projection(
             Ok((row.get::<_, String>(0)?, canonical))
         },
     )?;
-    let mut canonical_by_evidence_id = BTreeMap::new();
     for row in rows {
         let (evidence_id, canonical) = row?;
         canonical_by_evidence_id
@@ -6039,6 +6076,7 @@ mod slow_tests {
             .unwrap();
         let camp_id = created.result.payload["threadId"].as_str().unwrap();
         let agent_run_id = created.result.payload["agentRunIds"][0].as_str().unwrap();
+        crate::execution_storage_probe::compare(&database, camp_id, agent_run_id, &directory);
         let now = chrono::Utc::now().to_rfc3339();
         for sequence in 1..=3 {
             database

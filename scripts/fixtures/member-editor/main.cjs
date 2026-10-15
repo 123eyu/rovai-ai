@@ -116,7 +116,7 @@ app
       run(`document.querySelectorAll(${JSON.stringify(textInput)})[1].value`)
     const geometry = () =>
       run(
-        `(() => { const q = selector => document.querySelector(selector); const box = selector => q(selector).getBoundingClientRect(); return { appRail: box('.unified-sidebar').width, roster: box('.member-sidebar').width, avatar: box('.member-sidebar-select .member-avatar').width, portrait: box('${active}.member-portrait').width, overflow: document.documentElement.scrollWidth > innerWidth || q('.members-view').scrollWidth > q('.members-view').clientWidth, tabCount: q('.members-view').querySelectorAll('[role=tab]').length, modal: !!q('[aria-modal=true]') } })()`
+        `(() => { const q = selector => document.querySelector(selector); const box = selector => q(selector).getBoundingClientRect(); return { appRail: box('.unified-sidebar').width, roster: box('.member-sidebar').width, avatar: box('.member-sidebar-select .member-avatar').width, portrait: !!q('${active}.member-portrait'), overflow: document.documentElement.scrollWidth > innerWidth || q('.members-view').scrollWidth > q('.members-view').clientWidth, tabCount: q('.members-view').querySelectorAll('[role=tab]').length, modal: !!q('[aria-modal=true]') } })()`
       )
     const reloadPage = async () => {
       const loaded = require('node:events').once(window.webContents, 'did-finish-load')
@@ -135,12 +135,14 @@ app
       window.webContents.sendInputEvent({ type: 'mouseDown', x: start.x, y: start.y, button: 'left', clickCount: 1 })
       await settle()
       const observed = []
-      for (const width of widths) {
+      for (const step of widths) {
+        const [width, delay] = Array.isArray(step) ? step : [step, 0]
         window.webContents.sendInputEvent({ type: 'mouseMove', x: start.x + width - start.width, y: start.y, button: 'left', modifiers: ['leftButtonDown'] })
         await settle()
+        if (delay) { await new Promise(resolve => setTimeout(resolve, delay)); await settle() }
         observed.push(await rosterWidth())
       }
-      window.webContents.sendInputEvent({ type: 'mouseUp', x: start.x + widths.at(-1) - start.width, y: start.y, button: 'left', clickCount: 1 })
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: start.x + (Array.isArray(widths.at(-1)) ? widths.at(-1)[0] : widths.at(-1)) - start.width, y: start.y, button: 'left', clickCount: 1 })
       await settle()
       assert.equal(await run('document.querySelector(".member-editor-roster-shell").classList.contains("is-resizing")'), false)
       return observed
@@ -158,7 +160,7 @@ app
         appRail: 270,
         roster: 256,
         avatar: 40,
-        portrait: 182,
+        portrait: false,
         overflow: false,
         tabCount: 0,
         modal: false
@@ -219,15 +221,25 @@ app
       await wait("!document.querySelector('.command-palette')")
       assert.equal(await run("document.activeElement.matches('.conversation-jump')"), false)
     })
-    await check('roster snaps in both directions and restores its useful width', async () => {
-      assert.deepEqual(await dragRoster([179, 170, 190, 216]), [192, 76, 76, 216])
+    await check('roster holds its minimum, folds to avatars and reverses with its useful width intact', async () => {
+      assert.deepEqual(await dragRoster([179, 170]), [192, 192])
+      await new Promise(resolve => setTimeout(resolve, 400))
+      assert.equal(await rosterWidth(), 192)
+      assert.deepEqual(await dragRoster([[120, 400], 190, 216]), [76, 76, 216])
       await key('Home')
-      assert.deepEqual(await dragRoster([170]), [76])
+      assert.deepEqual(await dragRoster([[120, 400]]), [76])
       assert.equal(await run('!!document.querySelector(".member-sidebar.is-collapsed")'), true)
       await click('.member-roster-resizer'); await key('Right')
       assert.equal(await rosterWidth(), 256)
       assert.deepEqual(await dragRoster([330]), [330])
       await reloadPage()
+      assert.equal(await rosterWidth(), 330)
+      window.setContentSize(900, 700); await settle()
+      assert.ok(await rosterWidth() < 330, 'The small viewport clamps only the visible width')
+      await click('.member-roster-resizer')
+      assert.equal(await run('JSON.parse(localStorage.getItem("rovai-member-roster-width-v2")).width'), 330,
+        'Cancelling a no-move gesture preserves the preferred width beyond the viewport clamp')
+      window.setContentSize(1440, 920); await settle()
       assert.equal(await rosterWidth(), 330)
       await click('.member-roster-resizer')
       await key('Enter')
@@ -314,10 +326,10 @@ app
       assert.equal(await run('document.querySelectorAll(".member-sidebar-row").length'), 1)
       assert.equal(await run('document.querySelector(".member-sidebar-title").textContent'), '队员1 / 16')
       await click('.member-sidebar-select', '队员 5产品设计与用户研究')
-      assert.equal(await run(`document.querySelector('${active}.member-header-runtime').textContent.trim()`), '未配置智能体')
+      assert.equal(await run(`!!document.querySelector('${active}.member-header-runtime')`), false)
       await click('.member-sidebar-filter button[aria-label="清除队员筛选"]')
       await click('.member-sidebar-select', '芝士鉴定士')
-      assert.equal(await run(`document.querySelector('${active}.member-header-runtime').textContent.trim()`), 'Claude Code')
+      assert.equal(await run(`!!document.querySelector('${active}.member-header-runtime')`), false)
       await run('window.memberFixture.roster(2)')
       await settle()
       assert.deepEqual(await run('[...document.querySelectorAll(".member-sidebar-group-heading")].map(node => node.textContent)'), ['在队14', '暂离2'])
@@ -437,7 +449,8 @@ app
       'an avatar failure commits text once and retains only the unsaved image',
       async () => {
         await click(`${active}.member-editor-image-button`)
-        await click(`${active}.member-editor-avatar-option`, '芝士')
+        await click('.avatar-picker-preset-toggle')
+        await click('.avatar-picker-options .member-editor-avatar-option', '芝士')
         await fill(
           `${active}.member-editor-two-columns > div:nth-child(2) input`,
           '部分保存后的职责'
@@ -467,6 +480,47 @@ app
         )
       }
     )
+    await check('uploaded avatars confirm once, preserve drafts on cancel/error and discard late reads', async () => {
+      const before = await run('window.memberFixture.profiles()[0].avatarRef')
+      const png = nativeImage.createFromBuffer(readFileSync(join(__dirname, '../../../apps/desktop/src/renderer/src/assets/characters/muwa/icon-192.png'))).resize({ width: 480, height: 320 }).toPNG().toString('base64')
+      const source = `{ bytes: Uint8Array.from(atob('${png}'), c => c.charCodeAt(0)), byteLength: atob('${png}').length, inspectedWidth: 480, inspectedHeight: 320, mediaType: 'image/png', displayName: 'fixture.png' }`
+      const open = async () => { await click(`${active}.member-editor-image-button`); await wait('document.querySelector(".avatar-picker-upload")'); assert.equal(await run('document.querySelector(".avatar-picker-preset-toggle").getAttribute("aria-expanded")'), 'false') }
+      await run(`window.memberFixture.source(${source})`)
+      await open(); await click('.avatar-picker-upload'); await wait('document.querySelector(".avatar-crop-stage img")?.naturalWidth === 480')
+      assert.equal(await run('document.querySelector(".avatar-crop-zoom input").getAttribute("aria-valuetext")'), '100% 放大')
+      await run('document.querySelector(".avatar-crop-zoom input").focus()'); await key('End')
+      await wait('document.querySelector(".avatar-crop-zoom output").textContent === "833%"')
+      assert.equal(await run('document.querySelector(".avatar-crop-zoom input").getAttribute("aria-valuetext")'), '833% 放大')
+      await key('Home'); await run('document.querySelector(".avatar-crop-stage").focus()')
+      await key('Right'); await key('Escape'); await wait('!document.querySelector(".avatar-picker-dialog")')
+      await wait(`document.activeElement === document.querySelector('${active}.member-editor-image-button')`)
+      assert.equal(await run('window.memberFixture.profiles()[0].avatarRef'), before)
+      await run('window.memberFixture.source({bytes: new Uint8Array([1,2,3]), byteLength:3, inspectedWidth:480, inspectedHeight:320, mediaType:"image/png", displayName:"broken.png"})')
+      await open(); await click('.avatar-picker-upload'); await wait('document.querySelector(".avatar-picker-dialog [role=alert]")')
+      assert.equal(await run('!!document.querySelector(".avatar-crop-stage")'), false)
+      await key('Escape'); await wait('!document.querySelector(".avatar-picker-dialog")')
+      await run('window.memberFixture.holdSource()'); await open(); await click('.avatar-picker-upload')
+      await key('Escape'); await wait('!document.querySelector(".avatar-picker-dialog")')
+      await run(`window.memberFixture.releaseSource(${source})`); await settle()
+      assert.equal(await run('!!document.querySelector(".avatar-picker-dialog")'), false)
+      assert.equal(await run('window.memberFixture.profiles()[0].avatarRef'), before)
+      await run(`window.memberFixture.source(${source})`)
+      await open(); await click('.avatar-picker-upload'); await wait('document.querySelector(".avatar-crop-stage img")?.naturalWidth === 480')
+      await run('window.memberFixture.fail("memberAvatars.save")')
+      await click('.avatar-cut-dialog .member-editor-primary'); await wait('document.querySelector(".avatar-cut-dialog [role=alert]")')
+      assert.equal(await run('window.memberFixture.profiles()[0].avatarRef'), before)
+      await click('.avatar-cut-dialog .member-editor-primary'); await wait('!document.querySelector(".avatar-picker-dialog")')
+      assert.equal(await run('window.memberFixture.profiles()[0].avatarRef'), before)
+      assert.equal(await run(`document.querySelector('${active}.member-identity-form button[type=submit]').disabled`), false)
+      await saveIdentity(); await wait(`window.memberFixture.profiles()[0].avatarRef.includes('/managed/') && document.querySelector('${active}.member-identity-form button[type=submit]').disabled`)
+      assert.match(await run('window.memberFixture.profiles()[0].avatarRef'), /managed/)
+      assert.equal(await run(`!!document.querySelector('${active}.member-identity-form .member-editor-save-status.is-dirty')`), false)
+      await wait(`document.querySelector('${active}.member-avatar img')?.naturalWidth === 480`)
+      await capture('member-upload-saved')
+      await open(); await click('.avatar-picker-preset-toggle'); await click('.avatar-picker-options .member-editor-avatar-option', '芝士')
+      await saveIdentity(); await wait(`window.memberFixture.profiles()[0].avatarRef === ${JSON.stringify(before)} && document.querySelector('${active}.member-identity-form button[type=submit]').disabled`)
+      await run('window.memberFixture.source(null)')
+    })
     await check(
       'an external identity update during save preserves the local draft as a conflict',
       async () => {
@@ -611,7 +665,7 @@ app
       }
     )
     await check(
-      'new teammate is inline and counted only after creation, including its selected portrait',
+      'new teammate is inline and counted only after creation, including its selected avatar',
       async () => {
         await click('.member-sidebar-actions button[aria-label="添加队员"]')
         assert.equal(
@@ -628,7 +682,8 @@ app
         )
         await fill(textInput, '只填名称的新队员')
         await click(`${active}.member-editor-image-button`)
-        await click(`${active}.member-editor-avatar-option`, '叮叮')
+        await click('.avatar-picker-preset-toggle')
+        await click('.avatar-picker-options .member-editor-avatar-option', '叮叮')
         await click(`${active}.member-identity-form button`, '创建队员')
         await wait(
           'document.querySelectorAll(".member-sidebar-row").length === 5 && !document.querySelector(".member-editor-draft-row")'

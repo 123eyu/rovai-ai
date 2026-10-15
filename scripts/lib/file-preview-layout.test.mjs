@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('previewWindowControls', {
     assert.equal(code, 0, `File preview interaction regression failed:\n${output}`)
     const report = JSON.parse(output.split('\n').find(line => line.startsWith('{')))
     assert.equal(report.ok, true)
+    t.diagnostic(`Continuous resize: ${JSON.stringify(report.resizePerformance)}`)
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
       child.kill('SIGKILL')

@@ -10,7 +10,7 @@ import { startQualificationCore } from './lib/qualification-core.mjs'
 import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 const [fixture, executable, targetAdapter = 'codex-cli', scenario = 'full'] = process.argv.slice(2)
 assert.ok(['full','cancel-only','steer-only','mixed-only'].includes(scenario))
-assert.ok(['codex-cli','claude-code-cli','pi','codebuddy-cli','qwen-code','grok-build','kiro-cli','zcode-app'].includes(targetAdapter))
+assert.ok(['codex-cli','claude-code-cli','pi','codebuddy-cli','qwen-code','grok-build','kiro-cli','zcode-app','trae-cn-cli'].includes(targetAdapter))
 assert.ok(isAbsolute(fixture) && isAbsolute(executable))
 await access(join(dirname(executable), process.platform === 'win32' ? 'rovai.exe' : 'rovai'))
 assert.deepEqual(await readdir(fixture), [])
@@ -21,6 +21,8 @@ console.error(`Automatic acceptance: data=${data}; skills=${join(data,'managed-s
 // Native credentials are copied only into this private acceptance directory.
 // The report contains no credential values or native configuration contents.
 const nativeSpec = {
+  'codex-cli':['CODEX_HOME','.codex',['auth.json','config.toml']],
+  'trae-cn-cli':['TRAE_HOME','.trae',['traecli.toml','cli/auth.json']],
   'claude-code-cli':['CLAUDE_CONFIG_DIR','.claude',['settings.json','settings.local.json','config.json','.credentials.json']],
   pi:['PI_CODING_AGENT_DIR','.pi/agent',['auth.json','models.json','models-store.json','settings.json']],
   'codebuddy-cli':['CODEBUDDY_CONFIG_DIR','.codebuddy',['settings.json','user-state.json']],

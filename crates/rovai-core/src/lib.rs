@@ -60,6 +60,8 @@ pub mod diagnostics;
 pub mod dsh;
 pub mod execution_budget;
 pub mod execution_evidence;
+#[cfg(all(test, feature = "slow-tests"))]
+mod execution_storage_probe;
 pub(crate) mod execution_text;
 pub mod execution_trace;
 mod execution_wake;
@@ -85,6 +87,7 @@ pub mod memory_secret;
 pub mod memory_tool;
 mod message_changes;
 pub mod message_delivery;
+mod message_sender;
 pub mod mission;
 pub mod mission_description;
 pub mod mission_workspace;

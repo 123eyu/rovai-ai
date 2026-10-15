@@ -137,7 +137,7 @@ pub fn read_range(
               SELECT first_evidence_sequence, source_evidence_ids_json, phase,
                      ROW_NUMBER() OVER (PARTITION BY operation_id, execution_epoch ORDER BY
                        CASE classifier_version WHEN ?2 THEN 0 WHEN ?3 THEN 1 WHEN ?4 THEN 2 ELSE 3 END) AS rank
-              FROM canonical_runtime_activity
+              FROM execution_activity
               WHERE agent_run_id = ?1 AND classifier_version IN (?2, ?3, ?4, ?5)
                 AND EXISTS(SELECT 1 FROM agent_run WHERE id = ?1 AND status IN ('running', 'waiting', 'queued'))
             ) SELECT first_evidence_sequence, source_evidence_ids_json FROM ranked
@@ -197,7 +197,7 @@ fn select_items(
           SELECT operation_id, execution_epoch, first_evidence_sequence, source_evidence_ids_json,
                  ROW_NUMBER() OVER (PARTITION BY operation_id, execution_epoch ORDER BY
                    CASE classifier_version WHEN ?4 THEN 0 WHEN ?5 THEN 1 WHEN ?6 THEN 2 ELSE 3 END) AS rank
-          FROM canonical_runtime_activity
+          FROM execution_activity
           WHERE agent_run_id = ?1 AND classifier_version IN (?4, ?5, ?6, ?7)
         ), owners AS MATERIALIZED (
           SELECT source.value AS id, operation_id, execution_epoch, first_evidence_sequence
@@ -466,7 +466,7 @@ fn supporting_builtin_invocation(
     }
     let payload_json: Option<String> = connection
         .query_row(
-            "SELECT payload_preview_json FROM agent_run_execution_evidence WHERE id = ?1",
+            "SELECT rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json) FROM agent_run_execution_evidence WHERE id = ?1",
             [&item.id],
             |row| row.get(0),
         )
@@ -499,7 +499,7 @@ fn supporting_builtin_invocation(
         return Ok(None);
     }
     let mut statement = connection.prepare(
-        "SELECT c.operation_id, e.payload_preview_json FROM canonical_runtime_activity c
+        "SELECT c.operation_id, rovai_execution_preview(e.storage_version, e.payload_preview_json, e.input_preview_json, e.result_preview_json) FROM execution_activity c
          JOIN json_each(c.source_evidence_ids_json) source
          JOIN agent_run_execution_evidence e ON e.id = source.value
          WHERE c.agent_run_id = ?1 AND c.execution_epoch = ?2
@@ -605,9 +605,9 @@ fn load_summaries(
     let mut statement = connection.prepare(
         r#"SELECT id, agent_run_id, execution_epoch, sequence, event_type, kind, phase,
            CASE WHEN event_type IN ('activity.started', 'activity.completed', 'runtime.action')
-             THEN json_remove(payload_preview_json, '$.output', '$.item.aggregatedOutput', '$.item.output',
+             THEN json_remove(rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json), '$.output', '$.item.aggregatedOutput', '$.item.output',
                '$.item.changes', '$.changes', '$.patch', '$.runtimeDiff', '$.coreEnvelope', '$.operationProjection.canonicalResult')
-             ELSE payload_preview_json END,
+             ELSE rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json) END,
            content_blob_id, content_byte_count,
            CASE WHEN event_type IN ('activity.started', 'activity.completed', 'runtime.action') THEN 1 ELSE is_truncated END,
            occurred_at, operation_id, revision, change_sequence
@@ -637,6 +637,7 @@ fn fill_missing(latest: &mut Value, earlier: &Value) {
 pub fn content_canonical(
     database: &Database,
     evidence_id: &str,
+    payload: &Value,
 ) -> Result<Option<canonical_activity::CanonicalRuntimeActivity>> {
     let connection = database.connection();
     let mut statement = connection.prepare(
@@ -650,5 +651,16 @@ pub fn content_canonical(
         .context("Execution Evidence does not exist")?;
     let mut evidence = vec![execution_evidence_view(item)?];
     attach_canonical_activity(connection, &mut evidence)?;
-    Ok(evidence.pop().and_then(|item| item.canonical))
+    let mut canonical = evidence.pop().and_then(|item| item.canonical);
+    let unified: bool = connection.query_row(
+        "SELECT storage_version=3 FROM agent_run_execution_evidence WHERE id=?1",
+        [evidence_id],
+        |r| r.get(0),
+    )?;
+    if unified {
+        if let Some(activity) = canonical.as_mut() {
+            crate::execution_evidence::hydrate_operation_diff(activity, payload, evidence_id);
+        }
+    }
+    Ok(canonical)
 }

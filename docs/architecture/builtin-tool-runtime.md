@@ -3,7 +3,7 @@ document_type: architecture
 architecture: builtin-tool-runtime
 authority: builtin-tool-component-boundaries
 status: accepted
-last_updated: 2026-10-12
+last_updated: 2026-10-15
 ---
 
 # Built-in Tool Runtime Architecture
@@ -11,7 +11,7 @@ last_updated: 2026-10-12
 人类用户的主称呼、双别名、结构化搜索与冻结投影边界见 [User Naming v1](../contracts/user-naming-v1.md)。
 
 本文件说明 Rovai built-in operations 的长期组件结构。当前字段与版本以
-[Built-in Tool Transport v39](../contracts/builtin-tool-transport-v39.md)、
+[Built-in Tool Transport v41](../contracts/builtin-tool-transport-v41.md)、
 [Built-in Tool Agent Output Projection v1](../contracts/builtin-tool-agent-output-projection-v1.md)、
 [Camp History v11](../contracts/camp-history-v11.md)、
 [Durable Task v5](../contracts/durable-task-v5.md) 和
@@ -149,7 +149,7 @@ create/update 的 `avatarFile` 由 CLI 原样传入；Core 在 Run 认证后复�
 用冻结的 `execution_root` 解析相对路径，绝对路径原样保留。路径 helper 与 Agent 附件共用，
 头像继续直接导入 immutable asset，不创建附件记录或新增路径授权机制。
 内置素材与 managed 图片在授权 Run tmp 中物化，复用 lease 清理；每次 get 重验权限和重取文件。
-完整字段、裁切及错误见 [Transport v36](../contracts/builtin-tool-transport-v36.md)。
+完整字段、裁切及错误见 [Transport v41](../contracts/builtin-tool-transport-v41.md)。
 
 Mission read uses a distinct global read seam: every effective authenticated AgentRun may list all Missions or
 read one opaque internal `rvm_...` ID, including saved structured attachment paths. Omitted-ID `get` resolves only the
@@ -229,11 +229,16 @@ Send v12 的 `body` 缺省为空字符串，`files` 缺省为空数组；领域�
 因此 `rovai send --file <path>` 是完整命令，不生成占位正文。Schema/default 只负责 transport shape，跨字段
 payload 门禁仍在 Domain Service。
 
-`member.create` 只接受 attested active、direct user-triggered AgentRun。Agent 依照 `member-studio` 展示完整
-名牌并取得用户确认，可选地把当前 Run 中 Core 可读的 PNG/JPEG 路径交给 CLI；Core 在领域提交前完成
-有界解码、轻量方形粗裁和 managed asset 发布。临时路径只存在于调用输入，不进入 Command payload、
-canonical result 或 Evidence；这条 narrow importer 与 Renderer 上传继续写出相同的 avatar manifest v1，
-但不形成通用文件导入或 Main↔Core bridge。
+`member.create` 只接受 attested active、direct user-triggered AgentRun。Agent 按
+`member-studio` 展示完整身份卡并取得用户确认，可选提交当前 Run 中 Core 可读的头像文件。
+Core 在身份提交前验证并物化受管头像；格式、取景、资源预算与旧资产兼容由
+[Member Avatar v4](../contracts/member-avatar-v4.md) 统一定义。临时文件路径不进入
+Command payload、canonical result 或 Evidence；此入口不承担通用文件导入。
+
+`member.get` 从同一身份快照读取一份头像，返回 `avatar.path/status/displayCrop`。新旧受管头像均使用源图与原取景，
+使读取与 crop-only 修改的坐标一致；内置头像读取和 crop-only 修改均使用已有 icon，首次修改后成为受管单文件头像。
+源图不可用不回退旧 icon，且不阻断身份读取。此读取不导出 portrait，不重新编码 GIF；
+临时路径只进入授权的 Agent 结果，生命周期与现有 Run lease 一致。
 
 ## Agent Result Projection
 
@@ -684,7 +689,7 @@ Activity。命令文本、时间、cwd 或输出相似度不能建立关联。Sh
 系统不声称能够证明模型主观意图。
 
 - CLI 从 direct flags、JSON stdin/heredoc 或 `--input-file` 构造一个对象。Send 文件按
-  [Transport v39](../contracts/builtin-tool-transport-v39.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
+  [Transport v41](../contracts/builtin-tool-transport-v41.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
   完整请求文件和其他 operation 保持来源互斥。所有来源共用
   catalog canonical input Schema validator，只有通过后才加载 lease/context 并发送 IPC。`camp.read`
   直接发送 `messageId | thread | before | limit` 的合法组合，不补写模式或方向，也不接受旧字段。

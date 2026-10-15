@@ -140,15 +140,14 @@ describe('SafeMarkdown file preview references', () => {
     expect(markup).not.toContain('markdown-file-reference')
   })
 
-  it('repairs an autolink and an identical Markdown label without swallowing Chinese prose', () => {
+  it('trims bare URL prose but preserves an explicitly written target even with an identical label', () => {
     const source = 'https://example.com/wiki/requirements）。文档中的改动：'
-    for (const children of [source, `[${source}](${source})`]) {
-      const markup = renderToStaticMarkup(createElement(SafeMarkdown, { children, onFileReference: () => undefined }))
-      expect(markup).toContain('href="https://example.com/wiki/requirements"')
-      expect(markup).toContain('<span class="resource-reference-label">https://example.com/wiki/requirements</span></a>）。文档中的改动：')
-      expect(markup).toContain('data-resource-type="web"')
-      expect(markup).not.toContain('markdown-file-reference')
-    }
+    const bare = renderToStaticMarkup(createElement(SafeMarkdown, { children: source }))
+    expect(bare).toContain('href="https://example.com/wiki/requirements"')
+    expect(bare).toContain('<span class="resource-reference-label">https://example.com/wiki/requirements</span></a>）。文档中的改动：')
+    const explicit = renderToStaticMarkup(createElement(SafeMarkdown, { children: `[${source}](${source})` }))
+    expect(explicit).toContain(`href="${encodeURI(source)}"`)
+    expect(explicit).toContain(`<span class="resource-reference-label">${source}</span></a>`)
   })
 
   it('keeps local images disabled by default and admits only URLs projected by the preview', () => {

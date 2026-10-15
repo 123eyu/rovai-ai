@@ -47,6 +47,7 @@ app.whenReady().then(async () => {
   const conversationSnapshot = async () => { await snapshot(); return run('window.previewTest.conversationSnapshot()') }
   const closeTo = (value, expected, message) => assert.ok(Math.abs(value - expected) < 1, `${message}: ${value}, expected ${expected}`)
   const cases = []
+  let resizePerformance
   const check = async (name, operation) => {
     try { await operation(); cases.push(name) } catch (error) {
       console.error(name, error)
@@ -278,6 +279,76 @@ app.whenReady().then(async () => {
     assert.equal(rail.grip, '0')
     assert.deepEqual(state.aria, { min: '420', max: '750', now: '655' })
     await capture('preview-day-1440x920')
+  })
+
+  await check('continuous resizing reuses geometry observers and keeps the retained viewer aligned', async () => {
+    // Exercise the real layout/CSS with a long mounted reading surface. A small
+    // empty split misses style invalidation spreading through message contents.
+    await run(`(() => {
+      const track = document.querySelector('.timeline-track')
+      const sample = track.querySelector('.safe-markdown')
+      for (let index = 0; index < 120; index++) {
+        const copy = sample.cloneNode(true)
+        copy.dataset.resizeLoad = 'true'
+        track.append(copy)
+      }
+    })()`)
+    await begin()
+    await run(`(() => {
+      const anchor = document.querySelector('.file-preview-anchor')
+      const observe = ResizeObserver.prototype.observe
+      const measure = anchor.getBoundingClientRect
+      const counts = { subscriptions: 0, measurements: 0 }
+      ResizeObserver.prototype.observe = function (target, options) {
+        if (target === anchor) counts.subscriptions++
+        return observe.call(this, target, options)
+      }
+      anchor.getBoundingClientRect = function () {
+        counts.measurements++
+        return measure.call(this)
+      }
+      window.finishResizeMeasurement = () => {
+        ResizeObserver.prototype.observe = observe
+        anchor.getBoundingClientRect = measure
+        return counts
+      }
+    })()`)
+    await window.webContents.debugger.sendCommand('Performance.enable')
+    const metrics = async () => Object.fromEntries((await window.webContents.debugger.sendCommand('Performance.getMetrics')).metrics.map(({ name, value }) => [name, value]))
+    const before = await metrics()
+    const contentWidthToken = () => run('getComputedStyle(document.querySelector(".timeline-track")).getPropertyValue("--file-preview-width")')
+    const initialContentToken = await contentWidthToken()
+    let changedContentToken
+    const startX = pointer.x
+    const moves = 36
+    let counts
+    try {
+      for (let index = 1; index <= moves; index++) {
+        pointer.x = startX + Math.round(150 * Math.sin(index / moves * Math.PI * 2))
+        mouse('mouseMove')
+        await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        if (index === moves / 4) changedContentToken = await contentWidthToken()
+      }
+    } finally {
+      counts = await run('window.finishResizeMeasurement()')
+    }
+    const after = await metrics()
+    resizePerformance = { moves, ...counts,
+      layouts: after.LayoutCount - before.LayoutCount,
+      styleRecalculations: after.RecalcStyleCount - before.RecalcStyleCount,
+      layoutMs: (after.LayoutDuration - before.LayoutDuration) * 1000,
+      styleMs: (after.RecalcStyleDuration - before.RecalcStyleDuration) * 1000 }
+    console.error('Continuous resize measurements:', JSON.stringify(resizePerformance))
+    const state = await snapshot()
+    assert.equal(state.aligned, true)
+    assert.equal(state.overflow, false)
+    assert.equal(state.stored, null, 'Continuous dragging never persists intermediate widths')
+    await key('Escape')
+    await release()
+    await run('document.querySelectorAll("[data-resize-load]").forEach(node => node.remove())')
+    assert.equal(counts.subscriptions, 0, 'A live drag must not recreate the anchor observer')
+    assert.ok(counts.measurements <= moves + 2, 'A live drag must not synchronously remeasure after every width commit')
+    assert.equal(changedContentToken, initialContentToken, 'Split geometry must not invalidate inherited styles throughout the conversation')
   })
 
   await check('source preview uses one read-only CodeMirror with real lines, syntax, search and stable theme updates', async () => {
@@ -789,27 +860,33 @@ app.whenReady().then(async () => {
     await reset()
   })
 
-  await check('320–420px follows the pointer then rebounds; exactly 320px does not close', async () => {
-    const moving = await drag(350)
-    closeTo(moving.width, 350, 'Transient preview width')
-    assert.equal(moving.armed, false)
-    closeTo((await release()).width, 420, 'Stable rebound width')
-    await drag(320)
+  await check('the minimum is stable on release and early release cancels pending collapse', async () => {
+    const moving = await drag(380)
+    closeTo(moving.width, 420, 'Minimum preview width')
+    await new Promise(resolve => setTimeout(resolve, 400))
+    assert.equal((await snapshot()).visible, true, 'Holding at the minimum without further travel does not close')
+    closeTo((await release()).width, 420, 'Release keeps the visible minimum')
+    await drag(300)
     const done = await release()
     assert.equal(done.visible, true)
-    closeTo(done.width, 420, 'Threshold rebound width')
+    closeTo(done.width, 420, 'Early release commits the minimum without rebound')
+    await new Promise(resolve => setTimeout(resolve, 400))
+    assert.equal((await snapshot()).visible, true, 'No delayed close after release')
   })
 
   await check('drag-to-close keeps the preferred ratio, file tab, reading position and draft', async () => {
     await run('window.previewTest.bookmark()')
     const before = await snapshot()
     const moving = await drag(319)
-    assert.equal(moving.armed, true)
-    assert.equal(moving.hint, '松开关闭文件预览')
-    assert.equal(moving.opacity, '0.35')
+    closeTo(moving.width, 420, 'Fast inward drag pauses visibly at minimum')
+    assert.equal(moving.hint, '已到最小宽度，继续拖动收起')
+    assert.equal(moving.opacity, '1')
     assert.equal(moving.lineColor, 'rgb(119, 119, 119)', 'The entire divider keeps the neutral resize color')
-    await capture('preview-close-armed')
-    const closed = await release()
+    await capture('preview-minimum-detent')
+    await new Promise(resolve => setTimeout(resolve, 210))
+    await release()
+    await new Promise(resolve => setTimeout(resolve, 200))
+    const closed = await snapshot()
     assert.equal(closed.visible, false)
     assert.equal(closed.handle, null)
     assert.equal(closed.tabCount, 0, 'Hidden preview tabs leave the persistent toggle available')
@@ -1456,6 +1533,6 @@ app.whenReady().then(async () => {
     await click(`${edit} .modified-file-title > span`)
     await capture('tool-edit-preview-and-diff')
   })
-  console.log(JSON.stringify({ ok: true, cases }))
+  console.log(JSON.stringify({ ok: true, cases, resizePerformance }))
   app.exit(0)
 }).catch(error => { console.error(error); app.exit(1) })

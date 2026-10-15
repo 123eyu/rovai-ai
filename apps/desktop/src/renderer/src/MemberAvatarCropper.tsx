@@ -31,6 +31,7 @@ export type MemberAvatarCropperProps = {
   value: MemberAvatarCrop
   onChange(next: MemberAvatarCrop): void
   disabled?: boolean
+  compact?: boolean
 }
 
 const PREVIEW_SIZES = [28, 32, 34, 44] as const
@@ -42,7 +43,8 @@ export function MemberAvatarCropper({
   sourceHeight,
   value,
   onChange,
-  disabled = false
+  disabled = false,
+  compact = false
 }: MemberAvatarCropperProps): React.JSX.Element {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null)
@@ -58,7 +60,8 @@ export function MemberAvatarCropper({
   )
   const cropResolution = avatarCropSourceResolution(crop, sourceWidth, sourceHeight)
   const lowResolution = isAvatarCropLowResolution(crop, sourceWidth, sourceHeight)
-  const zoomPercent = avatarCropZoomPercent(crop)
+  const zoomProgress = avatarCropZoomPercent(crop)
+  const displayedZoomPercent = compact ? Math.round(100 / crop.size) : zoomProgress
 
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -159,12 +162,12 @@ export function MemberAvatarCropper({
   }
 
   return (
-    <section className="avatar-crop-editor" aria-label={uiAttribute("设置小头像取景")}>
+    <section className="avatar-crop-editor" aria-label={uiAttribute("调整头像裁切")}>
       <div
         ref={stageRef}
         className="avatar-crop-stage"
         tabIndex={disabled ? -1 : 0}
-        aria-label={uiAttribute("小头像取景。拖动图片调整位置，使用方向键微调；按住 Shift 可加速。")}
+        aria-label={uiAttribute("头像裁切。拖动图片调整位置，使用方向键微调；按住 Shift 可加速。")}
         aria-describedby={instructionsId}
         aria-disabled={disabled}
         onPointerDown={beginDrag}
@@ -200,22 +203,35 @@ export function MemberAvatarCropper({
             type="range"
             min="0"
             max="100"
-            value={zoomPercent}
+            value={zoomProgress}
             disabled={disabled}
-            aria-label={uiAttribute("小头像放大倍率")}
-            aria-valuetext={uiAttribute("{0}% 放大", String(zoomPercent))}
+            aria-label={uiAttribute("头像放大倍率")}
+            aria-valuetext={uiAttribute("{0}% 放大", String(displayedZoomPercent))}
             onChange={(event) => changeZoom(Number(event.target.value))}
           />
-          <output>{zoomPercent}%</output>
+          <output>{displayedZoomPercent}%</output>
         </label>
         <button
           className="quiet-button compact"
           type="button"
           disabled={disabled}
-          onClick={() => onChange(defaultAvatarCrop(sourceWidth, sourceHeight))}
-        ><UiText zh={"重置取景"} /></button>
+          onClick={() => onChange(compact ? clampAvatarCrop({ centerX: .5, centerY: .5, size: 1 }, sourceWidth, sourceHeight) : defaultAvatarCrop(sourceWidth, sourceHeight))}
+        ><UiText zh={"重置"} /></button>
       </div>
 
+      {compact ? <div className="avatar-cut-nudge" aria-label={uiAttribute('微调位置')}>
+        {([
+          [uiAttribute('向左'), -.02, 0, 180], [uiAttribute('向上'), 0, -.02, -90],
+          [uiAttribute('向下'), 0, .02, 90], [uiAttribute('向右'), .02, 0, 0]
+        ] as [string, number, number, number][]).map(([label, x, y, rotation]) => (
+          <button key={label} className="quiet-button compact" type="button" aria-label={label} disabled={disabled}
+            onClick={() => onChange(nudgeAvatarCrop(crop, x, y, sourceWidth, sourceHeight))}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12h14m-6-6 6 6-6 6" transform={`rotate(${rotation} 12 12)`}/>
+            </svg>
+          </button>
+        ))}
+      </div> : <>
       <div className="avatar-crop-previews" aria-label={uiAttribute("小头像实际尺寸预览")}>
         {PREVIEW_SIZES.map((size) => (
           <AvatarCropPreview
@@ -236,6 +252,8 @@ export function MemberAvatarCropper({
           ? uiAttribute(" 小尺寸头像可能模糊，建议降低放大倍率或换用更清晰的图片。")
           : uiAttribute(" 适合生成紧凑头像。")}
       </p>
+      </>}
+
     </section>
   )
 }

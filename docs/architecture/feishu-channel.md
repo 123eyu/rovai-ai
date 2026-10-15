@@ -273,7 +273,7 @@ locale、只按 typed element schema 渲染，不能递归收集 `tag`、identit
 `externalMessageId -> CampMessageId` 投影。
 
 Core Context projector 把 ExternalQuote 通过标准 agent-facing projection 放入对应 `RUN_INPUT.messages[]` 项，并以
-`senderType=external_principal` 保留来源身份。Host 没有 prompt override，Agent 不接触 open ID、
+内部 `author_type=external_principal` 保留来源身份；公开模型消息按 [Message Senders v1](../contracts/message-senders-v1.md) 投影为 `senderType=user`、`senderId=user`。Host 没有 prompt override，Agent 不接触 open ID、
 union ID、tenant key、chat ID 或 external message ID。
 
 ## Bot roster 与 Camp membership

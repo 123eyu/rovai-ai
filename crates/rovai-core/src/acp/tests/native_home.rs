@@ -98,7 +98,7 @@ while IFS= read -r ignored; do :; done
             protocol_log.display(),
         ),
     );
-    let builtin_tools = exact_builtin_tools(&root);
+    let builtin_tools = exact_builtin_tool_factory(&root);
     let frozen = frozen_kimi_runtime(&executable);
     let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
     let attachment_root = exact_attachment_root(&root);

@@ -311,6 +311,7 @@ function assertFreshProcessContexts(launches, cwd) {
 // CLI only speaks ACP; all preparation, binding, failure and dispatch are Core's.
 async function acpFallbackAcceptance(root, binary) {
   const directory = join(root, 'acp-fallback'), data = join(directory, 'core'), home = join(directory, 'home')
+  console.error(`Isolated adapter acceptance: data=${data}; skills=${join(data, 'skills')}; MCP=${join(data, 'mcp.json')}`)
   await mkdir(home, { recursive: true })
   const executable = join(directory, 'traecli'), log = join(directory, 'requests.jsonl')
   await writeFile(executable, `#!/usr/bin/python3
@@ -437,6 +438,7 @@ for line in sys.stdin:
 // The mock retains native files and logs real switch_session targets and inputs.
 async function piConversationAcceptance(root, binary) {
   const directory = join(root, 'pi-conversations'), data = join(directory, 'core'), home = join(directory, 'home')
+  console.error(`Isolated adapter acceptance: data=${data}; skills=${join(data, 'skills')}; MCP=${join(data, 'mcp.json')}`)
   await mkdir(home, { recursive: true })
   const executable = join(directory, 'pi'), log = join(directory, 'requests.jsonl')
   await writeFile(executable, `#!/usr/bin/python3
@@ -492,6 +494,7 @@ for line in sys.stdin:
     '--skill-library-root', join(data, 'skills'), '--mcp-config-path', join(data, 'mcp.json')], directory,
     { HOME: home, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', TMPDIR: directory, ROVAI_PI_BIN: executable,
       PI_CODING_AGENT_DIR: join(home, 'pi'), ROVAI_CODEX_BIN: '/nonexistent/codex', ROVAI_CLAUDE_CODE_BIN: '/nonexistent/claude' })
+  const builtinToolsRoot = join(data, 'runtime/builtin-tools')
   let core, campId, privateConversationId, total = 0
   const latestRun = () => query('SELECT id,status,wait_reason,last_error_code,conversation_id FROM agent_run WHERE conversation_id IN (SELECT id FROM conversation WHERE camp_id=?) ORDER BY rowid DESC LIMIT 1', campId)
   const sessions = new Map(), hosts = new Map()
@@ -512,6 +515,9 @@ for line in sys.stdin:
       for (const [index, kind] of ['public', 'private', 'public', 'private'].entries()) {
         const offset = (await records()).length
         const body = `PI_INPUT_${generation}_${index}_${kind}`
+        // Both Conversation Hosts already exist on later turns. Keep their
+        // private roots writable while forbidding any new candidate root.
+        if (index >= 2) await chmod(builtinToolsRoot, 0o500)
         if (kind === 'public') {
           const result = await core.request('thread.messages.send', { commandId: crypto.randomUUID(), threadId: campId,
             content: composerDocumentForAddress({ mode: 'default' }, body), sourceAttachments: [], quotes: [], replyToThreadMessageId: null,
@@ -535,6 +541,7 @@ for line in sys.stdin:
         }, () => `${generation}/${index}/${kind}: ${JSON.stringify(latestRun())}; ${core.diagnostics()}`)
         const run = latestRun()
         assert.equal(run.status, 'succeeded', `${generation}/${index}/${kind}: ${JSON.stringify(run)} ${core.diagnostics()}`)
+        if (index >= 2) await chmod(builtinToolsRoot, 0o700)
         const actual = (await records()).slice(offset)
         const prompt = actual.filter(r => r.method === 'prompt')
         assert.equal(prompt.length, 1, `${generation}/${kind}: exactly one input`)
@@ -594,6 +601,11 @@ for line in sys.stdin:
     assert.equal(bound, inputs[0].sessionId)
     assert.equal(query('SELECT native_session_id FROM conversation WHERE id=?', privateConversationId).native_session_id, sessions.get('private').sessionId)
     assert.equal(query("SELECT COUNT(*) AS total FROM event_log WHERE entity_id=? AND event_type='agent_run.native_session_continuity_lost'", run.id).total, 1)
-    return { kind: 'pi', publicAndPrivateExactResume: true, warmAndRestarted: true, inputs: prompts.length + inputs.length, missingHistoryFallbackOnce: true, freshProcessContexts: true }
-  } finally { await core?.stop(); await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home }) }
+    return { kind: 'pi', publicAndPrivateExactResume: true, warmAndRestarted: true, warmReuseWithoutContextCreation: true, inputs: prompts.length + inputs.length, missingHistoryFallbackOnce: true, freshProcessContexts: true }
+  } finally {
+    // Restore even when an assertion fails so teardown can reap process roots.
+    await chmod(builtinToolsRoot, 0o700).catch(error => { if (error.code !== 'ENOENT') throw error })
+    await core?.stop()
+    await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home })
+  }
 }

@@ -38,8 +38,8 @@ use antigravity::{
 };
 use anyhow::{Context, Result};
 use builtin_tool_runtime::{
-    BuiltinToolLeaseRegistry, BuiltinToolProcessConfig, builtin_tool_endpoint,
-    bundled_cli_executable, request_digest,
+    BuiltinToolLeaseRegistry, BuiltinToolProcessConfig, BuiltinToolProcessConfigFactory,
+    builtin_tool_endpoint, bundled_cli_executable, request_digest,
 };
 use claude::{
     ClaudeCodeCliRuntimeAdapter, ClaudeCodeDeliveredFailure, ClaudeCodeInputAccepted,
@@ -14628,12 +14628,16 @@ impl Core {
         Ok(prepared.payload)
     }
 
-    fn prepare_builtin_tool_process_config(&self) -> Result<BuiltinToolProcessConfig> {
-        BuiltinToolProcessConfig::create(
+    fn builtin_tool_process_config_factory(&self) -> Result<BuiltinToolProcessConfigFactory> {
+        Ok(BuiltinToolProcessConfigFactory::new(
             &bundled_cli_executable()?,
             &builtin_tool_endpoint(),
             &self.data_dir.join("runtime"),
-        )
+        ))
+    }
+
+    fn prepare_builtin_tool_process_config(&self) -> Result<BuiltinToolProcessConfig> {
+        self.builtin_tool_process_config_factory()?.create()
     }
 
     async fn bind_builtin_tool_runtime(
@@ -15446,7 +15450,7 @@ impl Core {
         let initial_binding = self
             .prepare_initial_builtin_tool_binding(execution, resume_disposition)
             .await?;
-        let builtin_tools = self.prepare_builtin_tool_process_config()?;
+        let builtin_tool_factory = self.builtin_tool_process_config_factory()?;
         let runtime_compatibility_digest = codex::runtime_compatibility_digest(
             &execution.runtime,
             &execution_root,
@@ -15466,7 +15470,7 @@ impl Core {
                 cwd: &execution_root,
                 frozen_runtime: &execution.runtime,
                 runtime_compatibility_digest: &runtime_compatibility_digest,
-                builtin_tools: &builtin_tools,
+                builtin_tool_factory: &builtin_tool_factory,
             })
             .await?;
         if !mcp_projection.servers.is_empty() {
@@ -15806,7 +15810,7 @@ impl Core {
         )?;
         self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
             .await?;
-        let builtin_tools = self.prepare_builtin_tool_process_config()?;
+        let builtin_tool_factory = self.builtin_tool_process_config_factory()?;
         launch_permit.check_cancelled()?;
         let runtime_result = self
             .pi
@@ -15824,7 +15828,7 @@ impl Core {
                 native_binding_id: &binding_credential.native_binding_id,
                 native_binding_generation: binding_credential.native_binding_generation,
                 bootstrap: &session_bootstrap,
-                builtin_tools: &builtin_tools,
+                builtin_tool_factory: &builtin_tool_factory,
             })
             .await;
         let runtime = match runtime_result {
@@ -15878,9 +15882,6 @@ impl Core {
                     uuid::Uuid::new_v4()
                 );
                 launch_permit.check_cancelled()?;
-                // Failed activation has retired the previous Host and its
-                // process-scoped tools. Prepare the replacement before spawn.
-                let replacement_builtin_tools = self.prepare_builtin_tool_process_config()?;
                 let replacement = self
                     .pi
                     .ensure_agent_run_runtime(PiAgentRunRuntimeRequest {
@@ -15897,7 +15898,7 @@ impl Core {
                         native_binding_id: &replacement_binding.native_binding_id,
                         native_binding_generation: replacement_binding.native_binding_generation,
                         bootstrap: &replacement_bootstrap,
-                        builtin_tools: &replacement_builtin_tools,
+                        builtin_tool_factory: &builtin_tool_factory,
                     })
                     .await
                     .with_context(|| {
@@ -17432,7 +17433,7 @@ impl Core {
         let initial_binding = self
             .prepare_initial_builtin_tool_binding(execution, resume_disposition)
             .await?;
-        let builtin_tools = self.prepare_builtin_tool_process_config()?;
+        let builtin_tool_factory = self.builtin_tool_process_config_factory()?;
         let mut runtime_compatibility_digest = acp::runtime_compatibility_digest(
             &execution.runtime,
             &execution.workspace,
@@ -17455,7 +17456,7 @@ impl Core {
                 &execution.workspace,
                 execution.permission_semantics,
                 &execution.runtime,
-                &builtin_tools,
+                &builtin_tool_factory,
                 &mcp_projection.servers,
                 &mcp_projection.projection_digest,
                 attachment_access_root,
@@ -17506,7 +17507,6 @@ impl Core {
                         &runtime_compatibility_digest,
                     )
                     .await?;
-                    let replacement_builtin_tools = self.prepare_builtin_tool_process_config()?;
                     runtime = adapter
                         .ensure_agent_run_runtime(
                             &execution.agent_run_id,
@@ -17517,7 +17517,7 @@ impl Core {
                             &execution.workspace,
                             execution.permission_semantics,
                             &execution.runtime,
-                            &replacement_builtin_tools,
+                            &builtin_tool_factory,
                             &mcp_projection.servers,
                             &mcp_projection.projection_digest,
                             attachment_access_root,
@@ -17623,9 +17623,6 @@ impl Core {
                 self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
                     .await?;
                 launch_permit.check_cancelled()?;
-                // forget_agent_run retired the old run-tmp and tool identity.
-                // The CLI may validate these paths before we can bind its lease.
-                let replacement_builtin_tools = self.prepare_builtin_tool_process_config()?;
                 runtime = adapter
                     .ensure_agent_run_runtime(
                         &execution.agent_run_id,
@@ -17636,7 +17633,7 @@ impl Core {
                         &execution.workspace,
                         execution.permission_semantics,
                         &execution.runtime,
-                        &replacement_builtin_tools,
+                        &builtin_tool_factory,
                         &mcp_projection.servers,
                         &mcp_projection.projection_digest,
                         attachment_access_root,
@@ -32117,7 +32114,7 @@ for line in sys.stdin:
             let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
                 path: root.join("builtin.sock").to_string_lossy().into_owned(),
             };
-            let tools = BuiltinToolProcessConfig::create(&executable, &endpoint, &root).unwrap();
+            let tools = BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &root);
             let runtime = core
                 .codex_cli
                 .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
@@ -32129,7 +32126,7 @@ for line in sys.stdin:
                     cwd: &workspace,
                     frozen_runtime: &frozen,
                     runtime_compatibility_digest: "fixture",
-                    builtin_tools: &tools,
+                    builtin_tool_factory: &tools,
                 })
                 .await
                 .unwrap();
@@ -32240,7 +32237,7 @@ for line in sys.stdin:
                     cwd: &workspace,
                     frozen_runtime: &frozen,
                     runtime_compatibility_digest: "fixture",
-                    builtin_tools: &tools,
+                    builtin_tool_factory: &tools,
                 })
                 .await
                 .unwrap();
@@ -32644,14 +32641,13 @@ for line in sys.stdin:
             host_config_digest: "cleanup-host".into(),
             config_digest: "cleanup-config".into(),
         };
-        let builtin_tools = BuiltinToolProcessConfig::create(
+        let builtin_tools = BuiltinToolProcessConfigFactory::new(
             &executable,
             &rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
                 path: root.join("builtin.sock").to_string_lossy().into_owned(),
             },
             &root,
-        )
-        .unwrap();
+        );
         let late_permit = core.planned_shutdown.enter_launch().await.unwrap();
         let late_key = ActiveExecutionKey::new("late-host", 1);
         assert!(
@@ -32672,7 +32668,7 @@ for line in sys.stdin:
                     cwd: &root,
                     frozen_runtime: &runtime_config,
                     runtime_compatibility_digest: "cleanup-compatible",
-                    builtin_tools: &builtin_tools,
+                    builtin_tool_factory: &builtin_tools,
                 })
                 .await
                 .unwrap();

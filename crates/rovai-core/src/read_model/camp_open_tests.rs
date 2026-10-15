@@ -1060,18 +1060,96 @@ fn user_anchor_preview_resolves_first_valid_direct_reply() {
     database.connection().execute(
         "INSERT INTO camp_message(id, camp_id, sequence, author_type, author_id, body,
          structured_content_json, content_digest, address_mode, addressed_agent_ids_json, reply_to_camp_message_id, created_at, updated_at)
-         VALUES ('anchor-earliest-reply', ?1, 4, 'agent', 'agent_1', 'earliest',
+         VALUES ('anchor-earliest-reply', ?1, 4, 'agent', 'agent_2', 'earliest',
          '[{\"kind\":\"text\",\"text\":\"首条有效回复\"}]', 'sha256:earliest', 'default', '[]', ?2,
          '2026-08-31T00:00:00Z', '2026-08-31T00:00:00Z')", params![camp_id, source]).unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE agent_profile SET display_name = '实际回复队员',
+        avatar_ref = 'rovai://member-avatar/builtin/qilu/v1' WHERE id = 'agent_2'",
+            [],
+        )
+        .unwrap();
+    let before_changes = database.connection().total_changes();
     let preview = ReadModelService
         .user_anchor_preview(&mut database, &camp_id, &source)
         .unwrap()
         .format()
         .unwrap();
+    assert_eq!(before_changes, database.connection().total_changes());
+    let reply = preview.first_reply.unwrap();
+    assert_eq!(reply.message_id, "anchor-earliest-reply");
+    let author = reply.author.unwrap();
+    assert_eq!(author.agent_id, "agent_2");
+    assert_eq!(author.display_name, "实际回复队员");
     assert_eq!(
-        preview.first_reply.unwrap().message_id,
-        "anchor-earliest-reply"
+        author.avatar_ref.as_deref(),
+        Some("rovai://member-avatar/builtin/qilu/v1")
     );
+    // Identity belongs to the same detached read as the summary, even if a profile
+    // changes before formatting outside the database guard.
+    let read = ReadModelService
+        .user_anchor_preview(&mut database, &camp_id, &source)
+        .unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE agent_profile SET display_name = '更新的姓名',
+        avatar_ref = NULL WHERE id = 'agent_2'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        read.format()
+            .unwrap()
+            .first_reply
+            .unwrap()
+            .author
+            .unwrap()
+            .display_name,
+        "实际回复队员"
+    );
+    let refreshed = serde_json::to_value(
+        ReadModelService
+            .user_anchor_preview(&mut database, &camp_id, &source)
+            .unwrap()
+            .format()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        refreshed["firstReply"]["author"],
+        json!({
+            "agentId": "agent_2", "displayName": "更新的姓名", "avatarRef": null
+        })
+    );
+    // A historical/missing profile cannot suppress the selected reply or impersonate the lead.
+    database
+        .connection()
+        .execute(
+            "UPDATE camp_message SET author_id = 'missing-preview-author'
+        WHERE id = 'anchor-earliest-reply'",
+            [],
+        )
+        .unwrap();
+    let missing = ReadModelService
+        .user_anchor_preview(&mut database, &camp_id, &source)
+        .unwrap()
+        .format()
+        .unwrap()
+        .first_reply
+        .unwrap();
+    assert_eq!(missing.summary, "首条有效回复");
+    assert!(missing.author.is_none());
+    database
+        .connection()
+        .execute(
+            "UPDATE camp_message SET author_id = 'agent_2'
+        WHERE id = 'anchor-earliest-reply'",
+            [],
+        )
+        .unwrap();
     database.connection().execute("INSERT INTO camp_turn(id, camp_id, trigger_type, trigger_id, status, created_at, updated_at,
         execution_budget_schema_version, execution_budget_accepted_at, execution_budget_max_agent_run_responsibilities,
         execution_budget_max_accepted_a2a, execution_budget_root_agent_run_responsibilities)

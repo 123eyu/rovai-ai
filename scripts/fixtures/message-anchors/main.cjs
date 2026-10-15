@@ -70,6 +70,8 @@ app.whenReady().then(async () => {
         assert.ok(snapshot.markers.slice(1).every(marker => marker.width === 6))
         assert.equal(snapshot.title, await run('window.anchorsTest.longTitle'))
         assert.equal(snapshot.reply, await run('window.anchorsTest.firstReply'))
+        assert.equal(snapshot.author, '雾切响子') // Reply author, not the default lead.
+        assert.deepEqual(snapshot.avatar, { width: 16, fallback: null, image: true, decorative: 'true' })
         assert.equal(snapshot.titleStyle.whiteSpace, 'nowrap')
         assert.equal(snapshot.titleStyle.overflow, 'ellipsis')
         assert.equal(snapshot.replyStyle.lines, '3')
@@ -79,6 +81,39 @@ app.whenReady().then(async () => {
       const snapshot = await move({ x: 600, y: 40 })
       assert.ok(snapshot.markers.every(marker => marker.width === 6))
       assert.equal(snapshot.title, null)
+    })
+    await check('profile changes expire previews without fetching every reply, and avatar-only changes keep the index', async () => {
+      const previewsBefore = (await state()).requests.filter(method => method === 'thread.messages.anchorPreview').length
+      const indexesBefore = (await state()).requests.filter(method => method === 'thread.messages.anchors').length
+      await run('window.anchorsTest.authorIdentity({ displayName: "雾切响子", avatarRef: null })')
+      const changed = await state()
+      assert.equal(changed.requests.filter(method => method === 'thread.messages.anchors').length, indexesBefore)
+      assert.equal(changed.requests.filter(method => method === 'thread.messages.anchorPreview').length, previewsBefore)
+      const fallback = await move(await run('window.anchorsTest.firstMarker()'))
+      assert.deepEqual(fallback.avatar, { width: 16, fallback: '雾', image: false, decorative: 'true' })
+      assert.equal(fallback.requests.filter(method => method === 'thread.messages.anchorPreview').length, previewsBefore + 1)
+      await move({ x: 600, y: 40 })
+      const longName = '姓名很长的实际回复队员'.repeat(6)
+      await run(`window.anchorsTest.authorIdentity(${JSON.stringify({ displayName: longName, avatarRef: null })})`)
+      const renamed = await move(await run('window.anchorsTest.firstMarker()'))
+      assert.equal(renamed.author, longName)
+      assert.equal(renamed.authorStyle.overflow, 'ellipsis')
+      assert.ok(renamed.authorStyle.scrollWidth > renamed.authorStyle.width)
+      assert.equal(renamed.replyStyle.lines, '3')
+      await capture('02-preview-long-author')
+      await move({ x: 600, y: 40 })
+      await run('window.anchorsTest.authorIdentity({ displayName: "雾切响子", avatarRef: "rovai://member-avatar/builtin/qilu/v1" })')
+    })
+    await check('older Hosts and missing author profiles preserve the reply without an identity row', async () => {
+      for (const mode of ['legacy', 'missing']) {
+        await run(`window.anchorsTest.authorMode('${mode}')`)
+        const snapshot = await move(await run('window.anchorsTest.firstMarker()'))
+        assert.equal(snapshot.author, null)
+        assert.equal(snapshot.avatar, null)
+        assert.equal(snapshot.reply, await run('window.anchorsTest.firstReply'))
+        await move({ x: 600, y: 40 })
+      }
+      await run('window.anchorsTest.authorMode("present")')
     })
     await check('transparent action rows do not make the preceding user visible', async () => {
       await run('window.anchorsTest.actionOnly()')
@@ -122,6 +157,8 @@ app.whenReady().then(async () => {
       assert.ok(end.markers.every(marker => marker.width === 6))
       assert.equal(end.title, '第 240 个问题：确认阅读位置与会话交互。')
       assert.equal(end.reply, null)
+      assert.equal(end.author, null)
+      assert.equal(end.avatar, null)
       await key('Escape')
       assert.equal((await state()).title, null)
       await run('document.documentElement.dataset.motionPreference = "reduce"')

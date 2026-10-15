@@ -33,6 +33,15 @@ pub struct ThreadUserAnchorReply {
     pub sequence: i64,
     pub summary: String,
     pub message_version: i64,
+    pub author: Option<ThreadUserAnchorReplyAuthor>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadUserAnchorReplyAuthor {
+    pub agent_id: String,
+    pub display_name: String,
+    pub avatar_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,12 +126,32 @@ impl ReadModelService {
         } else {
             None
         };
-        let rows = if let Some(id) = reply_id {
-            vec![tx.query_row("SELECT id, sequence, version, structured_content_json,
-                source_attachments_json, quotes_json FROM camp_message WHERE id = ?1 AND camp_id = ?2",
-                params![id, camp_id], text_row)?]
+        let (rows, author) = if let Some(id) = reply_id {
+            // Hydrate only the selected reply and its current author; never the full roster.
+            let (text, author) = tx.query_row(
+                "SELECT reply.id, reply.sequence, reply.version, reply.structured_content_json,
+                    reply.source_attachments_json, reply.quotes_json,
+                    profile.id, profile.display_name, profile.avatar_ref
+                 FROM camp_message AS reply
+                 LEFT JOIN agent_profile AS profile ON profile.id = reply.author_id
+                 WHERE reply.id = ?1 AND reply.camp_id = ?2",
+                params![id, camp_id],
+                |row| {
+                    let author = if let Some(agent_id) = row.get::<_, Option<String>>(6)? {
+                        Some(ThreadUserAnchorReplyAuthor {
+                            agent_id,
+                            display_name: row.get(7)?,
+                            avatar_ref: row.get(8)?,
+                        })
+                    } else {
+                        None
+                    };
+                    Ok((text_row(row)?, author))
+                },
+            )?;
+            (vec![text], author)
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         let text = read_navigation_text(&tx, rows)?;
         tx.commit()?;
@@ -132,6 +161,7 @@ impl ReadModelService {
             through_global_sequence,
             source_available: sequence.is_some(),
             text,
+            author,
         })
     }
 }
@@ -171,6 +201,7 @@ pub struct UserAnchorPreviewRead {
     through_global_sequence: i64,
     source_available: bool,
     text: NavigationTextRead,
+    author: Option<ThreadUserAnchorReplyAuthor>,
 }
 impl UserAnchorPreviewRead {
     pub fn format(self) -> Result<ThreadUserAnchorPreview> {
@@ -184,6 +215,7 @@ impl UserAnchorPreviewRead {
                 sequence: row.sequence,
                 message_version: row.version,
                 summary,
+                author: self.author,
             });
         Ok(ThreadUserAnchorPreview {
             schema_version: 1,

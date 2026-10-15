@@ -2606,6 +2606,11 @@ button.file-preview-html-feedback:hover,
 .conversation-anchor-preview { position: absolute; left: 44px; width: 260px; padding: 9px 11px 10px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: var(--surface-raised); box-shadow: var(--shadow-float); transform: translateY(-50%); pointer-events: none; }
 .conversation-anchor-preview-title { overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 500; line-height: 1.6; white-space: nowrap; text-overflow: ellipsis; }
 .conversation-anchor-preview-copy { display: -webkit-box; margin: 5px 0 0; overflow: hidden; color: var(--muted); -webkit-box-orient: vertical; -webkit-line-clamp: 3; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.conversation-anchor-preview-reply { margin-top: 7px; }
+.conversation-anchor-preview-author { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; line-height: 16px; }
+.conversation-anchor-preview-author .member-avatar { flex: 0 0 16px; width: 16px; height: 16px; }
+.conversation-anchor-preview-author-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.conversation-anchor-preview-reply .conversation-anchor-preview-copy { margin-top: 4px; }
 @media (prefers-reduced-motion: reduce) { .conversation-anchor-mark { transition: none; } }
 @media (forced-colors: active) {
   .conversation-anchor-mark { background: GrayText; opacity: 1; }

@@ -2445,8 +2445,14 @@ export function ThreadWorkspace({
   const anchorText = useCallback((message: ThreadMessageView) => message.content?.length
     ? structuredThreadContentPlainText(message.content, messageMentionNames, currentUserName)
     : message.body, [messageMentionNames, currentUserName])
+  const anchorIdentityKeys = useMemo(() => ({
+    names: JSON.stringify([currentUserName, messageMentionNames.map(member => [member.agentId,
+      profileById.get(member.agentId)?.displayName ?? member.displayName])]),
+    avatars: JSON.stringify(messageMentionNames.map(member => [member.agentId,
+      (profileById.get(member.agentId) ?? member).avatarRef]))
+  }), [currentUserName, messageMentionNames, profileById])
   const anchorNavigation = useThreadUserAnchors(snapshot.thread.id, client, snapshot.messages, optimisticMessages,
-    JSON.stringify([currentUserName, messageMentionNames.map(member => [member.agentId, agents.find(agent => agent.agentId === member.agentId)?.displayName ?? member.displayName])]), anchorText, userAnchorNavigation, workspaceEntrySnapshotReady)
+    anchorIdentityKeys, anchorText, userAnchorNavigation, workspaceEntrySnapshotReady)
   const visibleThreadMessages = useMemo(() => mergeNavigationMessages(
     anchoredMessages, anchorNavigation.navigation.windowMessages(), optimisticMessages, snapshot.messages
   ).filter(message => !message.missionStart),

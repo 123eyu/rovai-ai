@@ -1,4 +1,5 @@
 import type { JSX, MouseEventHandler } from 'react'
+import { useComposerSendShortcut } from './ShortcutProvider'
 import { uiAttribute } from './interface-language'
 
 type ComposerPrimaryActionProps = {
@@ -18,17 +19,20 @@ export function ComposerPrimaryAction({
   onClick,
   type
 }: ComposerPrimaryActionProps): JSX.Element {
+  const sendShortcut = useComposerSendShortcut()
   const label = action === 'stop'
     ? busy ?uiAttribute("正在提交停止请求") :uiAttribute("停止当前执行")
     : invite ? busy ? uiAttribute('正在邀请并发送') : uiAttribute('邀请并发送')
       : busy ?uiAttribute("正在发送消息") :uiAttribute("发送消息")
 
+  const accessibleLabel = action === 'send' && sendShortcut ? `${label}（${sendShortcut.label}）` : label
   return (
     <button
       className={`composer-primary-action is-${action}${action === 'send' && invite ? ' is-invite' : ''}`}
       type={type}
-      aria-label={label}
-      title={label}
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
+      aria-keyshortcuts={action === 'send' ? sendShortcut?.aria : undefined}
       aria-busy={busy}
       disabled={disabled}
       onClick={onClick}

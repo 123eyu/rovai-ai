@@ -1,4 +1,5 @@
 import { WindowCloseDialog } from './WindowCloseSettings'
+import { ShortcutProvider } from './ShortcutProvider'
 import { useEffect, useRef, useState } from 'react'
 import type { CoreEvent, DesktopStartupSnapshot, SupervisorSnapshot, AppearanceSnapshot } from '@contracts'
 import { CurrentUserProfileProvider } from './CurrentUserProfile'
@@ -139,12 +140,12 @@ export function App(): React.JSX.Element {
   } else {
     workspace = (
       <div className="authoritative-workspace">
-        <ThreadClientProvider client={desktopThreadClient}><CurrentUserProfileProvider api={window.rovai.currentUserProfile}>
+        <ShortcutProvider api={window.rovai.shortcuts} platform={window.rovai.platform}><ThreadClientProvider client={desktopThreadClient}><CurrentUserProfileProvider api={window.rovai.currentUserProfile}>
           <BusinessApp environment={desktopBusinessEnvironment}
             initialStartupSnapshot={startupSnapshot}
             startupStartedAtMs={startupStartedAt.current}
           />
-        </CurrentUserProfileProvider></ThreadClientProvider>
+        </CurrentUserProfileProvider></ThreadClientProvider></ShortcutProvider>
         <CoreSubsystemNotice subsystems={presentationSupervisor?.coreSubsystems ?? []} />
       </div>
     )

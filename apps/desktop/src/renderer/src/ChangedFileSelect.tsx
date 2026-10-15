@@ -1,3 +1,4 @@
+import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import type { AgentRunFileChangesView } from '@contracts'
@@ -40,9 +41,15 @@ export function ChangedFileSelect({ files, value, onChange }: {
     setOpen(false)
   }
 
+  const managed = Boolean(useShortcuts())
+  useShortcutAction('find', target => {
+    if (!(target instanceof Node) || !search.current?.parentElement?.contains(target) || !find?.controller?.supported) return false
+    openingFind.current = true; setOpen(false); find.controller.open()
+  }, open, 200)
+
   function handleKey(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
-    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'f') {
+    if (!managed && (event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'f') {
       event.preventDefault()
       event.stopPropagation()
       openingFind.current = true

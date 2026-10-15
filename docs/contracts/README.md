@@ -26,6 +26,10 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Member Avatar v2（历史）](member-avatar-v2.md)：继承单文件资产与旧取景兼容；Agent get 统一为一个 avatar，保留显示裁切元数据。
 - [Member Avatar v1（历史）](member-avatar-v1.md)：单文件资产、显示取景、旧 icon 兼容和渠道静态封面；Agent 双图片结果由 v2 替代。
 
+## Desktop 本机设置
+
+- [Desktop Shortcuts v1](desktop-shortcuts-v1.md)：本机快捷键配置、并发保存、修饰键校验、录制与窗口内分发。
+
 ## Navigation
 
 - [Navigation Read v1（当前）](navigation-read-v1.md)：单会话、单分组、完整摘要快照，观察水位内已读确认与局部失效。

@@ -59,6 +59,8 @@ Runtime 终态文件行与会话中的每 Run 文件变化卡片由
 - [Mobile WebUI](host-web-mobile.md)：已接入实际 Web 入口，复用正式业务页面；底部导航、右侧统一状态槽、连续 Run、六种计划与手机日期/时间面板。
   Server 提供检查、下载与安装重启，Desktop 托管只读版本说明；macOS Chrome 自动验收与实体手机待验项目分别记录。
 
+Desktop 的[快捷键设置](components/shortcut-settings.md)管理窗口内动作、键盘和侧键绑定，以及公屏/单聊发送组合。
+
 ## 平台差异
 
 - [Windows Interaction Delta](windows-interaction-delta.md)

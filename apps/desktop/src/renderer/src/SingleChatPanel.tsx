@@ -1,3 +1,5 @@
+import { useShortcutAction, useShortcuts } from './ShortcutProvider'
+import { shouldSendComposerKey } from '../../shared/shortcuts'
 import { useThreadClient } from './camp-client'
 import { useMobileLayout } from './MobileLayout'
 import { newCommandId } from '../../shared/command-id'
@@ -675,6 +677,7 @@ export function SingleChatPanel({
   const initialAgentId = members.find((member) => memberCanSingleChat(member) && member.isDefaultLead)?.agentId
     ?? members.find(memberCanSingleChat)?.agentId
     ?? null
+  const shortcutContext = useShortcuts()
   const panelRef = useRef<HTMLElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const focusPanel = useRef(false)
@@ -1601,6 +1604,15 @@ export function SingleChatPanel({
     </div>
   )
 
+  const inSingleChat = (target: EventTarget | null): boolean => visible && target instanceof Node && Boolean(panelRef.current?.contains(target))
+  useShortcutAction('composer', target => { if (!inSingleChat(target)) return false; composerRef.current?.focus() }, currentTargetReady && !sending && !ending, 100)
+  useShortcutAction('attach', target => { if (!inSingleChat(target)) return false; fileInputRef.current?.click() }, !!selectedMember && currentTargetReady && !sending && !returningPending && !ending && !quoteBusy && !preparingAttachments.some(item => !item.error), 100)
+  useShortcutAction('latest', target => {
+    if (!inSingleChat(target) || !viewportRef.current) return false
+    followLatestRef.current = true
+    viewportRef.current.scrollTop = viewportRef.current.scrollHeight
+  }, !!currentSnapshot, 100)
+
   return <>
     {!mobile && (entryHost ? createPortal(entries, entryHost) : <div className="camp-detail-entry-fallback">{entries}</div>)}
     <aside
@@ -1770,11 +1782,11 @@ export function SingleChatPanel({
               }}
               onKeyDown={(event) => {
                 if (mobile) return
-                if (!shouldSubmitStructuredComposerOnEnter({
-                  key: event.key,
-                  shiftKey: event.shiftKey,
-                  isComposing: event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
-                })) return
+                if (event.nativeEvent.keyCode === 229 || event.repeat) return
+                const submit = shortcutContext
+                  ? shouldSendComposerKey(event.nativeEvent, client.platform, shortcutContext.snapshot?.preferences.sendMode ?? 'enter')
+                  : shouldSubmitStructuredComposerOnEnter({ key: event.key, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing })
+                if (!submit) return
                 event.preventDefault()
                 event.currentTarget.form?.requestSubmit()
               }}
@@ -1808,7 +1820,7 @@ export function SingleChatPanel({
               </button>
             </div>
             <div className="composer-actions">
-              {!activeRun && (
+              {!shortcutContext && !activeRun && (
                 <span className="composer-hint">
                   <span className="sr-only"><UiText zh={"Enter 发送，Shift+Enter 换行"} /></span>
                   <span className="composer-hint-visual" aria-hidden="true">

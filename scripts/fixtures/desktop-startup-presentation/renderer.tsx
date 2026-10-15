@@ -1,3 +1,4 @@
+import { shortcutDefaults } from '../../../apps/desktop/src/shared/shortcuts'
 import { EMPTY_SNAPSHOT, sanitizeSnapshot, registerNavigationProjects } from '../../../apps/desktop/src/shared/navigation-preferences-model'
 import type { NavigationSnapshot, NavigationPreferencesSnapshot } from '@contracts'
 import type { ThreadCreationPreflight, CoreEvent, DesktopStartupSnapshot, HealthStatus, OnboardingSnapshot, RestorableLocation, RovaiApi, SupervisorSnapshot } from '@contracts'
@@ -66,6 +67,11 @@ function api(path = ''): unknown {
     get(_target, key) {
       if (path === '' && key === 'platform') return 'darwin'
       if (path === '' && key === 'windowClose') return undefined
+      if (path === '' && key === 'shortcuts') return {
+        get: async () => ({ revision: 0, preferences: shortcutDefaults(), degraded: false }),
+        save: async () => { throw new Error('Shortcut changes use their dedicated fixture') },
+        onChanged: () => () => undefined, onMouseSide: () => () => undefined, setRecording: async () => {}
+      }
       return api(path ? `${path}.${String(key)}` : String(key))
     },
     apply(_target, _this, args) {

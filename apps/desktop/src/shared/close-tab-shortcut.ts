@@ -3,9 +3,9 @@ import type { IpcRenderer, WebContents } from 'electron'
 const CLOSE_TAB_CHANNEL = 'rovai:close-tab-requested'
 const CLOSE_WINDOW_CHANNEL = 'rovai:close-window-shortcut'
 
-export function installCloseTabShortcut(contents: WebContents, platform: NodeJS.Platform, closeWindow: () => void): void {
+export function installCloseTabShortcut(contents: WebContents, platform: NodeJS.Platform, closeWindow: () => void, recording: () => boolean = () => false): void {
   contents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || input.isComposing || input.alt || input.shift) return
+    if (recording() || input.type !== 'keyDown' || input.isComposing || input.alt || input.shift) return
     const primary = platform === 'darwin' ? input.meta : input.control
     const secondary = platform === 'darwin' ? input.control : input.meta
     if (!primary || secondary || input.key.toLowerCase() !== 'w') return

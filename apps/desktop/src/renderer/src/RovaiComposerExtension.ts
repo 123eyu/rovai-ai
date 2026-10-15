@@ -51,6 +51,7 @@ export interface ComposerExtensionRuntime<Result = unknown> {
   sync: ComposerDraftSync<Result>
   submit(): void
   enterInsertsLineBreak?(): boolean
+  shouldSubmitEnter?(event: KeyboardEvent | null): boolean
   backspaceAtStart(): void
   pasteFiles(files: File[]): void
   plainText(document: ComposerDocument): string
@@ -175,8 +176,8 @@ export const ComposerCommandExtension = defineExtension({
       editor.registerCommand(KEY_ENTER_COMMAND, (event) => {
         const runtime = runtimes.get(editor)
         if (!runtime) return false
-        if (editor.isComposing() || event?.isComposing) return true
-        if (event?.shiftKey || runtime.enterInsertsLineBreak?.()) {
+        if (editor.isComposing() || event?.isComposing || event?.keyCode === 229 || event?.repeat) return true
+        if (event?.shiftKey || runtime.enterInsertsLineBreak?.() || runtime.shouldSubmitEnter?.(event) === false) {
           event?.preventDefault()
           $restoreComposerAtomSelection()
           const selection = $getSelection()

@@ -1,3 +1,4 @@
+import { useShortcutAction, useShortcutLabel, useShortcuts } from './ShortcutProvider'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EMPTY_FILE_FIND, type FileFindDocument, type FileFindMatch, type FileFindOptions, type FileFindResult } from './file-find'
 import { searchFileDocuments } from './file-find-client'
@@ -39,6 +40,8 @@ export function isFileFindTarget(target: EventTarget | null): boolean {
 }
 
 export function FileFindProvider({ activeTabId, visible, children }: { activeTabId: string | null; visible: boolean; children: ReactNode }): React.JSX.Element {
+  const managed = Boolean(useShortcuts())
+  const lastRegion = useRef<'file' | 'conversation'>('conversation')
   const controllers = useRef(new Map<string, FindController>())
   const pending = useRef<{ id: string; allChanges: boolean } | null>(null)
   const [version, setVersion] = useState(0)
@@ -66,23 +69,22 @@ export function FileFindProvider({ activeTabId, visible, children }: { activeTab
     if (!visible || (pending.current && pending.current.id !== activeTabId)) pending.current = null
   }, [activeTabId, visible])
   useEffect(() => {
-    let lastRegion: 'file' | 'conversation' = 'conversation'
     const track = (event: Event): void => {
-      if (isFileFindTarget(event.target)) lastRegion = 'file'
-      else if (event.target instanceof Element && event.target.closest('.thread-workspace,.topbar-conversation-context')) lastRegion = 'conversation'
+      if (isFileFindTarget(event.target)) lastRegion.current = 'file'
+      else if (event.target instanceof Element && event.target.closest('.thread-workspace,.topbar-conversation-context')) lastRegion.current = 'conversation'
     }
     const shortcut = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || event.isComposing || event.altKey || !current.current.visible) return
       // The portaled picker closes itself before handing Cmd/Ctrl+F to this controller.
       if (event.target instanceof Element && event.target.closest('.changed-file-popover')) return
-      const inFile = isFileFindTarget(event.target) || (event.target === document.body && lastRegion === 'file')
+      const inFile = isFileFindTarget(event.target) || (event.target === document.body && lastRegion.current === 'file')
       if (!inFile) return
       const controller = controllers.current.get(current.current.activeTabId ?? '')
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+      if (!managed && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
         event.stopPropagation()
         controller?.open()
-      } else if (controller?.opened && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'g') {
+      } else if (!managed && controller?.opened && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'g') {
         event.preventDefault()
         event.stopPropagation()
         controller.navigate(event.shiftKey ? -1 : 1)
@@ -100,16 +102,25 @@ export function FileFindProvider({ activeTabId, visible, children }: { activeTab
       document.removeEventListener('focusin', track)
       window.removeEventListener('keydown', shortcut, true)
     }
-  }, [])
+  }, [managed])
+  const controllerFor = (target: EventTarget | null): FindController | undefined => {
+    if (!visible || (!isFileFindTarget(target) && !(target === document.body && lastRegion.current === 'file'))) return
+    return controllers.current.get(activeTabId ?? '')
+  }
+  useShortcutAction('find', target => { const controller = controllerFor(target); if (!controller?.supported) return false; controller.open() }, true, 100)
+  useShortcutAction('next', target => { const controller = controllerFor(target); if (!controller?.opened) return false; controller.navigate(1) }, true, 100)
+  useShortcutAction('previous', target => { const controller = controllerFor(target); if (!controller?.opened) return false; controller.navigate(-1) }, true, 100)
   const value = useMemo(() => ({ activeTabId, visible, register, request, controller: controllers.current.get(activeTabId ?? '') ?? null }), [activeTabId, visible, version, register, request])
   return <Registry.Provider value={value}>{children}</Registry.Provider>
 }
 
 export function FileFindButton(): React.JSX.Element | null {
   const registry = useOptionalFileFind()
+  const managed = Boolean(useShortcuts())
+  const label = useShortcutLabel('find')
   if (!registry?.visible) return null
   return <button type="button" className="file-preview-find-trigger"
-    aria-label={uiAttribute("查找文件内容")} title={uiAttribute("查找文件内容（⌘F / Ctrl+F）")}
+    aria-label={uiAttribute("查找文件内容")} title={!managed ? uiAttribute("查找文件内容（⌘F / Ctrl+F）") : label ? `${uiAttribute("查找文件内容")}（${label}）` : uiAttribute("查找文件内容")}
     aria-controls={registry.activeTabId ? `file-find-${registry.activeTabId}` : undefined}
     aria-expanded={registry.controller?.opened ?? false} disabled={!registry.controller?.supported}
     onClick={() => registry.controller?.open()}>

@@ -1,4 +1,5 @@
 import type { ShortcutActionId, ShortcutMouseSide, ShortcutPreferences } from '@contracts'
+import { reservedPageZoomShortcut } from './page-zoom-shortcut'
 
 export interface ShortcutDefinition {
   id: ShortcutActionId
@@ -41,22 +42,8 @@ export function shouldSendComposerKey(event: Pick<KeyboardEvent, 'key' | 'isComp
   const other = platform === 'darwin' ? event.ctrlKey : event.metaKey
   return !other && (mode === 'enter' ? !primary : primary)
 }
-export type ShortcutKeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'repeat' | 'isComposing'>
-export function normalizeShortcut(event: ShortcutKeyEvent, platform: NodeJS.Platform): string | null {
-  if (event.isComposing || event.repeat || ['Meta', 'Control', 'Alt', 'Shift', 'AltGraph', 'Process', 'Unidentified', 'Dead'].includes(event.key)) return null
-  let key = event.key.length === 1 ? event.key.toUpperCase() : event.key
-  if (event.code.startsWith('Digit')) key = event.code.slice(5)
-  if (event.code.startsWith('Key')) key = event.code.slice(3)
-  if (event.code === 'BracketLeft') key = '['
-  if (event.code === 'BracketRight') key = ']'
-  if (event.code === 'Comma') key = ','
-  if (key === ' ') key = 'Space'
-  if (key === '+' || event.code === 'Equal') key = 'Plus'
-  const primary = platform === 'darwin' ? event.metaKey : event.ctrlKey
-  const other = platform === 'darwin' ? (event.ctrlKey ? ['Ctrl'] : []) : (event.metaKey ? ['Meta'] : [])
-  return [...(primary ? ['Mod'] : []), ...other, ...(event.altKey ? ['Alt'] : []), ...(event.shiftKey && key !== 'Plus' ? ['Shift'] : []), key].join('+')
-}
-const RESERVED: Record<string, string> = { 'Mod+W': '关闭当前文件标签／窗口', 'Mod+Plus': '放大界面', 'Mod+-': '缩小界面', 'Mod+0': '恢复默认缩放', 'Mod+C': '复制', 'Mod+X': '剪切', 'Mod+V': '粘贴', 'Mod+Z': '撤销', 'Mod+Shift+Z': '重做', 'Mod+A': '全选' }
+export { normalizeShortcut, type ShortcutKeyEvent } from '../../../../packages/contracts/src/shortcut-key'
+const RESERVED: Record<string, string> = { 'Mod+W': '关闭当前文件标签／窗口', 'Mod+C': '复制', 'Mod+X': '剪切', 'Mod+V': '粘贴', 'Mod+Z': '撤销', 'Mod+Shift+Z': '重做', 'Mod+A': '全选' }
 export function validateShortcut(binding: string, platform: NodeJS.Platform): string | null {
   const parts = binding.split('+'), key = parts.at(-1) ?? ''
   if (platform !== 'darwin' && parts.includes('Meta')) return '暂不支持 Win 组合，请使用 Ctrl 或 Alt。'
@@ -70,7 +57,9 @@ export function validateShortcut(binding: string, platform: NodeJS.Platform): st
   if (!/^(?:[A-Z0-9]|[^\p{L}\p{N}\s]|F(?:[1-9]|1[0-2])|Enter|Tab|Space|Plus|Backspace|Delete|Insert|Home|End|PageUp|PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight)$/u.test(key)) return '暂不支持这个组合，请换一个。'
   if (['Mod+Q', 'Mod+Tab', 'Mod+Space', 'Alt+Tab', 'Alt+F4', 'Mod+Alt+Delete'].includes(binding)) return '这个组合由系统使用，请换一个。'
   if (['Mod+Enter', 'Mod+Shift+Enter', 'Alt+Enter'].includes(binding)) return '请在「发送消息」中设置发送方式。'
-  return RESERVED[binding] ? `「${RESERVED[binding]}」使用这个系统快捷键，请换一个。` : null
+  const zoom = reservedPageZoomShortcut(binding, platform)
+  const reserved = zoom ? { in: '放大界面', out: '缩小界面', reset: '恢复默认缩放' }[zoom] : RESERVED[binding]
+  return reserved ? `「${reserved}」使用这个系统快捷键，请换一个。` : null
 }
 export function shortcutKeyParts(binding: string | null, platform: NodeJS.Platform): string[] {
   if (!binding) return []

@@ -6,7 +6,23 @@ const [renderer, userData, nativeModule] = process.argv.slice(2)
 assert(isAbsolute(renderer) && isAbsolute(userData) && isAbsolute(nativeModule))
 mkdirSync(join(userData, 'managed-skill-library'), { recursive: true })
 app.setPath('userData', userData); app.setPath('sessionData', join(userData, 'session'))
-const { ShortcutPreferencesStore, installShortcutInput, installCloseTabShortcut } = require(nativeModule)
+const { ShortcutPreferencesStore, installShortcutInput, installCloseTabShortcut, installPageZoomShortcut, FilePreviewService } = require(nativeModule)
+const filesRoot = join(userData, 'files')
+mkdirSync(join(filesRoot, 'docs'), { recursive: true })
+writeFileSync(join(filesRoot, 'docs/interaction-review.md'), '# Interaction review\nShortcut acceptance content.\n')
+writeFileSync(join(filesRoot, 'docs/shortcut.html'), '<!doctype html><button id="inside">HTML preview input target</button><p>Searchable preview content</p><iframe title="Child" src="./child.html"></iframe>')
+writeFileSync(join(filesRoot, 'docs/child.html'), '<!doctype html><button id="inside">Nested preview input target</button>')
+const files = new FilePreviewService({ async resolve(request) {
+  if (request.kind !== 'camp_workspace') return null
+  return { kind: 'file_target', sourceKind: request.kind, threadId: request.threadId, sourceIdentity: request.rawReference,
+    rootPath: filesRoot, basePath: filesRoot, rawReference: request.rawReference, allowChildren: true }
+} }, { selectRoot: async () => null, confirmOpen: async () => true, openPath: async () => '', revealPath() {}, copyText() {}, publishExternalUpdate() {} })
+const previewCalls = ['updateRetention', 'bindThread', 'open', 'restore', 'reopen', 'readText', 'readPage', 'resolveLine', 'readBinary', 'prepareHtml', 'prepareHtmlSite', 'releaseHtmlSite', 'reload', 'release']
+ipcMain.handle('shortcuts:preview', (event, method, args) => {
+  assert.equal(event.senderFrame, event.sender.mainFrame)
+  assert(previewCalls.includes(method))
+  return files[method](event.sender.id, args)
+})
 app.on('window-all-closed', () => {})
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
@@ -28,6 +44,8 @@ app.whenReady().then(async () => {
       input = installShortcutInput(window, platform, () => store.get().preferences)
       inputs.set(window.webContents.id, input)
       installCloseTabShortcut(window.webContents, platform, () => { closedTabs++ }, input.isRecording)
+      const zoomChanges = []
+      installPageZoomShortcut(window.webContents, platform, input.isRecording, percentage => zoomChanges.push(percentage))
       const run = async code => { try { return await window.webContents.executeJavaScript(code, true) } catch (error) { console.error("Failed script:", code); throw error } }
       const settle = () => run('window.shortcutTest.settle()')
       const click = async selector => { await run(`document.querySelector(${JSON.stringify(selector)}).click()`); await settle() }
@@ -250,6 +268,8 @@ app.whenReady().then(async () => {
       await key('F', [primary]); assert(!await run('!!document.querySelector(".file-find-surface")'), 'Former file shortcut no longer triggers')
       await key('F', ['alt']); assert(await run('!!document.querySelector(".file-find-surface")'), 'Remapped file shortcut triggers')
       await key('Escape')
+      await require('./html-find.cjs')({ window, run, settle, key, platform, defaults })
+      await require('./zoom.cjs')({ window, run, settle, click, key, text, platform, primary, store, input, defaults, zoomChanges })
       // Remapping removes the former key and dispatches the new key to the actual task panel.
       const changed = structuredClone(defaults); changed.bindings.tasks = 'Alt+T'
       await run(`window.shortcutTest.save(${JSON.stringify(changed)})`); await settle()
@@ -274,9 +294,9 @@ app.whenReady().then(async () => {
       await key('K', [primary]); await capture('conflict')
       await key('Escape'); await run(`window.shortcutTest.save(${JSON.stringify(defaults)})`); await settle()
       assert.deepEqual(await run('window.shortcutTest.errors'), [])
-      window.destroy()
+      await files.closeAll(); window.destroy()
     }
     console.log(JSON.stringify({ ok: true, platforms: ['darwin', 'win32'], nativeKeyboard: true, physicalMouse: false }))
     app.exit(0)
-  } catch (error) { console.error(error); if (window && !window.isDestroyed()) writeFileSync(join(dirname(userData), 'failure.png'), (await window.webContents.capturePage()).toPNG()); app.exit(1) }
+  } catch (error) { await files.closeAll(); console.error(error); if (window && !window.isDestroyed()) writeFileSync(join(dirname(userData), 'failure.png'), (await window.webContents.capturePage()).toPNG()); app.exit(1) }
 })

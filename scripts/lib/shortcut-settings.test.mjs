@@ -18,7 +18,7 @@ test('production shortcut settings record, persist and trigger across platforms 
   try {
     const resolveOptions = { alias: { '@contracts': join(root, 'packages/contracts/src/index.ts') } }
     await build({ configFile: false, root: source, base: './', logLevel: 'error', plugins: [react()], resolve: resolveOptions, build: { outDir: join(fixture, 'renderer'), minify: false } })
-    await build({ configFile: false, root: source, logLevel: 'error', resolve: resolveOptions, build: { ssr: join(source, 'native.ts'), outDir: join(fixture, 'native'), minify: false, rollupOptions: { external: ['electron'], output: { format: 'cjs', entryFileNames: 'native.cjs' } } } })
+    await build({ configFile: false, root: source, logLevel: 'error', resolve: resolveOptions, ssr: { noExternal: ['parse5', 'entities'] }, build: { ssr: join(source, 'native.ts'), outDir: join(fixture, 'native'), minify: false, rollupOptions: { external: ['electron'], output: { format: 'cjs', entryFileNames: 'native.cjs' } } } })
     const env = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }; delete env.ELECTRON_RUN_AS_NODE
     process.stdout.write(`Shortcut fixture: ${fixture}; isolated userData and Skill Library, no Core/Runtime\n`)
     child = spawn(electron, [join(source, 'main.cjs'), join(fixture, 'renderer/index.html'), join(fixture, 'user-data'), join(fixture, 'native/native.cjs'), ...(process.platform === 'linux' ? ['--no-sandbox'] : [])], { env, stdio: ['ignore', 'pipe', 'pipe'] })

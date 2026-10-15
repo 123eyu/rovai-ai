@@ -1,3 +1,4 @@
+import { pageZoomAction } from '../main/page-zoom'
 import { describe, expect, it } from 'vitest'
 import { normalizeShortcut, parseShortcutPreferences, shortcutDefaults, shortcutKeyParts, shouldSendComposerKey, validateShortcut, type ShortcutKeyEvent } from './shortcuts'
 
@@ -36,6 +37,24 @@ describe('shortcut identity and admission', () => {
     expect(validateShortcut('Mod+Enter', 'win32')).toContain('发送消息')
     expect(normalizeShortcut(key({ ctrlKey: true, repeat: true }), 'darwin')).toBeNull()
     expect(normalizeShortcut(key({ isComposing: true }), 'darwin')).toBeNull()
+  })
+  it.each(['darwin', 'win32'] as const)('rejects the actual native zoom inputs at recording and persistence on %s', platform => {
+    const primary = platform === 'darwin' ? { metaKey: true } : { ctrlKey: true }
+    for (const [value, code] of [['0', 'Digit0'], [')', 'Digit0'], ['0', 'Numpad0'], ['Insert', 'Numpad0'],
+      ['-', 'Minus'], ['_', 'Minus'], ['-', 'NumpadSubtract'], ['=', 'Equal'], ['+', 'Equal'], ['+', 'NumpadAdd']]) {
+      for (const shiftKey of [false, true]) {
+        const event = key({ key: value, code, ...primary, shiftKey })
+        const binding = normalizeShortcut(event, platform)!
+        expect(pageZoomAction({ type: 'keyDown', key: value, code, isComposing: false,
+          meta: event.metaKey, control: event.ctrlKey, alt: event.altKey }, platform)).not.toBeNull()
+        expect(validateShortcut(binding, platform), binding).not.toBeNull()
+        const preferences = shortcutDefaults(); preferences.bindings.tasks = binding
+        expect(parseShortcutPreferences(preferences, platform), binding).toBeNull()
+      }
+    }
+    for (const binding of ['Mod+Alt+Shift+0', 'Alt+Shift+0', 'Mod+Shift+9', ...(platform === 'darwin' ? ['Ctrl+Shift+0', 'Mod+Ctrl+Shift+0'] : [])]) {
+      expect(validateShortcut(binding, platform), binding).toBeNull()
+    }
   })
   it('rejects duplicates, unknown actions, noncanonical modifiers and invalid mouse targets at the persistence boundary', () => {
     const preferences = shortcutDefaults()

@@ -96,7 +96,8 @@ import { parseClipboardWriteRequest } from './clipboard-write'
 import { OnboardingStore } from './onboarding-preferences'
 import { DailyAnalysisService } from './daily-analysis'
 import { EvaluationHostService } from './evaluation-host'
-import { nextPageZoomPercentage, pageZoomAction, pageZoomFactor, pageZoomPercentage } from './page-zoom'
+import { pageZoomFactor, pageZoomPercentage } from './page-zoom'
+import { installPageZoomShortcut } from './page-zoom-shortcut'
 import { applyWindowChromeAppearance, windowChromeOptions } from './window-chrome'
 import {
   parseWindowsApplicationMenuPopupRequest,
@@ -838,15 +839,7 @@ function createWindow(): void {
   window.once('closed', () => shortcutInputs.delete(shortcutWindowId))
   installCloseTabShortcut(window.webContents, process.platform, () => window.close(), shortcutInput.isRecording)
   installWindowNavigation(window, process.platform)
-  window.webContents.on('before-input-event', (event, input) => {
-    if (shortcutInput.isRecording()) return
-    const action = pageZoomAction(input, process.platform)
-    if (action === null) return
-
-    event.preventDefault()
-    const percentage = nextPageZoomPercentage(window.webContents.getZoomFactor(), action)
-    if (percentage === null) return
-    window.webContents.setZoomFactor(pageZoomFactor(percentage))
+  installPageZoomShortcut(window.webContents, process.platform, shortcutInput.isRecording, percentage => {
     window.webContents.send('rovai:page-zoom-changed', percentage)
     void updateAppearancePreferences({ zoomPercentage: percentage }).catch((error) => {
       console.warn('[rovai] Page zoom preference could not be saved.', error)

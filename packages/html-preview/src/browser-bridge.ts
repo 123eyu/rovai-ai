@@ -1,3 +1,4 @@
+import type { normalizeShortcut } from '../../contracts/src/shortcut-key'
 import type { createFileFindDomIndex } from './find-dom'
 import type { HtmlInjectionMap } from './document'
 import type { parseHtmlPreviewDiagnostic, HtmlPreviewDiagnostic, HtmlPreviewDiagnosticKind } from './protocol'
@@ -16,7 +17,7 @@ export interface PreviewBridgeConfig {
 
 /** Serialized into a site-owned script. All runtime dependencies are arguments
  * or browser APIs; author globals, History and resource attributes stay native. */
-export function previewBrowserBridge(config: PreviewBridgeConfig, createIndex: typeof createFileFindDomIndex, parseDiagnostic: typeof parseHtmlPreviewDiagnostic): void {
+export function previewBrowserBridge(config: PreviewBridgeConfig, createIndex: typeof createFileFindDomIndex, parseDiagnostic: typeof parseHtmlPreviewDiagnostic, normalizeKey: typeof normalizeShortcut): void {
   const protocol = 'rovai-html-preview-v1'
   const nativePost = window.postMessage
   // Native Desktop can host from file: (opaque parent); Web always uses its actual HTTP(S) origin.
@@ -27,6 +28,8 @@ export function previewBrowserBridge(config: PreviewBridgeConfig, createIndex: t
   let connection: { id: string; origin: string } | null = null
   let loaded = document.readyState !== 'loading'
   const children = new Map<Window, { id: string; documentId: string | null }>()
+  // No configuration preserves Web's shortcut; an explicit null binding disables Desktop find.
+  let findShortcut: { binding: string | null; platform: string } | null = null
   const diagnostics: HtmlPreviewDiagnostic[] = []
   const keys = new Map<string, number>()
   const abort = new AbortController()
@@ -113,6 +116,11 @@ export function previewBrowserBridge(config: PreviewBridgeConfig, createIndex: t
     children.set(source, { id, documentId: null })
     sendRaw(source, config.origin, 'connect', { connectionId: id })
   }
+  const syncChildShortcut = (child: Window, identity: { id: string; documentId: string | null }): void => {
+    if (findShortcut && identity.documentId) sendRaw(child, config.origin, 'find-shortcut', {
+      connectionId: identity.id, documentId: identity.documentId, ...findShortcut
+    })
+  }
   const clearFind = (): void => {
     for (const item of indexes) {
       const view = item.document.defaultView as (Window & typeof globalThis) | null
@@ -156,6 +164,13 @@ export function previewBrowserBridge(config: PreviewBridgeConfig, createIndex: t
     requestAnimationFrame(() => { scrollScheduled = false; send('reading-position', { top: scrollY, left: scrollX }) })
   }, { passive: true, signal: abort.signal })
   const command = (data: Record<string, unknown>): void => {
+    if (data.type === 'find-shortcut') {
+      if (!(data.binding === null || (typeof data.binding === 'string' && data.binding.length <= 100))
+        || !['darwin', 'win32', 'linux'].includes(String(data.platform))) return
+      findShortcut = { binding: data.binding as string | null, platform: data.platform as string }
+      for (const [child, identity] of children) syncChildShortcut(child, identity)
+      return
+    }
     if (data.type === 'restore-reading' && typeof data.top === 'number' && Number.isFinite(data.top)
       && typeof data.left === 'number' && Number.isFinite(data.left)) {
       scrollTo({ top: Math.max(0, data.top), left: Math.max(0, data.left), behavior: 'instant' }); return
@@ -206,17 +221,23 @@ export function previewBrowserBridge(config: PreviewBridgeConfig, createIndex: t
     if (data.type === 'hello') { connectChild(event.source); return }
     const child = children.get(event.source)
     if (!child || child.id !== data.connectionId) return
-    if (data.type === 'connected' && typeof data.documentId === 'string' && data.documentId.length <= 128) { child.documentId = data.documentId; return }
+    if (data.type === 'connected' && typeof data.documentId === 'string' && data.documentId.length <= 128) { child.documentId = data.documentId; syncChildShortcut(event.source, child); return }
     if (child.documentId !== data.documentId) return
     if (data.type === 'diagnostic') {
       add(data.diagnostic)
-    } else if (data.type === 'find-open' || data.type === 'find-close') send(data.type)
+    } else if (data.type === 'find-open') {
+      if (!findShortcut || (data.binding === findShortcut.binding && data.platform === findShortcut.platform)) send('find-open', { binding: data.binding, platform: data.platform })
+    } else if (data.type === 'find-close') send(data.type)
     else if (data.type === 'find-invalidated') invalidate()
   }, { signal: abort.signal })
   document.addEventListener('load', event => { if (event.target instanceof HTMLIFrameElement && event.target.contentWindow && event.target.contentDocument) connectChild(event.target.contentWindow) }, { capture: true, signal: abort.signal })
   document.addEventListener('keydown', event => {
-    if (event.isTrusted && !event.isComposing && !event.altKey && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
-      event.preventDefault(); event.stopImmediatePropagation(); send('find-open')
+    if (!event.isTrusted || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return
+    const matches = findShortcut
+      ? findShortcut.binding !== null && normalizeKey(event, findShortcut.platform) === findShortcut.binding
+      : !event.altKey && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f'
+    if (matches) {
+      event.preventDefault(); event.stopImmediatePropagation(); send('find-open', findShortcut ?? {})
     }
   }, { capture: true, signal: abort.signal })
   document.addEventListener('pointerdown', event => { if (event.isTrusted) send('find-close') }, { signal: abort.signal })

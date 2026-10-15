@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { AdapterInstallation, ExecutionConsolePlacement, ShortcutPreferencesApi } from '@contracts'
+import type { AdapterInstallation, ExecutionConsolePlacement, FilePreviewApi, ShortcutPreferencesApi } from '@contracts'
 import { ShortcutProvider, useShortcuts } from '../../../apps/desktop/src/renderer/src/ShortcutProvider'
 import { ShortcutSettings } from '../../../apps/desktop/src/renderer/src/ShortcutSettings'
 import { NavigationShell } from '../../../apps/desktop/src/renderer/src/NavigationShell'
@@ -19,6 +19,7 @@ import '../../../apps/desktop/src/renderer/src/styles.css'
 
 const platform: NodeJS.Platform = new URL(location.href).searchParams.get('platform') === 'win32' ? 'win32' : 'darwin'
 const api = (window as unknown as { shortcutsApi: ShortcutPreferencesApi }).shortcutsApi
+const fileApi = (window as unknown as { filePreviewApi: FilePreviewApi }).filePreviewApi
 const model = createReviewModel('desktop', 'running')
 const client = { ...model.client, platform }
 const errors: string[] = []
@@ -50,7 +51,7 @@ function Fixture() {
         <ComposerPrimaryAction action="send" busy={false} disabled={false} type="button" onClick={() => { sends++ }} />
       </form></main> : <>
         <AppHeader threadTitle={model.get().snapshot.thread.title} contextLabel="Fixture" thread={model.get().snapshot} detailEntryHostRef={setEntry} onFocusApprovals={() => {}} />
-        <main className="content task-content camp-content"><FilePreviewProvider threadId={model.get().snapshot.thread.id} resolvedTheme="day" api={model.fileApi}><FileControls />
+        <main className="content task-content camp-content"><FilePreviewProvider threadId={model.get().snapshot.thread.id} resolvedTheme="day" api={fileApi}><FileControls />
           <ThreadWorkspace snapshot={model.get().snapshot} projectName="Fixture" agents={agents} installations={installations as AdapterInstallation[]} initialComposerDraft={initialDraft} busy={false} onSend={model.send}
             onChangeLead={async () => {}} onTasksChanged={async () => {}} onResolveApproval={() => {}} stopping={false} onStop={() => {}} onCancelAgentRun={async () => {}}
             executionPlacement={placement} onExecutionPlacementChange={async next => { setPlacement(next); return next }} worldMapEnabled={false}
@@ -69,6 +70,6 @@ Object.assign(window, { shortcutTest: {
   composer: (text: string) => setComposerText(text), sends: () => sends,
   language: (interfaceLanguage: 'en' | 'zh-CN') => initializeInterfaceLanguage({ interfaceLanguage }),
   theme: (value: string) => { document.documentElement.dataset.theme = value },
-  openFile: () => commands!.open({ kind: 'camp_workspace', rawReference: 'docs/interaction-review.md', threadId: model.get().snapshot.thread.id })
+  openFile: (rawReference = 'docs/interaction-review.md') => commands!.open({ kind: 'camp_workspace', rawReference, threadId: model.get().snapshot.thread.id })
 } })
 createRoot(document.getElementById('root')!).render(<ShortcutProvider api={api} platform={platform}><Fixture /></ShortcutProvider>)

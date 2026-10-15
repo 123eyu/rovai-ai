@@ -28,7 +28,7 @@ export function deliveryPlans(snapshot: ThreadSnapshot, draft: ThreadComposerDra
   const ids = [...new Set(mentioned.length ? mentioned : snapshot.thread.defaultLeadAgentId ? [snapshot.thread.defaultLeadAgentId] : [])]
   return ids.map(agentId => {
     const run = snapshot.agentRuns.find(run => run.agentId === agentId && ['queued', 'running', 'waiting'].includes(run.status))
-    const canSteer = Boolean(run?.canSteer && ['running', 'waiting'].includes(run.status) && !run.cancelRequestedAt)
+    const canSteer = Boolean(run?.canSteer && !run.cancelRequestedAt)
     return { target: canSteer && run ? {agentRunId:run.id,executionEpoch:run.executionEpoch} : null, agentId, name: snapshot.members.find(member => member.agentId === agentId)?.displayName ?? agentId,
       canSteer, reason: run?.steerUnavailableReason, route: canSteer && mode === 'steer' ? 'steer' : run ? 'queue' : 'start' }
   })

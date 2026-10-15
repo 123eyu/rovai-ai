@@ -1,5 +1,5 @@
-//! Native Claude Code stdio control protocol. Only unfinished permission
-//! requests live here; ordinary tool activity belongs to the output parser.
+//! Native Claude Code stdio control protocol. Pending permission requests and
+//! input receipts live here; ordinary tool activity belongs to the output parser.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -183,17 +183,12 @@ impl ClaudeControl {
         state.wake_input_writer();
     }
 
-    pub(crate) async fn steer(&self, prompt: &str) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+    pub(crate) async fn steer(&self, input_id: &str, prompt: &str) -> Result<String> {
+        let id = input_id.to_string();
         let (sender, receipt) = oneshot::channel();
         {
             let mut state = self.state.lock().unwrap();
-            if !state.prompt_sent
-                || state.closed
-                || state.closing
-                || state.input_fenced
-                || (state.has_result && !state.turn_in_progress)
-            {
+            if !state.prompt_sent || state.closed || state.closing || state.input_fenced {
                 return Err(rovai_core::steer::ActiveInputNotAccepted.into());
             }
             state.steering.insert(
@@ -215,9 +210,8 @@ impl ClaudeControl {
                 })
                 .context("Claude Code input writer is unavailable")?;
         }
-        let result = tokio::time::timeout(RUN_END_TIMEOUT, receipt)
+        let result = receipt
             .await
-            .context("Claude Code input receipt timed out")?
             .context("Claude Code input receipt disconnected")?;
         self.state.lock().unwrap().steering.remove(&id);
         result
@@ -481,27 +475,9 @@ impl ClaudeControl {
                 _ => {}
             }
         }
+        // A result ends one native foreground segment, not this managed Run.
+        // Receipts stay correlated until the output stream actually disconnects.
         if kind == Some("result") {
-            if frame.get("parent_tool_use_id").is_none_or(Value::is_null)
-                && frame
-                    .get("session_id")
-                    .is_none_or(|id| id.as_str() == Some(&self.session_id))
-            {
-                // UUIDs in this result were acknowledged above. A later replay
-                // in the same Session cannot prove these remaining inputs
-                // belonged to this foreground execution. Keep the Run's idle
-                // and background-task lifecycle independent of this boundary.
-                for (_, pending) in state.steering.drain() {
-                    let error = if pending.write_started {
-                        anyhow::anyhow!(
-                            "Claude foreground execution ended without this input's receipt"
-                        )
-                    } else {
-                        rovai_core::steer::ActiveInputNotAccepted.into()
-                    };
-                    let _ = pending.receipt.send(Err(error));
-                }
-            }
             state.has_result = true;
             state.turn_in_progress = false;
             state.refresh_end_wait();
@@ -558,7 +534,14 @@ impl ClaudeControl {
         let ids = {
             let mut state = self.state.lock().unwrap();
             state.closed = true;
-            state.steering.clear(); // Written inputs without native receipts remain unknown.
+            for (_, pending) in state.steering.drain() {
+                let error = if pending.write_started {
+                    anyhow::anyhow!("Claude Code disconnected without this input's receipt")
+                } else {
+                    rovai_core::steer::ActiveInputNotAccepted.into()
+                };
+                let _ = pending.receipt.send(Err(error));
+            }
             state.wake_input_writer();
             state.end_wait_started_at = None;
             state.pending.drain().map(|(id, _)| id).collect::<Vec<_>>()
@@ -615,7 +598,6 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
             let steer_permitted = write.steer_id.is_none()
                 || (!state.input_fenced
                     && !state.closed
-                    && !(state.has_result && !state.turn_in_progress)
                     && write
                         .steer_id
                         .as_ref()
@@ -648,15 +630,11 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
         let result = tokio::time::timeout(EXIT_TIMEOUT, async {
             let first_bytes = if let Some(id) = &write.steer_id {
                 poll_fn(|cx| {
-                    // A Pending poll wrote nothing. Recheck the foreground
+                    // A Pending poll wrote nothing. Recheck the managed Run
                     // boundary on every retry, under the same lock as the
                     // first actual write, never across an asynchronous wait.
                     let mut state = control.state.lock().unwrap();
-                    if state.input_fenced
-                        || state.closed
-                        || (state.has_result && !state.turn_in_progress)
-                        || !state.steering.contains_key(id)
-                    {
+                    if state.input_fenced || state.closed || !state.steering.contains_key(id) {
                         if let Some(pending) = state.steering.remove(id) {
                             let _ = pending
                                 .receipt
@@ -677,6 +655,11 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
                                     return Err(std::io::ErrorKind::WriteZero.into());
                                 }
                                 state.steering.get_mut(id).unwrap().write_started = true;
+                                // Require a fresh native idle after new input.
+                                // Writing a frame does not itself prove native work.
+                                state.session_state = None;
+                                state.refresh_end_wait();
+                                control.changed.notify_one();
                                 Ok(Some(count))
                             }))
                         }
@@ -727,6 +710,8 @@ impl Drop for ControlReadGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "extended-tests")]
+    use std::future::Future;
 
     fn permission(id: &str, tool_id: Value) -> Value {
         json!({"type":"control_request","request_id":id,"request":{
@@ -821,7 +806,7 @@ mod tests {
         control.observe(&json!({"type":"system","subtype":"session_state_changed","session_id":"session","state":"running"})).unwrap();
         let steer = tokio::spawn({
             let control = control.clone();
-            async move { control.steer("补充附件路径").await }
+            async move { control.steer("input-attachment", "补充附件路径").await }
         });
         line.clear();
         output.read_line(&mut line).await.unwrap();
@@ -972,13 +957,6 @@ mod tests {
         control.observe(&json!({"type":"result"})).unwrap();
         line.clear();
         assert!(
-            control
-                .steer("late")
-                .await
-                .unwrap_err()
-                .is::<rovai_core::steer::ActiveInputNotAccepted>()
-        );
-        assert!(
             tokio::time::timeout(Duration::from_secs(1), output.read_line(&mut line))
                 .await
                 .is_err(),
@@ -993,9 +971,17 @@ mod tests {
         line.clear();
         assert_eq!(output.read_line(&mut line).await.unwrap(), 0);
         assert!(control.respond(json!("request-a"), allow).await.is_err());
+        assert!(
+            control
+                .steer("late", "late")
+                .await
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
 
-        // Only the original foreground result can attribute a post-result UUID replay.
-        for original_result_contains_input in [true, false] {
+        // Native segments may finish before the next input's replay. The Run
+        // and UUID, not the foreground segment, own receipt correlation.
+        for result_contains_input in [true, false] {
             let (control, _ready, writes) =
                 ClaudeControl::new("review-session".into(), "acceptEdits".into(), None);
             {
@@ -1008,45 +994,36 @@ mod tests {
             let (stdin, output) = tokio::io::duplex(8192);
             let mut output = BufReader::new(output);
             let writer = tokio::spawn(write_control_stream(stdin, control.clone(), writes));
-            let steering = tokio::spawn({
-                let control = control.clone();
-                async move {
-                    control
-                        .steer("B belongs to the original foreground turn")
-                        .await
-                }
-            });
+            let steering = control.steer("input-b", "Continue this managed task");
+            tokio::pin!(steering);
+            poll_fn(|cx| {
+                assert!(steering.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
             let mut line = String::new();
             output.read_line(&mut line).await.unwrap();
             let input: Value = serde_json::from_str(&line).unwrap();
-            let uuids = if original_result_contains_input {
-                json!([input["uuid"]])
-            } else {
-                json!([])
-            };
-            control.observe(&json!({"type":"result","session_id":"review-session","user_message_uuids":uuids})).unwrap();
-            assert!(
-                !control.state.lock().unwrap().closed,
-                "foreground result must not close the entire session"
-            );
-            control.observe(&json!({"type":"user","session_id":"review-session","isReplay":true,"uuid":input["uuid"]})).unwrap();
-            let result = steering.await.unwrap();
-            let accepted = result.is_ok();
+            assert_eq!(input["uuid"], "input-b", "reuse Core's input identity");
+            control.observe(&json!({"type":"result","session_id":"review-session",
+                "user_message_uuids": if result_contains_input { json!(["input-b"]) } else { json!([]) }})).unwrap();
+            assert!(!control.state.lock().unwrap().closed);
+            if !result_contains_input {
+                // A different Session and a different UUID cannot confirm B.
+                control.observe(&json!({"type":"user","session_id":"other-session","isReplay":true,"uuid":"input-b"})).unwrap();
+                control.observe(&json!({"type":"user","session_id":"review-session","isReplay":true,"uuid":"other-input"})).unwrap();
+                poll_fn(|cx| {
+                    assert!(steering.as_mut().poll(cx).is_pending());
+                    Poll::Ready(())
+                })
+                .await;
+            }
+            control.observe(&json!({"type":"user","session_id":"review-session","isReplay":true,"uuid":"input-b"})).unwrap();
+            assert_eq!(steering.await.unwrap(), "input-b");
             writer.abort();
             let _ = writer.await;
-            if let Err(error) = result {
-                assert!(
-                    !error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
-                    "written input must stay unknown, not retryable"
-                );
-            }
-            assert_eq!(
-                accepted, original_result_contains_input,
-                "same-session replay after an excluding result cannot prove original-turn ownership"
-            );
         }
-        // A frame queued before the result must not slip into a later foreground
-        // phase when the stdio writer has not yet started it.
+        // Inputs already queued and new inputs remain FIFO across a result.
         let (control, _ready, writes) =
             ClaudeControl::new("queued-session".into(), "acceptEdits".into(), None);
         {
@@ -1056,43 +1033,61 @@ mod tests {
             state.turn_in_progress = true;
             state.session_state = Some("running".into());
         }
-        let queued = control.steer("OLD_UNWRITTEN");
+        let queued = control.steer("queued-b", "B");
         tokio::pin!(queued);
-        std::future::poll_fn(|cx| {
-            assert!(std::future::Future::poll(queued.as_mut(), cx).is_pending());
-            std::task::Poll::Ready(())
+        poll_fn(|cx| {
+            assert!(queued.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
         })
         .await;
         control
             .observe(&json!({"type":"result","session_id":"queued-session"}))
             .unwrap();
-        control
-            .observe(&json!({"type":"assistant","session_id":"queued-session"}))
-            .unwrap();
-        assert!(
-            queued
-                .await
-                .unwrap_err()
-                .is::<rovai_core::steer::ActiveInputNotAccepted>()
-        );
+        let next = control.steer("queued-c", "C");
+        tokio::pin!(next);
+        poll_fn(|cx| {
+            assert!(next.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
         let (stdin, output) = tokio::io::duplex(8192);
         let mut output = BufReader::new(output);
         let writer = tokio::spawn(write_control_stream(stdin, control.clone(), writes));
-        let next = tokio::spawn({
-            let control = control.clone();
-            async move { control.steer("NEW_PHASE").await }
-        });
+        for (id, body) in [("queued-b", "B"), ("queued-c", "C")] {
+            let mut line = String::new();
+            output.read_line(&mut line).await.unwrap();
+            let input: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(input["message"]["content"], body);
+            assert_eq!(input["uuid"], id);
+        }
+        // Receipt waiting has no foreground-duration deadline of its own.
+        control
+            .observe(&json!({"type":"assistant","session_id":"queued-session"}))
+            .unwrap();
+        tokio::time::advance(RUN_END_TIMEOUT + Duration::from_secs(1)).await;
+        poll_fn(|cx| {
+            assert!(queued.as_mut().poll(cx).is_pending());
+            assert!(next.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        // A reliable result + idle closes the stream even with missing receipts.
+        control
+            .observe(&json!({"type":"result","session_id":"queued-session"}))
+            .unwrap();
+        control.observe(&json!({"type":"system","subtype":"session_state_changed","session_id":"queued-session","state":"idle"})).unwrap();
+        writer.await.unwrap().unwrap();
         let mut line = String::new();
-        output.read_line(&mut line).await.unwrap();
-        let input: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(
-            input["message"]["content"], "NEW_PHASE",
-            "old queued input never crosses stdin"
-        );
-        control.observe(&json!({"type":"user","session_id":"queued-session","isReplay":true,"uuid":input["uuid"]})).unwrap();
-        assert!(next.await.unwrap().is_ok());
-        writer.abort();
-        let _ = writer.await;
+        assert_eq!(output.read_line(&mut line).await.unwrap(), 0);
+        // Root exit fences new input, but stdout may still contain a final replay.
+        control.fence_active_input();
+        control.observe(&json!({"type":"user","session_id":"queued-session","isReplay":true,"uuid":"queued-b"})).unwrap();
+        assert_eq!(queued.await.unwrap(), "queued-b");
+        control.disconnect();
+        let error = next.await.unwrap_err();
+        assert!(!error.is::<rovai_core::steer::ActiveInputNotAccepted>());
+        control.observe(&json!({"type":"user","session_id":"queued-session","isReplay":true,"uuid":"queued-c"})).unwrap();
+        assert!(control.state.lock().unwrap().steering.is_empty());
 
         // A writer can have dequeued the frame while the pipe still accepts
         // zero bytes. Exercise that boundary separately from a partial write.
@@ -1155,7 +1150,7 @@ mod tests {
                     available: initial_bytes,
                     ..Pipe::default()
                 }));
-                let steering = control.steer("BLOCKED_OLD_INPUT");
+                let steering = control.steer("blocked-input", "BLOCKED_INPUT");
                 let writer =
                     write_control_stream(GatedWriter(pipe.clone()), control.clone(), writes);
                 tokio::pin!(steering, writer);
@@ -1196,12 +1191,6 @@ mod tests {
                         "result wakes the blocked writer without pipe readiness"
                     );
                 }
-                let error = steering.await.unwrap_err();
-                assert_eq!(
-                    error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
-                    initial_bytes == 0,
-                    "zero-byte writes are retractable; partial writes must remain unknown"
-                );
                 assert!(
                     control.run_end_deadline().is_none(),
                     "background task is still active"
@@ -1216,7 +1205,7 @@ mod tests {
                     std::task::Poll::Ready(())
                 })
                 .await;
-                if initial_bytes == 0 {
+                if initial_bytes == 0 && cancelled {
                     assert!(
                         pipe.lock().unwrap().bytes.is_empty(),
                         "unblocked pipe must not receive the retired frame"
@@ -1224,7 +1213,7 @@ mod tests {
                 } else {
                     let bytes = pipe.lock().unwrap().bytes.clone();
                     let frame: Value = serde_json::from_slice(&bytes).unwrap();
-                    assert_eq!(frame["message"]["content"], "BLOCKED_OLD_INPUT");
+                    assert_eq!(frame["message"]["content"], "BLOCKED_INPUT");
                     assert_eq!(
                         bytes.iter().filter(|&&byte| byte == b'\n').count(),
                         1,
@@ -1242,6 +1231,18 @@ mod tests {
                 control.observe(&json!({"type":"system","subtype":"session_state_changed","session_id":"blocked-session","state":"idle"})).unwrap();
                 writer.await.unwrap();
                 assert!(pipe.lock().unwrap().closed);
+                if !cancelled {
+                    control.observe(&json!({"type":"user","session_id":"blocked-session","isReplay":true,"uuid":"blocked-input"})).unwrap();
+                    assert_eq!(steering.await.unwrap(), "blocked-input");
+                } else {
+                    control.disconnect();
+                    let error = steering.await.unwrap_err();
+                    assert_eq!(
+                        error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
+                        initial_bytes == 0,
+                        "zero-byte cancellation is retryable; partial writes stay unknown"
+                    );
+                }
             }
         }
     }

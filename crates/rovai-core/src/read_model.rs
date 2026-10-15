@@ -2784,7 +2784,12 @@ fn load_message_deliveries(
                  current_delivery.status,
                  CASE current_delivery.status
                    WHEN 'waiting' THEN 'never_attempted'
-                   WHEN 'claimed' THEN 'materialized'
+                   WHEN 'claimed' THEN CASE WHEN current_delivery.requested_mode = 'steer'
+                     AND (SELECT input.dispatch_started_at FROM context_manifest AS manifest
+                       JOIN runtime_input_delivery AS input ON input.context_manifest_id=manifest.id
+                       WHERE manifest.source_delivery_id=current_delivery.id
+                       ORDER BY input.input_sequence DESC LIMIT 1) IS NOT NULL
+                     THEN 'attempting' ELSE 'materialized' END
                    ELSE 'terminal'
                  END AS dispatch_phase,
                  NULL AS wait_condition,
@@ -4501,7 +4506,7 @@ mod tests {
             ) VALUES ('completion', 'camp', 'pending', 'gather_completion', 'gather', 'conversation');
             ALTER TABLE camp_message_delivery ADD COLUMN requested_mode TEXT DEFAULT 'start';
             CREATE TABLE context_manifest(id TEXT, source_delivery_id TEXT);
-            CREATE TABLE runtime_input_delivery(context_manifest_id TEXT, status TEXT, input_sequence INTEGER);
+            CREATE TABLE runtime_input_delivery(context_manifest_id TEXT, status TEXT, input_sequence INTEGER, dispatch_started_at TEXT);
         "#).unwrap();
         let transaction = connection.transaction().unwrap();
         // Full Snapshot and bounded Camp-open use the same projection with different ordering.
@@ -4532,7 +4537,7 @@ mod tests {
             .execute_batch(
                 "UPDATE camp_message_delivery SET requested_mode='steer' WHERE id='user-current';
             INSERT INTO context_manifest VALUES('steer-manifest','user-current');
-            INSERT INTO runtime_input_delivery VALUES('steer-manifest','delivery_unknown',1);",
+            INSERT INTO runtime_input_delivery(context_manifest_id, status, input_sequence) VALUES('steer-manifest','delivery_unknown',1);",
             )
             .unwrap();
         let pending = super::load_message_deliveries(&transaction, "camp", None).unwrap();

@@ -5748,7 +5748,8 @@ fn has_terminal_safety_blocker(transaction: &Transaction<'_>, run_id: &str) -> R
           + (SELECT COUNT(*) FROM runtime_delivery_checkpoint
              WHERE agent_run_id = ?1 AND status IN ('pending', 'delivering', 'failed'))
           + (SELECT COUNT(*) FROM runtime_input_delivery
-             WHERE agent_run_id = ?1 AND status IN ('prepared', 'delivery_unknown'))
+             WHERE agent_run_id = ?1 AND input_kind = 'start'
+               AND status IN ('prepared', 'delivery_unknown'))
         "#,
         [run_id],
         |row| row.get(0),

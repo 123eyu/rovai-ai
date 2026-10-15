@@ -24,7 +24,7 @@ test('production composer uses Core per-target eligibility and honest receipt la
       await browser.send('Page.navigate', { url: pathToFileURL(join(root, 'rovai-teammate-presence.html')).href + `?pure=1&case=${kind}` })
       await browser.wait('!!window.__presence && !!document.querySelector(".composer-box")')
       await browser.evaluate(`__presence.showSteerCase('${kind}')`); await pause(300)
-      const eligible = ['attachment', 'ready', 'mixed', 'accepted'].includes(kind)
+      const eligible = ['attachment', 'ready', 'not-ready', 'mixed', 'accepted'].includes(kind)
       assert.equal(await browser.evaluate('!!document.querySelector(".steer-send-choice")'), eligible, kind)
       const actionLabel = await browser.evaluate('document.querySelector(".composer:not(.single-chat-composer) .composer-actions .composer-primary-action").getAttribute("aria-label")')
       assert.equal(actionLabel, eligible ? kind === 'mixed' ? '优先插话' : '插话'
@@ -99,6 +99,9 @@ test('production composer uses Core per-target eligibility and honest receipt la
     }
     const receiptCases = [
       { routes: ['steer'], label: '已插话' },
+      { routes: ['steer-pending'], label: '待插话' },
+      { routes: ['steer-sending'], label: '发送中' },
+      { routes: ['steer', 'steer-pending', 'steer-sending'], label: '已插话 1 · 待插话 1 · 发送中 1' },
       { routes: ['running', 'running'], label: '处理中 2' },
       { routes: ['steer', 'running'], label: '已插话 1 · 处理中 1' },
       { routes: ['steer', 'failed'], label: '已插话 1 · 未完成 1' },
@@ -129,7 +132,7 @@ test('production composer uses Core per-target eligibility and honest receipt la
           assert.equal(await browser.evaluate(`document.querySelector('${receiptSelector}').textContent`), label)
           const incomplete = routes.some(route => ['failed', 'cancelled', 'failed-before-run', 'cancelled-before-run'].includes(route))
           const expectedClass = routes.includes('unknown') ? 'is-unknown' : incomplete ? 'is-incomplete'
-            : routes.includes('running') ? 'is-progress' : routes.includes('waiting') ? 'is-queued' : 'is-confirmed'
+            : routes.includes('steer-sending') ? 'is-sending' : routes.includes('running') ? 'is-progress' : routes.includes('waiting') || routes.includes('steer-pending') ? 'is-queued' : 'is-confirmed'
           assert.equal(await browser.evaluate(`document.querySelector('${receiptSelector}').classList.contains('${expectedClass}')`), true, 'the icon reflects all targets')
           const before = await receiptGeometry()
           assert.equal(before.copyOpacity, '0')
@@ -145,7 +148,9 @@ test('production composer uses Core per-target eligibility and honest receipt la
           if (routes.length === 2 && routes[0] === 'steer') await browser.capture(join(root, `receipt-mixed-${routes[1]}-${theme}-${width}.png`))
           await click(receiptSelector); await pause(60)
           const detail = await browser.evaluate('document.querySelector(".user-message-receipt-menu").innerText')
-          if (routes.some(route => route.startsWith('steer'))) assert.match(detail, /运行时已接收/)
+          if (routes.some(route => ['steer', 'steer-failed'].includes(route))) assert.match(detail, /运行时已接收/)
+          if (routes.includes('steer-pending')) assert.match(detail, /待插话/)
+          if (routes.includes('steer-sending')) assert.match(detail, /发送中/)
           if (routes.includes('running')) assert.match(detail, /处理中/)
           if (routes.includes('unknown')) assert.match(detail, /是否送达待核对/)
           if (routes.some(route => route.startsWith('failed'))) assert.match(detail, /未完成/)

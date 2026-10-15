@@ -2964,6 +2964,118 @@ mod tests {
         use crate::context::{
             CharterDeliveryMode, ContextMaterialization, ContextService, MaterializeContextRequest,
         };
+        // A claimed Run may accept intent before its first input is ready.
+        // No context or native input is made until the initial input is accepted.
+        for (stage, terminal) in [
+            ("queued", None),
+            ("running", None),
+            ("queued", Some("cancelled")),
+            ("running", Some("failed")),
+        ] {
+            let mut f = Fixture::new();
+            f.enqueue("startup-initial", "initial only");
+            let run = claim_waiting_delivery_batches(&mut f.database, 1)
+                .unwrap()
+                .remove(0);
+            f.database
+                .connection()
+                .execute(
+                    "UPDATE agent_run SET runtime_reported_version='0.162.1' WHERE id=?1",
+                    [&run],
+                )
+                .unwrap();
+            let initial = (stage == "running").then(|| f.materialize_run(&run));
+            let epoch = if stage == "queued" { 0 } else { 1 };
+            let availability =
+                crate::steer::active_input_availability(f.database.connection(), &run, epoch)
+                    .unwrap();
+            assert!(availability.can_steer);
+            assert!(!availability.ready);
+            let source = f.enqueue("startup-correction", "startup correction");
+            let tx = f.database.connection_mut().transaction().unwrap();
+            crate::steer::route_user_message(
+                &tx,
+                "startup-correction",
+                Some(&[crate::steer::ActiveInputTarget {
+                    agent_run_id: run.clone(),
+                    execution_epoch: epoch,
+                }]),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+            assert!(
+                crate::steer::pending_inputs(f.database.connection())
+                    .unwrap()
+                    .is_empty()
+            );
+            let binding: (String, String, i64) = f.database.connection().query_row(
+                "SELECT status,claimed_agent_run_id,target_execution_epoch FROM camp_message_delivery WHERE id=?1", [&source],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+            assert_eq!(binding, ("claimed".into(), run.clone(), 1));
+            assert_eq!(
+                f.database
+                    .connection()
+                    .query_row(
+                        "SELECT count(*) FROM context_manifest WHERE source_delivery_id=?1",
+                        [&source],
+                        |r| r.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                0
+            );
+            if let Some(terminal) = terminal {
+                let tx = f.database.connection_mut().transaction().unwrap();
+                tx.execute(
+                    "UPDATE agent_run SET status=?2,ended_at=datetime('now') WHERE id=?1",
+                    params![run, terminal],
+                )
+                .unwrap();
+                settle_run_deliveries(&tx, &run, terminal, None, &chrono::Utc::now().to_rfc3339())
+                    .unwrap();
+                tx.commit().unwrap();
+                assert_eq!(
+                    f.database
+                        .connection()
+                        .query_row(
+                            "SELECT status FROM camp_message_delivery WHERE id=?1",
+                            [&source],
+                            |r| r.get::<_, String>(0)
+                        )
+                        .unwrap(),
+                    terminal
+                );
+                assert!(
+                    claim_waiting_delivery_batches(&mut f.database, 1)
+                        .unwrap()
+                        .is_empty(),
+                    "stopped/failed startup must not start another task"
+                );
+                continue;
+            }
+            let initial = initial.unwrap_or_else(|| f.materialize_run(&run));
+            assert!(!initial.runtime_payload.contains("startup correction"));
+            f.database.connection().execute("UPDATE conversation SET native_session_id='startup-session' WHERE id='delivery-queue-agent-1'", []).unwrap();
+            let input = ContextService
+                .prepare_input_delivery_for_context(&mut f.database, &run, 1, &initial)
+                .unwrap();
+            assert!(
+                crate::steer::pending_inputs(f.database.connection())
+                    .unwrap()
+                    .is_empty()
+            );
+            ContextService
+                .acknowledge_input_delivery(&mut f.database, &input.id, "startup-turn")
+                .unwrap();
+            assert!(
+                crate::steer::active_input_availability(f.database.connection(), &run, 1)
+                    .unwrap()
+                    .ready
+            );
+            let pending = crate::steer::pending_inputs(f.database.connection()).unwrap();
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].delivery_id, source);
+            assert_eq!(pending[0].execution_epoch, 1);
+        }
         let mut fixture = Fixture::new();
         fixture.publish_visible_without_delivery("quoted-reference", "agent", "agent_2");
         fixture.enqueue("initial-steer", "initial work");
@@ -3309,9 +3421,10 @@ mod tests {
         );
 
         // Cancellation closes unsent work; ambiguous native submission never requeues.
-        for (terminal, dispatch, expected) in [
-            ("cancelled", false, "cancelled"),
-            ("succeeded", true, "failed"),
+        for (terminal, dispatch, unknown, expected) in [
+            ("cancelled", false, false, "cancelled"),
+            ("succeeded", true, false, "failed"),
+            ("succeeded", true, true, "failed"),
         ] {
             let mut f = Fixture::new();
             f.enqueue("original", "original");
@@ -3365,15 +3478,76 @@ mod tests {
                         .unwrap()
                 );
             }
-            let tx = f.database.connection_mut().transaction().unwrap();
-            tx.execute(
-                "UPDATE agent_run SET status=?2,ended_at=datetime('now') WHERE id=?1",
-                params![run, terminal],
-            )
-            .unwrap();
-            settle_run_deliveries(&tx, &run, terminal, None, &chrono::Utc::now().to_rfc3339())
+            let snapshot = crate::read_model::ReadModelService
+                .camp_snapshot(&mut f.database, &f.camp_id)
                 .unwrap();
-            tx.commit().unwrap();
+            let receipt = snapshot
+                .message_deliveries
+                .iter()
+                .find(|d| d.id == source)
+                .unwrap();
+            assert_eq!(
+                receipt.dispatch_phase,
+                if dispatch {
+                    "attempting"
+                } else {
+                    "materialized"
+                }
+            );
+            if terminal == "succeeded" {
+                {
+                    if unknown {
+                        ContextService
+                            .mark_input_delivery_unknown(
+                                &mut f.database,
+                                &input.id,
+                                "ACK unavailable",
+                            )
+                            .unwrap();
+                    }
+                    let version: i64 = f
+                        .database
+                        .connection()
+                        .query_row("SELECT version FROM agent_run WHERE id=?1", [&run], |r| {
+                            r.get(0)
+                        })
+                        .unwrap();
+                    let completed = crate::runtime::ExecutionRuntimeService::default()
+                        .succeed_agent_run(
+                            &mut f.database,
+                            &CommandEnvelope {
+                                command_id: format!("receipt-independent-completion-{unknown}"),
+                                actor: ActorRef::System {
+                                    component_id: "runtime-adapter:codex-cli".into(),
+                                },
+                                camp_id: Some(f.camp_id.clone()),
+                                expected_versions: vec![],
+                                execution_epoch: None,
+                                payload: crate::runtime::SucceedAgentRunCommand {
+                                    agent_run_id: run.clone(),
+                                    expected_version: version,
+                                    execution_epoch: 1,
+                                    native_turn_id: "turn".into(),
+                                    final_output: "completed".into(),
+                                    missing_send_recovery_candidate: None,
+                                    ending_git_observation: None,
+                                },
+                            },
+                        )
+                        .unwrap();
+                    assert_eq!(completed.result.code, "agent_run.succeeded");
+                }
+            } else {
+                let tx = f.database.connection_mut().transaction().unwrap();
+                tx.execute(
+                    "UPDATE agent_run SET status=?2,ended_at=datetime('now') WHERE id=?1",
+                    params![run, terminal],
+                )
+                .unwrap();
+                settle_run_deliveries(&tx, &run, terminal, None, &chrono::Utc::now().to_rfc3339())
+                    .unwrap();
+                tx.commit().unwrap();
+            }
             assert_eq!(
                 f.database
                     .connection()

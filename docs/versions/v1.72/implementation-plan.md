@@ -31,9 +31,13 @@ last_updated: 2026-10-15
 - `App.test.ts` 既有平台矩阵同时渲染设置与队员表单，确认二者使用同一版本、未知时不复活原 snapshot。
   与 `runtime-check.test.ts`、`runtime-status.test.ts` 合计 211 项通过；`pnpm typecheck`、
   `pnpm build:desktop`、`cargo fmt --all --check` 通过。
+- `pnpm test:rust:pr` 默认 workspace 回归通过。干净副本的 `pnpm test` 首轮 Vitest 为
+  2715 通过、1 项语言目录扫描超过既有 5 秒预算；该文件单独重跑 2 项均通过，未改超时或测试内容。
+  随后执行原脚本剩余 Node 阶段，355 通过、2 项 Windows 专用验证按原条件跳过。
 
 本次没有真实模型调用或日常 App 安装。原主 checkout 的文档检查会扫描 Git 忽略的本地原型并报告旧坏链接；
-提交内容的文档门禁使用隔离的干净提交副本复核，不修改原型或添加 checker 例外。
+提交内容的文档门禁在隔离的干净提交副本通过（包括真实 base SHA 的 diff-aware 检查），
+不修改原型或添加 checker 例外。
 
 ## Claude 受管执行回执与启动期待插话（2026-10-15）
 

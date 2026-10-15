@@ -187,7 +187,7 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 
 启动与 rescan 只解析入口、检查平台与执行条件、保存同次稳定的 fingerprint/file identity；
 不执行 `--version` 或协议深检。发现安装即可保存配置并尝试运行，版本未知不影响普通运行准入。
-安装记录不伪造 Ready、认证或能力；旧快照只供主动诊断和模型 Picker 参考。
+安装记录不伪造 Ready、认证或能力；旧健康证据只供主动诊断和模型 Picker 参考，已知版本的展示复用单独判断。
 
 已知程序版本复用现有快照保存，独立于健康状态：本次静态发现未读取版本或版本读取失败时，Core
 仅在 Installation 路径与当前发现一致、非空 executable fingerprint 匹配时复用已知版本。

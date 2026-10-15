@@ -25,12 +25,17 @@ struct PendingPermission {
     remember_response_digests: HashSet<String>,
 }
 
+struct PendingSteer {
+    receipt: oneshot::Sender<Result<String>>,
+    write_started: bool,
+}
+
 #[derive(Default)]
 struct ControlState {
     initialized: bool,
     prompt_sent: bool,
     input_fenced: bool,
-    steering: HashMap<String, oneshot::Sender<Result<String>>>,
+    steering: HashMap<String, PendingSteer>,
     closed: bool,
     closing: bool,
     pending: HashMap<String, PendingPermission>,
@@ -179,7 +184,13 @@ impl ClaudeControl {
             {
                 return Err(rovai_core::steer::ActiveInputNotAccepted.into());
             }
-            state.steering.insert(id.clone(), sender);
+            state.steering.insert(
+                id.clone(),
+                PendingSteer {
+                    receipt: sender,
+                    write_started: false,
+                },
+            );
             // Register and enqueue under the same lock as the terminal fence.
             self.writer
                 .send(ControlWrite {
@@ -408,8 +419,8 @@ impl ClaudeControl {
                     Vec::new()
                 };
             for id in ids {
-                if let Some(receipt) = state.steering.remove(id) {
-                    let _ = receipt.send(Ok(id.to_string()));
+                if let Some(pending) = state.steering.remove(id) {
+                    let _ = pending.receipt.send(Ok(id.to_string()));
                 }
             }
         }
@@ -459,6 +470,26 @@ impl ClaudeControl {
             }
         }
         if kind == Some("result") {
+            if frame.get("parent_tool_use_id").is_none_or(Value::is_null)
+                && frame
+                    .get("session_id")
+                    .is_none_or(|id| id.as_str() == Some(&self.session_id))
+            {
+                // UUIDs in this result were acknowledged above. A later replay
+                // in the same Session cannot prove these remaining inputs
+                // belonged to this foreground execution. Keep the Run's idle
+                // and background-task lifecycle independent of this boundary.
+                for (_, pending) in state.steering.drain() {
+                    let error = if pending.write_started {
+                        anyhow::anyhow!(
+                            "Claude foreground execution ended without this input's receipt"
+                        )
+                    } else {
+                        rovai_core::steer::ActiveInputNotAccepted.into()
+                    };
+                    let _ = pending.receipt.send(Err(error));
+                }
+            }
             state.has_result = true;
             state.turn_in_progress = false;
             state.refresh_end_wait();
@@ -570,12 +601,26 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
             let steer_permitted = write.steer_id.is_none()
                 || (!state.input_fenced
                     && !state.closed
-                    && !(state.has_result && !state.turn_in_progress));
+                    && !(state.has_result && !state.turn_in_progress)
+                    && write
+                        .steer_id
+                        .as_ref()
+                        .is_some_and(|id| state.steering.contains_key(id)));
             if !steer_permitted
                 && let Some(id) = &write.steer_id
-                && let Some(receipt) = state.steering.remove(id)
+                && let Some(pending) = state.steering.remove(id)
             {
-                let _ = receipt.send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+                let _ = pending
+                    .receipt
+                    .send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+            }
+            if steer_permitted
+                && let Some(pending) = write
+                    .steer_id
+                    .as_ref()
+                    .and_then(|id| state.steering.get_mut(id))
+            {
+                pending.write_started = true;
             }
             steer_permitted
                 && !state.closed
@@ -897,6 +942,106 @@ mod tests {
         line.clear();
         assert_eq!(output.read_line(&mut line).await.unwrap(), 0);
         assert!(control.respond(json!("request-a"), allow).await.is_err());
+
+        // Only the original foreground result can attribute a post-result UUID replay.
+        for original_result_contains_input in [true, false] {
+            let (control, _ready, writes) =
+                ClaudeControl::new("review-session".into(), "acceptEdits".into(), None);
+            {
+                let mut state = control.state.lock().unwrap();
+                state.initialized = true;
+                state.prompt_sent = true;
+                state.turn_in_progress = true;
+                state.session_state = Some("running".into());
+            }
+            let (stdin, output) = tokio::io::duplex(8192);
+            let mut output = BufReader::new(output);
+            let writer = tokio::spawn(write_control_stream(stdin, control.clone(), writes));
+            let steering = tokio::spawn({
+                let control = control.clone();
+                async move {
+                    control
+                        .steer("B belongs to the original foreground turn")
+                        .await
+                }
+            });
+            let mut line = String::new();
+            output.read_line(&mut line).await.unwrap();
+            let input: Value = serde_json::from_str(&line).unwrap();
+            let uuids = if original_result_contains_input {
+                json!([input["uuid"]])
+            } else {
+                json!([])
+            };
+            control.observe(&json!({"type":"result","session_id":"review-session","user_message_uuids":uuids})).unwrap();
+            assert!(
+                !control.state.lock().unwrap().closed,
+                "foreground result must not close the entire session"
+            );
+            control.observe(&json!({"type":"user","session_id":"review-session","isReplay":true,"uuid":input["uuid"]})).unwrap();
+            let result = steering.await.unwrap();
+            let accepted = result.is_ok();
+            writer.abort();
+            let _ = writer.await;
+            if let Err(error) = result {
+                assert!(
+                    !error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
+                    "written input must stay unknown, not retryable"
+                );
+            }
+            assert_eq!(
+                accepted, original_result_contains_input,
+                "same-session replay after an excluding result cannot prove original-turn ownership"
+            );
+        }
+        // A frame queued before the result must not slip into a later foreground
+        // phase when the stdio writer has not yet started it.
+        let (control, _ready, writes) =
+            ClaudeControl::new("queued-session".into(), "acceptEdits".into(), None);
+        {
+            let mut state = control.state.lock().unwrap();
+            state.initialized = true;
+            state.prompt_sent = true;
+            state.turn_in_progress = true;
+            state.session_state = Some("running".into());
+        }
+        let queued = control.steer("OLD_UNWRITTEN");
+        tokio::pin!(queued);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(queued.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        control
+            .observe(&json!({"type":"result","session_id":"queued-session"}))
+            .unwrap();
+        control
+            .observe(&json!({"type":"assistant","session_id":"queued-session"}))
+            .unwrap();
+        assert!(
+            queued
+                .await
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
+        let (stdin, output) = tokio::io::duplex(8192);
+        let mut output = BufReader::new(output);
+        let writer = tokio::spawn(write_control_stream(stdin, control.clone(), writes));
+        let next = tokio::spawn({
+            let control = control.clone();
+            async move { control.steer("NEW_PHASE").await }
+        });
+        let mut line = String::new();
+        output.read_line(&mut line).await.unwrap();
+        let input: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            input["message"]["content"], "NEW_PHASE",
+            "old queued input never crosses stdin"
+        );
+        control.observe(&json!({"type":"user","session_id":"queued-session","isReplay":true,"uuid":input["uuid"]})).unwrap();
+        assert!(next.await.unwrap().is_ok());
+        writer.abort();
+        let _ = writer.await;
     }
 
     #[cfg(feature = "extended-tests")]

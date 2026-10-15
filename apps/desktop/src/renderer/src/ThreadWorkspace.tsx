@@ -1770,6 +1770,7 @@ export function ThreadWorkspace({
   const [composerLocalStatus, setComposerLocalStatus] = useState<ComposerLocalStatus>({
     hasContent: false,
     hasExplicitRecipient: false,
+    hasAllMembers: false,
     hasUnavailableAtom: false,
     memberAgentIds: []
   })
@@ -2531,8 +2532,6 @@ export function ThreadWorkspace({
   const defaultLead = snapshot.members.find((member) => member.isDefaultLead && campMemberIsLeadEligible(member)) ?? null
   const hasCurrentMembers = campInspectorMembers(snapshot.members).length > 0
   const hasAvailableRecipient = pendingInviteIds.length > 0 || snapshot.members.some(campMemberIsLeadEligible)
-  const composerDeliveryPlans = deliveryPlans(snapshot, composerDraft, deliveryMode)
-  const composerDeliveryLabel = deliveryActionLabel(composerDeliveryPlans)
   const replyRepairRequired = composerDraftNeedsReplyRepair(composerDraft)
   const hasExplicitRecipient = composerLocalStatus.hasExplicitRecipient
   const continuationIntent = composerDraft?.continuationIntent ?? null
@@ -2547,6 +2546,8 @@ export function ThreadWorkspace({
     && continuationRecipient.profilePresence === 'present'
   const hasReadyAttachment = (composerDraft?.attachments.length ?? 0) > 0
   const hasSendablePayload = composerLocalStatus.hasContent || hasReadyAttachment
+  const composerDeliveryPlans = hasSendablePayload ? deliveryPlans(snapshot, composerDraft, deliveryMode, composerLocalStatus) : []
+  const composerDeliveryLabel = deliveryActionLabel(composerDeliveryPlans)
   const hasLocalDraftPayload = Boolean(
     hasSendablePayload
       || preparingAttachments.length > 0
@@ -3422,6 +3423,7 @@ export function ThreadWorkspace({
     setComposerLocalStatus({
       hasContent: false,
       hasExplicitRecipient: false,
+      hasAllMembers: false,
       hasUnavailableAtom: false,
       memberAgentIds: []
     })
@@ -7961,13 +7963,19 @@ function UserMessageDeliveryReceipt({
   }))
   const steered = ordered.filter(({ delivery }) => delivery?.requestedMode === 'steer' && delivery.inputDeliveryStatus === 'accepted')
   const unknown = ordered.filter(({ delivery }) => delivery?.inputDeliveryStatus === 'delivery_unknown')
-  const pending = ordered.filter(({ run }) => !run || (run.status === 'queued' && !run.cancelRequestedAt))
+  const pending = ordered.filter(({ run, delivery }) => delivery?.inputDeliveryStatus !== 'accepted'
+    && delivery?.inputDeliveryStatus !== 'delivery_unknown'
+    && (delivery?.status === 'waiting' || !run || (run.status === 'queued' && !run.cancelRequestedAt)))
   const inProgress = ordered.filter(({ run }) => run?.status === 'running' || run?.status === 'waiting')
   const canWithdraw = message.canWithdraw && Boolean(onWithdraw)
-  const presentation = unknown.length > 0
-    ? { className: 'is-queued', label: uiAttribute('待核对 · {0}', String(unknown.length)) }
-    : steered.length > 0
-      ? { className: 'is-progress', label: [uiAttribute('运行时已接收 {0}', String(steered.length)), pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : ''].filter(Boolean).join(' · ') }
+    && deliveries.every(delivery => delivery.status === 'waiting')
+  const receiptLabel = [
+    steered.length ? (ordered.length === 1 ? uiAttribute('已插话') : uiAttribute('已插话 {0}', String(steered.length))) : '',
+    pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : '',
+    unknown.length ? uiAttribute('待核对 {0}', String(unknown.length)) : ''
+  ].filter(Boolean).join(' · ')
+  const presentation = unknown.length > 0 || steered.length > 0
+    ? { className: unknown.length ? 'is-unknown' : pending.length ? 'is-queued' : 'is-confirmed', label: receiptLabel }
       : pending.length > 0
     ? { className: 'is-queued', label: uiAttribute("待处理 · {0}", String(pending.length)) }
     : inProgress.length > 0
@@ -7984,6 +7992,8 @@ function UserMessageDeliveryReceipt({
             aria-label={uiAttribute("查看消息处理状态，{0}", String(presentation.label))}
           >
             {presentation.className === 'is-progress' ? <ExecutionIcon />
+              : presentation.className === 'is-confirmed' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8 3 3 6-6" /></svg>
+              : presentation.className === 'is-unknown' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m8 2 6 11H2Z" /><path d="M8 6v3m0 2h.01" /></svg>
               : <svg viewBox="0 0 16 16" aria-hidden="true">
                   <circle cx="8" cy="8" r="5.6" /><path d="M8 4.7V8l2.2 1.4" />
                 </svg>}

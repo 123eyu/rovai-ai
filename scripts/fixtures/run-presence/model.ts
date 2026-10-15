@@ -247,7 +247,7 @@ function localSend(body: string, recipients = [aid(0)], draft?: any) {
 }
 const executionReadMode = new URLSearchParams(location.search).get('executionRead')
 const invalidationListeners = new Set<() => void>()
-const controls = { holdContinue: false, holdStop: false, holdDispatch: false, holdContinuationProjection: false, holdEntrySnapshot: false,
+const controls = { steerReview: false, holdContinue: false, holdStop: false, holdDispatch: false, holdContinuationProjection: false, holdEntrySnapshot: false,
   failNextExecutionPage: executionReadMode === 'fail', holdExecutionPage: executionReadMode === 'hold',
   holdExecutionChanges: false, liveEvidence: false,
   persistServer: false, continuationMode: 'normal', stopError: false,
@@ -264,22 +264,44 @@ export const model = {
   },
   get: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   note: (note: string) => update({ note }),
-  showSteerCase(kind: 'mixed' | 'incompatible' | 'unknown' | 'ended') {
+  showSteerCase(kind: 'empty' | 'attachment' | 'idle' | 'other-member' | 'ready' | 'mixed' | 'incompatible' | 'not-ready' | 'unknown' | 'accepted' | 'mixed-receipt' | 'queued' | 'ended') {
     this.setScenario('stream'); halt();
-    const single = kind !== 'mixed'
-    const first = { ...makeRun('run-alice'), canSteer: kind === 'mixed',
-      steerUnavailableReason: kind === 'mixed' ? null : kind === 'unknown' ? 'input_outcome_unknown' : 'version_incompatible' }
+    controls.steerReview = true
+    const multiple = kind === 'mixed' || kind === 'mixed-receipt'
+    const eligible = ['empty', 'attachment', 'ready', 'other-member', 'accepted', 'mixed', 'mixed-receipt'].includes(kind)
+    const emptyBody = kind === 'empty' || kind === 'attachment'
+    const first = { ...makeRun('run-alice'), canSteer: eligible,
+      steerUnavailableReason: eligible || kind === 'idle' || kind === 'ended' ? null
+        : kind === 'unknown' ? 'input_outcome_unknown' : kind === 'not-ready' ? 'execution_not_ready' : 'version_incompatible' }
     if (kind === 'ended') { first.status = 'succeeded'; first.endedAt = at(60) }
-    const message = makeMessage('steer-example', 4, '请采用这条更正。')
+    const message = { ...makeMessage('steer-example', 4, '请采用这条更正。'), canWithdraw: true,
+      addressedAgentIds: multiple ? [aid(0), aid(1), aid(2)] : [aid(0)] }
     const receipt = { ...delivery('steer-example-delivery', message.id, aid(0), first.id, 'settled'),
       requestedMode: 'steer', inputDeliveryStatus: kind === 'unknown' ? 'delivery_unknown' : 'accepted' }
+    const deliveries: any[] = ['empty','attachment','idle','other-member','ready','not-ready'].includes(kind) ? [] : kind === 'queued'
+      ? [delivery('steer-example-delivery', message.id, aid(0), null, 'waiting')]
+      : [receipt]
+    if (multiple) deliveries.push(delivery('pending-example', message.id, aid(1), null, 'waiting'),
+      { ...delivery('unknown-example', message.id, aid(2), 'previous-run', 'failed'), requestedMode: 'steer', inputDeliveryStatus: 'delivery_unknown' })
     update({ streamPaused: true, generation: state.generation + 1,
-      snapshot: { ...state.snapshot, messages: [...state.snapshot.messages, message],
-        agentRuns: single ? [first] : [first, { ...makeRun('run-audrey', 1), canSteer: false, steerUnavailableReason: 'version_incompatible' }],
-        messageDeliveries: [receipt] },
-      draft: { ...state.draft, body: '采用这条更正。', content: { version: 2, segments: [
-        ...(single ? [] : [0,1,2].map(index => ({ kind: 'atom', atom: { type: 'member', agentId: aid(index) } }))),
+      snapshot: { ...state.snapshot, thread: { ...state.snapshot.thread, title: '插话与消息投递' },
+        messages: [...state.snapshot.messages.slice(0, 2), ...(deliveries.length ? [message] : [])],
+        agentRuns: kind === 'idle' ? [] : multiple ? [first, { ...makeRun('run-audrey', 1), canSteer: false, steerUnavailableReason: 'version_incompatible' }] : [first],
+        messageDeliveries: deliveries },
+      draft: { ...state.draft, body: emptyBody ? '' : '采用这条更正。',
+        attachments: kind === 'attachment' ? [{ id: 'steer-review-file', displayName: '补充说明.txt', kind: 'file',
+          fileCount: null, mediaType: 'text/plain', byteSize: 128, previewKind: 'none', availability: 'available' }] : [],
+        content: { version: 2, segments: emptyBody ? [] : [
+        ...(multiple ? [0,1,2] : kind === 'other-member' ? [2] : []).map(index => ({ kind: 'atom', atom: { type: 'member', agentId: aid(index) } })),
         { kind: 'text', text: '采用这条更正。' }] } } })
+  },
+  finishSteerRuns() {
+    update({ streamPaused: true, snapshot: { ...state.snapshot, agentRuns: state.snapshot.agentRuns.map((run: any) =>
+      ({ ...run, status: 'succeeded', endedAt: at(90), canSteer: false, steerUnavailableReason: null })) } })
+  },
+  async withdrawMessage(message: any) {
+    update({ snapshot: { ...state.snapshot, messages: state.snapshot.messages.filter((m: any) => m.id !== message.id),
+      messageDeliveries: state.snapshot.messageDeliveries.filter((d: any) => d.messageId !== message.id) } })
   },
   setRunModel(runtimeModel: any) {
     update({ streamPaused: true, snapshot: { ...state.snapshot,
@@ -351,7 +373,21 @@ export const model = {
       failure: { code: 'runtime_disconnected', message: 'Runtime 连接中断。', retryable: true } } : r)
     refresh()
   },
-  async send(draft: any) {
+  async send(draft: any, deliveryMode?: string) {
+    if (controls.steerReview) {
+      const atoms = draft.content.segments.flatMap((s: any) => s.kind === 'atom' && s.atom.type === 'member' ? [s.atom.agentId] : [])
+      const recipients = [...new Set<string>(atoms.length ? atoms : [aid(0)])]
+      const message = { ...makeMessage(`steer-local-${++serial}`, ++liveSequence, draft.body || '请查看附件。'),
+        content: draft.content.segments, attachments: draft.attachments, quotes: draft.quotes, addressedAgentIds: recipients, canWithdraw: true }
+      const deliveries = recipients.map(agentId => {
+        const run = state.snapshot.agentRuns.find((r: any) => r.agentId === agentId && ['running', 'waiting'].includes(r.status))
+        const steer = run?.canSteer && deliveryMode === 'steer'
+        return { ...delivery(`${message.id}-${agentId}`, message.id, agentId, steer ? run.id : null, steer ? 'settled' : 'waiting'),
+          requestedMode: steer ? 'steer' : 'start', inputDeliveryStatus: steer ? 'accepted' : null }
+      })
+      update({ snapshot: { ...state.snapshot, messages: [...state.snapshot.messages, message], messageDeliveries: [...state.snapshot.messageDeliveries, ...deliveries] } })
+      return { threadTurnId: null, agentRunIds: [], deliveryIds: deliveries.map(d => d.id), addressedAgentIds: recipients }
+    }
     const recipients = profiles.filter(p => draft.body.includes(`@${p.displayName}`)).map(p => p.agentId)
     if (!recipients.length) recipients.push(aid(0))
     localSend(draft.body || '请查看附件。', recipients, draft)

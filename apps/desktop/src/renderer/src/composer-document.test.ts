@@ -199,6 +199,7 @@ describe('ComposerDocument V2', () => {
     }, members, skills)).toEqual({
       hasContent: true,
       hasExplicitRecipient: true,
+      hasAllMembers: true,
       hasUnavailableAtom: false,
       memberAgentIds: []
     })

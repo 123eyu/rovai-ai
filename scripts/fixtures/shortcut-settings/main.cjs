@@ -36,6 +36,18 @@ app.whenReady().then(async () => {
         if (keyCode === 'Enter' && modifiers.length === 0) window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
         window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); await settle()
       }
+      const nativeClick = async selector => {
+        const point = await run(`(() => {
+          const button = document.querySelector(${JSON.stringify(selector)}), rect = button.getBoundingClientRect()
+          const x = Math.round(rect.x + rect.width / 2), y = Math.round(rect.y + rect.height / 2)
+          return { x, y, reachable: button.contains(document.elementFromPoint(x, y)) }
+        })()`)
+        assert(point.reachable, `The control is hit-testable: ${selector}`)
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y })
+        window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+        window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+        await settle()
+      }
       const text = () => run('document.querySelector(".shortcut-inline-feedback")?.textContent || ""')
       const primary = platform === 'darwin' ? 'meta' : 'control'
       const capture = async name => writeFileSync(join(dirname(userData), `${platform}-${name}.png`), (await window.webContents.capturePage()).toPNG())
@@ -117,10 +129,15 @@ app.whenReady().then(async () => {
       })()`)
       const expandedDrawer = await measureDrawer()
       assert(expandedDrawer.visible && expandedDrawer.height > 0, 'The actual bottom drawer starts visible')
+      // Establish the actual pointer target and focus BEFORE collapsing; do not move either between shortcuts.
+      const toggle = '.execution-drawer-host-bottom .execution-run-toggle'
+      await nativeClick(toggle)
+      assert(await run(`document.activeElement === document.querySelector(${JSON.stringify(toggle)})`))
       await run('window.shortcutTest.drawerBeforeCollapse = document.querySelector(".execution-drawer-host-bottom .execution-drawer")')
       await capture('bottom-expanded')
       await key('1', [primary])
       const collapsedDrawer = await measureDrawer()
+      const collapsedFocus = await run('document.activeElement.className')
       console.log(`Bottom drawer collapse (${platform}): ${JSON.stringify({ expanded: expandedDrawer, collapsed: collapsedDrawer })}`)
       await capture('bottom-collapsed')
       assert.equal(collapsedDrawer.visible, false, 'Collapsed bottom drawer must actually be invisible')
@@ -130,21 +147,20 @@ app.whenReady().then(async () => {
         'Collapsing returns the drawer space to the conversation')
       await key('1', [primary])
       const reopenedDrawer = await measureDrawer()
-      assert(reopenedDrawer.visible && reopenedDrawer.height > 0, 'The actual bottom drawer reopens')
+      console.log(`Bottom drawer re-entry (${platform}): ${JSON.stringify({ collapsedFocus, reopened: reopenedDrawer })}`)
+      assert(reopenedDrawer.visible && reopenedDrawer.height > 0, 'The bottom drawer reopens after an internal click without moving focus')
+      assert.match(collapsedFocus, /execution-bottom-collapse-button/, 'Collapse returns internal focus to the external entry')
+      await key('1', [primary])
+      assert.equal((await measureDrawer()).visible, false, 'The third consecutive shortcut collapses again')
+      await key('2', [primary])
+      assert(await run('!document.querySelector(".task-panel-scroll").hidden'), 'Other shortcuts still work after collapse')
+      await key('2', [primary])
+      await key('1', [primary])
+      assert((await measureDrawer()).visible, 'The drawer can reopen again')
       assert(await run('window.shortcutTest.drawerBeforeCollapse === document.querySelector(".execution-drawer-host-bottom .execution-drawer")'), 'Reopening preserves the mounted drawer')
       // Use native pointer and keyboard input, since element.click() bypasses inert hit testing.
-      const toggle = '.execution-drawer-host-bottom .execution-run-toggle'
       const toggleBefore = await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-expanded')`)
-      const point = await run(`(() => {
-        const button = document.querySelector(${JSON.stringify(toggle)}), rect = button.getBoundingClientRect()
-        const x = Math.round(rect.x + rect.width / 2), y = Math.round(rect.y + rect.height / 2)
-        return { x, y, reachable: button.contains(document.elementFromPoint(x, y)) }
-      })()`)
-      assert(point.reachable, 'The reopened drawer control is hit-testable')
-      window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y })
-      window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
-      window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
-      await settle()
+      await nativeClick(toggle)
       assert.notEqual(await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-expanded')`), toggleBefore,
         'The reopened drawer button responds to native pointer input')
       await run(`document.querySelector(${JSON.stringify(toggle)}).focus()`)
@@ -153,6 +169,11 @@ app.whenReady().then(async () => {
       assert.equal(await run(`document.querySelector(${JSON.stringify(toggle)}).getAttribute('aria-expanded')`), toggleBefore,
         'The reopened drawer button responds to native keyboard input')
       await capture('bottom-reopened')
+      await key('L', [primary])
+      await key('1', [primary])
+      assert(await run('!!document.activeElement.closest(".structured-mention-editor")'), 'Collapse preserves focus already outside the drawer')
+      await key('1', [primary])
+
       // Bound side buttons trigger exactly once; unbound DOM side buttons do nothing.
       const mousePreferences = structuredClone(defaults); mousePreferences.mouse.side1 = 'tasks'
       await run(`window.shortcutTest.save(${JSON.stringify(mousePreferences)})`); await settle()
@@ -161,6 +182,56 @@ app.whenReady().then(async () => {
         window.emit('app-command', { preventDefault() {} }, 'browser-backward')
       } else await run('document.querySelector(".camp-workspace").dispatchEvent(new MouseEvent("mousedown", {button:3,bubbles:true,cancelable:true}))')
       await settle(); assert(await run('!document.querySelector(".task-panel-scroll").hidden'))
+      // Exercise cached-target validity separately from the workspace's focus restoration.
+      await run(`window.shortcutProbeTargets = [];
+        window.stopShortcutProbe = window.shortcutTest.probeTarget(target => {
+          window.shortcutProbeTargets.push(target instanceof Element ? target.id || target.tagName : null)
+        });
+        window.shortcutProbeSurface = document.createElement('div');
+        window.shortcutProbeSurface.style.cssText = 'position:fixed;left:300px;top:20px;z-index:100000';
+        window.shortcutProbeSurface.innerHTML = '<button id="shortcut-target-probe" type="button"><svg width="12" height="12"><rect id="shortcut-target-icon" width="12" height="12" /></svg> Target probe</button>';
+        document.body.appendChild(window.shortcutProbeSurface)`)
+      const targets = () => run('window.shortcutProbeTargets')
+      await nativeClick('#shortcut-target-icon')
+      await run('document.activeElement.blur()')
+      await key('2', [primary])
+      assert.deepEqual(await targets(), ['shortcut-target-icon'], 'Visible SVG reading targets remain valid')
+      for (const [name, invalidate, restore] of [
+        ['hidden', 'surface.hidden = true', 'surface.hidden = false'],
+        ['inert', 'surface.inert = true', 'surface.inert = false'],
+        ['display', 'surface.style.display = "none"', 'surface.style.display = ""'],
+        ['visibility', 'surface.style.visibility = "hidden"', 'surface.style.visibility = ""'],
+        ['opacity', 'surface.style.opacity = "0"', 'surface.style.opacity = ""'],
+        ['detached', 'surface.remove()', 'document.body.appendChild(surface)']
+      ]) {
+        await nativeClick('#shortcut-target-probe')
+        await run('document.activeElement.blur(); window.shortcutProbeTargets = []')
+        await key('2', [primary])
+        assert.deepEqual(await targets(), ['shortcut-target-probe'], 'A visible cached reading target is retained')
+        await run(`(() => { const surface = window.shortcutProbeSurface; ${invalidate} })()`)
+        await key('2', [primary])
+        assert.deepEqual(await targets(), ['shortcut-target-probe', 'BODY'], `${name}: stale target falls back to the real event target`)
+        if (platform === 'win32') {
+          window.emit('app-command', { preventDefault() {} }, 'browser-backward'); await settle()
+          assert.equal((await targets()).at(-1), 'BODY', `${name}: native side button uses the same fallback`)
+          assert.equal((await targets()).length, 3)
+        }
+        await run(`(() => { const surface = window.shortcutProbeSurface; ${restore} })()`)
+        const count = (await targets()).length
+        await key('2', [primary])
+        assert.equal((await targets()).length, count + 1)
+        assert.equal((await targets()).at(-1), 'BODY', `${name}: the invalidated cache stays cleared when the old surface returns`)
+      }
+      // The actual event target still obeys terminal and inert guards.
+      await run('window.shortcutProbeSurface.className = "xterm"; document.querySelector("#shortcut-target-probe").focus(); window.shortcutProbeTargets = []')
+      await key('2', [primary]); assert.deepEqual(await targets(), [])
+      await run(`window.shortcutProbeSurface.className = ''; window.shortcutProbeSurface.inert = true;
+        document.querySelector('#shortcut-target-probe').dispatchEvent(new KeyboardEvent('keydown', {
+          key: '2', code: 'Digit2', bubbles: true, cancelable: true, ${platform === 'darwin' ? 'metaKey' : 'ctrlKey'}: true
+        }))`)
+      await settle(); assert.deepEqual(await targets(), [], 'An actual inert event target remains blocked')
+      await run('window.stopShortcutProbe(); window.shortcutProbeSurface.remove()')
+      console.log(`Reading target boundaries (${platform}): visible cache retained; hidden, inert, display, visibility, opacity and detached targets cleared; terminal/inert guards retained`)
       // A modal blocks application shortcuts, including the native side-button path.
       await run('const blocker=document.createElement("div");blocker.className="app-dialog";blocker.id="shortcut-test-modal";document.body.appendChild(blocker)')
       await key('3', [primary]); assert(await run('!document.querySelector(".task-panel-scroll").hidden'))

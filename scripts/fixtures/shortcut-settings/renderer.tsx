@@ -65,6 +65,7 @@ Object.assign(window, { shortcutTest: {
   settle: () => new Promise(resolve => setTimeout(resolve, 90)), errors,
   screen: (value: string) => setScreen(value), placement: (value: ExecutionConsolePlacement) => setPlacement(value),
   snapshot: () => state.settings?.snapshot, save: (preferences: Parameters<ShortcutPreferencesApi['save']>[0]['preferences']) => state.settings!.save(preferences),
+  probeTarget: (run: (target: EventTarget | null) => void) => state.settings!.register('tasks', { priority: 100, run }),
   composer: (text: string) => setComposerText(text), sends: () => sends,
   language: (interfaceLanguage: 'en' | 'zh-CN') => initializeInterfaceLanguage({ interfaceLanguage }),
   theme: (value: string) => { document.documentElement.dataset.theme = value },

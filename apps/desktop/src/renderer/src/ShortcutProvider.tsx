@@ -85,8 +85,14 @@ export function ShortcutProvider({ api, platform, children }: { api?: ShortcutPr
       for (const handler of [...(handlers.current.get(id) ?? [])].sort((a, b) => b.priority - a.priority)) if (handler.run(target) !== false) return true
       return false
     }
-    const readingTarget = (target: EventTarget | null): EventTarget | null => target === document.body
-      && lastTarget.current instanceof Node && lastTarget.current.isConnected ? lastTarget.current : target
+    const readingTarget = (target: EventTarget | null): EventTarget | null => {
+      if (target !== document.body) return target
+      const cached = lastTarget.current
+      if (cached instanceof Element && cached.isConnected && !cached.closest('[hidden], [inert]')
+        && cached.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return cached
+      lastTarget.current = null
+      return target
+    }
     const keyboard = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || recording.current || event.isComposing || event.keyCode === 229 || event.repeat || !current.current) return
       const binding = normalizeShortcut(event, platform)

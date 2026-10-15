@@ -17,7 +17,7 @@ Claude 的精确 UUID 回显可跨内部 result；可靠结束不被补充输入
 单独保留未知、不自动重发。此规则替代下方 seq54–75 记录中的原前台阶段限制。
 启动 Run 可以先接收待插话意图，初始输入接受后自动投递；缺失版本从实际冻结程序读取，失败仍可普通执行。
 复用现有消息、Delivery、Builder／Formatter 和 RUN_INPUT，无迁移、新提示词或额外模型调用。
-当前合同为 [Delivery v17](../../contracts/message-delivery-v17.md)，验证见[实施记录](implementation-plan.md#claude-受管执行回执与启动期待插话2026-10-15)。
+当前合同为 [Delivery v18](../../contracts/message-delivery-v18.md)，Pi／Kiro／ZCode 入队即确认接收；验证见[实施记录](implementation-plan.md#steer-入队回执与阻塞工具核验2026-10-15)。
 
 ## Desktop 快捷键设置（2026-10-15）
 

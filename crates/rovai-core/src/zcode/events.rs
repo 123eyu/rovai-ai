@@ -25,11 +25,17 @@ impl NativeTurnFailure {
         let captcha = error
             .pointer("/attribution/providerErrorCode")
             .is_some_and(|code| code == "3007" || code == 3007);
+        let overloaded = ["message", "underlyingErrorMessage"].iter().any(|field| {
+            error[*field].as_str()
+                == Some("Our servers are currently overloaded. Please try again later.")
+        });
         Self(
             if error["message"] == RUNTIME_HEADERS_UNAVAILABLE || (auth && captcha) {
                 RUNTIME_HEADERS_UNAVAILABLE
             } else if auth {
                 "ZCode authentication failed; check the official native account or provider configuration"
+            } else if overloaded {
+                "ZCode model service is overloaded; try again later"
             } else {
                 "Official ZCode Turn failed"
             },
@@ -69,7 +75,7 @@ pub(super) struct Translated {
     pub messages: Vec<Value>,
     pub terminal: Option<Result<Value>>,
     pub context_refresh: bool,
-    pub steering_injected: Vec<String>,
+    pub steering_received: Vec<String>,
 }
 
 impl SessionEvents {
@@ -153,6 +159,10 @@ impl SessionEvents {
 
     pub fn input_id(&self) -> Option<&str> {
         self.input.as_deref()
+    }
+
+    pub fn has_pending_steering(&self) -> bool {
+        !self.steering.is_empty()
     }
 
     pub fn background_tasks_for_input(&self, input: Option<&str>) -> Vec<String> {
@@ -314,6 +324,9 @@ impl SessionEvents {
             && let Some(guide) = self.steering.get_mut(input)
             && payload["input"].as_str() == Some(guide.text.as_str())
         {
+            if guide.pending_id.is_none() {
+                translated.steering_received.push(input.to_string());
+            }
             guide.pending_id = Some(pending.to_string());
         }
         if kind == "turn.steerDrained"
@@ -342,7 +355,6 @@ impl SessionEvents {
                 .collect();
             for id in accepted {
                 self.steering.remove(&id);
-                translated.steering_injected.push(id);
             }
         }
         // Official ModelComplete arrives as session.updated with native Usage;
@@ -657,8 +669,8 @@ mod tests {
     // the active input, and only a correlated success terminal permits Final.
     #[test]
     fn native_input_fences_replay_tools_compaction_and_terminal() {
-        // Guide receipts share the original input/Turn owner. Queue acceptance,
-        // foreign IDs, modified payloads and replay must not settle a source.
+        // A correlated queued event confirms receipt before consumption. The
+        // guide stays tracked until drained, so terminal cleanup still owns it.
         let mut guide = SessionEvents::new(0);
         guide.begin("root").unwrap();
         assert!(
@@ -674,41 +686,75 @@ mod tests {
         assert!(guide.begin_steer("other", "guide", "EXACT").is_err());
         guide.begin_steer("root", "guide", "EXACT").unwrap();
         let queued = json!({"inputId":"guide","pendingInputId":"q1","input":"EXACT","targetTurnId":"t1","delivery":"guide"});
+        let mut sequence = 2;
+        for (pointer, value) in [
+            ("/targetTurnId", json!("other")),
+            ("/inputId", json!("other")),
+            ("/input", json!("OTHER")),
+            ("/delivery", json!("queue")),
+        ] {
+            let mut foreign = queued.clone();
+            *foreign.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                guide
+                    .receive(&event(sequence, "t1", "turn.steerQueued", foreign))
+                    .unwrap()
+                    .steering_received
+                    .is_empty()
+            );
+            sequence += 1;
+        }
+        assert_eq!(
+            guide
+                .receive(&event(sequence, "t1", "turn.steerQueued", queued.clone()))
+                .unwrap()
+                .steering_received,
+            ["guide"]
+        );
+        assert!(guide.has_pending_steering());
+        sequence += 1;
         assert!(
             guide
-                .receive(&event(2, "t1", "turn.steerQueued", queued))
+                .receive(&event(sequence, "t1", "turn.steerQueued", queued))
                 .unwrap()
-                .steering_injected
+                .steering_received
                 .is_empty()
         );
         let drained = json!({"targetTurnId":"t1","pendingInputIds":["q1"],"queryIds":["guide"],
             "drainedInputs":[{"pendingInputId":"q1","messageId":"m1","text":"EXACT","delivery":"guide"}]});
-        for (seq, pointer, value) in [
-            (3, "/targetTurnId", json!("other")),
-            (4, "/queryIds/0", json!("other")),
-            (5, "/drainedInputs/0/text", json!("OTHER")),
-            (6, "/drainedInputs/0/delivery", json!("queue")),
+        for (pointer, value) in [
+            ("/targetTurnId", json!("other")),
+            ("/queryIds/0", json!("other")),
+            ("/drainedInputs/0/text", json!("OTHER")),
+            ("/drainedInputs/0/delivery", json!("queue")),
         ] {
+            sequence += 1;
             let mut foreign = drained.clone();
             *foreign.pointer_mut(pointer).unwrap() = value;
             assert!(
                 guide
-                    .receive(&event(seq, "t1", "turn.steerDrained", foreign))
+                    .receive(&event(sequence, "t1", "turn.steerDrained", foreign))
                     .unwrap()
-                    .steering_injected
+                    .steering_received
                     .is_empty()
             );
+            assert!(guide.has_pending_steering());
         }
-        let injected = event(7, "t1", "turn.steerDrained", drained);
-        assert_eq!(
-            guide.receive(&injected).unwrap().steering_injected,
-            ["guide"]
-        );
+        sequence += 1;
+        let injected = event(sequence, "t1", "turn.steerDrained", drained);
         assert!(
             guide
                 .receive(&injected)
                 .unwrap()
-                .steering_injected
+                .steering_received
+                .is_empty()
+        );
+        assert!(!guide.has_pending_steering());
+        assert!(
+            guide
+                .receive(&injected)
+                .unwrap()
+                .steering_received
                 .is_empty()
         );
         assert_eq!(guide.input_id(), Some("root"));
@@ -718,7 +764,7 @@ mod tests {
         assert!(
             guide
                 .receive(&event(
-                    8,
+                    sequence + 1,
                     "t2",
                     "turn.started",
                     json!({"inputId":"fallback"})
@@ -726,6 +772,10 @@ mod tests {
                 .is_err()
         );
         for (error, expected) in [
+            (
+                json!({"message":"Model request failed.","underlyingErrorMessage":"Our servers are currently overloaded. Please try again later.","stack":"PRIVATE_KEY"}),
+                "ZCode model service is overloaded; try again later",
+            ),
             (
                 json!({"message":RUNTIME_HEADERS_UNAVAILABLE}),
                 RUNTIME_HEADERS_UNAVAILABLE,

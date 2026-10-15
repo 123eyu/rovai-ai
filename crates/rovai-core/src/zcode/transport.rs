@@ -857,10 +857,11 @@ impl Bridge {
                         bail!("ZCode guide admission unavailable");
                     }
                 }
-                // The command's queue ack does not prove entry into this Turn.
-                tokio::time::timeout(Duration::from_secs(590), rx)
+                // Confirm the target Turn's exact queued event, without waiting
+                // for model consumption or a running tool to finish.
+                tokio::time::timeout(Duration::from_secs(30), rx)
                     .await
-                    .context("ZCode guide consumption timed out")?
+                    .context("ZCode guide queue receipt timed out")?
                     .context("ZCode guide receipt disconnected")?
             }
             "session/cancel" | "_zcode/cancelFence" => {
@@ -1068,11 +1069,11 @@ impl Bridge {
                 return Ok(());
             };
             let translated = session.events.receive(params)?;
-            for input in &translated.steering_injected {
+            for input in &translated.steering_received {
                 if !session.cancelled
                     && let Some(receipt) = session.steering.remove(input)
                 {
-                    let _ = receipt.send(Ok(json!({"inputId":input,"injected":true})));
+                    let _ = receipt.send(Ok(json!({"inputId":input,"accepted":true})));
                 }
             }
             translated
@@ -1139,7 +1140,7 @@ impl Bridge {
                 .lock()
                 .await
                 .get(session_id)
-                .is_some_and(|s| !s.steering.is_empty());
+                .is_some_and(|s| s.events.has_pending_steering());
             if pending_steer {
                 // A native guide may fall back to its ordinary queue. Stop the
                 // exact Host's foreground before any successor can inherit it.
@@ -1592,6 +1593,169 @@ mod tests {
             }
         }
         assert_eq!(live_values, [450, 400]);
+        peer.abort();
+    }
+
+    // Owns the queue-receipt/terminal-cleanup seam across the facade workers.
+    // No model, process, disk or timer is needed to withhold consumption.
+    #[cfg(feature = "extended-tests")]
+    #[tokio::test]
+    async fn guide_receipts_precede_consumption_and_terminal_clears_the_queue() {
+        let config = NativeConfig {
+            value: json!({}),
+            digest: "guide-fixture".into(),
+            app_config: false,
+            protocol: NativeProtocol::ProviderRegistry,
+            default_selection: Some(json!({"providerId":"fixture","modelId":"model"})),
+        };
+        let (native, adapter) = tokio::io::duplex(64 * 1024);
+        let (native_read, native_write) = tokio::io::split(native);
+        let (adapter_read, adapter_write) = tokio::io::split(adapter);
+        let (finish_tx, mut finish_rx) = oneshot::channel::<()>();
+        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let native_cleared = cleared.clone();
+        let peer = tokio::spawn(async move {
+            let mut reader = BufReader::new(native_read);
+            let writer: Mutex<Writer> = Mutex::new(Box::new(native_write));
+            let mut frame = Vec::new();
+            let mut original = Value::Null;
+            let mut sequence = 0;
+            let mut guides = 0;
+            let mut finished = false;
+            loop {
+                let request = tokio::select! {
+                    request = read_frame(&mut reader, &mut frame) => request.unwrap(),
+                    _ = &mut finish_rx, if !finished => {
+                        assert_eq!(guides, 2);
+                        finished = true;
+                        sequence += 1;
+                        write_frame(&writer, &json!({"method":"session/event","params":{
+                            "sessionId":"s1","seq":sequence,"turnId":"t1","type":"turn.completed",
+                            "payload":{"inputId":original,"resultType":"success","response":""}
+                        }})).await.unwrap();
+                        continue;
+                    }
+                };
+                let Some(request) = request else {
+                    break;
+                };
+                let p = &request["params"];
+                let result = match request["method"].as_str().unwrap() {
+                    "session/create" => json!({"session":{"sessionId":"s1"},"settings":{"model":{
+                        "current":{"providerId":"fixture","modelId":"model"},
+                        "available":[{"ref":{"providerId":"fixture","modelId":"model"}}]}}}),
+                    "session/subscribe" => json!({"eventSeq":0}),
+                    "session/setMode" => json!({}),
+                    "v4/command" if p["type"] == "sendText" => {
+                        sequence += 1;
+                        let input = p["commandId"].clone();
+                        let (kind, payload, delivery) = if p["payload"]["requestedDelivery"]
+                            == "guide"
+                        {
+                            guides += 1;
+                            (
+                                "turn.steerQueued",
+                                json!({"inputId":input,"pendingInputId":format!("q{guides}"),
+                                "input":p["payload"]["text"],"targetTurnId":"t1","delivery":"guide"}),
+                                "queue",
+                            )
+                        } else {
+                            original = input.clone();
+                            ("turn.started", json!({"inputId":input}), "startNow")
+                        };
+                        write_frame(&writer,&json!({"method":"session/event","params":{
+                            "sessionId":"s1","seq":sequence,"turnId":"t1","type":kind,"payload":payload
+                        }})).await.unwrap();
+                        // No steerDrained is emitted, including for the first guide.
+                        json!({"status":"accepted","result":{"inputId":input,"delivery":delivery}})
+                    }
+                    "v4/command" if p["type"] == "stop" => {
+                        assert!(finished, "queue cleanup must not interrupt an active turn");
+                        assert_eq!(guides, 2);
+                        native_cleared.store(true, std::sync::atomic::Ordering::Release);
+                        json!({"status":"accepted","result":{}})
+                    }
+                    "session/read" => json!({"session":{"sessionId":"s1"},
+                        "projection":{"status":"idle","backgroundJobs":[],"activeToolCalls":[],"pendingPermissions":[]},
+                        "runtime":{"pendingRequestIds":[]}}),
+                    method => panic!("unexpected guide fixture operation {method}"),
+                };
+                write_frame(&writer, &json!({"id":request["id"],"result":result}))
+                    .await
+                    .unwrap();
+            }
+        });
+        let stream = start(
+            adapter_write,
+            adapter_read,
+            config,
+            PathBuf::from("/fixture"),
+            "build".into(),
+        );
+        let (read, write) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read);
+        let writer: Mutex<Writer> = Mutex::new(Box::new(write));
+        let mut frame = Vec::new();
+        write_frame(
+            &writer,
+            &json!({"id":1,"method":"session/new","params":{"cwd":"/fixture"}}),
+        )
+        .await
+        .unwrap();
+        let created = read_frame(&mut reader, &mut frame).await.unwrap().unwrap();
+        assert_eq!(created["result"]["sessionId"], "s1", "{created}");
+        write_frame(
+            &writer,
+            &json!({"id":2,"method":"session/prompt","params":{
+            "sessionId":"s1","prompt":[{"type":"text","text":"ORIGINAL"}]}}),
+        )
+        .await
+        .unwrap();
+        let original = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let m = read_frame(&mut reader, &mut frame).await.unwrap().unwrap();
+                if m["method"] == "_zcode/inputAccepted" {
+                    break m["params"]["inputId"].clone();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        for id in [3, 4] {
+            let input = format!("guide-{id}");
+            write_frame(&writer,&json!({"id":id,"method":"_zcode/steer","params":{
+                "sessionId":"s1","expectedInputId":original,"inputId":input,"text":format!("TEXT {id}")
+            }})).await.unwrap();
+            let receipt = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let m = read_frame(&mut reader, &mut frame).await.unwrap().unwrap();
+                    assert_ne!(m["id"], 2, "receipt cannot depend on the original terminal");
+                    if m["id"] == id {
+                        break m;
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(receipt["result"], json!({"inputId":input,"accepted":true}));
+            assert!(!cleared.load(std::sync::atomic::Ordering::Acquire));
+        }
+        finish_tx.send(()).unwrap();
+        let terminal = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let m = read_frame(&mut reader, &mut frame).await.unwrap().unwrap();
+                if m["id"] == 2 {
+                    break m;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(terminal["result"]["stopReason"], "end_turn");
+        assert!(
+            cleared.load(std::sync::atomic::Ordering::Acquire),
+            "accepted-but-undrained guides still require cleanup"
+        );
         peer.abort();
     }
 

@@ -31,7 +31,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Public Camp 消息与多输入 AgentRun
 
-- Claude 受管执行回执与启动期待插话：[Delivery v17](../contracts/message-delivery-v17.md)；取舍见 [V1.72-D49](../versions/v1.72/decisions.md#v1-72-d49)。
+- Claude 受管执行回执与启动期待插话：[Delivery v18](../contracts/message-delivery-v18.md)；取舍见 [V1.72-D49](../versions/v1.72/decisions.md#v1-72-d49)。
 - 模型发送者统一：[Message Senders v1](../contracts/message-senders-v1.md)、[History v14](../contracts/camp-history-v14.md)、[Manifest v39](../contracts/context-manifest-evidence-v39.md)；确认与验证见 [R2](../versions/v1.72/model-context-change-message-senders.md)。
 - 模型 Mention 统一：[Message Mentions v1](../contracts/message-mentions-v1.md)、[ContextManifest v34](../contracts/context-manifest-evidence-v34.md)、[Camp History v14](../contracts/camp-history-v14.md)；仅合并两处元数据、按 Run 冻结的取舍见 [V1.72-D19](../versions/v1.72/decisions.md#v1-72-d19)。
 
@@ -117,7 +117,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Collaboration、Task 与 Message Delivery
 
-- User Steer：[公开投递架构](../architecture/public-a2a-message-delivery.md#用户运行中插话)、[Send v27](../contracts/camp-message-send-v27.md)、[Delivery v17](../contracts/message-delivery-v17.md)、[Manifest 39](../contracts/context-manifest-evidence-v39.md) 和 [Profile 14](../contracts/context-delivery-profile-v14.md)；复用取舍见 [V1.72-D48](../versions/v1.72/decisions.md#v1-72-d48)。
+- User Steer：[公开投递架构](../architecture/public-a2a-message-delivery.md#用户运行中插话)、[Send v27](../contracts/camp-message-send-v27.md)、[Delivery v18](../contracts/message-delivery-v18.md)、[Manifest 39](../contracts/context-manifest-evidence-v39.md) 和 [Profile 14](../contracts/context-delivery-profile-v14.md)；复用取舍见 [V1.72-D48](../versions/v1.72/decisions.md#v1-72-d48)。
 
 - 当前规范：[协作与消息基础不变量](../architecture/foundational-invariants.md#collaboration-admission)、[动态 Camp 队员关系](../architecture/dynamic-camp-membership.md)、[Public Camp Message/Delivery](../architecture/public-a2a-message-delivery.md)、[Durable Task v5](../contracts/durable-task-v5.md)、[Camp Message Send v23](../contracts/camp-message-send-v23.md)、[Message Delivery v15](../contracts/message-delivery-v15.md)和[Camp History v10](../contracts/camp-history-v10.md)。主动查询与撤回边界理由见 [V1.69-D01](../versions/v1.69/decisions.md#v1-69-d01)；Task 去版本化与模型投影清理理由见 [V1.67-D01](../versions/v1.67/decisions.md#v1-67-d01)；正文收敛理由见 [V1.63-D01](../versions/v1.63/decisions.md#v1-63-d01)，协议 clean break 见 [V1.63-D02](../versions/v1.63/decisions.md#v1-63-d02)。Gather 只保留[历史解释](../architecture/durable-gather-barrier.md)。
 - 理由来源：[v0.15](../versions/v0.15/decisions.md)、[v0.45](../versions/v0.45/decisions.md)、[v0.47](../versions/v0.47/decisions.md)、[v0.54](../versions/v0.54/decisions.md)、[v0.59](../versions/v0.59/decisions.md)、[v0.62](../versions/v0.62/decisions.md)、[v0.67](../versions/v0.67/decisions.md)、[v0.89](../versions/v0.89/decisions.md)、[v0.90](../versions/v0.90/decisions.md)、[v1.06](../versions/v1.06/decisions.md)、[v1.07](../versions/v1.07/decisions.md)、[v1.14](../versions/v1.14/decisions.md)、[V1.19-D02](../versions/v1.19/decisions.md#v1-19-d02)、[V1.29-D01](../versions/v1.29/decisions.md#v1-29-d01)、[V1.29-D02](../versions/v1.29/decisions.md#v1-29-d02)、[V1.29-D05](../versions/v1.29/decisions.md#v1-29-d05)、[V1.29-D06](../versions/v1.29/decisions.md#v1-29-d06)及[V1.37-D03](../versions/v1.37/decisions.md#v1-37-d03)。
@@ -325,4 +325,4 @@ v62 移除原生会话重建提示和展示查询，保留恢复及审计行为�
 - 新操作与活动统一保存的理由见 [V1.72-D45](../versions/v1.72/decisions.md#v1-72-d45)，当前权威为 [Execution Record Storage v3](../contracts/execution-record-storage-v3.md)。
 - 新操作预览预算与结果摘要分离的理由见 [V1.72-D46](../versions/v1.72/decisions.md#v1-72-d46)，当前权威为 [Execution Record Storage v3](../contracts/execution-record-storage-v3.md)。
 
-- Steer 合并、版本资格与碰撞迁移：[Manifest v39](../contracts/context-manifest-evidence-v39.md)、[Delivery v17](../contracts/message-delivery-v17.md)；理由见 [V1.72-D47](../versions/v1.72/decisions.md#v1-72-d47)。
+- Steer 合并、版本资格与碰撞迁移：[Manifest v39](../contracts/context-manifest-evidence-v39.md)、[Delivery v18](../contracts/message-delivery-v18.md)；理由见 [V1.72-D47](../versions/v1.72/decisions.md#v1-72-d47)。

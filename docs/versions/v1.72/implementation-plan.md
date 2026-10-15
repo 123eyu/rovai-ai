@@ -8,6 +8,30 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## Steer 入队回执与阻塞工具核验（2026-10-15）
+
+User seq90–95 的可用性反馈由 [Delivery v18](../../contracts/message-delivery-v18.md) 收口。
+Pi、Kiro、ZCode 在原生入队证据成立后确认接收，不等待消费；不改普通输入、版本门槛、数据库或上下文。
+Pi 去掉额外消费等待和正文匹配状态，停止仍先清队列后 abort。ZCode 已接收但未 drained 的 guide
+仍参加原执行结束清理；Provider 过载只映射固定安全错误，不自动重试。
+
+- Pi 扩展既有 RPC／取消 owner，改为原生完全不发送消费事件：连续两条仍收到回执，延迟写入、
+  延迟 ACK、停止先清队列、晚到 ACK 不污染后继继续覆盖。原消费门禁退出，取消和精确 RPC 关联不变。
+- Kiro 扩展既有 ACP 回执 owner：原生 queued 通知合并正文仍按逐 RPC 回执确认，错误目标、
+  queued=false 和终态后 ACK 不能接受。退出逐正文／injected 门禁，其他 ACP 的拒绝、迟到、owner 关联矩阵保留。
+- ZCode 扩展既有事件 owner 的精确 queued、重复与错误关联矩阵；新增
+  `guide_receipts_precede_consumption_and_terminal_clears_the_queue` 扩展 owner，以内存双向流证明
+  两条输入不依赖消费而返回，结束必须先清队列。仅事件 parser 不能覆盖回执 sender 已移除后 transport
+  是否仍清理的跨 worker 回归；不使用进程、数据库或模型。
+- 最小验证：`cargo test -p rovai-core --features extended-tests --lib active_input_` 与
+  `cargo test -p rovai-core --features extended-tests --lib zcode::`。
+- 真实模型统一通过 `probe-steer-version.mjs receipts` 的隔离 Core／Builder／Adapter 路径，记录工具释放前
+  与最终结果；停止用例在确认入队但工具仍阻塞后取消，再普通续接。结果见
+  [九种 Runtime 回执报告](../../research/runtime-monitoring/steer-queued-receipts-2026-10-15.md)。
+
+版本发现、缓存、展示及 Pi／Qwen 启动配置摘要回归由独立会话处理，不在本次重复改动。
+本次属于局部可逆的回执语义对齐，未达到新版本决策的准入门槛；既有 Run／Host 边界保持。
+
 ## Claude 受管执行回执与启动期待插话（2026-10-15）
 
 按 User seq86、seq88 实施 [Delivery v17](../../contracts/message-delivery-v17.md)。不调用真实 LLM，

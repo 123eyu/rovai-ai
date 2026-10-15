@@ -3085,6 +3085,56 @@ mod tests {
             std::fs::read(cropped["avatar"]["path"].as_str().unwrap()).unwrap(),
             original_source
         );
+        // Built-in get and crop-only update must retain the image the Agent saw.
+        // The avatar owner covers the four presets' exact pixel geometry.
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_profile SET avatar_ref=?1 WHERE id='agent_2'",
+                [crate::member_avatar::LUOKE_AVATAR_REF],
+            )
+            .unwrap();
+        let builtin = read(&fixture.database, "agent_2");
+        assert!(builtin["avatar"]["displayCrop"].is_null());
+        let builtin_bytes = std::fs::read(builtin["avatar"]["path"].as_str().unwrap()).unwrap();
+        let builtin_patch = parse_patch(
+            &fixture.database,
+            json!({"agentId":"agent_2","requestId":Uuid::new_v4().to_string(),"expectedVersion":builtin["version"],"avatarCenterX":0.375,"avatarCenterY":0.625,"avatarSize":0.5}),
+        );
+        let execution = update_member(
+            &mut fixture.database,
+            &fixture.directory,
+            &run,
+            builtin_patch.clone(),
+        )
+        .unwrap();
+        let replay = update_member(
+            &mut fixture.database,
+            &fixture.directory,
+            &run,
+            builtin_patch,
+        )
+        .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.result.payload, execution.result.payload);
+        let cropped = read(&fixture.database, "agent_2");
+        assert_eq!(
+            cropped["version"].as_i64().unwrap(),
+            builtin["version"].as_i64().unwrap() + 1
+        );
+        assert_eq!(
+            cropped["professionalResponsibilities"],
+            builtin["professionalResponsibilities"]
+        );
+        assert_eq!(
+            cropped["avatar"]["displayCrop"],
+            json!({"centerX":0.375,"centerY":0.625,"size":0.5})
+        );
+        assert_eq!(
+            std::fs::read(cropped["avatar"]["path"].as_str().unwrap()).unwrap(),
+            builtin_bytes
+        );
         let clear_patch = parse_patch(
             &fixture.database,
             json!({"agentId":"agent_2","requestId":Uuid::new_v4().to_string(),"expectedVersion":cropped["version"],"teamRole":"","personalityTraits":[],"clearAvatar":true}),

@@ -2434,3 +2434,25 @@ node scripts/smoke-storage-app-upgrade.mjs /private/tmp/rovai-storage-upgrade-ex
 Claude Code/sub2api 新旧共 8 Run 完成，候选四场景满足标准；基线复现空取景导致首次误设后纠正。
 通用 Gate 两版同样两项数据库断言失败，24 槽位未运行，不作通过声明；
 详见[验证索引](legacy-avatar-source-verification.json)。本次 PR/合并已由消息 61 授权。
+
+
+## 内置头像裁切坐标统一（2026-10-15）
+
+User 消息 66（1f83dd0c-00c9-45ce-8711-34650afd5914）授权修复内置头像读取／修改底图不一致。
+沿用使命 checkout，从 main `059ef5157` 实施；当前契约为 [Member Avatar v4](../../contracts/member-avatar-v4.md)。
+
+- 修改前：get 返回 packaged icon，crop-only 更新却读取保留的大图；修改后：二者使用同一 packaged icon。
+- 首次修改生成 schema 3 源图与取景，后续编辑不累积裁切；保留内置文件及旧大图，不迁移任何已有头像。
+- 读取字段、文件选择、空值语义和所有提示词保持，不改变核心模型上下文或工具输出格式；这是写入底图选择的修复。
+  Transport/CLI 41、Agent Output 14、IPC 3、Envelope 2 保持，不触发新的上下文替换、冻结基线或真实模型 Gate。
+- 测试扩展既有 `member_avatar::tests::imports_four_by_five_image_with_lightweight_crop_and_deterministic_identity`：
+  四个内置头像的非居中区域按像素验证，随后从受管结果恢复完整取景；替换原来只证明“大图仍保留”的错误预期。
+  `team_tool::tests::member_profile_reads_and_patches_preserve_scope_atomicity_and_replay` 只拥有 get/update、引用提交及回放衔接，
+  不复制像素矩阵。不新增或退役 Rust 测试函数。
+- 最小验证为上述两个 owner（后者显式启用 `extended-tests`），再运行头像 owner、默认 workspace、格式及通用文档门禁。
+
+验证：增强后的头像用例在修复前失败，明确得到 768×960 大图而非 get 返回的 192×192 头像；修复后
+头像 owner 14 项通过，成员读写／幂等 owner 1 项通过。默认 `cargo test --workspace` 为 471 passed、
+0 failed、1 既有 ignored；`cargo fmt --all --check`、`git diff --check`、文档测试 10 项及
+`docs:check`、以 `059ef5157` 为 base 的 `docs:check:ci` 均通过。
+没有启动 App/Core/真实模型进程或修改日常数据；此前通用模型 Gate 的既有失败记录不被本次测试替代。

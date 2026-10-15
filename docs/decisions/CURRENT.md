@@ -6,7 +6,7 @@ last_updated: 2026-10-15
 
 # 当前规范与决定理由导航
 
-队员单文件头像当前规范：[Member Avatar v3](../contracts/member-avatar-v3.md)、[队员身份 UI](../ui/components/member-identity.md)；取舍见 [V1.72-D42](../versions/v1.72/decisions.md#v1-72-d42)。
+队员单文件头像当前规范：[Member Avatar v4](../contracts/member-avatar-v4.md)、[队员身份 UI](../ui/components/member-identity.md)；取舍见 [V1.72-D42](../versions/v1.72/decisions.md#v1-72-d42)。
 
 成员路由与职责扩容当前规范：[Collaboration State v4](../contracts/collaboration-state-v4.md)、
 [Built-in Transport v41](../contracts/builtin-tool-transport-v41.md)、[ContextManifest v34](../contracts/context-manifest-evidence-v34.md)；

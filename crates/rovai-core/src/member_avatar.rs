@@ -441,7 +441,13 @@ pub fn recrop_member_avatar(
             return save_member_avatar_image(data_dir, &bytes, image.width, image.height, crop);
         }
     }
-    let source_bytes = member_avatar_bytes(data_dir, avatar_ref, true)?;
+    // Match materialize_member_avatar: managed coordinates refer to the saved
+    // source; built-in coordinates refer to the packaged icon the Agent sees.
+    let managed = matches!(
+        parse_member_avatar_ref(avatar_ref)?,
+        MemberAvatarReference::Managed(_)
+    );
+    let source_bytes = member_avatar_bytes(data_dir, avatar_ref, managed)?;
     if parse_gif_info(&source_bytes).is_ok() {
         let info = parse_gif_info(&source_bytes)?;
         return Ok(save_normalized_member_avatar_gif(
@@ -2570,20 +2576,72 @@ mod tests {
             .unwrap();
         assert_eq!(legacy_export.base64, legacy_icon.base64);
         assert!(legacy_export.display_crop.is_none());
-        let builtin_crop = recrop_member_avatar(
-            &directory,
+        for builtin in [
             LUOKE_AVATAR_REF,
-            MemberAvatarCrop {
-                center_x: 0.5,
-                center_y: 0.5,
-                size: 0.5,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            member_avatar_bytes(&directory, &builtin_crop.avatar_ref, true).unwrap(),
-            member_avatar_bytes(&directory, LUOKE_AVATAR_REF, true).unwrap()
-        );
+            MUWA_AVATAR_REF,
+            MIANZHI_AVATAR_REF,
+            QILU_AVATAR_REF,
+        ] {
+            let avatar = materialize_member_avatar(&directory, &directory, builtin).unwrap();
+            let original_bytes = fs::read(avatar.path).unwrap();
+            let original = image::load_from_memory(&original_bytes).unwrap();
+            let mut avatar_ref = builtin.to_owned();
+            // Select an offset 96px square in the image returned to the Agent,
+            // then reset the managed result to its full original framing. A
+            // second edit must not accumulate crops or switch to the portrait.
+            for (crop, x, y, edge) in [
+                (
+                    MemberAvatarCrop {
+                        center_x: 0.375,
+                        center_y: 0.625,
+                        size: 0.5,
+                    },
+                    24,
+                    72,
+                    96,
+                ),
+                (default_member_avatar_crop(), 0, 0, 192),
+            ] {
+                let adjusted = recrop_member_avatar(&directory, &avatar_ref, crop.clone()).unwrap();
+                let readback =
+                    materialize_member_avatar(&directory, &directory, &adjusted.avatar_ref)
+                        .unwrap();
+                assert_eq!(readback.display_crop, Some(crop));
+                let source = image::load_from_memory(&fs::read(readback.path).unwrap()).unwrap();
+                assert_eq!(source.dimensions(), original.dimensions());
+                assert!(
+                    source.to_rgba8() == original.to_rgba8(),
+                    "{builtin}: reads and edits must share the packaged avatar"
+                );
+                let exported =
+                    read_managed_member_avatar_static_png(&directory, &adjusted.avatar_ref, edge)
+                        .unwrap()
+                        .unwrap();
+                let pixels = image::load_from_memory(
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(exported.base64)
+                        .unwrap(),
+                )
+                .unwrap()
+                .to_rgba8();
+                assert!(
+                    pixels == original.crop_imm(x, y, edge, edge).to_rgba8(),
+                    "{builtin}: exported region must match the returned image"
+                );
+                let asset = directory
+                    .join("member-avatars")
+                    .join(adjusted.avatar_ref.rsplit('/').next().unwrap());
+                assert_eq!(
+                    fs::read_dir(asset).unwrap().count(),
+                    2,
+                    "one source and manifest, no derived icon"
+                );
+                avatar_ref = adjusted.avatar_ref;
+            }
+            let unchanged = materialize_member_avatar(&directory, &directory, builtin).unwrap();
+            assert_eq!(fs::read(unchanged.path).unwrap(), original_bytes);
+            assert_eq!(unchanged.display_crop, None);
+        }
         assert!(
             materialize_member_avatar(
                 &directory,

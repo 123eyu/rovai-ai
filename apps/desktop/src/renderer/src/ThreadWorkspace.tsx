@@ -1,3 +1,4 @@
+import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
@@ -2018,6 +2019,7 @@ export function ThreadWorkspace({
   const [executionInspectorActive, setExecutionInspectorActive] = useState(
     executionPlacement === 'inspector'
   )
+  const [executionShortcutCollapsed, setExecutionShortcutCollapsed] = useState(false)
   const [executionDrawerAgentId, setExecutionDrawerAgentId] = useState<string | null>(
     workspaceEntrySelection?.selectedAgentId ?? null
   )
@@ -2054,6 +2056,7 @@ export function ThreadWorkspace({
     portal.className = 'execution-drawer-portal'
     return portal
   })
+  const managedShortcuts = Boolean(useShortcuts())
   const inspectorTab = controlledInspectorTab ?? localInspectorTab
   const inspectorSurfaceTab: ThreadInspectorSurfaceTab = executionPlacement === 'inspector'
     && executionInspectorActive
@@ -3140,6 +3143,7 @@ export function ThreadWorkspace({
   ])
 
   useEffect(() => {
+    if (managedShortcuts) return
     const handleFindShortcut = (event: globalThis.KeyboardEvent): void => {
       if (event.defaultPrevented || event.isComposing || isFileFindTarget(event.target)) return
       if (
@@ -3152,7 +3156,7 @@ export function ThreadWorkspace({
     }
     window.addEventListener('keydown', handleFindShortcut)
     return () => window.removeEventListener('keydown', handleFindShortcut)
-  }, [openConversationFind])
+  }, [openConversationFind, managedShortcuts])
 
   useLayoutEffect(() => {
     const timeline = timelineScrollRef.current
@@ -4644,6 +4648,7 @@ export function ThreadWorkspace({
       executionDrawerTriggerRef.current = null
       executionDrawerReturnAgentIdRef.current = null
     }
+    setExecutionShortcutCollapsed(false)
     setExecutionDrawerAgentId(agentId)
     setExecutionDrawerFocusedRunId(focusedRunId)
     setExecutionDrawerFocusRequest((request) => ({
@@ -4664,6 +4669,7 @@ export function ThreadWorkspace({
       filePreview?.openExecution()
     }
     if (trigger) executionDrawerTriggerRef.current = trigger
+    setExecutionShortcutCollapsed(false)
     executionDrawerReturnAgentIdRef.current = EXECUTION_OVERVIEW_SCOPE
     setExecutionDrawerAgentId(EXECUTION_OVERVIEW_SCOPE)
     setExecutionDrawerFocusedRunId(null)
@@ -4695,7 +4701,7 @@ export function ThreadWorkspace({
     const targetRun = firstSubmittedAgentRun(submittedExecutionRequest, snapshot.agentRuns)
     if (!targetRun) return
     consumeRequest()
-    if (executionConsoleIsVisible(
+    if (!executionShortcutCollapsed && executionConsoleIsVisible(
       executionPlacement,
       inspectorVisible,
       inspectorSurfaceTab,
@@ -4721,6 +4727,7 @@ export function ThreadWorkspace({
   }, [
     executionDrawerAgentId,
     executionDrawerFocusedRunId,
+    executionShortcutCollapsed,
     executionPlacement,
     inspectorSurfaceTab,
     inspectorVisible,
@@ -4793,6 +4800,67 @@ export function ThreadWorkspace({
   ) : null
   const rightExecutionVisible = executionPlacement === 'right'
     && Boolean(filePreview?.paneVisible && filePreview.activeTab?.kind === 'execution')
+
+  const workspaceAvailable = (): boolean => Boolean(workspaceShellRef.current?.getClientRects().length)
+  useShortcutAction('execution', () => {
+    if (!workspaceAvailable()) return false
+    const opened = executionPlacement === 'bottom' ? executionDrawerAgentId !== null && !executionShortcutCollapsed
+      : executionPlacement === 'right' ? rightExecutionVisible : inspectorVisible && inspectorSurfaceTab === 'execution'
+    if (!opened) {
+      if (executionDrawerAgentId === null) openExecutionOverview()
+      else if (executionPlacement === 'right') filePreview?.openExecution()
+      else if (executionPlacement === 'inspector') { setExecutionInspectorActive(true); onOpenInspector?.(inspectorTab) }
+      else setExecutionShortcutCollapsed(false)
+      restoreExecutionReadingPositionAfterLayout(executionReadingPosition.current)
+    } else {
+      rememberExecutionReadingPosition()
+      if (executionPlacement === 'right') filePreview?.hidePane()
+      else if (executionPlacement === 'inspector') onCloseInspector()
+      else setExecutionShortcutCollapsed(true)
+    }
+  })
+  useShortcutAction('tasks', () => {
+    if (!workspaceAvailable()) return false
+    if (inspectorVisible && inspectorSurfaceTab === 'tasks') onCloseInspector()
+    else openInspector('tasks')
+  })
+  useShortcutAction('members', () => {
+    if (!workspaceAvailable()) return false
+    if (inspectorVisible && inspectorSurfaceTab === 'members') onCloseInspector()
+    else openInspector('members')
+  })
+  useShortcutAction('dm', () => {
+    if (!workspaceAvailable()) return false
+    if (singleChatVisible) onCloseSingleChat(); else onOpenSingleChat()
+  })
+  useShortcutAction('preview', () => {
+    if (!workspaceAvailable() || !filePreview) return false
+    if (filePreview.paneVisible) filePreview.hidePane(); else filePreview.showPane()
+  })
+  useShortcutAction('composer', target => {
+    if (!workspaceAvailable() || composerInteractionDisabled || (target instanceof Element && target.closest('.single-chat-popover'))) return false
+    composerHandleRef.current?.focus()
+  })
+  useShortcutAction('attach', target => {
+    if (!workspaceAvailable() || busy || composerInteractionDisabled || (target instanceof Element && target.closest('.single-chat-popover'))) return false
+    composerFileInputRef.current?.click()
+  })
+  useShortcutAction('latest', target => {
+    if (!workspaceAvailable() || conversationView !== 'conversation' || conversationFind.open || (target instanceof Element && target.closest('.single-chat-popover,.execution-drawer,.file-preview-pane'))) return false
+    followTimelineAfterUserSend(snapshot.thread.id)
+  })
+  useShortcutAction('find', target => {
+    if (!workspaceAvailable() || isFileFindTarget(target) || (target instanceof Element && target.closest('.single-chat-popover,.execution-drawer'))) return false
+    openConversationFind()
+  })
+  useShortcutAction('next', target => {
+    if (!workspaceAvailable() || isFileFindTarget(target) || !conversationFind.open) return false
+    navigateConversationFind(1)
+  })
+  useShortcutAction('previous', target => {
+    if (!workspaceAvailable() || isFileFindTarget(target) || !conversationFind.open) return false
+    navigateConversationFind(-1)
+  })
 
   return (
     <section ref={workspaceShellRef} className="workspace-shell camp-workspace" data-mobile-panel={mobile && inspectorVisible ? inspectorSurfaceTab : undefined} data-mobile-execution-maximized={mobile && mobileExecutionMaximized || undefined} aria-label={uiAttribute("会话：{0}", String(formatThreadTitle(snapshot.thread, firstRunThreadId)))}>
@@ -5726,7 +5794,7 @@ export function ThreadWorkspace({
               processes={executionProcesses}
               memberById={memberById}
               stopping={stopping}
-              selectedAgentId={executionDrawerAgentId}
+              selectedAgentId={executionShortcutCollapsed ? null : executionDrawerAgentId}
               onOpen={openExecutionProcess}
               onOpenOverview={openExecutionOverview}
               onClose={closeExecutionProcess}
@@ -5739,6 +5807,8 @@ export function ThreadWorkspace({
           )}
           <div
             ref={bottomExecutionDrawerHostRef}
+            hidden={executionShortcutCollapsed && executionPlacement === 'bottom'}
+            inert={executionShortcutCollapsed && executionPlacement === 'bottom'}
             className="execution-drawer-host execution-drawer-host-bottom"
           >
             {!executionDrawerPortal && executionPlacement === 'bottom' && executionDrawer}
@@ -6123,7 +6193,7 @@ export function ThreadWorkspace({
               {mobile && <button className="composer-attachment-button" type="button" aria-label={uiAttribute("提及队员")} disabled={busy || composerInteractionDisabled} onPointerDown={(event) => event.preventDefault()} onClick={() => composerHandleRef.current?.startMention()}>@</button>}
             </div>
             <div className="composer-actions">
-              {!executionBlocked && (
+              {!managedShortcuts && !executionBlocked && (
                 <span className="composer-hint">
                   <span className="sr-only"><UiText zh={"Enter 发送，Shift+Enter 换行"} /></span>
                   <span className="composer-hint-visual" aria-hidden="true">
@@ -6155,7 +6225,7 @@ export function ThreadWorkspace({
         {attachmentDragState && (
           <div
             className={`conversation-drop-layer ${
-              executionDrawerProcess && executionPlacement === 'bottom'
+              executionDrawerProcess && executionPlacement === 'bottom' && !executionShortcutCollapsed
                 ? 'has-bottom-execution-drawer'
                 : ''
             }`.trim()}
@@ -7081,6 +7151,17 @@ function ExecutionDrawer({
     if (drawerBodyRef.current) drawerBodyRef.current.dataset.followingLatest = String(following)
     setFollowingLatestState((current) => current === following ? current : following)
   }
+  useShortcutAction('latest', target => {
+    if (!(target instanceof Node) || !drawerRef.current?.contains(target) || !drawerRef.current.getClientRects().length) return false
+    setFollowingLatest(Boolean(latestRun && NON_TERMINAL_RUNS.has(latestRun.status)))
+    setLatestRequest(request => request + 1)
+    const body = drawerBodyRef.current
+    if (body) {
+      body.dispatchEvent(new Event('execution-return-latest'))
+      delete body.dataset.executionAnchorKey
+      scrollExecutionDrawerToLatest(body)
+    }
+  }, true, 100)
   const resumeFollowingLatestAfterReadingInteraction = (): void => {
     if (resumeFollowingLatestFrames.current) {
       window.cancelAnimationFrame(resumeFollowingLatestFrames.current[0])

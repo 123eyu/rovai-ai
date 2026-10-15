@@ -11,6 +11,13 @@ last_updated: 2026-10-15
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Desktop 快捷键设置（2026-10-15）
+
+按已确认 v8 交互稿接入本机设置、23 项动作、实际侧键录制、发送组合与动态按钮提示。
+普通状态无外框，悬浮/聚焦显示；macOS Control 与 Command 分开，Windows Win 组合继续不支持。
+当前合同见 [Desktop Shortcuts v1](../../contracts/desktop-shortcuts-v1.md)与[快捷键 UI](../../ui/components/shortcut-settings.md)。
+此变更不改变模型输入、Core 协议或日常数据；#668 保持开放，随发布验收处理。
+
 ## Steer 停止、回执与交互修正（2026-10-15，User seq54–63）
 
 Pi 用 Run 内的提交锁协调停止，清队列先于 abort，锁不等待消费或 Steer ACK；Claude 在前台 result

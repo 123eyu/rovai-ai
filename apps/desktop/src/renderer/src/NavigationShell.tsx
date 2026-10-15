@@ -5,7 +5,7 @@ import { PanelToggleIcon } from './PanelToggleIcon'
 import { useMobileLayout } from './MobileLayout'
 import type { DesktopNavigation, NavigationState } from './desktop-navigation'
 import { navigationShortcut } from './desktop-navigation-input'
-import { primaryShortcutLabel } from './renderer-platform'
+import { useShortcutAction, useShortcutLabel, useShortcuts } from './ShortcutProvider'
 import { clampNavigationWidth, navigationDragLayout, navigationMaxWidth, parseNavigationLayout, NAVIGATION_DEFAULT_WIDTH, NAVIGATION_LAYOUT_KEY, NAVIGATION_MIN_WIDTH, type NavigationLayout } from './navigation-layout'
 import { UiText, uiAttribute } from './interface-language'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
@@ -26,6 +26,9 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
   navigation?: Pick<DesktopNavigation, 'getSnapshot' | 'subscribe' | 'back' | 'forward'>
 }): React.JSX.Element {
   const mobile = useMobileLayout()
+  const managed = Boolean(useShortcuts())
+  const backLabel = useShortcutLabel('back', platform)
+  const forwardLabel = useShortcutLabel('forward', platform)
   const history = useSyncExternalStore(navigation?.subscribe ?? noSubscription, navigation?.getSnapshot ?? emptySnapshot, emptySnapshot)
   const input = useRef({ navigation, disabled, platform })
   input.current = { navigation, disabled, platform }
@@ -35,7 +38,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
       && Boolean(input.current.navigation?.getSnapshot().entries.length)
       && !document.querySelector('.app-dialog, [role="dialog"][aria-modal="true"], [role="menu"][data-state="open"]')
     const keydown = (event: KeyboardEvent): void => {
-      if (!available()) return
+      if (managed || !available()) return
       const action = navigationShortcut(input.current.platform, event)
       if (!action) return
       event.preventDefault()
@@ -49,7 +52,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
       unsubscribe?.()
       window.removeEventListener('keydown', keydown)
     }
-  }, [navigation, nativeWindowControls])
+  }, [navigation, nativeWindowControls, managed])
   const [layout, setLayout] = useState<NavigationLayout>(() => {
     try { return parseNavigationLayout(window.localStorage.getItem(NAVIGATION_LAYOUT_KEY)) }
     catch { return parseNavigationLayout(null) }
@@ -88,6 +91,9 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
     splitter.cancel()
     setLayout(current => fixedSettings && !current.collapsed ? current : { ...current, collapsed: !current.collapsed })
   }
+  useShortcutAction('sidebar', toggle, !disabled && !fixedSettings)
+  useShortcutAction('back', () => { if (!navigation || history.index <= 0) return false; void navigation.back() }, !disabled)
+  useShortcutAction('forward', () => { if (!navigation || history.index >= history.entries.length - 1) return false; void navigation.forward() }, !disabled)
   const resizeTo = (value: number): void => { splitter.cancel(); previewWidth(clampNavigationWidth(value, maximum)) }
   useLayoutEffect(() => {
     setChromeSlot(platform === 'win32' ? document.getElementById('navigation-chrome-toggle-slot') : null)
@@ -108,11 +114,11 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
     {!collapsed && !fixedSettings && navigation && <div className="navigation-history-controls" role="group" aria-label={uiAttribute("浏览历史")}>
       {(['back', 'forward'] as const).map((direction) => {
         const text = direction === 'back' ? uiAttribute('后退') : uiAttribute('前进')
-        const key = direction === 'back' ? '[' : ']'
+        const shortcutLabel = direction === 'back' ? backLabel : forwardLabel
         const enabled = direction === 'back' ? history.index > 0 : history.index < history.entries.length - 1
         return <button key={direction} className="navigation-collapse-button navigation-history-button" type="button"
-          disabled={disabled || !enabled} aria-label={text} title={`${text}（${primaryShortcutLabel(platform, key)}）`}
-          aria-keyshortcuts={`${platform === 'darwin' ? 'Meta' : 'Control'}+${key}`} onClick={() => { void navigation[direction]() }}>
+          disabled={disabled || !enabled} aria-label={text} title={shortcutLabel ? `${text}（${shortcutLabel}）` : text}
+          onClick={() => { void navigation[direction]() }}>
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d={direction === 'back' ? 'M10 17l-5-5 5-5M19 12H5' : 'M14 7l5 5-5 5M5 12h14'} /></svg>
         </button>
       })}

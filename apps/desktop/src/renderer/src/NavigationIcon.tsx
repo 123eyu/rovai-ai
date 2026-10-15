@@ -15,6 +15,7 @@ export type NavigationIconName =
   | 'monitor-smartphone'
   | 'radio-tower'
   | 'settings'
+  | 'keyboard'
   | 'sliders-horizontal'
   | 'sparkles'
   | 'square-pen'
@@ -62,6 +63,8 @@ function navigationIconPaths(name: NavigationIconName): React.JSX.Element {
       return <><path d="M7 2v3" /><path d="M17 2v3" /><path d="M3.5 9h17" /><path d="M5 4h14a1.5 1.5 0 0 1 1.5 1.5v6.2" /><path d="M14 21H5a1.5 1.5 0 0 1-1.5-1.5v-14A1.5 1.5 0 0 1 5 4" /><circle cx="17.5" cy="17.5" r="4" /><path d="M17.5 15.5v2.2l1.5.9" /></>
     case 'chart-line':
       return <><path d="M4 19V5" /><path d="M4 19h16" /><path d="m7 15 4-4 3 2 5-6" /><circle cx="7" cy="15" r=".7" fill="currentColor" stroke="none" /><circle cx="11" cy="11" r=".7" fill="currentColor" stroke="none" /><circle cx="14" cy="13" r=".7" fill="currentColor" stroke="none" /><circle cx="19" cy="7" r=".7" fill="currentColor" stroke="none" /></>
+    case 'keyboard':
+      return <><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 15h10" /></>
     case 'settings':
       return <><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" /><circle cx="12" cy="12" r="3" /></>
     case 'sliders-horizontal':

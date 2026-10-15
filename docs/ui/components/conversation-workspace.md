@@ -467,7 +467,8 @@ summary 下方以一条分隔线连接始终展开的 final message；不得把 
 Single Chat Composer 与当前 Camp Composer 使用同一输入框风格和操作层级：输入区、附件入口、待发送附件卡片、
 “↵ 发送 · ⇧↵ 换行”提示与发送按钮。底部固定提示为“单聊正文不会进入公屏”。支持文件选择、粘贴文件和仅附件消息；附件暂存与已发送附件都只展示在
 当前私有 Conversation，不复用公屏 Draft，但选择、可用性状态、`AttachmentCard`、Preview、Open 与 Reveal 都复用
-Camp 公共 Source Attachment 组件。`Enter` 发送、`Shift+Enter` 换行，IME 合成期间不提交。
+Camp 公共 Source Attachment 组件。默认 `Enter` 发送、`Shift+Enter` 换行，IME 合成期间不提交。
+Desktop 可在[快捷键设置](shortcut-settings.md)改为主修饰键 + Enter；公屏与单聊共用发送偏好，按钮提示随之更新。
 
 同一段 Single Chat 有非终态 Run 时 Composer 仍可输入后续正文和附件。Draft 为空时主要动作显示“停止”；一旦存在正文
 或附件，主要动作恢复为“发送”，提交后把内容放入该 Conversation 自己的 FIFO，不改变当前 Run 输入。队列按顺序展示，

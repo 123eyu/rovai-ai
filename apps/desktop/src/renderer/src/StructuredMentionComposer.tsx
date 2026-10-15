@@ -1,3 +1,5 @@
+import { useShortcuts } from './ShortcutProvider'
+import { shouldSendComposerKey } from '../../shared/shortcuts'
 import { useEditingRecovery } from './camp-client'
 import { useMobileLayout } from './MobileLayout'
 import type { ThreadComposerDraftView, ComposerAtom, ComposerDocument, AdapterKind } from '@contracts'
@@ -307,6 +309,9 @@ function ComposerBridge({
   const interactionLockCountRef = useRef(0)
   readyRef.current = ready
   disabledRef.current = disabled
+  const shortcutContext = useShortcuts()
+  const shortcutRef = useRef(shortcutContext)
+  shortcutRef.current = shortcutContext
   const callbacks = useRef({
     purpose,
     onDocumentChange,
@@ -426,6 +431,10 @@ function ComposerBridge({
       sync,
       submit: () => { void callbacks.current.onSubmit() },
       enterInsertsLineBreak: () => callbacks.current.purpose === 'mission' || mobileRef.current,
+      shouldSubmitEnter: event => {
+        const context = shortcutRef.current
+        return context ? Boolean(event && shouldSendComposerKey(event, context.platform, context.snapshot?.preferences.sendMode ?? 'enter')) : !event?.shiftKey
+      },
       backspaceAtStart: () => { void callbacks.current.onBackspaceAtStart?.() },
       pasteFiles: (files) => callbacks.current.onPasteFiles?.(files),
       plainText: (selection) =>

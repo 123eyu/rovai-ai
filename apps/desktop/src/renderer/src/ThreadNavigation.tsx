@@ -1,3 +1,4 @@
+import { useShortcutAction, useShortcutLabel, useShortcuts } from './ShortcutProvider'
 import { useThreadClient } from './camp-client'
 import { useMobileLayout } from './MobileLayout'
 import { useNavigationPressMenu } from './useNavigationPressMenu'
@@ -37,7 +38,6 @@ import {
 import { NavigationIcon, type NavigationIconName } from './NavigationIcon'
 import { MissionIcon } from './MissionIcon'
 import {
-  primaryShortcutLabel,
   shouldHandlePrimaryShortcut
 } from './renderer-platform'
 import { allNavigationThreads } from './ui-model'
@@ -260,9 +260,12 @@ export function ThreadNavigation({
   )
   const quickChatWindow = groupWindow('quick-chat', navigation?.quickChat ?? { recentThreads: [], totalCount: 0 })
   const updateBadge = appUpdateBadgePresentation(updateSnapshot)
+  const managed = Boolean(useShortcuts())
+  const jumpLabel = useShortcutLabel('jump', platform)
+  useShortcutAction('jump', () => setPaletteOpen(open => !open), !disabled)
 
   useEffect(() => {
-    if (disabled) return undefined
+    if (disabled || managed) return undefined
     const onKeyDown = (event: KeyboardEvent): void => {
       if (shouldHandlePrimaryShortcut(platform, event, 'K')) {
         event.preventDefault()
@@ -271,7 +274,7 @@ export function ThreadNavigation({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [disabled, platform])
+  }, [disabled, platform, managed])
 
   const showMore = async (groupKey: string): Promise<void> => {
     if (loadingGroupsRef.current.has(groupKey)) return
@@ -405,7 +408,7 @@ export function ThreadNavigation({
         {view === 'settings' && !mobile
           ? (
               settingsNavigation ?? <SettingsSidebarNavigation
-                groups={SETTINGS_SIDEBAR_GROUPS.map(group => ({ ...group, items: group.items.filter(item => item.key !== 'channels' || client.channels) }))}
+                groups={SETTINGS_SIDEBAR_GROUPS.map(group => ({ ...group, items: group.items.filter(item => (item.key !== 'channels' || client.channels) && (item.key !== 'shortcuts' || managed)) }))}
                 section={settingsSection}
                 updateBadge={updateBadge}
                 onSectionChange={onSettingsSectionChange}
@@ -448,7 +451,7 @@ export function ThreadNavigation({
                   </button>
                 </nav>
                 <button className="conversation-jump" type="button" onClick={() => setPaletteOpen(true)}>
-                  <span><UiText zh={"跳转到对话…"} /></span><kbd aria-hidden="true">{primaryShortcutLabel(platform, 'K')}</kbd>
+                  <span><UiText zh={"跳转到对话…"} /></span><kbd aria-hidden="true">{jumpLabel}</kbd>
                 </button>
 
       <div className="navigation-scroll">
@@ -719,6 +722,7 @@ export const SETTINGS_SIDEBAR_GROUPS: SettingsSidebarGroup[] = [
     items: [
       { key: 'general', icon: 'sliders-horizontal', label:"通用" },
       { key: 'appearance', icon: 'sun-moon', label:"外观" },
+      { key: 'shortcuts', icon: 'keyboard', label: '快捷键' },
       { key: 'notifications', icon: 'bell-ring', label:"提醒" }
     ]
   },

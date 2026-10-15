@@ -1,3 +1,5 @@
+import { ShortcutSettings } from './ShortcutSettings'
+import { useShortcutAction } from './ShortcutProvider'
 import { AppToast, type AppToastValue } from './AppToast'
 export { AppToast } from './AppToast'
 import { EMPTY_SNAPSHOT, isProjectPath } from '../../shared/navigation-preferences-model'
@@ -4114,6 +4116,12 @@ export function BusinessApp({
     settings: 'settings-content'
   }
   const startupGateVisible = Boolean(desktop) && startupGateShouldBeVisible(startupSnapshot)
+  const shortcutsEnabled = startupStatus === 'resolved' && !shuttingDown
+  useShortcutAction('new', beginNewConversation, shortcutsEnabled)
+  useShortcutAction('settings', openSettings, shortcutsEnabled)
+  useShortcutAction('missions', () => chooseView('missions'), shortcutsEnabled)
+  useShortcutAction('automations', () => chooseView('automations'), shortcutsEnabled)
+
   const startupFeedbackVisible = startupFeedbackShouldBeVisible(startupStatus)
   const startupRoutePending = !startupGateVisible && startupStatus !== 'resolved'
     ? startupRouteTarget
@@ -4811,7 +4819,7 @@ export function SettingsView({
 }): React.JSX.Element {
   return (
     <div className="settings-workbench">
-      <div className={`settings-panel settings-panel-${section}`}>
+      <div className={`settings-panel settings-panel-${section}${section === 'shortcuts' ? ' settings-panel-general' : ''}`}>
         {section === 'remote' && remoteConnection}
         {section === 'general' && (
           <GeneralSettings
@@ -4840,6 +4848,7 @@ export function SettingsView({
             onChange={onAppearanceChange}
           />
         )}
+        {section === 'shortcuts' && <ShortcutSettings />}
         {section === 'notifications' && (
           <NotificationSettings />
         )}

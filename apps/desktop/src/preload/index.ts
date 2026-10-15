@@ -62,6 +62,21 @@ async function invokeHostWeb<T>(operation: string, input?: unknown): Promise<T> 
 }
 
 const api: RovaiApi = {
+  shortcuts: {
+    get: () => ipcRenderer.invoke('rovai:shortcuts-get'),
+    save: input => ipcRenderer.invoke('rovai:shortcuts-save', input),
+    setRecording: recording => ipcRenderer.invoke('rovai:shortcuts-recording', recording),
+    onChanged(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, snapshot: import('@contracts').ShortcutPreferencesSnapshot): void => listener(snapshot)
+      ipcRenderer.on('rovai:shortcuts-changed', handler)
+      return () => ipcRenderer.removeListener('rovai:shortcuts-changed', handler)
+    },
+    onMouseSide(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, side: import('@contracts').ShortcutMouseSide): void => listener(side)
+      ipcRenderer.on('rovai:shortcut-mouse', handler)
+      return () => ipcRenderer.removeListener('rovai:shortcut-mouse', handler)
+    }
+  },
   windowClose: createWindowCloseApi(ipcRenderer, process.platform),
   hostWeb: {
     loginTicket: () => invokeHostWeb('loginTicket'),

@@ -3412,6 +3412,7 @@ describe('task event projections', () => {
       runtime: '智能体',
       channels: '渠道',
       appearance: '外观',
+      shortcuts: '快捷键',
       notifications: '提醒',
       monitoring: '运行监控',
       diagnostics: '诊断与修复',
@@ -3419,7 +3420,9 @@ describe('task event projections', () => {
     }
     for (const [section, heading] of Object.entries(contentBySection) as Array<[NavigationSettingsSection, string]>) {
       const markup = renderToStaticMarkup(createElement(SettingsView, { remoteConnection: createElement(RemoteConnectionStatus, { origin: 'http://fixture.invalid', state: 'live', onLogout: () => undefined }), preferencesApi: {} as import('@contracts').GeneralPreferencesApi, ...baseProps, section }))
-      if (section === 'mcp') {
+      if (section === 'shortcuts') {
+        expect(markup).not.toContain('<h1>快捷键</h1>') // Desktop capability is required.
+      } else if (section === 'mcp') {
         expect(markup).toContain(`<h1>${heading}<span>`)
         expect(markup.match(/class="capability-library-heading"/g)).toHaveLength(1)
       } else if (section === 'skills' || section === 'toolbox') {

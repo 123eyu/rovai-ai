@@ -146,10 +146,10 @@ x=82/y=5，后退 x=120、前进 x=152；按钮 30px，图标 17px，短箭头�
 普通页面和 Desktop 设置折叠后，窗口左侧只显示展开按钮，不显示历史箭头或新增新对话图标。
 macOS 与 Web 设置展开后不显示上述三个按钮，也不提供调宽操作；原侧栏中的新对话业务入口保留。
 
-快捷键复用 `shouldHandlePrimaryShortcut`：Mac 为 ⌘[ / ⌘]，Windows 为 Ctrl+[ / Ctrl+]。
-冒泡到稳定容器后才处理；输入框、编辑器、终端、IME、已消费事件和模态工作面不触发全局导航。
-Desktop 不监听或拦截 `mouseup` / `auxclick` 的 button=3/4，也不把 Windows `app-command` 映射为历史导航。
-鼠标侧键保留给用户的系统或设备配置。支持的原生 Mac swipe 仍发送到同一接口；所有监听随容器/窗口清理。
+Desktop 导航快捷键由[快捷键设置](shortcut-settings.md)统一分发，默认 Mac 为 ⌘[ / ⌘]，Windows 为 Ctrl+[ / Ctrl+]。
+在捕获阶段先检查作用域；输入框、编辑器、终端、IME、已消费事件和模态工作面不触发全局导航。
+鼠标侧键默认不绑定，只在录制或用户明确保存绑定后消费；Windows 走单一 native app-command 路径。
+支持的原生 Mac swipe 仍发送到原导航接口；监听随容器/窗口清理。Web 未提供此 capability 时保留原键盘入口。
 
 历史不写文件、数据库、localStorage 或 sessionStorage，不引入 schema/存储迁移。
 最小化、托盘隐藏、原窗口内普通数据刷新不清空；前端重载、窗口销毁或新的 App 会话重新初始化。

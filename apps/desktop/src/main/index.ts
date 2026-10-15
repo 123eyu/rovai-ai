@@ -2,6 +2,8 @@ import { creationPreferences, withHostConversationPreferences } from '../shared/
 import { createHostChannelHandler } from './host-channels'
 import { FilePreviewFrameNavigation } from './file-preview/file-preview-navigation'
 import { installWindowNavigation } from './window-navigation'
+import { ShortcutPreferencesStore } from './shortcut-preferences'
+import { installShortcutInput } from './shortcut-input'
 import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { webLinkWindowHandler } from './web-link-window-handler'
 import { randomUUID } from 'node:crypto'
@@ -414,6 +416,8 @@ let lastDiagnosticsExportPath: string | null = null
 let lastMonitoringExportPath: string | null = null
 let lastAppearanceSignature = ''
 let generalPreferences: GeneralPreferencesStore | null = null
+let shortcutPreferences: ShortcutPreferencesStore | null = null
+const shortcutInputs = new Map<number, ReturnType<typeof installShortcutInput>>()
 let windowsWindowClose: WindowsWindowClose | null = null
 let currentUserProfile: CurrentUserProfileStore | null = null
 let onboarding: OnboardingStore | null = null
@@ -828,9 +832,14 @@ function createWindow(): void {
       publishPageZoom()
     }, 0)
   }
-  installCloseTabShortcut(window.webContents, process.platform, () => window.close())
+  const shortcutInput = installShortcutInput(window, process.platform, () => requireShortcutPreferences().get().preferences)
+  shortcutInputs.set(window.webContents.id, shortcutInput)
+  const shortcutWindowId = window.webContents.id
+  window.once('closed', () => shortcutInputs.delete(shortcutWindowId))
+  installCloseTabShortcut(window.webContents, process.platform, () => window.close(), shortcutInput.isRecording)
   installWindowNavigation(window, process.platform)
   window.webContents.on('before-input-event', (event, input) => {
+    if (shortcutInput.isRecording()) return
     const action = pageZoomAction(input, process.platform)
     if (action === null) return
 
@@ -980,6 +989,7 @@ if (primaryInstance) void app.whenReady().then(async () => {
   const userDataPath = app.getPath('userData')
   appearanceFilePath = join(userDataPath, 'appearance.json')
   const generalPreferencesPath = join(userDataPath, 'general-preferences.json')
+  shortcutPreferences = new ShortcutPreferencesStore(join(userDataPath, 'shortcuts.json'), process.platform)
   const currentUserProfilePath = join(userDataPath, 'current-user-profile.json')
   const onboardingPath = join(userDataPath, 'onboarding.json')
   const restorableLocationPath = join(userDataPath, 'restorable-location.json')
@@ -1050,7 +1060,8 @@ if (primaryInstance) void app.whenReady().then(async () => {
     OnboardingStore.load(onboardingPath),
     RestorableLocationStore.load(restorableLocationPath),
     NavigationPreferencesStore.load(navigationPreferencesPath),
-    CurrentUserProfileStore.load(currentUserProfilePath)
+    CurrentUserProfileStore.load(currentUserProfilePath),
+    shortcutPreferences.load()
   ])
   generalPreferences = loadedGeneralPreferences
   onboarding = loadedOnboarding
@@ -1419,6 +1430,19 @@ ipcMain.handle(WINDOW_CLOSE_CHANNEL, createWindowCloseRequestHandler(
 ))
 
 ipcMain.handle('rovai:general-preferences-get', () => hostGeneralPreferences().get())
+ipcMain.handle('rovai:shortcuts-get', async () => { await localStoresLoaded; return requireShortcutPreferences().get() })
+ipcMain.handle('rovai:shortcuts-save', async (_event, input) => {
+  await localStoresLoaded
+  const snapshot = await requireShortcutPreferences().save(input)
+  for (const window of BrowserWindow.getAllWindows()) if (!window.webContents.isDestroyed()) window.webContents.send('rovai:shortcuts-changed', snapshot)
+  return snapshot
+})
+ipcMain.handle('rovai:shortcuts-recording', (event, recording) => {
+  if (typeof recording !== 'boolean') throw new Error('Invalid recording state')
+  const input = shortcutInputs.get(event.sender.id)
+  if (!input) throw new Error('Shortcut recording is unavailable in this window')
+  input.setRecording(recording)
+})
 
 ipcMain.handle('rovai:general-preferences-set-language', (_event, language: unknown) => {
   if (!isInterfaceLanguage(language)) throw new Error('Unsupported interface language')
@@ -2658,6 +2682,11 @@ function hostGeneralPreferences(): ReturnType<typeof withHostConversationPrefere
 function requireGeneralPreferences(): GeneralPreferencesStore {
   if (!generalPreferences) throw new Error('General Preferences store is unavailable')
   return generalPreferences
+}
+
+function requireShortcutPreferences(): ShortcutPreferencesStore {
+  if (!shortcutPreferences) throw new Error('Shortcut preferences are unavailable')
+  return shortcutPreferences
 }
 
 function requireOnboarding(): OnboardingStore {

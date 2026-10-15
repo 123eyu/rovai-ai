@@ -1,3 +1,4 @@
+import { useShortcutAction } from './ShortcutProvider'
 import { useThreadClient } from './camp-client'
 import { prefersReducedMotion } from './reduced-motion'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -178,8 +179,10 @@ export function FilePreviewTabs({ compact = false }: { compact?: boolean } = {})
     successMessage: string
   ): Promise<void> => {
     setMenu(null)
-    const result = await action()
-    announce(result.ok ? successMessage : result.error.message)
+    try {
+      const result = await action()
+      announce(result.ok ? successMessage : result.error.message)
+    } catch (error) { announce(error instanceof Error ? error.message : uiAttribute('文件操作失败，请重试。')) }
   }
 
   const closeAndRestoreFocus = (index: number): void => {
@@ -201,6 +204,25 @@ export function FilePreviewTabs({ compact = false }: { compact?: boolean } = {})
     }
     return true
   }), [client, tabs, activeTabId, paneVisible, close, hidePane])
+
+  const available = (): boolean => paneVisible && Boolean(listRef.current?.getClientRects().length)
+  const cycle = (direction: number): boolean => {
+    if (!available() || tabs.length < 2) return false
+    const index = tabs.findIndex(tab => tab.id === activeTabId)
+    const next = tabs[(Math.max(0, index) + direction + tabs.length) % tabs.length]
+    activate(next.id); focusTab(next.id)
+    return true
+  }
+  useShortcutAction('previous-tab', () => cycle(-1))
+  useShortcutAction('next-tab', () => cycle(1))
+  const systemAction = (reveal: boolean): boolean => {
+    const tab = tabs.find(tab => tab.id === activeTabId)
+    if (!available() || !tab || tab.kind !== 'file' || !(tab.file?.capabilities ?? tab.retainedCapabilities)?.includes('open_in_system') || (!tab.file && !tab.sourceRequest)) return false
+    void runSystemAction(() => reveal ? revealInFolder(tab.id) : openInSystem(tab.id), uiAttribute(reveal ? '已在文件夹中定位' : '已交给系统默认应用打开'))
+    return true
+  }
+  useShortcutAction('reveal-file', () => systemAction(true))
+  useShortcutAction('open-file', () => systemAction(false))
 
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
     if (event.altKey && event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {

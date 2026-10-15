@@ -3068,6 +3068,7 @@ export type SettingsSection =
   | 'runtime'
   | 'channels'
   | 'appearance'
+  | 'shortcuts'
   | 'notifications'
   | 'monitoring'
   | 'diagnostics'
@@ -4393,6 +4394,7 @@ export interface HostWebApi {
 }
 
 export interface RovaiApi {
+  shortcuts?: import('./shortcuts').ShortcutPreferencesApi
   /** Local Desktop owner only; absent on the public Web capability. */
   hostWeb?: HostWebApi
   request<T>(method: CoreMethod, params?: unknown): Promise<T>
@@ -4490,3 +4492,4 @@ export interface MissionWorkspaceChangesView { checkoutState: CheckoutState; vie
 export interface MissionFileDiff { file: MissionChangedFile; patch: string; hunks: { oldStart: number; newStart: number; lines: { kind: 'addition' | 'deletion' | 'context' | 'metadata'; text: string; oldLine: number | null; newLine: number | null }[] }[] }
 
 export * from './member-avatar-image'
+export * from './shortcuts'

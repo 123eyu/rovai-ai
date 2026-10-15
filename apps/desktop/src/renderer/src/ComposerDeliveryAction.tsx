@@ -4,6 +4,7 @@ import type { AgentRunView, ThreadComposerDraftView, ThreadSnapshot } from '@con
 import { ComposerPrimaryAction } from './ComposerPrimaryAction'
 import { MemberAvatar } from './MemberAvatar'
 import { materializeLocalContinuation } from './camp-composer-local-store'
+import { useComposerSendShortcut } from './ShortcutProvider'
 import type { ComposerLocalStatus } from './composer-document'
 import { uiAttribute } from './interface-language'
 import './composer-delivery.css'
@@ -57,13 +58,14 @@ export function steerUnavailableLabel(reason: Plan['reason']): string | null {
 export function ComposerDeliveryAction({ plans, mode, onModeChange, ...props }: ComponentProps<typeof ComposerPrimaryAction> & {
   plans: Plan[]; mode: DeliveryMode; onModeChange(mode: DeliveryMode): void
 }): JSX.Element {
+  const sendShortcut = useComposerSendShortcut()
   if (!plans.some(plan => plan.canSteer || plan.reason) || props.invite) return <ComposerPrimaryAction {...props} />
   const canSteer = plans.some(plan => plan.canSteer)
   const multiple = plans.length > 1
   const label = deliveryActionLabel(plans)
   return <div className={`steer-send-group${canSteer ? '' : ' has-no-choice'}`}>
     <button className="composer-primary-action is-send steer-send-action" type={props.type}
-      aria-label={label} title={plans.map(plan => `${plan.name}：${routeLabel(plan.route)}${plan.route === 'queue' && plan.reason ? ` · ${steerUnavailableLabel(plan.reason) ?? ''}` : ''}`).join('；')}
+      aria-label={sendShortcut ? `${label}（${sendShortcut.label}）` : label} aria-keyshortcuts={sendShortcut?.aria} title={[sendShortcut?.label, ...plans.map(plan => `${plan.name}：${routeLabel(plan.route)}${plan.route === 'queue' && plan.reason ? ` · ${steerUnavailableLabel(plan.reason) ?? ''}` : ''}`)].filter(Boolean).join('；')}
       aria-busy={props.busy} disabled={props.disabled} onClick={props.onClick}>
       <span>{label}</span>
       {props.busy ? <span className="composer-primary-action-spinner" /> : <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" /></svg>}

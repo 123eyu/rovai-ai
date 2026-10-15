@@ -1,10 +1,12 @@
 ---
-version: 20
+version: 21
 slug: "settings-workspace"
 primary_target: "apps/desktop/src/renderer/src/SettingsPageHeader.tsx"
 related_targets:
   - "apps/desktop/src/renderer/src/GeneralSettings.tsx"
   - "apps/desktop/src/renderer/src/AppearanceSettings.tsx"
+  - "apps/desktop/src/renderer/src/ShortcutSettings.tsx"
+  - "apps/desktop/src/renderer/src/shortcut-settings.css"
   - "apps/desktop/src/renderer/src/NotificationSettings.tsx"
   - "apps/desktop/src/renderer/src/SkillSettings.tsx"
   - "apps/desktop/src/renderer/src/McpSettings.tsx"
@@ -77,6 +79,28 @@ retain a disabled entry, explanatory popover or settings shortcut. Conversation 
 independently. Re-enabling the setting restores the switcher without opening the map automatically.
 Preserve the established 启动 and 新对话 composition. The 窗口 reset row uses one quiet raised surface,
 including in Porcelain Day where it reads as a white support card.
+
+## 快捷键
+
+Desktop places 快捷键 immediately after 外观 in settings navigation. Use the shared borderless header,
+1040px content track, theme tokens and neutral dialog. Group side headings organize single-row fields
+into 会话工作区, 输入, 应用与导航 and 查找与文件; compact widths move headings above their rows.
+Keep this an open settings surface without search, system/edit groups, a separate side-button chooser
+or a file-reload action. Follow [快捷键设置](../../../../docs/ui/components/shortcut-settings.md).
+
+Binding fields are transparent at rest and reveal their boundary and input surface on hover or keyboard
+focus; inner keycaps remain visible. Clicking the right-hand field starts inline recording of a keyboard
+combination or an actual mouse side button. Initially show only “请按下快捷键”; validation and conflict
+feedback appear when needed. Keyboard and side-button bindings remain visible together, each with its
+own clear action.
+
+Keep failed candidates, local error feedback and scroll position in the same row. After saving or
+clearing, restore the current row's binding-entry focus only if the user has not moved elsewhere.
+The send-mode row chooses Enter or the platform primary modifier plus Enter; Desktop public and single-chat
+send buttons expose the effective combination through dynamic tooltips and accessible names, without
+permanent composer instructions. Restore-all uses the existing neutral confirmation dialog. Exact
+platform validation, binding and persistence semantics belong to
+[Desktop Shortcuts v1](../../../../docs/contracts/desktop-shortcuts-v1.md).
 
 ## 外观与提醒
 

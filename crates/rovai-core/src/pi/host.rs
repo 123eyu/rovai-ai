@@ -44,7 +44,7 @@ use url::Url;
 
 use crate::{
     acp::CompletedAcpAction,
-    builtin_tool_runtime::BuiltinToolProcessConfig,
+    builtin_tool_runtime::{BuiltinToolProcessConfig, BuiltinToolProcessConfigFactory},
     runtime_fleet::{
         AgentRuntimeFleetManager, FleetAcquireRequest, FleetReleaseDisposition,
         RuntimeCompatibilityKey, RuntimeProcessHost,
@@ -1685,7 +1685,7 @@ pub struct PiAgentRunRuntimeRequest<'a> {
     pub native_binding_id: &'a str,
     pub native_binding_generation: i64,
     pub bootstrap: &'a PreparedSessionBootstrap,
-    pub builtin_tools: &'a BuiltinToolProcessConfig,
+    pub builtin_tool_factory: &'a BuiltinToolProcessConfigFactory,
 }
 
 impl PiRpcRuntimeAdapter {
@@ -1780,7 +1780,7 @@ impl PiRpcRuntimeAdapter {
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_seed = seed.clone();
         let spawn_incoming = self.incoming.clone();
-        let spawn_builtin_tools = request.builtin_tools.clone();
+        let spawn_builtin_tool_factory = request.builtin_tool_factory.clone();
         let spawn_environment = request.frozen_runtime.environment.clone();
         let spawn_environment_source = rovai_core::member_environment::launch_source();
         let lease = self
@@ -1812,7 +1812,7 @@ impl PiRpcRuntimeAdapter {
                         initial_session_file: None,
                         initial_binding: &spawn_seed,
                         incoming: spawn_incoming,
-                        builtin_tools: Some(spawn_builtin_tools),
+                        builtin_tools: Some(spawn_builtin_tool_factory.create()?),
                     })
                     .await?;
                     Ok(RuntimeProcessHost::Pi(host))

@@ -26,6 +26,38 @@ use tokio::{
     time::Instant,
 };
 
+/// Launch inputs only: constructing a factory does not create a process identity
+/// or touch its private directories. Reusable adapters call `create` inside the
+/// Fleet spawn future so only a new process receives a new context.
+#[derive(Clone)]
+pub(crate) struct BuiltinToolProcessConfigFactory {
+    cli_executable: PathBuf,
+    core_endpoint: LocalIpcEndpoint,
+    private_root: PathBuf,
+}
+
+impl BuiltinToolProcessConfigFactory {
+    pub(crate) fn new(
+        cli_executable: &Path,
+        core_endpoint: &LocalIpcEndpoint,
+        private_root: &Path,
+    ) -> Self {
+        Self {
+            cli_executable: cli_executable.to_path_buf(),
+            core_endpoint: core_endpoint.clone(),
+            private_root: private_root.to_path_buf(),
+        }
+    }
+
+    pub(crate) fn create(&self) -> Result<BuiltinToolProcessConfig> {
+        BuiltinToolProcessConfig::create(
+            &self.cli_executable,
+            &self.core_endpoint,
+            &self.private_root,
+        )
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct BuiltinToolProcessConfig {
     inner: Arc<BuiltinToolProcessConfigInner>,

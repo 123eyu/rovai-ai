@@ -8,6 +8,22 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## Claude 受管执行回执与启动期待插话（2026-10-15）
+
+按 User seq86、seq88 实施 [Delivery v17](../../contracts/message-delivery-v17.md)。不调用真实 LLM，
+没有修改数据库、正文存储或模型输入。生产变化在 writer／回执、Core 终态与启动路由、版本传递和 UI 投影。
+
+- 既有 Claude writer／idle owner 改为覆盖内部 result 前后回显均接受；错 Session／UUID 拒绝，FIFO、
+  可靠 idle 后缺回执不阻塞、退出后输出收集、取消零字节撤销及部分帧不重发保持。原“必须同前台段”
+  断言随产品合同退出；进程／Run／Session 隔离继续覆盖。
+- 既有 Delivery owner 增补 queued 和初始化阶段意图，不物化正文、不改初始输入；初始接受后才可投递，
+  启动失败／停止不续跑。真实 success 命令分别覆盖 prepared 和 unknown 补充输入，不以手改终态替代验证。
+- 新增 launch-version Core owner：旧 Pi 发现缓存会造成冻结版本缺失；仅发现探针测试不能验证 Core 缓存到
+  冻结配置的传递。隔离 Core＋假程序覆盖精确路径、旧摘要拒绝、有效缓存和版本失败仍普通运行。
+  最小入口：`cargo test -p rovai-core --features slow-tests --lib launch_version_uses_the_frozen_program_without_blocking_ordinary_execution`。
+- 既有生产 UI 夹具补启动期入口、待插话／发送中及多人互斥摘要；版本表仍由 Core 拥有。
+- 验证状态：定向 Claude、Delivery 和 UI 已通过；其余通用门禁完成后补记。
+
 ## 消息回执对齐与 Claude 写入边界（2026-10-15）
 
 以 main `95110b4b` 为基线实施 User seq74 的交互稿与 seq75 的两项补充修复。无数据库迁移、额外正文、

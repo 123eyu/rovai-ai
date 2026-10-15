@@ -14425,6 +14425,7 @@ impl Core {
                 "Runtime Input acknowledgement could not be persisted: {acknowledgement_error}"
             );
         }
+        self.delivery_batch_scheduler_notify.notify_one();
         Ok(())
     }
 
@@ -14449,7 +14450,10 @@ impl Core {
             delivery_id,
             native_input_id,
         ) {
-            Ok((_, true)) => Ok(Some(execution)),
+            Ok((_, true)) => {
+                self.delivery_batch_scheduler_notify.notify_one();
+                Ok(Some(execution))
+            }
             Ok((_, false)) => Ok(None),
             Err(error) => {
                 let acknowledgement_error = format!("{error:#}");
@@ -14897,6 +14901,54 @@ impl Core {
         &self,
         mut runtime: FrozenAgentRuntimeConfig,
     ) -> std::result::Result<FrozenAgentRuntimeConfig, RuntimeDispatchFailure> {
+        if rovai_core::steer::supports_active_input(runtime.adapter_kind.as_str())
+            && runtime.reported_version.is_none()
+        {
+            let cached = self
+                .runtime_discovery
+                .read()
+                .await
+                .get(&runtime.adapter_kind)
+                .filter(|observed| {
+                    observed.executable_path.as_deref() == Some(runtime.executable_path.as_str())
+                        && observed.executable_fingerprint.as_deref()
+                            == Some(runtime.executable_fingerprint.as_str())
+                })
+                .and_then(|observed| observed.reported_version.clone());
+            let version = if cached.is_some() {
+                cached
+            } else {
+                let search = self.runtime_search_environment.read().await.clone();
+                rovai_core::runtime_discovery::read_runtime_version_for_launch(
+                    runtime.adapter_kind,
+                    Path::new(&runtime.executable_path),
+                    &search,
+                )
+                .await
+                .ok()
+                .filter(|version| !version.trim().is_empty())
+            };
+            // The cache and the frozen Run must describe the same executable.
+            // Failure to read a version only disables Steer, not ordinary execution.
+            if fingerprint_executable(Path::new(&runtime.executable_path))
+                .ok()
+                .as_deref()
+                == Some(runtime.executable_fingerprint.as_str())
+            {
+                runtime.reported_version = version.clone();
+                if let Some(observed) = self
+                    .runtime_discovery
+                    .write()
+                    .await
+                    .get_mut(&runtime.adapter_kind)
+                    && observed.executable_path.as_deref() == Some(runtime.executable_path.as_str())
+                    && observed.executable_fingerprint.as_deref()
+                        == Some(runtime.executable_fingerprint.as_str())
+                {
+                    observed.reported_version = version;
+                }
+            }
+        }
         if runtime.adapter_kind == AdapterKind::OpencodeCli {
             let prepared = async {
                 let identity = crate::opencode_compat::program_identity(&runtime)?;
@@ -27181,6 +27233,118 @@ mod tests {
             runtime_fleet,
             builtin_tool_leases,
         })
+    }
+
+    // Owns launch-time version completion from Core's cache to the frozen
+    // config. Discovery probes alone cannot cover stale cache reuse here.
+    #[cfg(all(target_os = "macos", feature = "slow-tests"))]
+    #[tokio::test]
+    async fn launch_version_uses_the_frozen_program_without_blocking_ordinary_execution() {
+        let root =
+            std::env::temp_dir().join(format!("rovai-launch-version-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = root.join("pi");
+        let calls = root.join("calls");
+        write_runtime_resolution_executable(
+            &executable,
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nprintf '1.1.0\\n'\n",
+                calls.display()
+            ),
+        );
+        let core = runtime_resolution_test_core(&root).unwrap();
+        let runtime = FrozenAgentRuntimeConfig {
+            environment: None,
+            custom_api: None,
+            camp_fast: None,
+            adapter_kind: AdapterKind::Pi,
+            installation_id: "launch-fixture".into(),
+            installation_generation: 1,
+            search_environment_generation: 1,
+            executable_path: executable.to_string_lossy().into_owned(),
+            auth_scope: "local_user".into(),
+            reported_version: None,
+            executable_fingerprint: fingerprint_executable(&executable).unwrap(),
+            capabilities: vec![],
+            protocol_version: "pi-jsonl-rpc-v1".into(),
+            model: rovai_core::agent_profile::ResolvedModelSelection {
+                dsh_source: None,
+                source: "runtime_default".into(),
+                model_id: "default".into(),
+                options: json!({}),
+            },
+            permissions: rovai_core::agent_profile::AdapterPermissionConfig {
+                adapter_kind: AdapterKind::Pi,
+                schema_version: 1,
+                values: json!({}),
+            },
+            native_session_compatibility_key: None,
+            binding_compatibility_digest: "binding".into(),
+            host_config_digest: "host".into(),
+            config_digest: "config".into(),
+        };
+        let mut observation = RuntimeDiscoveryObservation::detecting(AdapterKind::Pi, 1);
+        observation.executable_path = Some(runtime.executable_path.clone());
+        observation.executable_fingerprint = Some("old-program".into());
+        observation.reported_version = Some("0.87.0".into());
+        core.runtime_discovery
+            .write()
+            .await
+            .insert(AdapterKind::Pi, observation.clone());
+        let resolved = core
+            .prepare_runtime_identity(runtime.clone())
+            .await
+            .map_err(|failure| failure.error)
+            .unwrap();
+        assert_eq!(resolved.reported_version.as_deref(), Some("1.1.0"));
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "--version\n");
+        assert_eq!(resolved.executable_path, runtime.executable_path);
+        assert_eq!(
+            resolved.binding_compatibility_digest,
+            runtime.binding_compatibility_digest
+        );
+        // A cache matching the actual installation is sufficient; no probe repeats.
+        observation.executable_fingerprint = Some(runtime.executable_fingerprint.clone());
+        observation.reported_version = Some("1.1.0".into());
+        core.runtime_discovery
+            .write()
+            .await
+            .insert(AdapterKind::Pi, observation);
+        assert_eq!(
+            core.prepare_runtime_identity(runtime.clone())
+                .await
+                .map_err(|failure| failure.error)
+                .unwrap()
+                .reported_version
+                .as_deref(),
+            Some("1.1.0")
+        );
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "--version\n");
+        // Replacing the file cannot relabel an older frozen installation.
+        core.runtime_discovery.write().await.clear();
+        write_runtime_resolution_executable(&executable, "#!/bin/sh\nprintf '9.0.0\\n'\n");
+        assert!(
+            core.prepare_runtime_identity(runtime.clone())
+                .await
+                .map_err(|failure| failure.error)
+                .unwrap()
+                .reported_version
+                .is_none()
+        );
+        // An unavailable version only leaves Steer unavailable, never rejects launch.
+        write_runtime_resolution_executable(&executable, "#!/bin/sh\nexit 1\n");
+        let mut missing = runtime;
+        missing.executable_fingerprint = fingerprint_executable(&executable).unwrap();
+        assert!(
+            core.prepare_runtime_identity(missing)
+                .await
+                .map_err(|failure| failure.error)
+                .unwrap()
+                .reported_version
+                .is_none()
+        );
+        drop(core);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(all(target_os = "macos", feature = "slow-tests"))]

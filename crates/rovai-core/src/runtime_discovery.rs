@@ -1189,6 +1189,27 @@ fn version_timeout(kind: AdapterKind) -> Duration {
     }
 }
 
+/// Reads only the selected program's version during an already-authorized launch.
+/// This does not run a model or refresh installation capabilities.
+pub async fn read_runtime_version_for_launch(
+    kind: AdapterKind,
+    executable: &Path,
+    search: &RuntimeSearchEnvironment,
+) -> Result<String> {
+    with_runtime_configuration(
+        kind,
+        search,
+        bounded_version_command(
+            kind,
+            RuntimeLaunchPurpose::DispatchPreflight,
+            executable,
+            version_arguments(kind),
+            search,
+        ),
+    )
+    .await
+}
+
 async fn bounded_version_command(
     kind: AdapterKind,
     purpose: RuntimeLaunchPurpose,
@@ -2166,6 +2187,26 @@ mod tests {
         assert!(lines.iter().all(|line| line.ends_with(":--version")));
         assert!(!invocations.contains("acp"));
         assert!(!invocations.contains("session"));
+        for kind in [
+            AdapterKind::Pi,
+            AdapterKind::QwenCode,
+            AdapterKind::GrokBuild,
+        ] {
+            // Launch-time version completion uses the frozen path and never
+            // performs a model/permission/catalog check.
+            assert_eq!(
+                read_runtime_version_for_launch(
+                    kind,
+                    &directory.join(kind.command_name()),
+                    &search
+                )
+                .await
+                .unwrap(),
+                "1.2.3"
+            );
+        }
+        let invocations = fs::read_to_string(&marker).unwrap();
+        assert!(invocations.lines().all(|line| line.ends_with(":--version")));
         fs::remove_dir_all(directory).unwrap();
     }
 

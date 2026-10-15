@@ -2784,7 +2784,12 @@ fn load_message_deliveries(
                  current_delivery.status,
                  CASE current_delivery.status
                    WHEN 'waiting' THEN 'never_attempted'
-                   WHEN 'claimed' THEN 'materialized'
+                   WHEN 'claimed' THEN CASE WHEN current_delivery.requested_mode = 'steer'
+                     AND (SELECT input.dispatch_started_at FROM context_manifest AS manifest
+                       JOIN runtime_input_delivery AS input ON input.context_manifest_id=manifest.id
+                       WHERE manifest.source_delivery_id=current_delivery.id
+                       ORDER BY input.input_sequence DESC LIMIT 1) IS NOT NULL
+                     THEN 'attempting' ELSE 'materialized' END
                    ELSE 'terminal'
                  END AS dispatch_phase,
                  NULL AS wait_condition,

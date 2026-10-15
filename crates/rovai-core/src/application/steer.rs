@@ -16,7 +16,7 @@ impl ActiveInputRuntime {
     ) -> Result<String> {
         match self {
             Self::Codex(runtime, turn) => runtime.steer(turn, payload).await,
-            Self::Claude(runtime) => runtime.steer(payload).await,
+            Self::Claude(runtime) => runtime.steer(input_id, payload).await,
             Self::Pi(runtime) => runtime.steer(payload, images).await,
             Self::Acp(runtime, prompt) => runtime.steer(prompt, input_id, payload).await,
         }
@@ -59,15 +59,17 @@ impl Core {
     async fn deliver_active_input(&self, pending: &rovai_core::steer::PendingInput) -> Result<()> {
         let execution = {
             let database = self.database.lock().await;
-            if !rovai_core::steer::active_input_availability(
+            let availability = rovai_core::steer::active_input_availability(
                 database.connection(),
                 &pending.agent_run_id,
                 pending.execution_epoch,
-            )?
-            .can_steer
-            {
+            )?;
+            if !availability.can_steer {
                 drop(database);
                 return self.queue_unsubmitted_input(&pending.delivery_id).await;
+            }
+            if !availability.ready {
+                return Ok(());
             }
             ExecutionRuntimeService::default().load_agent_run_execution(
                 &database,
@@ -138,7 +140,7 @@ impl Core {
                 &pending.agent_run_id,
                 pending.execution_epoch,
             )?
-            .can_steer
+            .ready
                 || ExecutionRuntimeService::default()
                     .load_agent_run_execution(
                         &database,
@@ -201,6 +203,11 @@ impl Core {
                 return Ok(());
             }
         }
+        emit_navigation_invalidated(
+            &self.output,
+            "delivery.input_changed",
+            Some(&execution.camp_id),
+        );
         match runtime
             .submit(&input.id, &context.runtime_payload, &images)
             .await

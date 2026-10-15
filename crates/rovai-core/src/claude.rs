@@ -1072,7 +1072,9 @@ impl ClaudeCodeCliRuntimeAdapter {
                 }
                 waited = child.wait(), if status.is_none() => {
                     status = Some(waited.context("failed to wait for Claude Code process")?);
-                    protocol.disconnect();
+                    // Fence writes immediately, but drain stdout before settling
+                    // missing receipts: the last replay may already be in the pipe.
+                    protocol.fence_active_input();
                     tasks.stdin.abort();
                     stdin_closed = true;
                     child.force_terminate_tree().context("failed to terminate Claude Code descendants after root exit")?;

@@ -3,13 +3,13 @@ document_type: architecture
 architecture: public-a2a-message-delivery
 authority: public-message-delivery-and-agent-run-boundaries
 status: accepted
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Public Camp Message、Delivery 与 AgentRun
 
 本架构定义公开 Camp 的统一消息执行主链。字段合同见 [Camp Message Send v25](../contracts/camp-message-send-v25.md)、
-[Message Delivery v16](../contracts/message-delivery-v16.md)、[ContextManifest 39](../contracts/context-manifest-evidence-v39.md)
+[Message Delivery v17](../contracts/message-delivery-v17.md)、[ContextManifest 39](../contracts/context-manifest-evidence-v39.md)
 与 [Camp History v11](../contracts/camp-history-v11.md)。Single Chat 不使用本主链。
 
 ## 三类事实
@@ -155,13 +155,13 @@ SQLite claim 事务只复核准备结果的 workspace ID、generation、preparat
 
 User 的发送操作可以选择 Steer，正文仍只有普通 CampMessage，责任仍由逐队员 Delivery 拥有。
 Core 在发布时捕获可用的目标 Run／epoch，Scheduler 复用既有 worker；只在 Runtime 层选择 start
-或向该活跃 turn 注入。多目标分别处理，普通 waiting 队列不被抽走；支持附件、引用与 Skill。
+或向当前受管执行补充输入。多目标分别处理，普通 waiting 队列不被抽走；支持附件、引用与 Skill。
 
 共同 DynamicInputContext Builder 和 Formatter 只读本次来源，新输入读取最新动态事实；启动内容、
 执行配置、Bootstrap 和已物化输入保持冻结。Manifest 可以一 Run 多条，ACK、恢复和历史 fence 关联
 精确 Manifest。正常结束时可证明未提交的来源回普通队列；未知不重放，取消不自动启动后继。
 当前支持 Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、Kiro CLI、ZCode、TRAE CLI CN，运输和回执见
-[Message Delivery v16](../contracts/message-delivery-v16.md)。Qwen 只通过原生拉取回调投递；
+[Message Delivery v17](../contracts/message-delivery-v17.md)。Qwen 只通过原生拉取回调投递；
 CodeBuddy 的补充响应不结束原 Run。Pi 等待消费证据，不把 queued 当作消费。
 CodeBuddy/Grok 缺少原生 turn 参数，以 Run/epoch/Session fence 和执行后 Host 回收限制迟到输入；
 Pi 的原生未消费队列同样不能带入后继 Host。上下文、消息正文和逐队员 Delivery 保持共同路径。
@@ -173,3 +173,8 @@ Kiro 以原生 queued→injected 关联确认，ZCode 以原 Turn 的 guide queu
 普通任务资格独立；未知版本或不满足回执要求时普通排队，未知投递结果不重发。accepted 的共同展示
 为“运行时已接收”，不等同模型消费或业务完成。TRAE 使用 `_session/steering` 的 injected 回执，
 原 Prompt 仍拥有终态，使用过插话的 Host 回收。
+
+Claude 复用 Stream JSON 和既有输入编号关联回显，允许确认跨越内部 result；接收不承诺原生同轮。
+回执不决定 Run 生命周期，可靠结束后未确认输入单独保持未知，不重发、不阻塞收尾。
+已确定且支持插话的启动 Run 先保存 Delivery 意图，初始输入接受后再由同一 Scheduler 物化／投递；
+等待只新增既有 Delivery 归属，不新增正文。启动时补全缺失版本须核验实际冻结程序身份，普通运行资格保持。

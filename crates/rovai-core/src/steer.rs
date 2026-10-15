@@ -50,6 +50,7 @@ pub enum SteerUnavailableReason {
 #[derive(Debug, Clone, Default)]
 pub struct ActiveInputAvailability {
     pub can_steer: bool,
+    pub ready: bool,
     pub unavailable_reason: Option<SteerUnavailableReason>,
 }
 
@@ -57,6 +58,7 @@ impl ActiveInputAvailability {
     fn unavailable(reason: SteerUnavailableReason) -> Self {
         Self {
             can_steer: false,
+            ready: false,
             unavailable_reason: Some(reason),
         }
     }
@@ -161,7 +163,7 @@ pub fn active_input_availability(
     let reason = if actual_epoch != epoch {
         Some(ExecutionChanged)
     } else if kind != "batch"
-        || !matches!(status.as_str(), "running" | "waiting")
+        || !matches!(status.as_str(), "queued" | "running" | "waiting")
         || cancel.is_some()
     {
         Some(ExecutionNotReady)
@@ -179,10 +181,10 @@ pub fn active_input_availability(
             version.as_deref(),
             protocol.as_deref().unwrap_or(""),
         )
-        .or_else(|| (!accepted).then_some(ExecutionNotReady))
     };
     Ok(ActiveInputAvailability {
         can_steer: reason.is_none(),
+        ready: reason.is_none() && accepted && status != "queued",
         unavailable_reason: reason,
     })
 }
@@ -211,10 +213,7 @@ pub(crate) fn route_user_message(
             JOIN conversation c ON c.agent_id=d.recipient_agent_id
             JOIN agent_run r ON r.camp_id=d.camp_id AND r.conversation_id=c.id
             WHERE m.id=?1 AND m.author_type='user' AND d.status='waiting'
-              AND r.invocation_kind='batch' AND r.status IN ('running','waiting') AND r.cancel_requested_at IS NULL
-              AND EXISTS(SELECT 1 FROM runtime_input_delivery i WHERE i.agent_run_id=r.id
-                AND i.execution_epoch=r.execution_epoch AND i.input_kind='start' AND i.status='accepted'
-                AND i.native_binding_id=c.native_binding_id AND i.native_binding_generation=c.native_binding_generation)")?;
+              AND r.invocation_kind='batch' AND r.status IN ('queued','running','waiting') AND r.cancel_requested_at IS NULL")?;
         query
             .query_map([message_id], |r| {
                 Ok((
@@ -235,9 +234,13 @@ pub(crate) fn route_user_message(
                     .any(|t| t.agent_run_id == run && t.execution_epoch == epoch)
             })
         {
-            tx.execute("UPDATE camp_message_delivery SET requested_mode='steer',status='claimed',
-                claimed_agent_run_id=?2,target_execution_epoch=?3,claimed_at=updated_at,version=version+1 WHERE id=?1 AND status='waiting'",
-                params![delivery,run,epoch])?;
+            tx.execute(
+                "UPDATE camp_message_delivery SET requested_mode='steer',status='claimed',
+                claimed_agent_run_id=?2,target_execution_epoch=?3 + CASE
+                  WHEN (SELECT status FROM agent_run WHERE id=?2)='queued' THEN 1 ELSE 0 END,
+                claimed_at=updated_at,version=version+1 WHERE id=?1 AND status='waiting'",
+                params![delivery, run, epoch],
+            )?;
             tx.execute(
                 "UPDATE camp_message SET recall_state='closed',version=version+1
                 WHERE id=?1 AND recall_state='recallable'",
@@ -261,6 +264,10 @@ pub fn pending_inputs(connection: &Connection) -> Result<Vec<PendingInput>> {
         JOIN agent_run r ON r.id=d.claimed_agent_run_id
         WHERE d.requested_mode='steer' AND d.status='claimed' AND r.status IN ('running','waiting')
           AND r.cancel_requested_at IS NULL AND d.target_execution_epoch=r.execution_epoch
+          AND EXISTS(SELECT 1 FROM runtime_input_delivery initial JOIN conversation c ON c.id=r.conversation_id
+              WHERE initial.agent_run_id=r.id AND initial.execution_epoch=r.execution_epoch AND initial.input_kind='start'
+                AND initial.status='accepted' AND initial.native_binding_id=c.native_binding_id
+                AND initial.native_binding_generation=c.native_binding_generation)
           AND NOT EXISTS(SELECT 1 FROM context_manifest m JOIN runtime_input_delivery i ON i.context_manifest_id=m.id
               WHERE m.source_delivery_id=d.id AND (i.status<>'prepared' OR i.dispatch_started_at IS NOT NULL))
           AND NOT EXISTS(SELECT 1 FROM camp_message_delivery earlier

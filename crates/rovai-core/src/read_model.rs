@@ -2543,6 +2543,14 @@ fn hydrate_message_views(
                 None
             };
             let mission_start=transaction.query_row("SELECT s.mission_id,m.title,m.description FROM mission_start s JOIN mission m ON m.id=s.mission_id WHERE s.message_id=?1",[&row.id],|r|Ok(serde_json::json!({"missionId":r.get::<_,String>(0)?,"title":r.get::<_,String>(1)?,"description":r.get::<_,String>(2)?}))).optional()?;
+            // Older Steer deliveries did not close the stored recall window.
+            // Read them using the same recognition boundary as withdrawal.
+            let can_withdraw = row.recall_state == "recallable"
+                && !transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM camp_message_delivery WHERE message_id=?1 AND status<>'waiting')
+                     OR EXISTS(SELECT 1 FROM agent_run_input WHERE message_id=?1)",
+                    [&row.id], |r| r.get::<_, bool>(0),
+                )?;
             Ok(ThreadMessageView {
                 mission_start,
                 runtime_model: models_by_message_id.remove(&row.id),
@@ -2568,7 +2576,7 @@ fn hydrate_message_views(
                     .context("CampMessage presentation is invalid")?,
                 created_at: row.created_at,
                 withdrawn: row.recall_state == "withdrawn",
-                can_withdraw: row.recall_state == "recallable",
+                can_withdraw,
                 version: row.version,
             })
         })

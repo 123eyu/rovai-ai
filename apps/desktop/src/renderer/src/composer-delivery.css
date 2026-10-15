@@ -1,4 +1,5 @@
 .steer-send-group{display:inline-flex;flex:none;align-items:center;border-radius:6px;background:var(--conversation-action);color:var(--conversation-action-contrast)}
+.steer-send-group.has-no-choice .steer-send-action{border-radius:6px}
 .composer-primary-action.steer-send-action{width:auto;flex:0 0 auto;white-space:nowrap;min-width:72px;gap:7px;padding:0 10px;border-radius:6px 0 0 6px;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center}
 .steer-send-action>svg{width:18px;height:18px}.steer-send-action>.composer-primary-action-spinner{position:static;width:15px;height:15px}
 .steer-send-choice{height:32px;min-width:26px;border:0;border-left:1px solid color-mix(in srgb,var(--conversation-action-contrast) 24%,transparent);background:transparent;color:inherit;border-radius:0 6px 6px 0;display:grid;place-items:center;cursor:pointer;padding:0 5px}

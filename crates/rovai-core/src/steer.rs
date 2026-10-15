@@ -238,6 +238,11 @@ pub(crate) fn route_user_message(
             tx.execute("UPDATE camp_message_delivery SET requested_mode='steer',status='claimed',
                 claimed_agent_run_id=?2,target_execution_epoch=?3,claimed_at=updated_at,version=version+1 WHERE id=?1 AND status='waiting'",
                 params![delivery,run,epoch])?;
+            tx.execute(
+                "UPDATE camp_message SET recall_state='closed',version=version+1
+                WHERE id=?1 AND recall_state='recallable'",
+                [message_id],
+            )?;
         }
     }
     Ok(())

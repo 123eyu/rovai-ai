@@ -3619,13 +3619,28 @@ impl Core {
         }
         if let Some(verified) = verified {
             let result = match verified {
-                Ok(verified) => AgentProfileService::default()
-                    .commit_discovered_runtime_entry(
-                        &mut *self.database.lock().await,
-                        verified,
-                        None,
-                    )
-                    .map(|_| ()),
+                Ok(verified) => {
+                    let mut database = self.database.lock().await;
+                    let service = AgentProfileService::default();
+                    service
+                        .commit_discovered_runtime_entry(&mut database, verified, None)
+                        .and_then(|id| {
+                            if let (Some(version), Some(path), Some(fingerprint)) = (
+                                observation.reported_version.as_deref(),
+                                observation.executable_path.as_deref(),
+                                observation.executable_fingerprint.as_deref(),
+                            ) {
+                                service.record_runtime_version(
+                                    &mut database,
+                                    &id,
+                                    path,
+                                    fingerprint,
+                                    version,
+                                )?;
+                            }
+                            Ok(())
+                        })
+                }
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
@@ -5436,6 +5451,17 @@ impl Core {
                 _ => ("transient", "runtime_probe_transient_failure"),
             };
             let mut database = self.database.lock().await;
+            if let (Some(installation), Some(version)) =
+                (existing.as_ref(), snapshot.reported_version.as_deref())
+            {
+                AgentProfileService::default().record_runtime_version(
+                    &mut database,
+                    &installation.id,
+                    &canonical.to_string_lossy(),
+                    &candidate_fingerprint,
+                    version,
+                )?;
+            }
             AgentProfileService::default().record_managed_probe_failure(
                 &mut database,
                 ManagedProbeFailure {
@@ -14979,6 +15005,18 @@ impl Core {
                     error,
                     effective_version: None,
                 })?;
+            if let Some(version) = runtime.reported_version.as_deref()
+                && let Err(error) = AgentProfileService::default().record_runtime_version(
+                    &mut *self.database.lock().await,
+                    &runtime.installation_id,
+                    &runtime.executable_path,
+                    &runtime.executable_fingerprint,
+                    version,
+                )
+            {
+                // A display cache failure must not reject an ordinary launch.
+                eprintln!("failed to persist Runtime version observation: {error:#}");
+            }
         }
         Ok(runtime)
     }
@@ -27537,7 +27575,39 @@ mod tests {
                     .map_err(|failure| failure.error)
                     .unwrap();
                 assert_eq!(prepared.reported_version.as_deref(), reported);
+                if adapter == AdapterKind::Pi && reported.is_some() {
+                    core.database.lock().await.connection().execute_batch(
+                        "CREATE TEMP TRIGGER fail_version_cache BEFORE UPDATE OF reported_version
+                         ON adapter_capability_snapshot BEGIN SELECT RAISE(ABORT, 'injected version cache failure'); END;",
+                    ).unwrap();
+                    let mut retry_identity = prepared.clone();
+                    retry_identity.reported_version = None;
+                    let resolved = core
+                        .prepare_runtime_identity(retry_identity)
+                        .await
+                        .map_err(|failure| failure.error)
+                        .unwrap();
+                    assert_eq!(
+                        resolved.reported_version.as_deref(),
+                        reported,
+                        "display cache writes must not reject ordinary execution"
+                    );
+                    core.database
+                        .lock()
+                        .await
+                        .connection()
+                        .execute_batch("DROP TRIGGER fail_version_cache")
+                        .unwrap();
+                }
                 let mut database = core.database.lock().await;
+                let installed = AgentProfileService::default()
+                    .managed_installation(&database, adapter, "default")
+                    .unwrap()
+                    .unwrap();
+                let snapshot = installed.snapshot.unwrap();
+                assert_eq!(snapshot.reported_version.as_deref(), reported);
+                assert_eq!(snapshot.probe_status, "light_ready");
+                assert!(snapshot.last_successful_probe_at.is_none());
                 let claimed = ExecutionRuntimeService::default()
                     .claim_agent_run(
                         &mut database,
@@ -28575,28 +28645,9 @@ done
                 // Once a version is known, reopening the database and publishing
                 // a versionless static observation must keep the public version.
                 // The fixture's --version sleeps: discovery must never invoke it.
-                let snapshot = AgentRuntimeAdapterRegistry::default()
-                    .light_ready_snapshot(
-                        AdapterKind::CodexCli,
-                        Some("1.2.3".into()),
-                        observation.executable_fingerprint.clone().unwrap(),
-                        observation.observed_at.clone(),
-                    )
-                    .unwrap();
-                service
-                    .commit_discovered_managed_installation(
-                        &mut *core.database.lock().await,
-                        DiscoveredManagedInstallation {
-                            adapter_kind: AdapterKind::CodexCli,
-                            executable_path: executable.to_string_lossy().into_owned(),
-                            command_name: "codex".into(),
-                            source: InstallationSource::Manual,
-                            auth_scope: "default".into(),
-                            snapshot,
-                            entrypoint_locator_identity: None,
-                        },
-                    )
-                    .unwrap();
+                let mut versioned = observation.clone();
+                versioned.reported_version = Some("1.2.3".into());
+                core.publish_runtime_discovery(versioned).await;
                 drop(core);
                 core = runtime_resolution_test_core(&root).unwrap();
                 core.publish_runtime_discovery(observation.clone()).await;
@@ -28755,6 +28806,22 @@ done
                 .map(|attempt| attempt.status.as_str()),
             Some("failed")
         );
+        assert_eq!(
+            installation
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.reported_version.as_deref()),
+            Some("trae-cli version stable-failure"),
+            "a successful version read survives a later protocol failure"
+        );
+        assert!(
+            installation
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .last_successful_probe_at
+                .is_none()
+        );
         drop(database);
         assert_eq!(
             std::fs::read_to_string(&invocations)
@@ -28764,6 +28831,32 @@ done
                 .count(),
             2
         );
+        drop(core);
+        let core = runtime_resolution_test_core(&root).unwrap();
+        let search = RuntimeSearchEnvironment::for_test_paths(1, Vec::new());
+        let observation =
+            rovai_core::runtime_discovery::discover_runtime_path_with_manual_candidates(
+                AdapterKind::TraeCnCli,
+                &search,
+                [runtime.clone()],
+            );
+        core.publish_runtime_discovery(observation).await;
+        let health = core.runtime_health_payload().await.unwrap();
+        let trae = health["runtimeAvailability"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["runtimeKind"] == "trae-cn-cli")
+            .unwrap();
+        assert_eq!(trae["reportedVersion"], "trae-cli version stable-failure");
+        let database = core.database.lock().await;
+        let installation = AgentProfileService::default()
+            .managed_installation(&database, AdapterKind::TraeCnCli, "default")
+            .unwrap()
+            .unwrap();
+        assert_eq!(installation.last_probe_attempt.unwrap().status, "failed");
+        assert_ne!(installation.snapshot.unwrap().probe_status, "ready");
+        drop(database);
         drop(core);
         std::fs::remove_dir_all(root).unwrap();
     }

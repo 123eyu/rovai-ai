@@ -1919,6 +1919,71 @@ impl AgentProfileService {
         Ok(installation_id)
     }
 
+    /// A version read is program metadata, not authentication or health evidence.
+    /// Only the still-current executable may update the existing snapshot field.
+    pub fn record_runtime_version(
+        &self,
+        database: &mut Database,
+        installation_id: &str,
+        executable_path: &str,
+        fingerprint: &str,
+        reported_version: &str,
+    ) -> Result<bool> {
+        let version = reported_version.trim();
+        if version.is_empty() || fingerprint.is_empty() {
+            return Ok(false);
+        }
+        let transaction = database.connection_mut().transaction()?;
+        let current = transaction.query_row(
+            "SELECT installation.adapter_kind, snapshot.executable_fingerprint
+             FROM adapter_installation installation
+             JOIN runtime_executable_identity identity ON identity.installation_id = installation.id
+             LEFT JOIN adapter_capability_snapshot snapshot ON snapshot.installation_id = installation.id
+             WHERE installation.id = ?1 AND installation.executable_path = ?2
+               AND installation.enabled = 1 AND installation.path_state = 'valid'
+               AND identity.executable_path = ?2 AND identity.executable_fingerprint = ?3",
+            params![installation_id, executable_path, fingerprint],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        ).optional()?;
+        let Some((kind, previous_fingerprint)) = current else {
+            return Ok(false);
+        };
+        if previous_fingerprint
+            .as_deref()
+            .is_some_and(|old| old != fingerprint)
+        {
+            // Static discovery retains a stale snapshot after replacement. A
+            // new version must not relabel that older program's health evidence.
+            let mut snapshot = AgentRuntimeAdapterRegistry::default().light_ready_snapshot(
+                AdapterKind::from_str(&kind)?,
+                Some(version.to_string()),
+                fingerprint.to_string(),
+                chrono::Utc::now().to_rfc3339(),
+            )?;
+            snapshot.probe_status = "installed_unverified".into();
+            snapshot.last_error = None;
+            upsert_static_capability_snapshot(&transaction, installation_id, &snapshot)?;
+        } else {
+            transaction.execute(
+                "INSERT INTO adapter_capability_snapshot(
+                installation_id, reported_version, executable_fingerprint,
+                authentication_status, probe_status, last_attempted_at)
+             VALUES (?1, ?2, ?3, 'unknown', 'installed_unverified', ?4)
+             ON CONFLICT(installation_id) DO UPDATE SET
+                reported_version = excluded.reported_version,
+                executable_fingerprint = excluded.executable_fingerprint",
+                params![
+                    installation_id,
+                    version,
+                    fingerprint,
+                    chrono::Utc::now().to_rfc3339()
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(true)
+    }
+
     /// A catalog-only success never manufactures new authentication/capability
     /// evidence or advances last_successful_probe_at / installation generation.
     pub fn commit_runtime_model_catalog(
@@ -8265,6 +8330,58 @@ mod slow_tests {
                 crate::agent_runtime_adapter::ExecutableIntegrityStatus::Unchanged
             ));
 
+            assert!(
+                service
+                    .record_runtime_version(
+                        &mut database,
+                        &frozen.installation_id,
+                        &frozen.executable_path,
+                        &fingerprint,
+                        " 1.2.3 ",
+                    )
+                    .unwrap()
+            );
+            let observed = service
+                .managed_installation(&database, kind, "default")
+                .unwrap()
+                .unwrap();
+            let snapshot = observed.snapshot.unwrap();
+            assert_eq!(snapshot.reported_version.as_deref(), Some("1.2.3"));
+            assert_eq!(snapshot.probe_status, "installed_unverified");
+            assert!(snapshot.last_successful_probe_at.is_none());
+            for (path, identity, version) in [
+                ("different-path", fingerprint.as_str(), "9.0.0"),
+                (
+                    frozen.executable_path.as_str(),
+                    "obsolete-fingerprint",
+                    "9.0.0",
+                ),
+                (frozen.executable_path.as_str(), fingerprint.as_str(), " "),
+            ] {
+                assert!(
+                    !service
+                        .record_runtime_version(
+                            &mut database,
+                            &frozen.installation_id,
+                            path,
+                            identity,
+                            version,
+                        )
+                        .unwrap()
+                );
+            }
+            assert_eq!(
+                service
+                    .managed_installation(&database, kind, "default")
+                    .unwrap()
+                    .unwrap()
+                    .snapshot
+                    .unwrap()
+                    .reported_version
+                    .as_deref(),
+                Some("1.2.3")
+            );
+
             if kind == AdapterKind::CodexCli {
                 // An upgrade leaves the old diagnostic intact; its fingerprint
                 // cannot turn every later Run into another full-file read.
@@ -8340,6 +8457,43 @@ mod slow_tests {
                         .is_none(),
                     "an obsolete frozen fingerprint is still fenced"
                 );
+                assert!(
+                    !service
+                        .record_runtime_version(
+                            &mut database,
+                            &frozen.installation_id,
+                            &frozen.executable_path,
+                            &fingerprint,
+                            "old-version",
+                        )
+                        .unwrap()
+                );
+                assert!(
+                    service
+                        .record_runtime_version(
+                            &mut database,
+                            &frozen.installation_id,
+                            &frozen.executable_path,
+                            &upgraded,
+                            "2.0.0",
+                        )
+                        .unwrap()
+                );
+                let snapshot = service
+                    .managed_installation(&database, kind, "default")
+                    .unwrap()
+                    .unwrap()
+                    .snapshot
+                    .unwrap();
+                assert_eq!(snapshot.reported_version.as_deref(), Some("2.0.0"));
+                assert_eq!(
+                    snapshot.executable_fingerprint.as_deref(),
+                    Some(upgraded.as_str())
+                );
+                assert_eq!(snapshot.probe_status, "installed_unverified");
+                assert_eq!(snapshot.authentication_status, "unknown");
+                assert!(snapshot.capabilities.is_empty());
+                assert!(snapshot.last_successful_probe_at.is_none());
                 database
                     .connection()
                     .execute(

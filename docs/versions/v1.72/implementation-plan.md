@@ -30,7 +30,7 @@ Pi 去掉额外消费等待和正文匹配状态，停止仍先清队列后 abor
   与最终结果；停止用例在确认入队但工具仍阻塞后取消，再普通续接。结果见
   [九种 Runtime 回执报告](../../research/runtime-monitoring/steer-queued-receipts-2026-10-15.md)。
 
-版本缓存与展示由独立会话处理。复核该分支确认未处理启动摘要错误，本次在补齐版本时刷新现有
+版本缓存与展示分支按 User seq98 合入同一 PR。复核确认该分支未处理启动摘要错误，本次在补齐版本时刷新现有
 config_digest；扩展已有 launch-version slow owner，沿真实 prepare／rebind／claim 路径验证 Pi、Qwen
 版本补齐与版本检测失败两种普通启动均可领取。不新增 owner 或全局健康检查。
 最小入口：`cargo test -p rovai-core --features slow-tests --lib launch_version_uses_the_frozen_program_without_blocking_ordinary_execution`。
@@ -63,7 +63,18 @@ config_digest；扩展已有 launch-version slow owner，沿真实 prepare／reb
   2715 通过、1 项语言目录扫描超过既有 5 秒预算；该文件单独重跑 2 项均通过，未改超时或测试内容。
   随后执行原脚本剩余 Node 阶段，355 通过、2 项 Windows 专用验证按原条件跳过。
 
-本次没有真实模型调用或日常 App 安装。原主 checkout 的文档检查会扫描 Git 忽略的本地原型并报告旧坏链接；
+以上为版本分支合并前记录。组合审查另补首次版本保存遗漏：实际读取成功后，认证／协议检查失败或
+普通启动和静态发现也保存既有版本字段；无快照时保持 `installed_unverified`。程序升级后重置旧健康证据，
+同程序只更新版本；保存失败不阻断普通启动。没有新增表、字段、探测或缓存服务。
+扩展既有 `discovered_entry_configures_and_freezes_without_health_evidence` 的首次版本、空值、错路径、
+旧指纹及升级矩阵；扩展 `runtime_check_manager_binds_stable_failure_to_rebound_fingerprint` 的检查失败／重启
+公开投影；扩展 launch-version owner 的启动补存。原 launch owner 新断言在修复前为 None 对 Some 红测，
+另以临时 SQLite trigger 注入版本缓存保存失败，普通 prepare／claim 仍成功。
+既有 discovery／restart owner 从实际 versioned observation 入口保存，再验证重启和无版本发现保留值；
+保留原本无健康快照重启、全局锁不跨文件等待的断言，不为静态版本增加探测。
+不新增 Rust owner。最小命令为 `cargo test -p rovai-core --features slow-tests --lib <owner>`。
+
+该独立分支此前没有真实模型调用或日常 App 安装。原主 checkout 的文档检查会扫描 Git 忽略的本地原型并报告旧坏链接；
 提交内容的文档门禁在隔离的干净提交副本通过（包括真实 base SHA 的 diff-aware 检查），
 不修改原型或添加 checker 例外。
 

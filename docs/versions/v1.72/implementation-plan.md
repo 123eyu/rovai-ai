@@ -8,6 +8,24 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## Steer 合入前自检（2026-10-15，User seq47）
+
+以主线 `1681b99e` 为合入基线。主线 203 的操作格式与分支 203 的 Steer 结构分别识别，
+204／schema 154 只补缺少的结构；既有填充夹具追加分支 203 的 accepted／unknown／prepared 保全、
+回执保存失败回滚及重复打开验证。来源、视图和去重约束不完整时拒绝准入。
+历史数据库矩阵沿用既有 owner 并归入 extended-tests，不新增平行测试。
+
+Desktop Main 精确开放 `runtimeInputs.reconcile`；生产 Composer 以 continuation 物化后的正文预览，
+提交时依据 flush 后正文和点击时 Run 快照计算目标。Pi Start／Steer 共用图片授权字节准备、
+模型能力校验、MIME／大小检查和发送前证据；扩展既有 RPC owner 检查原字节与拒绝零写入。
+规范与需求审查分别复核以上修复；既有 CodeBuddy #762 不关闭。
+
+User seq49 的存储复核沿用普通输入和执行记录的现有合同：Steer 不复制最终输入的各节正文，
+也不持久化 `canSteer` 或原生输入回显。既有多输入恢复 owner 补上退役快照列保持 NULL、最终 Blob
+原字节可读和事件无输入正文的断言；删除 Read Model 的未使用重复查询。
+隔离打包存储升级脚本使用合并后的 schema 154，继续验证旧正文、格式 4、输出预算、文件展开和重启不重投。
+验证结果与审查分别记录于[合入前自检](../../research/runtime-monitoring/steer-release-review-2026-10-15.md)。
+
 ## Steer 版本复核（2026-10-15，User seq44）
 
 CodeBuddy 从离散名单改为 `>=2.109.1`；按 User seq46 移除大版本上限及推荐版本。
@@ -2442,6 +2460,103 @@ node scripts/smoke-storage-app-upgrade.mjs /private/tmp/rovai-storage-upgrade-ex
 首轮并行构建期间一个既有 500 ms Runtime 清理测试超时，未修改超时阈值；该项独立重跑及随后完整 workspace 重跑均通过。
 本轮只补具体查询和验收；审批、command.result、投递／结算、分页算法、权限系统及 Pi 入站预算没有变更。
 
+
+## 执行记录存储精简：新操作正文与进度写入（2026-10-15）
+
+按 User 消息 38，从 main `d6ae891f` 在当前使命 checkout 继续前三项定点优化。合同为
+[Execution Record Storage v3](../../contracts/execution-record-storage-v3.md)，理由见 [V1.72-D46](decisions.md#v1-72-d46)。
+
+新操作格式 4：精确匹配的 Codex 修改正文去重；每份输入／结果预览限 16 KiB 序列化 UTF-8；
+结果摘要保存于同一行的小字段，只有摘要变化的进行中事件不重写正文／活动元数据、不推进展示版本。
+旧格式 1–3、command.result、审批／投递／结算、正常删除 GC、Files Changed 聚合算法不变。
+准备失败 Blob 候选登记是第四项，本轮不改。migration 203 / schema 153 不扫描或回填旧正文。
+
+测试扩展既有生命周期、精确文件授权、大 Run 分页及打包升级 owner；新增纯函数 owner 仅覆盖
+总字节预算与“必须同时匹配路径、种类、正文才删除原生副本”这两个独立回归，不新建完整数据库测试平台。
+最小命令：`cargo test -p rovai-core --lib execution_evidence`；文件与升级入口使用既有 extended-tests owner，
+大 Run 比较使用既有 slow-tests owner。实际验证和测量结果见本节后续数据。
+
+定向结果：旧格式 1–3 继续原格式收尾，混合页与展开详情可读；CLI/Core 结果关联在分页和分组索引中均保留。
+重启后仅收到完成状态仍保留最新摘要，晚到开始／冲突终态不覆盖已接受的结果证明；合法完整替换、
+有序追加、取消围栏和未知结果处理复用原测试。升级注入收据失败时事务回滚，升级及重开后旧正文／引用逐值相同。
+轨迹导出覆盖格式 3/4，SQLite authorizer 禁止正文读取和 DML，导出仍成功。
+
+复用的生命周期夹具给出以下定点结果（字节均为 UTF-8 序列化长度）：
+
+| 合成场景 | 原格式 3 | 新格式 4 |
+| --- | ---: | ---: |
+| 216,657 字节输入的数据库预览 | 216,703 | 16,383 |
+| 含单份 36,016 字节 diff 的完整结果 | 72,495 | 36,466 |
+| 相同保留前缀、128 次进度的正文 UPDATE 数 | 127 | 0 |
+| 上述进度的活动元数据 UPDATE 数 | 128 | 1 |
+| 上述进度的全部 UPDATE 数 | 255 | 128 |
+| 上述进度的可见版本数 | 128 | 1 |
+
+新格式仍有必要的摘要标量写入；此处不宣称 SQLite 零写入。原输入／完整修改可从所选操作详情读取，
+普通输出仍为 7,680 字节，被裁掉的标识未出现在持久预览、Blob 或事件中。
+
+在 bundled SQLite 3.53.2 / debug 完整表结构下，既有大 Run owner 对各格式播放相同的
+10,000 个操作、20,000 个开始／结束事件，另加一个操作的 128 次进度。含 100 份宽输入和 100 份重复 diff。
+格式 3、4 均使用升级后实际视图，比较保留的旧写入路径与新路径；历史格式 1、2 的数据仅作附录。
+原始结果、每次读耗时及读次数见 [storage comparison](compact-operation-storage-comparison.json)。
+
+| 同等负载 | 格式 3 | 格式 4 |
+| --- | ---: | ---: |
+| 操作记录／独立活动副本 | 10,001 / 0 | 10,001 / 0 |
+| 预览、活动小字段及 diff JSON 逻辑字节 | 92,640,889 | 83,668,647 |
+| 数据库页占用字节（包含空闲页） | 105,291,776 | 96,677,888 |
+| Blob 字节／峰值（含宽限期候选） | 17,723,766 | 13,720,866 |
+| WAL 峰值字节 | 4,358,992 | 4,227,152 |
+| SQL 写入 JSON 值字节 | 108,021,282 | 90,238,551 |
+| SQL 写入摘要值字节（另计） | 0 | 641,792 |
+
+本样本数据库页约少 8.2%，Blob 少 22.6%，JSON 逻辑正文少 9.7%；把摘要值也计入后，
+观测到的 SQL 值写入量约少 15.9%。SQL 值字节不是磁盘实际写入量，不能用 WAL 峰值推算累计 I/O。
+这些是固定合成负载的新写入对比，不是日常实例占用，也不保证实际业务按同一比例减少。
+
+该轮每条读取路径 5 次，范围为：首屏 693–954 → 625–828 ms、翻页 693–893 → 621–675 ms、
+展开组 743–876 → 689–812 ms、组内翻页 740–943 → 689–737 ms；结果详情 0.191–0.330 →
+0.158–0.333 ms，修改详情 0.723–4.735 → 0.505–8.920 ms（包含第一次 Blob 读取）。
+首屏／翻页各读 2 份预览，组内页各读 24 份；均不读完整正文或 Blob。修改详情只读选中操作的一份正文／Blob。
+沿用既有单 Run 轻量元数据扫描；小样本不宣称稳定加速或 P95。
+
+整批写入第一轮为 19,542 → 24,488 ms，因新格式耗时升高而针对性复测，同等负载第二轮为
+20,582 → 17,381 ms。不能据此宣布稳定吞吐提升或稳定退化；两轮数据均保留。复测的首屏为
+653–1,059 → 605–619 ms，翻页 663–795 → 607–657 ms，展开组 715–1,027 → 667–686 ms，
+组内翻页 716–978 → 666–684 ms。128 次进度处理总耗时两轮为 115.914/130.429 →
+57.928/51.198 ms，正文写次数及逻辑字节减量一致。测试没有消除系统负载／缓存波动，
+不以这组小样本替代长期生产延迟监测。
+
+文件授权使用实际 Core 入口与升级后的实际视图。512 个旧 diff、128 个格式 3、128 个格式 4，
+每份 diff 66,007 字节，每条路径 7 次：全旧单项 0.825–1.385 ms，混合中的旧项 0.863–0.970 ms，
+格式 3 为 0.080–0.155 ms，格式 4 为 0.082–0.207 ms。查询计划、VM 步数、实际读取列和完整相关表结构见
+[file authority](compact-operation-file-authority.json)。旧路径只读选中 diff，新路径仅按主键读所选小字段；
+没有进入整轮联合视图或临时复制同 Run 的大正文。该文件保留的旧联合 SQL 对比是此前 #753 的参考，
+不作为本次格式 3→4 的加速收益。
+
+隔离打包升级使用基于 `be6ae4868` 的 macOS arm64 ad-hoc 候选，正式启动从合成 schema 149 升级到 153，
+未安装到日常 App。512 个旧操作的正文／Blob 引用 hash 不变，旧会话、两页各 12 条、组计数／展开、
+所选旧文件和新文件预览、混合历史与重启均通过。新 Run 生成 2 个格式 4 操作，活动副本／目录副本均为 0；
+40 次进度仍维护同一命令记录，保存输出 7,680 字节，614 个实例文件均无截断后缀标识。重启后输入投递总数仍为 1。
+启动至 Core 可用 1,113 ms、重启 509 ms，仅单次样本。机器可读证据见
+[packaged upgrade](compact-operation-app-upgrade.json)。验收脚本使用准确按钮定位，并在自己的测试页忽略物理输入，
+避免其他桌面操作点错会话或产生额外输入；业务桥接与“不得重复投递”断言保持。
+
+验证命令与结果：
+
+- `pnpm test:rust:pr`：473 passed，1 项既有人工 Runtime smoke ignored。
+- `cargo test -p rovai-core --features slow-tests --lib execution_evidence -- --nocapture`：20 passed，
+  包含 19 个执行记录测试及既有大 Run owner；文件授权 owner 10 passed，精确查询／升级 owner 独立复测通过。
+- `--features slow-tests --lib` 下的 `current_migration_state_admission_matrix`、
+  `database_contract_preflight_admits_current_and_rejects_future_store`、
+  `export_queries_current_schema_without_reading_bodies_or_writing_state` 各 1 passed。
+- `cargo check --workspace --all-targets`、`cargo fmt --all --check` 通过。
+- `pnpm exec vitest run`：243 文件、2,686 项通过；`pnpm typecheck` 通过。
+- `CARGO_BUILD_JOBS=2 pnpm package:mac` 与 `node scripts/smoke-storage-app-upgrade.mjs <fresh-fixture> <candidate-app>` 通过。
+- `pnpm docs:test` 10 项、`pnpm docs:check`、按 `be6ae4868` base 的 `pnpm docs:check:ci` 及 `git diff --check` 通过。
+
+日常 App、日常数据库、旧 Blob 和旧目录未修改；未清理、VACUUM、安装更新或自动合并。
+运行结束汇总的独立详情及准备失败 Blob 登记缺口仍为明确未处理项，不承诺现有 GiB 随上线缩小。
 
 ## 旧上传头像坐标统一（2026-10-15）
 

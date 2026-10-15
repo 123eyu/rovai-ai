@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import type { AgentRunView, ThreadComposerDraftView, ThreadSnapshot } from '@contracts'
 import { ComposerPrimaryAction } from './ComposerPrimaryAction'
 import { MemberAvatar } from './MemberAvatar'
+import { materializeLocalContinuation } from './camp-composer-local-store'
 import { uiAttribute } from './interface-language'
 import './composer-delivery.css'
 
@@ -10,7 +11,8 @@ type DeliveryMode = 'start' | 'steer'
 type Plan = { target: {agentRunId: string; executionEpoch: number} | null; agentId: string; name: string; canSteer: boolean; reason: AgentRunView['steerUnavailableReason']; route: 'steer' | 'queue' | 'start' }
 
 export function deliveryPlans(snapshot: ThreadSnapshot, draft: ThreadComposerDraftView | null, mode: DeliveryMode): Plan[] {
-  const atoms = draft?.content.segments.flatMap(segment => segment.kind === 'atom' ? [segment.atom] : []) ?? []
+  const routedDraft = draft ? materializeLocalContinuation(draft, snapshot.members) : null
+  const atoms = routedDraft?.content.segments.flatMap(segment => segment.kind === 'atom' ? [segment.atom] : []) ?? []
   const mentioned = atoms.some(atom => atom.type === 'all_members')
     ? snapshot.members.map(member => member.agentId)
     : atoms.flatMap(atom => atom.type === 'member' ? [atom.agentId] : [])

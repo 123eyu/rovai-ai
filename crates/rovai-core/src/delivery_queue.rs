@@ -3099,6 +3099,36 @@ mod tests {
             else {
                 panic!("input must be ready")
             };
+            // Both input routes retain one final payload, not copies of its sections.
+            // Keep this in the existing multi-input persistence/recovery owner.
+            let (compact, source, blob): (bool, String, String) = fixture.database.connection().query_row(
+                "SELECT context_delivery_profile_json IS NULL AND context_delivery_profile_digest IS NULL
+                    AND run_fact_payload_json IS NULL AND run_fact_digest IS NULL
+                    AND self_active_task_evidence_json IS NULL AND self_active_task_evidence_digest IS NULL
+                    AND a2a_guidance_evidence_json IS NULL AND a2a_guidance_evidence_digest IS NULL
+                    AND shared_message_evidence_digest IS NULL AND rendered_payload_digest IS NULL
+                    AND attachment_digest IS NULL AND skill_exposure_digest IS NULL
+                    AND current_input_skill_resolution_digest IS NULL AND mcp_exposure_digest IS NULL
+                    AND mcp_projection_digest IS NULL,
+                    current_input_source_json,rendered_payload_blob_id
+                 FROM context_manifest WHERE id=?1 AND source_delivery_id=?2",
+                params![context.manifest_id, delivery], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+            ).unwrap();
+            assert!(
+                compact,
+                "Steer must retain the shared input storage reductions"
+            );
+            assert!(!source.contains("first correction"));
+            assert_eq!(
+                crate::managed_blob::ManagedBlobStore::new(&fixture._directory)
+                    .read_text(&fixture.database, &blob)
+                    .unwrap(),
+                context.rendered_payload,
+            );
+            assert_eq!(fixture.database.connection().query_row(
+                "SELECT count(*) FROM event_log WHERE payload_json LIKE '%first correction%'",
+                [], |r| r.get::<_, i64>(0),
+            ).unwrap(), 0, "input body must not be copied into durable events");
             context
         };
         assert!(

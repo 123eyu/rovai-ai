@@ -11,6 +11,15 @@ last_updated: 2026-10-15
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Steer 合入前自检（2026-10-15，User seq47）
+
+同步主线 `1681b99e`，通过 Migration 204／schema 154 收敛主线和分支的两种 203，
+保留历史输入与接受证据。修复 Desktop 核对回执的精确白名单、继续发送及提交前编辑的逐目标路线，
+Pi 图片插话复用普通输入的图片准备、能力检查和证据保存。模型文字、RUN_INPUT 结构与版本门槛保持。
+CodeBuddy #762 的原异常及证据缺口继续保留，更多旧协议兼容仍属后续扩展。
+User seq49 补充存储自检：新输入沿用单份最终 Blob、空置退役快照列；新操作沿用主线格式 4，
+不保存原生输入回显副本或 Steer 资格快照。分轴审查与合入前验证见[自检记录](../../research/runtime-monitoring/steer-release-review-2026-10-15.md)。
+
 ## Steer 版本复核与 CodeBuddy 新旧 ACP（2026-10-15）
 
 按 User seq44、seq46，CodeBuddy 稳定版仅设 `>=2.109.1` 下限，不设大版本上限或推荐版本；优先专用 `session/steer`，
@@ -750,7 +759,7 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 
 ## 执行记录存储精简（2026-10-14）
 
-新操作组合预览去重与正常删除 Blob 回收登记见 [保存合同](../../contracts/execution-record-storage-v2.md)
+新操作组合预览去重与正常删除 Blob 回收登记见 [保存合同](../../contracts/execution-record-storage-v3.md)
 及[实施记录](implementation-plan.md#执行记录存储精简组合预览与删除回收2026-10-14)。旧记录继续可读，日常实例不做历史清理。
 
 新 Run 使用[实时会话目录](../../contracts/camp-history-v14.md)，停止写入开工目录快照；旧模式和消息正文边界保持。
@@ -758,3 +767,6 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 
 新操作自身承载活动元数据与按需 diff 展开，兼容旧活动读取；
 独立验收与同负载测量见[第三项实施记录](implementation-plan.md#执行记录存储精简操作与活动统一保存2026-10-14)。
+
+2026-10-15 继续精简新操作内部重复 diff、限定预览总量，并将进度摘要从结果正文中分离；旧格式原样兼容。
+定向回归和同负载测量见[后续实施记录](implementation-plan.md#执行记录存储精简新操作正文与进度写入2026-10-15)。

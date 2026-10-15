@@ -24,7 +24,7 @@ import '../../../apps/desktop/src/renderer/src/styles.css'
 
 let steerFixture = false
 let steerFixtureRevision = 0
-let steerSent: {mode: string | undefined; attachments: number; targets: Array<{agentRunId: string; executionEpoch: number}>} | null = null
+let steerSent: {mode: string | undefined; attachments: number; recipients: string[]; targets: Array<{agentRunId: string; executionEpoch: number}>} | null = null
 const now = '2026-08-31T00:00:00Z'
 const threadId = 'rvcamp_01m0wzxbb8e1ht984tsbjmysfe'
 const fullNarration = `BODY_A ${'完整正文🙂 '.repeat(5000)} LONG_BODY_A_END`
@@ -509,7 +509,9 @@ function Fixture({ executionPlacement = 'bottom', windowed = false, entryPreview
           setMessageHistory({ loadedCount: 61, totalCount: 61, omittedCount: 0, complete: true,
             oldestLoadedSequence: 1, newestLoadedSequence: 61, hasEarlier: false })
         }}
-        onSend={async (value, mode, targets) => { steerSent = { mode, attachments: value.attachments.length, targets: targets ?? [] }; return { deliveryIds: [], agentRunIds: [], addressedAgentIds: [] } }} onChangeLead={async () => {}} onTasksChanged={async () => {}}
+        onSend={async (value, mode, targets) => { steerSent = { mode, attachments: value.attachments.length,
+          recipients: value.content.segments.flatMap(segment => segment.kind === 'atom' && segment.atom.type === 'member' ? [segment.atom.agentId] : []),
+          targets: targets ?? [] }; return { deliveryIds: [], agentRunIds: [], addressedAgentIds: [] } }} onChangeLead={async () => {}} onTasksChanged={async () => {}}
         onResolveApproval={() => {}} onStop={() => {}} worldMapEnabled={false} executionPlacement={activePlacement}
         onExecutionPlacementChange={async next => { setActivePlacement(next); return next }}
         workspaceEntrySnapshotReady={entrySnapshotReady}
@@ -555,15 +557,31 @@ let anchor: HTMLElement | null = null
 Object.assign(window, { campOpenTest: {
   showSteer: (scenario: string) => {
     steerFixture = true; steerSent = null; localStorage.clear()
-    const busy = { ...textRun, id: 'steer-running', agentId: agents[0].agentId, status: 'running' as const, failure: null,
+    const continuation = scenario === 'continuation'
+    const busy = { ...textRun, id: 'steer-running', agentId: agents[continuation ? 1 : 0].agentId, status: 'running' as const, failure: null,
       startedAt: new Date().toISOString(), executionEvidenceCount: 0, cancelRequestedAt: null, endedAt: null, canSteer: scenario !== 'unsupported' }
     current = { ...campOpenProjectionAsSnapshot(projection(60)), tasks: [], messages: [], messageDeliveries: [],
-      agentRunFileChanges: [], executionEvidence: [], agentRuns: [busy, ...(scenario === 'multi' ? [{...busy,id:'other-running',agentId:agents[1].agentId,canSteer:false}] : [])] }
+      agentRunFileChanges: [], executionEvidence: [], agentRuns: [busy, ...(['multi', 'flushed-recipient'].includes(scenario) ? [{...busy,id:'other-running',agentId:agents[1].agentId,canSteer:scenario === 'flushed-recipient'}] : [])] }
     current = {...current,turns:[],timeline:[]}
     draft = { ...draft, body: scenario === 'attachment' ? '' : '请按补充要求继续',
       content: {version:2,segments: scenario === 'multi' ? [{kind:'atom',atom:{type:'all_members'}},{kind:'text',text:'请按补充要求继续'}] : scenario === 'attachment' ? [] : [{kind:'text',text:'请按补充要求继续'}]},
-      attachments: scenario === 'attachment' ? [attachmentFile(draftAttachmentId(1),'补充要求.txt','text/plain')] : [], quotes: [] }
+      attachments: scenario === 'attachment' ? [attachmentFile(draftAttachmentId(1),'补充要求.txt','text/plain')] : [], quotes: [], replyIntent: null,
+      continuationIntent: continuation ? { sourceThreadMessageId: 'previous-explicit-message', recipientSelectionRequired: false,
+        recipient: { agentId: agents[1].agentId, displayName: agents[1].displayName, recipientAvailability: 'available' } } : null }
     reactRoot.render(<Fixture key={`steer-${scenario}-${++steerFixtureRevision}`} />)
+  },
+  sendWithPendingRecipient: () => {
+    const editor = element('.composer-box [contenteditable="true"]')
+    editor.focus()
+    const selection = window.getSelection()!
+    selection.selectAllChildren(editor)
+    selection.collapseToEnd()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('application/x-rovai-composer+json', JSON.stringify({ version: 2,
+      segments: [{ kind: 'atom', atom: { type: 'member', agentId: agents[1].agentId } }] }))
+    editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }))
+    // Send in the same browser task, before the debounced draft projection renders.
+    editor.closest('form')!.requestSubmit()
   },
   finishSteer: () => { current = {...current,agentRuns:current.agentRuns.map(run=>({...run,status:'succeeded',canSteer:false,endedAt:now}))};updateSnapshot(current) },
   steerSent: () => steerSent,

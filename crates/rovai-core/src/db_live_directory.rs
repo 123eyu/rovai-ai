@@ -124,6 +124,7 @@ pub(super) fn assert_legacy_upgrade(database: &mut Database) {
         .unwrap();
     migrate(database).unwrap();
     super::unified_activity::migrate(database).unwrap();
+    super::compact_execution::migrate(database).unwrap();
     super::steer::migrate(database).unwrap();
     assert_eq!(
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap(),

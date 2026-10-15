@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
       const settle = () => run('window.campOpenTest.settle()')
       for (const theme of ['day','night']) {
         await run(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
-        for (const scenario of ['single','multi','attachment','unsupported']) {
+        for (const scenario of ['single','multi','attachment','unsupported','continuation','flushed-recipient']) {
           await run(`window.campOpenTest.showSteer(${JSON.stringify(scenario)})`); await settle()
           const expected = scenario === 'unsupported' ? '发送消息' : scenario === 'multi' ? '发送' : '插话'
           assert.equal(await run(`Array.from(document.querySelectorAll('.composer-primary-action')).at(-1).getAttribute('aria-label')`),expected, `${theme}/${scenario}`)
@@ -66,6 +66,19 @@ app.whenReady().then(async () => {
             const sent = await run('window.campOpenTest.steerSent()')
             assert.equal(sent.mode,'steer');assert.equal(sent.attachments,1)
             assert.equal(sent.targets.length,1);assert.equal(sent.targets[0].agentRunId,'steer-running');assert.ok(sent.targets[0].executionEpoch>0)
+          }
+          if(scenario==='continuation' || scenario==='flushed-recipient') {
+            if (scenario==='continuation') {
+              assert.match(await run(`document.querySelector('.composer-continuation').textContent`), /继续发给/)
+              await run(`Array.from(document.querySelectorAll('.composer-primary-action')).at(-1).click()`)
+            } else {
+              await run('window.campOpenTest.sendWithPendingRecipient()')
+            }
+            await settle()
+            const sent = await run('window.campOpenTest.steerSent()')
+            assert.equal(sent.mode,'steer')
+            assert.deepEqual(sent.recipients,['agent-2'])
+            assert.deepEqual(sent.targets,[{agentRunId:scenario==='continuation'?'steer-running':'other-running',executionEpoch:1}], `${theme}/${scenario}: final recipient and frozen target agree`)
           }
           if(scenario==='single') {
             window.webContents.sendInputEvent({type:'keyDown',keyCode:'Space'});window.webContents.sendInputEvent({type:'keyUp',keyCode:'Space'});await settle()
@@ -91,7 +104,7 @@ app.whenReady().then(async () => {
         window.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});window.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});await settle()
       }
       assert.equal(errors.length,0,errors.join('\n'))
-      console.log(JSON.stringify({ok:true,mode,cases:12,themes:2}));app.exit(0);return
+      console.log(JSON.stringify({ok:true,mode,cases:16,themes:2}));app.exit(0);return
     }
     if (mode === '--image-context-menu') {
       const report = await require('../assert-image-context-menu.cjs')(window, run, capture, dirname(userData))

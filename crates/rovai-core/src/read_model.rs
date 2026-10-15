@@ -1557,7 +1557,7 @@ impl ReadModelService {
             let mut statement = transaction.prepare(
                 r#"
                 SELECT id, agent_run_id, execution_epoch, sequence,
-                       event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json),
+                       event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json, result_digest),
                        content_blob_id, content_byte_count,
                        is_truncated, occurred_at,
                        operation_id, revision, change_sequence, output_truncated
@@ -3142,10 +3142,7 @@ fn load_agent_runs(
                ),
                continued.source_agent_run_id IS NOT NULL,
                agent_run.current_public_tail_sequence,
-               agent_run.runtime_adapter_kind,
-               EXISTS(SELECT 1 FROM runtime_input_delivery i WHERE i.agent_run_id=agent_run.id
-                 AND i.execution_epoch=agent_run.execution_epoch AND i.input_kind='start' AND i.status='accepted'
-                 AND i.native_binding_id=conversation.native_binding_id AND i.native_binding_generation=conversation.native_binding_generation)
+               agent_run.runtime_adapter_kind
         FROM agent_run
         LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
         JOIN camp ON camp.id = COALESCE(agent_run.camp_id, camp_turn.camp_id)
@@ -3223,7 +3220,6 @@ fn load_agent_runs(
                 row.get::<_, bool>(41)?,
                 row.get::<_, Option<i64>>(42)?,
                 row.get::<_, Option<String>>(43)?,
-                row.get::<_, bool>(44)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -3279,7 +3275,6 @@ fn load_agent_runs(
                 has_accepted_continuation,
                 public_tail_sequence_at_start,
                 runtime_adapter_kind,
-                _input_accepted,
             )| {
                 let steer = if matches!(status.as_str(), "queued" | "running" | "waiting") {
                     crate::steer::active_input_availability(transaction, &id, execution_epoch)?
@@ -3460,7 +3455,7 @@ fn load_execution_evidence(
         )
         SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
                evidence.sequence, evidence.event_type, evidence.kind, evidence.phase,
-               rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
+               rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json, evidence.result_digest),
                evidence.content_blob_id, evidence.content_byte_count, evidence.is_truncated, evidence.occurred_at,
                evidence.operation_id, evidence.revision, evidence.change_sequence, evidence.output_truncated
         FROM selected JOIN agent_run_execution_evidence AS evidence ON evidence.id=selected.id
@@ -3486,7 +3481,7 @@ pub(crate) fn public_execution_evidence_for_agent_run(
         r#"
         SELECT evidence.id, evidence.agent_run_id, evidence.execution_epoch,
                evidence.sequence, evidence.event_type, evidence.kind,
-               evidence.phase, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json),
+               evidence.phase, rovai_execution_preview(evidence.storage_version, evidence.payload_preview_json, evidence.input_preview_json, evidence.result_preview_json, evidence.result_digest),
                evidence.content_blob_id, evidence.content_byte_count,
                evidence.is_truncated, evidence.occurred_at,
                evidence.operation_id, evidence.revision, evidence.change_sequence,
@@ -3621,7 +3616,7 @@ pub(crate) fn attach_canonical_activity_projection(
     let mut unified = connection.prepare("SELECT e.id,e.activity_meta_json,e.operation_id,e.sequence,e.revision
         FROM json_each(?1) requested JOIN agent_run_execution_evidence e ON e.id=json_extract(requested.value,'$[0]')
         WHERE e.agent_run_id=json_extract(requested.value,'$[1]') AND e.execution_epoch=json_extract(requested.value,'$[2]')
-          AND e.storage_version=3 AND e.activity_meta_json IS NOT NULL")?;
+          AND e.storage_version IN (3,4) AND e.activity_meta_json IS NOT NULL")?;
     let rows = unified.query_map([&requested_json], |r| {
         Ok((
             r.get::<_, String>(0)?,

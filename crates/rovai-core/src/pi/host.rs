@@ -44,7 +44,7 @@ use url::Url;
 
 use crate::{
     acp::CompletedAcpAction,
-    builtin_tool_runtime::BuiltinToolProcessConfig,
+    builtin_tool_runtime::{BuiltinToolProcessConfig, BuiltinToolProcessConfigFactory},
     runtime_fleet::{
         AgentRuntimeFleetManager, FleetAcquireRequest, FleetReleaseDisposition,
         RuntimeCompatibilityKey, RuntimeProcessHost,
@@ -1426,7 +1426,8 @@ impl PiRuntime {
         self.text_state.lock().await.normalize(message)
     }
 
-    pub(crate) async fn steer(&self, text: &str) -> Result<String> {
+    pub(crate) async fn steer(&self, text: &str, images: &[PiPromptImage]) -> Result<String> {
+        self.validate_images(images)?;
         let settled = self.host.input_settled.notified();
         tokio::pin!(settled);
         settled.as_mut().enable();
@@ -1448,7 +1449,11 @@ impl PiRuntime {
             *pending = Some((text.to_string(), sender));
         }
         self.host.retire_after_steer.store(true, Ordering::Release);
-        let response = self.host.command("steer", json!({"message":text})).await?;
+        let mut fields = json!({"message":text});
+        if !images.is_empty() {
+            fields["images"] = serde_json::to_value(images)?;
+        }
+        let response = self.host.command("steer", fields).await?;
         if response
             .pointer("/data/disposition")
             .and_then(Value::as_str)
@@ -1481,14 +1486,10 @@ impl PiRuntime {
         result
     }
 
-    pub async fn start_prompt(&self, message: &str, images: &[PiPromptImage]) -> Result<()> {
-        *self.final_message.write().await = None;
-        *self.final_stop_reason.write().await = None;
-        self.active_tool_executions.lock().await.clear();
+    pub(crate) fn validate_images(&self, images: &[PiPromptImage]) -> Result<()> {
         if !images.is_empty() && !self.model_supports_images {
             bail!("Pi selected model does not advertise image input support");
         }
-        let mut fields = json!({"message": message});
         if !images.is_empty() {
             let mut total_bytes = 0usize;
             for image in images {
@@ -1514,10 +1515,18 @@ impl PiRuntime {
             if total_bytes > PI_PROMPT_IMAGE_TOTAL_MAX_BYTES {
                 bail!("Pi prompt images exceed their aggregate limit");
             }
-            fields
-                .as_object_mut()
-                .expect("prompt fields are an object")
-                .insert("images".to_string(), serde_json::to_value(images)?);
+        }
+        Ok(())
+    }
+
+    pub async fn start_prompt(&self, message: &str, images: &[PiPromptImage]) -> Result<()> {
+        *self.final_message.write().await = None;
+        *self.final_stop_reason.write().await = None;
+        self.active_tool_executions.lock().await.clear();
+        self.validate_images(images)?;
+        let mut fields = json!({"message":message});
+        if !images.is_empty() {
+            fields["images"] = serde_json::to_value(images)?;
         }
         let response = self.host.command("prompt", fields).await?;
         if response.get("command").and_then(Value::as_str) != Some("prompt") {
@@ -1775,7 +1784,7 @@ pub struct PiAgentRunRuntimeRequest<'a> {
     pub native_binding_id: &'a str,
     pub native_binding_generation: i64,
     pub bootstrap: &'a PreparedSessionBootstrap,
-    pub builtin_tools: &'a BuiltinToolProcessConfig,
+    pub builtin_tool_factory: &'a BuiltinToolProcessConfigFactory,
 }
 
 impl PiRpcRuntimeAdapter {
@@ -1870,7 +1879,7 @@ impl PiRpcRuntimeAdapter {
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_seed = seed.clone();
         let spawn_incoming = self.incoming.clone();
-        let spawn_builtin_tools = request.builtin_tools.clone();
+        let spawn_builtin_tool_factory = request.builtin_tool_factory.clone();
         let spawn_environment = request.frozen_runtime.environment.clone();
         let spawn_environment_source = rovai_core::member_environment::launch_source();
         let lease = self
@@ -1902,7 +1911,7 @@ impl PiRpcRuntimeAdapter {
                         initial_session_file: None,
                         initial_binding: &spawn_seed,
                         incoming: spawn_incoming,
-                        builtin_tools: Some(spawn_builtin_tools),
+                        builtin_tools: Some(spawn_builtin_tool_factory.create()?),
                     })
                     .await?;
                     Ok(RuntimeProcessHost::Pi(host))
@@ -3430,7 +3439,7 @@ done
         })
         .await
         .unwrap();
-        let runtime = PiRuntime::from_host(
+        let mut runtime = PiRuntime::from_host(
             PiRuntimeOwner {
                 agent_run_id: "run-abort".to_string(),
                 execution_epoch: 1,
@@ -3450,16 +3459,38 @@ done
         host.bind(runtime.owner.clone()).await.unwrap();
         assert!(
             runtime
-                .steer("idle")
+                .steer("idle", &[])
                 .await
                 .unwrap_err()
                 .is::<rovai_core::steer::ActiveInputNotAccepted>()
         );
         host.streaming.store(true, Ordering::Release);
-        assert_eq!(runtime.steer("STEER").await.unwrap(), "prompt-abort");
+        let images = [PiPromptImage {
+            r#type: "image".to_string(),
+            mime_type: "image/png".to_string(),
+            data: BASE64_STANDARD.encode(b"exact authorized image bytes"),
+        }];
         assert!(
             runtime
-                .steer("unconsumed")
+                .steer("STEER", &images)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("image input support")
+        );
+        assert!(host.steering.lock().unwrap().is_none());
+        Arc::get_mut(&mut runtime).unwrap().model_supports_images = true;
+        let mut malformed = images[0].clone();
+        malformed.data = "not base64!".to_string();
+        assert!(runtime.steer("STEER", &[malformed]).await.is_err());
+        assert!(host.steering.lock().unwrap().is_none());
+        assert_eq!(
+            runtime.steer("STEER", &images).await.unwrap(),
+            "prompt-abort"
+        );
+        assert!(
+            runtime
+                .steer("unconsumed", &[])
                 .await
                 .unwrap_err()
                 .is::<rovai_core::steer::ActiveInputNotAccepted>()
@@ -3480,6 +3511,15 @@ done
         assert!(host.pending.lock().await.is_empty());
 
         let requests = std::fs::read_to_string(root.join("requests.jsonl")).unwrap();
+        let first_steer = requests
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .find(|request| request["type"] == "steer")
+            .unwrap();
+        assert_eq!(
+            first_steer["images"],
+            serde_json::to_value(&images).unwrap()
+        );
         let commands = requests
             .lines()
             .map(|line| {

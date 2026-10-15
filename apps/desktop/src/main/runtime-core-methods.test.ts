@@ -5,7 +5,7 @@ import { RUNTIME_RENDERER_CORE_METHODS } from './runtime-core-methods'
 const mainSource = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
 
 describe('Runtime Renderer Core method allowlist', () => {
-  it('exposes discovery, recovery wake, background ensure, explicit checking, and cancellation', () => {
+  it('exposes discovery, recovery wake, input reconciliation, explicit checking, and cancellation', () => {
     expect(RUNTIME_RENDERER_CORE_METHODS).toEqual([
       'runtime.discovery.rescan',
       'runtime.product.ensure',
@@ -19,10 +19,17 @@ describe('Runtime Renderer Core method allowlist', () => {
       'runtime.startup.check',
       'runtime.startup.save',
       'runtime.networkRecovery.wake',
+      'runtimeInputs.reconcile',
       'runtime.modelCatalog.open',
       'runtime.pendingExecution.cancel'
     ])
     expect(RUNTIME_RENDERER_CORE_METHODS).not.toContain('core.shutdown')
+    const allowlistStart = mainSource.indexOf('const allowedMethods = new Set<CoreMethod>([')
+    const allowlistEnd = mainSource.indexOf('\n])', allowlistStart)
+    expect(allowlistStart).toBeGreaterThan(-1)
+    expect(allowlistEnd).toBeGreaterThan(allowlistStart)
+    expect(mainSource.slice(allowlistStart, allowlistEnd))
+      .toContain('...RUNTIME_RENDERER_CORE_METHODS')
   })
 
   it('wakes the same Core recovery check when the operating system resumes', () => {

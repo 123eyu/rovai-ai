@@ -23,6 +23,12 @@ use crate::{
     runtime_search_operation,
 };
 
+#[cfg(test)]
+#[path = "execution_evidence_compact_probe.rs"]
+mod compact_probe;
+#[path = "execution_evidence_storage.rs"]
+mod compact_storage;
+
 const INLINE_PAYLOAD_LIMIT_BYTES: usize = 16 * 1024;
 pub const PERSISTED_TOOL_OUTPUT_LIMIT_BYTES: usize = 7_680;
 const RUNTIME_RUN_DIFF_EXECUTION_ROOT_MISSING: &str = "runtime_run_diff_execution_root_missing";
@@ -94,6 +100,7 @@ struct LifecycleEvidenceRow {
     change_sequence: i64,
     output_truncated: Option<bool>,
     storage_version: i64,
+    result_digest: Option<String>,
     input: LifecycleContentPart,
     result: Option<LifecycleContentPart>,
 }
@@ -145,34 +152,40 @@ impl Deref for RecordedExecutionEvidence {
 
 // Resolve only selected page/detail previews. Never opens a Blob or modifies legacy rows.
 pub(crate) fn register_preview_function(connection: &rusqlite::Connection) -> Result<()> {
-    connection.create_scalar_function(
-        "rovai_execution_preview",
-        4,
-        rusqlite::functions::FunctionFlags::SQLITE_UTF8
-            | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
-        |ctx| {
-            #[cfg(test)]
-            PREVIEW_READS.set(PREVIEW_READS.get() + 1);
-            if ctx.get::<i64>(0)? == 1 {
-                return ctx.get::<String>(1);
-            }
-            let input: String = ctx.get(2)?;
-            let result: Option<String> = ctx.get(3)?;
-            let resolve = || -> serde_json::Result<String> {
-                let input = serde_json::from_str(&input)?;
-                let result = result.as_deref().map(serde_json::from_str).transpose()?;
-                serde_json::to_string(&combine_lifecycle_values(&input, result.as_ref()))
-            };
-            resolve().map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
-        },
-    )?;
+    for arity in [4, 5] {
+        connection.create_scalar_function(
+            "rovai_execution_preview",
+            arity,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            move |ctx| {
+                #[cfg(test)]
+                PREVIEW_READS.set(PREVIEW_READS.get() + 1);
+                if ctx.get::<i64>(0)? == 1 {
+                    return ctx.get::<String>(1);
+                }
+                let input: String = ctx.get(2)?;
+                let result: Option<String> = ctx.get(3)?;
+                let digest: Option<String> = if arity == 5 { ctx.get(4)? } else { None };
+                let resolve = || -> serde_json::Result<String> {
+                    let input = serde_json::from_str(&input)?;
+                    let result = result.as_deref().map(serde_json::from_str).transpose()?;
+                    serde_json::to_string(&with_result_digest(
+                        combine_lifecycle_values(&input, result.as_ref()),
+                        digest.as_deref(),
+                    ))
+                };
+                resolve().map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+            },
+        )?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 thread_local! {
     // Isolated fixtures replay the identical event stream through retained legacy writers.
-    static TEST_OPERATION_STORAGE: std::cell::Cell<i64> = const { std::cell::Cell::new(3) };
+    static TEST_OPERATION_STORAGE: std::cell::Cell<i64> = const { std::cell::Cell::new(4) };
     static PREVIEW_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static FULL_PAYLOAD_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
@@ -189,7 +202,7 @@ fn new_operation_storage_version() -> i64 {
     }
     #[cfg(not(test))]
     {
-        3
+        4
     }
 }
 
@@ -201,7 +214,7 @@ pub(crate) fn with_operation_storage_for_test<T>(version: i64, f: impl FnOnce() 
             TEST_OPERATION_STORAGE.set(self.0);
         }
     }
-    assert!((1..=3).contains(&version));
+    assert!((1..=4).contains(&version));
     let _restore = Restore(TEST_OPERATION_STORAGE.replace(version));
     f()
 }
@@ -900,6 +913,7 @@ impl ExecutionEvidenceService {
             output_update,
             output_truncated,
             allow_fenced_terminal_tool_result,
+            workspace_json.as_deref(),
         )? {
             return Ok(recorded);
         }
@@ -1125,6 +1139,7 @@ impl ExecutionEvidenceService {
         output_update: Option<PersistableOutputUpdate>,
         incoming_output_truncated: Option<bool>,
         allow_fenced_terminal_tool_result: bool,
+        workspace_json: Option<&str>,
     ) -> Result<Option<Option<RecordedExecutionEvidence>>> {
         let proposed_id = Uuid::new_v4().to_string();
         let proposed_facts = canonical_activity::classify_evidence(
@@ -1186,6 +1201,23 @@ impl ExecutionEvidenceService {
             }
         }
 
+        let storage_version = existing
+            .as_ref()
+            .map_or_else(new_operation_storage_version, |row| row.storage_version);
+        let mut compact_payload;
+        let mut next_result_digest = existing.as_ref().and_then(|row| row.result_digest.clone());
+        let mut incoming_result_digest = None;
+        let payload = if storage_version == 4 {
+            compact_payload = payload.clone();
+            compact_storage::deduplicate_codex_diff(&mut compact_payload, workspace_json);
+            incoming_result_digest = compact_payload
+                .as_object_mut()
+                .and_then(|p| p.remove("resultDigest"))
+                .and_then(|v| v.as_str().map(str::to_owned));
+            &compact_payload
+        } else {
+            payload
+        };
         let incoming_input = lifecycle_input_payload(payload);
         let mut next_input = existing
             .as_ref()
@@ -1210,6 +1242,12 @@ impl ExecutionEvidenceService {
                 .is_some_and(|(old, new)| old != new);
         let incoming_is_start =
             phase == "started" || payload.get("status").and_then(Value::as_str) == Some("started");
+        if !incoming_is_start
+            && (!terminal_conflict || next_result_digest.is_none())
+            && incoming_result_digest.is_some()
+        {
+            next_result_digest = incoming_result_digest;
+        }
         let mut next_result = existing
             .as_ref()
             .and_then(|row| row.result.as_ref())
@@ -1302,6 +1340,10 @@ impl ExecutionEvidenceService {
                 && row.event_type == next_event_type
                 && row.kind == next_kind
                 && row.output_truncated == next_output_truncated
+                && (row.result_digest == next_result_digest
+                    || (!existing_is_terminal
+                        && incoming_terminal.is_none()
+                        && !matches!(next_phase.as_str(), "completed" | "failed")))
         });
 
         let occurred_at = chrono::Utc::now().to_rfc3339();
@@ -1334,9 +1376,18 @@ impl ExecutionEvidenceService {
                 transaction.commit()?;
                 return Ok(Some(None));
             }
-            let row = existing.expect("semantic equality requires an existing lifecycle row");
+            let mut row = existing.expect("semantic equality requires an existing lifecycle row");
+            if storage_version == 4 && row.result_digest != next_result_digest {
+                // The latest full-output proof is durable, including status-only completion after restart.
+                // No body/Blob/activity rewrite or visible revision for an unchanged saved result.
+                transaction.execute(
+                    "UPDATE agent_run_execution_evidence SET result_digest=?2 WHERE id=?1",
+                    params![row.id, next_result_digest],
+                )?;
+                row.result_digest = next_result_digest;
+            }
             let mut canonical = load_canonical_for_evidence(&transaction, &row.id)?;
-            if row.storage_version == 3 {
+            if row.storage_version >= 3 {
                 if let Some(activity) = canonical.as_mut() {
                     hydrate_operation_diff(activity, &lifecycle_combined_payload(&row), &row.id);
                 }
@@ -1362,28 +1413,33 @@ impl ExecutionEvidenceService {
             .as_ref()
             .is_none_or(|row| row.result.as_ref().map(|part| &part.value) != next_result.as_ref());
         let next_input_part = if input_changed {
-            prepare_lifecycle_part(
+            prepare_lifecycle_part_for_storage(
                 database,
                 blob_store,
                 &next_input,
                 payload_affects_file_facts(&next_input),
+                storage_version,
             )?
         } else {
             existing.as_ref().unwrap().input.clone()
         };
         let next_result_part = match (result_changed, next_result.as_ref()) {
-            (true, Some(value)) => Some(prepare_lifecycle_part(
+            (true, Some(value)) => Some(prepare_lifecycle_part_for_storage(
                 database,
                 blob_store,
                 value,
                 payload_affects_file_facts(value),
+                storage_version,
             )?),
             (true, None) => None,
             (false, _) => existing.as_ref().and_then(|row| row.result.clone()),
         };
-        let next_combined = combine_lifecycle_values(
-            &next_input_part.value,
-            next_result_part.as_ref().map(|part| &part.value),
+        let next_combined = with_result_digest(
+            combine_lifecycle_values(
+                &next_input_part.value,
+                next_result_part.as_ref().map(|part| &part.value),
+            ),
+            next_result_digest.as_deref(),
         );
         let preview = combine_lifecycle_values(
             &serde_json::from_str(&next_input_part.preview_json)?,
@@ -1393,9 +1449,6 @@ impl ExecutionEvidenceService {
                 .transpose()?
                 .as_ref(),
         );
-        let storage_version = existing
-            .as_ref()
-            .map_or_else(new_operation_storage_version, |row| row.storage_version);
         let preview_json = if storage_version == 1 {
             serde_json::to_string(&preview)?
         } else {
@@ -1445,10 +1498,10 @@ impl ExecutionEvidenceService {
                     operation_id, revision, change_sequence,
                     input_preview_json, input_blob_id, input_byte_count, input_content_state,
                     result_preview_json, result_blob_id, result_byte_count, result_content_state,
-                    output_truncated, updated_at, storage_version
+                    output_truncated, updated_at, storage_version, result_digest
                 ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11, ?12,
-                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
+                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27
                 )
                 "#,
                 params![
@@ -1480,6 +1533,7 @@ impl ExecutionEvidenceService {
                     next_output_truncated.map(i64::from),
                     occurred_at,
                     storage_version,
+                    next_result_digest,
                 ],
             )?;
         } else {
@@ -1495,7 +1549,7 @@ impl ExecutionEvidenceService {
                     input_byte_count = ?13, input_content_state = ?14,
                     result_preview_json = ?15, result_blob_id = ?16,
                     result_byte_count = ?17, result_content_state = ?18,
-                    output_truncated = ?19, updated_at = ?20
+                    output_truncated = ?19, updated_at = ?20, result_digest = ?21
                 WHERE id = ?1
                 "#,
                 params![
@@ -1521,6 +1575,7 @@ impl ExecutionEvidenceService {
                     next_result_part.as_ref().map(|part| &part.state),
                     next_output_truncated.map(i64::from),
                     occurred_at,
+                    next_result_digest,
                 ],
             )?;
         }
@@ -1583,7 +1638,7 @@ impl ExecutionEvidenceService {
             &next_phase,
             &next_combined,
         );
-        let canonical = if storage_version == 3 {
+        let canonical = if storage_version >= 3 {
             upsert_unified_activity(
                 &transaction,
                 &id,
@@ -1593,6 +1648,7 @@ impl ExecutionEvidenceService {
                 incoming_is_start,
                 &facts,
                 existing_payload.as_ref(),
+                (storage_version == 4).then_some(&next_combined),
             )?
         } else {
             let previous_facts = canonical_activity::classify_evidence_with_version(
@@ -2269,7 +2325,26 @@ pub(crate) fn payload_affects_file_facts(payload: &Value) -> bool {
         .is_some_and(|object| object.values().any(|value| !value.is_null()))
 }
 
-fn lifecycle_part_preview(value: &Value, byte_count: usize, state: &str) -> Result<String> {
+fn lifecycle_part_preview(
+    value: &Value,
+    byte_count: usize,
+    state: &str,
+    storage_version: i64,
+) -> Result<String> {
+    if storage_version == 4 && state != "inline" {
+        let mut preview = compact_storage::preview(value);
+        if matches!(state, "too_large" | "unavailable") {
+            let metadata = serde_json::json!({"state":state,"complete":false,"byteCount":byte_count,
+                "digest":crate::command::canonical_json_digest(value)?});
+            // Reserve the loss marker in the same total budget.
+            if !preview.is_object() {
+                preview = serde_json::json!({"value":preview});
+            }
+            preview["_rovaiContent"] = metadata;
+            preview = compact_storage::preview(&preview);
+        }
+        return Ok(serde_json::to_string(&preview)?);
+    }
     let mut preview = if state == "inline" {
         value.clone()
     } else {
@@ -2290,11 +2365,22 @@ fn lifecycle_part_preview(value: &Value, byte_count: usize, state: &str) -> Resu
     serde_json::to_string(&preview).map_err(Into::into)
 }
 
+#[cfg(test)]
 fn prepare_lifecycle_part(
     database: &mut Database,
     blob_store: &ManagedBlobStore,
     value: &Value,
     sensitive: bool,
+) -> Result<LifecycleContentPart> {
+    prepare_lifecycle_part_for_storage(database, blob_store, value, sensitive, 3)
+}
+
+fn prepare_lifecycle_part_for_storage(
+    database: &mut Database,
+    blob_store: &ManagedBlobStore,
+    value: &Value,
+    sensitive: bool,
+    storage_version: i64,
 ) -> Result<LifecycleContentPart> {
     let encoded = serde_json::to_vec(value)?;
     let byte_count = i64::try_from(encoded.len()).context("Lifecycle content size overflow")?;
@@ -2314,11 +2400,16 @@ fn prepare_lifecycle_part(
     };
     Ok(LifecycleContentPart {
         value: if state == "too_large" {
-            serde_json::from_str(&lifecycle_part_preview(value, encoded.len(), state)?)?
+            serde_json::from_str(&lifecycle_part_preview(
+                value,
+                encoded.len(),
+                state,
+                storage_version,
+            )?)?
         } else {
             value.clone()
         },
-        preview_json: lifecycle_part_preview(value, encoded.len(), state)?,
+        preview_json: lifecycle_part_preview(value, encoded.len(), state, storage_version)?,
         blob_id,
         byte_count,
         state: state.to_string(),
@@ -2377,7 +2468,7 @@ fn load_lifecycle_evidence(
             SELECT id, sequence, event_type, kind, phase, occurred_at,
                    revision, change_sequence, output_truncated,
                    input_preview_json, input_blob_id, input_byte_count, input_content_state,
-                   result_preview_json, result_blob_id, result_byte_count, result_content_state, storage_version
+                   result_preview_json, result_blob_id, result_byte_count, result_content_state, storage_version, result_digest
             FROM agent_run_execution_evidence
             WHERE agent_run_id = ?1 AND execution_epoch = ?2 AND operation_id = ?3
             "#,
@@ -2402,6 +2493,7 @@ fn load_lifecycle_evidence(
                     row.get::<_, Option<i64>>(15)?,
                     row.get::<_, Option<String>>(16)?,
                     row.get::<_, i64>(17)?,
+                    row.get::<_, Option<String>>(18)?,
                 ))
             },
         )
@@ -2425,6 +2517,7 @@ fn load_lifecycle_evidence(
         result_bytes,
         result_state,
         storage_version,
+        result_digest,
     )) = row
     else {
         return Ok(None);
@@ -2459,15 +2552,26 @@ fn load_lifecycle_evidence(
         change_sequence,
         output_truncated,
         storage_version,
+        result_digest,
         input,
         result,
     }))
 }
 
+fn with_result_digest(mut value: Value, digest: Option<&str>) -> Value {
+    if let Some(digest) = digest {
+        value["resultDigest"] = Value::String(digest.into());
+    }
+    value
+}
+
 fn lifecycle_combined_payload(row: &LifecycleEvidenceRow) -> Value {
-    combine_lifecycle_values(
-        &row.input.value,
-        row.result.as_ref().map(|part| &part.value),
+    with_result_digest(
+        combine_lifecycle_values(
+            &row.input.value,
+            row.result.as_ref().map(|part| &part.value),
+        ),
+        row.result_digest.as_deref(),
     )
 }
 
@@ -3170,7 +3274,7 @@ fn load_by_source_key(
         .query_row(
             r#"
             SELECT id, agent_run_id, execution_epoch, sequence,
-                   event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json),
+                   event_type, kind, phase, rovai_execution_preview(storage_version, payload_preview_json, input_preview_json, result_preview_json, result_digest),
                    content_blob_id, content_byte_count, is_truncated, occurred_at,
                    operation_id, revision, change_sequence, output_truncated
             FROM agent_run_execution_evidence
@@ -3273,6 +3377,7 @@ fn upsert_unified_activity(
     incoming_is_start: bool,
     facts: &EvidenceActivityFacts,
     prior_payload: Option<&Value>,
+    compact_payload: Option<&Value>,
 ) -> Result<Option<CanonicalRuntimeActivity>> {
     let prior = load_canonical_for_evidence(transaction, evidence_id)?;
     let mut projection = match prior {
@@ -3313,11 +3418,20 @@ fn upsert_unified_activity(
     ] {
         fields.remove(key);
     }
+    if let Some(payload) = compact_payload {
+        fields.insert(
+            "runtimeFileOperation".into(),
+            payload
+                .get("runtimeFileOperation")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+    }
     transaction.execute(
         "UPDATE agent_run_execution_evidence SET activity_meta_json=?2,
         activity_started_at=COALESCE(activity_started_at,?3),
         activity_terminal_at=COALESCE(?4,activity_terminal_at)
-        WHERE id=?1 AND storage_version=3",
+        WHERE id=?1 AND storage_version IN (3,4)",
         params![
             evidence_id,
             serde_json::to_string(&metadata)?,
@@ -3496,7 +3610,7 @@ fn load_canonical_for_evidence(
             },
         )
         .optional()?;
-    if let Some((3, metadata, operation_id, sequence, revision)) = unified {
+    if let Some((3 | 4, metadata, operation_id, sequence, revision)) = unified {
         let Some(metadata) = metadata else {
             return Ok(None);
         };
@@ -5515,7 +5629,7 @@ mod tests {
         let stored: (i64,String) = database.connection().query_row(
             "SELECT storage_version,payload_preview_json FROM agent_run_execution_evidence WHERE id=?1", [&terminal_first.id],
             |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
-        assert_eq!(stored, (3, "{}".to_owned()));
+        assert_eq!(stored, (4, "{}".to_owned()));
         assert!(
             database
                 .connection()
@@ -6269,9 +6383,17 @@ mod tests {
             2
         );
         let copies:i64=database.connection().query_row("SELECT count(*) FROM canonical_runtime_activity a JOIN agent_run_execution_evidence e
-            ON e.agent_run_id=a.agent_run_id AND e.execution_epoch=a.execution_epoch AND e.operation_id=a.operation_id WHERE e.storage_version=3",[],|r|r.get(0)).unwrap();
+            ON e.agent_run_id=a.agent_run_id AND e.execution_epoch=a.execution_epoch AND e.operation_id=a.operation_id WHERE e.storage_version IN (3,4)",[],|r|r.get(0)).unwrap();
         assert_eq!(copies, 0);
-        assert_eq!(database.connection().query_row("SELECT count(*) FROM agent_run_execution_evidence WHERE storage_version=3 AND activity_meta_json IS NULL",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(database.connection().query_row("SELECT count(*) FROM agent_run_execution_evidence WHERE storage_version IN (3,4) AND activity_meta_json IS NULL",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        compact_probe::assert_storage(
+            &mut database,
+            &blob_store,
+            &camp_id,
+            &run_id,
+            execution_epoch,
+            &workspace,
+        );
         // A legacy Action result has no SQL FK and no other reference.
         let action_blob = blob_store
             .put_bytes(
@@ -6304,8 +6426,8 @@ mod tests {
         assert!(blob_store.read_bytes(&database, &action_blob.id).is_ok());
         let sizes: (i64,i64,i64) = database.connection().query_row(
             "SELECT count(*),sum(length(CAST(payload_preview_json AS BLOB))),
-                sum(length(CAST(rovai_execution_preview(storage_version,payload_preview_json,input_preview_json,result_preview_json) AS BLOB)))
-             FROM agent_run_execution_evidence WHERE storage_version=3", [],
+                sum(length(CAST(rovai_execution_preview(storage_version,payload_preview_json,input_preview_json,result_preview_json,result_digest) AS BLOB)))
+             FROM agent_run_execution_evidence WHERE storage_version IN (3,4)", [],
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
         println!(
             "storage_pr1_new_rows={} combined_bytes_saved={} marker_bytes={} reconstructed_bytes={}",

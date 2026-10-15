@@ -56,7 +56,7 @@ use tokio::{
 };
 
 use crate::{
-    builtin_tool_runtime::BuiltinToolProcessConfig,
+    builtin_tool_runtime::{BuiltinToolProcessConfig, BuiltinToolProcessConfigFactory},
     health,
     native_usage::{NativeContextModel, NativeUsageObservation, NativeUsageReader},
     runtime_fleet::{
@@ -6195,7 +6195,7 @@ impl AcpCliRuntimeAdapter {
         workspace: &AgentRunWorkspace,
         permission_semantics: PermissionSemantics,
         frozen_runtime: &FrozenAgentRuntimeConfig,
-        builtin_tools: &BuiltinToolProcessConfig,
+        builtin_tool_factory: &BuiltinToolProcessConfigFactory,
         external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
         mcp_projection_digest: &str,
         attachment_access_root: &Path,
@@ -6229,7 +6229,7 @@ impl AcpCliRuntimeAdapter {
         let spawn_workspace = workspace.clone();
         let mut spawn_frozen_runtime = frozen_runtime.clone();
         let spawn_environment_source = rovai_core::member_environment::launch_source();
-        let spawn_builtin_tools = builtin_tools.clone();
+        let spawn_builtin_tool_factory = builtin_tool_factory.clone();
         let spawn_external_mcp_servers = external_mcp_servers.clone();
         let spawn_attachment_access_root = attachment_access_root.to_path_buf();
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
@@ -6279,7 +6279,7 @@ impl AcpCliRuntimeAdapter {
                         permission_semantics,
                         &spawn_frozen_runtime,
                         spawn_incoming,
-                        Some(spawn_builtin_tools),
+                        Some(spawn_builtin_tool_factory.create()?),
                         spawn_compaction_policy,
                         true,
                         &spawn_external_mcp_servers,
@@ -9346,12 +9346,16 @@ mod tests {
     }
 
     fn exact_builtin_tools(root: &Path) -> BuiltinToolProcessConfig {
+        exact_builtin_tool_factory(root).create().unwrap()
+    }
+
+    fn exact_builtin_tool_factory(root: &Path) -> BuiltinToolProcessConfigFactory {
         let cli = root.join("rovai");
         make_executable(&cli, "#!/bin/sh\nexit 0\n");
         let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
             path: root.join("core.sock").to_string_lossy().into_owned(),
         };
-        BuiltinToolProcessConfig::create(&cli, &endpoint, &root.join("runtime")).unwrap()
+        BuiltinToolProcessConfigFactory::new(&cli, &endpoint, &root.join("runtime"))
     }
 
     fn frozen_trae_runtime(executable: &Path) -> FrozenAgentRuntimeConfig {
@@ -13096,7 +13100,8 @@ while IFS= read -r ignored; do :; done
             path: root.join("core.sock").to_string_lossy().into_owned(),
         };
         let builtin_tools =
-            BuiltinToolProcessConfig::create(&cli, &endpoint, &root.join("runtime")).unwrap();
+            BuiltinToolProcessConfigFactory::new(&cli, &endpoint, &root.join("runtime"));
+        assert!(!root.join("runtime/builtin-tools").exists());
         let frozen = frozen_trae_runtime(&executable);
         let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
         let attachment_root = root.join("attachments");
@@ -13151,6 +13156,9 @@ while IFS= read -r ignored; do :; done
         receive_through_prompt_completion(&mut receiver).await;
         adapter.complete_agent_run("agent-run-one", 1).await;
 
+        let blocked_root = root.join("blocked-runtime-root");
+        std::fs::write(&blocked_root, "not a directory").unwrap();
+        let warm_factory = BuiltinToolProcessConfigFactory::new(&cli, &endpoint, &blocked_root);
         let second = adapter
             .ensure_agent_run_runtime(
                 "agent-run-two",
@@ -13161,7 +13169,7 @@ while IFS= read -r ignored; do :; done
                 &workspace,
                 PermissionSemantics::RuntimeManagedV2,
                 &frozen,
-                &builtin_tools,
+                &warm_factory,
                 &BTreeMap::new(),
                 "sha256:mcp",
                 &attachment_root,
@@ -13170,6 +13178,10 @@ while IFS= read -r ignored; do :; done
             .await
             .unwrap();
         assert_eq!(second.host_instance_id(), first_host);
+        assert_eq!(
+            second.builtin_tool_process_config().unwrap().context_path(),
+            first.builtin_tool_process_config().unwrap().context_path()
+        );
         let successor_session = second
             .start_or_resume_session(
                 Some(&session_id),
@@ -13255,7 +13267,7 @@ while IFS= read -r ignored; do :; done
                 protocol_log.display(),
             ),
         );
-        let builtin_tools = exact_builtin_tools(&root);
+        let builtin_tools = exact_builtin_tool_factory(&root);
         let frozen = frozen_kimi_runtime(&executable);
         let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
         let attachment_root = exact_attachment_root(&root);

@@ -69,7 +69,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_for_test(connection: &Connection) {
-    super::steer::downgrade_for_test(connection);
+    super::compact_execution::downgrade_for_test(connection);
     if !schema_matches(connection).unwrap() {
         return;
     }
@@ -119,6 +119,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .execute_batch("DROP TRIGGER reject_activity_receipt;")
         .unwrap();
     migrate(database).unwrap();
+    super::compact_execution::migrate(database).unwrap();
     super::steer::migrate(database).unwrap();
     assert_eq!(snapshot(database.connection()), before);
     let reopened =
@@ -127,5 +128,6 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     assert!(matches!(
         classify_database_contract(&reopened).unwrap(),
         DatabaseContractClassification::Current(_)
+            | DatabaseContractClassification::SupportedMigrationSource(_)
     ));
 }

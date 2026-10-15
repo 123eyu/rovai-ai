@@ -4034,8 +4034,11 @@ export function ThreadWorkspace({
       const flushed = await composerHandle.flush()
       const frozenDraft = flushed.draft ?? draftCoordinator.getCurrentDraft()
       if (!frozenDraft) throw new Error(uiAttribute('Composer Draft 尚未就绪。'))
-      const routedDraft = materializeLocalContinuation(frozenDraft, snapshot.members)
       const currentSnapshot = activeSnapshotRef.current
+      const routedDraft = materializeLocalContinuation(frozenDraft, currentSnapshot.members)
+      // Flush can change recipients; keep the execution snapshot from this
+      // submission so an ended target cannot turn into a successor's Steer.
+      const submittedDeliveryPlans = deliveryPlans(snapshot, routedDraft, deliveryMode)
       const inviteTargets = composerInvitationTargets(
         composerMemberMentionIds(routedDraft.content),
         currentSnapshot.members,
@@ -4061,7 +4064,7 @@ export function ThreadWorkspace({
         }
       }
       sendAttempted = true
-      const sendReceipt = await onSend(routedDraft, deliveryMode, composerDeliveryPlans.flatMap(plan => plan.route === 'steer' && plan.target ? [plan.target] : []))
+      const sendReceipt = await onSend(routedDraft, deliveryMode, submittedDeliveryPlans.flatMap(plan => plan.route === 'steer' && plan.target ? [plan.target] : []))
       if (!sendReceipt) throw new Error(uiAttribute('消息未被当前 Thread 接受。'))
       sendAccepted = true
       if (currentSnapshot.thread.activationState === 'pending' && sendReceipt.threadMessageId) {

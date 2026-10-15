@@ -295,6 +295,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     super::execution_storage::migrate(database).unwrap();
     super::live_directory::migrate(database).unwrap();
     super::unified_activity::migrate(database).unwrap();
+    super::compact_execution::migrate(database).unwrap();
     super::steer::assert_upgrade(database);
     assert_eq!(
         before,

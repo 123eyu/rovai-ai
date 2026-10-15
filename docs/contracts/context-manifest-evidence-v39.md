@@ -27,9 +27,11 @@ Bootstrap、Charter、Redelivery、Native Binding compatibility 不因合并改�
   对应唯一索引和不可变来源约束，以及 public Manifest 37／Profile 14／Facts 10。
 - 分类器要求已知迁移链及实际结构一致；未知混合结构拒绝写入，不猜测来源。
 
-两类来源均经过主线已有 200、201、202，再由新增 **Migration 203／schema 153** 收敛。
-203 扩展新格式和多输入约束，不更改历史版本号、消息、Manifest、payload、摘要、native ID、ACK
-或 Delivery 状态。已有 199 回执也不改名。全新库走同一完整链；事务失败回滚，可重入检查。
+两类 199 来源均经过主线 200、201、202。主线 **203／schema 153** 新增紧凑操作格式；
+Mission 064 已部署的同号 203 则新增多输入结构。最终由 **Migration 204／schema 154** 按实际结构
+补齐缺少的另一部分，不覆盖或重命名历史 199／203 回执。
+全新库沿主线 203 后执行 204。已有分支 203 不重建输入表，只补操作格式；主线 203 补多输入约束。
+消息、Manifest、payload、摘要、native ID、ACK 和 Delivery 状态均原样保留；事务失败回滚，可重入检查。
 
 同为历史 Manifest 37，需结合 Profile／Facts 和所属 Run 的 batch 类型解释：主线 non-batch
 37／12／6 与分支 public 37／14／10 均保留原样。合并后的新 public 输入只写 39；旧数据的恢复
@@ -38,6 +40,11 @@ Bootstrap、Charter、Redelivery、Native Binding compatibility 不因合并改�
 新 Steer 来源以现有 Delivery 为唯一入口；每来源一份 Manifest、每 Manifest／epoch 一份 Runtime
 Input，原生 turn ID 可由同轮多输入共享。accepted 和 delivery_unknown 不重发；迟到 ACK 只补原输入证据，
 不改变后继 Run，详见 [Delivery v16](message-delivery-v16.md)。
+
+普通输入与 Steer 一致遵守[输入快照存储](input-snapshot-storage-v1.md)：最终动态上下文只保存一份
+Managed Blob；不恢复已退役的 Profile、Run Facts、任务／A2A 证据正文或独立校验摘要。
+Delivery 只增加目标／顺序关联，回执不复制输入正文；`canSteer` 及不可用原因读取时计算，不另存资格快照。
+执行输出继续使用[紧凑操作存储](execution-record-storage-v3.md)，不因插话创建另一套活动或原始事件副本。
 
 逐段模型输入对照见[合并前后对照](../versions/v1.72/model-context-change-steer-merge.md)。
 

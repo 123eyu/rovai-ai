@@ -43,7 +43,7 @@ use tokio::{
 };
 
 use crate::{
-    builtin_tool_runtime::BuiltinToolProcessConfig,
+    builtin_tool_runtime::{BuiltinToolProcessConfig, BuiltinToolProcessConfigFactory},
     runtime_fleet::{
         AgentRuntimeFleetManager, FleetAcquireRequest, FleetReleaseDisposition,
         FleetReleaseOutcome, RuntimeCompatibilityKey, RuntimeProcessHost,
@@ -1549,7 +1549,7 @@ pub struct CodexAgentRunRuntimeRequest<'a> {
     pub cwd: &'a Path,
     pub frozen_runtime: &'a FrozenAgentRuntimeConfig,
     pub runtime_compatibility_digest: &'a str,
-    pub builtin_tools: &'a BuiltinToolProcessConfig,
+    pub builtin_tool_factory: &'a BuiltinToolProcessConfigFactory,
 }
 
 impl AgentRuntimeAdapter for CodexCliRuntimeAdapter {
@@ -1599,7 +1599,7 @@ impl CodexCliRuntimeAdapter {
             cwd,
             frozen_runtime,
             runtime_compatibility_digest,
-            builtin_tools,
+            builtin_tool_factory,
         } = request;
         if frozen_runtime.adapter_kind != AdapterKind::CodexCli {
             bail!("Codex Runtime received a non-Codex AgentRun");
@@ -1625,7 +1625,7 @@ impl CodexCliRuntimeAdapter {
         let spawn_executable = PathBuf::from(&frozen_runtime.executable_path);
         let spawn_cwd = cwd.to_path_buf();
         let spawn_incoming = self.incoming.clone();
-        let spawn_builtin_tools = builtin_tools.clone();
+        let spawn_builtin_tool_factory = builtin_tool_factory.clone();
         let mut spawn_custom_api = frozen_runtime.custom_api.clone();
         let spawn_environment_source = rovai_core::member_environment::launch_source();
         let spawn_environment = frozen_runtime.environment.clone();
@@ -1665,7 +1665,7 @@ impl CodexCliRuntimeAdapter {
                         &spawn_executable,
                         &spawn_cwd,
                         spawn_incoming,
-                        Some(spawn_builtin_tools),
+                        Some(spawn_builtin_tool_factory.create()?),
                         spawn_custom_api,
                         spawn_environment,
                     )
@@ -2532,7 +2532,7 @@ mod tests {
         let executable = root.join("codex");
         make_test_executable(
             &executable,
-            "#!/bin/sh\nIFS= read -r initialize || exit 1\nprintf '%s\\n' '{\"id\":1,\"result\":{}}'\nIFS= read -r initialized || exit 1\nwhile IFS= read -r ignored; do :; done\n",
+            "#!/bin/sh\n[ -f \"$ROVAI_CLI_CONTEXT\" ] && [ -d \"$ROVAI_RUN_TMP\" ] || exit 1\nIFS= read -r initialize || exit 1\nprintf '%s\\n' '{\"id\":1,\"result\":{}}'\nIFS= read -r initialized || exit 1\nwhile IFS= read -r ignored; do :; done\n",
         );
         let attachment_authorization = ThreadOutputDirectory {
             camp_id: "camp-process-compatibility".to_string(),
@@ -2574,8 +2574,8 @@ mod tests {
         let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
             path: root.join("builtin.sock").to_string_lossy().into_owned(),
         };
-        let builtin_tools =
-            BuiltinToolProcessConfig::create(&executable, &endpoint, &root).unwrap();
+        let builtin_tools = BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &root);
+        assert!(!root.join("builtin-tools").exists());
         let legacy = adapter
             .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
                 agent_run_id: "legacy-run",
@@ -2586,7 +2586,7 @@ mod tests {
                 cwd: &root,
                 frozen_runtime: &frozen,
                 runtime_compatibility_digest: &legacy_digest,
-                builtin_tools: &builtin_tools,
+                builtin_tool_factory: &builtin_tools,
             })
             .await
             .unwrap();
@@ -2603,11 +2603,17 @@ mod tests {
                 cwd: &root,
                 frozen_runtime: &frozen,
                 runtime_compatibility_digest: &first_digest,
-                builtin_tools: &builtin_tools,
+                builtin_tool_factory: &builtin_tools,
             })
             .await
             .unwrap();
         let first_host_id = first.host_instance_id().to_string();
+        let first_tools = first.builtin_tool_process_config().unwrap();
+        assert_ne!(
+            first_tools.context_path(),
+            legacy.builtin_tool_process_config().unwrap().context_path(),
+            "a replacement process owns a fresh context"
+        );
         assert_ne!(first_host_id, legacy.host_instance_id());
         assert!(
             !legacy.host.is_alive(),
@@ -2616,6 +2622,12 @@ mod tests {
         adapter
             .complete_agent_run("run-1", 1, FleetReleaseDisposition::Reusable)
             .await;
+        // Any attempt to prepare a candidate context must fail, even if it
+        // would be dropped immediately. Reuse needs no new private root.
+        let blocked_root = root.join("blocked-runtime-root");
+        std::fs::write(&blocked_root, "not a directory").unwrap();
+        let warm_factory =
+            BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &blocked_root);
         let second = adapter
             .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
                 agent_run_id: "run-2",
@@ -2626,11 +2638,16 @@ mod tests {
                 cwd: &root,
                 frozen_runtime: &next,
                 runtime_compatibility_digest: &next_digest,
-                builtin_tools: &builtin_tools,
+                builtin_tool_factory: &warm_factory,
             })
             .await
             .unwrap();
         assert_eq!(second.host_instance_id(), first_host_id);
+        assert_eq!(
+            second.builtin_tool_process_config().unwrap().context_path(),
+            first_tools.context_path(),
+            "warm reuse keeps the existing process context"
+        );
         adapter
             .complete_agent_run("run-2", 1, FleetReleaseDisposition::Reusable)
             .await;
@@ -2649,11 +2666,19 @@ mod tests {
                 cwd: &root,
                 frozen_runtime: &next,
                 runtime_compatibility_digest: &replacement_digest,
-                builtin_tools: &builtin_tools,
+                builtin_tool_factory: &builtin_tools,
             })
             .await
             .unwrap();
         assert_ne!(replacement.host_instance_id(), first_host_id);
+        assert_ne!(
+            replacement
+                .builtin_tool_process_config()
+                .unwrap()
+                .context_path(),
+            first_tools.context_path(),
+            "cold replacement creates a new context before CLI startup"
+        );
         assert!(
             !first.host.is_alive(),
             "old writer must be reaped before replacement"
@@ -2719,7 +2744,7 @@ for line in sys.stdin:
             let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
                 path: root.join("builtin.sock").to_string_lossy().into_owned(),
             };
-            let tools = BuiltinToolProcessConfig::create(&executable, &endpoint, &root).unwrap();
+            let tools = BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &root);
             let mut hosts = Vec::new();
             for round in 1..=3 {
                 if (round == 2 && update_before_failure) || (round == 3 && !update_before_failure) {
@@ -2736,7 +2761,7 @@ for line in sys.stdin:
                         cwd: &root,
                         frozen_runtime: &frozen,
                         runtime_compatibility_digest: "stable",
-                        builtin_tools: &tools,
+                        builtin_tool_factory: &tools,
                     })
                     .await
                     .unwrap();
@@ -2843,7 +2868,7 @@ for line in sys.stdin:
                     cwd: &root,
                     frozen_runtime: &frozen,
                     runtime_compatibility_digest: "stable",
-                    builtin_tools: &tools,
+                    builtin_tool_factory: &tools,
                 })
                 .await
                 .unwrap();
@@ -2920,8 +2945,7 @@ for line in sys.stdin:
         let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
             path: root.join("builtin.sock").to_string_lossy().into_owned(),
         };
-        let builtin_tools =
-            BuiltinToolProcessConfig::create(&executable, &endpoint, &root).unwrap();
+        let builtin_tools = BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &root);
         let request = |run, camp| CodexAgentRunRuntimeRequest {
             agent_run_id: run,
             execution_epoch: 1,
@@ -2931,7 +2955,7 @@ for line in sys.stdin:
             cwd: &root,
             frozen_runtime: &frozen,
             runtime_compatibility_digest: "unchanged",
-            builtin_tools: &builtin_tools,
+            builtin_tool_factory: &builtin_tools,
         };
         save(&source, 0, "A").await;
         let first = with_launch_source(
@@ -3309,8 +3333,7 @@ for line in sys.stdin:
                 let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
                     path: root.join("builtin.sock").to_string_lossy().into_owned(),
                 };
-                let tools =
-                    BuiltinToolProcessConfig::create(&executable, &endpoint, &root).unwrap();
+                let tools = BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &root);
                 let result = adapter
                     .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
                         agent_run_id: "launch-fixture",
@@ -3321,7 +3344,7 @@ for line in sys.stdin:
                         cwd: &root,
                         frozen_runtime: &frozen,
                         runtime_compatibility_digest: "launch-fixture",
-                        builtin_tools: &tools,
+                        builtin_tool_factory: &tools,
                     })
                     .await;
                 if matches!(scenario, "init_failure" | "memory_rejected") {
@@ -3574,7 +3597,7 @@ for line in sys.stdin:
                 .into_owned(),
         };
         let first_builtin_tools =
-            BuiltinToolProcessConfig::create(&executable, &endpoint, &directory).unwrap();
+            BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &directory);
         let first = adapter
             .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
                 agent_run_id: "run-1",
@@ -3585,12 +3608,12 @@ for line in sys.stdin:
                 cwd: &workspace,
                 frozen_runtime: &runtime_config,
                 runtime_compatibility_digest: "test-digest-agent-1",
-                builtin_tools: &first_builtin_tools,
+                builtin_tool_factory: &first_builtin_tools,
             })
             .await
             .unwrap();
         let second_builtin_tools =
-            BuiltinToolProcessConfig::create(&executable, &endpoint, &directory).unwrap();
+            BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &directory);
         let second = adapter
             .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
                 agent_run_id: "run-2",
@@ -3601,7 +3624,7 @@ for line in sys.stdin:
                 cwd: &workspace,
                 frozen_runtime: &runtime_config,
                 runtime_compatibility_digest: "test-digest-agent-2",
-                builtin_tools: &second_builtin_tools,
+                builtin_tool_factory: &second_builtin_tools,
             })
             .await
             .unwrap();
@@ -3686,7 +3709,7 @@ for line in sys.stdin:
             .complete_agent_run("run-1", 1, FleetReleaseDisposition::Reusable)
             .await;
         let successor_builtin_tools =
-            BuiltinToolProcessConfig::create(&executable, &endpoint, &directory).unwrap();
+            BuiltinToolProcessConfigFactory::new(&executable, &endpoint, &directory);
         let successor = adapter
             .ensure_agent_run_runtime(CodexAgentRunRuntimeRequest {
                 agent_run_id: "run-3",
@@ -3697,7 +3720,7 @@ for line in sys.stdin:
                 cwd: &workspace,
                 frozen_runtime: &runtime_config,
                 runtime_compatibility_digest: "test-digest-agent-1",
-                builtin_tools: &successor_builtin_tools,
+                builtin_tool_factory: &successor_builtin_tools,
             })
             .await
             .unwrap();

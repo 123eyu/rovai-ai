@@ -14,6 +14,7 @@ export const RUNTIME_RENDERER_CORE_METHODS = [
   'runtime.startup.check',
   'runtime.startup.save',
   'runtime.networkRecovery.wake',
+  'runtimeInputs.reconcile',
   'runtime.modelCatalog.open',
   'runtime.pendingExecution.cancel'
 ] as const satisfies readonly CoreMethod[]

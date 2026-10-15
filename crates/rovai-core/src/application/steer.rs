@@ -8,11 +8,16 @@ enum ActiveInputRuntime {
 }
 
 impl ActiveInputRuntime {
-    async fn submit(&self, input_id: &str, payload: &str) -> Result<String> {
+    async fn submit(
+        &self,
+        input_id: &str,
+        payload: &str,
+        images: &[PiPromptImage],
+    ) -> Result<String> {
         match self {
             Self::Codex(runtime, turn) => runtime.steer(turn, payload).await,
             Self::Claude(runtime) => runtime.steer(payload).await,
-            Self::Pi(runtime) => runtime.steer(payload).await,
+            Self::Pi(runtime) => runtime.steer(payload, images).await,
             Self::Acp(runtime, prompt) => runtime.steer(prompt, input_id, payload).await,
         }
     }
@@ -177,6 +182,16 @@ impl Core {
             if input.status != "prepared" {
                 return Ok(());
             }
+            (context, input)
+        };
+        let images = if let ActiveInputRuntime::Pi(pi) = &runtime {
+            self.prepare_pi_input_images(&input.id, &context.rendered_payload, pi)
+                .await?
+        } else {
+            Vec::new()
+        };
+        {
+            let mut database = self.database.lock().await;
             if !ContextService.begin_runtime_input_dispatch(
                 &mut database,
                 &input.id,
@@ -185,9 +200,11 @@ impl Core {
             )? {
                 return Ok(());
             }
-            (context, input)
-        };
-        match runtime.submit(&input.id, &context.runtime_payload).await {
+        }
+        match runtime
+            .submit(&input.id, &context.runtime_payload, &images)
+            .await
+        {
             Ok(native_id) => {
                 let mut database = self.database.lock().await;
                 ContextService.acknowledge_input_delivery(&mut database, &input.id, &native_id)?;

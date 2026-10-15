@@ -34,14 +34,27 @@ Read Model 的 `canSteer` 和 `steerUnavailableReason` 来自同一 Core 入口�
 | Qwen ACP v1 | 0.18.4 起、major 0 | 结构化 drainMidTurnQueue items/content |
 | Grok ACP v1 | 1.0.14 起、major 1 | interject 原子投递修复及 queued 回执 |
 | Kiro ACP v1／v2 引擎 | 2.21.1 起、major 2 | queued／injected 的 messageId 与正文关联 |
-| ZCode App Server v1 | 内核 0.16.5 起、major 0 | 捆绑内核身份及 guide queued／drained 关联 |
+| ZCode App Server v1 | 官方 App 3.12.2 为最早已测包；内部核验内核 0.16.5 起、major 0 | 捆绑内核身份及 guide queued／drained 关联 |
 | TRAE CN ACP v1 | 0.207.1 起、major 0 | 活跃 Session steering 的 injected 回执 |
-| CodeBuddy ACP v1 | 2.109.1、2.111.0、2.132.0、2.133.1 | 已观察的并发 prompt 回执形态，其他版本待核实 |
+| CodeBuddy ACP v1 | 2.109.1 起、major 2 | 专用 steer 的 owner 回执；无该方法的旧版使用并发 prompt |
 
 这是当前实现的准入策略，不是所有区间版本都实测通过的声明。预发布、未知协议或未覆盖的新 major
-保守排队。ZCode 按内核判断，Run 保留实际可执行文件摘要；App 名义版本不能代替内核。
+保守排队。ZCode 对 User 使用 App 版本说明；Core 继续核验实际捆绑内核与可执行文件摘要，
+不新增另一套 App 版本门禁或存储字段。
 CodeBuddy 2.132.0 的业务结果异常独立追踪；单个未遵从样本不等于已证明协议不兼容，也不能用
 低版本成功外推全部后续版本。真实结果和发布决定另记验收报告。
+
+## CodeBuddy ACP
+
+保持 ACP stdio，优先 `session/steer`，以原 Prompt 观察到的根 `conversationRequestId` 作为
+`expectedRequestId`，以当前输入 ID 作为 `clientUserMessageId`。回执必须是 `steered: true` 且
+`ownerRequestId` 匹配；没有观察到原生 request ID 时不能确认专用方法的接受归属。
+只有该请求明确返回 `-32601`（方法不存在）时才重新核验原 Run／epoch／Prompt，并使用旧版并发
+`session/prompt`。明确 `steered: false` 转普通投递；其他错误、归属不匹配、超时或迟到回执保持未知，
+不尝试第二种方法。两条路径都在结束／停止后回收使用过插话的 Host。
+
+`_codebuddy.ai/modResidentInvalidate` 是原生界面缓存失效通知，只在 CodeBuddy 的无 ID notification
+中作为 Session metadata 处理；不充当初始输入或插话的接受证据，也不放行未知 method 或 request。
 
 ## TRAE CLI CN
 
@@ -56,7 +69,7 @@ CodeBuddy 2.132.0 的业务结果异常独立追踪；单个未遵从样本不�
 ## 回执与失败语义
 
 `accepted` 的共同含义是“运行时已接收”。只有 Adapter 有明确消费事件时才能描述为已消费；
-消费也不保证业务要求完成。CodeBuddy supplemental end_turn、Grok queued、TRAE injected 不统一
+消费也不保证业务要求完成。CodeBuddy steered／supplemental end_turn、Grok queued、TRAE injected 不统一
 解释为模型已经读取并执行。界面与报告采用同一术语。
 
 可证明未写入或明确未接受时，按既有合同转普通投递且只投一次；提交后结果未知不重发、不补建任务、

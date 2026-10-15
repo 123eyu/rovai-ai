@@ -290,6 +290,7 @@ struct AcpActivePrompt {
     prompt_activity_observed: bool,
     kimi_compaction_lifecycle: KimiCompactionLifecycle,
     zcode_input_id: Option<String>,
+    codebuddy_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -409,7 +410,10 @@ fn is_known_session_lifecycle_extension(adapter_kind: AdapterKind, message: &Val
                     AdapterKind::KiroCli,
                     Some("_kiro.dev/mcp/server_initialized")
                 )
-                | (AdapterKind::CodebuddyCli, Some("_codebuddy.ai/command"))
+                | (
+                    AdapterKind::CodebuddyCli,
+                    Some("_codebuddy.ai/command" | "_codebuddy.ai/modResidentInvalidate")
+                )
                 | (
                     AdapterKind::ZcodeApp,
                     Some("_zcode/compaction" | "_zcode/inputAccepted")
@@ -3175,6 +3179,31 @@ impl AcpHost {
         };
         match &mut route.phase {
             AcpSessionPhase::PromptActive(active_prompt) => {
+                if self.adapter_kind == AdapterKind::CodebuddyCli
+                    && active_prompt.codebuddy_request_id.is_none()
+                    && crate::runtime::is_root_output(&message["params"])
+                    && crate::runtime::is_root_output(&message["params"]["update"])
+                    && matches!(
+                        message
+                            .pointer("/params/update/sessionUpdate")
+                            .and_then(Value::as_str),
+                        Some(
+                            "agent_message_chunk"
+                                | "agent_thought_chunk"
+                                | "tool_call"
+                                | "tool_call_update"
+                        )
+                    )
+                {
+                    active_prompt.codebuddy_request_id = message
+                        .pointer("/params/update/_meta/codebuddy.ai~1conversationRequestId")
+                        .or_else(|| {
+                            message.pointer("/params/_meta/codebuddy.ai~1conversationRequestId")
+                        })
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_owned);
+                }
                 if self.adapter_kind == AdapterKind::ZcodeApp
                     && message["method"] == "_zcode/inputAccepted"
                 {
@@ -4061,6 +4090,7 @@ impl AcpHost {
                 prompt_activity_observed: false,
                 kimi_compaction_lifecycle: KimiCompactionLifecycle::Idle,
                 zcode_input_id: None,
+                codebuddy_request_id: None,
             });
         }
         self.pending.lock().await.insert(
@@ -5340,6 +5370,31 @@ impl AcpRuntime {
         input_id: &str,
         text: &str,
     ) -> Result<String> {
+        let result = self
+            .steer_once(expected_prompt, input_id, text, false)
+            .await;
+        // Method-not-found proves the dedicated request never entered the native
+        // queue. Only that response permits the older concurrent-prompt path;
+        // a timeout, malformed ACK or other error must never resend the input.
+        if self.adapter_kind() == AdapterKind::CodebuddyCli
+            && result.as_ref().is_err_and(|error| {
+                error
+                    .downcast_ref::<AcpRpcError>()
+                    .is_some_and(|e| e.code == Some(-32601))
+            })
+        {
+            return self.steer_once(expected_prompt, input_id, text, true).await;
+        }
+        result
+    }
+
+    async fn steer_once(
+        &self,
+        expected_prompt: &str,
+        input_id: &str,
+        text: &str,
+        codebuddy_legacy: bool,
+    ) -> Result<String> {
         let session = self
             .session_id()
             .await
@@ -5402,7 +5457,20 @@ impl AcpRuntime {
         } else {
             drop(sender);
         }
+        let codebuddy_request = routes.get(&session).and_then(|route| match &route.phase {
+            AcpSessionPhase::PromptActive(p) => p.codebuddy_request_id.clone(),
+            _ => None,
+        });
         let (method, params) = match self.adapter_kind() {
+            AdapterKind::CodebuddyCli if !codebuddy_legacy => (
+                "session/steer",
+                // An unobserved native owner must not become an unfenced send.
+                // The local Prompt ID cannot match CodeBuddy's native request ID;
+                // old versions still answer method-not-found without accepting it.
+                json!({"sessionId":session,"contentBlocks":[{"type":"text","text":text}],
+                    "clientUserMessageId":input_id,
+                    "expectedRequestId":codebuddy_request.as_deref().unwrap_or(expected_prompt)}),
+            ),
             AdapterKind::CodebuddyCli => (
                 "session/prompt",
                 json!({"sessionId":session,"prompt":[{"type":"text","text":text}]}),
@@ -5434,7 +5502,7 @@ impl AcpRuntime {
         let id = self.host.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, response) = oneshot::channel();
         // A supplement response is never the authoritative original Prompt
-        // terminal. In particular CodeBuddy returns end_turn before its tool ends.
+        // terminal. Legacy CodeBuddy returns end_turn before its tool ends.
         self.host.pending.lock().await.insert(
             id,
             PendingRpc::Response {
@@ -5442,8 +5510,8 @@ impl AcpRuntime {
                 sender,
             },
         );
-        // These protocols cannot atomically bind to a native turn. Retire the
-        // exact Host on completion so a late input cannot reach any successor.
+        // Some transports cannot atomically bind to a native turn. Retire the
+        // exact Host for every path so no leftover queue reaches a successor.
         self.host.retire_after_steer.store(true, Ordering::Release);
         timeout(
             Duration::from_secs(10),
@@ -5510,6 +5578,14 @@ impl AcpRuntime {
             }
             return Ok(input_id.to_string());
         }
+        if self.adapter_kind() == AdapterKind::CodebuddyCli
+            && !codebuddy_legacy
+            && result["steered"] == false
+        {
+            // A correlated explicit rejection remains not-accepted even when
+            // the original Prompt completes before this response is observed.
+            return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+        }
         let routes = self.host.routes.read().await;
         if !routes.get(&session).is_some_and(|route| route.owner == self.owner
             && !route.client_terminal_create_cancelled
@@ -5524,8 +5600,20 @@ impl AcpRuntime {
         if self.adapter_kind() == AdapterKind::TraeCnCli && result["outcome"] != "injected" {
             bail!("TRAE did not confirm active input injection");
         }
-        if self.adapter_kind() == AdapterKind::CodebuddyCli && result["stopReason"] != "end_turn" {
-            bail!("CodeBuddy did not confirm the supplemental prompt");
+        if self.adapter_kind() == AdapterKind::CodebuddyCli {
+            if codebuddy_legacy {
+                if result["stopReason"] != "end_turn" {
+                    bail!("CodeBuddy did not confirm the supplemental prompt");
+                }
+            } else {
+                if result["steered"] != true
+                    || codebuddy_request
+                        .as_deref()
+                        .is_none_or(|expected| result["ownerRequestId"] != expected)
+                {
+                    bail!("CodeBuddy did not confirm the targeted steering queue");
+                }
+            }
         }
         Ok(acp_prompt_id(&self.host.host_instance_id, id))
     }
@@ -8763,25 +8851,36 @@ mod route_policy_tests {
 
     #[test]
     fn codebuddy_private_command_notification_is_narrow_idle_metadata() {
-        let notification = json!({
-            "jsonrpc": "2.0",
-            "method": "_codebuddy.ai/command",
-            "params": { "sessionId": "session-codebuddy" }
-        });
-        assert!(is_known_session_lifecycle_extension(
-            AdapterKind::CodebuddyCli,
-            &notification
-        ));
+        for method in [
+            "_codebuddy.ai/command",
+            "_codebuddy.ai/modResidentInvalidate",
+        ] {
+            let notification = json!({
+                "jsonrpc": "2.0", "method": method,
+                "params": { "sessionId": "session-codebuddy" }
+            });
+            assert!(is_known_session_lifecycle_extension(
+                AdapterKind::CodebuddyCli,
+                &notification
+            ));
+            assert!(is_idle_session_metadata(
+                AdapterKind::CodebuddyCli,
+                &notification
+            ));
+            assert!(!is_known_session_lifecycle_extension(
+                AdapterKind::TraeCnCli,
+                &notification
+            ));
+            let mut request = notification;
+            request["id"] = json!(1);
+            assert!(!is_known_session_lifecycle_extension(
+                AdapterKind::CodebuddyCli,
+                &request
+            ));
+        }
         assert!(!is_known_session_lifecycle_extension(
-            AdapterKind::TraeCnCli,
-            &notification
-        ));
-
-        let mut request = notification;
-        request["id"] = json!(1);
-        assert!(!is_known_session_lifecycle_extension(
             AdapterKind::CodebuddyCli,
-            &request
+            &json!({"method":"_codebuddy.ai/unknown", "params":{"sessionId":"session-codebuddy"}})
         ));
     }
 
@@ -11897,22 +11996,47 @@ while IFS= read -r ignored; do :; done
     // payload test cannot detect an early end_turn terminating the original Run.
     #[tokio::test]
     async fn active_input_receipts_preserve_the_original_prompt_and_fence_late_sources() {
-        for kind in [
-            AdapterKind::CodebuddyCli,
-            AdapterKind::GrokBuild,
-            AdapterKind::QwenCode,
-            AdapterKind::KiroCli,
-            AdapterKind::TraeCnCli,
+        for (kind, legacy) in [
+            (AdapterKind::CodebuddyCli, false),
+            (AdapterKind::CodebuddyCli, true),
+            (AdapterKind::GrokBuild, false),
+            (AdapterKind::QwenCode, false),
+            (AdapterKind::KiroCli, false),
+            (AdapterKind::TraeCnCli, false),
         ] {
-            for (late, unsupported) in [(false, false), (true, false), (false, true)] {
-                if unsupported && !matches!(kind, AdapterKind::KiroCli | AdapterKind::TraeCnCli) {
+            for (late, unsupported, bad_owner) in [
+                (false, false, false),
+                (true, false, false),
+                (false, true, false),
+                (true, true, false),
+                (false, false, true),
+            ] {
+                if late && unsupported && (kind != AdapterKind::CodebuddyCli || legacy) {
+                    continue;
+                }
+                if bad_owner && (kind != AdapterKind::CodebuddyCli || legacy) {
+                    continue;
+                }
+                if unsupported
+                    && (!matches!(
+                        kind,
+                        AdapterKind::KiroCli | AdapterKind::TraeCnCli | AdapterKind::CodebuddyCli
+                    ) || legacy)
+                {
                     continue;
                 }
                 let root =
                     std::env::temp_dir().join(format!("rovai-acp-steer-{}", uuid::Uuid::new_v4()));
                 std::fs::create_dir_all(&root).unwrap();
                 let executable = root.join("fake-agent");
-                let response = if kind == AdapterKind::GrokBuild {
+                let requests = root.join("supplements.jsonl");
+                let response = if kind == AdapterKind::CodebuddyCli && !legacy {
+                    if bad_owner {
+                        r#"{"steered":true,"ownerRequestId":"other-request"}"#
+                    } else {
+                        r#"{"steered":true,"ownerRequestId":"original-request"}"#
+                    }
+                } else if kind == AdapterKind::GrokBuild {
                     r#"{"result":{"status":"queued"}}"#
                 } else if kind == AdapterKind::TraeCnCli {
                     r#"{"outcome":"injected"}"#
@@ -11921,7 +12045,16 @@ while IFS= read -r ignored; do :; done
                 };
                 let terminal = r#"printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}'"#;
                 let original_request = if kind == AdapterKind::GrokBuild { 3 } else { 2 };
-                let supplement_request = original_request + 1;
+                let supplement_request = original_request + 1 + i32::from(legacy);
+                let negotiation = if legacy {
+                    format!(
+                        "printf '%s\\n' '{{\"id\":{},\"error\":{{\"code\":-32601,\"message\":\"Method not found\"}}}}'\nIFS= read -r supplemental || exit 1\nprintf '%s\\n' \"$supplemental\" >> '{}'",
+                        original_request + 1,
+                        requests.display()
+                    )
+                } else {
+                    String::new()
+                };
                 let terminal = terminal.replace("\"id\":2", &format!("\"id\":{original_request}"));
                 let authentication = if kind == AdapterKind::GrokBuild {
                     r#"IFS= read -r auth || exit 1
@@ -11929,7 +12062,16 @@ printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{}}'"#
                 } else {
                     ""
                 };
-                let supplement = if unsupported {
+                let supplement = if unsupported && kind == AdapterKind::CodebuddyCli {
+                    let rejection = format!(
+                        "printf '%s\\n' '{{\"id\":{supplement_request},\"result\":{{\"steered\":false,\"reason\":\"idle\"}}}}'"
+                    );
+                    if late {
+                        format!("{terminal}\n{rejection}")
+                    } else {
+                        format!("{rejection}\nIFS= read -r finish || exit 1\n{terminal}")
+                    }
+                } else if unsupported {
                     format!(
                         "printf '%s\\n' '{{\"id\":{supplement_request},\"error\":{{\"code\":-32601,\"message\":\"Method not found\"}}}}'\nIFS= read -r finish || exit 1\n{terminal}"
                     )
@@ -11981,9 +12123,12 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCap
 {authentication}
 IFS= read -r original || exit 1
 IFS= read -r supplemental || exit 1
+printf '%s\n' "$supplemental" >> '{requests}'
+{negotiation}
 {supplement}
 while IFS= read -r ignored; do :; done
-"#
+"#,
+                        requests = requests.display()
                     ),
                 );
                 let mut frozen = frozen_trae_runtime(&executable);
@@ -12042,7 +12187,7 @@ while IFS= read -r ignored; do :; done
                 }
                 for update in ["tool_call", "agent_thought_chunk"] {
                     host.route_session_message("session-steer", &json!({
-                        "method":"session/update","params":{"sessionId":"session-steer", "update":{"sessionUpdate":update}}
+                        "method":"session/update","params":{"sessionId":"session-steer", "update":{"sessionUpdate":update,"_meta":{"codebuddy.ai/conversationRequestId":"original-request"}}}
                     }), 0).await;
                 }
                 assert!(
@@ -12128,6 +12273,23 @@ while IFS= read -r ignored; do :; done
                     .await
                     .unwrap()
                     .unwrap();
+                if kind == AdapterKind::CodebuddyCli {
+                    let requests: Vec<Value> = std::fs::read_to_string(&requests)
+                        .unwrap()
+                        .lines()
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
+                    assert_eq!(requests.len(), if legacy { 2 } else { 1 });
+                    assert_eq!(requests[0]["method"], "session/steer");
+                    assert_eq!(
+                        requests[0]["params"]["expectedRequestId"],
+                        "original-request"
+                    );
+                    assert_eq!(requests[0]["params"]["clientUserMessageId"], "source-input");
+                    if legacy {
+                        assert_eq!(requests[1]["method"], "session/prompt");
+                    }
+                }
                 if unsupported {
                     assert!(
                         result
@@ -12135,6 +12297,13 @@ while IFS= read -r ignored; do :; done
                             .is::<rovai_core::steer::ActiveInputNotAccepted>()
                     );
                     assert!(host.kiro_steering.lock().await.is_empty());
+                    host.notify("fixture/finish", json!({})).await.unwrap();
+                } else if bad_owner {
+                    assert!(
+                        !result
+                            .unwrap_err()
+                            .is::<rovai_core::steer::ActiveInputNotAccepted>()
+                    );
                     host.notify("fixture/finish", json!({})).await.unwrap();
                 } else if late {
                     let error = result.unwrap_err();

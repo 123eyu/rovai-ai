@@ -26,6 +26,15 @@ node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qw
 OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint
 和模型供核对。单项通过不能覆盖其余场景的超时，失败报告也必须保留。
 
+可选第五参数为目标原生程序绝对路径，保存独立的 Runtime startup 配置并核对安装入口，防止旧版
+验收自动回退到本机新版。混合场景的 OpenCode 只复制配置、认证和模型选择，XDG 配置、数据、状态、
+缓存均指向 fixture，不复制日常 Session／数据库；取消继承的 `OPENCODE_DB`。
+
+CodeBuddy 新旧 ACP 插话归属由既有 `active_input_receipts_preserve_the_original_prompt_and_fence_late_sources`
+owner 覆盖：专用 owner 回执、方法不存在后旧路径、拒绝、迟到与错误 owner。生命周期通知矩阵扩展
+`codebuddy_private_command_notification_is_narrow_idle_metadata`；版本范围扩展既有 frozen Run 准入
+owner。不增加独立 Rust 测试，真实新版与最低版另以 `probe-steer-version.mjs` 验证。
+
 历史版本使用 `scripts/probe-steer-version.mjs`，第四参数必须是已下载的官方历史包绝对入口：
 
 ```sh

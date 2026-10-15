@@ -3450,11 +3450,26 @@ mod tests {
             ("trae-cn-cli", Some("0.207.1"), "acp-v1", None),
             (
                 "codebuddy-cli",
-                Some("2.110.0"),
+                Some("2.108.2"),
+                "acp-v1",
+                Some(R::VersionIncompatible),
+            ),
+            ("codebuddy-cli", Some("2.109.1"), "acp-v1", None),
+            ("codebuddy-cli", Some("2.110.0"), "acp-v1", None),
+            ("codebuddy-cli", Some("2.132.0"), "acp-v1", None),
+            ("codebuddy-cli", Some("2.167.0"), "acp-v1", None),
+            (
+                "codebuddy-cli",
+                Some("2.167.0-beta.1"),
                 "acp-v1",
                 Some(R::VersionUnverified),
             ),
-            ("codebuddy-cli", Some("2.132.0"), "acp-v1", None),
+            (
+                "codebuddy-cli",
+                Some("3.0.0"),
+                "acp-v1",
+                Some(R::VersionUnverified),
+            ),
             (
                 "opencode-cli",
                 Some("1.0.0"),

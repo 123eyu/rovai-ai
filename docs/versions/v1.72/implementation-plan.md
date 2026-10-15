@@ -8,6 +8,22 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## Steer 版本复核（2026-10-15，User seq44）
+
+CodeBuddy 从离散名单改为 major 2 的 `>=2.109.1`；增加专用 ACP `session/steer` 与原生请求归属，
+仅明确方法不存在时复验原执行后使用旧并发 Prompt；识别新版精确 metadata 通知。
+普通执行资格、共同上下文、数据库和 UI 保持。ZCode 对 User 使用 App 3.12.2，内部沿用内核核验。
+Claude 2.1.81／2.1.83 官方包及 sub2api 实测确认当前接线边界。
+
+真实 LLM 主验证十个尝试共 30 case：26 通过、4 失败全部归档；
+结束协议补齐后的构建另做结束／失效目标 1/1 补验，总计 31 case。CodeBuddy 2.167.0 修正后三次连续输入与三项
+停止／结束均通过；2.133.1 前后各 3/3；2.109.1 新复测 2/3，不关闭 #762，推荐新版。
+TRAE CN 0.207.1 完成连续输入、附件、普通排队、多目标、停止续接与结束边界。
+准确范围与二进制身份见[报告](../../research/runtime-monitoring/steer-version-followup-2026-10-15.md)。
+
+Rust 扩展既有 ACP 回执 owner、metadata owner 与 frozen Run 准入 owner，三个定向测试通过；
+没有新增测试 owner。完整门禁结果记录于报告末尾。
+
 ## 队员头像简化（2026-10-14）
 
 Mission `rvm_01a1390f1fc377028f1bae8eb8f78cf0`，分支 `rovai/mission/062`，基线 `3d4db22df`。

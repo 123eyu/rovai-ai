@@ -101,16 +101,10 @@ pub fn protocol_unavailable(
         "kiro-cli" => ([2, 21, 1], 2),
         "zcode-app" => ([0, 16, 5], 0),
         "trae-cn-cli" => ([0, 207, 1], 0),
-        // Published successes are not a monotonic compatibility boundary:
-        // 2.132.0 has an unresolved business outcome, not a demonstrated ABI failure.
-        // Keep that observed ABI admitted; do not infer compatibility for untested releases.
-        "codebuddy-cli" => {
-            return if [[2, 109, 1], [2, 111, 0], [2, 132, 0], [2, 133, 1]].contains(&v) {
-                None
-            } else {
-                Some(VersionUnverified)
-            };
-        }
+        // The unresolved 2.132.0 business outcome is not an established ABI break.
+        // Use the verified protocol floor for the current major; observed release
+        // results remain separate from this compatibility policy.
+        "codebuddy-cli" => ([2, 109, 1], 2),
         _ => return Some(RuntimeUnsupported),
     };
     if v[0] != major {

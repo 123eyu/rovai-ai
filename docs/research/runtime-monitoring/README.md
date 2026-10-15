@@ -9,6 +9,10 @@ baseline_ref: "4b4fe088b15ef785cd76f54f221e5d87c9d639a4"
 
 # Rovai AI 运行监控指标可采集性审计
 
+2026-10-15 [Steer 版本复核与完整 TRAE 验收](steer-version-followup-2026-10-15.md)：按 User seq44，
+CodeBuddy 改为连续门槛并适配新版专用 ACP；ZCode 使用 App 版本说明；复核 Claude 当前协议边界，
+补验 TRAE CN 0.207.1 的连续输入、附件、普通队列、多目标、停止续接和结束竞态。
+
 2026-10-15 [Steer 合并、产品收口与完整清单](steer-hardening-2026-10-15.md)：按 User seq40 合并主线，
 解决两种 Migration 199 来源，统一 Core 版本资格；TRAE 已完成产品适配，九种 Runtime 在合并代码上有真实正例。
 保留 CodeBuddy #762 原异常、全部复测和脚本失败，补齐 UI、附件、多目标、停止、结束与确定性恢复证据。

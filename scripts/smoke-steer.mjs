@@ -1,22 +1,27 @@
 // Real Runtime acceptance; all Core, Skills, MCP, cache and workspace writes are isolated.
-// node scripts/smoke-steer.mjs <new-empty-absolute-root> <absolute-core-executable> [target-adapter] [cancel-only|steer-only|mixed-only]
+// node scripts/smoke-steer.mjs <new-empty-absolute-root> <absolute-core-executable> [target-adapter] [full|cancel-only|steer-only|mixed-only] [absolute-native-executable]
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import { access, chmod, cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { access, chmod, cp, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { startQualificationCore } from './lib/qualification-core.mjs'
 import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
-const [fixture, executable, targetAdapter = 'codex-cli', scenario = 'full'] = process.argv.slice(2)
+const [fixture, executable, targetAdapter = 'codex-cli', scenario = 'full', nativeExecutable] = process.argv.slice(2)
 assert.ok(['full','cancel-only','steer-only','mixed-only'].includes(scenario))
 assert.ok(['codex-cli','claude-code-cli','pi','codebuddy-cli','qwen-code','grok-build','kiro-cli','zcode-app','trae-cn-cli'].includes(targetAdapter))
 assert.ok(isAbsolute(fixture) && isAbsolute(executable))
+assert.ok(!nativeExecutable || isAbsolute(nativeExecutable))
 await access(join(dirname(executable), process.platform === 'win32' ? 'rovai.exe' : 'rovai'))
 assert.deepEqual(await readdir(fixture), [])
 const data = join(fixture, 'core'), project = join(fixture, 'project')
 await mkdir(data); await mkdir(project)
 const report = { startedAt: new Date().toISOString(), coreExecutable: executable, coreSha256: createHash('sha256').update(await readFile(executable)).digest('hex'), fixture, targetAdapter, scenario, cases: [], runtimes: [], runtimeChecks: [] }
+if(nativeExecutable) {
+  report.nativeExecutable=nativeExecutable
+  report.nativeSha256=createHash('sha256').update(await readFile(nativeExecutable)).digest('hex')
+}
 console.error(`Automatic acceptance: data=${data}; skills=${join(data,'managed-skill-library')}; MCP=${join(data,'mcp.json')}; project=${project}`)
 // Native credentials are copied only into this private acceptance directory.
 // The report contains no credential values or native configuration contents.
@@ -36,7 +41,7 @@ if(nativeSpec) {
   const source=process.env[key]??join(homedir(),directory), native=join(fixture,'native')
   await mkdir(native,{mode:0o700}); await chmod(fixture,0o700)
   for(const name of files) { try { await access(join(source,name)) } catch { continue }
-    await cp(join(source,name),join(native,name),{recursive:true}); }
+    await cp(join(source,name),join(native,name),{recursive:true,dereference:true}); }
   if(targetAdapter==='claude-code-cli') {
     const settings=JSON.parse(await readFile(join(native,'settings.json'),'utf8'))
     const baseURL=settings.env?.ANTHROPIC_BASE_URL
@@ -53,6 +58,24 @@ if(nativeSpec) {
     process.env.ZCODE_SESSION_DB_PATH=join(native,'sessions.sqlite')
   }
 }
+// The unsupported busy peer is a real OpenCode Runtime too. Copy only its
+// authentication/configuration/selection, never daily Sessions or databases.
+for(const [key,directory,files] of [
+  ['XDG_CONFIG_HOME','.config',['opencode/opencode.json','opencode/opencode.jsonc','opencode/config.json']],
+  ['XDG_DATA_HOME','.local/share',['opencode/auth.json']],
+  ['XDG_STATE_HOME','.local/state',['opencode/model.json']],
+  ['XDG_CACHE_HOME','.cache',[]],
+]) {
+  const source=process.env[key]??join(homedir(),directory)
+  const destination=join(fixture,'opencode',key.toLowerCase())
+  await mkdir(destination,{recursive:true,mode:0o700})
+  for(const name of files) {
+    try { await access(join(source,name)) } catch { continue }
+    await cp(join(source,name),join(destination,name),{recursive:true,dereference:true})
+  }
+  process.env[key]=destination
+}
+delete process.env.OPENCODE_DB
 let core, db, threadId, failedExecution = () => null
 async function wait(check, label, timeout=600_000) {
   const deadline = Date.now()+timeout
@@ -63,12 +86,17 @@ const exists = async name => { try { await access(join(project,name));return tru
 try {
   core = startQualificationCore({coreExecutable:executable,dataDirectory:data,workingDirectory:project,runtimeCacheDirectory:join(fixture,'cache'),mcpConfigPath:join(data,'mcp.json')})
   await core.request('health.check')
+  if(nativeExecutable) {
+    const startup=await core.request('runtime.startup.get',{runtimeKind:targetAdapter})
+    await core.request('runtime.startup.save',{runtimeKind:targetAdapter,expectedRevision:startup.revision,configuration:{programPath:nativeExecutable,environment:[]}})
+  }
   await core.request('runtime.discovery.rescan',{interactiveShell:false})
   for(const adapter of [targetAdapter,'opencode-cli']) report.runtimeChecks.push({adapter,result:await core.request('runtime.product.check',{runtimeKind:adapter},120_000)})
   const installations = await core.request('runtime.installations.list')
   for(const [agentId,adapter] of [['agent_1',targetAdapter],['agent_2','opencode-cli'],['agent_3',targetAdapter]]) {
     const installation=installations.find(i=>i.adapterKind===adapter&&i.installationClass==='managed_default'&&i.authScope==='default'&&i.memberRuntimeDefaults)
     assert.ok(installation,`${adapter} requires saved defaults`)
+    if(adapter===targetAdapter&&nativeExecutable)assert.equal(await realpath(installation.executablePath),await realpath(nativeExecutable),'historical binary selection must never fall back to the installed version')
     const current=await core.request('members.get',{agentId})
     const result=await core.request('members.runtime.set',{commandId:randomUUID(),command:{agentId,expectedVersion:current.version,adapterKind:adapter,model:installation.memberRuntimeDefaults.model,permissions:installation.memberRuntimeDefaults.permissions}})
     assert.equal(result.status,'applied')

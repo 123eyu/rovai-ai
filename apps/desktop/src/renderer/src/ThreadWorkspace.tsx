@@ -5404,7 +5404,7 @@ export function ThreadWorkspace({
                                 copied={copied}
                                 hasDelivery={campMessage.authorType === 'agent' && campMessageDeliveries.length > 0}
                                 showActions={campMessage.authorType !== 'agent'}
-                                actionBefore={campMessage.authorType === 'user' ? (
+                                actionAfter={campMessage.authorType === 'user' ? (
                                   <UserMessageDeliveryReceipt
                                     message={campMessage}
                                     onReconcile={onReconcileDelivery}
@@ -7962,44 +7962,54 @@ function UserMessageDeliveryReceipt({
   for (const run of runs.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt))) {
     if (!runByAgentId.has(run.agentId)) runByAgentId.set(run.agentId, run)
   }
-  const ordered = message.addressedAgentIds.map((agentId) => ({
-    agentId,
-    delivery: deliveries.find(d => d.recipientAgentId === agentId),
-    run: allRuns.find(r => r.id === deliveries.find(d => d.recipientAgentId === agentId)?.targetAgentRunId) ?? runByAgentId.get(agentId) ?? null
-  }))
-  const steered = ordered.filter(({ delivery }) => delivery?.requestedMode === 'steer' && delivery.inputDeliveryStatus === 'accepted')
-  const unknown = ordered.filter(({ delivery }) => delivery?.inputDeliveryStatus === 'delivery_unknown')
-  const pending = ordered.filter(({ run, delivery }) => delivery?.inputDeliveryStatus !== 'accepted'
-    && delivery?.inputDeliveryStatus !== 'delivery_unknown'
-    && (delivery?.status === 'waiting' || !run || (run.status === 'queued' && !run.cancelRequestedAt)))
-  const inProgress = ordered.filter(({ run }) => run?.status === 'running' || run?.status === 'waiting')
+  const ordered = message.addressedAgentIds.map((agentId) => {
+    const delivery = deliveries.find(d => d.recipientAgentId === agentId)
+    const run = allRuns.find(r => r.id === delivery?.targetAgentRunId) ?? runByAgentId.get(agentId) ?? null
+    // Classify each target once. A Steer receipt describes delivery, even when
+    // its target Run later finishes; ordinary targets describe execution.
+    const status = delivery?.requestedMode === 'steer' && delivery.inputDeliveryStatus === 'accepted' ? 'steered'
+      : delivery?.inputDeliveryStatus === 'delivery_unknown' ? 'unknown'
+      : delivery?.status === 'failed' || delivery?.status === 'cancelled' || run?.status === 'failed' || run?.status === 'cancelled' ? 'incomplete'
+      : run?.status === 'succeeded' || (!run && delivery?.status === 'settled') ? 'completed'
+      : delivery?.status === 'waiting' || !run || (run.status === 'queued' && !run.cancelRequestedAt) ? 'pending'
+      : 'inProgress'
+    return { agentId, delivery, run, status }
+  })
+  const steered = ordered.filter(item => item.status === 'steered')
+  const unknown = ordered.filter(item => item.status === 'unknown')
+  const pending = ordered.filter(item => item.status === 'pending')
+  const inProgress = ordered.filter(item => item.status === 'inProgress')
+  const incomplete = ordered.filter(item => item.status === 'incomplete')
   const canWithdraw = message.canWithdraw && Boolean(onWithdraw)
     && deliveries.every(delivery => delivery.status === 'waiting')
   const receiptLabel = [
     steered.length ? (ordered.length === 1 ? uiAttribute('已插话') : uiAttribute('已插话 {0}', String(steered.length))) : '',
+    inProgress.length ? uiAttribute('处理中 {0}', String(inProgress.length)) : '',
     pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : '',
-    unknown.length ? uiAttribute('待核对 {0}', String(unknown.length)) : ''
+    unknown.length ? uiAttribute('待核对 {0}', String(unknown.length)) : '',
+    incomplete.length ? uiAttribute('未完成 {0}', String(incomplete.length)) : ''
   ].filter(Boolean).join(' · ')
-  const presentation = unknown.length > 0 || steered.length > 0
-    ? { className: unknown.length ? 'is-unknown' : pending.length ? 'is-queued' : 'is-confirmed', label: receiptLabel }
-      : pending.length > 0
-    ? { className: 'is-queued', label: uiAttribute("待处理 · {0}", String(pending.length)) }
-    : inProgress.length > 0
-      ? { className: 'is-progress', label: uiAttribute("处理中 · {0}", String(inProgress.length)) }
-      : null
-  if (!presentation) return null
+  if (!receiptLabel) return null
+  const presentation = {
+    className: unknown.length ? 'is-unknown' : incomplete.length ? 'is-incomplete' : inProgress.length ? 'is-progress' : pending.length ? 'is-queued' : 'is-confirmed',
+    label: receiptLabel
+  }
+  const hasMixedStatus = [steered, inProgress, pending, unknown, incomplete].filter(items => items.length > 0).length > 1
   return (
     <div className="user-message-receipt-row">
+      {canWithdraw && <button className="user-message-withdraw" type="button" aria-label={uiAttribute("撤回尚未领取的消息")} title={uiAttribute("撤回消息")} onClick={onWithdraw}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4H2.5v2.5M2.8 6.2A5.4 5.4 0 1 1 3 10" /></svg>
+      </button>}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
-            className={`user-message-receipt ${presentation.className}`}
+            className={`user-message-receipt ${presentation.className}${hasMixedStatus ? ' has-mixed-status' : ''}`}
             type="button"
             aria-label={uiAttribute("查看消息处理状态，{0}", String(presentation.label))}
           >
             {presentation.className === 'is-progress' ? <ExecutionIcon />
               : presentation.className === 'is-confirmed' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8 3 3 6-6" /></svg>
-              : presentation.className === 'is-unknown' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m8 2 6 11H2Z" /><path d="M8 6v3m0 2h.01" /></svg>
+              : presentation.className === 'is-unknown' || presentation.className === 'is-incomplete' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m8 2 6 11H2Z" /><path d="M8 6v3m0 2h.01" /></svg>
               : <svg viewBox="0 0 16 16" aria-hidden="true">
                   <circle cx="8" cy="8" r="5.6" /><path d="M8 4.7V8l2.2 1.4" />
                 </svg>}
@@ -8014,7 +8024,7 @@ function UserMessageDeliveryReceipt({
               const displayName = member?.displayName ?? agentId
               return <div className="user-message-receipt-recipient" key={agentId}>
                 <MemberAvatar agentId={agentId} avatarRef={member?.avatarRef ?? null} displayName={displayName} size="mention" decorative />
-                <span><strong>{displayName}</strong><small>{delivery?.requestedMode === 'steer' ? delivery.inputDeliveryStatus === 'accepted' ? uiAttribute('运行时已接收') : delivery.inputDeliveryStatus === 'delivery_unknown' ? uiAttribute('是否送达待核对') : ['failed','cancelled'].includes(delivery.status) ? uiAttribute(delivery.status === 'cancelled' ? '已停止' : '未完成') : uiAttribute('正在投递') : userMessageRunStatusLabel(run)}</small></span>
+                <span><strong>{displayName}</strong><small>{delivery?.requestedMode === 'steer' ? delivery.inputDeliveryStatus === 'accepted' ? uiAttribute('运行时已接收') : delivery.inputDeliveryStatus === 'delivery_unknown' ? uiAttribute('是否送达待核对') : ['failed','cancelled'].includes(delivery.status) ? uiAttribute(delivery.status === 'cancelled' ? '已停止' : '未完成') : uiAttribute('正在投递') : !run && delivery?.status === 'failed' ? uiAttribute('未完成') : !run && delivery?.status === 'cancelled' ? uiAttribute('已停止') : userMessageRunStatusLabel(run)}</small></span>
                 {delivery?.inputDeliveryStatus === 'delivery_unknown' && onReconcile ? <button type="button" disabled={checking === delivery.id} onClick={async () => {
                   setChecking(delivery.id); setCheckResult(null)
                   try {
@@ -8036,9 +8046,6 @@ function UserMessageDeliveryReceipt({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
-      {canWithdraw && <button className="user-message-withdraw" type="button" aria-label={uiAttribute("撤回尚未领取的消息")} title={uiAttribute("撤回消息")} onClick={onWithdraw}>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4H2.5v2.5M2.8 6.2A5.4 5.4 0 1 1 3 10" /></svg>
-      </button>}
     </div>
   )
 }
@@ -9594,7 +9601,7 @@ function MessageSurface({
   copied,
   hasDelivery,
   showActions = true,
-  actionBefore,
+  actionAfter,
   onReply,
   onCopy,
   onWithdraw,
@@ -9604,7 +9611,7 @@ function MessageSurface({
   copied: boolean
   hasDelivery: boolean
   showActions?: boolean
-  actionBefore?: React.ReactNode
+  actionAfter?: React.ReactNode
   onReply?(modality: ReplyFocusModality): void
   onCopy(): void
   onWithdraw?(): void
@@ -9616,7 +9623,6 @@ function MessageSurface({
       {children}
       {showActions && (
         <div className="message-action-line">
-          {actionBefore}
           <MessageActions
             copied={copied}
             onReply={onReply}
@@ -9624,6 +9630,7 @@ function MessageSurface({
             onWithdraw={onWithdraw}
             withdrawing={withdrawing}
           />
+          {actionAfter}
         </div>
       )}
     </div>

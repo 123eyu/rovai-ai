@@ -8,6 +8,24 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## 消息回执对齐与 Claude 写入边界（2026-10-15）
+
+以 main `95110b4b` 为基线实施 User seq74 的交互稿与 seq75 的两项补充修复。无数据库迁移、额外正文、
+回执存储或提示词变化；CodeBuddy #762 和最低版本政策保持。
+
+- Claude 复用既有 writer／idle 扩展 owner：可控 AsyncWrite 分别提供零字节 Pending 和一字节后 Pending，
+  注入取消／原轮 result，检查唤醒、明确未接受与未知的区别、后继阶段无旧零字节输入、部分帧不重发，以及后台任务／idle 完整收尾。
+  新零字节用例在修复前失败，修复后通过；只在同步 poll 中持有状态锁，不跨异步等待。
+- 生产 UI 夹具扩展既有 Steer owner：12 类 Composer／回执路径、10 组消息回执 × 日夜 × 1440/1040，
+  覆盖左右对齐、hover 不位移、键盘／复制／展开、失败／停止／无 Run、已接收但 Run 失败的互斥计数与图标。
+  失败／停止汇总为“未完成”，详情区分两者；成功普通目标退出摘要。
+- 验证通过：`pnpm typecheck`、`pnpm test`（Vitest 2714、Node 355 通过／2 平台跳过）、
+  `pnpm test:rust:pr`（473 通过／1 既有忽略）、显式 extended-tests 的 Claude 3 个 owner（先核对清单），
+  `pnpm test:steer-ui`、格式检查与差异文档门禁。
+- `pnpm package:mac:daily` 的 arm64 签名检查通过；隔离 packaged Desktop/Core 冷启动、独立数据库／Skill／MCP 路径、
+  日夜主题与零 Renderer 错误通过。验收脚本首轮因 `/var` 与 `/private/var` 的路径表示断言失败，改用同一目录的规范路径后通过，产品代码未为此改变。
+- 本次不调用真实 LLM，不把可控写入测试解释为真实 Claude 事故复现。PR #769 只交付这些局部修复。
+
 ## Steer 局部修正（User seq54–63）
 
 复用 `pi::host` 的消费／取消 owner 验证持锁延迟写入、Steer ACK 等待清队列、abort 到达时队列为空，

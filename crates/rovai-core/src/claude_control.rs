@@ -3,7 +3,10 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    future::poll_fn,
+    pin::Pin,
     sync::{Arc, Mutex},
+    task::{Poll, Waker},
 };
 
 use anyhow::{Context, Result, bail};
@@ -36,6 +39,7 @@ struct ControlState {
     prompt_sent: bool,
     input_fenced: bool,
     steering: HashMap<String, PendingSteer>,
+    input_writer: Option<Waker>,
     closed: bool,
     closing: bool,
     pending: HashMap<String, PendingPermission>,
@@ -47,6 +51,12 @@ struct ControlState {
 }
 
 impl ControlState {
+    fn wake_input_writer(&mut self) {
+        if let Some(waker) = self.input_writer.take() {
+            waker.wake();
+        }
+    }
+
     fn refresh_end_wait(&mut self) {
         self.end_wait_started_at = (self.has_result
             && !self.turn_in_progress
@@ -168,7 +178,9 @@ impl ClaudeControl {
     }
 
     pub(crate) fn fence_active_input(&self) {
-        self.state.lock().unwrap().input_fenced = true;
+        let mut state = self.state.lock().unwrap();
+        state.input_fenced = true;
+        state.wake_input_writer();
     }
 
     pub(crate) async fn steer(&self, prompt: &str) -> Result<String> {
@@ -499,6 +511,7 @@ impl ClaudeControl {
             state.turn_in_progress = true;
             state.refresh_end_wait();
         }
+        state.wake_input_writer();
         drop(state);
         self.maybe_close()
     }
@@ -546,6 +559,7 @@ impl ClaudeControl {
             let mut state = self.state.lock().unwrap();
             state.closed = true;
             state.steering.clear(); // Written inputs without native receipts remain unknown.
+            state.wake_input_writer();
             state.end_wait_started_at = None;
             state.pending.drain().map(|(id, _)| id).collect::<Vec<_>>()
         };
@@ -614,14 +628,6 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
                     .receipt
                     .send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
             }
-            if steer_permitted
-                && let Some(pending) = write
-                    .steer_id
-                    .as_ref()
-                    .and_then(|id| state.steering.get_mut(id))
-            {
-                pending.write_started = true;
-            }
             steer_permitted
                 && !state.closed
                 && write
@@ -640,7 +646,52 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
         let mut bytes = serde_json::to_vec(&frame)?;
         bytes.push(b'\n');
         let result = tokio::time::timeout(EXIT_TIMEOUT, async {
-            stdin.write_all(&bytes).await?;
+            let first_bytes = if let Some(id) = &write.steer_id {
+                poll_fn(|cx| {
+                    // A Pending poll wrote nothing. Recheck the foreground
+                    // boundary on every retry, under the same lock as the
+                    // first actual write, never across an asynchronous wait.
+                    let mut state = control.state.lock().unwrap();
+                    if state.input_fenced
+                        || state.closed
+                        || (state.has_result && !state.turn_in_progress)
+                        || !state.steering.contains_key(id)
+                    {
+                        if let Some(pending) = state.steering.remove(id) {
+                            let _ = pending
+                                .receipt
+                                .send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+                        }
+                        state.input_writer = None;
+                        return Poll::Ready(Ok(None));
+                    }
+                    match Pin::new(&mut stdin).poll_write(cx, &bytes) {
+                        Poll::Pending => {
+                            state.input_writer = Some(cx.waker().clone());
+                            Poll::Pending
+                        }
+                        Poll::Ready(result) => {
+                            state.input_writer = None;
+                            Poll::Ready(result.and_then(|count| {
+                                if count == 0 {
+                                    return Err(std::io::ErrorKind::WriteZero.into());
+                                }
+                                state.steering.get_mut(id).unwrap().write_started = true;
+                                Ok(Some(count))
+                            }))
+                        }
+                    }
+                })
+                .await?
+            } else {
+                Some(0)
+            };
+            let Some(first_bytes) = first_bytes else {
+                return Ok(());
+            };
+            // Once any bytes cross stdin, complete the JSONL frame. Its
+            // ownership still needs a native receipt; it is never retryable.
+            stdin.write_all(&bytes[first_bytes..]).await?;
             stdin.flush().await
         })
         .await
@@ -1042,6 +1093,157 @@ mod tests {
         assert!(next.await.unwrap().is_ok());
         writer.abort();
         let _ = writer.await;
+
+        // A writer can have dequeued the frame while the pipe still accepts
+        // zero bytes. Exercise that boundary separately from a partial write.
+        #[derive(Default)]
+        struct Pipe {
+            bytes: Vec<u8>,
+            available: usize,
+            closed: bool,
+        }
+        struct GatedWriter(Arc<Mutex<Pipe>>);
+        #[derive(Default)]
+        struct WriteWake(std::sync::atomic::AtomicBool);
+        impl std::task::Wake for WriteWake {
+            fn wake(self: Arc<Self>) {
+                self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        impl AsyncWrite for GatedWriter {
+            fn poll_write(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+                bytes: &[u8],
+            ) -> std::task::Poll<std::io::Result<usize>> {
+                let mut pipe = self.0.lock().unwrap();
+                if pipe.available == 0 {
+                    return std::task::Poll::Pending;
+                }
+                let size = pipe.available.min(bytes.len());
+                pipe.bytes.extend_from_slice(&bytes[..size]);
+                pipe.available -= size;
+                std::task::Poll::Ready(Ok(size))
+            }
+            fn poll_flush(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Ok(()))
+            }
+            fn poll_shutdown(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                self.0.lock().unwrap().closed = true;
+                std::task::Poll::Ready(Ok(()))
+            }
+        }
+        for initial_bytes in [0, 1] {
+            for cancelled in [false, true] {
+                let (control, _ready, writes) =
+                    ClaudeControl::new("blocked-session".into(), "acceptEdits".into(), None);
+                {
+                    let mut state = control.state.lock().unwrap();
+                    state.initialized = true;
+                    state.prompt_sent = true;
+                    state.turn_in_progress = true;
+                    state.session_state = Some("running".into());
+                    state.tasks.insert("background".into());
+                }
+                let pipe = Arc::new(Mutex::new(Pipe {
+                    available: initial_bytes,
+                    ..Pipe::default()
+                }));
+                let steering = control.steer("BLOCKED_OLD_INPUT");
+                let writer =
+                    write_control_stream(GatedWriter(pipe.clone()), control.clone(), writes);
+                tokio::pin!(steering, writer);
+                let wake = Arc::new(WriteWake::default());
+                let write_waker = Waker::from(wake.clone());
+                // Explicit polls control the interleaving without scheduler sleeps.
+                std::future::poll_fn(|cx| {
+                    assert!(std::future::Future::poll(steering.as_mut(), cx).is_pending());
+                    assert!(
+                        std::future::Future::poll(
+                            writer.as_mut(),
+                            &mut std::task::Context::from_waker(&write_waker)
+                        )
+                        .is_pending()
+                    );
+                    std::task::Poll::Ready(())
+                })
+                .await;
+                assert_eq!(pipe.lock().unwrap().bytes.len(), initial_bytes);
+                if cancelled {
+                    control.fence_active_input();
+                    if initial_bytes == 0 {
+                        assert!(
+                            wake.0.load(std::sync::atomic::Ordering::Relaxed),
+                            "cancellation wakes the blocked writer without pipe readiness"
+                        );
+                    }
+                    std::future::poll_fn(|cx| {
+                        assert!(std::future::Future::poll(writer.as_mut(), cx).is_pending());
+                        std::task::Poll::Ready(())
+                    })
+                    .await;
+                }
+                control.observe(&json!({"type":"result","session_id":"blocked-session","user_message_uuids":[]})).unwrap();
+                if initial_bytes == 0 {
+                    assert!(
+                        wake.0.load(std::sync::atomic::Ordering::Relaxed),
+                        "result wakes the blocked writer without pipe readiness"
+                    );
+                }
+                let error = steering.await.unwrap_err();
+                assert_eq!(
+                    error.is::<rovai_core::steer::ActiveInputNotAccepted>(),
+                    initial_bytes == 0,
+                    "zero-byte writes are retractable; partial writes must remain unknown"
+                );
+                assert!(
+                    control.run_end_deadline().is_none(),
+                    "background task is still active"
+                );
+                assert!(!control.state.lock().unwrap().closed);
+                control
+                    .observe(&json!({"type":"assistant","session_id":"blocked-session"}))
+                    .unwrap();
+                pipe.lock().unwrap().available = usize::MAX;
+                std::future::poll_fn(|cx| {
+                    assert!(std::future::Future::poll(writer.as_mut(), cx).is_pending());
+                    std::task::Poll::Ready(())
+                })
+                .await;
+                if initial_bytes == 0 {
+                    assert!(
+                        pipe.lock().unwrap().bytes.is_empty(),
+                        "unblocked pipe must not receive the retired frame"
+                    );
+                } else {
+                    let bytes = pipe.lock().unwrap().bytes.clone();
+                    let frame: Value = serde_json::from_slice(&bytes).unwrap();
+                    assert_eq!(frame["message"]["content"], "BLOCKED_OLD_INPUT");
+                    assert_eq!(
+                        bytes.iter().filter(|&&byte| byte == b'\n').count(),
+                        1,
+                        "partial frame completes once, never retried"
+                    );
+                }
+                assert!(
+                    !pipe.lock().unwrap().closed,
+                    "result alone does not close the session"
+                );
+                control
+                    .observe(&json!({"type":"result","session_id":"blocked-session"}))
+                    .unwrap();
+                control.observe(&json!({"type":"system","subtype":"task_notification","task_id":"background"})).unwrap();
+                control.observe(&json!({"type":"system","subtype":"session_state_changed","session_id":"blocked-session","state":"idle"})).unwrap();
+                writer.await.unwrap();
+                assert!(pipe.lock().unwrap().closed);
+            }
+        }
     }
 
     #[cfg(feature = "extended-tests")]

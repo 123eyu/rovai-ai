@@ -1,3 +1,4 @@
+import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
@@ -6989,16 +6990,11 @@ function ExecutionDrawer({
   const fastControl = overview ? null : memberFast.get(process.agentId)
   const drawerRef = useRef<HTMLElement>(null)
   const drawerBodyRef = useRef<HTMLDivElement>(null)
-  const resizeGestureRef = useRef<{
-    pointerId: number
-    startY: number
-    startHeight: number
-    moved: boolean
-  } | null>(null)
   const [heightBounds, setHeightBounds] = useState<ExecutionDrawerHeightBounds | null>(null)
   const [preferredHeight, setPreferredHeight] = useState<number | null>(storedExecutionDrawerHeight)
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
+  const [dragHeight, setDragHeight] = useState<number | null>(null)
   const [submittingStopRunIds, setSubmittingStopRunIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
@@ -7092,9 +7088,9 @@ function ExecutionDrawer({
     window.cancelAnimationFrame(resumeFollowingLatestFrames.current[1])
   }, [])
   useExecutionDisclosureAnchor(drawerBodyRef, `${threadId}:${process.agentId}`, () => setFollowingLatest(false))
-  const appliedHeight = placement === 'bottom' && preferredHeight !== null && heightBounds
+  const appliedHeight = placement !== 'bottom' ? null : dragHeight ?? (preferredHeight !== null && heightBounds
     ? clampExecutionDrawerHeight(preferredHeight, heightBounds)
-    : null
+    : null)
 
   const applyPreferredHeight = useCallback((height: number): void => {
     const bounds = heightBounds ?? {
@@ -7112,42 +7108,23 @@ function ExecutionDrawer({
     persistExecutionDrawerHeight(null)
   }, [])
 
-  const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    const drawer = drawerRef.current
-    if (!drawer) return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizeGestureRef.current = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      startHeight: drawer.getBoundingClientRect().height,
-      moved: false
-    }
-    setResizing(true)
-  }
-
-  const handleResizePointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const gesture = resizeGestureRef.current
-    if (!gesture || gesture.pointerId !== event.pointerId) return
-    const delta = gesture.startY - event.clientY
-    if (!gesture.moved && Math.abs(delta) < 2) return
-    gesture.moved = true
-    event.preventDefault()
-    applyPreferredHeight(gesture.startHeight + delta)
-  }
-
-  const finishResizeGesture = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const gesture = resizeGestureRef.current
-    if (!gesture || gesture.pointerId !== event.pointerId) return
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    resizeGestureRef.current = null
-    setResizing(false)
-  }
+  const heightSplitter = useCollapsibleSplitter({
+    size: appliedHeight ?? measuredHeight ?? heightBounds?.min ?? EXECUTION_DRAWER_HARD_MIN_HEIGHT,
+    collapsed: false, minimum: heightBounds?.min ?? EXECUTION_DRAWER_HARD_MIN_HEIGHT,
+    maximum: heightBounds?.max ?? EXECUTION_DRAWER_MAX_HEIGHT, axis: 'y', direction: -1,
+    disabled: placement !== 'bottom' || !heightBounds, scopeKey: `${threadId}:${process.agentId}`,
+    readSize: () => drawerRef.current?.offsetHeight ?? heightBounds?.min ?? EXECUTION_DRAWER_HARD_MIN_HEIGHT,
+    scale: () => splitterScale(drawerRef.current, 'y'),
+    capture: () => undefined,
+    onPreview: setDragHeight,
+    onCommit: height => { setDragHeight(null); applyPreferredHeight(height) },
+    onCollapse: () => { setDragHeight(null); onClose() },
+    onCancel: () => setDragHeight(null),
+    onActiveChange: setResizing
+  })
 
   const handleResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (heightSplitter.active) return
     const bounds = heightBounds
     if (!bounds) return
     const currentHeight = preferredHeight
@@ -7156,6 +7133,11 @@ function ExecutionDrawer({
       ?? bounds.min
     let nextHeight: number | null = null
     switch (event.key) {
+      case 'Delete':
+      case 'Backspace':
+        event.preventDefault()
+        onClose()
+        return
       case 'ArrowUp':
       case 'ArrowRight':
         nextHeight = currentHeight + EXECUTION_DRAWER_KEYBOARD_STEP
@@ -7612,7 +7594,7 @@ function ExecutionDrawer({
     <section
       id="agent-execution-drawer"
       ref={drawerRef}
-      className={`execution-drawer execution-drawer-${placement}${placement === 'right' ? ' execution-drawer-inspector' : ''}${preferredHeight !== null && placement === 'bottom' ? ' is-user-sized' : ''}${resizing ? ' is-resizing' : ''}`}
+      className={`execution-drawer execution-drawer-${placement}${placement === 'right' ? ' execution-drawer-inspector' : ''}${(preferredHeight !== null || dragHeight !== null) && placement === 'bottom' ? ' is-user-sized' : ''}${resizing ? ' is-resizing' : ''}`}
       role="region"
       aria-labelledby="execution-drawer-title"
       tabIndex={-1}
@@ -7627,22 +7609,15 @@ function ExecutionDrawer({
           role="separator"
           aria-label={uiAttribute("调整执行详情高度")}
           aria-orientation="horizontal"
-          aria-valuemin={accessibleBounds.min}
+          aria-valuemin={heightSplitter.phase === 'closing' ? 0 : accessibleBounds.min}
           aria-valuemax={accessibleBounds.max}
           aria-valuenow={accessibleHeight}
           aria-valuetext={uiAttribute("{0} 像素；上下方向键调整，Enter 恢复默认高度", String(accessibleHeight))}
           tabIndex={0}
-          title={uiAttribute("上下拖拽调整；按 Enter 恢复默认高度")}
-          onPointerDown={handleResizePointerDown}
-          onPointerMove={handleResizePointerMove}
-          onPointerUp={finishResizeGesture}
-          onPointerCancel={finishResizeGesture}
-          onLostPointerCapture={() => {
-            resizeGestureRef.current = null
-            setResizing(false)
-          }}
+          title={uiAttribute("上下拖动调整，最矮处停留后继续向下拖动收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
+          {...heightSplitter.handlers}
           onKeyDown={handleResizeKeyDown}
-          onDoubleClick={resetPreferredHeight}
+          onDoubleClick={() => { heightSplitter.cancel(); resetPreferredHeight() }}
         />
       )}
         <header className={`execution-drawer-header${overview ? ' is-overview' : ''}`}>

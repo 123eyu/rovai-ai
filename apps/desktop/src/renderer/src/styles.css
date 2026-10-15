@@ -1714,9 +1714,6 @@ html[data-rovai-platform="win32"] .bootstrap-shell-brand { padding-left: 20px; }
   pointer-events: none;
 }
 .file-preview-resize-handle.is-resizing .file-preview-splitter-tip { display: block; }
-.file-preview-resize-handle.is-close-armed .file-preview-splitter-tip { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
-.camp-topbar.is-file-preview-close-armed .file-preview-tabs,
-.workspace-grid.is-file-preview-close-armed .file-preview-pane { opacity: .35; }
 html.file-preview-resizing,
 html.file-preview-resizing * { cursor: col-resize !important; user-select: none !important; }
 html.file-preview-resizing .file-preview-pane { pointer-events: none; }

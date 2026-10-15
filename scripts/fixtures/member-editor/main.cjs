@@ -135,12 +135,14 @@ app
       window.webContents.sendInputEvent({ type: 'mouseDown', x: start.x, y: start.y, button: 'left', clickCount: 1 })
       await settle()
       const observed = []
-      for (const width of widths) {
+      for (const step of widths) {
+        const [width, delay] = Array.isArray(step) ? step : [step, 0]
         window.webContents.sendInputEvent({ type: 'mouseMove', x: start.x + width - start.width, y: start.y, button: 'left', modifiers: ['leftButtonDown'] })
         await settle()
+        if (delay) { await new Promise(resolve => setTimeout(resolve, delay)); await settle() }
         observed.push(await rosterWidth())
       }
-      window.webContents.sendInputEvent({ type: 'mouseUp', x: start.x + widths.at(-1) - start.width, y: start.y, button: 'left', clickCount: 1 })
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: start.x + (Array.isArray(widths.at(-1)) ? widths.at(-1)[0] : widths.at(-1)) - start.width, y: start.y, button: 'left', clickCount: 1 })
       await settle()
       assert.equal(await run('document.querySelector(".member-editor-roster-shell").classList.contains("is-resizing")'), false)
       return observed
@@ -219,15 +221,25 @@ app
       await wait("!document.querySelector('.command-palette')")
       assert.equal(await run("document.activeElement.matches('.conversation-jump')"), false)
     })
-    await check('roster snaps in both directions and restores its useful width', async () => {
-      assert.deepEqual(await dragRoster([179, 170, 190, 216]), [192, 76, 76, 216])
+    await check('roster holds its minimum, folds to avatars and reverses with its useful width intact', async () => {
+      assert.deepEqual(await dragRoster([179, 170]), [192, 192])
+      await new Promise(resolve => setTimeout(resolve, 400))
+      assert.equal(await rosterWidth(), 192)
+      assert.deepEqual(await dragRoster([[120, 400], 190, 216]), [76, 76, 216])
       await key('Home')
-      assert.deepEqual(await dragRoster([170]), [76])
+      assert.deepEqual(await dragRoster([[120, 400]]), [76])
       assert.equal(await run('!!document.querySelector(".member-sidebar.is-collapsed")'), true)
       await click('.member-roster-resizer'); await key('Right')
       assert.equal(await rosterWidth(), 256)
       assert.deepEqual(await dragRoster([330]), [330])
       await reloadPage()
+      assert.equal(await rosterWidth(), 330)
+      window.setContentSize(900, 700); await settle()
+      assert.ok(await rosterWidth() < 330, 'The small viewport clamps only the visible width')
+      await click('.member-roster-resizer')
+      assert.equal(await run('JSON.parse(localStorage.getItem("rovai-member-roster-width-v2")).width'), 330,
+        'Cancelling a no-move gesture preserves the preferred width beyond the viewport clamp')
+      window.setContentSize(1440, 920); await settle()
       assert.equal(await rosterWidth(), 330)
       await click('.member-roster-resizer')
       await key('Enter')

@@ -563,6 +563,57 @@ app.whenReady().then(async () => {
       return placement.width >= 30 && placement.right <= collapse.left
     })()`), true, 'Bottom placement and collapse controls keep separate hit targets')
 
+    // Native input on the production bottom drawer exercises the same minimum stop as side panes.
+    const bottomFrame = () => run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    const bottomState = () => run(`(() => {
+      const drawer = document.querySelector('.execution-drawer-bottom')
+      const handle = drawer?.querySelector('.execution-drawer-resize-handle')
+      if (!handle) return null
+      const r = handle.getBoundingClientRect()
+      return { height: drawer.getBoundingClientRect().height, min: Number(handle.getAttribute('aria-valuemin')),
+        x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2),
+        stored: sessionStorage.getItem('rovai.execution-drawer-height.v1') }
+    })()`)
+    let bottomOrigin, bottomPointer
+    const bottomMouse = type => window.webContents.sendInputEvent({ type, ...bottomPointer, button: 'left', clickCount: 1,
+      modifiers: type === 'mouseUp' ? [] : ['leftButtonDown'] })
+    const beginBottom = async () => {
+      bottomOrigin = await bottomState(); assert.ok(bottomOrigin)
+      bottomPointer = { x: bottomOrigin.x, y: bottomOrigin.y }
+      bottomMouse('mouseMove'); bottomMouse('mouseDown'); await bottomFrame()
+      return bottomOrigin
+    }
+    const moveBottom = async height => {
+      bottomPointer.y = Math.round(bottomOrigin.y + bottomOrigin.height - height)
+      bottomMouse('mouseMove'); await bottomFrame()
+    }
+    const stopBottom = async () => { bottomMouse('mouseUp'); await bottomFrame() }
+    const bottomNear = (value, expected) => assert.ok(Math.abs(value - expected) < 2, `${value} != ${expected}`)
+    await beginBottom(); await moveBottom(bottomOrigin.min - 24)
+    bottomNear((await bottomState()).height, bottomOrigin.min)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    bottomNear((await bottomState()).height, bottomOrigin.min)
+    await stopBottom(); bottomNear((await bottomState()).height, bottomOrigin.min)
+    await key('Up')
+    const bottomStable = await beginBottom()
+    await moveBottom(bottomOrigin.min - 80)
+    // Cancel before the detent expires, then ensure no delayed close revives the gesture.
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    await stopBottom(); await new Promise(resolve => setTimeout(resolve, 400))
+    bottomNear((await bottomState()).height, bottomStable.height)
+    assert.equal((await bottomState()).stored, bottomStable.stored)
+    await beginBottom(); await moveBottom(bottomOrigin.min - 80)
+    bottomNear((await bottomState()).height, bottomOrigin.min, 'Fast movement must pause visibly')
+    await new Promise(resolve => setTimeout(resolve, 220)); await stopBottom()
+    await new Promise(resolve => setTimeout(resolve, 220))
+    assert.equal(await bottomState(), null, 'Mouseup during collapse finishes closing the detail')
+    assert.ok(await run('!!document.querySelector(".run-pulse-bottom")'), 'The execution toolbar remains available')
+    await click('.run-pulse-bottom .run-pulse-chip[data-agent-id="agent-1"]')
+    assert.equal((await bottomState()).stored, bottomStable.stored, 'Folding keeps the prior stable height')
+    bottomNear((await bottomState()).height, bottomStable.height)
+    await capture('bottom-splitter-restored')
+
     // Collaboration recipients are a separate identity row, not the process-selection rail.
     const recipients = () => run(`(() => {
       const row = document.querySelector('[data-agent-run-id="run-agent-1"] .execution-run-recipients')
@@ -898,7 +949,7 @@ app.whenReady().then(async () => {
       'selection and node retention', 'status refresh/reopen', 'Task navigation/repeated target', '8-member no overflow',
       'long prose containment', 'single-line command and full expanded output',
       'waiting Delivery queue cards', 'independent multi-input popovers', 'Run card geometry and square overview avatars',
-      'Day/Night', '1040/1440/2560/200% layout', 'reduced motion', 'forced colors', 'bottom dock unchanged',
+      'Day/Night', '1040/1440/2560/200% layout', 'reduced motion', 'forced colors', 'bottom dock retained', 'bottom minimum dwell/fold/cancel/restore',
       '0/1/2/16/48 delivery recipients', 'source attribution and deduplication', 'single-line complete avatars',
       'overflow list keyboard scrolling and focus return', 'nested Escape', 'recipient resize and placement preservation',
       'four-grid overview and centering in three placements', 'shared execution icon geometry',

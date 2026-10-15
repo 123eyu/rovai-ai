@@ -2851,8 +2851,7 @@ button.camp-world-map-live-caption { cursor: pointer; font: inherit; }
 .first-run-starter-glyph svg { width: 17px; height: 17px; }
 .timeline-node { position: relative; margin: 14px 0; }
 .timeline-node:first-child { margin-top: 0; }
-.timeline-day { display: flex; align-items: center; gap: 12px; margin: 24px 0 16px; color: var(--faint); font-family: inherit; font-size: 11px; font-weight: 400; line-height: 1.4; letter-spacing: 0; }
-.timeline-day::before, .timeline-day::after { height: 1px; flex: 1 1 auto; background: var(--line); content: ""; }
+.timeline-day { display: flex; align-items: center; justify-content: center; margin: 24px 0 16px; color: var(--faint); font-family: inherit; font-size: 11px; font-weight: 400; line-height: 1.4; letter-spacing: 0; }
 .new-conversation-workspace { background: var(--home-surface); }
 .new-conversation-main {
   position: relative;

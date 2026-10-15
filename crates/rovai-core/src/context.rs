@@ -1,4 +1,5 @@
 mod claim;
+mod input;
 pub(crate) use claim::ClaimedBatchContext;
 
 use crate::message_quote::{
@@ -72,6 +73,7 @@ pub const MAX_SESSION_BOOTSTRAP_BYTES: usize = 128 * 1024;
 fn run_facts_schema_version(manifest_version: i64, invocation_kind: &str) -> i64 {
     if invocation_kind == "batch" {
         match manifest_version {
+            37 | 39 => 10,
             32 | 33 | 34 | 36 | 38 => 9,
             31 => 8,
             _ => 7,
@@ -371,7 +373,7 @@ impl ContextService {
         blob_store: &ManagedBlobStore,
         request: &MaterializeContextRequest<'_>,
     ) -> Result<ContextMaterialization> {
-        self.materialize_inner(database, blob_store, None, None, &[], request)
+        self.materialize_inner(database, blob_store, None, None, &[], request, None)
     }
 
     pub fn materialize_with_skill_exposure(
@@ -388,6 +390,7 @@ impl ContextService {
             None,
             &[],
             request,
+            None,
         )
     }
 
@@ -406,6 +409,7 @@ impl ContextService {
             None,
             source_attachment_paths,
             request,
+            None,
         )
     }
 
@@ -424,6 +428,7 @@ impl ContextService {
             Some(mcp_projection),
             &[],
             request,
+            None,
         )
     }
 
@@ -443,6 +448,7 @@ impl ContextService {
             Some(mcp_projection),
             source_attachment_paths,
             request,
+            None,
         )
     }
 
@@ -460,7 +466,7 @@ impl ContextService {
             .query_row(
                 r#"
                 SELECT skill_exposure_json
-                FROM context_manifest WHERE agent_run_id = ?1
+                FROM context_manifest WHERE agent_run_id = ?1 AND source_delivery_id IS NULL
                 "#,
                 [agent_run_id],
                 |row| row.get::<_, String>(0),
@@ -487,6 +493,25 @@ impl ContextService {
         })
     }
 
+    pub fn materialize_message_delivery(
+        &self,
+        database: &mut Database,
+        blob_store: &ManagedBlobStore,
+        delivery_id: &str,
+        source_attachment_paths: &[String],
+        request: &MaterializeContextRequest<'_>,
+    ) -> Result<ContextMaterialization> {
+        self.materialize_inner(
+            database,
+            blob_store,
+            None,
+            None,
+            source_attachment_paths,
+            request,
+            Some(delivery_id),
+        )
+    }
+
     fn materialize_inner(
         &self,
         database: &mut Database,
@@ -495,14 +520,20 @@ impl ContextService {
         prepared_mcp_projection: Option<&PreparedMcpProjection>,
         source_attachment_paths: &[String],
         request: &MaterializeContextRequest<'_>,
+        source_delivery_id: Option<&str>,
     ) -> Result<ContextMaterialization> {
         if request.execution_epoch < 1 {
             anyhow::bail!("Context materialization requires a claimed AgentRun epoch");
         }
         let max_payload_bytes = request.max_payload_bytes.max(MIN_CONTEXT_PAYLOAD_BYTES);
-        let snapshot = load_run_snapshot(database, request.agent_run_id, request.execution_epoch)?
-            .context("AgentRun is not active for context materialization")?;
-        let frozen_delivery_context = load_frozen_delivery_context(database, &snapshot)?;
+        let mut snapshot =
+            load_run_snapshot(database, request.agent_run_id, request.execution_epoch)?
+                .context("AgentRun is not active for context materialization")?;
+        let frozen_delivery_context = if source_delivery_id.is_none() {
+            load_frozen_delivery_context(database, &snapshot)?
+        } else {
+            None
+        };
         if let Some(existing) = load_existing_manifest(
             database,
             blob_store,
@@ -511,20 +542,48 @@ impl ContextService {
             prepared_skill_exposure,
             prepared_mcp_projection,
             max_payload_bytes,
+            source_delivery_id,
         )? {
             return Ok(ContextMaterialization::Ready(existing));
         }
+        let selected_messages = source_delivery_id
+            .map(|id| input::select_delivery(database, &mut snapshot, id))
+            .transpose()?;
         let batch_context_manifest_version = (snapshot.invocation_kind == "batch")
             .then(|| {
+                if source_delivery_id.is_some() {
+                    return Ok(PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION);
+                }
                 frozen_batch_context_manifest_version(
                     database.context_connection(),
                     &snapshot.agent_run_id,
                 )
             })
             .transpose()?;
-        let claimed_context = claim::load(database.connection(), &snapshot.agent_run_id)?;
+        let claimed_context = if source_delivery_id.is_none() {
+            claim::load(database.connection(), &snapshot.agent_run_id)?
+        } else {
+            None
+        };
+        let dynamic_context = if source_delivery_id.is_some() {
+            let mut dynamic = input::DynamicInputContext::prepare(database, &snapshot, None)?;
+            let mut facts: Value = serde_json::from_str(&dynamic.run_facts.payload_json)?;
+            facts["historyHint"] = json!(public_history_hint(
+                snapshot.last_accepted_public_boundary_sequence,
+                snapshot
+                    .claim_has_additional_public_messages
+                    .unwrap_or(false)
+            ));
+            dynamic.run_facts.payload_json = serde_json::to_string(&facts)?;
+            Some(dynamic)
+        } else {
+            claimed_context
+                .as_ref()
+                .map(|claimed| claimed.dynamic.clone())
+        };
         anyhow::ensure!(
-            !batch_context_manifest_version.is_some_and(|version| version >= 36)
+            source_delivery_id.is_some()
+                || batch_context_manifest_version.is_none_or(|version| version < 36)
                 || claimed_context.is_some(),
             "Public Run has no claimed context snapshot"
         );
@@ -535,6 +594,7 @@ impl ContextService {
         }
         if !snapshot.skill_selection_snapshot.entries.is_empty()
             && prepared_skill_exposure.is_none()
+            && source_delivery_id.is_none()
         {
             anyhow::bail!("Structured Skill selection requires a prepared full Skill exposure");
         }
@@ -543,12 +603,22 @@ impl ContextService {
         let prepared_skill_exposure = if let Some(prepared) = prepared_skill_exposure {
             prepared
         } else {
-            let snapshot = SkillExposureSnapshot::default();
+            let snapshot = if source_delivery_id.is_some() {
+                let value: String = database.connection().query_row("SELECT skill_exposure_json FROM context_manifest WHERE agent_run_id=?1 AND source_delivery_id IS NULL", [&snapshot.agent_run_id], |r|r.get(0))?;
+                serde_json::from_str(&value)?
+            } else {
+                SkillExposureSnapshot::default()
+            };
             let digest = canonical_json_digest(&serde_json::to_value(&snapshot)?)?;
             fallback_skill_exposure = PreparedSkillExposure { snapshot, digest };
             &fallback_skill_exposure
         };
-        let fallback_mcp_snapshot = McpExposureSnapshot::default();
+        let fallback_mcp_snapshot = if source_delivery_id.is_some() {
+            let value: String = database.connection().query_row("SELECT mcp_exposure_json FROM context_manifest WHERE agent_run_id=?1 AND source_delivery_id IS NULL", [&snapshot.agent_run_id], |r|r.get(0))?;
+            serde_json::from_str(&value)?
+        } else {
+            McpExposureSnapshot::default()
+        };
         let mcp_exposure = prepared_mcp_projection
             .map(|prepared| &prepared.snapshot)
             .unwrap_or(&fallback_mcp_snapshot);
@@ -609,7 +679,7 @@ impl ContextService {
             );
         }
 
-        let mut collaboration_state = if let Some(claimed) = &claimed_context {
+        let mut collaboration_state = if let Some(claimed) = &dynamic_context {
             claimed.collaboration_state.clone()
         } else {
             let members = load_collaboration_projection_members(database, &snapshot.camp_id)?;
@@ -634,21 +704,29 @@ impl ContextService {
             }
             Some(34) => crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V11
                 .validate()?,
+            Some(36 | 38) => {
+                crate::context_delivery::PUBLIC_CAMP_BATCH_CONTEXT_DELIVERY_PROFILE_V13
+                    .validate()?
+            }
             Some(_) => current_public_camp_batch_context_delivery_profile()?,
             None => current_context_delivery_profile()?,
         };
-        let batch_model_context = (snapshot.invocation_kind == "batch")
-            .then(|| {
-                load_batch_model_context(
-                    database,
-                    &snapshot,
-                    profile,
-                    batch_context_manifest_version.expect("batch version"),
-                )
-            })
-            .transpose()?;
+        let batch_model_context = if selected_messages.is_some() {
+            selected_messages
+        } else {
+            (snapshot.invocation_kind == "batch")
+                .then(|| {
+                    load_batch_model_context(
+                        database,
+                        &snapshot,
+                        profile,
+                        batch_context_manifest_version.expect("batch version"),
+                    )
+                })
+                .transpose()?
+        };
         let (mut self_active_tasks, mut self_active_task_omitted_count) =
-            if let Some(claimed) = &claimed_context {
+            if let Some(claimed) = &dynamic_context {
                 (claimed.tasks.clone(), claimed.omitted_tasks)
             } else if snapshot.invocation_kind == "single_chat" {
                 (Vec::new(), 0)
@@ -750,7 +828,7 @@ impl ContextService {
             count_a2a_runs(database, &snapshot.camp_turn_id)?
         };
         let collaboration_state_section = collaboration_changed.then_some(collaboration_state);
-        let (rendered_run_facts, mission_details_version) = if let Some(claimed) = &claimed_context
+        let (rendered_run_facts, mission_details_version) = if let Some(claimed) = &dynamic_context
         {
             (
                 claimed.run_facts_for_session(requires_new_native_session)?,
@@ -762,7 +840,7 @@ impl ContextService {
             if snapshot.invocation_kind == "batch" {
                 run_facts.history_hint = Some(
                     if batch_context_manifest_version.is_some_and(|version| version >= 31) {
-                        public_history_hint(
+                        legacy_public_history_hint(
                             previous_accepted_public_boundary_sequence,
                             snapshot.claim_has_additional_public_messages.context(
                                 "Batch AgentRun has no frozen additional-message result",
@@ -831,7 +909,7 @@ impl ContextService {
             None
         };
 
-        let workspace_fact = if let Some(claimed) = &claimed_context {
+        let workspace_fact = if let Some(claimed) = &dynamic_context {
             let mut workspace = claimed.workspace.clone();
             let accepted: Option<String> = database.connection().query_row(
                 "SELECT native_workspace_fact_digest FROM conversation WHERE id=?1",
@@ -843,7 +921,7 @@ impl ContextService {
         } else {
             prepare_workspace_fact(database, &snapshot, requires_new_native_session, false)?
         };
-        let additional_skills = if let Some(claimed) = &claimed_context {
+        let additional_skills = if let Some(claimed) = &dynamic_context {
             Some(claimed.additional_skills.clone())
         } else {
             (batch_context_manifest_version != Some(29))
@@ -1122,7 +1200,12 @@ impl ContextService {
             })
             .flatten();
         let transaction = database.connection_mut().transaction()?;
-        revalidate_snapshot_for_manifest(&transaction, &snapshot, expected_binding_generation)?;
+        if let Some(id) = source_delivery_id {
+            let valid: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM camp_message_delivery d JOIN agent_run r ON r.id=d.claimed_agent_run_id JOIN conversation c ON c.id=r.conversation_id WHERE d.id=?1 AND r.id=?2 AND r.execution_epoch=?3 AND r.status IN ('running','waiting') AND r.cancel_requested_at IS NULL AND d.status='claimed' AND c.native_binding_generation=?4)", params![id,snapshot.agent_run_id,snapshot.execution_epoch,expected_binding_generation], |r|r.get(0))?;
+            anyhow::ensure!(valid, "Input target ended during context construction");
+        } else {
+            revalidate_snapshot_for_manifest(&transaction, &snapshot, expected_binding_generation)?;
+        }
         let revalidated_skill_resolution = resolve_current_input_skills(
             &transaction,
             &snapshot.skill_selection_snapshot,
@@ -1140,7 +1223,15 @@ impl ContextService {
             .inspect(|&version| {
                 debug_assert!(matches!(
                     version,
-                    29 | 30 | 31 | 32 | 33 | 34 | 36 | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
+                    29 | 30
+                        | 31
+                        | 32
+                        | 33
+                        | 34
+                        | 36
+                        | 37
+                        | 38
+                        | PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION
                 ));
             })
             .unwrap_or(CONTEXT_FORMATTER_VERSION);
@@ -1182,14 +1273,14 @@ impl ContextService {
                 formatter_version,
                 rendered_payload_blob_id, rendered_payload_digest, created_at,
                 workspace_fact_json,workspace_fact_digest,workspace_fact_included,
-                mission_details_version
+                mission_details_version, source_delivery_id
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10,
                 ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
                 ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30,
                 ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40,
                 ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50,
-                ?51, ?52, ?53, ?54, ?55
+                ?51, ?52, ?53, ?54, ?55, ?56
             )
             "#,
             params![
@@ -1260,12 +1351,13 @@ impl ContextService {
                 workspace_fact.digest,
                 i64::from(workspace_fact.included),
                 mission_details_version,
+                source_delivery_id,
             ],
         )?;
         let persisted_manifest_id = if inserted != 1 {
             let (existing_id, existing_digest): (String, String) = transaction.query_row(
-                "SELECT id, rendered_payload_blob_id FROM context_manifest WHERE agent_run_id = ?1",
-                [&snapshot.agent_run_id],
+                "SELECT id, rendered_payload_blob_id FROM context_manifest WHERE agent_run_id = ?1 AND source_delivery_id IS ?2",
+                params![snapshot.agent_run_id, source_delivery_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )?;
             if existing_digest != blob.id {
@@ -1943,7 +2035,12 @@ impl ContextService {
         if !active {
             anyhow::bail!("Runtime input preparation was fenced by Run settlement");
         }
-        if let Some(mut existing) = load_delivery(&transaction, agent_run_id, execution_epoch)? {
+        if let Some(mut existing) = load_delivery_for_manifest(
+            &transaction,
+            agent_run_id,
+            execution_epoch,
+            Some(manifest_id),
+        )? {
             if proposed_delivery_id.is_some_and(|identity| identity != existing.id) {
                 anyhow::bail!("Runtime Input Delivery identity changed after preparation");
             }
@@ -2048,9 +2145,16 @@ impl ContextService {
             transaction.commit()?;
             return Ok(existing);
         }
-        if let Some(accepted) =
+        let is_initial: bool = transaction.query_row(
+            "SELECT source_delivery_id IS NULL FROM context_manifest WHERE id=?1",
+            [manifest_id],
+            |r| r.get(0),
+        )?;
+        if let Some(accepted) = if is_initial {
             load_accepted_delivery_for_current_binding(&transaction, agent_run_id)?
-        {
+        } else {
+            None
+        } {
             if proposed_delivery_id.is_some_and(|identity| identity != accepted.id) {
                 anyhow::bail!("Runtime Input Delivery identity changed after acceptance");
             }
@@ -2123,7 +2227,8 @@ impl ContextService {
                 }
                 (binding_id, row.4)
             };
-        if row.5 != "running" || row.6 != execution_epoch {
+        let accepts_input = row.5 == "running" || (!is_initial && row.5 == "waiting");
+        if !accepts_input || row.6 != execution_epoch {
             anyhow::bail!("AgentRun or Native Binding changed before input delivery");
         }
         let (runtime_attachment_auth_receipt, runtime_attachment_auth_receipt_digest) =
@@ -2164,10 +2269,12 @@ impl ContextService {
                 runtime_attachment_auth_receipt_version,
                 runtime_attachment_auth_receipt_json,
                 runtime_attachment_auth_receipt_digest,
-                runtime_request_digest
+                runtime_request_digest, input_kind, input_sequence
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'prepared', ?9, ?9,
-                ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+                ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                (SELECT CASE WHEN source_delivery_id IS NULL THEN 'start' ELSE 'steer' END FROM context_manifest WHERE id=?4),
+                (SELECT COALESCE(MAX(input_sequence)+1,0) FROM runtime_input_delivery WHERE agent_run_id=?2 AND execution_epoch=?3)
             )
             "#,
             params![
@@ -2352,6 +2459,20 @@ impl ContextService {
             "#,
             params![delivery_id, error, now],
         )?;
+        if row.source_delivery_id.is_some() {
+            append_raw_event(
+                &transaction,
+                "runtime.input_delivery_unknown",
+                &row.camp_id,
+                "agent_run",
+                &row.agent_run_id,
+                row.execution_epoch,
+                &json!({"runtimeInputDeliveryId":delivery_id}),
+            )?;
+            crate::message_changes::record(&transaction, &row.camp_id, true, &[]);
+            transaction.commit()?;
+            return Ok(());
+        }
         transaction.execute(
             r#"
             UPDATE agent_run
@@ -2434,7 +2555,9 @@ impl ContextService {
             transaction.commit()?;
             return Ok(());
         }
-        if row.status != "prepared" {
+        if row.status != "prepared"
+            && !(row.source_delivery_id.is_some() && row.status == "delivery_unknown")
+        {
             anyhow::bail!("Runtime Input Delivery is not in prepared state");
         }
         let updated = transaction.execute(
@@ -2442,7 +2565,7 @@ impl ContextService {
             UPDATE runtime_input_delivery
             SET status = 'not_accepted', resolved_at = ?2,
                 last_error = ?3, updated_at = ?2
-            WHERE id = ?1 AND status = 'prepared'
+            WHERE id = ?1 AND status IN ('prepared','delivery_unknown')
             "#,
             params![delivery_id, now, error],
         )?;
@@ -2496,7 +2619,22 @@ fn previous_public_history_hint(previous_accepted_public_boundary_sequence: i64)
     }
 }
 
-pub(crate) fn public_history_hint(
+pub(crate) fn public_history_hint(previous: i64, additional: bool) -> String {
+    let scope = if previous > 0 {
+        format!("after sequence {previous}")
+    } else {
+        "in this Thread".to_owned()
+    };
+    if additional {
+        format!(
+            "There are additional visible messages {scope} beyond RUN_INPUT and messages written by you."
+        )
+    } else {
+        format!("All visible messages {scope} are in RUN_INPUT or were written by you.")
+    }
+}
+
+fn legacy_public_history_hint(
     previous_accepted_public_boundary_sequence: i64,
     has_additional_messages: bool,
 ) -> String {
@@ -2588,7 +2726,7 @@ fn acknowledge_input_delivery_transaction(
                AND wait_reason = 'runtime_initializing'",
             params![row.agent_run_id, row.execution_epoch, now],
         )?;
-        let marker_updated = transaction.execute(
+        let _marker_updated = transaction.execute(
             r#"
             UPDATE conversation
             SET last_accepted_public_boundary_sequence = MAX(
@@ -2596,7 +2734,7 @@ fn acknowledge_input_delivery_transaction(
                 ),
                 native_charter_digest = ?4,
                 native_collaboration_state_digest = ?5,
-                native_workspace_fact_digest = COALESCE((SELECT workspace_fact_digest FROM context_manifest WHERE agent_run_id=?8 AND workspace_fact_included=1),native_workspace_fact_digest),
+                native_workspace_fact_digest = COALESCE((SELECT workspace_fact_digest FROM context_manifest WHERE id=?8 AND workspace_fact_included=1),native_workspace_fact_digest),
                 mission_details_delivered_version = CASE
                     WHEN ?9 IS NULL THEN mission_details_delivered_version
                     ELSE MAX(COALESCE(mission_details_delivered_version,0),?9)
@@ -2604,7 +2742,9 @@ fn acknowledge_input_delivery_transaction(
                 version = version + 1, updated_at = ?6
             WHERE id = ?1 AND native_binding_id = ?2
               AND native_binding_generation = ?7
-              AND last_accepted_public_boundary_sequence <= ?3
+              AND NOT EXISTS(SELECT 1 FROM runtime_input_delivery later
+                  WHERE later.agent_run_id=?10 AND later.execution_epoch=?11
+                    AND later.status='accepted' AND later.input_sequence>?12)
             "#,
             params![
                 row.conversation_id,
@@ -2614,13 +2754,12 @@ fn acknowledge_input_delivery_transaction(
                 row.collaboration_state_digest,
                 now,
                 row.native_binding_generation,
-                row.agent_run_id,
+                row.manifest_id,
                 row.mission_details_version,
+                row.agent_run_id, row.execution_epoch, row.input_sequence,
             ],
         )?;
-        if marker_updated != 1 {
-            anyhow::bail!("Native Binding changed before input acknowledgement");
-        }
+
         if let Some(redelivery_revision) = row.bootstrap_redelivery_revision {
             let redelivery_updated = transaction.execute(
                 r#"
@@ -2645,7 +2784,10 @@ fn acknowledge_input_delivery_transaction(
                 );
             }
         }
-        if row.status == "delivery_unknown" && resume_active_execution {
+        if row.source_delivery_id.is_none()
+            && row.status == "delivery_unknown"
+            && resume_active_execution
+        {
             let lease_expires_at =
                 (chrono::Utc::now() + chrono::Duration::seconds(120)).to_rfc3339();
             transaction.execute(
@@ -2677,7 +2819,7 @@ fn acknowledge_input_delivery_transaction(
                     now,
                 )?;
             }
-        } else if row.status == "delivery_unknown" {
+        } else if row.source_delivery_id.is_none() && row.status == "delivery_unknown" {
             transaction.execute(
                 r#"
                 UPDATE agent_run
@@ -2692,6 +2834,10 @@ fn acknowledge_input_delivery_transaction(
                 params![row.agent_run_id, now, row.execution_epoch],
             )?;
         }
+    }
+    if let Some(source_id) = &row.source_delivery_id {
+        transaction.execute("UPDATE camp_message_delivery SET status='settled', failure_code=NULL, ended_at=?2, updated_at=?2, version=version+1 WHERE id=?1 AND status IN ('claimed','failed') AND claimed_agent_run_id=?3", params![source_id,now,row.agent_run_id])?;
+        crate::message_changes::record(transaction, &row.camp_id, true, &[]);
     }
     append_raw_event(
         transaction,
@@ -4315,6 +4461,25 @@ pub(crate) fn project_batch_run_input_for_claim(
     skill_links: &[CurrentInputSkillLink],
     sender_names: &mut SenderNames,
 ) -> Result<Value> {
+    Ok(project_public_input_messages(
+        transaction,
+        camp_id,
+        viewer_agent_id,
+        through_sequence,
+        message_ids,
+        sender_names,
+    )?
+    .run_input_projection(skill_links))
+}
+
+fn project_public_input_messages(
+    transaction: &Transaction<'_>,
+    camp_id: &str,
+    viewer_agent_id: &str,
+    through_sequence: i64,
+    message_ids: &[String],
+    sender_names: &mut SenderNames,
+) -> Result<BatchModelContext> {
     let base_profile = current_public_camp_batch_context_delivery_profile()?;
     let complete_profile = ContextDeliveryProfile {
         max_public_history_chars: usize::MAX,
@@ -4323,7 +4488,7 @@ pub(crate) fn project_batch_run_input_for_claim(
     };
     let claimed_source_message_ids = message_ids.iter().cloned().collect::<HashSet<_>>();
     let mut messages = Vec::with_capacity(message_ids.len());
-    for (message_index, message_id) in message_ids.iter().enumerate() {
+    for message_id in message_ids {
         let row = transaction
             .query_row(
                 r#"
@@ -4406,13 +4571,11 @@ pub(crate) fn project_batch_run_input_for_claim(
         )?);
         message.skill_names = skill_names;
         message.skill_mentions = skill_mentions;
-        messages.push(model_batch_input_message(
-            &message,
-            skill_links,
-            message_index,
-        ));
+        messages.push(message);
     }
-    Ok(json!({"messages": messages}))
+    Ok(BatchModelContext {
+        run_input_messages: messages,
+    })
 }
 
 #[cfg(test)]
@@ -4446,7 +4609,7 @@ fn frozen_batch_context_manifest_version(
     anyhow::ensure!(
         matches!(
             version,
-            29 | 30 | 31 | 32 | 33 | 34 | 36 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
+            29 | 30 | 31 | 32 | 33 | 34 | 36 | 37 | 38 | PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION
         ),
         "Batch AgentRun uses an unsupported context version"
     );
@@ -6213,13 +6376,11 @@ fn load_current_input_body<R: ContextReadConnection>(
             r#"
             SELECT message.id, message.body, message.structured_content_json,
                    message.content_digest
-            FROM agent_run_input AS input
-            JOIN camp_message AS message ON message.id = input.message_id
-            WHERE input.agent_run_id = ?1
-            ORDER BY input.ordinal DESC
-            LIMIT 1
+            FROM camp_message AS message
+            WHERE message.id = COALESCE(?2,(SELECT message_id FROM agent_run_input
+                WHERE agent_run_id=?1 ORDER BY ordinal DESC LIMIT 1))
             "#,
-            [&snapshot.agent_run_id],
+            params![snapshot.agent_run_id, snapshot.trigger_camp_message_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -7190,6 +7351,7 @@ fn load_existing_manifest(
     prepared_skill_exposure: Option<&PreparedSkillExposure>,
     prepared_mcp_projection: Option<&PreparedMcpProjection>,
     max_payload_bytes: usize,
+    source_delivery_id: Option<&str>,
 ) -> Result<Option<PreparedContext>> {
     let row = database
         .connection()
@@ -7217,9 +7379,9 @@ fn load_existing_manifest(
             JOIN managed_blob AS blob ON blob.id=manifest.rendered_payload_blob_id
             JOIN native_session_bootstrap_evidence AS bootstrap
               ON bootstrap.id = manifest.bootstrap_evidence_id
-            WHERE manifest.agent_run_id = ?1
+            WHERE manifest.agent_run_id = ?1 AND manifest.source_delivery_id IS ?2
             "#,
-            [&snapshot.agent_run_id],
+            params![snapshot.agent_run_id,source_delivery_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -7248,7 +7410,7 @@ fn load_existing_manifest(
     let Some(row) = row else {
         return Ok(None);
     };
-    if row.2 != snapshot.camp_message_boundary_sequence {
+    if source_delivery_id.is_none() && row.2 != snapshot.camp_message_boundary_sequence {
         anyhow::bail!("Stored ContextManifest no longer matches its frozen AgentRun input");
     }
     if !valid_agent_projection_audience(&row.17) {
@@ -7904,6 +8066,9 @@ fn append_raw_event(
 
 #[derive(Debug)]
 struct DeliveryTargetRow {
+    manifest_id: String,
+    source_delivery_id: Option<String>,
+    input_sequence: i64,
     agent_run_id: String,
     execution_epoch: i64,
     conversation_id: String,
@@ -7959,7 +8124,7 @@ fn load_delivery_target(
                    runtime_input_delivery.bootstrap_redelivery_revision,
                    context_manifest.mission_details_version,
                    bootstrap.contract_version,
-                   platform.section_digest
+                   platform.section_digest, context_manifest.id, context_manifest.source_delivery_id, runtime_input_delivery.input_sequence
             FROM runtime_input_delivery
             JOIN context_manifest
               ON context_manifest.id = runtime_input_delivery.context_manifest_id
@@ -7975,6 +8140,9 @@ fn load_delivery_target(
             [delivery_id],
             |row| {
                 Ok(DeliveryTargetRow {
+                    manifest_id: row.get(19)?,
+                    source_delivery_id: row.get(20)?,
+                    input_sequence: row.get(21)?,
                     agent_run_id: row.get(0)?,
                     execution_epoch: row.get(1)?,
                     conversation_id: row.get(2)?,
@@ -8010,10 +8178,11 @@ fn load_delivery_target(
         .context("failed to load Runtime Input Delivery target")
 }
 
-fn load_delivery(
+fn load_delivery_for_manifest(
     transaction: &Transaction<'_>,
     agent_run_id: &str,
     execution_epoch: i64,
+    manifest_id: Option<&str>,
 ) -> Result<Option<RuntimeInputDelivery>> {
     transaction
         .query_row(
@@ -8023,8 +8192,9 @@ fn load_delivery(
                    bootstrap_redelivery_revision
             FROM runtime_input_delivery
             WHERE agent_run_id = ?1 AND execution_epoch = ?2
+              AND ((?3 IS NULL AND input_kind='start') OR context_manifest_id=?3)
             "#,
-            params![agent_run_id, execution_epoch],
+            params![agent_run_id, execution_epoch, manifest_id],
             |row| {
                 Ok(RuntimeInputDelivery {
                     id: row.get(0)?,
@@ -8055,6 +8225,7 @@ fn load_accepted_delivery_for_current_binding(
             JOIN agent_run ON agent_run.id = runtime_input_delivery.agent_run_id
             JOIN conversation ON conversation.id = agent_run.conversation_id
             WHERE runtime_input_delivery.agent_run_id = ?1
+              AND runtime_input_delivery.input_kind = 'start'
               AND runtime_input_delivery.status = 'accepted'
               AND runtime_input_delivery.native_binding_id = conversation.native_binding_id
               AND runtime_input_delivery.native_binding_generation = conversation.native_binding_generation
@@ -8279,8 +8450,8 @@ mod tests {
                     context_manifest_version INTEGER
                 );
                 INSERT INTO agent_run_input VALUES ('historical', 26);
-                INSERT INTO agent_run_input VALUES ('current', 38);
-                INSERT INTO agent_run_input VALUES ('current', 38);
+                INSERT INTO agent_run_input VALUES ('current', 39);
+                INSERT INTO agent_run_input VALUES ('current', 39);
                 INSERT INTO agent_run_input VALUES ('previous', 36);
                 INSERT INTO agent_run_input VALUES ('previous', 36);
                 INSERT INTO agent_run_input VALUES ('legacy', 29);
@@ -8321,19 +8492,19 @@ mod tests {
         assert_eq!(accepted_public_window_lower_bound("direct", 41, false), 41);
         assert_eq!(
             public_history_hint(0, false),
-            "As of this run's start, all visible messages in this Thread are already in RUN_INPUT or were written by you."
+            "All visible messages in this Thread are in RUN_INPUT or were written by you."
         );
         assert_eq!(
             public_history_hint(0, true),
-            "As of this run's start, there are additional visible messages in this Thread beyond RUN_INPUT and messages written by you."
+            "There are additional visible messages in this Thread beyond RUN_INPUT and messages written by you."
         );
         assert_eq!(
             public_history_hint(150, false),
-            "The latest public message before your last recorded run in this Thread had sequence 150. As of this run's start, all visible messages after that sequence are already in RUN_INPUT or were written by you."
+            "All visible messages after sequence 150 are in RUN_INPUT or were written by you."
         );
         assert_eq!(
             public_history_hint(150, true),
-            "The latest public message before your last recorded run in this Thread had sequence 150. As of this run's start, there are additional visible messages after that sequence beyond RUN_INPUT and messages written by you."
+            "There are additional visible messages after sequence 150 beyond RUN_INPUT and messages written by you."
         );
     }
 
@@ -10904,7 +11075,7 @@ mod slow_tests {
             panic!("frozen batch context should materialize")
         };
         assert!(first.rendered_payload.contains(
-            "As of this run's start, all visible messages in this Thread are already in RUN_INPUT or were written by you."
+            "All visible messages in this Thread are in RUN_INPUT or were written by you."
         ));
         assert!(!first.rendered_payload.contains("new public history"));
         fixture
@@ -10992,7 +11163,7 @@ mod slow_tests {
             panic!("frozen batch context should materialize")
         };
         assert!(first.rendered_payload.contains(
-            "As of this run's start, there are additional visible messages in this Thread beyond RUN_INPUT and messages written by you."
+            "There are additional visible messages in this Thread beyond RUN_INPUT and messages written by you."
         ));
         let ContextMaterialization::Ready(second) = ContextService
             .materialize(&mut fixture.database, &store, &request)
@@ -11316,7 +11487,7 @@ mod slow_tests {
         let run_facts: Value = serde_json::from_str(run_facts_json).unwrap();
         assert_eq!(
             run_facts["historyHint"],
-            "As of this run's start, all visible messages in this Thread are already in RUN_INPUT or were written by you."
+            "All visible messages in this Thread are in RUN_INPUT or were written by you."
         );
         let (manifest_version, formatter_version, facts_version, profile_json, shared_evidence): (
             i64,
@@ -11345,7 +11516,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(
             (manifest_version, formatter_version, facts_version),
-            (38, 38, 9)
+            (39, 39, 10)
         );
         assert_eq!(profile_json, None);
         assert_eq!(
@@ -15718,9 +15889,11 @@ mod slow_tests {
                 .rendered_payload
                 .contains("[SHARED_THREAD]")
         );
-        assert!(replacement_context.rendered_payload.contains(
-            "The latest public message before your last recorded run in this Thread had sequence 1."
-        ));
+        assert!(
+            replacement_context
+                .rendered_payload
+                .contains("visible messages after sequence 1")
+        );
         assert!(
             replacement_context
                 .runtime_payload

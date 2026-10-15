@@ -52,8 +52,9 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Message Senders v1（当前）](message-senders-v1.md)：模型发送者统一，按需解析 Profile 当前名称及原输入/结果回放；内部身份不变。
 
 - [Message Mentions v1（当前）](message-mentions-v1.md)：公开 batch 输入和 read 共用的目标身份投影。
-- [ContextManifest v38（当前）](context-manifest-evidence-v38.md)：统一发送者；claim 快照与完整预算，public 38/13/9，non-batch 37/12/6。
-- [Context Delivery Profile v13（当前 public batch）](context-delivery-profile-v13.md)：实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
+- [ContextManifest v39（当前）](context-manifest-evidence-v39.md)：合并发送者与多输入；public 39/14/10、non-batch 37/12/6，Migration 203 保留两种历史 199。
+- [ContextManifest v38（主线历史）](context-manifest-evidence-v38.md)、[v37（Mission 064 历史）](context-manifest-evidence-v37.md)：冻结载荷保持原样。
+- [Context Delivery Profile v14（当前 public batch）](context-delivery-profile-v14.md)：普通与 Steer 共同 Builder、实际 Bootstrap 预算与冻结前 FIFO 选批；非 batch Profile 12 见 [v11/12](context-delivery-profile-v11.md)。
 - [ContextManifest v36（历史）](context-manifest-evidence-v36.md)：首版 claim 上下文冻结，public 36/13/9。
 - [Camp History v12（历史）](camp-history-v12.md)：mentions 统一，作者字段保留原始身份。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
@@ -427,7 +428,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Durable Task v5（当前）](durable-task-v5.md) | Task 对象全面去版本化，字段补丁后写覆盖，Agent 四类结果精简 |
 | [Durable Task v4（历史）](durable-task-v4.md) | 继承 v3 authority；单一 description、历史要求只读合成/编辑清理、16000 上限、精简 get Agent projection 与旧输入拒绝 |
 | [Durable Task v3（历史）](durable-task-v3.md) | User/Lead 责任定义、Assignee execution-state update、Camp-wide read、explicit owner、unassigned holding 与 advisory actions；字段 surface 由 v4 替代 |
-| [Camp Message Send v26（当前）](camp-message-send-v26.md) | Pending 首条 User 消息从结构化提及原子邀请队外队员 |
+| [Camp Message Send v27（当前）](camp-message-send-v27.md) | User 消息按目标选择普通开始或指定活跃执行注入，允许多队员和附件 |
+| [Camp Message Send v26（历史）](camp-message-send-v26.md) | Pending 首条 User 消息从结构化提及原子邀请队外队员 |
 | [Camp Message Send v25（历史）](camp-message-send-v25.md) | User 发送事件保存明确 Task 关联，续做按全部原输入校验当前范围；输入、回执和模型格式不变 |
 | [Camp Message Send v24（历史）](camp-message-send-v24.md) | 继承 v23；正文 Principal 与参数合并、PublicOnly 保留用户提及、昵称与 Markdown 投影 |
 | [Camp Message Send v23（历史）](camp-message-send-v23.md) | 继承 v22；用户消息轻量处理回执、权威 `canWithdraw`、确认弹窗与 Desktop/Web 撤回运输 |
@@ -538,7 +540,11 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Gather v3（历史）](gather-v3.md) | v2 lifecycle/limits 不变；Completion Input 使用 `agent_v1` request/captured 投影、projected digest 与 schema v3 |
 | [Gather v2（历史）](gather-v2.md) | v1 lifecycle 加当前代最后 captured result、独立回传限额、完整 request 与 completion input v2 |
 | [Gather v1（历史）](gather-v1.md) | GatherRecord/Item、Default Lead 接受、持久 capture/Barrier、completion snapshot/FIFO 与旧 capture budget/input v1 |
-| [Message Delivery v12（当前）](message-delivery-v12.md) | 内部续做请求使用独立 FIFO 序号，不创建消息，执行区复用原输入 |
+| [Message Delivery v16（当前）](message-delivery-v16.md) | Core 统一 Steer 版本资格、TRAE CN、接收语义与未知不重发 |
+| [Message Delivery v15（历史）](message-delivery-v15.md) | Kiro 与 ZCode 插话 |
+| [Message Delivery v14（历史）](message-delivery-v14.md) | Claude、Pi、CodeBuddy、Qwen、Grok 插话 |
+| [Message Delivery v13（历史）](message-delivery-v13.md) | 用户 Steer 与逐消息 Runtime Input |
+| [Message Delivery v12（历史）](message-delivery-v12.md) | 内部续做请求使用独立 FIFO 序号，不创建消息，执行区复用原输入 |
 | [Message Delivery v11（历史）](message-delivery-v11.md) | 续做复用 waiting Delivery，独立成批，来源状态不传播；non-batch 改为事件唤醒，移除旧全局维护循环 |
 | [Message Delivery v10（历史）](message-delivery-v10.md) | 继承 v9；claim 原子修复历史 waiting lane 缺失的 Camp-member Conversation，启动扫描与兜底自动恢复 |
 | [Message Delivery v9（历史）](message-delivery-v9.md) | waiting Delivery 是唯一队列；claim 原子创建不可变的多输入 AgentRun，无预算、Gather 或业务重试 |

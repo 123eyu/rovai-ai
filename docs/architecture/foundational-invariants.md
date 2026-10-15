@@ -362,7 +362,7 @@ last_updated: 2026-10-15
 ### 公共历史按需读取与实时读取
 
 - 模型发送者按 [Message Senders v1](../contracts/message-senders-v1.md) 统一：公开 RUN_INPUT、SHARED_THREAD、read/search 使用 senderType/senderId，Agent/system 名称可空、User 无名称。内部作者和渠道身份保持；只在实际消息组装时取当前名称并复用同批查询，完整输入沿用已有保存与回放机制，不设置专用名称快照，不参与 Binding 兼容与授权。
-- 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。Mention 改动不改变正文；发送者另由上述合同统一，非 batch 和单聊的 Mention 字段保持。新 Run 使用 [Manifest v38](../contracts/context-manifest-evidence-v38.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
+- 公开 batch 的 RUN_INPUT.messages 与 thread.read 正常条目共用 [Message Mentions v1](../contracts/message-mentions-v1.md)：保存的完整有效目标 ID、同次解析的成员名，以及固定 user 条目；不是正文人物索引或执行状态。Mention 改动不改变正文；发送者另由上述合同统一，非 batch 和单聊的 Mention 字段保持。新 Run 使用 [Manifest v39](../contracts/context-manifest-evidence-v39.md)，已领取 Run 按冻结版本恢复；不要求换 Session。
 
 - 新公开 batch AgentRun 不自动生成 `SHARED_CONVERSATION`、历史摘要或遗漏 locator。`RUN_INPUT` 仍完整有序。`RUN_FACTS.historyHint` 依据本 Agent 在此 Camp 上一次有效 accepted ACK 对应执行前公屏尾 `P` 以及本轮 claim 冻结的额外可见消息布尔结果选四种完整句子；存在只表示额外可见消息，不增加工作责任、不要求读取。提示是历史参考点，不代表阅读或完成，也不是 `camp.read --before` 游标。Charter 保留不推断遗漏、仅需当前工作时读取的纪律；`RUN_INPUT` 和已有上下文足够就直接推进，仅在缺少当前工作所需 Camp context 时 `rovai camp read`。
 - claim 同一事务用 `P`、本轮公屏尾 `T`、最终领取进入 `RUN_INPUT.messages` 的全部 ID `I` 与当前 Agent `A` 检查额外可见消息：`P > 0` 查 `(P, T]`、`P = 0` 查 `<= T`，首轮也查实际历史。可见性沿用当前 Camp `camp.read` 时间线的同 Camp／非 tombstone 规则，撤回占位符计入；仅排除 `I` 和 `author_type = agent, author_id = A`。发给其他 Agent 的可见消息及未领取队尾仍计入；不能用 waiting Delivery 候选代替历史可见集合。只做无正文、无数量、无分页上限的 `EXISTS`，失败回滚整个 claim，不创建无判断结果的 Run。Run 内部冻结 `P` 与布尔值，不复制历史；后续消息、撤回或水位变化均不重算原提示。
@@ -374,6 +374,8 @@ last_updated: 2026-10-15
 <a id="context-manifest-run-facts"></a>
 
 ### ContextManifest 与结构化 Run Facts
+
+- 普通消息和 Steer 使用共同动态上下文；本次来源决定全部消息资源。启动与后续输入分别冻结，ACK 精确关联输入，迟到证据不覆盖新标记。当前规则见 [Manifest 39](../contracts/context-manifest-evidence-v39.md) 与 [Profile 14](../contracts/context-delivery-profile-v14.md)。
 
 - ContextManifest 保存实际输入及必要来源、遗漏与水位；Runtime Input Delivery 记录真实接收，Native Session/Run 保存执行状态。新快照不再重复保存生成材料或其独立摘要，旧输入直接复用最终 Blob；不把历史版本组合用于再次证明已冻结输入。规则见[输入快照存储](../contracts/input-snapshot-storage-v1.md)。
 - Manifest 对新 public Run 冻结完整有序 AgentRunInput、最后一条 anchor、执行配置、Skill Selection/Resolution v2、最终输入中的 `ROVAI_ADDITIONAL_SKILLS` 文本、visibility fence、claim 时前次有效接受边界及额外可见消息判断对应的 RUN_FACTS/historyHint 与 实际输入字节；历史专属 refs/evidence 为空。输入附件只使用各消息 `RUN_INPUT.messages[].attachments`。旧 Manifest 原字节留作审计；v30/10/7、v29/9/7 和非 batch v26/6/5 保留已有序列化入口；已物化输入不因生成版本组合失配而拒绝。

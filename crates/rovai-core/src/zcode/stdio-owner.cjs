@@ -130,7 +130,10 @@ function watchOwner() {
       }
       for (const pid of groups) if (!exists(pid)) groups.delete(pid)
       if (groups.size && Date.now() < deadline) { setTimeout(clean, 25); return }
-      const confirmed = groups.size === 0 && !signalFailed
+      // Darwin can report EPERM after SIGKILL has already stopped the group.
+      // A signal result alone proves nothing; the subsequent ESRCH observation
+      // for every owned group is authoritative. Keep signal errors as evidence.
+      const confirmed = groups.size === 0
       if (report) {
         try {
           fs.writeFileSync(`${report}.tmp`, JSON.stringify({ confirmed, pendingGroups: groups.size, signalFailed }), { mode: 0o600 })

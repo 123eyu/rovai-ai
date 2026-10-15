@@ -11,6 +11,34 @@ last_updated: 2026-10-15
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Steer 合入前自检（2026-10-15，User seq47）
+
+同步主线 `1681b99e`，通过 Migration 204／schema 154 收敛主线和分支的两种 203，
+保留历史输入与接受证据。修复 Desktop 核对回执的精确白名单、继续发送及提交前编辑的逐目标路线，
+Pi 图片插话复用普通输入的图片准备、能力检查和证据保存。模型文字、RUN_INPUT 结构与版本门槛保持。
+等待中的活跃 Run 可准备 Steer，接收回执不解除原审批等待；普通首次输入保持原限制。
+CodeBuddy #762 的原异常及证据缺口继续保留，更多旧协议兼容仍属后续扩展。
+User seq49 补充存储自检：新输入沿用单份最终 Blob、空置退役快照列；新操作沿用主线格式 4，
+不保存原生输入回显副本或 Steer 资格快照。分轴审查与合入前验证见[自检记录](../../research/runtime-monitoring/steer-release-review-2026-10-15.md)。
+
+## Steer 版本复核与 CodeBuddy 新旧 ACP（2026-10-15）
+
+按 User seq44、seq46，CodeBuddy 稳定版仅设 `>=2.109.1` 下限，不设大版本上限或推荐版本；优先专用 `session/steer`，
+仅在方法明确不存在时使用旧并发 Prompt。ZCode 对 User 标注官方 App 3.12.2，内部保持捆绑内核检查。
+Claude 2.1.83 是当前完整结束协议的边界；TRAE CN 0.207.1 补验当前 Core 的完整产品链路。
+具体逐次结果见[版本复核报告](../../research/runtime-monitoring/steer-version-followup-2026-10-15.md)，
+协议边界见 [Delivery v16](../../contracts/message-delivery-v16.md)。没有数据库、模型上下文或 UI 改动。
+
+## 用户 Steer 合并与资格收口（2026-10-15）
+
+按 User seq40 合入 main d6ae891f，收敛两种 Migration 199 来源至 203／schema 153，新 public Manifest 39。
+最终同步 main 2d4c61af7 的日期标记与锚点作者读取，两项不改变 Steer 协议及模型上下文。
+历史输入与接受证据保留；Core 统一活跃 Run 的版本、协议资格，UI 展示原因；加入 TRAE CN 产品路径，
+回执统一为“运行时已接收”。当前合同见 [Manifest 39](../../contracts/context-manifest-evidence-v39.md)、
+[Delivery v16](../../contracts/message-delivery-v16.md)，模型正文的紧邻对照见[合并报告](model-context-change-steer-merge.md)。
+实现与验收见[合并后完整清单](../../research/runtime-monitoring/steer-hardening-2026-10-15.md)；
+九种 Runtime 有本轮真实正例，CodeBuddy 原始异常在 #762 保留，不由原低版本报告推断合并后通过。
+
 ## 内置头像裁切坐标统一（2026-10-15）
 
 按 User 消息 66，内置头像仅调整取景时使用 Agent 读到的 packaged icon，修复“看小图、改大图”。

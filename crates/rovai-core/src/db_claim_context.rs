@@ -386,7 +386,8 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     migrate(database).unwrap();
     assert!(matches!(
         classify_database_contract(database.connection()).unwrap(),
-        DatabaseContractClassification::SupportedMigrationSource(_)
+        DatabaseContractClassification::SupportedMigrationSource(ref marker)
+            if marker.projection_schema_version == 148
     ));
     assert_eq!(
         before,

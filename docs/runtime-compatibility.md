@@ -1,10 +1,72 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-10
+last_updated: 2026-10-15
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-15 User seq44：版本复核与 TRAE 完整产品验收
+
+CodeBuddy 按 User seq46 仅设稳定版 `>=2.109.1` 下限，不设大版本上限或推荐版本；优先 ACP `session/steer`，仅方法不存在时走旧版
+并发 Prompt。官方 2.167.0 原路径出现失败，适配后连续输入 3/3、停止／结束 3/3；2.133.1 前后均 3/3。
+2.109.1 新复测 2/3，保留连续输入证据缺口；不关闭 #762，不把区间准入等同每个版本稳定。
+ZCode 对 User 使用官方 App 3.12.2，内部维持实际捆绑内核检查。Claude 官方包确认 2.1.81 缺当前结束
+状态协议、2.1.83 具备，sub2api 重跑 3/3。TRAE CN 0.207.1 已完成当前 Core 的连续输入、纯附件、
+普通排队、多目标、停止续接及结束边界验证。模型、全部尝试与范围限制见
+[版本复核报告](research/runtime-monitoring/steer-version-followup-2026-10-15.md)。
+
+## 2026-10-15 合并收口：九种产品 Steer 与逐 Run 准入
+
+User seq40 后，TRAE CLI CN 已完成产品适配。当前九种为 Codex、Claude Code、Pi、CodeBuddy、
+Qwen Code、Grok Build、Kiro CLI、ZCode、TRAE CLI CN；本轮均通过当前 Core／Adapter 的真实 LLM
+场景，具体版本、场景覆盖及全部尝试见[合并收口完整清单](research/runtime-monitoring/steer-hardening-2026-10-15.md)。
+
+Core 根据目标活跃 Run 冻结的安装、版本、协议与执行绑定统一提供 canSteer，UI、API 准入及实际发送前
+使用同一判断；未知或不兼容的目标仍可普通执行／排队。旧 Pi 0.87.0 与 Kiro 2.7.0 的真实回归确认
+在原生 Steer 写入前降级。没有下调全局 Runtime 最低版本；CodeBuddy 2.132.0 原异常及证据缺口保留在
+[问题 #762](https://github.com/murray17/rovai-ai/issues/762)，本轮成功没有覆盖旧失败。
+
+以下按日期与用户消息记录历史验证范围；其中“八种”“TRAE 产品待适配”为当时状态。
+
+## 2026-10-15 Qoder 本机升级与 Steer 最低版本核查
+
+User seq34：官方原生 Qoder 从 1.1.65 升级为 1.1.71，普通 ACP 可用性检查通过；真实 LLM
+仍先结束原 prompt，再执行补充 prompt，三个候选 Steer 扩展均不存在。与此前隔离 npm 包结论一致。
+当时产品 Steer 支持为八种，TRAE 通道已通过但产品待适配。
+
+按当前接线核查：Pi 依赖 0.99.0 新增的 RPC disposition，整体 Runtime 门槛 0.84.4 不能代表 Steer；
+Qwen 的 ACP drain 始于 0.18.0，但 Rovai 使用的结构化 items 回包从 0.18.4 才支持。
+Grok 的现有整体门槛为 1.0.0，同版本源码已含 interject；这些源码边界不等于旧版本完整 LLM 验收。
+Kiro 2.6.0 无对应方法，2.7.0 安装包新增方法与注入事件，但三个旧版边界探针均超时，未宣称历史 ACP 成功。
+其他精确首发版本仍有证据缺口，保留实测版本，不直接写成最低版本。
+完整十五种清单、来源与逐次结果见[本轮报告](research/runtime-monitoring/steer-minimum-versions-2026-10-15.md)。
+本轮没有改变版本门禁、Runtime 投递或模型上下文。
+
+## 2026-10-14 用户 Steer：当前通道与 Kiro / ZCode 产品接入
+
+User seq30 后，产品支持增加到八种：Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、
+Kiro CLI、ZCode。后两种的同 Run 文本与纯附件插话、普通队列分离、多队员路由及取消使用真实 Core/LLM 验证。
+[当轮完整清单](research/runtime-monitoring/steer-kiro-zcode-2026-10-14.md)记录逐次通过、失败、版本依据与边界，
+不把协议回执当作模型行为验收，也不以其他 SDK/HTTP 能力代替当前通道。
+
+seq30 时 Qoder 本机 1.1.65 和隔离下载的 1.1.71 ACP 均实测排到下一轮；Antigravity 1.3.5 Stream JSON
+追加 user 也是下一轮，steer 事件被忽略、control_request 明确不支持。Copilot 当前 ACP 是取消替换。
+Kimi 2.1.1、OpenCode 2.0.25、DeepSeek Harness 0.2.1-alpha.1 的当前 ACP 没有已验证的专用插话入口；
+官方 OpenCode v2.0.29、DeepSeek Harness 0.2.1-alpha.3 代码仍拒绝重叠 prompt。
+User seq32 授权将本机 TRAE CN 从 0.120.52 升级到官方 0.209.1；补齐迁移遗漏的企业登录配置并完成 SSO 后，
+ACP `_session/steering` 返回 injected，真实模型在原 prompt 结束前采用更正，通道同轮验证通过。
+Rovai 的 TRAE Steer 投递尚未接入，产品范围仍为八种；0.209.1 也不是已证明的首次支持版本。
+修正 Health/Dispatch Probe 与正式执行的全局参数顺序：`--permission-mode` 必须位于 `acp serve` 前。
+旧 0.120.52 同样接受此顺序。升级、企业认证纠正与产品边界见[最新复核](research/runtime-monitoring/steer-trae-upgrade-2026-10-14.md)。
+
+Qoder 官方 IDE 1.10.1 已有 Steer，不能将上述 CLI ACP 结论外推为整个官方产品不支持；
+Antigravity 的结论同样仅限已核验的官方 CLI Stream JSON 接口，不否定其他交互界面的反馈能力。
+
+[seq28 全通道复测](research/runtime-monitoring/steer-current-transport-2026-10-14.md)与
+[五种扩展验收](research/runtime-monitoring/steer-five-runtimes-2026-10-14.md)保留此前证据；
+[跨通道补测](research/runtime-monitoring/steer-complete-2026-10-14.md)仅作历史参考。
+本次无模型上下文、Schema 或 UI 改动；没有安装或重启日常 App。
 
 ## 2026-10-10 关闭原生自动记忆
 

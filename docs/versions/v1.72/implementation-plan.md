@@ -8,6 +8,43 @@ last_updated: 2026-10-15
 
 # v1.72 实施与验收
 
+## Steer 合入前自检（2026-10-15，User seq47）
+
+以主线 `1681b99e` 为合入基线。主线 203 的操作格式与分支 203 的 Steer 结构分别识别，
+204／schema 154 只补缺少的结构；既有填充夹具追加分支 203 的 accepted／unknown／prepared 保全、
+回执保存失败回滚及重复打开验证。来源、视图和去重约束不完整时拒绝准入。
+历史数据库矩阵沿用既有 owner 并归入 extended-tests，不新增平行测试。
+
+Desktop Main 精确开放 `runtimeInputs.reconcile`；生产 Composer 以 continuation 物化后的正文预览，
+提交时依据 flush 后正文和点击时 Run 快照计算目标。Pi Start／Steer 共用图片授权字节准备、
+模型能力校验、MIME／大小检查和发送前证据；扩展既有 RPC owner 检查原字节与拒绝零写入。
+规范与需求审查分别复核以上修复；既有 CodeBuddy #762 不关闭。
+收尾复现了 waiting／approval 状态下准备 Steer 的拒绝；仅补充输入接受 waiting，普通首次输入仍要求 running。
+沿用多输入 owner 验证回执不解除原等待，修正前红测、修正后定向绿测分别保留。
+
+User seq49 的存储复核沿用普通输入和执行记录的现有合同：Steer 不复制最终输入的各节正文，
+也不持久化 `canSteer` 或原生输入回显。既有多输入恢复 owner 补上退役快照列保持 NULL、最终 Blob
+原字节可读和事件无输入正文的断言；删除 Read Model 的未使用重复查询。
+隔离打包存储升级脚本使用合并后的 schema 154，继续验证旧正文、格式 4、输出预算、文件展开和重启不重投。
+验证结果与审查分别记录于[合入前自检](../../research/runtime-monitoring/steer-release-review-2026-10-15.md)。
+
+## Steer 版本复核（2026-10-15，User seq44）
+
+CodeBuddy 从离散名单改为 `>=2.109.1`；按 User seq46 移除大版本上限及推荐版本。
+增加专用 ACP `session/steer` 与原生请求归属，
+仅明确方法不存在时复验原执行后使用旧并发 Prompt；识别新版精确 metadata 通知。
+普通执行资格、共同上下文、数据库和 UI 保持。ZCode 对 User 使用 App 3.12.2，内部沿用内核核验。
+Claude 2.1.81／2.1.83 官方包及 sub2api 实测确认当前接线边界。
+
+真实 LLM 主验证十个尝试共 30 case：26 通过、4 失败全部归档；
+结束协议补齐后的构建另做结束／失效目标 1/1 补验，总计 31 case。CodeBuddy 2.167.0 修正后三次连续输入与三项
+停止／结束均通过；2.133.1 前后各 3/3；2.109.1 新复测 2/3，不关闭 #762。
+TRAE CN 0.207.1 完成连续输入、附件、普通排队、多目标、停止续接与结束边界。
+准确范围与二进制身份见[报告](../../research/runtime-monitoring/steer-version-followup-2026-10-15.md)。
+
+Rust 扩展既有 ACP 回执 owner、metadata owner 与 frozen Run 准入 owner，三个定向测试通过；
+没有新增测试 owner。完整门禁结果记录于报告末尾。
+
 ## 队员头像简化（2026-10-14）
 
 Mission `rvm_01a1390f1fc377028f1bae8eb8f78cf0`，分支 `rovai/mission/062`，基线 `3d4db22df`。
@@ -2553,3 +2590,73 @@ User 消息 66（1f83dd0c-00c9-45ce-8711-34650afd5914）授权修复内置头像
 0 failed、1 既有 ignored；`cargo fmt --all --check`、`git diff --check`、文档测试 10 项及
 `docs:check`、以 `059ef5157` 为 base 的 `docs:check:ci` 均通过。
 没有启动 App/Core/真实模型进程或修改日常数据；此前通用模型 Gate 的既有失败记录不被本次测试替代。
+
+
+## Steer 合并与资格收口（2026-10-15）
+
+User seq40 授权整个收口。主线 d6ae891f 与 Mission 064 b8349985 合并；新增 Migration 203／schema 153、
+public Manifest 39，分支 37／14／10 与主线 37／12／6、38／13／9 保留原字节。
+最终同步 main 2d4c61af7 的日期标记及锚点作者读取，补验普通测试、读取 owner 和生产界面。
+Core 按活跃 Run 冻结身份提供 canSteer／reason；普通执行资格独立，实际发送前及原生 owner 校验继续收口。
+TRAE CN 接入 `_session/steering`；CodeBuddy 异常保留原样并追踪。模型可见变化只继承主线发送者投影，
+[逐段对照](model-context-change-steer-merge.md)不增加 Steer 提示词。
+
+新增测试 owner：来源收敛拥有两条 199 的结构识别及幂等；populated legacy upgrade 拥有 accepted／unknown／
+未完成来源的精确保全；Steer admission 拥有 UI/Core 共同冻结资格，fault recovery 拥有 ACK 崩溃窗口与后继 fence。
+均需 SQLite 事务验证，不能由 Adapter 小文本探针替代。已有 ACP 回执 owner 扩充 TRAE；新 race outcome
+断言器的反例证明重复、错轮和全失败会被发现。命令、结果、真实版本及模型见
+[收口报告](../../research/runtime-monitoring/steer-hardening-2026-10-15.md)与其逐次证据。
+九种 Runtime 均有合并后正例，TRAE 3/3；旧 Pi 0.87／Kiro 2.7 普通执行和提前排队真实通过。
+CodeBuddy 2.132 新试验 3/3 通过，原失败保持未知归因，在问题 #762 追踪；不自动关闭。
+
+
+## 用户 Steer（2026-10-14）
+
+User seq18 确认 [R3](model-context-change-steer-shared-input.md)，实施分支 `rovai/mission/064`。
+共用普通动态上下文与 RUN_INPUT，执行身份和环境保持冻结；仅 Runtime 层区分开始执行与注入。
+用户一次多队员发送按队员能力处理，支持附件及纯附件；保留原有视觉风格及普通消息回执。
+首批接入 Codex turn/steer，其余 Runtime 当时忙碌时排队。未安装日常 App，未创建 PR。
+完整 [15 类 Runtime 报告](../../research/runtime-monitoring/steer-2026-10-14.md) 与 [证据索引](steer-verification.json)
+区分原生探针、产品验收和尚未验证的边界。
+
+新增的唯一独立 Rust owner 是 `delivery_queue::tests::active_inputs_preserve_initial_context_and_unsubmitted_sources`
+（extended-tests）：一个 Run 的第二条输入在原实现中会复用第一份 Manifest／回执，旧单输入 fixture
+不能覆盖这个事务边界。因此复用 DeliveryQueue fixture 增加该 owner，检查来源隔离、同水位多输入、
+恢复原字节、逆序 ACK、目标 Run／epoch 失效、正常结束回队列、取消后不重启、未知不重发及迟到回执。
+这些是持久化与跨模块事务语义，不能仅以纯函数测试替代。没有删除或禁用原测试。
+迁移 199 回滚与旧证据逐字保留扩展既有 member_routing / claim_context 迁移 owner；
+历史迁移 fixture 先恢复真实旧 schema，再用正式升级链回到当前 schema 后调用新业务 API。
+版本断言更新为当前 37/14/10，既有旧数据、错误分支、FK、事务回滚断言保留。
+既有 Codex 真实子进程夹具补充指定 turn 的正向接受／读取、目标不匹配、校验拒绝、内部错误与
+Host 退出矩阵；只有明确的原生校验拒绝允许回队列，内部错误和传输中断保持未知。未为此增加独立测试。
+
+主要复现入口（Rust 使用本机已配置的 rustup）：
+
+```sh
+cargo test --workspace
+cargo test -p rovai-core --features slow-tests --lib context::
+cargo test -p rovai-core --features extended-tests --lib delivery_queue::tests::
+cargo test -p rovai-core --features extended-tests --lib db::member_routing::tests::
+pnpm typecheck
+pnpm exec vitest run apps/desktop/src/renderer/src/ThreadWorkspace*.test.ts apps/desktop/src/renderer/src/composer-*.test.ts apps/desktop/src/renderer/src/camp-composer-local-store.test.ts
+node --test --test-name-pattern='Steer uses' scripts/lib/camp-open-projection.test.mjs
+pnpm test:composer-input
+pnpm docs:test
+pnpm docs:check
+DOCS_BASE_REF=41c8ca19238de8465c23ff0c030f5c7620dd2c02 pnpm docs:check:ci
+```
+
+真实 Smoke：先构建 Core 和 `rovai` CLI，放在同一产品 bin 目录；创建一个新的空绝对路径目录，运行
+`node scripts/smoke-steer.mjs <空目录> <Core绝对路径>`。脚本明示独立 data、Skill Library、MCP、cache、
+workspace，记录 Core SHA-256、实际 Runtime 版本、每条输入 Manifest、目标及结果文件。
+使用现有登录和 Runtime 默认模型，本次不是固定模型质量 A/B。
+
+最终默认 Rust workspace **471 passed，0 failed，1 个既有 ignored**；上下文 slow owner 53 项、
+Delivery 与迁移定向 39 项通过，首次扩展失败项修正后的 19 项定向 owner 也已逐项通过。
+Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer 集成、类型检查、双主题 UI
+12 组（含 900 px / 200% 缩放）、文档测试及带基线治理均通过。未重跑整个扩展集；首次
+992 passed / 16 failed / 8 ignored 的原日志保留，15 项在定向复测中修复，剩余一项为下述基线失败。
+
+验证结果以 [JSON 索引](steer-verification.json) 为准。完整 12 Case 语义 Gate 缺固定 Judge 未运行，
+保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
+中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。

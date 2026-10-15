@@ -1867,6 +1867,11 @@ export type AgentRunCancelReasonCode =
   | 'single_chat_ended'
 
 export interface AgentRunView {
+  canSteer?: boolean
+  /** Core's decision for this Run's frozen installation and active input binding. */
+  steerUnavailableReason?: 'runtime_unsupported' | 'execution_not_ready' | 'execution_changed'
+    | 'input_outcome_unknown' | 'runtime_identity_unknown' | 'protocol_incompatible'
+    | 'version_incompatible' | 'version_unverified' | null
   id: string
   threadTurnId: string | null
   inputMessageIds?: string[]
@@ -2625,6 +2630,8 @@ export interface ThreadMessageFindParams {
 }
 
 interface MessageDeliveryBaseView {
+  requestedMode?: 'start' | 'steer'
+  inputDeliveryStatus?: string
   continuationRequest?: boolean
   inputMessageIds?: string[]
   id: string
@@ -4345,6 +4352,7 @@ export type CoreMethod =
   | 'tasks.get'
   | 'messageQuotes.mutateDraft'
   | 'messageQuotes.capture'
+  | 'runtimeInputs.reconcile'
   | 'thread.messages.send'
   | 'thread.messages.withdraw'
   | 'userAutomation.thread.send'

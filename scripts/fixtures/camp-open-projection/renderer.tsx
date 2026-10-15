@@ -22,6 +22,9 @@ import { CurrentUserProfileContext } from '../../../apps/desktop/src/renderer/sr
 import { DEFAULT_CURRENT_USER_PROFILE, type CurrentUserProfile } from '@contracts'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
+let steerFixture = false
+let steerFixtureRevision = 0
+let steerSent: {mode: string | undefined; attachments: number; recipients: string[]; targets: Array<{agentRunId: string; executionEpoch: number}>} | null = null
 const now = '2026-08-31T00:00:00Z'
 const threadId = 'rvcamp_01m0wzxbb8e1ht984tsbjmysfe'
 const fullNarration = `BODY_A ${'完整正文🙂 '.repeat(5000)} LONG_BODY_A_END`
@@ -336,6 +339,7 @@ Object.assign(window, { rovai: {
     beforeSequence?: number | null
     limit?: number
   }): Promise<unknown> => {
+    if (steerFixture && method === 'thread.messages.anchors') return {schemaVersion:1,threadId,throughGlobalSequence:current.throughGlobalSequence,totalCount:0,items:[]}
     if (method === 'agentRunExecution.page') {
       const beforeSequence = params?.beforeSequence ?? null, afterSequence = params?.afterSequence ?? null
       const limit = params?.limit ?? 24
@@ -469,7 +473,7 @@ function Fixture({ executionPlacement = 'bottom', windowed = false, entryPreview
 }): React.JSX.Element {
   const [snapshot, setSnapshot] = useState(current)
   const [profile, setProfile] = useState(DEFAULT_CURRENT_USER_PROFILE)
-  const [messageHistory, setMessageHistory] = useState<ThreadOpenMessageCoverage | null>(null)
+  const [messageHistory, setMessageHistory] = useState<ThreadOpenMessageCoverage | null>(steerFixture ? {loadedCount:0,totalCount:0,omittedCount:0,complete:true,oldestLoadedSequence:null,newestLoadedSequence:null,hasEarlier:false} : null)
   const [activePlacement, setActivePlacement] = useState(executionPlacement)
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<ThreadInspectorTab>(attachmentReviewMode ? 'members' : 'tasks')
@@ -494,7 +498,7 @@ function Fixture({ executionPlacement = 'bottom', windowed = false, entryPreview
       detailEntryHostRef={setEntryHost} onFocusApprovals={() => {}} />
     <main className="content task-content">
       <ThreadWorkspace snapshot={snapshot} projectName="rovai-ai" agents={agents} busy={false} stopping={false}
-        initialComposerDraft={draft.attachments.length > 0 ? draft : null}
+        initialComposerDraft={steerFixture || draft.attachments.length > 0 ? draft : null}
         messageHistory={messageHistory}
         onLoadEarlierMessages={async () => {
           current = { ...current, messages: [...current.messages, messages[60]] }
@@ -505,7 +509,9 @@ function Fixture({ executionPlacement = 'bottom', windowed = false, entryPreview
           setMessageHistory({ loadedCount: 61, totalCount: 61, omittedCount: 0, complete: true,
             oldestLoadedSequence: 1, newestLoadedSequence: 61, hasEarlier: false })
         }}
-        onSend={async () => {}} onChangeLead={async () => {}} onTasksChanged={async () => {}}
+        onSend={async (value, mode, targets) => { steerSent = { mode, attachments: value.attachments.length,
+          recipients: value.content.segments.flatMap(segment => segment.kind === 'atom' && segment.atom.type === 'member' ? [segment.atom.agentId] : []),
+          targets: targets ?? [] }; return { deliveryIds: [], agentRunIds: [], addressedAgentIds: [] } }} onChangeLead={async () => {}} onTasksChanged={async () => {}}
         onResolveApproval={() => {}} onStop={() => {}} worldMapEnabled={false} executionPlacement={activePlacement}
         onExecutionPlacementChange={async next => { setActivePlacement(next); return next }}
         workspaceEntrySnapshotReady={entrySnapshotReady}
@@ -549,6 +555,36 @@ reactRoot.render(<Fixture />)
 const element = (selector: string): HTMLElement => document.querySelector(selector)!
 let anchor: HTMLElement | null = null
 Object.assign(window, { campOpenTest: {
+  showSteer: (scenario: string) => {
+    steerFixture = true; steerSent = null; localStorage.clear()
+    const continuation = scenario === 'continuation'
+    const busy = { ...textRun, id: 'steer-running', agentId: agents[continuation ? 1 : 0].agentId, status: 'running' as const, failure: null,
+      startedAt: new Date().toISOString(), executionEvidenceCount: 0, cancelRequestedAt: null, endedAt: null, canSteer: scenario !== 'unsupported' }
+    current = { ...campOpenProjectionAsSnapshot(projection(60)), tasks: [], messages: [], messageDeliveries: [],
+      agentRunFileChanges: [], executionEvidence: [], agentRuns: [busy, ...(['multi', 'flushed-recipient'].includes(scenario) ? [{...busy,id:'other-running',agentId:agents[1].agentId,canSteer:scenario === 'flushed-recipient'}] : [])] }
+    current = {...current,turns:[],timeline:[]}
+    draft = { ...draft, body: scenario === 'attachment' ? '' : '请按补充要求继续',
+      content: {version:2,segments: scenario === 'multi' ? [{kind:'atom',atom:{type:'all_members'}},{kind:'text',text:'请按补充要求继续'}] : scenario === 'attachment' ? [] : [{kind:'text',text:'请按补充要求继续'}]},
+      attachments: scenario === 'attachment' ? [attachmentFile(draftAttachmentId(1),'补充要求.txt','text/plain')] : [], quotes: [], replyIntent: null,
+      continuationIntent: continuation ? { sourceThreadMessageId: 'previous-explicit-message', recipientSelectionRequired: false,
+        recipient: { agentId: agents[1].agentId, displayName: agents[1].displayName, recipientAvailability: 'available' } } : null }
+    reactRoot.render(<Fixture key={`steer-${scenario}-${++steerFixtureRevision}`} />)
+  },
+  sendWithPendingRecipient: () => {
+    const editor = element('.composer-box [contenteditable="true"]')
+    editor.focus()
+    const selection = window.getSelection()!
+    selection.selectAllChildren(editor)
+    selection.collapseToEnd()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('application/x-rovai-composer+json', JSON.stringify({ version: 2,
+      segments: [{ kind: 'atom', atom: { type: 'member', agentId: agents[1].agentId } }] }))
+    editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }))
+    // Send in the same browser task, before the debounced draft projection renders.
+    editor.closest('form')!.requestSubmit()
+  },
+  finishSteer: () => { current = {...current,agentRuns:current.agentRuns.map(run=>({...run,status:'succeeded',canSteer:false,endedAt:now}))};updateSnapshot(current) },
+  steerSent: () => steerSent,
   commandInteraction: (enabled: boolean) => { commandInteraction = enabled },
   releaseCommandResult: (fail = false) => {
     for (const pending of pendingCommandResults.values()) {

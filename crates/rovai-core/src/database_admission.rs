@@ -321,6 +321,19 @@ impl NewAuthorityOpen<'_> {
 }
 
 impl<'lease> MigrationAuthorityTicket<'lease> {
+    #[cfg(all(test, feature = "extended-tests", target_os = "macos"))]
+    pub(crate) fn with_initially_absent_macos_provenance_for_test(mut self) -> Self {
+        let MigrationTicketState::Upgrade { artifacts, .. } = &mut self.state else {
+            panic!("the provenance fixture requires an upgrade ticket");
+        };
+        // Some hosts attach provenance to every new file, and removing the xattr
+        // immediately recreates it. Control only this initial observation; inode,
+        // bytes, timestamps, permissions, receipts and the later OS probe stay real.
+        artifacts.main.as_mut().unwrap().macos_provenance =
+            Some(MacosProvenanceStamp { present: false });
+        self
+    }
+
     pub(crate) fn matches_macos_provenance_refresh(
         &self,
         previous: &MigrationAuthorityOpen<'_>,

@@ -49,6 +49,12 @@ pub(super) struct SessionEvents {
     final_message: Option<String>,
     terminal_seen: bool,
     runtime_headers_rejected: bool,
+    steering: HashMap<String, GuideInput>,
+}
+
+struct GuideInput {
+    text: String,
+    pending_id: Option<String>,
 }
 
 struct BackgroundTool {
@@ -63,6 +69,7 @@ pub(super) struct Translated {
     pub messages: Vec<Value>,
     pub terminal: Option<Result<Value>>,
     pub context_refresh: bool,
+    pub steering_injected: Vec<String>,
 }
 
 impl SessionEvents {
@@ -79,6 +86,7 @@ impl SessionEvents {
             final_message: None,
             terminal_seen: false,
             runtime_headers_rejected: false,
+            steering: HashMap::new(),
         }
     }
 
@@ -94,6 +102,27 @@ impl SessionEvents {
         self.final_message = None;
         self.terminal_seen = false;
         self.runtime_headers_rejected = false;
+        self.steering.clear();
+        Ok(())
+    }
+
+    pub fn begin_steer(&mut self, expected_input: &str, input: &str, text: &str) -> Result<()> {
+        if self.input.as_deref() != Some(expected_input)
+            || self.turn.is_none()
+            || self.terminal_seen
+        {
+            return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+        }
+        if self.steering.contains_key(input) {
+            bail!("ZCode steering source already submitted");
+        }
+        self.steering.insert(
+            input.to_string(),
+            GuideInput {
+                text: text.to_string(),
+                pending_id: None,
+            },
+        );
         Ok(())
     }
 
@@ -118,6 +147,7 @@ impl SessionEvents {
             bail!("ZCode terminal left Tool results unresolved");
         }
         self.input = None;
+        self.steering.clear();
         Ok(messages)
     }
 
@@ -243,6 +273,12 @@ impl SessionEvents {
             return Ok(translated);
         }
         if kind == "turn.started" {
+            if payload["inputId"]
+                .as_str()
+                .is_some_and(|input| self.steering.contains_key(input))
+            {
+                bail!("ZCode guide unexpectedly started a new Turn");
+            }
             if payload["inputId"].as_str() != self.input.as_deref() {
                 return Ok(translated);
             }
@@ -267,6 +303,47 @@ impl SessionEvents {
         }
         if !self.owns_turn(event["turnId"].as_str()) {
             return Ok(translated);
+        }
+        if kind == "turn.steerQueued"
+            && payload["targetTurnId"].as_str() == self.turn.as_deref()
+            && payload["delivery"] == "guide"
+            && let (Some(input), Some(pending)) = (
+                payload["inputId"].as_str(),
+                payload["pendingInputId"].as_str().filter(|s| !s.is_empty()),
+            )
+            && let Some(guide) = self.steering.get_mut(input)
+            && payload["input"].as_str() == Some(guide.text.as_str())
+        {
+            guide.pending_id = Some(pending.to_string());
+        }
+        if kind == "turn.steerDrained"
+            && payload["targetTurnId"].as_str() == self.turn.as_deref()
+            && let Some(drained) = payload["drainedInputs"].as_array()
+        {
+            let accepted: Vec<_> = self
+                .steering
+                .iter()
+                .filter(|(id, guide)| {
+                    guide.pending_id.as_deref().is_some_and(|pending| {
+                        payload["pendingInputIds"]
+                            .as_array()
+                            .is_some_and(|ids| ids.iter().any(|id| id == pending))
+                            && payload["queryIds"].as_array().is_some_and(|ids| {
+                                ids.iter().any(|query| query.as_str() == Some(id.as_str()))
+                            })
+                            && drained.iter().any(|item| {
+                                item["pendingInputId"] == pending
+                                    && item["delivery"] == "guide"
+                                    && item["text"] == guide.text
+                            })
+                    })
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in accepted {
+                self.steering.remove(&id);
+                translated.steering_injected.push(id);
+            }
         }
         // Official ModelComplete arrives as session.updated with native Usage;
         // it is a model-call boundary, before tools and the prompt terminal.
@@ -580,6 +657,74 @@ mod tests {
     // the active input, and only a correlated success terminal permits Final.
     #[test]
     fn native_input_fences_replay_tools_compaction_and_terminal() {
+        // Guide receipts share the original input/Turn owner. Queue acceptance,
+        // foreign IDs, modified payloads and replay must not settle a source.
+        let mut guide = SessionEvents::new(0);
+        guide.begin("root").unwrap();
+        assert!(
+            guide
+                .begin_steer("root", "guide", "EXACT")
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
+        let event = |seq, turn, kind, payload| json!({"sessionId":"s1","seq":seq,"turnId":turn,"type":kind,"payload":payload});
+        guide
+            .receive(&event(1, "t1", "turn.started", json!({"inputId":"root"})))
+            .unwrap();
+        assert!(guide.begin_steer("other", "guide", "EXACT").is_err());
+        guide.begin_steer("root", "guide", "EXACT").unwrap();
+        let queued = json!({"inputId":"guide","pendingInputId":"q1","input":"EXACT","targetTurnId":"t1","delivery":"guide"});
+        assert!(
+            guide
+                .receive(&event(2, "t1", "turn.steerQueued", queued))
+                .unwrap()
+                .steering_injected
+                .is_empty()
+        );
+        let drained = json!({"targetTurnId":"t1","pendingInputIds":["q1"],"queryIds":["guide"],
+            "drainedInputs":[{"pendingInputId":"q1","messageId":"m1","text":"EXACT","delivery":"guide"}]});
+        for (seq, pointer, value) in [
+            (3, "/targetTurnId", json!("other")),
+            (4, "/queryIds/0", json!("other")),
+            (5, "/drainedInputs/0/text", json!("OTHER")),
+            (6, "/drainedInputs/0/delivery", json!("queue")),
+        ] {
+            let mut foreign = drained.clone();
+            *foreign.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                guide
+                    .receive(&event(seq, "t1", "turn.steerDrained", foreign))
+                    .unwrap()
+                    .steering_injected
+                    .is_empty()
+            );
+        }
+        let injected = event(7, "t1", "turn.steerDrained", drained);
+        assert_eq!(
+            guide.receive(&injected).unwrap().steering_injected,
+            ["guide"]
+        );
+        assert!(
+            guide
+                .receive(&injected)
+                .unwrap()
+                .steering_injected
+                .is_empty()
+        );
+        assert_eq!(guide.input_id(), Some("root"));
+        guide
+            .begin_steer("root", "fallback", "NO NEW TURN")
+            .unwrap();
+        assert!(
+            guide
+                .receive(&event(
+                    8,
+                    "t2",
+                    "turn.started",
+                    json!({"inputId":"fallback"})
+                ))
+                .is_err()
+        );
         for (error, expected) in [
             (
                 json!({"message":RUNTIME_HEADERS_UNAVAILABLE}),

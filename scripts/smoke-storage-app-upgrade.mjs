@@ -82,9 +82,12 @@ const start=async()=>{
  await browser.wait(`window.rovai.request('health.check',{}).then(x=>Boolean(x)).catch(()=>false)`,45000)
  console.error('Core ready; checking upgraded history')
  evidence.push({stage:'startup',ms:performance.now()-began,schema:query('SELECT projection_schema_version AS version FROM rovai_data_contract')[0].version})
- assert.equal(evidence.at(-1).schema,153)
+ assert.equal(evidence.at(-1).schema,154)
  const selector=`document.querySelector('[data-sidebar-menu-target="thread:${fixture.campId}"]')?.closest('.camp-nav-row')?.querySelector('.camp-nav-open')`
  await browser.wait(`Boolean(${selector})`,30000)
+ // The sidebar can paint before startup finishes restoring its route. Core health
+ // alone is not the interaction-ready boundary; wait for navigation to be enabled.
+ await browser.wait(`Boolean(document.querySelector('.navigation-collapse-button:not(:disabled)')) && !document.querySelector('[data-startup-status]')`,45000)
  // This smoke owns storage/UI routing, not native Electron/CDP pointer coordinates.
  // Invoke the exact Renderer button so title-bar/device-metric offsets cannot select a neighbour.
  await browser.evaluate(`(${selector}).click()`)
@@ -169,7 +172,7 @@ try {
  assert.equal(oldDigest(),beforeDigest)
  assert.equal((await readFile(join(root,'synthetic-inputs.jsonl'),'utf8')).trim().split('\n').length,1,'restart must not replay received input')
  evidence.push({stage:'restart',oldBodyHashUnchanged:true,newOperationReadable:true,inputSubmissions:1})
- await writeFile(join(root,'app-upgrade-report.json'),JSON.stringify({ok:true,fixtureSchema:149,candidateSchema:153,oldBodyDigest:beforeDigest,evidence},null,2))
+ await writeFile(join(root,'app-upgrade-report.json'),JSON.stringify({ok:true,fixtureSchema:149,candidateSchema:154,oldBodyDigest:beforeDigest,evidence},null,2))
  console.log(JSON.stringify({ok:true,root,evidence}))
 } catch(error) {
  if(browser) {

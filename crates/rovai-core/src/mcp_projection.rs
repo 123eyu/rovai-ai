@@ -742,7 +742,7 @@ fn load_frozen_projection(
         .query_row(
             r#"
             SELECT mcp_exposure_json
-            FROM context_manifest WHERE agent_run_id = ?1
+            FROM context_manifest WHERE agent_run_id = ?1 AND source_delivery_id IS NULL
             "#,
             [agent_run_id],
             |row| row.get::<_, String>(0),

@@ -1,4 +1,5 @@
 mod execution_drivers;
+mod steer;
 use execution_drivers::*;
 use rusqlite::OptionalExtension;
 mod config;
@@ -825,6 +826,7 @@ fn request_runs_outside_main_queue(method: &str) -> bool {
             | "runtime.startup.check"
             | "runtime.startup.save"
             | "runtime.networkRecovery.wake"
+            | "runtimeInputs.reconcile"
             | "runtime.modelCatalog.open"
             | "workspaces.inspect"
             | "camp.messages.send"
@@ -1710,6 +1712,10 @@ struct AcknowledgeThreadViewedParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SendThreadMessageParams {
+    #[serde(default)]
+    delivery_mode: rovai_core::steer::UserDeliveryMode,
+    #[serde(default)]
+    steer_targets: Option<Vec<rovai_core::steer::ActiveInputTarget>>,
     command_id: String,
     #[serde(rename = "threadId", alias = "campId")]
     camp_id: ThreadId,
@@ -1735,6 +1741,8 @@ impl SendThreadMessageParams {
             expected_versions: Vec::new(),
             execution_epoch: None,
             payload: SendUserThreadMessageCommand {
+                delivery_mode: params.delivery_mode,
+                steer_targets: params.steer_targets.clone(),
                 camp_id: params.camp_id.to_string(),
                 content: params.content.clone(),
                 source_attachments: params.source_attachments.clone(),
@@ -11249,6 +11257,14 @@ impl Core {
                     serde_json::from_value(request.params.clone())?;
                 self.send_test_camp_message_request(params).await
             }
+            "runtimeInputs.reconcile" => {
+                let delivery_id = request
+                    .params
+                    .get("deliveryId")
+                    .and_then(Value::as_str)
+                    .context("deliveryId is required")?;
+                self.reconcile_active_input(delivery_id).await
+            }
             "camp.messages.withdraw" => {
                 let params: UserCommandParams<WithdrawThreadMessageCommand> =
                     serde_json::from_value(request.params.clone())?;
@@ -15966,51 +15982,11 @@ impl Core {
         if delivery.status != "prepared" {
             anyhow::bail!("Pi Runtime Input Delivery is not ready to send");
         }
-        let input_projection = {
-            let database = self.database.lock().await;
-            ContextService.pi_runtime_input_projection(
-                &database,
-                &delivery.id,
-                &prepared_context.rendered_payload,
-            )?
-        };
-        let image_sources = input_projection
-            .attachments
-            .iter()
-            .map(|attachment| {
-                (
-                    PathBuf::from(&attachment.path),
-                    attachment.content_digest.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let prepared_images: Vec<PreparedPiPromptImage> = prepare_prompt_images(&image_sources)?;
-        let image_evidence = prepared_images
-            .iter()
-            .enumerate()
-            .map(|(image_index, image)| PiPromptImageEvidence {
-                image_index,
-                mime_type: image.wire.mime_type.clone(),
-                content_digest: image.content_digest.clone(),
-                byte_length: image.byte_length,
-            })
-            .collect::<Vec<_>>();
-        {
-            let mut database = self.database.lock().await;
-            ContextService.persist_pi_prompt_image_evidence(
-                &mut database,
-                PersistPiPromptImageEvidence {
-                    delivery_id: &delivery.id,
-                    images: &image_evidence,
-                },
-            )?;
-        }
+        let prompt_images = self
+            .prepare_pi_input_images(&delivery.id, &prepared_context.rendered_payload, &runtime)
+            .await?;
         self.begin_agent_run_input_dispatch(execution, &delivery.id, launch_permit)
             .await?;
-        let prompt_images: Vec<PiPromptImage> = prepared_images
-            .iter()
-            .map(|image| image.wire.clone())
-            .collect::<Vec<_>>();
         if let Err(error) = runtime
             .start_prompt(&prepared_context.rendered_payload, &prompt_images)
             .await
@@ -16034,6 +16010,55 @@ impl Core {
         )
         .await?;
         Ok(())
+    }
+
+    async fn prepare_pi_input_images(
+        &self,
+        delivery_id: &str,
+        payload: &str,
+        runtime: &pi::PiRuntime,
+    ) -> Result<Vec<PiPromptImage>> {
+        let input_projection = {
+            let database = self.database.lock().await;
+            ContextService.pi_runtime_input_projection(&database, delivery_id, payload)?
+        };
+        let image_sources = input_projection
+            .attachments
+            .iter()
+            .map(|attachment| {
+                (
+                    PathBuf::from(&attachment.path),
+                    attachment.content_digest.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let prepared_images: Vec<PreparedPiPromptImage> = prepare_prompt_images(&image_sources)?;
+        let image_evidence = prepared_images
+            .iter()
+            .enumerate()
+            .map(|(image_index, image)| PiPromptImageEvidence {
+                image_index,
+                mime_type: image.wire.mime_type.clone(),
+                content_digest: image.content_digest.clone(),
+                byte_length: image.byte_length,
+            })
+            .collect::<Vec<_>>();
+        let images = prepared_images
+            .iter()
+            .map(|image| image.wire.clone())
+            .collect::<Vec<_>>();
+        runtime.validate_images(&images)?;
+        {
+            let mut database = self.database.lock().await;
+            ContextService.persist_pi_prompt_image_evidence(
+                &mut database,
+                PersistPiPromptImageEvidence {
+                    delivery_id,
+                    images: &image_evidence,
+                },
+            )?;
+        }
+        Ok(images)
     }
 
     async fn launch_claude_code_agent_run(&self, launch: PreparedRuntimeLaunch<'_>) -> Result<()> {
@@ -25073,6 +25098,25 @@ async fn process_agent_run_scheduler(
     'scheduler: loop {
         if scan_delivery_batches {
             scan_delivery_batches = false;
+            let inputs = {
+                let database = core.database.lock().await;
+                rovai_core::steer::pending_inputs(database.connection())
+            };
+            match inputs {
+                Ok(inputs) => {
+                    for input in inputs {
+                        let run_id = input.agent_run_id.clone();
+                        if !delivery_batch_inflight.insert(run_id.clone()) {
+                            continue;
+                        }
+                        let worker_core = core.clone();
+                        let handle = delivery_batch_dispatches
+                            .spawn(async move { worker_core.dispatch_active_input(input).await });
+                        delivery_batch_workers.insert(handle.id(), run_id);
+                    }
+                }
+                Err(error) => eprintln!("failed to select active inputs: {error:#}"),
+            }
             match core.collect_delivery_batch_dispatch_candidates().await {
                 Ok(candidates) => {
                     for candidate in candidates {
@@ -28592,6 +28636,8 @@ done
         let attachment_id = source_attachment.id.clone();
         let sent = core
             .send_test_camp_message_request(SendThreadMessageParams {
+                delivery_mode: Default::default(),
+                steer_targets: None,
                 command_id: uuid::Uuid::new_v4().to_string(),
                 camp_id: ThreadId::parse(&camp_id).unwrap(),
                 content: text_composer_document("Use the published attachment"),
@@ -28740,6 +28786,8 @@ done
         let source_attachment =
             observe_source_attachment(&source, "published.txt", Some("text/plain")).unwrap();
         core.send_test_camp_message_request(SendThreadMessageParams {
+            delivery_mode: Default::default(),
+            steer_targets: None,
             command_id: uuid::Uuid::new_v4().to_string(),
             camp_id: ThreadId::parse(&camp_id).unwrap(),
             content: text_composer_document("Use the published attachment"),
@@ -31714,6 +31762,8 @@ done
         };
         let sent = core
             .send_test_camp_message_request(SendThreadMessageParams {
+                delivery_mode: Default::default(),
+                steer_targets: None,
                 command_id: uuid::Uuid::new_v4().to_string(),
                 camp_id: ThreadId::parse(&camp_id).unwrap(),
                 content: text_composer_document("Keep cleanup busy"),
@@ -32293,6 +32343,8 @@ for line in sys.stdin:
         let (camp_id, run_id, version, epoch) =
             claimed_runtime_cleanup_test_run(&core, &workspace).await;
         core.send_test_camp_message_request(SendThreadMessageParams {
+            delivery_mode: Default::default(),
+            steer_targets: None,
             command_id: uuid::Uuid::new_v4().to_string(),
             camp_id: ThreadId::parse(&camp_id).unwrap(),
             content: text_composer_document("Already queued before native failure"),

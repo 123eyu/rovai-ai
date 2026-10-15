@@ -373,6 +373,10 @@ impl DomainCommand for SendUserThreadDraftCommand {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SendUserThreadMessageCommand {
+    #[serde(default)]
+    pub delivery_mode: crate::steer::UserDeliveryMode,
+    #[serde(default)]
+    pub steer_targets: Option<Vec<crate::steer::ActiveInputTarget>>,
     #[serde(deserialize_with = "crate::camp_id::deserialize_camp_id_string")]
     #[serde(rename = "threadId", alias = "campId")]
     pub camp_id: String,
@@ -623,7 +627,11 @@ impl CollaborationService {
             UserThreadMessageAttachmentCommit {
                 legacy_publication_operation_id: None,
                 managed_ingest_intent_id: None,
-                source: UserThreadMessageSource::Inline(&envelope.payload.quotes),
+                source: UserThreadMessageSource::Inline(
+                    &envelope.payload.quotes,
+                    envelope.payload.delivery_mode,
+                    envelope.payload.steer_targets.as_deref(),
+                ),
             },
             |transaction| {
                 if envelope.payload.quotes.iter().any(|quote| {
@@ -3010,10 +3018,11 @@ impl CollaborationService {
         self.gateway.execute(database, envelope, |transaction| {
             // A rejected command receipt is committed by the gateway. Roll back
             // tentative first-send membership even on a normal business rejection.
-            let pending_submission =
-                matches!(attachment_commit.source, UserThreadMessageSource::Inline(_))
-                    && matches!(envelope.actor, ActorRef::User { .. })
-                    && camp_is_pending(transaction, &command.camp_id)?;
+            let pending_submission = matches!(
+                attachment_commit.source,
+                UserThreadMessageSource::Inline(..)
+            ) && matches!(envelope.actor, ActorRef::User { .. })
+                && camp_is_pending(transaction, &command.camp_id)?;
             if pending_submission {
                 transaction.execute_batch("SAVEPOINT pending_thread_submission")?;
             }
@@ -3129,7 +3138,7 @@ impl CollaborationService {
                             QuoteStorage::ClientCampDraft(&command.draft_client),
                             &command.camp_id,
                         )?,
-                        UserThreadMessageSource::Inline(quotes) => quotes.to_vec(),
+                        UserThreadMessageSource::Inline(quotes, ..) => quotes.to_vec(),
                         _ => Vec::new(),
                     };
                     anyhow::ensure!(
@@ -3168,6 +3177,24 @@ impl CollaborationService {
                                 .then(|| submission.generated_camp_name.clone()),
                         },
                     )?;
+                    if matches!(
+                        attachment_commit.source,
+                        UserThreadMessageSource::Inline(
+                            _,
+                            crate::steer::UserDeliveryMode::Steer,
+                            _
+                        )
+                    ) {
+                        if let UserThreadMessageSource::Inline(_, _, targets) =
+                            attachment_commit.source
+                        {
+                            crate::steer::route_user_message(
+                                transaction,
+                                &camp_message_id,
+                                targets,
+                            )?;
+                        }
+                    }
                     store_quotes(
                         transaction,
                         QuoteStorage::CampMessage,
@@ -3806,7 +3833,11 @@ struct UserThreadMessageAttachmentCommit<'a> {
 #[derive(Debug, Clone, Copy)]
 enum UserThreadMessageSource<'a> {
     Composer,
-    Inline(&'a [MessageQuoteSnapshot]),
+    Inline(
+        &'a [MessageQuoteSnapshot],
+        crate::steer::UserDeliveryMode,
+        Option<&'a [crate::steer::ActiveInputTarget]>,
+    ),
     Automation,
     #[cfg(test)]
     FixtureComposer,
@@ -9308,6 +9339,8 @@ mod slow_tests {
             "withdrawable-local-composer-message",
             Some(&camp_id),
             SendUserThreadMessageCommand {
+                delivery_mode: Default::default(),
+                steer_targets: None,
                 camp_id: camp_id.clone(),
                 content: composer_document(vec![
                     Segment::MemberMention {

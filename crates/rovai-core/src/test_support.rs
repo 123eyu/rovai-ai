@@ -474,7 +474,21 @@ pub(crate) fn insert_test_runtime_input(
     execution_epoch: i64,
     status: &str,
 ) {
+    use rusqlite::OptionalExtension;
     let now = chrono::Utc::now().to_rfc3339();
+    // Recovery owners intentionally use an orphaned synthetic Manifest ID, as
+    // they did before source fencing existed. Manifest admission is covered by
+    // context/delivery tests; restore its exact trigger before exercising recovery.
+    let source_guard: Option<String> = database.connection().query_row(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='runtime_input_source_insert'",
+        [], |row| row.get(0),
+    ).optional().unwrap();
+    if source_guard.is_some() {
+        database
+            .connection()
+            .execute_batch("DROP TRIGGER runtime_input_source_insert;")
+            .unwrap();
+    }
     database
         .connection()
         .execute_batch("PRAGMA foreign_keys = OFF;")
@@ -513,6 +527,9 @@ pub(crate) fn insert_test_runtime_input(
             ],
         )
         .unwrap();
+    if let Some(source_guard) = source_guard {
+        database.connection().execute_batch(&source_guard).unwrap();
+    }
     database
         .connection()
         .execute_batch("PRAGMA foreign_keys = ON;")

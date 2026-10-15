@@ -264,6 +264,23 @@ export const model = {
   },
   get: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   note: (note: string) => update({ note }),
+  showSteerCase(kind: 'mixed' | 'incompatible' | 'unknown' | 'ended') {
+    this.setScenario('stream'); halt();
+    const single = kind !== 'mixed'
+    const first = { ...makeRun('run-alice'), canSteer: kind === 'mixed',
+      steerUnavailableReason: kind === 'mixed' ? null : kind === 'unknown' ? 'input_outcome_unknown' : 'version_incompatible' }
+    if (kind === 'ended') { first.status = 'succeeded'; first.endedAt = at(60) }
+    const message = makeMessage('steer-example', 4, '请采用这条更正。')
+    const receipt = { ...delivery('steer-example-delivery', message.id, aid(0), first.id, 'settled'),
+      requestedMode: 'steer', inputDeliveryStatus: kind === 'unknown' ? 'delivery_unknown' : 'accepted' }
+    update({ streamPaused: true, generation: state.generation + 1,
+      snapshot: { ...state.snapshot, messages: [...state.snapshot.messages, message],
+        agentRuns: single ? [first] : [first, { ...makeRun('run-audrey', 1), canSteer: false, steerUnavailableReason: 'version_incompatible' }],
+        messageDeliveries: [receipt] },
+      draft: { ...state.draft, body: '采用这条更正。', content: { version: 2, segments: [
+        ...(single ? [] : [0,1,2].map(index => ({ kind: 'atom', atom: { type: 'member', agentId: aid(index) } }))),
+        { kind: 'text', text: '采用这条更正。' }] } } })
+  },
   setRunModel(runtimeModel: any) {
     update({ streamPaused: true, snapshot: { ...state.snapshot,
       agentRuns: state.snapshot.agentRuns.map((run: any) => run.id === 'run-alice' ? { ...run, runtimeModel } : run)

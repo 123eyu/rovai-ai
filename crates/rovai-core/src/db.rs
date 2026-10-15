@@ -32,6 +32,11 @@ mod pending_draft;
 mod run_continuation;
 #[path = "db_simplification.rs"]
 mod simplification;
+#[path = "db_steer.rs"]
+mod steer;
+#[cfg(test)]
+#[path = "db_steer_legacy_test.rs"]
+mod steer_legacy_test;
 #[path = "db_thread_names.rs"]
 mod thread_names;
 #[path = "db_unified_activity.rs"]
@@ -48,6 +53,8 @@ pub(crate) fn downgrade_message_mentions_fixture(database: &Database) {
 
 #[cfg(all(test, feature = "extended-tests"))]
 pub(crate) use run_continuation::assert_legacy_request_upgrade;
+#[cfg(all(test, feature = "extended-tests"))]
+pub(crate) use steer::assert_legacy_upgrade as assert_legacy_steer_upgrade;
 
 #[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn upgrade_message_mentions_fixture(database: &mut Database) {
@@ -67,6 +74,7 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
     live_directory::migrate(database).unwrap();
     unified_activity::migrate(database).unwrap();
     compact_execution::migrate(database).unwrap();
+    steer::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -124,6 +132,7 @@ pub(crate) fn upgrade_message_senders_fixture(database: &mut Database) {
     live_directory::migrate(database).unwrap();
     unified_activity::migrate(database).unwrap();
     compact_execution::migrate(database).unwrap();
+    steer::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -145,6 +154,7 @@ pub(crate) fn upgrade_user_projection_fixture(database: &mut Database) {
     user_projection::downgrade_for_test(database.connection());
     let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
     user_projection::migrate(database).unwrap();
+    database.migrate(false).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -439,7 +449,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 153;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 154;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -917,6 +927,7 @@ struct CurrentMigrationState {
     v201: bool,
     v202: bool,
     v203: bool,
+    v204: bool,
 }
 
 impl CurrentMigrationState {
@@ -938,6 +949,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v204 {
+            let mut previous = *self;
+            previous.v204 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 154
+                && self.v203
+                && previous.admits("v1.72", 153, classifier);
+        }
         if self.v203 {
             let mut previous = *self;
             previous.v203 = false;
@@ -3106,7 +3125,10 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
         .and_then(Option::as_ref)
         .is_some_and(|(contract, schema, _)| {
             contract == CURRENT_DATA_CONTRACT_VERSION
-                && matches!(schema, 145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153)
+                && matches!(
+                    schema,
+                    145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154
+                )
         })
     {
         return Ok(matches!(
@@ -3515,7 +3537,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153
+            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3535,7 +3557,14 @@ pub(crate) fn classify_database_contract(
                 } else if marker.projection_schema_version == 148 {
                     claim_context::schema_matches(connection)
                 } else {
-                    message_senders::schema_matches(connection)
+                    if marker.projection_schema_version == 154 {
+                        steer::schema_matches(connection)
+                    } else {
+                        steer::pre_steer_schema_matches(connection)
+                            || steer::legacy_schema_matches(connection)
+                            || (marker.projection_schema_version == 153
+                                && steer::schema_matches(connection))
+                    }
                 })
             && (marker.projection_schema_version < 150
                 || execution_storage::schema_matches(connection)?)
@@ -3543,8 +3572,20 @@ pub(crate) fn classify_database_contract(
                 || live_directory::schema_matches(connection)?)
             && (marker.projection_schema_version < 152
                 || unified_activity::schema_matches(connection)?)
-            && (marker.projection_schema_version < 153
-                || compact_execution::schema_matches(connection)?);
+            && (marker.projection_schema_version < 152
+                || if marker.projection_schema_version == 152 {
+                    compact_execution::pre_compact_schema_matches(connection)?
+                } else if marker.projection_schema_version == 153 {
+                    // The two deployed 203 identities are complete, distinct shapes.
+                    // Partial additions or an unrecorded combination are not either source.
+                    (compact_execution::schema_matches(connection)?
+                        && (steer::pre_steer_schema_matches(connection)
+                            || steer::legacy_schema_matches(connection)))
+                        || (steer::schema_matches(connection)
+                            && compact_execution::pre_compact_schema_matches(connection)?)
+                } else {
+                    compact_execution::schema_matches(connection)?
+                });
         return Ok(if !valid {
             DatabaseContractClassification::Unknown(Some(marker))
         } else if marker.projection_schema_version == CURRENT_PROJECTION_SCHEMA_VERSION {
@@ -5778,7 +5819,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 200),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 201),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 202),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 203)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 203),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 204)
         "#,
         [],
         |row| {
@@ -5917,6 +5959,7 @@ fn load_current_migration_state(
                 v201: row.get(131)?,
                 v202: row.get(132)?,
                 v203: row.get(133)?,
+                v204: row.get(134)?,
             })
         },
     )
@@ -9170,6 +9213,9 @@ impl Database {
             if !self.schema_migration_applied(203)? {
                 migration_step!("migration_203", compact_execution::migrate(self));
             }
+            if !self.schema_migration_applied(204)? {
+                migration_step!("migration_204", steer::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -9997,6 +10043,9 @@ impl Database {
         }
         if !self.schema_migration_applied(203)? {
             migration_step!("migration_203", compact_execution::migrate(self));
+        }
+        if !self.schema_migration_applied(204)? {
+            migration_step!("migration_204", steer::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -40185,7 +40234,7 @@ mod tests {
         assert_eq!(historical_delivery(&reopened), delivery_before);
         assert_eq!(historical_bootstrap(&reopened), bootstrap_before);
         assert!(reopened.schema_migration_applied(174).unwrap());
-        assert!(public_history_claim_v174_schema_matches(reopened.connection()).unwrap());
+        assert!(steer::schema_matches(reopened.connection()));
         let historical_claim: (Option<i64>, Option<i64>) = reopened
             .connection()
             .query_row(
@@ -40215,7 +40264,7 @@ mod tests {
         assert!(
             old_insert
                 .to_string()
-                .contains("must use ContextManifest v33")
+                .contains("must use ContextManifest v39")
         );
         for (column, invalid) in [
             ("claim_previous_public_boundary_sequence", -1),
@@ -40594,7 +40643,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("rovai-v160-delivery-schema-{}", Uuid::new_v4()));
         let database = crate::test_support::fresh_schema_database_fast_at(&directory);
-        assert!(camp_message_agent_run_v163_schema_matches(database.connection()).unwrap());
+        assert!(steer::schema_matches(database.connection()));
         let marker = database
             .connection()
             .query_row(
@@ -41195,6 +41244,7 @@ mod tests {
         member_environment::migrate(&mut database).unwrap();
         member_environment::migrate_sessions(&mut database).unwrap();
         member_environment::retire_snapshots(&mut database).unwrap();
+        database.migrate(false).unwrap();
         let successor_run_id = claim_waiting_delivery_batches(&mut database, 1)
             .unwrap()
             .pop()
@@ -41771,6 +41821,7 @@ mod tests {
             v201: version >= 201,
             v202: version >= 202,
             v203: version >= 203,
+            v204: version >= 204,
         }
     }
 
@@ -41965,7 +42016,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                203,
+                204,
             ),
             (
                 "v1.72/schema 152 before compact operations",
@@ -42541,7 +42592,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(203);
+        let current = migration_state_through(204);
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;
@@ -43104,6 +43155,8 @@ mod tests {
         database.migrate_run_bootstrap_evidence().unwrap();
         simplification::migrate(&mut database).unwrap();
         member_routing::migrate(&mut database).unwrap();
+        claim_context::migrate(&mut database).unwrap();
+        database.migrate(false).unwrap();
         assert!(connection_has_current_data_contract(database.connection()).unwrap());
         database.connection().execute_batch("DROP INDEX native_session_bootstrap_binding_idx;
             CREATE UNIQUE INDEX native_session_bootstrap_binding_idx ON native_session_bootstrap_evidence(native_binding_id,native_binding_generation)").unwrap();
@@ -43186,7 +43239,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(203));
+        assert_eq!(state, migration_state_through(204));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43208,9 +43261,9 @@ mod tests {
                 .unwrap();
             match change {
                 "equivalent_sql" => {
-                    let sql: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='context_manifest_v38_only_insert'", [], |r| r.get(0)).unwrap();
+                    let sql: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='context_manifest_v39_only_insert'", [], |r| r.get(0)).unwrap();
                     connection
-                        .execute_batch("DROP TRIGGER context_manifest_v38_only_insert")
+                        .execute_batch("DROP TRIGGER context_manifest_v39_only_insert")
                         .unwrap();
                     connection
                         .execute_batch(&sql.replacen(
@@ -43239,7 +43292,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=203", [])
+                        .execute("DELETE FROM schema_migration WHERE version=204", [])
                         .unwrap();
                 }
                 _ => unreachable!(),
@@ -43274,7 +43327,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<203;
+                "DELETE FROM schema_migration WHERE version<204;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();
@@ -44880,7 +44933,7 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39))"
         ));
         let conversation: (Option<String>, Option<String>, i64, i64) = reopened
             .connection()
@@ -45214,12 +45267,11 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39))"
         ));
-        assert!(
-            manifest_schema
-                .contains("CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10))")
-        );
+        assert!(manifest_schema.contains(
+            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14))"
+        ));
         assert!(!manifest_schema.contains("CHECK(context_delivery_profile_version = 3)"));
         let run: (String, Option<String>) = reopened
             .connection()
@@ -52544,7 +52596,7 @@ mod tests {
                 ) VALUES (
                     'legacy-camp', 'legacy', 'default', 'peer',
                     'directory', '/tmp/legacy',
-                    'agent_1', 0, 1, 'now', 'now'
+                    'agent_1', 0, 1, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
                 );
                 INSERT INTO camp_member(
                     camp_id, agent_id, status, capability_overrides_json,
@@ -52553,7 +52605,7 @@ mod tests {
                     version, joined_at, left_at
                 ) VALUES (
                     'legacy-camp', 'agent_1', 'active', '{}',
-                    NULL, NULL, NULL, 1, 'now', NULL
+                    NULL, NULL, NULL, 1, '2026-09-23T00:00:00Z', NULL
                 );
                 INSERT INTO conversation(
                     id, camp_id, agent_id,
@@ -52562,7 +52614,7 @@ mod tests {
                     last_message_sequence, version, created_at, updated_at
                 ) VALUES (
                     'legacy-conversation', 'legacy-camp', 'agent_1',
-                    NULL, NULL, NULL, NULL, NULL, 0, 0, 1, 'now', 'now'
+                    NULL, NULL, NULL, NULL, NULL, 0, 0, 1, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
                 );
 
                 DELETE FROM runtime_resolution_job;
@@ -52608,7 +52660,7 @@ mod tests {
                 ) VALUES (
                     'legacy-create-intent', 'camps.createFromFirstMessage', NULL,
                     '{}', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                    'pending', NULL, 'now', 'now'
+                    'pending', NULL, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
                 );
 
                 ALTER TABLE camp DROP COLUMN name_origin;
@@ -52645,7 +52697,7 @@ mod tests {
             ) VALUES (
                 'forbidden-old-method', 'camps.createFromFirstMessage', NULL,
                 '{}', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                'pending', NULL, 'now', 'now'
+                'pending', NULL, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'
             )
             "#,
             [],
@@ -55923,9 +55975,9 @@ mod tests {
             connection,
             "trigger",
             &[
-                "context_manifest_v36_only_insert",
+                "context_manifest_v39_only_insert",
                 "context_manifest_version_immutable",
-                "agent_run_input_v36_only_insert",
+                "agent_run_input_v39_only_insert",
                 "agent_run_input_context_projection_immutable",
                 "runtime_input_delivery_attachment_auth_insert",
                 "camp_attachment_view_camp_insert",
@@ -55974,7 +56026,7 @@ mod tests {
             assert_eq!(default, "'[]'", "{table}");
         }
         assert!(manifest_schema.contains(
-            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13))"
+            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14))"
         ));
         assert!(manifest_schema.contains("collaboration_state_included INTEGER NOT NULL"));
         let delivery_schema: String = connection

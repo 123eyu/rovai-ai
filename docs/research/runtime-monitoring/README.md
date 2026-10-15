@@ -9,6 +9,41 @@ baseline_ref: "4b4fe088b15ef785cd76f54f221e5d87c9d639a4"
 
 # Rovai AI 运行监控指标可采集性审计
 
+2026-10-15 [Steer 版本复核与完整 TRAE 验收](steer-version-followup-2026-10-15.md)：按 User seq44，
+CodeBuddy 改为连续门槛并适配新版专用 ACP；ZCode 使用 App 版本说明；复核 Claude 当前协议边界，
+补验 TRAE CN 0.207.1 的连续输入、附件、普通队列、多目标、停止续接和结束竞态。
+
+2026-10-15 [Steer 合并、产品收口与完整清单](steer-hardening-2026-10-15.md)：按 User seq40 合并主线，
+解决两种 Migration 199 来源，统一 Core 版本资格；TRAE 已完成产品适配，九种 Runtime 在合并代码上有真实正例。
+保留 CodeBuddy #762 原异常、全部复测和脚本失败，补齐 UI、附件、多目标、停止、结束与确定性恢复证据。
+
+2026-10-15 [Steer 低版本隔离验证](steer-low-versions-2026-10-15.md)：按 User seq36，固定官方历史包，
+验证九种实际通道的同轮输入、关联、停止与续接；区分当前接线通过、原生通过但接线不兼容、协议不满足和环境受阻。
+保留失败、补测和自动发现回退的作废记录；不修改全局 Runtime 或 Steer 门槛。
+
+2026-10-15 [Qoder 本机升级与 Steer 最低版本清单](steer-minimum-versions-2026-10-15.md)：按 User seq34
+升级原生 CLI 到 1.1.71，真实 LLM 仍为后继轮；核查十五种 Runtime 的实际通道版本依据。
+区分上游功能首发、当前接线所需字段与真实通过版本；Pi 0.99.0、Qwen 0.18.4 的协议门槛有源码与发布依据。
+
+2026-10-14 [TRAE 本机升级与 Steer 支持边界复核](steer-trae-upgrade-2026-10-14.md)：按 User seq32
+升级官方 CLI 至 0.209.1、完成企业登录并真实 LLM 验证 ACP 同轮插话；修正全局参数顺序。
+产品八种已支持、TRAE 通道通过待适配；区分 Qoder 官方 IDE Steer 与 CLI ACP，收窄 Antigravity 的否定范围。
+
+2026-10-14 [Kiro / ZCode 产品接入与完整清单](steer-kiro-zcode-2026-10-14.md)：按 User seq30
+补齐正式 Runtime 投递与真实 Core 验收，产品支持扩展为八种；包含版本核查与失败记录。
+
+2026-10-14 [Steer 当前通道完整清单](steer-current-transport-2026-10-14.md)：按 User seq28 纠正范围，
+十五种 Runtime 全部重新真实 LLM 核验；六种产品已接入，Kiro ACP / ZCode 官方内核同轮通过但待接入。
+其余当前通道分别拒绝、排队或取消替换；排除 Cursor、Cline、Command Code。
+
+2026-10-14 [Steer 跨通道历史补测](steer-complete-2026-10-14.md)：保留 seq26 的九种 Runtime、十五次尝试。
+其中其他 SDK/HTTP 路径不再用于当前通道支持清单，后续 Kiro ACP 正向证据以上一项为准。
+
+2026-10-14 [五种 Runtime 的 Steer 扩展验收](steer-five-runtimes-2026-10-14.md)：Claude 使用 sub2api，逐项记录产品实测与限制。
+
+2026-10-14 [Steer 实施与 15 类 Runtime 检查](steer-2026-10-14.md)：12 类启动原生探针，逐项记录接收、
+拒绝、排队与未知；产品仅接入 Codex，另有真实 Core 的多队员及纯附件验收，完整语义 Gate 待补。
+
 2026-10-12 [15 类 Runtime 原生恢复与历史删除实测](native-session-resume-2026-10-12.md)：
 正常冷恢复均完成；Pi 正确降级，CodeBuddy 空历史假恢复，其余逐项区分结构化拒绝遗漏与保守失败。
 

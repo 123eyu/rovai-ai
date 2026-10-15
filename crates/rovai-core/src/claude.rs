@@ -434,6 +434,9 @@ impl ClaudeCodeCliRuntimeAdapter {
     }
 
     pub async fn interrupt(&self, agent_run_id: &str, execution_epoch: i64) -> bool {
+        if let Some(protocol) = self.get_agent_run(agent_run_id, execution_epoch) {
+            protocol.fence_active_input();
+        }
         let control = self
             .active
             .lock()
@@ -690,6 +693,7 @@ impl ClaudeCodeCliRuntimeAdapter {
             .env("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "1")
             .arg("--verbose")
             .arg("--include-partial-messages")
+            .arg("--replay-user-messages")
             .args(["--permission-mode", permission_mode]);
         if let Some(root) = request.attachment_access_root.as_deref() {
             command.arg("--add-dir").arg(root);

@@ -29,6 +29,8 @@ struct PendingPermission {
 struct ControlState {
     initialized: bool,
     prompt_sent: bool,
+    input_fenced: bool,
+    steering: HashMap<String, oneshot::Sender<Result<String>>>,
     closed: bool,
     closing: bool,
     pending: HashMap<String, PendingPermission>,
@@ -61,6 +63,7 @@ impl ControlState {
 pub(crate) struct ControlWrite {
     frame: Option<Value>,
     permission_request_id: Option<String>,
+    steer_id: Option<String>,
     acknowledged: Option<oneshot::Sender<std::result::Result<(), String>>>,
 }
 
@@ -159,12 +162,51 @@ impl ClaudeControl {
         .await
     }
 
+    pub(crate) fn fence_active_input(&self) {
+        self.state.lock().unwrap().input_fenced = true;
+    }
+
+    pub(crate) async fn steer(&self, prompt: &str) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let (sender, receipt) = oneshot::channel();
+        {
+            let mut state = self.state.lock().unwrap();
+            if !state.prompt_sent
+                || state.closed
+                || state.closing
+                || state.input_fenced
+                || (state.has_result && !state.turn_in_progress)
+            {
+                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+            }
+            state.steering.insert(id.clone(), sender);
+            // Register and enqueue under the same lock as the terminal fence.
+            self.writer
+                .send(ControlWrite {
+                    frame: Some(json!({"type":"user","session_id":self.session_id,
+                    "parent_tool_use_id":null,"uuid":id,
+                    "message":{"role":"user","content":prompt}})),
+                    permission_request_id: None,
+                    steer_id: Some(id.clone()),
+                    acknowledged: None,
+                })
+                .context("Claude Code input writer is unavailable")?;
+        }
+        let result = tokio::time::timeout(RUN_END_TIMEOUT, receipt)
+            .await
+            .context("Claude Code input receipt timed out")?
+            .context("Claude Code input receipt disconnected")?;
+        self.state.lock().unwrap().steering.remove(&id);
+        result
+    }
+
     async fn write(&self, frame: Value, permission_request_id: Option<String>) -> Result<()> {
         let (acknowledged, received) = oneshot::channel();
         self.writer
             .send(ControlWrite {
                 frame: Some(frame),
                 permission_request_id,
+                steer_id: None,
                 acknowledged: Some(acknowledged),
             })
             .context("Claude Code stdin writer is unavailable")?;
@@ -337,6 +379,7 @@ impl ClaudeControl {
             .send(ControlWrite {
                 frame: Some(frame),
                 permission_request_id: None,
+                steer_id: None,
                 acknowledged: None,
             })
             .context("Claude Code stdin writer is unavailable")
@@ -345,6 +388,31 @@ impl ClaudeControl {
     pub(crate) fn observe(&self, frame: &Value) -> Result<()> {
         let mut state = self.state.lock().unwrap();
         let kind = frame.get("type").and_then(Value::as_str);
+        if frame.get("session_id").and_then(Value::as_str) == Some(&self.session_id) {
+            let ids: Vec<&str> =
+                if kind == Some("user") && frame.get("isReplay") == Some(&Value::Bool(true)) {
+                    frame
+                        .get("uuid")
+                        .and_then(Value::as_str)
+                        .into_iter()
+                        .collect()
+                } else if kind == Some("result") {
+                    frame
+                        .get("user_message_uuids")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+            for id in ids {
+                if let Some(receipt) = state.steering.remove(id) {
+                    let _ = receipt.send(Ok(id.to_string()));
+                }
+            }
+        }
         if kind == Some("system") {
             match frame.get("subtype").and_then(Value::as_str) {
                 Some("session_state_changed") => {
@@ -434,6 +502,7 @@ impl ClaudeControl {
                 .send(ControlWrite {
                     frame: None,
                     permission_request_id: None,
+                    steer_id: None,
                     acknowledged: None,
                 })
                 .context("Claude Code stdin writer is unavailable")?;
@@ -445,6 +514,7 @@ impl ClaudeControl {
         let ids = {
             let mut state = self.state.lock().unwrap();
             state.closed = true;
+            state.steering.clear(); // Written inputs without native receipts remain unknown.
             state.end_wait_started_at = None;
             state.pending.drain().map(|(id, _)| id).collect::<Vec<_>>()
         };
@@ -496,8 +566,19 @@ pub(crate) async fn write_control_stream<W: AsyncWrite + Unpin>(
             continue;
         };
         let permitted = {
-            let state = control.state.lock().unwrap();
-            !state.closed
+            let mut state = control.state.lock().unwrap();
+            let steer_permitted = write.steer_id.is_none()
+                || (!state.input_fenced
+                    && !state.closed
+                    && !(state.has_result && !state.turn_in_progress));
+            if !steer_permitted
+                && let Some(id) = &write.steer_id
+                && let Some(receipt) = state.steering.remove(id)
+            {
+                let _ = receipt.send(Err(rovai_core::steer::ActiveInputNotAccepted.into()));
+            }
+            steer_permitted
+                && !state.closed
                 && write
                     .permission_request_id
                     .as_ref()
@@ -642,6 +723,25 @@ mod tests {
         assert_eq!(user["message"]["content"], "中文\nline two");
         prompt.await.unwrap().unwrap();
         control.observe(&json!({"type":"system","subtype":"session_state_changed","session_id":"session","state":"running"})).unwrap();
+        let steer = tokio::spawn({
+            let control = control.clone();
+            async move { control.steer("补充附件路径").await }
+        });
+        line.clear();
+        output.read_line(&mut line).await.unwrap();
+        let supplement: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(supplement["message"]["content"], "补充附件路径");
+        assert!(!steer.is_finished(), "stdin flush is not native acceptance");
+        control.observe(&json!({"type":"user","session_id":"other-session","isReplay":true,"uuid":supplement["uuid"]})).unwrap();
+        assert!(
+            !steer.is_finished(),
+            "another session cannot acknowledge this source"
+        );
+        control.observe(&json!({"type":"user","session_id":"session","isReplay":true,"uuid":supplement["uuid"]})).unwrap();
+        assert_eq!(
+            steer.await.unwrap().unwrap(),
+            supplement["uuid"].as_str().unwrap()
+        );
         // Cross the retired cache's cumulative limit before two identical inputs.
         for index in 0..256 {
             control.observe(&json!({"type":"assistant","message":{"content":[{
@@ -775,6 +875,13 @@ mod tests {
         assert!(control.run_end_deadline().is_none());
         control.observe(&json!({"type":"result"})).unwrap();
         line.clear();
+        assert!(
+            control
+                .steer("late")
+                .await
+                .unwrap_err()
+                .is::<rovai_core::steer::ActiveInputNotAccepted>()
+        );
         assert!(
             tokio::time::timeout(Duration::from_secs(1), output.read_line(&mut line))
                 .await

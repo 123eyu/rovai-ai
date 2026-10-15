@@ -350,8 +350,14 @@ async fn route_codex_stdout_ingress(
 }
 
 struct PendingRpc {
-    sender: oneshot::Sender<std::result::Result<Value, String>>,
+    sender: oneshot::Sender<std::result::Result<Value, CodexRpcFailure>>,
     turn_activation: Option<(String, CodexRuntimeOwner)>,
+}
+
+#[derive(Debug, Clone)]
+enum CodexRpcFailure {
+    Native { code: Option<i64>, message: String },
+    Transport(String),
 }
 
 impl CodexHost {
@@ -509,30 +515,35 @@ impl CodexHost {
                             let id = message["id"].as_u64().expect("checked above");
                             if let Some(pending) = host.pending.lock().await.remove(&id) {
                                 let mut response = if let Some(error) = message.get("error") {
-                                    Err(host.redact_text(
-                                        error
-                                            .get("message")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("Codex request failed"),
-                                    ))
+                                    Err(CodexRpcFailure::Native {
+                                        code: error.get("code").and_then(Value::as_i64),
+                                        message: host.redact_text(
+                                            error
+                                                .get("message")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("Codex request failed"),
+                                        ),
+                                    })
                                 } else {
                                     Ok(message.get("result").cloned().unwrap_or(Value::Null))
                                 };
                                 if let (Ok(result), Some((thread_id, owner))) =
                                     (response.clone(), pending.turn_activation)
                                 {
-                                    response = match result
-                                        .pointer("/turn/id")
-                                        .and_then(Value::as_str)
-                                    {
-                                        Some(turn_id) => host
-                                            .activate_turn(&thread_id, &owner, turn_id)
-                                            .await
-                                            .map(|_| result)
-                                            .map_err(|error| error.to_string()),
-                                        None => Err("Codex turn response did not include turn.id"
-                                            .to_string()),
-                                    };
+                                    response =
+                                        match result.pointer("/turn/id").and_then(Value::as_str) {
+                                            Some(turn_id) => host
+                                                .activate_turn(&thread_id, &owner, turn_id)
+                                                .await
+                                                .map(|_| result)
+                                                .map_err(|error| {
+                                                    CodexRpcFailure::Transport(error.to_string())
+                                                }),
+                                            None => Err(CodexRpcFailure::Transport(
+                                                "Codex turn response did not include turn.id"
+                                                    .to_string(),
+                                            )),
+                                        };
                                 }
                                 let _ = pending.sender.send(response);
                             }
@@ -573,9 +584,9 @@ impl CodexHost {
             }
             host.alive.store(false, Ordering::Release);
             for (_, pending) in host.pending.lock().await.drain() {
-                let _ = pending
-                    .sender
-                    .send(Err("Codex app-server exited".to_string()));
+                let _ = pending.sender.send(Err(CodexRpcFailure::Transport(
+                    "Codex app-server exited".to_string(),
+                )));
             }
             let owners = host.owners().await;
             for owner in owners {
@@ -794,7 +805,15 @@ impl CodexHost {
             .await
             .with_context(|| format!("Codex request timed out: {method}"))?
             .with_context(|| format!("Codex response channel closed: {method}"))?;
-        response.map_err(|message| anyhow::anyhow!("{method}: {message}"))
+        response.map_err(|failure| match failure {
+            CodexRpcFailure::Native { code, message } => CodexResponseError {
+                method: method.to_owned(),
+                code,
+                message,
+            }
+            .into(),
+            CodexRpcFailure::Transport(message) => anyhow::anyhow!(message),
+        })
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<()> {
@@ -811,6 +830,28 @@ impl CodexHost {
         Ok(())
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct CodexResponseError {
+    method: String,
+    code: Option<i64>,
+    message: String,
+}
+
+impl CodexResponseError {
+    pub(crate) fn input_was_not_accepted(&self) -> bool {
+        // Target/method/parameter rejection is positive non-delivery evidence.
+        // Internal errors, missing codes and transport loss remain ambiguous.
+        self.method == "turn/steer" && matches!(self.code, Some(-32600 | -32601 | -32602))
+    }
+}
+
+impl std::fmt::Display for CodexResponseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.method, self.message)
+    }
+}
+impl std::error::Error for CodexResponseError {}
 
 pub struct CodexRuntime {
     owner: CodexRuntimeOwner,
@@ -1068,6 +1109,74 @@ impl CodexRuntime {
             .context("Codex turn response did not include turn.id")?
             .to_string();
         Ok(turn_id)
+    }
+
+    /// Native expectedTurnId fences the end race without starting another turn.
+    pub async fn steer(&self, expected_turn_id: &str, text: &str) -> Result<String> {
+        let thread_id = self
+            .thread_id()
+            .await
+            .context("Codex thread is not ready")?;
+        let result = self
+            .rpc(
+                "turn/steer",
+                json!({
+                    "threadId": thread_id, "expectedTurnId": expected_turn_id,
+                    "input": [{"type":"text","text":text,"text_elements":[]}],
+                }),
+            )
+            .await?;
+        let turn_id = result
+            .get("turnId")
+            .and_then(Value::as_str)
+            .context("Codex steer response omitted turnId")?;
+        anyhow::ensure!(
+            turn_id == expected_turn_id,
+            "Codex steer acknowledged a different turn"
+        );
+        Ok(turn_id.to_owned())
+    }
+
+    /// Positive native evidence only; absence never proves non-delivery.
+    pub async fn contains_steered_input(
+        &self,
+        expected_turn_id: &str,
+        payload: &str,
+    ) -> Result<bool> {
+        let thread_id = self
+            .thread_id()
+            .await
+            .context("Codex thread is not ready")?;
+        let response = self
+            .rpc(
+                "thread/read",
+                json!({"threadId":thread_id,"includeTurns":true}),
+            )
+            .await?;
+        Ok(response
+            .pointer("/thread/turns")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|turn| turn.get("id").and_then(Value::as_str) == Some(expected_turn_id))
+            .flat_map(|turn| {
+                turn.get("items")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+            })
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("userMessage"))
+            .flat_map(|item| {
+                item.get("content")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+            })
+            .any(|part| {
+                part.get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| text == payload || text.ends_with(&format!("\n{payload}")))
+            }))
     }
 
     pub async fn interrupt(&self) -> Result<()> {
@@ -3202,6 +3311,15 @@ for line in sys.stdin:
             response = {'id': request['id'], 'error': {'code': -32602, 'message': 'serviceTierForTurn was rejected'}}
         else:
             response['result'] = {'turn': {'id': 'turn-fixture'}}
+    elif method == 'turn/steer':
+        marker = request['params']['input'][0]['text']
+        if marker == 'transport-lost': sys.exit(0)
+        if marker in ('rejected', 'internal-error'):
+            response = {'id': request['id'], 'error': {'code': -32600 if marker == 'rejected' else -32603, 'message': marker}}
+        else:
+            response['result'] = {'turnId': request['params']['expectedTurnId']}
+    elif method == 'thread/read':
+        response['result'] = {'thread': {'turns': [{'id':'turn-fixture','items':[{'type':'userMessage','content':[{'type':'text','text':'accepted-input'}]}]}]}}
     print(json.dumps(response), flush=True)
 "#.replace("__SCENARIO__", scenario));
             // Default launches must also work after discarding the entire Host,
@@ -3312,6 +3430,48 @@ for line in sys.stdin:
                             );
                         } else {
                             turn.unwrap();
+                            if scenario == "default" && attempt == 0 {
+                                assert_eq!(
+                                    runtime
+                                        .steer("turn-fixture", "accepted-input")
+                                        .await
+                                        .unwrap(),
+                                    "turn-fixture"
+                                );
+                                assert!(
+                                    runtime
+                                        .contains_steered_input("turn-fixture", "accepted-input")
+                                        .await
+                                        .unwrap()
+                                );
+                                assert!(
+                                    !runtime
+                                        .contains_steered_input("other-turn", "accepted-input")
+                                        .await
+                                        .unwrap()
+                                );
+                                for (marker, rejected) in
+                                    [("rejected", true), ("internal-error", false)]
+                                {
+                                    let error =
+                                        runtime.steer("turn-fixture", marker).await.unwrap_err();
+                                    assert_eq!(
+                                        error
+                                            .downcast_ref::<CodexResponseError>()
+                                            .unwrap()
+                                            .input_was_not_accepted(),
+                                        rejected
+                                    );
+                                }
+                                let lost = runtime
+                                    .steer("turn-fixture", "transport-lost")
+                                    .await
+                                    .unwrap_err();
+                                assert!(
+                                    lost.downcast_ref::<CodexResponseError>().is_none(),
+                                    "Host exit cannot authorize replay"
+                                );
+                            }
                         }
                     }
                 }
@@ -3337,7 +3497,7 @@ for line in sys.stdin:
                 assert_eq!(
                     turns.lines().count(),
                     3,
-                    "one input per Host, no replay for missing optional feedback"
+                    "one start per Host, no replay for missing optional feedback"
                 );
             }
             if scenario == "fast_rejected" {

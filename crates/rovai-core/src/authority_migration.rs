@@ -1617,7 +1617,7 @@ mod tests {
         let mut attached = false;
         let mut reassessments = 0;
         let migrated = AuthorityMigrationRunner::run_with_progress(
-            *ticket,
+            (*ticket).with_initially_absent_macos_provenance_for_test(),
             &root,
             &root_identity,
             |progress| {

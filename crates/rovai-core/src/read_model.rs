@@ -358,6 +358,8 @@ pub struct RunWorkspaceView {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRunView {
+    pub can_steer: bool,
+    pub steer_unavailable_reason: Option<crate::steer::SteerUnavailableReason>,
     pub id: String,
     #[serde(rename = "threadTurnId", alias = "campTurnId")]
     pub camp_turn_id: Option<String>,
@@ -889,6 +891,10 @@ pub struct ThreadMessageFindSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageDeliveryView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_delivery_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation_request: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -2878,7 +2884,10 @@ fn load_message_deliveries(
                recipient_canonical_position, edge_kind,
                target_parent_agent_run_id, return_to_agent_run_id,
                target_conversation_id,
-               recipient_membership_version_at_admission, source_agent_run_id, continuation_request, input_message_ids
+               recipient_membership_version_at_admission, source_agent_run_id, continuation_request, input_message_ids,
+               (SELECT requested_mode FROM camp_message_delivery d WHERE d.id=projected_delivery.id),
+               (SELECT i.status FROM context_manifest m JOIN runtime_input_delivery i ON i.context_manifest_id=m.id
+                WHERE m.source_delivery_id=projected_delivery.id ORDER BY i.input_sequence DESC LIMIT 1)
         FROM projected_delivery
         ORDER BY
           CASE
@@ -2949,6 +2958,8 @@ fn load_message_deliveries(
                 _ => return Err(rusqlite::Error::InvalidQuery),
             };
             Ok(MessageDeliveryView {
+                requested_mode: row.get(32)?,
+                input_delivery_status: row.get(33)?,
                 continuation_request: row.get(30)?,
                 input_message_ids: serde_json::from_str(&row.get::<_, String>(31)?).map_err(
                     |error| {
@@ -3265,7 +3276,14 @@ fn load_agent_runs(
                 public_tail_sequence_at_start,
                 runtime_adapter_kind,
             )| {
+                let steer = if matches!(status.as_str(), "queued" | "running" | "waiting") {
+                    crate::steer::active_input_availability(transaction, &id, execution_epoch)?
+                } else {
+                    crate::steer::ActiveInputAvailability::default()
+                };
                 Ok(AgentRunView {
+                    can_steer: steer.can_steer,
+                    steer_unavailable_reason: steer.unavailable_reason,
                     id,
                     camp_turn_id,
                     input_message_ids: serde_json::from_str(&input_message_ids_json)
@@ -4473,6 +4491,9 @@ mod tests {
             INSERT INTO message_delivery (
                 id, camp_id, status, delivery_kind, gather_id, target_conversation_id
             ) VALUES ('completion', 'camp', 'pending', 'gather_completion', 'gather', 'conversation');
+            ALTER TABLE camp_message_delivery ADD COLUMN requested_mode TEXT DEFAULT 'start';
+            CREATE TABLE context_manifest(id TEXT, source_delivery_id TEXT);
+            CREATE TABLE runtime_input_delivery(context_manifest_id TEXT, status TEXT, input_sequence INTEGER);
         "#).unwrap();
         let transaction = connection.transaction().unwrap();
         // Full Snapshot and bounded Camp-open use the same projection with different ordering.
@@ -4499,6 +4520,33 @@ mod tests {
                 }
             }
         }
+        transaction
+            .execute_batch(
+                "UPDATE camp_message_delivery SET requested_mode='steer' WHERE id='user-current';
+            INSERT INTO context_manifest VALUES('steer-manifest','user-current');
+            INSERT INTO runtime_input_delivery VALUES('steer-manifest','delivery_unknown',1);",
+            )
+            .unwrap();
+        let pending = super::load_message_deliveries(&transaction, "camp", None).unwrap();
+        let pending = pending.iter().find(|d| d.id == "user-current").unwrap();
+        assert_eq!(pending.requested_mode.as_deref(), Some("steer"));
+        assert_eq!(
+            pending.input_delivery_status.as_deref(),
+            Some("delivery_unknown")
+        );
+        transaction
+            .execute("UPDATE runtime_input_delivery SET status='accepted'", [])
+            .unwrap();
+        let accepted = super::load_message_deliveries(&transaction, "camp", Some(10)).unwrap();
+        assert_eq!(
+            accepted
+                .iter()
+                .find(|d| d.id == "user-current")
+                .unwrap()
+                .input_delivery_status
+                .as_deref(),
+            Some("accepted")
+        );
     }
 }
 

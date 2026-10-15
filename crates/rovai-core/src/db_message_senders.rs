@@ -271,11 +271,12 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     let before = public_history_claim_preserved_evidence_digest(database.connection()).unwrap();
     let old_schema = schema(database.connection(), "table", "context_manifest").unwrap();
     database.connection().execute_batch("CREATE TEMP TRIGGER reject_senders BEFORE INSERT ON schema_migration WHEN NEW.version=199 BEGIN SELECT RAISE(ABORT,'sender context rollback fixture'); END;").unwrap();
+    let error = migrate(database).unwrap_err();
     assert!(
-        migrate(database)
-            .unwrap_err()
+        error
             .to_string()
-            .contains("sender context rollback fixture")
+            .contains("sender context rollback fixture"),
+        "{error:#}"
     );
     assert_eq!(
         schema(database.connection(), "table", "context_manifest").unwrap(),
@@ -294,6 +295,8 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     super::execution_storage::migrate(database).unwrap();
     super::live_directory::migrate(database).unwrap();
     super::unified_activity::migrate(database).unwrap();
+    super::compact_execution::migrate(database).unwrap();
+    super::steer::assert_upgrade(database);
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -305,10 +308,10 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     let guard = schema(
         database.connection(),
         "trigger",
-        "context_manifest_v38_only_insert",
+        "context_manifest_v39_only_insert",
     )
     .unwrap();
-    for version in [33, 34, 36, 38] {
+    for version in [33, 34, 36, 38, 39] {
         assert!(guard.contains(&format!("input.context_manifest_version IS NOT {version}")));
     }
     assert!(guard.contains("NEW.context_manifest_version = 37"));

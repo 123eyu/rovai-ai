@@ -1,4 +1,5 @@
 import type { FilePreviewHtmlSite, FilePreviewOperationResult, FilePreviewTextContent } from '@contracts'
+import { normalizeShortcut } from '../../../packages/contracts/src/shortcut-key'
 import { previewBrowserBridge } from '../../../packages/html-preview/src/browser-bridge'
 import { injectPreviewScript } from '../../../packages/html-preview/src/document'
 import { createFileFindDomIndex } from '../../../packages/html-preview/src/find-dom'
@@ -23,7 +24,7 @@ export async function createBrowserHtmlPreview(transport: Pick<ConsoleClient, 'f
   const config = { previewId, generation, documentId: newCommandId(), origin: location.origin, hostOrigin: location.origin,
     documentUrl: entryUrl, documentError: null, browserDocument: true, map: initial.map }
   const scriptUrl = (): string => {
-    const source = `(${previewBrowserBridge.toString()})(${JSON.stringify(config)},${createFileFindDomIndex.toString()},${parseHtmlPreviewDiagnostic.toString()});`
+    const source = `(${previewBrowserBridge.toString()})(${JSON.stringify(config)},${createFileFindDomIndex.toString()},${parseHtmlPreviewDiagnostic.toString()},${normalizeShortcut.toString()});`
     return `data:text/javascript;base64,${btoa(Array.from(new TextEncoder().encode(source), byte => String.fromCharCode(byte)).join(''))}`
   }
   let injected = injectPreviewScript(result.value.text, scriptUrl(), resourceBase)

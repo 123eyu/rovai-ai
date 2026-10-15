@@ -172,7 +172,7 @@ fn measure(database: &Database, data: &Path, id: &str, path: &str) -> Value {
             |r| r.get(0),
         )
         .unwrap();
-    if version == 3 {
+    if version >= 3 {
         assert!(
             !columns
                 .iter()
@@ -199,8 +199,9 @@ pub(super) fn verify_upgraded_file_reads() {
     crate::test_support::assert_production_database_configuration(&database);
     let mut old = Vec::new();
     let mut new = Vec::new();
+    let mut previous = Vec::new();
     let mut report = json!({});
-    for (version, count, ids) in [(1, 512, &mut old), (3, 256, &mut new)] {
+    for (version, count, ids) in [(1, 512, &mut old), (3, 128, &mut previous), (4, 128, &mut new)] {
         for n in 0..count {
             let path = format!("src/probe-{version}-{n}.ts");
             let event = format!("probe-{version}-{n}");
@@ -230,6 +231,10 @@ pub(super) fn verify_upgraded_file_reads() {
             let append_only = measure(&database, &data, &ids[1].0, &ids[1].1);
             report = json!({"allOld":all_old,"appendOnlyOld":append_only});
         }
+        if version == 3 {
+            // The last released schema, with real unified rows and large old bodies.
+            crate::db::assert_compact_storage_upgrade(&mut database);
+        }
     }
     let mixed_old = measure(&database, &data, &old[0].0, &old[0].1);
     let mixed_new = measure(&database, &data, &new[0].0, &new[0].1);
@@ -241,7 +246,7 @@ pub(super) fn verify_upgraded_file_reads() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(view.contains("UNION ALL") && view.contains("storage_version=3"));
+    assert!(view.contains("UNION ALL") && view.contains("storage_version IN (3,4)"));
     report["sqlite"] = json!(
         database
             .connection()
@@ -250,10 +255,13 @@ pub(super) fn verify_upgraded_file_reads() {
     );
     report["mixedOld"] = mixed_old;
     report["mixedNew"] = mixed_new;
+    report["mixedFormat3"] = measure(&database,&data,&previous[0].0,&previous[0].1);
     report["viewSql"] = json!(view);
     report["sampleCount"] = json!(7);
     report["oldDiffRows"] = json!(512);
     report["newDiffRows"] = json!(256);
+    report["format3DiffRows"] = json!(128);
+    report["format4DiffRows"] = json!(128);
     report["patchTextBytesPerEvent"] = json!(66007);
     let objects:Vec<Value>=database.connection().prepare("SELECT name,rootpage,sql FROM sqlite_master WHERE tbl_name IN ('agent_run_execution_evidence','canonical_runtime_activity','agent_run','camp_turn','camp') AND type IN ('table','index')").unwrap().query_map([],|r|Ok(json!([r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,Option<String>>(2)?]))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
     report["schemaObjects"] = json!(objects);

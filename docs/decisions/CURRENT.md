@@ -315,8 +315,9 @@ Cline 认证交还原生、撤销 D25 后续的专属认证独占与强制 cold�
 [V1.72-D37](../versions/v1.72/decisions.md#v1-72-d37)。
 v62 移除原生会话重建提示和展示查询，保留恢复及审计行为。
 
-- 执行记录保存与删除回收：[Execution Record Storage v2](../contracts/execution-record-storage-v2.md)；理由见 [V1.72-D43](../versions/v1.72/decisions.md#v1-72-d43)。
+- 执行记录保存与删除回收：[Execution Record Storage v3](../contracts/execution-record-storage-v3.md)；理由见 [V1.72-D43](../versions/v1.72/decisions.md#v1-72-d43)。
 
 - 实时目录与独立正文边界：[Camp History v14](../contracts/camp-history-v14.md)；理由见 [V1.72-D44](../versions/v1.72/decisions.md#v1-72-d44)。
 
-- 新操作与活动统一保存的理由见 [V1.72-D45](../versions/v1.72/decisions.md#v1-72-d45)，当前权威为 [Execution Record Storage v2](../contracts/execution-record-storage-v2.md)。
+- 新操作与活动统一保存的理由见 [V1.72-D45](../versions/v1.72/decisions.md#v1-72-d45)，当前权威为 [Execution Record Storage v3](../contracts/execution-record-storage-v3.md)。
+- 新操作预览预算与结果摘要分离的理由见 [V1.72-D46](../versions/v1.72/decisions.md#v1-72-d46)，当前权威为 [Execution Record Storage v3](../contracts/execution-record-storage-v3.md)。

@@ -133,6 +133,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     assert_eq!(snapshot(database.connection()), before);
     super::live_directory::migrate(database).unwrap();
     super::unified_activity::migrate(database).unwrap();
+    super::compact_execution::migrate(database).unwrap();
     assert!(matches!(
         classify_database_contract(database.connection()).unwrap(),
         DatabaseContractClassification::Current(_)

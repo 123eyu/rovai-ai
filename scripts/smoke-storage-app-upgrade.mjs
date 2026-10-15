@@ -55,7 +55,7 @@ for line in sys.stdin:
   emit({'method':'item/completed','params':{'threadId':sid,'turnId':tid,'item':cmd}})
   path=os.path.join(os.getcwd(),'new-storage-file.txt')
   with open(path,'w') as f:f.write('new storage file\\n')
-  change={'id':str(uuid.uuid4()),'type':'fileChange','status':'completed','changes':[{'path':path,'kind':{'type':'add'},'diff':'@@ -0,0 +1 @@\\n+new storage file\\n'}]}
+  change={'id':str(uuid.uuid4()),'type':'fileChange','status':'completed','changes':[{'path':path,'kind':{'type':'add'},'diff':'new storage file\\n'}]}
   emit({'method':'item/completed','params':{'threadId':sid,'turnId':tid,'item':change}})
   emit({'method':'turn/completed','params':{'threadId':sid,'turn':{'id':tid,'status':'completed','items':[{'type':'agentMessage','text':'storage upgrade fixture complete'}]}}})
 `)
@@ -74,15 +74,20 @@ let browser
 const start=async()=>{
  console.error(`隔离打包验收：userData=${userData}; Skill Library=${join(userData,'managed-skill-library')}; App=${app}`)
  const began=performance.now()
- browser=await launchAcceptanceBrowser({executable:join(app,'Contents/MacOS/Rovai AI'),args:['--remote-debugging-port=0',`--user-data-dir=${userData}`],env:{...process.env,ROVAI_ALLOW_ISOLATED_INSTANCE:'1',ROVAI_CODEX_BIN:stub}})
+ browser=await launchAcceptanceBrowser({executable:join(app,'Contents/MacOS/Rovai AI'),args:['--remote-debugging-port=0',`--user-data-dir=${userData}`],env:{...process.env,ROVAI_ALLOW_ISOLATED_INSTANCE:'1',ROVAI_DISABLE_AUTO_UPDATE_CHECKS:'1',ROVAI_CODEX_BIN:stub}})
+ // This fixture sends one input through the real bridge. Ignore physical input
+ // in this acceptance page so typing in another task cannot add an unrelated Run.
+ await browser.send('Input.setIgnoreInputEvents',{ignore:true})
  await browser.wait(`Boolean(window.rovai && document.querySelector('.app-shell'))`,45000)
  await browser.wait(`window.rovai.request('health.check',{}).then(x=>Boolean(x)).catch(()=>false)`,45000)
  console.error('Core ready; checking upgraded history')
  evidence.push({stage:'startup',ms:performance.now()-began,schema:query('SELECT projection_schema_version AS version FROM rovai_data_contract')[0].version})
- assert.equal(evidence.at(-1).schema,152)
+ assert.equal(evidence.at(-1).schema,153)
  const selector=`document.querySelector('[data-sidebar-menu-target="thread:${fixture.campId}"]')?.closest('.camp-nav-row')?.querySelector('.camp-nav-open')`
  await browser.wait(`Boolean(${selector})`,30000)
- await browser.click(selector)
+ // This smoke owns storage/UI routing, not native Electron/CDP pointer coordinates.
+ // Invoke the exact Renderer button so title-bar/device-metric offsets cannot select a neighbour.
+ await browser.evaluate(`(${selector}).click()`)
  await browser.wait(`Boolean(document.querySelector('.camp-workspace'))`,30000)
  await browser.wait(`document.body.innerText.includes('Old message 59')`,30000)
 }
@@ -132,9 +137,9 @@ try {
  let run
  while(Date.now()<deadline){run=query("SELECT id,status,last_error_code,execution_epoch FROM agent_run WHERE id<>? AND COALESCE(camp_id,(SELECT camp_id FROM camp_turn WHERE camp_turn.id=agent_run.camp_turn_id))=? ORDER BY created_at DESC LIMIT 1",fixture.runId,fixture.campId)[0];if(run&&['succeeded','failed','cancelled'].includes(run.status))break;await new Promise(r=>setTimeout(r,100))}
  assert.equal(run?.status,'succeeded',JSON.stringify(run))
- const rows=query('SELECT id,storage_version,operation_id,phase,output_truncated,payload_preview_json,input_preview_json,result_preview_json,activity_meta_json FROM agent_run_execution_evidence WHERE agent_run_id=?',run.id)
+ const rows=query('SELECT id,storage_version,operation_id,phase,output_truncated,payload_preview_json,input_preview_json,result_preview_json,activity_meta_json,result_digest FROM agent_run_execution_evidence WHERE agent_run_id=?',run.id)
  const ops=rows.filter(row=>row.operation_id)
- assert.ok(ops.length>=2);assert.ok(ops.every(row=>row.storage_version===3 && row.payload_preview_json==='{}'))
+ assert.ok(ops.length>=2);assert.ok(ops.every(row=>row.storage_version===4 && row.payload_preview_json==='{}'))
  assert.equal(query('SELECT count(*) AS n FROM canonical_runtime_activity WHERE agent_run_id=?',run.id)[0].n,0)
  assert.equal(query('SELECT count(*) AS n FROM context_manifest_history_camp h JOIN context_manifest m ON m.id=h.context_manifest_id WHERE m.agent_run_id=?',run.id)[0].n,0)
  assert.ok(ops.some(row=>row.output_truncated===1))
@@ -148,6 +153,11 @@ try {
  evidence.push({stage:'output-budget',savedOutputBytes:Buffer.byteLength(output,'utf8'),clippedSuffixFilesChecked:scannedFiles,clippedSuffixFound:false})
  const fileOp=ops.find(row=>JSON.parse(row.activity_meta_json).diffProjection?.status==='available')
  assert.ok(fileOp)
+ assert.equal(JSON.parse(fileOp.result_preview_json)?.item?.changes?.[0]?.diff,undefined,'native diff body is represented once by runtimeDiff')
+ const completeFile=await request('agentRunEvidence.getContent',{threadId:fixture.campId,evidenceId:fileOp.id})
+ assert.ok(JSON.stringify(completeFile).includes('new storage file'))
+ assert.equal(typeof command.result_digest,'string')
+ assert.equal(JSON.parse(command.result_preview_json).resultDigest,undefined)
  const file=JSON.parse(fileOp.activity_meta_json).diffProjection.entries[0].path
  await openFile(run.id,fileOp.id,file,'new storage file\n',run.execution_epoch)
  await checkOld()
@@ -159,7 +169,7 @@ try {
  assert.equal(oldDigest(),beforeDigest)
  assert.equal((await readFile(join(root,'synthetic-inputs.jsonl'),'utf8')).trim().split('\n').length,1,'restart must not replay received input')
  evidence.push({stage:'restart',oldBodyHashUnchanged:true,newOperationReadable:true,inputSubmissions:1})
- await writeFile(join(root,'app-upgrade-report.json'),JSON.stringify({ok:true,fixtureSchema:149,candidateSchema:152,oldBodyDigest:beforeDigest,evidence},null,2))
+ await writeFile(join(root,'app-upgrade-report.json'),JSON.stringify({ok:true,fixtureSchema:149,candidateSchema:153,oldBodyDigest:beforeDigest,evidence},null,2))
  console.log(JSON.stringify({ok:true,root,evidence}))
 } catch(error) {
  if(browser) {

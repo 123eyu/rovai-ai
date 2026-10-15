@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { prefersReducedMotion } from './reduced-motion'
 
 const DETENT_MS = 180
 const COLLAPSE_TRAVEL = 64
@@ -115,7 +116,7 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
     }
     changePhase(active, 'closing')
     const started = performance.now()
-    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : COLLAPSE_MS
+    const duration = prefersReducedMotion() ? 0 : COLLAPSE_MS
     const animate = (now: number): void => {
       frame.current = null
       if (!current()) return

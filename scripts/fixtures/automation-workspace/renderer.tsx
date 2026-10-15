@@ -46,6 +46,7 @@ const calls: Array<{ method: string; command: unknown }> = []
 let heldSave: Promise<void> | null = null
 let releaseSave: (() => void) | null = null
 Object.assign(window, { automationSplitterTest: {
+  theme: (resolvedTheme: 'day' | 'night') => applyAppearanceSnapshot(document.documentElement, { ...DEFAULT_APPEARANCE, preference: resolvedTheme, resolvedTheme }),
   failSave: () => { failNextSave = true },
   holdSave: () => { heldSave = new Promise<void>(resolve => { releaseSave = resolve }) },
   releaseSave: () => { releaseSave?.(); heldSave = null; releaseSave = null },

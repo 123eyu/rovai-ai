@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # 测试与 Smoke Test
@@ -25,6 +25,25 @@ node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qw
 仅验取消后的副作用与后继 Run；默认顺序验证同轮输入、普通后继和多队员混合。混合场景额外调用
 OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint
 和模型供核对。单项通过不能覆盖其余场景的超时，失败报告也必须保留。
+
+历史版本使用 `scripts/probe-steer-version.mjs`，第四参数必须是已下载的官方历史包绝对入口：
+
+```sh
+node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-core pi /absolute/historical/pi positive
+```
+
+第五参数 `positive` 验证三个独立 Thread 的同轮连续输入及逐消息 `RUN_INPUT` 引用；
+`boundaries` 验证未完成消费／部分消费时停止、普通续接、工具释放附近插话和失效目标；
+`preflight` 仅运行当前生产准入。每次使用不同的新目录。`ROVAI_STEER_PROBE_FILTER`
+可按 case 名称子串只复查某个异常，必须保留原失败记录，不能把筛选后的通过当成全套通过。
+脚本保存明确的 Runtime 启动路径并核对真实入口，避免自动发现回退到本机新版；不删除生产必传参数，
+不绕过普通 Runtime 或 Steer 门槛。特殊原生配置可通过对应 Runtime 的 Home 环境变量指向隔离副本，
+报告中必须注明差异。原生小文本探针与本脚本的生产 Builder／Adapter 验收分别记账。
+
+`report.json` 和 fixture 原生日志属于私有诊断，可能含本机路径、服务地址、上下文和原生错误；
+不得直接作为公开附件。只导出版本、摘要、回执关联、case 结果与必要的脱敏错误，并清理本次复制的凭据。
+有限次数通过只覆盖已执行的场景，不证明所有结束竞态或所有历史版本；边界未覆盖时使用“最早已测通过”，
+不用“最低兼容”。本轮完整证据见[低版本验证报告](../research/runtime-monitoring/steer-low-versions-2026-10-15.md)。
 
 ## Rust 测试准入与退役门槛
 

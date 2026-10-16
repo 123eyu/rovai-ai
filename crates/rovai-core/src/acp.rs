@@ -418,6 +418,15 @@ fn is_known_session_lifecycle_extension(adapter_kind: AdapterKind, message: &Val
                     AdapterKind::ZcodeApp,
                     Some("_zcode/compaction" | "_zcode/inputAccepted")
                 )
+                | (
+                    AdapterKind::MinimaxCodeCli,
+                    Some(
+                        "mcode/session/current_session_update"
+                            | "mcode/session/queue_update"
+                            | "mcode/session/goal_update"
+                            | "mcode/session/delegation_update"
+                    )
+                )
         )
 }
 
@@ -1263,6 +1272,7 @@ pub(crate) struct AcpRpcError {
     project_root: Option<String>,
     message: String,
     provider_detail: Option<String>,
+    minimax_steer_pre_delivery_rejection: bool,
 }
 
 impl std::fmt::Debug for AcpRpcError {
@@ -1318,6 +1328,12 @@ impl AcpRpcError {
                         })
                 })
                 .map(str::to_string),
+            minimax_steer_pre_delivery_rejection: value["code"] == -32602
+                && matches!(
+                    message.as_str(),
+                    "Invalid params: Steering requires an admitted, active ACP prompt Turn for this Session."
+                        | "Invalid params: The active ACP prompt Turn changed before steering was admitted."
+                ),
             message,
             provider_detail,
         }
@@ -1334,6 +1350,9 @@ impl AcpRpcError {
                 self.code == Some(-32002)
                     && self.resource_uri.as_deref()
                         == Some(format!("Session {session_id} not found").as_str())
+            }
+            AdapterKind::MinimaxCodeCli => {
+                self.code == Some(-32002) && self.resource_uri.as_deref() == Some(session_id)
             }
             AdapterKind::QwenCode => {
                 self.code == Some(-32002)
@@ -1433,6 +1452,7 @@ pub(crate) struct AcpHost {
     builtin_tools: Option<BuiltinToolProcessConfig>,
     grok_context_windows: BTreeMap<String, i64>,
     codebuddy_config_dir: Option<PathBuf>,
+    minimax_data_dir: Option<PathBuf>,
 }
 
 fn enrich_paired_tool_message(
@@ -1442,6 +1462,99 @@ fn enrich_paired_tool_message(
     prompt_id: &str,
     message: &mut Value,
 ) -> Result<bool> {
+    if adapter_kind == AdapterKind::MinimaxCodeCli {
+        // MiniMax permission IDs are independent from model tool-call IDs.
+        // Associate only one complete, identical native proposal in this exact
+        // Session/Prompt; ambiguity is a protocol error, never a guessed receipt.
+        if message["method"] == "session/request_permission" {
+            let proposal = &message["params"]["toolCall"];
+            let id = proposal["toolCallId"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .context("minimax_permission_id_missing")?;
+            ensure!(tools.len() < 1024, "acp_tool_budget_exceeded");
+            tools.insert(
+                (session_id.into(), prompt_id.into(), id.into()),
+                json!({"permission":proposal}),
+            );
+        } else if message["method"] == "session/update" {
+            let update = &mut message["params"]["update"];
+            if !matches!(
+                update["sessionUpdate"].as_str(),
+                Some("tool_call" | "tool_call_update")
+            ) {
+                return Ok(true);
+            }
+            let id = update["toolCallId"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .context("acp_tool_id_missing")?
+                .to_string();
+            let key = (session_id.to_string(), prompt_id.to_string(), id.clone());
+            // Permission frames carry objects; tool frames carry string JSON
+            // and omit the name from later updates.
+            if let Some(raw) = update["rawInput"].as_str()
+                && let Ok(input) = serde_json::from_str::<Value>(raw)
+                && input.is_object()
+            {
+                update["rawInput"] = input;
+            }
+            // MiniMax returns the native command outcome under details; retain
+            // only its numeric exit status for the shared command classifier.
+            if let Some(code) = update
+                .pointer("/rawOutput/details/execution/exitCode")
+                .and_then(Value::as_i64)
+            {
+                update["exitCode"] = json!(code);
+            }
+            if let Some(alias) = tools.get(&key).and_then(|value| value["alias"].as_str()) {
+                update["toolCallId"] = json!(alias);
+                return Ok(true);
+            }
+            let name = update["name"]
+                .as_str()
+                .or_else(|| update["title"].as_str())
+                .or_else(|| tools.get(&key).and_then(|v| v["toolName"].as_str()))
+                .map(str::to_owned);
+            if update["rawInput"].is_object() && name.is_some() {
+                let matches: Vec<_> = tools
+                    .iter()
+                    .filter(|((session, prompt, _), value)| {
+                        session == session_id
+                            && prompt == prompt_id
+                            && value["bound"].is_null()
+                            && value["permission"]["rawInput"] == update["rawInput"]
+                            && value["permission"]["name"].as_str() == name.as_deref()
+                    })
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                ensure!(
+                    matches.len() <= 1,
+                    "minimax_permission_tool_identity_ambiguous"
+                );
+                if let Some(permission_key) = matches.first() {
+                    ensure!(tools.len() < 1024, "acp_tool_budget_exceeded");
+                    let permission_id = permission_key.2.clone();
+                    tools.get_mut(permission_key).unwrap()["bound"] = json!(id);
+                    tools.insert(key, json!({"alias":permission_id}));
+                    update["toolCallId"] = json!(permission_id);
+                } else if let Some(name) = name {
+                    ensure!(
+                        tools.len() < 1024 || tools.contains_key(&key),
+                        "acp_tool_budget_exceeded"
+                    );
+                    tools.insert(key, json!({"toolName":name}));
+                }
+            } else if let Some(name) = name {
+                ensure!(
+                    tools.len() < 1024 || tools.contains_key(&key),
+                    "acp_tool_budget_exceeded"
+                );
+                tools.insert(key, json!({"toolName":name}));
+            }
+        }
+        return Ok(true);
+    }
     if message["method"] != "session/update" {
         return Ok(true);
     }
@@ -1535,6 +1648,26 @@ fn codebuddy_config_dir(spec: &ManagedProcessLaunchSpec) -> Result<PathBuf> {
     })
 }
 
+fn minimax_data_dir(spec: &ManagedProcessLaunchSpec) -> Option<PathBuf> {
+    let value = |key: &str| {
+        spec.environment_value(key)
+            .filter(|v| !v.to_string_lossy().trim().is_empty())
+    };
+    let root = value("MINIMAX_DATA_DIR")
+        .or_else(|| value("MAVIS_DATA_DIR"))
+        .map(PathBuf::from)
+        .or_else(|| {
+            value(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|home| PathBuf::from(home).join(".minimax"))
+        })
+        .or_else(|| dirs::home_dir().map(|home| home.join(".minimax")))?;
+    Some(if root.is_absolute() {
+        root
+    } else {
+        spec.working_directory().join(root)
+    })
+}
+
 async fn verify_codebuddy_restore_target(root: &Path, session_id: &str, cwd: &str) -> Result<()> {
     // CodeBuddy 2.133.1 returns success for load of a nonexistent transcript.
     // Its session/list is unsupported. Check only its exact native file; never
@@ -1574,6 +1707,7 @@ impl AcpHost {
         external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
         private_runtime_dir: &Path,
         attachment_access_root: Option<&Path>,
+        startup_bootstrap: Option<&str>,
     ) -> Result<Arc<Self>> {
         rovai_core::runtime_discovery::with_launch_environment(
             frozen_runtime.environment.clone(),
@@ -1589,6 +1723,7 @@ impl AcpHost {
                 external_mcp_servers,
                 private_runtime_dir,
                 attachment_access_root,
+                startup_bootstrap,
             ),
         )
         .await
@@ -1607,6 +1742,7 @@ impl AcpHost {
         external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
         private_runtime_dir: &Path,
         attachment_access_root: Option<&Path>,
+        startup_bootstrap: Option<&str>,
     ) -> Result<Arc<Self>> {
         if !runtime_launch_allowed(
             frozen_runtime.adapter_kind,
@@ -1617,6 +1753,18 @@ impl AcpHost {
         let mut private_config =
             prepare_private_host_config(private_runtime_dir, frozen_runtime.adapter_kind)?;
         let private_config_root = private_config.as_ref().map(|config| config.root.as_path());
+        if frozen_runtime.adapter_kind == AdapterKind::MinimaxCodeCli {
+            let bootstrap = startup_bootstrap
+                .filter(|value| !value.trim().is_empty())
+                .context("MiniMax Code startup Bootstrap is missing")?;
+            write_private_text_file(
+                &private_config_root
+                    .context("MiniMax Code private Host directory missing")?
+                    .join("system-prompt.txt"),
+                bootstrap,
+            )?;
+        }
+
         let host_instance_id = uuid::Uuid::new_v4().to_string();
         let grok_configuration = if frozen_runtime.adapter_kind == AdapterKind::GrokBuild {
             Some(load_grok_native_configuration()?)
@@ -1704,6 +1852,9 @@ impl AcpHost {
             ManagedWindowsArgvDialect::MicrosoftCrt,
             format!("runtime-host:{}", frozen_runtime.adapter_kind.as_str()),
         )?;
+        let minimax_data_dir = (frozen_runtime.adapter_kind == AdapterKind::MinimaxCodeCli)
+            .then(|| minimax_data_dir(&spec))
+            .flatten();
         let codebuddy_config_dir = (frozen_runtime.adapter_kind == AdapterKind::CodebuddyCli)
             .then(|| codebuddy_config_dir(&spec))
             .transpose()?;
@@ -1779,6 +1930,7 @@ impl AcpHost {
             },
             client_terminal_mode,
             codebuddy_config_dir,
+            minimax_data_dir,
             client_terminal_bridge,
             host_instance_id,
             child: Mutex::new(child),
@@ -2195,7 +2347,9 @@ impl AcpHost {
                                     .expect("forwarded ACP route has Session ID");
                                 if matches!(
                                     host.adapter_kind,
-                                    AdapterKind::ClineCli | AdapterKind::CommandCodeCli
+                                    AdapterKind::ClineCli
+                                        | AdapterKind::CommandCodeCli
+                                        | AdapterKind::MinimaxCodeCli
                                 ) {
                                     match host
                                         .enrich_paired_tool_message(
@@ -2500,7 +2654,9 @@ impl AcpHost {
                 };
                 if matches!(
                     self.adapter_kind,
-                    AdapterKind::ClineCli | AdapterKind::CommandCodeCli
+                    AdapterKind::ClineCli
+                        | AdapterKind::CommandCodeCli
+                        | AdapterKind::MinimaxCodeCli
                 ) {
                     self.paired_tools
                         .lock()
@@ -2783,7 +2939,10 @@ impl AcpHost {
         tokio::spawn(async move {
             if matches!(
                 host.adapter_kind,
-                AdapterKind::ZcodeApp | AdapterKind::ClineCli | AdapterKind::CommandCodeCli
+                AdapterKind::ZcodeApp
+                    | AdapterKind::ClineCli
+                    | AdapterKind::CommandCodeCli
+                    | AdapterKind::MinimaxCodeCli
             ) {
                 // Native diagnostics are not a public protocol and may echo
                 // runtimeModel credentials. Drain without retaining their body.
@@ -3213,6 +3372,7 @@ impl AcpHost {
                         | AdapterKind::GrokBuild
                         | AdapterKind::KiroCli
                         | AdapterKind::TraeCnCli
+                        | AdapterKind::MinimaxCodeCli
                 ) && !active_prompt.acceptance_emitted
                     && (matches!(
                         message
@@ -4396,12 +4556,19 @@ impl AcpAssistantSuffixCollector {
 struct AcpSessionPermissions {
     mode: Option<String>,
     auto_approve: Option<bool>,
+    session_mode: Option<String>,
 }
 
 impl AcpSessionPermissions {
     fn from_frozen(frozen: &FrozenAgentRuntimeConfig) -> Result<Self> {
         let values = &frozen.permissions.values;
         let mode = match frozen.adapter_kind {
+            AdapterKind::MinimaxCodeCli => Some(
+                values["permission_mode"]
+                    .as_str()
+                    .filter(|value| matches!(*value, "default" | "auto" | "bypassPermissions"))
+                    .context("MiniMax Code Runtime requires valid permission_mode")?,
+            ),
             AdapterKind::KimiCodeCli => Some(
                 values["permission_mode"]
                     .as_str()
@@ -4436,9 +4603,21 @@ impl AcpSessionPermissions {
         } else {
             None
         };
+        let session_mode = if frozen.adapter_kind == AdapterKind::MinimaxCodeCli {
+            Some(
+                values["mode"]
+                    .as_str()
+                    .filter(|mode| matches!(*mode, "default" | "plan"))
+                    .context("MiniMax Code Runtime requires valid mode")?
+                    .to_owned(),
+            )
+        } else {
+            None
+        };
         Ok(Self {
             mode: mode.map(str::to_string),
             auto_approve,
+            session_mode,
         })
     }
 }
@@ -4502,6 +4681,7 @@ fn history_restore_allowed(adapter_kind: AdapterKind) -> bool {
             | AdapterKind::QwenCode
             | AdapterKind::TraeCnCli
             | AdapterKind::KimiCodeCli
+            | AdapterKind::MinimaxCodeCli
             | AdapterKind::CommandCodeCli
             | AdapterKind::ClineCli
     )
@@ -4545,7 +4725,7 @@ pub(crate) fn build_acp_new_session_params(
     });
     if !matches!(
         adapter_kind,
-        AdapterKind::CursorAgent | AdapterKind::DeepseekHarness
+        AdapterKind::CursorAgent | AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli
     ) {
         params["additionalDirectories"] = json!(additional_directories);
     }
@@ -4569,7 +4749,7 @@ pub(crate) fn build_acp_resume_session_params(
     });
     if !matches!(
         adapter_kind,
-        AdapterKind::CursorAgent | AdapterKind::DeepseekHarness
+        AdapterKind::CursorAgent | AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli
     ) {
         // Grok Build 1.x rejects session/resume whenever
         // additionalDirectories is non-empty.
@@ -4812,7 +4992,12 @@ impl AcpRuntime {
                             "cwd": cwd,
                             "mcpServers": mcp_servers,
                         });
-                        if self.host.adapter_kind != AdapterKind::CursorAgent {
+                        if !matches!(
+                            self.host.adapter_kind,
+                            AdapterKind::CursorAgent
+                                | AdapterKind::DeepseekHarness
+                                | AdapterKind::MinimaxCodeCli
+                        ) {
                             params["additionalDirectories"] = json!(additional_directories);
                         }
                         params
@@ -4978,7 +5163,10 @@ impl AcpRuntime {
                         detail: error.to_string(),
                     })
                 })?;
-            if self.host.adapter_kind == AdapterKind::DeepseekHarness {
+            if matches!(
+                self.host.adapter_kind,
+                AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli
+            ) {
                 if !model_options
                     .as_object()
                     .is_some_and(|options| options.values().all(Value::is_string))
@@ -4986,7 +5174,7 @@ impl AcpRuntime {
                     return Err(anyhow::Error::new(AcpLiveModelValidationError {
                         code: "runtime_model_options_invalid",
                         model_id: model.to_string(),
-                        detail: "DSH model options must be an object of native string values"
+                        detail: "Model options must be an object of native string values"
                             .to_string(),
                     }));
                 }
@@ -5015,6 +5203,19 @@ impl AcpRuntime {
                 self.set_model(&session_id, model).await?;
             } else {
                 self.set_config_option(&session_id, "model", model).await?;
+            }
+            if self.host.adapter_kind == AdapterKind::MinimaxCodeCli {
+                let selected = self
+                    .session_result
+                    .read()
+                    .await
+                    .clone()
+                    .context("MiniMax selected model has no option state")?;
+                rovai_core::agent_runtime_adapter::validate_live_model_selection(
+                    &acp_model_catalog_for_adapter(self.host.adapter_kind, &selected)?,
+                    model,
+                    model_options,
+                )?;
             }
             if self.host.adapter_kind == AdapterKind::DeepseekHarness {
                 let selected = self
@@ -5072,6 +5273,19 @@ impl AcpRuntime {
                     self.set_config_option(&session_id, key, value).await?;
                 }
             }
+        }
+        if self.host.adapter_kind == AdapterKind::MinimaxCodeCli {
+            let mode = self
+                .session_permissions
+                .mode
+                .as_deref()
+                .context("MiniMax Code native permission mode missing")?;
+            self.set_config_option(&session_id, "permissionMode", mode)
+                .await?;
+            self.host.rpc("session/set_mode", json!({
+                "sessionId": session_id,
+                "modeId": self.session_permissions.session_mode.as_deref().context("MiniMax mode missing")?,
+            })).await?;
         }
         if self.host.adapter_kind == AdapterKind::KimiCodeCli {
             let configured = self
@@ -5202,6 +5416,28 @@ impl AcpRuntime {
                 }),
             )
             .await?;
+        if self.host.adapter_kind == AdapterKind::MinimaxCodeCli {
+            let options = result["configOptions"]
+                .as_array()
+                .context("MiniMax did not return configuration state")?;
+            ensure!(
+                options
+                    .iter()
+                    .any(|option| option["id"] == config_id && option["currentValue"] == value),
+                "MiniMax did not confirm requested configuration"
+            );
+            let mut selected = self
+                .session_result
+                .read()
+                .await
+                .clone()
+                .context("MiniMax Session has no option state")?;
+            selected["configOptions"] = result["configOptions"].clone();
+            *self.session_result.write().await = Some(selected.clone());
+            self.host
+                .remember_session(session_id, Some(&selected))
+                .await;
+        }
         if self.host.adapter_kind == AdapterKind::DeepseekHarness {
             let previous = self
                 .session_result
@@ -5256,6 +5492,7 @@ impl AcpRuntime {
             let model_id = self.observed_model_id().await;
             let executable_path = self.host.executable_path.clone();
             let native_usage = self.native_usage.clone();
+            let minimax_root = self.host.minimax_data_dir.clone();
             // Optional journal baseline I/O cannot delay dispatch or a successor.
             // An initialization that finishes late may omit early usage.
             tokio::spawn(async move {
@@ -5275,8 +5512,19 @@ impl AcpRuntime {
                     _ => None,
                 };
                 let reader = tokio::task::spawn_blocking(move || {
-                    NativeUsageReader::for_prompt(kind, &workspace, &native_session, context_model)
-                        .map(|reader| Arc::new(std::sync::Mutex::new(reader)))
+                    (if kind == AdapterKind::MinimaxCodeCli {
+                        minimax_root.as_deref().and_then(|root| {
+                            NativeUsageReader::for_minimax_prompt(root, &workspace, &native_session)
+                        })
+                    } else {
+                        NativeUsageReader::for_prompt(
+                            kind,
+                            &workspace,
+                            &native_session,
+                            context_model,
+                        )
+                    })
+                    .map(|reader| Arc::new(std::sync::Mutex::new(reader)))
                 })
                 .await
                 .ok()
@@ -5422,6 +5670,10 @@ impl AcpRuntime {
                 "session/prompt",
                 json!({"sessionId":session,"prompt":[{"type":"text","text":text}]}),
             ),
+            AdapterKind::MinimaxCodeCli => (
+                "mcode/session/steer",
+                json!({"sessionId":session,"text":text,"clientRequestId":input_id}),
+            ),
             AdapterKind::GrokBuild => ("_x.ai/interject", json!({"sessionId":session,"text":text})),
             AdapterKind::TraeCnCli => (
                 "_session/steering",
@@ -5491,6 +5743,17 @@ impl AcpRuntime {
         .context("ACP active input response disconnected")?;
         let result = match result {
             Err(error)
+                if self.adapter_kind() == AdapterKind::MinimaxCodeCli
+                    && error.downcast_ref::<AcpRpcError>().is_some_and(|e| {
+                        e.code == Some(-32601)
+                            || (e.code == Some(-32002)
+                                && e.resource_uri.as_deref() == Some(session.as_str()))
+                            || e.minimax_steer_pre_delivery_rejection
+                    }) =>
+            {
+                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+            }
+            Err(error)
                 if self.adapter_kind() == AdapterKind::TraeCnCli
                     && error
                         .downcast_ref::<AcpRpcError>()
@@ -5516,6 +5779,11 @@ impl AcpRuntime {
             }
             result => result?,
         };
+        if self.adapter_kind() == AdapterKind::MinimaxCodeCli
+            && (result["mode"] != "steered" || result["turnId"].as_str().is_none_or(str::is_empty))
+        {
+            bail!("MiniMax Code did not confirm active Turn steering");
+        }
         if self.adapter_kind() == AdapterKind::ZcodeApp {
             if result["inputId"] != input_id || result["accepted"] != true {
                 bail!("ZCode did not confirm steering queue admission");
@@ -5906,6 +6174,7 @@ impl AcpRuntime {
         match self.adapter_kind() {
             AdapterKind::CodebuddyCli
             | AdapterKind::KimiCodeCli
+            | AdapterKind::MinimaxCodeCli
             | AdapterKind::QoderCli
             | AdapterKind::TraeCnCli => true,
             AdapterKind::OpencodeCli => {
@@ -6143,6 +6412,7 @@ impl AcpCliRuntimeAdapter {
         mcp_projection_digest: &str,
         attachment_access_root: &Path,
         runtime_compatibility_digest: &str,
+        startup_bootstrap: Option<&str>,
     ) -> Result<Arc<AcpRuntime>> {
         if frozen_runtime.adapter_kind != self.kind {
             bail!("ACP Runtime received an AgentRun for another Adapter");
@@ -6176,6 +6446,7 @@ impl AcpCliRuntimeAdapter {
         let spawn_external_mcp_servers = external_mcp_servers.clone();
         let spawn_attachment_access_root = attachment_access_root.to_path_buf();
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
+        let spawn_startup_bootstrap = startup_bootstrap.map(str::to_owned);
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
         let compatibility = RuntimeCompatibilityKey::member_session(
@@ -6228,6 +6499,7 @@ impl AcpCliRuntimeAdapter {
                         &spawn_external_mcp_servers,
                         &spawn_private_runtime_dir,
                         Some(&spawn_attachment_access_root),
+                        spawn_startup_bootstrap.as_deref(),
                     )
                     .await?;
                     Ok(RuntimeProcessHost::Acp(host))
@@ -6281,6 +6553,7 @@ impl AcpCliRuntimeAdapter {
             AdapterKind::CodebuddyCli
                 | AdapterKind::ClineCli
                 | AdapterKind::KimiCodeCli
+                | AdapterKind::MinimaxCodeCli
                 | AdapterKind::OpencodeCli
                 | AdapterKind::QoderCli
                 | AdapterKind::TraeCnCli
@@ -6596,7 +6869,8 @@ fn prepare_private_host_config(
         AdapterKind::KiroCli
         | AdapterKind::DeepseekHarness
         | AdapterKind::ClineCli
-        | AdapterKind::CommandCodeCli => (
+        | AdapterKind::CommandCodeCli
+        | AdapterKind::MinimaxCodeCli => (
             private_runtime_dir
                 .join("acp-host")
                 .join(uuid::Uuid::new_v4().to_string()),
@@ -6644,6 +6918,19 @@ fn configure_runtime_command(
         .as_object()
         .context("ACP permission configuration must be an object")?;
     match runtime.adapter_kind {
+        AdapterKind::MinimaxCodeCli => {
+            health::configure_acp_command(
+                command,
+                runtime.adapter_kind,
+                false,
+                runtime.reported_version.as_deref(),
+            )?;
+            command.arg("--append-system-prompt-file").arg(
+                private_config_root
+                    .context("MiniMax Code private Host directory missing")?
+                    .join("system-prompt.txt"),
+            );
+        }
         AdapterKind::CommandCodeCli => {
             crate::command_code_acp::configure_host(
                 command,
@@ -7947,6 +8234,7 @@ pub fn automatically_allows_permission_requests(
         }
         AdapterKind::CursorAgent => permissions["approval_policy"] == "force",
         AdapterKind::KimiCodeCli => permissions["permission_mode"] == "yolo",
+        AdapterKind::MinimaxCodeCli => permissions["permission_mode"] == "bypassPermissions",
         AdapterKind::CodexCli
         | AdapterKind::Pi
         | AdapterKind::ClaudeCodeCli
@@ -9131,7 +9419,42 @@ mod tests {
             "ACP error -32603: Internal error"
         );
 
+        for (message, expected) in [
+            (
+                "Invalid params: Steering requires an admitted, active ACP prompt Turn for this Session.",
+                true,
+            ),
+            (
+                "Invalid params: The active ACP prompt Turn changed before steering was admitted.",
+                true,
+            ),
+            (
+                "Invalid params: Steering cannot activate a new Turn for an ACP prompt.",
+                false,
+            ),
+            (
+                "Invalid params: The steer result did not match the active ACP prompt Turn.",
+                false,
+            ),
+            ("Invalid params", false),
+        ] {
+            let error = AcpRpcError::from_response(&json!({"code":-32602,"message":message}));
+            assert_eq!(error.minimax_steer_pre_delivery_rejection, expected);
+        }
         for (kind, code, data, expected) in [
+            (
+                AdapterKind::MinimaxCodeCli,
+                -32002,
+                json!({"uri":"old"}),
+                true,
+            ),
+            (
+                AdapterKind::MinimaxCodeCli,
+                -32002,
+                json!({"uri":"another"}),
+                false,
+            ),
+            (AdapterKind::MinimaxCodeCli, -32002, json!({}), false),
             (
                 AdapterKind::CopilotCli,
                 -32002,
@@ -9534,6 +9857,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -9657,6 +9981,7 @@ while IFS= read -r request; do printf '%s\n' "$request" >> '{}'; done
                 &BTreeMap::new(),
                 &root.join("private"),
                 None,
+                None,
             )
             .await;
             if advertised.starts_with('2') || advertised == "dev" {
@@ -9746,6 +10071,7 @@ while IFS= read -r ignored; do :; done
             true,
             &BTreeMap::new(),
             &root.join("private"),
+            None,
             None,
         )
         .await
@@ -9899,6 +10225,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -9914,6 +10241,7 @@ while IFS= read -r ignored; do :; done
             Some(exact_attachment_root(&root)),
             "runtime_managed".to_string(),
             AcpSessionPermissions {
+                session_mode: None,
                 mode: Some("yolo".to_string()),
                 ..Default::default()
             },
@@ -10551,6 +10879,7 @@ done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -10566,6 +10895,7 @@ done
             Some(exact_attachment_root(&root)),
             "runtime_managed".to_string(),
             AcpSessionPermissions {
+                session_mode: None,
                 mode: Some("default".to_string()),
                 ..Default::default()
             },
@@ -11051,6 +11381,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -11250,6 +11581,7 @@ while IFS= read -r ignored; do :; done
                     true,
                     &BTreeMap::new(),
                     &root.join("private"),
+                    None,
                     None,
                 )
                 .await
@@ -11538,6 +11870,7 @@ while IFS= read -r ignored; do :; done
             true,
             &BTreeMap::new(),
             &root.join("private"),
+            None,
             None,
         )
         .await
@@ -11893,6 +12226,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -11950,6 +12284,7 @@ while IFS= read -r ignored; do :; done
             (AdapterKind::QwenCode, false),
             (AdapterKind::KiroCli, false),
             (AdapterKind::TraeCnCli, false),
+            (AdapterKind::MinimaxCodeCli, false),
         ] {
             for (late, unsupported, bad_owner) in [
                 (false, false, false),
@@ -11969,7 +12304,10 @@ while IFS= read -r ignored; do :; done
                 if unsupported
                     && (!matches!(
                         kind,
-                        AdapterKind::KiroCli | AdapterKind::TraeCnCli | AdapterKind::CodebuddyCli
+                        AdapterKind::KiroCli
+                            | AdapterKind::TraeCnCli
+                            | AdapterKind::CodebuddyCli
+                            | AdapterKind::MinimaxCodeCli
                     ) || legacy)
                 {
                     continue;
@@ -11985,6 +12323,8 @@ while IFS= read -r ignored; do :; done
                     } else {
                         r#"{"steered":true,"ownerRequestId":"original-request"}"#
                     }
+                } else if kind == AdapterKind::MinimaxCodeCli {
+                    r#"{"mode":"steered","turnId":"turn-1"}"#
                 } else if kind == AdapterKind::GrokBuild {
                     r#"{"result":{"status":"queued"}}"#
                 } else if kind == AdapterKind::TraeCnCli {
@@ -12094,6 +12434,7 @@ while IFS= read -r ignored; do :; done
                     &BTreeMap::new(),
                     &root.join("private"),
                     None,
+                    (kind == AdapterKind::MinimaxCodeCli).then_some("TEST_BOOTSTRAP"),
                 )
                 .await
                 .unwrap();
@@ -12370,6 +12711,7 @@ while IFS= read -r ignored; do :; done
                 &BTreeMap::new(),
                 &root.join("private"),
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -12487,6 +12829,7 @@ while IFS= read -r ignored; do :; done
             true,
             &BTreeMap::new(),
             &root.join("private"),
+            None,
             None,
         )
         .await
@@ -12624,6 +12967,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -12726,6 +13070,7 @@ while IFS= read -r ignored; do :; done
                 true,
                 &BTreeMap::new(),
                 &root.join("private"),
+                None,
                 None,
             )
             .await
@@ -12836,6 +13181,7 @@ while IFS= read -r ignored; do :; done
             true,
             &BTreeMap::new(),
             &root.join("private"),
+            None,
             None,
         )
         .await
@@ -12964,6 +13310,7 @@ while IFS= read -r ignored; do :; done
                 true,
                 &BTreeMap::new(),
                 &root.join("private"),
+                None,
                 None,
             )
             .await
@@ -13102,6 +13449,7 @@ while IFS= read -r ignored; do :; done
                 "sha256:mcp",
                 &attachment_root,
                 "sha256:compatibility",
+                None,
             )
             .await
             .unwrap();
@@ -13142,6 +13490,7 @@ while IFS= read -r ignored; do :; done
                 "sha256:mcp",
                 &attachment_root,
                 "sha256:compatibility",
+                None,
             )
             .await
             .unwrap();
@@ -13277,6 +13626,7 @@ while IFS= read -r ignored; do :; done
                 "sha256:mcp",
                 &attachment_root,
                 "sha256:compatibility",
+                None,
             )
             .await
             .unwrap();
@@ -13352,6 +13702,7 @@ while IFS= read -r ignored; do :; done
                 "sha256:mcp",
                 &attachment_root,
                 "sha256:compatibility",
+                None,
             )
             .await
             .unwrap();
@@ -13449,6 +13800,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -13464,6 +13816,7 @@ while IFS= read -r ignored; do :; done
             Some(exact_attachment_root(&root)),
             "runtime_managed".to_string(),
             AcpSessionPermissions {
+                session_mode: None,
                 mode: Some("default".to_string()),
                 ..Default::default()
             },
@@ -13621,6 +13974,7 @@ while IFS= read -r ignored; do :; done
             &BTreeMap::new(),
             &root.join("private"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -13750,6 +14104,7 @@ while IFS= read -r ignored; do :; done
                 true,
                 &BTreeMap::new(),
                 &root.join("private"),
+                None,
                 None,
             )
             .await
@@ -14861,6 +15216,10 @@ while IFS= read -r ignored; do :; done
     fn acp_bypass_modes_auto_allow_protocol_permission_requests() {
         let automatic = [
             (
+                AdapterKind::MinimaxCodeCli,
+                json!({"permission_mode":"bypassPermissions","mode":"default"}),
+            ),
+            (
                 AdapterKind::ClineCli,
                 json!({"mode":"act","auto_approve":"true"}),
             ),
@@ -14899,6 +15258,14 @@ while IFS= read -r ignored; do :; done
         }
 
         let interactive = [
+            (
+                AdapterKind::MinimaxCodeCli,
+                json!({"permission_mode":"default"}),
+            ),
+            (
+                AdapterKind::MinimaxCodeCli,
+                json!({"permission_mode":"auto"}),
+            ),
             (
                 AdapterKind::ClineCli,
                 json!({"mode":"act","auto_approve":"false"}),
@@ -15344,6 +15711,50 @@ while IFS= read -r ignored; do :; done
 
     #[test]
     fn paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt() {
+        let mini = AdapterKind::MinimaxCodeCli;
+        let mut tools = HashMap::new();
+        let proposal = |id| {
+            json!({"method":"session/request_permission","params":{"toolCall":{
+            "toolCallId":id,"name":"bash","kind":"execute","rawInput":{"command":"echo exact"}}}})
+        };
+        let tool = |id| {
+            json!({"method":"session/update","params":{"update":{
+            "sessionUpdate":"tool_call","toolCallId":id,"name":"bash","rawInput":{"command":"echo exact"}}}})
+        };
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut proposal("permission-1"))
+            .unwrap();
+        let mut other = tool("call-1");
+        enrich_paired_tool_message(mini, &mut tools, "b", "p1", &mut other).unwrap();
+        assert_eq!(other["params"]["update"]["toolCallId"], "call-1");
+        let mut first = tool("call-1");
+        first["params"]["update"]["rawInput"] = json!("{\"command\":\"echo exact\"}");
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut first).unwrap();
+        assert_eq!(first["params"]["update"]["toolCallId"], "permission-1");
+        let mut terminal = json!({"method":"session/update","params":{"update":{
+            "sessionUpdate":"tool_call_update","toolCallId":"call-1","status":"completed",
+            "rawInput":"{\"command\":\"echo exact\"}",
+            "rawOutput":{"details":{"execution":{"exitCode":7}}}}}});
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut terminal).unwrap();
+        assert_eq!(terminal["params"]["update"]["toolCallId"], "permission-1");
+        assert_eq!(
+            terminal["params"]["update"]["rawInput"]["command"],
+            "echo exact"
+        );
+        assert_eq!(
+            effective_acp_tool_status(&terminal["params"]["update"], "execute"),
+            "failed"
+        );
+        let mut successor = tool("call-1");
+        enrich_paired_tool_message(mini, &mut tools, "a", "p2", &mut successor).unwrap();
+        assert_eq!(successor["params"]["update"]["toolCallId"], "call-1");
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut proposal("permission-2"))
+            .unwrap();
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut proposal("permission-3"))
+            .unwrap();
+        assert!(
+            enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut tool("ambiguous"))
+                .is_err()
+        );
         let mut tools = HashMap::new();
         for (session, prompt, path) in [
             ("a", "p1", "denied-a.txt"),

@@ -354,6 +354,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             matches!(
                 classify_database_contract(&tx)?,
                 DatabaseContractClassification::Current(_)
+                    | DatabaseContractClassification::SupportedMigrationSource(_)
             ),
             "Steer convergence admission failed"
         );
@@ -369,6 +370,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 // Only synthetic fixtures downgrade. Product migrations never change historical versions or bytes.
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
+    super::minimax::downgrade_for_test(c);
     if !schema_matches(c) {
         return;
     }
@@ -495,6 +497,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .execute_batch("DROP TRIGGER reject_steer_migration;")
         .unwrap();
     migrate(database).unwrap();
+    super::minimax::migrate(database).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -706,6 +709,7 @@ mod tests {
             let directory = std::env::temp_dir()
                 .join(format!("rovai-steer-migration-{source}-{}", Uuid::new_v4()));
             let mut database = crate::test_support::fresh_schema_database_fast_at(&directory);
+            super::minimax::downgrade_for_test(database.connection());
             match source {
                 148 => message_senders::downgrade_for_test(database.connection()),
                 149 => execution_storage::downgrade_for_test(database.connection()),

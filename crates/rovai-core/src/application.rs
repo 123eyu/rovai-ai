@@ -2429,6 +2429,7 @@ struct Core {
     trae_cn_cli: AcpCliRuntimeAdapter,
     cursor_agent: AcpCliRuntimeAdapter,
     kimi_code_cli: AcpCliRuntimeAdapter,
+    minimax_code_cli: AcpCliRuntimeAdapter,
     grok_build: AcpCliRuntimeAdapter,
     deepseek_harness: AcpCliRuntimeAdapter,
     cline_cli: AcpCliRuntimeAdapter,
@@ -2784,6 +2785,7 @@ fn runtime_display_name(kind: AdapterKind) -> &'static str {
         AdapterKind::TraeCnCli => "TRAE CLI",
         AdapterKind::CursorAgent => "Cursor Agent",
         AdapterKind::KimiCodeCli => "Kimi Code",
+        AdapterKind::MinimaxCodeCli => "MiniMax Code",
         AdapterKind::GrokBuild => "Grok Build",
         AdapterKind::DeepseekHarness => "DeepSeek Harness",
         AdapterKind::ClineCli => "Cline",
@@ -5663,6 +5665,13 @@ impl Core {
             return Some(AgentRunRuntime::Acp(runtime));
         }
         if let Some(runtime) = self
+            .minimax_code_cli
+            .get_agent_run(agent_run_id, execution_epoch)
+            .await
+        {
+            return Some(AgentRunRuntime::Acp(runtime));
+        }
+        if let Some(runtime) = self
             .zcode_app
             .get_agent_run(agent_run_id, execution_epoch)
             .await
@@ -5806,6 +5815,7 @@ impl Core {
             self.trae_cn_cli.shutdown_all(),
             self.cursor_agent.shutdown_all(),
             self.kimi_code_cli.shutdown_all(),
+            self.minimax_code_cli.shutdown_all(),
             self.grok_build.shutdown_all(),
             self.deepseek_harness.shutdown_all(),
             self.command_code_cli.shutdown_all(),
@@ -5831,6 +5841,7 @@ impl Core {
                 self.trae_cn_cli.shutdown_all(),
                 self.cursor_agent.shutdown_all(),
                 self.kimi_code_cli.shutdown_all(),
+                self.minimax_code_cli.shutdown_all(),
                 self.grok_build.shutdown_all(),
                 self.deepseek_harness.shutdown_all(),
                 self.command_code_cli.shutdown_all(),
@@ -5859,6 +5870,7 @@ impl Core {
             rovai_core::agent_profile::AdapterKind::TraeCnCli => Some(&self.trae_cn_cli),
             rovai_core::agent_profile::AdapterKind::CursorAgent => Some(&self.cursor_agent),
             rovai_core::agent_profile::AdapterKind::KimiCodeCli => Some(&self.kimi_code_cli),
+            rovai_core::agent_profile::AdapterKind::MinimaxCodeCli => Some(&self.minimax_code_cli),
             rovai_core::agent_profile::AdapterKind::GrokBuild => Some(&self.grok_build),
             AdapterKind::DeepseekHarness => Some(&self.deepseek_harness),
             AdapterKind::CommandCodeCli => Some(&self.command_code_cli),
@@ -11935,6 +11947,7 @@ impl Core {
             | rovai_core::agent_profile::AdapterKind::TraeCnCli
             | rovai_core::agent_profile::AdapterKind::CursorAgent
             | rovai_core::agent_profile::AdapterKind::KimiCodeCli
+            | rovai_core::agent_profile::AdapterKind::MinimaxCodeCli
             | rovai_core::agent_profile::AdapterKind::GrokBuild
             | rovai_core::agent_profile::AdapterKind::DeepseekHarness
             | rovai_core::agent_profile::AdapterKind::CommandCodeCli
@@ -17500,13 +17513,16 @@ impl Core {
     // A native file Rule is immutable for the lifetime of its member Host.
     // Freeze B before acquisition so a changed Binding payload gets a new Host;
     // a normal warm Run observes the same frozen payload and reuses its Host.
-    async fn acp_host_bootstrap_digest(
+    async fn acp_host_bootstrap(
         &self,
         execution: &AgentRunExecution,
         digest: String,
-    ) -> Result<String> {
-        if execution.runtime.adapter_kind != AdapterKind::ClineCli {
-            return Ok(digest);
+    ) -> Result<(String, Option<String>)> {
+        if !matches!(
+            execution.runtime.adapter_kind,
+            AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
+        ) {
+            return Ok((digest, None));
         }
         let mut database = self.database.lock().await;
         let bootstrap = ContextService.prepare_session_bootstrap(
@@ -17514,9 +17530,15 @@ impl Core {
             &ManagedBlobStore::new(&self.data_dir),
             &execution.agent_run_id,
             execution.execution_epoch,
-            CharterDeliveryMode::ManagedSystemPrompt,
+            charter_delivery_mode_for_adapter(execution.runtime.adapter_kind),
         )?;
-        canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))
+        let digest =
+            canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))?;
+        Ok((
+            digest,
+            (execution.runtime.adapter_kind == AdapterKind::MinimaxCodeCli)
+                .then_some(bootstrap.payload),
+        ))
     }
 
     async fn launch_acp_agent_run(
@@ -17553,15 +17575,15 @@ impl Core {
             .prepare_initial_builtin_tool_binding(execution, resume_disposition)
             .await?;
         let builtin_tool_factory = self.builtin_tool_process_config_factory()?;
-        let mut runtime_compatibility_digest = acp::runtime_compatibility_digest(
+        let runtime_compatibility_digest = acp::runtime_compatibility_digest(
             &execution.runtime,
             &execution.workspace,
             execution.permission_semantics,
             &mcp_projection.servers,
             attachment_authorization,
         )?;
-        runtime_compatibility_digest = self
-            .acp_host_bootstrap_digest(execution, runtime_compatibility_digest)
+        let (mut runtime_compatibility_digest, mut startup_bootstrap) = self
+            .acp_host_bootstrap(execution, runtime_compatibility_digest)
             .await?;
         self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
             .await?;
@@ -17580,6 +17602,7 @@ impl Core {
                 &mcp_projection.projection_digest,
                 attachment_access_root,
                 &runtime_compatibility_digest,
+                startup_bootstrap.as_deref(),
             )
             .await;
         let mut runtime = runtime_result?;
@@ -17607,7 +17630,10 @@ impl Core {
                 );
             }
             binding_credential = self.prepare_builtin_tool_binding(execution, true).await?;
-            if execution.runtime.adapter_kind == AdapterKind::ClineCli {
+            if matches!(
+                execution.runtime.adapter_kind,
+                AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
+            ) {
                 let digest = acp::runtime_compatibility_digest(
                     &execution.runtime,
                     &execution.workspace,
@@ -17615,7 +17641,8 @@ impl Core {
                     &mcp_projection.servers,
                     attachment_authorization,
                 )?;
-                let digest = self.acp_host_bootstrap_digest(execution, digest).await?;
+                let (digest, bootstrap) = self.acp_host_bootstrap(execution, digest).await?;
+                startup_bootstrap = bootstrap;
                 if digest != runtime_compatibility_digest {
                     adapter
                         .forget_agent_run(&execution.agent_run_id, execution.execution_epoch)
@@ -17641,6 +17668,7 @@ impl Core {
                             &mcp_projection.projection_digest,
                             attachment_access_root,
                             &runtime_compatibility_digest,
+                            startup_bootstrap.as_deref(),
                         )
                         .await?;
                 }
@@ -17736,8 +17764,8 @@ impl Core {
                     &mcp_projection.servers,
                     attachment_authorization,
                 )?;
-                runtime_compatibility_digest = self
-                    .acp_host_bootstrap_digest(execution, runtime_compatibility_digest)
+                (runtime_compatibility_digest, startup_bootstrap) = self
+                    .acp_host_bootstrap(execution, runtime_compatibility_digest)
                     .await?;
                 self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
                     .await?;
@@ -17757,6 +17785,7 @@ impl Core {
                         &mcp_projection.projection_digest,
                         attachment_access_root,
                         &runtime_compatibility_digest,
+                        startup_bootstrap.as_deref(),
                     )
                     .await?;
                 let active_builtin_tools = runtime
@@ -18166,6 +18195,7 @@ impl Core {
             | rovai_core::agent_profile::AdapterKind::TraeCnCli
             | rovai_core::agent_profile::AdapterKind::CursorAgent
             | rovai_core::agent_profile::AdapterKind::KimiCodeCli
+            | rovai_core::agent_profile::AdapterKind::MinimaxCodeCli
             | rovai_core::agent_profile::AdapterKind::GrokBuild
             | rovai_core::agent_profile::AdapterKind::DeepseekHarness
             | rovai_core::agent_profile::AdapterKind::CommandCodeCli
@@ -19160,6 +19190,15 @@ async fn run_core(
             runtime_fleet.clone(),
             compaction_detector_policies
                 .policy_for(AdapterKind::KimiCodeCli)
+                .unwrap_or(CompactionDetectorPolicy::Disabled),
+        ),
+        minimax_code_cli: AcpCliRuntimeAdapter::deferred(
+            rovai_core::agent_profile::AdapterKind::MinimaxCodeCli,
+            acp_tx.clone(),
+            data_dir.join("runtime/minimax-code"),
+            runtime_fleet.clone(),
+            compaction_detector_policies
+                .policy_for(AdapterKind::MinimaxCodeCli)
                 .unwrap_or(CompactionDetectorPolicy::Disabled),
         ),
         deepseek_harness: AcpCliRuntimeAdapter::deferred(
@@ -22272,7 +22311,11 @@ fn normalize_acp_event_with_completion(
                     .get("locations")
                     .and_then(Value::as_array)
                     .map_or(0, Vec::len),
-                "output": public_acp_tool_output(&update),
+                "output": public_acp_tool_output(&update).or_else(|| {
+                    (adapter_kind == AdapterKind::MinimaxCodeCli)
+                        .then(|| public_acp_content_text(update.pointer("/rawOutput/content")))
+                        .flatten()
+                }),
                 "input": public_command,
                 "rawInputDigest": update
                     .get("rawInput")
@@ -23852,6 +23895,7 @@ async fn flush_runtime_usage(
         AdapterKind::CodebuddyCli,
         AdapterKind::ClineCli,
         AdapterKind::KimiCodeCli,
+        AdapterKind::MinimaxCodeCli,
         AdapterKind::OpencodeCli,
         AdapterKind::QoderCli,
         AdapterKind::TraeCnCli,
@@ -27256,6 +27300,15 @@ mod tests {
                 runtime_fleet.clone(),
                 compaction_detector_policies
                     .policy_for(AdapterKind::KimiCodeCli)
+                    .unwrap_or(CompactionDetectorPolicy::Disabled),
+            )?,
+            minimax_code_cli: AcpCliRuntimeAdapter::new(
+                AdapterKind::MinimaxCodeCli,
+                acp_tx.clone(),
+                data_dir.join("runtime/minimax-code"),
+                runtime_fleet.clone(),
+                compaction_detector_policies
+                    .policy_for(AdapterKind::MinimaxCodeCli)
                     .unwrap_or(CompactionDetectorPolicy::Disabled),
             )?,
             deepseek_harness: AcpCliRuntimeAdapter::new(
@@ -33534,6 +33587,15 @@ for line in sys.stdin:
     #[test]
     fn acp_command_output_uses_standard_content_and_allowlisted_raw_fallbacks() {
         let fixtures = [
+            (
+                "minimax-code-cli",
+                json!({"rawOutput": {
+                    "content": [{"type":"text","text":"MINIMAX_STDOUT\nMINIMAX_STDERR"}],
+                    "details": {"processOutput": {"rawOutputPath":"MINIMAX_MUST_NOT_LEAK"}}
+                }}),
+                "MINIMAX_STDOUT\nMINIMAX_STDERR",
+                "MINIMAX_MUST_NOT_LEAK",
+            ),
             (
                 "opencode-cli",
                 json!({

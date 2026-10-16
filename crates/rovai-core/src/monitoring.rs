@@ -2108,6 +2108,10 @@ fn eligible_mask(runtime: AdapterKind, _runtime_version: Option<&str>) -> i64 {
                 | ELIGIBLE_REASONING_OUTPUT
         }
         AdapterKind::KimiCodeCli => full_tokens & !ELIGIBLE_REASONING_OUTPUT,
+        AdapterKind::MinimaxCodeCli => {
+            (full_tokens & !(ELIGIBLE_REASONING_OUTPUT | ELIGIBLE_REQUEST_CACHE_HIT))
+                | ELIGIBLE_COST
+        }
         AdapterKind::CursorAgent => 0,
     }
 }

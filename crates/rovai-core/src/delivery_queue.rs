@@ -3652,6 +3652,19 @@ mod tests {
                 Some(R::VersionIncompatible),
             ),
             ("qwen-code", Some("0.18.4"), "acp-v1", None),
+            ("minimax-code-cli", Some("0.6.12"), "acp-v1", None),
+            (
+                "minimax-code-cli",
+                Some("0.6.11"),
+                "acp-v1",
+                Some(R::VersionIncompatible),
+            ),
+            (
+                "minimax-code-cli",
+                Some("1.0.0"),
+                "acp-v1",
+                Some(R::VersionUnverified),
+            ),
             (
                 "grok-build",
                 Some("1.0.13"),

@@ -6,10 +6,19 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## MiniMax Code ACP（2026-10-16）
+
+新增 `minimax-code-cli`，复用 ACP Host/Fleet、精确 Session、现有 Bootstrap、Steer、权限、
+Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview，其余平台 NotQualified；无 Fast。
+Migration 205 从 schema 154 升至 **155**，保留业务行、索引、触发器和既有 migration receipts。
+当前行为由[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)拥有；
+[接入矩阵](../../research/minimax-code-runtime/README.md)分别记录脚本模型、真实模型与未验范围，
+实现交付不等同 Checklist 的 First-Class 资格。没有更换 current_version 或宣布本版本完成。
 
 ## 智能体已知版本保留（2026-10-15）
 

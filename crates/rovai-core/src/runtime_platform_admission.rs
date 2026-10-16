@@ -333,7 +333,8 @@ mod tests {
                         }
                         AdapterKind::CursorAgent
                         | AdapterKind::ClineCli
-                        | AdapterKind::CommandCodeCli => {
+                        | AdapterKind::CommandCodeCli
+                        | AdapterKind::MinimaxCodeCli => {
                             assert_eq!(
                                 admission.status(),
                                 RuntimePlatformAdmissionStatus::NotQualified
@@ -416,6 +417,7 @@ mod tests {
                 AdapterKind::CursorAgent
                     | AdapterKind::ClineCli
                     | AdapterKind::CommandCodeCli
+                    | AdapterKind::MinimaxCodeCli
                     | AdapterKind::ZcodeApp
                     | AdapterKind::DeepseekHarness
             ) {
@@ -472,12 +474,25 @@ mod tests {
                 .status(),
             RuntimePlatformAdmissionStatus::Preview
         );
+        for platform in HostPlatformKey::ALL {
+            let mini = registry.platform_admission(AdapterKind::MinimaxCodeCli, platform);
+            assert_eq!(
+                mini.status(),
+                if platform == HostPlatformKey::MacosArm64 {
+                    RuntimePlatformAdmissionStatus::Preview
+                } else {
+                    RuntimePlatformAdmissionStatus::NotQualified
+                }
+            );
+            assert!(mini.evidence_revision().is_none());
+        }
         for runtime_kind in AdapterKind::ALL.into_iter().filter(|kind| {
             !matches!(
                 kind,
                 AdapterKind::CursorAgent
                     | AdapterKind::ClineCli
                     | AdapterKind::CommandCodeCli
+                    | AdapterKind::MinimaxCodeCli
                     | AdapterKind::Pi
                     | AdapterKind::GrokBuild
                     | AdapterKind::ZcodeApp

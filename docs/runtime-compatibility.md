@@ -1,10 +1,20 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-16 MiniMax Code ACP：Preview 接线与控制验收
+
+独立 `@minimax-ai/code` 的 mcode 0.6.12 已接入共享 ACP、Fleet、Bootstrap、恢复、MCP、审批、
+Steer、工具输出和部分数值 Usage；不接 Fast。macOS arm64 仅 Preview，其余平台 NotQualified。
+真实 CLI＋当前 Core＋本地脚本模型通过普通 Host 复用、冷恢复同 Session、同 Run 文本/图片 Steer、
+MCP 调用/移除、allow/deny、六类输出和取消进程清理。图片已验证到模型请求，未证明视觉理解。
+真实账户尝试在 session/new 被要求 `mcode login`，真实 LLM、压缩和完整资格矩阵仍未闭合。
+完整对照、失败修复与脱敏证据见[MiniMax 接入记录](research/minimax-code-runtime/README.md)。
+本分支十种 Steer 接线中新增的 MiniMax 不计作第十种真实 LLM 完整验收。
 
 ## 2026-10-15 User seq44：版本复核与 TRAE 完整产品验收
 

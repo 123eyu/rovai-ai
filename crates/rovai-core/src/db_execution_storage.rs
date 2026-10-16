@@ -135,6 +135,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     super::unified_activity::migrate(database).unwrap();
     super::compact_execution::migrate(database).unwrap();
     super::steer::migrate(database).unwrap();
+    super::minimax::migrate(database).unwrap();
     assert!(matches!(
         classify_database_contract(database.connection()).unwrap(),
         DatabaseContractClassification::Current(_)

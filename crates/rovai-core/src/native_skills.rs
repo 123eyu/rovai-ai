@@ -584,6 +584,19 @@ fn user_roots(
             ]
             .map(|part| home.join(part)),
         ),
+        AdapterKind::MinimaxCodeCli => {
+            paths.push(
+                configured_root(
+                    "MINIMAX_DATA_DIR",
+                    configured_root("MAVIS_DATA_DIR", home.join(".minimax"), configuration),
+                    configuration,
+                )
+                .join("skills"),
+            );
+            paths.push(agents);
+            paths.push(claude);
+            paths.push(home.join(".codex/skills"));
+        }
         AdapterKind::KimiCodeCli => {
             paths.push(
                 configured_root("KIMI_CODE_HOME", home.join(".kimi-code"), configuration)
@@ -625,6 +638,7 @@ fn project_roots(adapter: AdapterKind, project: &Path) -> Vec<(&'static str, Pat
             | AdapterKind::ClaudeCodeCli
             | AdapterKind::Pi
             | AdapterKind::OpencodeCli
+            | AdapterKind::MinimaxCodeCli
     );
     let mut directories = vec![project.to_path_buf()];
     if ancestors {
@@ -658,6 +672,7 @@ fn project_roots(adapter: AdapterKind, project: &Path) -> Vec<(&'static str, Pat
             ".codex/skills",
         ],
         AdapterKind::KimiCodeCli => &[".kimi-code/skills", ".agents/skills"],
+        AdapterKind::MinimaxCodeCli => &[".minimax/skills", ".agents/skills", ".claude/skills"],
         AdapterKind::GrokBuild => &[".grok/skills"],
         AdapterKind::DeepseekHarness => &[".dsh/skills", ".agents/skills"],
         AdapterKind::ClineCli => &[".cline/skills", ".agents/skills", ".clinerules/skills"],

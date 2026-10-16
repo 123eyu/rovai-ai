@@ -326,3 +326,7 @@ v62 移除原生会话重建提示和展示查询，保留恢复及审计行为�
 - 新操作预览预算与结果摘要分离的理由见 [V1.72-D46](../versions/v1.72/decisions.md#v1-72-d46)，当前权威为 [Execution Record Storage v3](../contracts/execution-record-storage-v3.md)。
 
 - Steer 合并、版本资格与碰撞迁移：[Manifest v39](../contracts/context-manifest-evidence-v39.md)、[Delivery v18](../contracts/message-delivery-v18.md)；理由见 [V1.72-D47](../versions/v1.72/decisions.md#v1-72-d47)。
+
+
+MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)
+拥有；启动系统提示与开发 Preview 的取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。

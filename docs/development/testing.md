@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # 测试与 Smoke Test
@@ -20,7 +20,7 @@ last_updated: 2026-10-15
 node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qwen-code
 ```
 
-第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 、`zcode-app` 或 `trae-cn-cli`。
+第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 、`zcode-app`、`trae-cn-cli` 或 `minimax-code-cli`。
 可选第四参数 `steer-only` 仅验同轮文字与纯附件，`mixed-only` 仅验多队员混合投递，`cancel-only`
 仅验取消后的副作用与后继 Run；默认顺序验证同轮输入、普通后继和多队员混合。混合场景额外调用
 OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint
@@ -59,6 +59,38 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 有限次数通过只覆盖已执行的场景，不证明所有结束竞态或所有历史版本；边界未覆盖时使用“最早已测通过”，
 不用“最低兼容”。合并后产品证据见[Steer 收口报告](../research/runtime-monitoring/steer-hardening-2026-10-15.md)，
 此前低版本边界见[低版本验证报告](../research/runtime-monitoring/steer-low-versions-2026-10-15.md)。
+
+## MiniMax Code 控制服务验收
+
+先构建配套 Core/CLI，再用实际安装入口运行：
+
+```sh
+cargo build -p rovai-core --bins
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode
+```
+
+脚本在新建隔离目录启动真实 mcode、生产 Core、确定性 loopback Provider 与 MCP fixture。
+合成 API key 仅用于本地服务，不使用日常账户。覆盖普通 Host 复用、Core 重启同 Session、精确
+缺失 Session 替换、系统层 Bootstrap、图片 Steer 到模型请求、MCP 调用/移除、allow/deny、
+六类命令输出、零发送恢复和取消子进程。脚本模型不能替代真实账户、视觉理解或完整 First-Class
+Golden Flows；短 Run 的异步 journal Usage 可能为空。结果留在打印的临时目录，原始 report
+是私有诊断，只导出白名单摘要；本次数据目录及派生 Runtime Files Root 都不属于日常实例。
+真实模型流程另用 `smoke-acp-runtime.mjs` / `smoke-steer.mjs` 的 `minimax-code-cli` 入口。
+当前证据见[MiniMax 接入报告](../research/minimax-code-runtime/README.md)。
+
+Rust 不增加平行 owner：模型与 per-model effort 扩展 `grouped_acp_models_keep_opaque_provider_routes_and_reject_empty_catalogs`；
+审批 ID 配对扩展 `paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt`；
+私有输出字段反例扩展 `acp_command_output_uses_standard_content_and_allowlisted_raw_fallbacks`；
+精确 Session 错误/Steer 归属复用既有 RPC/active-input owners；Usage baseline/重放/身份不符
+扩展 `native_usage` 既有 cursor owners；schema 155 扩展 catalog migration 回滚和历史源收敛 owners。
+修复前真实 0.6.12 审批终态无法关联、输出正文被丢弃；新输入矩阵保留跨 Session/Prompt 和私有字段负例。
+
+```sh
+cargo test -p rovai-core --lib --features extended-tests paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt
+cargo test -p rovai-core --lib --features extended-tests acp_command_output_uses_standard_content_and_allowlisted_raw_fallbacks
+cargo test -p rovai-core --lib --features extended-tests native_
+cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrations_preserve_rows_and_roll_back_with_their_receipts
+```
 
 ## Rust 测试准入与退役门槛
 

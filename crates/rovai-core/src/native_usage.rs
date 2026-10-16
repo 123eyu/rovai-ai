@@ -29,6 +29,7 @@ enum Dialect {
     Kimi,
     Qoder,
     Trae,
+    Minimax,
 }
 
 pub(crate) struct NativeUsageObservation {
@@ -63,6 +64,24 @@ impl NativeUsageReader {
             })
         }
     }
+    pub(crate) fn for_minimax_prompt(
+        root: &Path,
+        workspace: &Path,
+        session_id: &str,
+    ) -> Option<Self> {
+        let root = fs::canonicalize(root).ok()?;
+        let path = minimax_session_path(&root, workspace.to_str()?, session_id).ok()?;
+        NativeJsonlUsageReader::baseline(
+            Dialect::Minimax,
+            root,
+            path,
+            workspace.to_str()?.to_owned(),
+            session_id.to_owned(),
+        )
+        .ok()
+        .map(Self::Jsonl)
+    }
+
     pub(crate) fn poll(&mut self) -> Vec<NativeUsageObservation> {
         match self {
             Self::Jsonl(reader) => reader.poll(),
@@ -168,6 +187,7 @@ impl NativeJsonlUsageReader {
                 .join("projects")
                 .join(qoder_workspace_key(&workspace))
                 .join(format!("{session_id}.jsonl")),
+            Dialect::Minimax => unreachable!("MiniMax uses the frozen Host data directory"),
             Dialect::Trae => unreachable!("TRAE uses the platform cache root"),
         };
         Self::baseline(dialect, root, path, workspace, session_id.to_string()).ok()
@@ -231,6 +251,11 @@ impl NativeJsonlUsageReader {
             if record.id != self.session_id || record.metadata.cwd != self.workspace {
                 bail!("native Session identity does not match");
             }
+        }
+        if matches!(self.dialect, Dialect::Minimax)
+            && minimax_session_path(&self.root, &self.workspace, &self.session_id)? != self.path
+        {
+            bail!("native Usage Session location changed");
         }
         open_native_file(&self.root, &self.path)
     }
@@ -349,6 +374,21 @@ impl NativeJsonlUsageReader {
                     }
                     calls
                 }
+                Dialect::Minimax => {
+                    let Some(record) = minimax_record(&line) else {
+                        continue;
+                    };
+                    let id = format!("minimax-native:{}:{}", self.session_id, record.message_id);
+                    if baseline {
+                        if self.seen.len() >= MAX_IDENTITIES {
+                            self.disabled = true;
+                            break;
+                        }
+                        self.seen.insert(id);
+                        continue;
+                    }
+                    parse_minimax(&line, &self.session_id).into_iter().collect()
+                }
                 Dialect::Kimi => parse_kimi(&line, &self.session_id).into_iter().collect(),
                 Dialect::Trae => {
                     let Some(record) = trae_record(&line, &self.session_id) else {
@@ -423,6 +463,95 @@ impl NativeJsonlUsageReader {
         }
         Ok(observations)
     }
+}
+
+// Only the exact root Session's locator is read from SQLite, never conversation content.
+fn minimax_session_path(root: &Path, workspace: &str, session_id: &str) -> Result<PathBuf> {
+    anyhow::ensure!(
+        safe_identity(session_id),
+        "invalid MiniMax Session identity"
+    );
+    let path = root.join("v2/sqlite/runtime-state.sqlite");
+    open_native_file(root, &path)?.context("MiniMax Session index missing")?;
+    let c = rusqlite::Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    c.busy_timeout(std::time::Duration::from_millis(250))?;
+    let (cwd, parent, relative): (String, Option<String>, String) = c.query_row(
+        "SELECT workspace_dir,parent_session_id,history_relative_dir FROM local_runtime_sessions WHERE session_id=?1",
+        [session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    anyhow::ensure!(
+        cwd == workspace && parent.is_none(),
+        "MiniMax root Session does not match"
+    );
+    anyhow::ensure!(
+        !relative.is_empty()
+            && Path::new(&relative)
+                .components()
+                .all(|part| matches!(part, Component::Normal(_))),
+        "MiniMax history path is invalid"
+    );
+    Ok(root
+        .join("v2/sessions")
+        .join(relative)
+        .join("messages.jsonl"))
+}
+
+#[derive(Deserialize)]
+struct MinimaxRecord {
+    message_id: String,
+    turn_id: Option<String>,
+    message: MinimaxMessage,
+}
+#[derive(Deserialize)]
+struct MinimaxMessage {
+    role: String,
+    #[serde(rename = "stopReason")]
+    stop_reason: Option<String>,
+    usage: Option<MinimaxUsage>,
+    timestamp: Option<i64>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MinimaxUsage {
+    input: Option<i64>,
+    output: Option<i64>,
+    cache_read: Option<i64>,
+    cache_write: Option<i64>,
+}
+
+fn minimax_record(line: &[u8]) -> Option<MinimaxRecord> {
+    let record: MinimaxRecord = serde_json::from_slice(line).ok()?;
+    (record.message.role == "assistant" && safe_identity(&record.message_id)).then_some(record)
+}
+fn parse_minimax(line: &[u8], session_id: &str) -> Option<NativeUsageObservation> {
+    let record = minimax_record(line)?;
+    if !matches!(
+        record.message.stop_reason.as_deref(),
+        Some("stop" | "toolUse" | "length")
+    ) {
+        return None;
+    }
+    let raw = record.message.usage?;
+    Some(observation(
+        session_id,
+        format!("minimax-native:{session_id}:{}", record.message_id),
+        "minimax-native-message-usage-v1",
+        record.turn_id,
+        RuntimeInputSemantics::ExclusiveBuckets,
+        RuntimeUsageFields {
+            input_tokens: nonnegative(raw.input),
+            output_tokens: nonnegative(raw.output),
+            cache_read_input_tokens: nonnegative(raw.cache_read),
+            cache_write_input_tokens: nonnegative(raw.cache_write),
+            ..RuntimeUsageFields::default()
+        },
+        record.message.timestamp,
+    ))
 }
 
 fn open_native_file(root: &Path, file_path: &Path) -> Result<Option<File>> {
@@ -1315,6 +1444,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn minimax(id: &str) -> serde_json::Value {
+        json!({"message_id":id,"turn_id":"turn-1","message":{"role":"assistant","content":"PRIVATE_MINIMAX_CANARY", "stopReason":"stop", "usage":{"input":100,"output":5,"cacheRead":20,"cacheWrite":3},"timestamp":1}})
+    }
+
     fn trae(id: &str) -> serde_json::Value {
         json!({"id":id,"session_id":"session-1","branch":"Trae CLI","agent_name":"Trae CLI",
             "agent_id":"root-agent","parent_tool_call_id":"","created_at":"2026-10-02T21:55:27+08:00",
@@ -1345,6 +1478,34 @@ mod tests {
     // fields. ACP parser fixtures cannot exercise these persisted envelopes.
     #[test]
     fn native_dialects_select_root_calls_preserve_missing_and_ignore_restated_content() {
+        let frame = minimax("call-1");
+        let parsed = parse_minimax(frame.to_string().as_bytes(), "root-1").unwrap();
+        assert_eq!(
+            parsed.usage.input_semantics,
+            RuntimeInputSemantics::ExclusiveBuckets
+        );
+        assert_eq!(parsed.usage.fields.input_tokens, Some(100));
+        assert_eq!(parsed.usage.fields.cache_read_input_tokens, Some(20));
+        assert_eq!(parsed.usage.fields.cache_write_input_tokens, Some(3));
+        assert!(
+            !serde_json::to_string(&parsed.usage)
+                .unwrap()
+                .contains("PRIVATE_MINIMAX_CANARY")
+        );
+        for patch in [
+            json!({"role":"user"}),
+            json!({"stopReason":"error"}),
+            json!({"stopReason":"aborted"}),
+            json!({"usage":null}),
+            json!({"usage":{"input":-1}}),
+        ] {
+            let mut value = frame.clone();
+            for (key, field) in patch.as_object().unwrap() {
+                value["message"][key] = field.clone();
+            }
+            let parsed = parse_minimax(value.to_string().as_bytes(), "root-1");
+            assert!(parsed.is_none_or(|item| item.usage.fields.input_tokens.is_none()));
+        }
         let mut frame = trae("call-1");
         let read = |v: &serde_json::Value| {
             trae_record(v.to_string().as_bytes(), "session-1")
@@ -1787,11 +1948,22 @@ mod tests {
             Dialect::Kimi,
             Dialect::Qoder,
             Dialect::Trae,
+            Dialect::Minimax,
         ] {
             let root =
                 std::env::temp_dir().join(format!("rovai-native-usage-{}", uuid::Uuid::new_v4()));
             fs::create_dir_all(&root).unwrap();
-            let path = root.join("wire.jsonl");
+            let root = fs::canonicalize(root).unwrap();
+            let path = if matches!(dialect, Dialect::Minimax) {
+                fs::create_dir_all(root.join("v2/sqlite")).unwrap();
+                fs::create_dir_all(root.join("v2/sessions/current")).unwrap();
+                let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))
+                    .unwrap();
+                c.execute_batch("CREATE TABLE local_runtime_sessions(session_id TEXT PRIMARY KEY,workspace_dir TEXT,parent_session_id TEXT,history_relative_dir TEXT); INSERT INTO local_runtime_sessions VALUES('session-1','/workspace',NULL,'current');").unwrap();
+                root.join("v2/sessions/current/messages.jsonl")
+            } else {
+                root.join("wire.jsonl")
+            };
             if matches!(dialect, Dialect::Trae) {
                 fs::write(
                     root.join("session.json"),
@@ -1804,6 +1976,7 @@ mod tests {
                 Dialect::Kimi => kimi(id),
                 Dialect::Qoder => qoder(id),
                 Dialect::Trae => trae(id),
+                Dialect::Minimax => minimax(id),
             };
             let line = |id| format!("{}\n", make(id));
             let mut historical = make("old");
@@ -1909,6 +2082,20 @@ mod tests {
             );
             drop(file);
             assert!(terminal.poll().is_empty());
+            if matches!(dialect, Dialect::Minimax) {
+                assert!(minimax_session_path(&root, "/another", "session-1").is_err());
+                assert!(minimax_session_path(&root, "/workspace", "other-session").is_err());
+                let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))
+                    .unwrap();
+                c.execute(
+                    "UPDATE local_runtime_sessions SET parent_session_id='parent'",
+                    [],
+                )
+                .unwrap();
+                assert!(minimax_session_path(&root, "/workspace", "session-1").is_err());
+                c.execute("UPDATE local_runtime_sessions SET parent_session_id=NULL,history_relative_dir='../outside'", []).unwrap();
+                assert!(minimax_session_path(&root, "/workspace", "session-1").is_err());
+            }
             fs::remove_dir_all(root).unwrap();
         }
         let kiro_root =

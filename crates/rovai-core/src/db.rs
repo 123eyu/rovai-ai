@@ -8072,16 +8072,25 @@ impl Database {
             "#,
             [&now],
         )?;
-        let input_deliveries_marked_unknown = transaction.execute(
+        let recovered_inputs = {
+            let mut statement = transaction.prepare(
             r#"
             UPDATE runtime_input_delivery
             SET status = 'delivery_unknown',
                 last_error = 'core_restarted_after_input_prepared',
                 updated_at = ?1
             WHERE status = 'prepared'
+            RETURNING (SELECT source_delivery_id FROM context_manifest WHERE id=runtime_input_delivery.context_manifest_id)
             "#,
-            [&now],
-        )? as i64;
+            )?;
+            statement
+                .query_map([&now], |row| row.get::<_, Option<String>>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let input_deliveries_marked_unknown = recovered_inputs.len() as i64;
+        for source in recovered_inputs.into_iter().flatten() {
+            crate::execution_input::changed(&transaction, &source)?;
+        }
         transaction.execute(
             r#"
             UPDATE agent_run

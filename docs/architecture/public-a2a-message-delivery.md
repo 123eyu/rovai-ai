@@ -179,3 +179,8 @@ Claude 复用 Stream JSON 和既有输入编号关联回显，允许确认跨越
 回执不决定 Run 生命周期，可靠结束后未确认输入单独保持未知，不重发、不阻塞收尾。
 已确定且支持插话的启动 Run 先保存 Delivery 意图，初始输入接受后再由同一 Scheduler 物化／投递；
 等待只新增既有 Delivery 归属，不新增正文。启动时补全缺失版本须核验实际冻结程序身份，普通运行资格保持。
+
+
+Run 执行窗口中的插话位置由 Core 在上述路由事务中记录，记录仅引用 Message／Delivery，
+不另存正文、附件或回执快照。读取时从原归属投影内容与当前回执，沿用执行窗口 change cursor 原位刷新；
+Renderer 将输入作为工具组边界。字段与旧数据行为见 [Delivery v18](../contracts/message-delivery-v18.md#执行窗口中的输入标记)。

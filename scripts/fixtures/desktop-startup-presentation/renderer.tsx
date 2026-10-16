@@ -5,6 +5,7 @@ import type { ThreadCreationPreflight, CoreEvent, DesktopStartupSnapshot, Health
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { App } from '../../../apps/desktop/src/renderer/src/App'
+import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
 import { NewConversationDialog } from '../../../apps/desktop/src/renderer/src/NewConversationDialog'
 import { STARTUP_LOADING_EXIT_MS, StartupLoadingCanvas } from '../../../apps/desktop/src/renderer/src/StartupLoadingCanvas'
 import { DEFAULT_APPEARANCE } from '../../../apps/desktop/src/shared/appearance'
@@ -723,6 +724,51 @@ Object.assign(window, { startupTest: {
       check(document.querySelectorAll('.camp-detail-entry').length === 3, 'The real Camp header keeps all three existing actions')
       return { control: center('.navigation-collapse-button'), title: center('.camp-topbar h1'), actions: center('.camp-detail-entry') }
     }
+
+    // Exercise the shared App with Web-style invalidation, including a refresh
+    // already in flight when deletion is accepted and removal in another client.
+    const invalidationListeners = new Set<() => void>()
+    desktopThreadClient.onInvalidated = listener => {
+      invalidationListeners.add(listener)
+      return () => { invalidationListeners.delete(listener) }
+    }
+    await captureNavigation('day', false)
+    const invalidateWeb = () => invalidationListeners.forEach(listener => listener())
+    check(invalidationListeners.size > 0, 'The shared App subscribes to Web invalidation')
+    const staleProjection = deferred<unknown>()
+    campRequest = id => id === 'B' ? staleProjection.promise : campProjection(id)
+    invalidateWeb(); await flush()
+    const openReads = calls.filter(call => call === 'threads.open').length
+    invalidateWeb(); await flush()
+    for (const listener of coreListeners) listener({ method: 'navigation.invalidated',
+      params: { scope: 'camp', reason: 'camps.delete_accepted', threadId: 'B' } })
+    await flush()
+    check(document.querySelector('.compose-content'), 'Accepted deletion leaves the current Thread')
+    staleProjection.reject(new Error('Camp does not exist'))
+    await flush(); await flush()
+    check(!document.querySelector('.error-banner'), 'A failed pre-deletion refresh must not show a global error')
+    check(calls.filter(call => call === 'threads.open').length === openReads, 'Deletion cancels the trailing projection read')
+    cases.push('Accepted deletion discards in-flight Web refresh failures and queued reads')
+
+    campRequest = id => campProjection(id)
+    await clickNavigation('导航会话 A', '.camp-nav-open')
+    campRequest = () => { throw new Error('Camp does not exist') }
+    requestHandlers.set('threads.exists', () => false)
+    invalidateWeb(); await flush(); await flush()
+    check(document.querySelector('.compose-content') && !document.querySelector('.error-banner'),
+      'Authoritative removal before a local receipt leaves the Thread without a failure banner')
+    check(!document.querySelector('[data-thread-id="A"]'), 'Externally deleted Threads stay out of navigation')
+    cases.push('Web refresh confirms external deletion before removing the current Thread')
+
+    campRequest = id => campProjection(id)
+    requestHandlers.set('threads.exists', () => true)
+    await clickNavigation('导航会话 C', '.camp-nav-open')
+    campRequest = () => { throw new Error('Fixture connection lost') }
+    invalidateWeb(); await flush(); await flush()
+    check(document.querySelector('.error-banner')?.textContent?.includes('Fixture connection lost'),
+      'Refresh errors for an existing Thread must remain visible')
+    cases.push('Web refresh retains real errors when the Thread still exists')
+    delete desktopThreadClient.onInvalidated
 
     await captureNavigation('day', false)
     await clickNavigation('导航会话 B', '.camp-nav-open')

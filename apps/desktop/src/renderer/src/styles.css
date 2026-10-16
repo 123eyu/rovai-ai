@@ -9435,3 +9435,6 @@ button.skill-file-current:hover, .skill-file-current[aria-expanded="true"] { bac
 .conversation-anchor-preview button { pointer-events: auto; }
 .conversation-anchor-index-status { position: absolute; left: 16px; top: 8px; z-index: 4; color: var(--muted); font-size: 12px; }
 .camp-history-gap { margin: 16px 0 4px; color: var(--muted); text-align: center; font-size: 12px; }
+
+.run-input-source { width: max-content; max-width: 100%; color: var(--muted); font-size: 10.5px; }
+.run-input-source:focus-visible { outline: 2px solid var(--conversation-focus); outline-offset: 1px; }

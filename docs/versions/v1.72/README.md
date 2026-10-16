@@ -6,10 +6,17 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## Run Card 插话（2026-10-16）
+
+按 User 确认的 v3 交互稿实现独立插话行，隔开 command 折叠并复用其行高、展开与键盘交互。
+详情仅保留正文和原消息入口；Core 保存来源指针和稳定顺序，回执从原投递记录投影，模型输入保持。
+当前合同见 [Delivery v18](../../contracts/message-delivery-v18.md#执行窗口中的输入标记)，界面见
+[Run Card 插话](../../ui/components/conversation-workspace.md#run-card-中的插话)。
 
 ## 智能体已知版本保留（2026-10-15）
 

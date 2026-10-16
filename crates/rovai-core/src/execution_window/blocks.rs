@@ -172,7 +172,7 @@ fn index(connection: &Connection, run: &str) -> Result<Vec<Block>> {
           NULL, 0, 1, occurred_at, operation_id, revision, change_sequence, output_truncated
         FROM agent_run_execution_evidence WHERE agent_run_id = ?1 AND kind <> 'reasoning_summary'
           AND event_type IN ('agent.text.block', 'agent.text.delta', 'runtime.plan', 'runtime.plan.delta',
-            'runtime.diagnostic', 'runtime.compaction.display', 'activity.started', 'activity.completed', 'runtime.action')
+            'agent_run.input', 'runtime.diagnostic', 'runtime.compaction.display', 'activity.started', 'activity.completed', 'runtime.action')
         ORDER BY sequence
     "#)?;
     let metadata = statement

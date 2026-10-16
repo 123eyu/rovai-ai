@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentRunExecutionEvidenceView } from '@contracts'
 import { groupExecutionEventsByRunId } from './execution-events'
 import { buildLiveExecutionProgress, liveRuntimeEventFromExecutionEvidence } from './ui-model'
+import { groupConsecutiveToolItems, toolActivityGroupPresentation } from './execution-tool-grouping'
 
 const narration = (revision: number, text: string, status = 'streaming'): AgentRunExecutionEvidenceView => ({
   id: 'text', agentRunId: 'run', executionEpoch: 1, sequence: 1, operationId: null,
@@ -11,6 +12,27 @@ const narration = (revision: number, text: string, status = 'streaming'): AgentR
 })
 
 describe('restored and live execution progress', () => {
+  it('keeps Steer outside command folds while receipts and preceding commands finish in place', () => {
+    const command = (id: string, phase: 'started' | 'completed'): AgentRunExecutionEvidenceView => ({
+      ...narration(1, ''), id, eventType: `activity.${phase}`, kind: 'command', phase,
+      payload: { item: { id, type: 'commandExecution', command: 'pwd', status: phase === 'started' ? 'inProgress' : 'completed' } }
+    })
+    const input: AgentRunExecutionEvidenceView = { ...narration(1, ''), id: 'input', kind: 'step',
+      eventType: 'agent_run.input', payload: { messageId: 'message', deliveryId: 'delivery',
+        status: 'pending', preview: '采用这条更正', sourceAvailable: true } }
+    const page = [command('before', 'started'), input, command('after', 'completed')]
+    const live = [{ ...input, revision: 2, changeSequence: 5, payload: { ...input.payload as object, status: 'accepted' } },
+      { ...command('before', 'completed'), revision: 2, changeSequence: 6 }]
+    const events = groupExecutionEventsByRunId([{ id: 'run' }], page, live.map(liveRuntimeEventFromExecutionEvidence)).get('run')!
+    const grouped = groupConsecutiveToolItems(buildLiveExecutionProgress(events, 'run').items)
+    expect(grouped.map(item => item.kind)).toEqual(['toolGroup', 'input', 'toolGroup'])
+    expect(grouped[1]).toMatchObject({ key: 'input:input', input: { status: 'accepted', messageId: 'message' } })
+    for (const group of grouped) {
+      if (group.kind === 'toolGroup') expect(toolActivityGroupPresentation(group.items, 'succeeded').primary).toBe('已完成 1 个步骤')
+    }
+    expect(buildLiveExecutionProgress([liveRuntimeEventFromExecutionEvidence({ ...input, payload: {} })], 'run').items).toEqual([])
+  })
+
   it('keeps newer live narration across a late initial page, including uncheckpointed streaming growth', () => {
     for (const revision of [1, 2]) {
       const events = groupExecutionEventsByRunId([{ id: 'run' }], [narration(1, 'old')], [

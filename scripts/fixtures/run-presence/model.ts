@@ -251,7 +251,7 @@ const controls = { steerReview: false, holdContinue: false, holdStop: false, hol
   failNextExecutionPage: executionReadMode === 'fail', holdExecutionPage: executionReadMode === 'hold',
   holdExecutionChanges: false, liveEvidence: false,
   persistServer: false, continuationMode: 'normal', stopError: false,
-  executionReads: [] as any[],
+  executionReads: [] as any[], hiddenMessages: [] as any[],
   continueAttempts: [] as any[], stopAttempts: [] as any[], receipts: new Map<string, any>() }
 export const model = {
   controls,
@@ -325,6 +325,27 @@ export const model = {
         agentRuns: runs, messageDeliveries: deliveries, executionEvidence: [] },
       draft: { ...state.draft, body: '', attachments: [], content: { version: 2, segments: [] } }
     })
+  },
+  showSteerTimeline(olderSource = false) {
+    this.showSteerCase('accepted')
+    const message = makeMessage('steer-example', 4, '采用这条更正。\n' + '保留 command 的现有交互和消息原文。\n'.repeat(80) + '正文末尾。')
+    message.attachments = [{ id: 'source-file', displayName: '补充说明.txt', kind: 'file', mediaType: 'text/plain', byteSize: 128, previewKind: 'none', availability: 'available' }]
+    controls.hiddenMessages = olderSource ? [message] : []
+    const base = evidence(makeRun('run-alice'))[1]
+    const command = (id: string, sequence: number, active = false) => ({ ...base, id, sequence, occurredAt: at(35 + sequence),
+      eventType: active ? 'activity.started' : 'activity.completed', phase: active ? 'started' : 'completed',
+      payload: { item: { id, type: 'commandExecution', command: 'pwd', status: active ? 'inProgress' : 'completed', aggregatedOutput: '/workspace' } } })
+    const input = { ...base, id: 'steer-marker', sequence: 3, eventType: 'agent_run.input', kind: 'step', phase: 'updated', occurredAt: at(38),
+      revision: 1, changeSequence: 3, payload: { messageId: message.id, deliveryId: 'steer-delivery', preview: message.body.slice(0, 240),
+        status: 'pending', sourceAvailable: true, createdAt: message.createdAt } }
+    update({ snapshot: { ...state.snapshot, messages: [...state.snapshot.messages.filter((m: any) => m.id !== message.id), ...(olderSource ? [] : [message])],
+      executionEvidence: [command('before-1', 1), command('before-2', 2, true), input, command('after-1', 4)],
+      agentRuns: state.snapshot.agentRuns.map((r: any) => ({ ...r, executionEvidenceCount: 4, executionEvidenceChangeSequence: 4 })) } })
+  },
+  updateSteerTimeline(status: string) {
+    update({ snapshot: { ...state.snapshot, executionEvidence: state.snapshot.executionEvidence.map((e: any) => e.id === 'steer-marker'
+      ? { ...e, revision: e.revision + 1, changeSequence: state.version + 10, payload: { ...e.payload, status } }
+      : e.id === 'before-2' ? { ...e, eventType: 'activity.completed', phase: 'completed', payload: { item: { ...e.payload.item, status: 'completed' } } } : e) } })
   },
   finishSteerRuns() {
     update({ streamPaused: true, snapshot: { ...state.snapshot, agentRuns: state.snapshot.agentRuns.map((run: any) =>
@@ -430,7 +451,7 @@ export const model = {
   client: { ...backing.client,
     onInvalidated: (listener: () => void) => { invalidationListeners.add(listener); return () => invalidationListeners.delete(listener) },
     request: async (method: string, input: any = {}): Promise<any> => {
-      if (['agentRunExecution.page', 'agentRunExecution.changes', 'agentRunEvidence.getContent'].includes(method))
+      if (['agentRunExecution.page', 'agentRunExecution.changes', 'agentRunEvidence.getContent', 'thread.messages.around'].includes(method))
         controls.executionReads.push({ method, ...input })
       if (method === 'members.list') return profiles
       if (method === 'agentRunExecution.page' || method === 'agentRunExecution.changes') {
@@ -477,8 +498,9 @@ export const model = {
       }
       if (method === 'thread.messages.anchorPreview') return { schemaVersion: 1, threadId: state.snapshot.thread.id, messageId: input.messageId, throughGlobalSequence: state.version, sourceAvailable: true, firstReply: null }
       if (method === 'threads.members.fast.set') return { status: 'applied', payload: {} }
-      if (method === 'threads.messages.around') return { schemaVersion: 1, threadId: state.snapshot.thread.id, anchorMessageId: input.messageId,
-        messages: state.snapshot.messages, hasEarlier: false, hasLater: false }
+      if (method === 'thread.messages.around') return { schemaVersion: 1, threadId: state.snapshot.thread.id, anchorMessageId: input.messageId,
+        sourceAvailable: [...state.snapshot.messages, ...controls.hiddenMessages].some((message: any) => message.id === input.messageId),
+        messages: [...state.snapshot.messages, ...controls.hiddenMessages], hasEarlier: false, hasLater: false }
       if (method === 'agentRunEvidence.getContent') {
         const e = state.snapshot.executionEvidence.find((x: any) => x.id === input.evidenceId)
         return { payload: e?.payload || {}, canonical: e?.canonical || null }

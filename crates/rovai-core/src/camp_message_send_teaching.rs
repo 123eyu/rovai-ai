@@ -1,12 +1,13 @@
 pub const CAMP_MESSAGE_SEND_SUMMARY: &str = "Publish one public Thread message. Use --public-only when the message must not address any Agent; it prevents Agent addressing, creates no Agent Delivery, and wakes no Agent. Without --public-only, --to may schedule Agents. Agent addressing schedules concrete continuing work, not CC; never use it for acknowledgement, agreement, thanks, closure, standby, no-new-information, or repeated conclusions. Ordinary public messages are already visible to the User. Use --to-user only for a new unresolved User decision, answer, or action, or an explicitly requested important-result notification. Always inspect agentAddressingMode, effectiveRecipients, and deliveryIds. A successful send proves only that its message and effects were committed; it does not prove recipient work has started or completed.";
 
-pub const CAMP_MESSAGE_SEND_FILE_HELP: &str = "Attach a recipient-facing file or directory at its actual path; repeat to preserve attachment order. Rovai references the current file without copying or changing permissions. Temporary files may become unavailable when their source is cleaned up.";
+pub const CAMP_MESSAGE_SEND_FILE_HELP: &str = "Prefer Markdown file links; use --file for requested attachments or channel file delivery. --file accepts files or directories; repeat for multiple attachments.";
 
 pub const CAMP_MESSAGE_SEND_INPUT_HELP: &str =
     "Input: direct flags, or --input-file <path> with send flags except --body.";
 
-pub const CAMP_MESSAGE_SEND_BODY_HELP: &str = "Use --body for simple single-line text; \\n remains literal.\n\
-     For multiline, Markdown, or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.";
+pub const CAMP_MESSAGE_SEND_BODY_HELP: &str = "Use --body for simple single-line text, including Markdown; \\n remains literal.\n\
+     For multiline or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.\n\
+     After a successful send, delete files you created solely as temporary input for that send.";
 
 pub const CAMP_MESSAGE_SEND_PUBLIC_ONLY_SCHEMA_DESCRIPTION: &str = "Guarantee that this public Thread message addresses no Agent. When true, explicit Agent recipients and taskId are invalid, effectiveRecipients and deliveryIds are empty, and no Agent is woken. This may be combined with mentionUser because User attention is not Agent routing.";
 
@@ -30,8 +31,9 @@ Ordinary public Thread messages are already visible to the User. Use this flag o
 
 It creates no Agent Delivery, does not represent approval, and may be combined with --public-only. User attention is message-local and is never inherited by replies, Tasks, or downstream A2A work.";
 
-pub const CAMP_MESSAGE_SEND_HELP_EXAMPLES: [&str; 3] = [
-    "Write reply.md:\n  Result:\n\n  Updated `src/example.rs`.\nAfter the write succeeds:\n  rovai send --public-only --input-file reply.md",
+pub const CAMP_MESSAGE_SEND_HELP_EXAMPLES: [&str; 4] = [
+    "rovai send --public-only --body 'Updated [src/example.rs](src/example.rs).'",
+    "Write a temporary body file (e.g. reply.md):\n  Result:\n\n  Updated [src/example.rs](src/example.rs).\nAfter the write succeeds:\n  rovai send --public-only --input-file reply.md",
     "rovai send --to agent_5 --body 'Please reproduce on the previous client build and return the version and result.'",
     "rovai send --public-only --to-user --body 'Please choose whether to roll back the client or continue the token investigation.'",
 ];
@@ -85,20 +87,27 @@ mod tests {
         }
         assert_eq!(
             CAMP_MESSAGE_SEND_FILE_HELP,
-            "Attach a recipient-facing file or directory at its actual path; repeat to preserve attachment order. Rovai references the current file without copying or changing permissions. Temporary files may become unavailable when their source is cleaned up."
+            "Prefer Markdown file links; use --file for requested attachments or channel file delivery. --file accepts files or directories; repeat for multiple attachments."
         );
     }
 
     #[test]
     fn examples_keep_public_agent_and_principal_attention_separate() {
-        assert_eq!(CAMP_MESSAGE_SEND_HELP_EXAMPLES.len(), 3);
-        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[0].contains("--input-file reply.md"));
+        assert_eq!(CAMP_MESSAGE_SEND_HELP_EXAMPLES.len(), 4);
+        assert_eq!(
+            CAMP_MESSAGE_SEND_HELP_EXAMPLES[0],
+            "rovai send --public-only --body 'Updated [src/example.rs](src/example.rs).'"
+        );
         assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[0].contains("--public-only"));
-        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[1].contains("--to agent_5"));
+        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[1].contains("e.g. reply.md"));
+        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[1].contains("--input-file reply.md"));
+        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[1].contains("--public-only"));
         assert!(!CAMP_MESSAGE_SEND_HELP_EXAMPLES[1].contains("--to-user"));
-        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[2].contains("--public-only"));
-        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[2].contains("--to-user"));
-        assert!(!CAMP_MESSAGE_SEND_HELP_EXAMPLES[2].contains("--to agent_5"));
+        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[2].contains("--to agent_5"));
+        assert!(!CAMP_MESSAGE_SEND_HELP_EXAMPLES[2].contains("--to-user"));
+        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[3].contains("--public-only"));
+        assert!(CAMP_MESSAGE_SEND_HELP_EXAMPLES[3].contains("--to-user"));
+        assert!(!CAMP_MESSAGE_SEND_HELP_EXAMPLES[3].contains("--to agent_5"));
         assert!(
             CAMP_MESSAGE_SEND_HELP_EXAMPLES
                 .iter()

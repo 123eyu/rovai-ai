@@ -268,7 +268,7 @@ Examples:
 
 ## 验证
 
-本轮只验证提案文本与当前源码对应关系、文件链接和文档结构，不启动 App、Core 或真实 Runtime。
+提案阶段只验证文本与当前源码对应关系、文件链接和文档结构；实施验证结果另行追加，不重写已确认文本。
 
 实施后复用现有测试 owner，优先扩展已有矩阵；新增/删除 Rust 测试前遵循
 [测试准入规则](../../development/testing.md#rust-测试准入与退役门槛)：
@@ -310,7 +310,7 @@ Front Matter 已记录 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3`
 - Branch：`rovai/send-file-guidance`。
 - Base：`origin/main@3979e32ec4834ce5fc02cd72309bbd7b5cd800c6`；已 fetch 并核对与本次审阅源码一致。
 - Governance：R3 已由 User 消息 19 确认；无要求先合入 main 的独立治理提交。
-- Status：active，按已确认 R3 实施；沿用此 worktree。
+- Status：ready，R3 已实施，确定性检查通过；通用 Gate 证据不足，保留 worktree 等待收口。
 - R1 Validation：正文/附件帮助、首例、删除段及渠道原文逐字匹配源码；`git diff --cached --check` 通过。
   `node --test scripts/lib/doc-decisions.test.mjs` 10/10 通过；带真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
@@ -326,4 +326,40 @@ Front Matter 已记录 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3`
   `git diff --check`、`pnpm docs:test`（10/10）及带上述真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
   `pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因本稿缺少四项二次确认记录而未通过。
-- Next：实施并验证已确认 R3，创建 PR，门禁通过后合入 main 并清理 worktree。
+- Next：提交 PR；通用 Gate 收口或取得明确例外决定后合入 main，再清理 worktree。
+
+## 实施与验证记录（2026-10-16）
+
+已逐字实现 R3 的 BODY_HELP、FILE_HELP 和四个示例；编译后的完整 `rovai send --help`
+与本稿审阅块逐字一致。Send reference 仅删除末尾 Files 段；共享 Charter、Single Chat 模板与渠道提示
+原文均与基线逐字相同。渠道选择扩到三个 provider，Charter revision 为 23，其余版本轴及冻结边界保持。
+当前 Send v27、Lark v1、Architecture 和版本入口已同步；无迁移、自动删除或新增归档行为。
+
+复用现有 Rust owner，没有新增、删除或忽略测试：
+
+- `pnpm test:rust:pr`：473 项通过、0 失败、1 项原有 ignored，包含 CLI 的 31 项测试。
+- `pnpm test:send-input-file`：1 项进程回归通过，正文输入与 CLI 不自动删除的边界保持。
+- `session_charter_publishes_one_cli_only_builtin_contract`：三渠道 × 两种 Thread scope × active/closed，
+  加未知 provider、无绑定与 Single Chat 负向检查通过。
+- `newly_bound_session_bootstraps_on_its_current_generation` 与
+  `replacement_binding_bootstrap_keeps_history_on_demand_after_the_accepted_watermark`：各 1 项通过。
+  三个 Context owner 均显式使用 `--features slow-tests --lib`，没有把零测试命中算作通过。
+- `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`（10 项）、
+  带真实 base 的 `pnpm docs:check:ci` 与 `pnpm skills:check` 通过。
+
+通用 Gate 使用冻结的 `context-regression@2.12.0`、12 Case、新旧各一次与原定预算。
+attempt-01 新旧合同检查均 25/25 通过；24 个试跑均在 dispatch 前以
+`frozen member Runtime drifted: agent_1` 结束，没有实际模型执行。复用配置中的 Judge 为空，
+语义评测未运行。报告为 `insufficient`、54 项 evidence gaps；空 regressions 不证明模型行为无回归。
+没有修改冻结基线、Case、标准或删除失败尝试，也不将确定性测试代替完整通用 Gate。
+另起隔离 Core 诊断确认实际 adapter、model 与 permissions 均与冻结配置相同；成员 readiness 为
+`installed_unverified`，Runner 的启动前断言只接受 `ready`，因而报告 Runtime drift。
+诊断 Core 已退出；未在本项修改 Runner 或放宽其断言。
+
+私有证据保存在本 Thread 的 `send-file-guidance-r3-validation` 目录，含构建、逐项日志、冻结计划与
+`generic-gate/index.html`、`attempt-01/report.html`、JSON。已核对报告结论、全部 slot、证据缺口与本地链接。
+报告 JSON SHA-256：`a7d9bf1d68fca523c43e799bfd00c6ec6201609f2b83aae93286bde67c34a45c`。
+基线生产源码摘要：`b247a282669595f189dd69ebc316333339f1da52f08853a587e6336e97324e86`；
+候选生产源码摘要：`0f48b1a28a0c5178499ae75b829957f108c6a1b84ebc09a0f6d27aa9dc370c0f`。
+候选产物基于确认提交 `1a882e31` 加本次生产 diff；完整文件摘要保存在 `candidate-build/product.json`。
+未进行真实飞书/Lark/钉钉平台交付验收，未安装或重启日常 App。

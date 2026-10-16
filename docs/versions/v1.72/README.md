@@ -6,10 +6,25 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## Send 文件引用与三渠道提示（2026-10-16）
+
+按 User 消息 19 确认的 [R3](model-context-change-send-file-guidance.md)实施：普通引用优先 Markdown，
+单行 Markdown 直接使用 `--body`；临时正文仅在发送成功后由创建它的 Agent 清理。
+文件名标为示例，附件用于明确请求或渠道交付，Send reference 删除重复 Files 段。
+飞书、Lark、钉钉的 active Thread binding 共用原有文件交付提示；Charter revision 23，
+Binding compatibility 16 不变，既有 Bootstrap 保持冻结。当前规范见
+[Send v27](../../contracts/camp-message-send-v27.md#agent-文件引用与发送教学)与
+[Lark v1](../../contracts/lark-channel-v1.md)。验证与收口状态追加在 R3 的实施记录。
+
+本项九范围复核：Version lifecycle 保持 v1.72；属于可逆教学调整，无新增 Version Decision；
+Contracts、Architecture 与 Documentation routing 已同步上述选择条件和当前入口；
+UI、Runtime Activity、Root README 无需更新；Runtime compatibility 保持旧 Binding，
+只有新 Bootstrap 采用扩展后的渠道条件。
 
 ## 智能体已知版本保留（2026-10-15）
 
@@ -499,7 +514,7 @@ main 原 Migration 178 / schema 128 只扩展新 Context 的准入；与指标�
 - Renderer 增加 Lark 页签、会话来源前缀与未验收提示；自动化通知可以选择 Lark。
 - Lark 话题派发沿用群 roster 新鲜度和成员存在性检查，刷新请求与 Bot 发布状态均按 provider 隔离。
 - Lark 入站图片与文件复用共享持久下载队列，以独立 Host 完成请求结算，下载完成后作为 Source Ref 进入 Agent 输入；真实租户文件收发仍待验收。
-- 不改变 Lark 绑定 Camp 的模型提示。绑定时不注入飞书文件交付提示；扩展该提示需要独立的核心模型上下文变更与二次确认。
+- Lark 绑定 Thread 按已确认的 [Send R3](model-context-change-send-file-guidance.md)注入渠道文件交付提示，沿用飞书原文与冻结 Bootstrap 边界。
 - 不宣称支持 Lark。登录协议、控制台发布与客户端交互在真实 Lark 租户逐项验收前保持未验证。
 
 字段与请求面见 [Lark Channel v1](../../contracts/lark-channel-v1.md)，飞书收窄见
@@ -519,7 +534,6 @@ Migration 176，数据合同为 v1.72 / schema 126。实施计划中的 S1 到 S
 未决事项：
 
 - 真实 Lark 租户逐项验收：扫码连接和基础对话已由 Principal 手工跑通，逐项证据见[真实租户验收记录](lark-tenant-qualification.md)。
-- Lark 绑定 Camp 是否也注入文件交付提示。需要 Principal 看过独立的模型上下文变更说明后二次确认，本版默认不注入。
 - 编号：上游作者已在 Issue #523 确认独立 provider 的边界，并约定版本号顺位继承、合并冲突时再处理。#517 先合入并占用
   v1.70 与 Migration 173；随后 #549 使用 v1.71 与 Migration 175，本版使用 v1.72 与 Migration 176。
 

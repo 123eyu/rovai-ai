@@ -5,7 +5,7 @@ authority: lark-channel-provider-identity-storage-login-and-runtime-domain
 status: accepted
 version: 1
 source_version: v1.72
-last_updated: 2026-09-27
+last_updated: 2026-10-16
 ---
 
 # Lark Channel v1
@@ -164,10 +164,12 @@ Lark 入站消息与飞书使用同一资源提取、持久等待队列和消息
 
 ## 7. 模型上下文
 
-本版不改变任何模型可见内容。Lark 绑定的 Camp 不注入飞书文件交付提示；判断该提示的条件仍精确匹配
-`provider = 'feishu'`。把该提示扩展到 Lark 属于核心模型上下文变更，必须按
-[核心模型上下文变更治理](../development/model-context-change-governance.md)建立独立说明并取得开发者二次确认。
-在此之前，Agent 显式使用 `rovai send --file` 时 Lark 仍按继承的附件投递合同发送。
+按 User 已确认的 [R3](../versions/v1.72/model-context-change-send-file-guidance.md)，新公共 Session Bootstrap
+对 active `feishu | lark | dingtalk` 绑定统一追加既有文件交付提示；正文见
+[Send v27](camp-message-send-v27.md#agent-文件引用与发送教学)。提示只要求在收件人需要文件本身时使用 `--file`，
+与普通引用优先 Markdown 一致。Single Chat、closed、无绑定和未知 provider 不追加。
+Charter revision 为 23，既有 Session 保留冻结的 Bootstrap；不新增动态字段或强制轮换。
+Lark 显式文件外发继续使用继承的附件投递合同。
 
 ## 8. 能力 Gate
 

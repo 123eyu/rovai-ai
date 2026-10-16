@@ -2,25 +2,29 @@
 document_type: model-context-change
 version: v1.72
 change_id: send-file-guidance
-revision: 2
+revision: 3
 confirmation_status: pending
 implementation_status: proposed
 source_commit: 3979e32ec4834ce5fc02cd72309bbd7b5cd800c6
 last_updated: 2026-10-16
 ---
 
-# Send 文件引用、临时正文清理与渠道提示：R2
+# Send 文件引用、临时正文清理与渠道提示：R3
 
 本稿供 User 审阅精确上下文差异，尚未修改产品提示词、实现或当前合同。
 需求来自 Thread `rvcamp_01m51tzyg3emhrkdf78r95pzgt` 消息 5
 （`2321c468-93a1-45c8-86eb-9c470dcf6536`）；R2 按消息 7
 （`2c1b26d5-f7c8-43ad-bd56-7473ee815568`）精简附件帮助，并明确临时正文文件名仅为示例。
+R3 根据消息 11（`a64238d5-017c-4ce4-8966-6f874e833b42`）和消息 13
+（`1c49f3de-ebed-44d7-b12e-07c51cf90fec`）的审阅问题，提出删除归档句、优先直接发送单行 Markdown，
+并展示完整 CLI help；这些调整仍为提案。
 
 ## 选择与冲突处理
 
+- 简单单行正文（包括 Markdown）使用 `--body`；多行或复杂正文再使用临时输入文件。
 - 临时正文清理只作用于 Agent 自己创建、用途仅为消息输入的临时文件，并以发送成功为前提。
 - 普通文件引用默认使用显式 Markdown 链接；用户要求附件，或外部渠道需要交付文件本身时使用 `--file`。
-- ZIP 等归档仅在用户要求或实际交付需要时生成。保留后一条件，因为当前钉钉适配器对普通文件有格式白名单。
+- 通用帮助不单独增加归档规则；用默认 Markdown 引用引导减少普通消息的附件交付，渠道格式限制仍按既有能力处理。
 - 飞书、Lark、钉钉共用已有渠道提示正文，只扩展注入条件；不增加渠道名称列表或客户端类型字段给模型。
 - 操作细节集中到 `send --help`；删除 Send reference 的重复 Files 段，沿用其第一行已有的 exact-help 入口。
 
@@ -30,11 +34,12 @@ last_updated: 2026-10-16
 
 | 场景 | 预期行为 |
 | --- | --- |
+| 简单单行 Markdown 正文 | 直接用 `--body`，无需为了 Markdown 本身创建临时正文文件 |
+| 多行或复杂正文 | 写入临时正文文件，通过 `--input-file` 读取正文 |
 | Desktop/WebUI/MobileUI 指向已有代码、报告或生成文件 | Markdown 文件链接；文件继续保留 |
 | 用户明确要求附件 | `--file`，允许同时在正文解释文件 |
 | 任一已绑定渠道的收件人需要文件本身 | `--file`；仅贴本地链接不能完成交付 |
 | 渠道中的普通进度说明或代码路径引用 | 普通正文；不会因“有渠道”就自动附加文件 |
-| 用户要求归档，或渠道格式等实际交付约束需要归档 | 生成归档再交付；不会为普通文件引用默认生成 ZIP |
 | 自建临时正文发送成功 | 删除仅用于消息输入的临时文件 |
 | 发送失败、结果不明、现有文档、已链接或已附加的文件 | 不因本清理规则删除；继续按现有恢复和文件生命周期处理 |
 
@@ -42,9 +47,9 @@ last_updated: 2026-10-16
 
 | 入口 | 本稿变化 |
 | --- | --- |
-| `camp_message_send_teaching.rs` 的 BODY_HELP | 保留现有两句，追加一句成功后清理 |
-| 同文件 FILE_HELP | 仅保留文件选择、按需归档、文件/目录与重复参数用法 |
-| 同文件第一个 HELP_EXAMPLE | 明确临时正文及示例文件名，将反引号路径改成 Markdown 链接 |
+| `camp_message_send_teaching.rs` 的 BODY_HELP | 明确单行 Markdown 可用 `--body`，文件输入仅用于多行或复杂正文；追加成功后清理 |
+| 同文件 FILE_HELP | 仅保留文件选择、文件/目录与重复参数用法 |
+| 同文件 HELP_EXAMPLES | 首例直接发送 Markdown 链接；原首例移为多行正文次例，注明临时示例文件名；共四例 |
 | `cli-operations/references/send.md` | 删除末尾 Files 段；其余全文不变 |
 | `context.rs` 的渠道 Charter 后缀 | 正文逐字不变，active binding 准入从飞书扩到三个现有 provider |
 | 公共 Charter 主文、Single Chat、Mission 后缀、其他 Skill、Runtime 专属指导 | 不变 |
@@ -103,25 +108,35 @@ Single Chat 仍使用专用 Charter，不追加。
 ### 正文帮助
 
 ```text
-Use --body for simple single-line text; \n remains literal.
-For multiline, Markdown, or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.
+Use --body for simple single-line text, including Markdown; \n remains literal.
+For multiline or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.
 After a successful send, delete files you created solely as temporary input for that send.
 ```
 
+去掉“所有 Markdown 都先写文件”的引导，与下面直接发送 Markdown 的首例一致。
 `solely as temporary input for that send` 将清理限定为本次发送，排除正文引用目标、附件、用户已有文档以及同时承担其他用途的文件。
 这是 Agent 清理教学，不给 CLI 增加自动删除行为、目录限制或新选项。
 
 ### 附件帮助
 
 ```text
-Prefer Markdown file links; use --file for requested attachments or channel file delivery. Archive only when requested or required for delivery. --file accepts files or directories; repeat for multiple attachments.
+Prefer Markdown file links; use --file for requested attachments or channel file delivery. --file accepts files or directories; repeat for multiple attachments.
 ```
 
 第一句同时给出默认方式和附件适用条件。帮助只保留选择规则与必要用法，删除复制、权限和源文件保留说明；
 实际原路径引用语义不变。清理范围已由正文帮助中的 `solely as temporary input for that send` 限定，
 无需再为交付文件重复增加保留指令。路径可访问、预览类型、相对路径基准仍由现有文件预览实现决定。
+R3 删除 R2 的 `Archive only when requested or required for delivery.`，通用帮助不再要求模型另行判断归档条件。
 
-### 首个普通发送示例
+### 普通发送示例
+
+第一例直接发送带 Markdown 文件链接的单行正文：
+
+```text
+rovai send --public-only --body 'Updated [src/example.rs](src/example.rs).'
+```
+
+第二例保留多行正文的临时文件写法：
 
 ```text
 Write a temporary body file (e.g. reply.md):
@@ -133,7 +148,7 @@ After the write succeeds:
 ```
 
 `e.g.` 表明 `reply.md` 只是示例文件名，不增加固定命名要求。
-仍保留“写入成功后再发送”，清理规则只在正文帮助中说明一次。其余两个示例逐字不变：
+仍保留“写入成功后再发送”，清理规则只在正文帮助中说明一次。总示例数由三改为四，其余两个寻址示例逐字不变：
 
 ```text
 rovai send --to agent_5 --body 'Please reproduce on the previous client build and return the version and result.'
@@ -171,6 +186,54 @@ Quick Chat/项目会话共用 Camp 级判断，不根据当前使用 Desktop、W
 
 三个渠道的追加正文完全一致；Lark/钉钉的文件外发能力本来就存在，本稿不修改外发协议。
 
+## 审阅用完整 `rovai send --help`
+
+下列为 R3 实施后的完整帮助草案；由本次实际 CLI 输出仅替换上述正文帮助、附件帮助和示例构成。
+Markdown 是正文格式；`--body` 和 `--input-file` 是输入方式；`--file` 才是附件交付。
+
+```text
+rovai send
+Publish one public Thread message. Use --public-only when the message must not address any Agent; it prevents Agent addressing, creates no Agent Delivery, and wakes no Agent. Without --public-only, --to may schedule Agents. Agent addressing schedules concrete continuing work, not CC; never use it for acknowledgement, agreement, thanks, closure, standby, no-new-information, or repeated conclusions. Ordinary public messages are already visible to the User. Use --to-user only for a new unresolved User decision, answer, or action, or an explicitly requested important-result notification. Always inspect agentAddressingMode, effectiveRecipients, and deliveryIds. A successful send proves only that its message and effects were committed; it does not prove recipient work has started or completed.
+
+Input: direct flags, or --input-file <path> with send flags except --body.
+
+  --body                       field=body type=string
+      Use --body for simple single-line text, including Markdown; \n remains literal.
+      For multiline or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.
+      After a successful send, delete files you created solely as temporary input for that send.
+  --file                       field=files type=array repeatable
+      Prefer Markdown file links; use --file for requested attachments or channel file delivery. --file accepts files or directories; repeat for multiple attachments.
+  --to-user                    field=mentionUser type=boolean
+      Mention the User and create an Inbox notification.
+
+      Ordinary public Thread messages are already visible to the User. Use this flag only when the message creates a new unresolved decision, answer, or action for the User, or when the User explicitly requested notification of an important result.
+
+      It creates no Agent Delivery, does not represent approval, and may be combined with --public-only. User attention is message-local and is never inherited by replies, Tasks, or downstream A2A work.
+  --public-only                field=publicOnly type=boolean
+      Guarantee that this public message wakes no Agent.
+
+      effectiveRecipients and deliveryIds are empty, and no Agent Delivery is created.
+
+      Do not combine this option with --to or --task-id. It may be combined with --to-user.
+  --task-id                    field=taskId type=string
+  --to                         field=to type=array repeatable
+      Explicit Agent recipient to wake; repeat as needed.
+      Agent addressing schedules concrete continuing work, not CC.
+      Do not use it for acknowledgement, agreement, thanks, closure, standby, no-new-information, or a repeated conclusion.
+      This option is invalid with --public-only.
+
+Examples:
+  rovai send --public-only --body 'Updated [src/example.rs](src/example.rs).'
+  Write a temporary body file (e.g. reply.md):
+    Result:
+
+    Updated [src/example.rs](src/example.rs).
+  After the write succeeds:
+    rovai send --public-only --input-file reply.md
+  rovai send --to agent_5 --body 'Please reproduce on the previous client build and return the version and result.'
+  rovai send --public-only --to-user --body 'Please choose whether to roll back the client or continue the token investigation.'
+```
+
 ## 明确不变
 
 - 不增加 `RUN_INPUT`、`RUN_FACTS` 或其他动态字段；不把渠道来源推断交给模型。
@@ -183,7 +246,7 @@ Quick Chat/项目会话共用 Camp 级判断，不根据当前使用 Desktop、W
 
 ## 版本轴、合同与兼容
 
-| 项目 | R2 计划 |
+| 项目 | R3 计划 |
 | --- | --- |
 | 当前产品版本 | 沿用版本索引的 v1.72 |
 | Session Charter revision | 22 → 23，记录渠道后缀准入扩展 |
@@ -206,13 +269,14 @@ Quick Chat/项目会话共用 Camp 级判断，不根据当前使用 Desktop、W
 实施后复用现有测试 owner，优先扩展已有矩阵；新增/删除 Rust 测试前遵循
 [测试准入规则](../../development/testing.md#rust-测试准入与退役门槛)：
 
-1. Send help：完整文本、临时正文提示、Markdown 首例、另外两个寻址示例保持；
+1. Send help：完整文本、单行 Markdown 的 `--body` 引导及首例、临时正文清理及多行次例、总计四例和两个寻址示例保持；
    命令检查使用 `cargo test -p rovai-core --lib camp_message_send_teaching::tests::` 与
    `cargo test -p rovai-core --bin rovai`。
 2. CLI 文件输入：使用 `pnpm test:send-input-file` 确认正文保真及 CLI 不删除输入，避免把 Agent 教学实现成破坏性 CLI 行为。
 3. Context：扩展现有 provider × Quick Chat/项目 × active/closed 矩阵；三 provider active 各追加一次，
    inactive/无绑定/未知 provider/Single Chat 不追加。既有 Bootstrap 不因绑定创建、关闭或实现升级被重写。
-4. 文案与选择：检查普通引用无需附件/ZIP、请求附件与渠道文件交付仍可用；临时输入清理不能删除交付目标，失败与未知结果不能视为成功。
+4. 文案与选择：检查单行 Markdown 无需临时正文文件、普通引用无需附件/ZIP、请求附件与渠道文件交付仍可用；
+   临时输入清理不能删除交付目标，失败与未知结果不能视为成功。删除归档句不代表实现了自动打包限制。
 5. 文档/Skill：`pnpm docs:test`、`pnpm docs:check`、`DOCS_BASE_REF=<实际 base SHA> pnpm docs:check:ci`、`pnpm skills:check`。
 
 本稿同时改变共享 help、`cli-operations` reference 与 Bootstrap 选择，实施后按
@@ -226,17 +290,17 @@ baseline/candidate 各一次 repetition，使用相同明确冻结的既有 Runt
 
 ## 二次确认
 
-状态：待 User 审阅并明确确认 R2。消息 5 要求前后对照，消息 7 要求文案精简，均不是对本稿完整文本的二次确认。
+状态：待 User 审阅并明确确认 R3。消息 5/7/9/11/13 是对照、精简或解释请求，均不是对本稿完整文本的二次确认。
 确认前只保存本提案，不修改实现、Schema、当前合同或执行 clean break。
 依据是[核心模型上下文变更治理](../../development/model-context-change-governance.md)中的：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
 
-确认后填写真实 `confirmed_by`、`confirmed_at`、`confirmed_revision: 2` 与来源消息；语义变化则递增 revision。
+确认后填写真实 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3` 与来源消息；语义变化则递增 revision。
 未确认提案触发文档门禁的 confirmation 检查属于预期状态，不伪造确认或为本次变更加 checker 例外。
 
 ## 工作记录
 
-- Work item：Send 文件教学及三渠道 Charter 的 R2 前后对照。
+- Work item：Send 文件教学及三渠道 Charter 的 R3 前后对照和完整 help。
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-send-file-guidance`。
 - Branch：`rovai/send-file-guidance`。
 - Base：`origin/main@3979e32ec4834ce5fc02cd72309bbd7b5cd800c6`；已 fetch 并核对与本次审阅源码一致。
@@ -252,4 +316,9 @@ baseline/candidate 各一次 repetition，使用相同明确冻结的既有 Runt
 - R2 Validation：`git diff --check` 通过；`pnpm docs:test` 10/10 通过；带上述真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
   `pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因本稿缺少四项二次确认记录而未通过。
-- Next：按 User 对 R2 的反馈修订或记录明确确认，再进入已确认范围的实施。
+- R3：删除归档句；明确单行 Markdown 可用 `--body`，将直接发送链接移为首例，临时正文移为第二例；追加完整 help 供审阅。
+- R3 Validation：完整 help 与实际 CLI 输出仅作三处已声明替换后的结果逐字一致，四个示例已核对；
+  `git diff --check`、`pnpm docs:test`（10/10）及带上述真实 base 的
+  `node scripts/check-doc-decisions.mjs --require-base` 通过。
+  `pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因本稿缺少四项二次确认记录而未通过。
+- Next：按 User 对 R3 的反馈修订或记录明确确认，再进入已确认范围的实施。

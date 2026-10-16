@@ -4418,7 +4418,7 @@ button.task-event-card:focus-visible .task-card-chevron { color: var(--brand-ink
 .camp-inspector-member-avatar .member-avatar { --member-avatar-size:40px !important; }
 .camp-inspector-member-copy .camp-member-role { white-space:normal; line-height:1.5; overflow-wrap:anywhere; }
 .camp-member-model-summary { display:flex; max-width:100%; min-width:0; min-height:22px; color:var(--muted); font-size:11px; gap:3px; }
-.camp-member-runtime-label { flex:0 1 auto; min-width:0; font-size:11px; }
+.camp-member-runtime-label { flex:none; min-width:0; max-width:50%; font-size:11px; }
 .camp-member-model-summary .thread-model-summary-copy { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .camp-member-menu { z-index: 210; width: 188px; max-width: calc(100vw - 20px); overflow: hidden; padding: 4px; border: 1px solid var(--line-strong); border-radius: 7px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow-menu); }
 .camp-member-menu-item { display: grid; min-height: 36px; gap: 2px; padding: 6px 8px; border-radius: 5px; outline: 0; cursor: pointer; }

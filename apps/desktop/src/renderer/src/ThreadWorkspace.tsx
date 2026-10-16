@@ -8225,34 +8225,40 @@ function MentionProfilePopover({
               <article className="identity-card">
                 <header className="identity-card-header">
                   <MemberAvatar agentId={profile.agentId} avatarRef={profile.avatarRef} displayName={profile.displayName}
-                    size="profile" decorative className="identity-card-avatar" />
+                    size="profile" decorative />
                   <div className="identity-card-heading">
-                    <div className="identity-card-title">
-                      <h2>{profile.displayName}</h2>
-                      <span className={`identity-card-presence presence-${profile.presence}`}><i aria-hidden="true" />{mentionPresenceLabel(profile.presence)}</span>
-                    </div>
+                    <h2>{profile.displayName}</h2>
                     {profile.teamRole.trim() && <p>{profile.teamRole}</p>}
+                    <span className={`identity-card-presence presence-${profile.presence}`}>
+                      <i aria-hidden="true" />{mentionPresenceLabel(profile.presence)}
+                    </span>
                   </div>
                   <button className="identity-card-close" type="button" aria-label={uiAttribute('关闭身份卡')} onClick={() => onClose(true)}>
                     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
                   </button>
                 </header>
-                <section className="identity-card-responsibilities">
+                {profile.professionalResponsibilities.trim() && <section className="identity-card-responsibilities">
                   <h3><UiText zh="专业职责" /></h3>
-                  <p>{profile.professionalResponsibilities.trim() || uiAttribute('未设置')}</p>
-                </section>
-                <div className="identity-card-runtime">
-                  <dl className="thread-model-fields"><div><dt><UiText zh="智能体" /></dt><dd className={`runtime-${profile.runtimeReadiness.status}`}>{mentionRuntimeLabel(profile)}</dd></div></dl>
-                  <ProfileModelFields profile={profile} installations={installations} />
-                </div>
+                  <p>{profile.professionalResponsibilities}</p>
+                </section>}
                 {(profile.personalityTraits.length > 0 || profile.workingPrinciples.trim() || profile.growthTopic.trim()) && <details className="identity-card-more">
-                  <summary><span><UiText zh="更多设定" /></span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg></summary>
+                  <summary>
+                    <span><UiText zh="更多设定" /></span>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 5 5 5-5 5" /></svg>
+                  </summary>
                   <dl>
                     {profile.personalityTraits.length > 0 && <div><dt><UiText zh="性格底色" /></dt><dd className="identity-card-traits">{profile.personalityTraits.map(trait => <span key={trait}>{trait}</span>)}</dd></div>}
                     {profile.workingPrinciples.trim() && <div><dt><UiText zh="工作准则" /></dt><dd>{profile.workingPrinciples}</dd></div>}
                     {profile.growthTopic.trim() && <div><dt><UiText zh="成长课题" /></dt><dd>{profile.growthTopic}</dd></div>}
                   </dl>
                 </details>}
+                <footer className="identity-card-runtime" aria-label={uiAttribute('运行配置')}>
+                  <div className="identity-card-runtime-title">
+                    <span className="identity-card-runtime-label"><UiText zh="智能体" /></span>
+                    <span className={`identity-card-runtime-value runtime-${profile.runtimeReadiness.status}`}>{mentionRuntimeLabel(profile)}</span>
+                  </div>
+                  <ProfileModelFields profile={profile} installations={installations} />
+                </footer>
               </article>
             )
           : request.target.kind === 'all_members'
@@ -8689,12 +8695,14 @@ function ThreadMembersPanel({
                   <strong>{member.displayName}</strong>
                   {member.isDefaultLead && <small><UiText zh={"队长"} /></small>}
                 </span>
-                <small title={member.teamRole || undefined}>{runtimeLabel}</small>
+                {member.teamRole.trim() && <small className="camp-member-role" title={member.teamRole}>{member.teamRole}</small>}
+                {!runtimeConfiguration && <small>{runtimeLabel}</small>}
                 {runtimeConfiguration && <button type="button" className="camp-member-model-summary"
                   aria-label={uiAttribute('{0}的模型信息', member.displayName)}
                   aria-expanded={runtimeDetailsOpen} aria-controls={runtimeDetailsId}
-                  title={modelSummary(runtimeConfiguration)}
+                  title={`${runtimeLabel} · ${modelSummary(runtimeConfiguration)}`}
                   onClick={() => toggleRuntimeDetails(member.agentId)}>
+                  <span className="camp-member-runtime-label">{runtimeLabel}<span aria-hidden="true"> · </span></span>
                   <ModelSummaryText presentation={runtimeConfiguration} />
                   <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m6 4 4 4-4 4" /></svg>
                 </button>}
@@ -8780,7 +8788,12 @@ function ThreadMembersPanel({
       <Dialog.Root open={addDialogOpen} onOpenChange={(open) => !open && closeAddDialog()}>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay app-dialog-overlay" />
-          <AppDialogContent className="camp-member-dialog" width="wide" aria-describedby="camp-add-member-description">
+          <AppDialogContent className="camp-member-dialog" width="wide" aria-describedby="camp-add-member-description"
+            onOpenAutoFocus={mobile ? event => {
+              // Let touch users browse first; search focuses only after an explicit tap.
+              event.preventDefault()
+              if (event.target instanceof HTMLElement) event.target.focus({ preventScroll: true })
+            } : undefined}>
             <AppDialogHeader
               title={uiAttribute("邀请队员")}
               description={uiAttribute("选择要加入这次讨论的队员。")}
@@ -8798,6 +8811,7 @@ function ThreadMembersPanel({
                 <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
                 <input
                   type="search"
+                  aria-label={uiAttribute("搜索队员")}
                   placeholder={uiAttribute("搜索队员…")}
                   value={addSearch}
                   data-dialog-autofocus
@@ -8814,28 +8828,29 @@ function ThreadMembersPanel({
                   const failure = addResult?.failures.get(profile.agentId) ?? null
                   const checked = selectedCandidateIds.has(profile.agentId)
                   return (
-                    <div className="camp-member-candidate-entry" key={profile.agentId}>
+                    <div className="camp-member-candidate-entry" key={profile.agentId} data-selected={checked}>
                       <label className="camp-member-candidate-row">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={addSubmitting}
-                          onChange={() => toggleCandidate(profile.agentId)}
-                        />
-                        <MemberAvatar agentId={profile.agentId} avatarRef={profile.avatarRef} displayName={profile.displayName} size="list" decorative />
-                        <span className="camp-member-candidate-copy">
-                          <strong>{profile.displayName}<small>{profile.teamRole || uiAttribute('团队角色未设置')}</small></strong>
-                          <small>{profile.professionalResponsibilities || uiAttribute('职责尚未填写')}</small>
-                        </span>
-                        <span className={`camp-member-candidate-runtime ${profile.runtimeReadiness.status === 'ready' ? 'is-ready' : 'is-attention'}`}>
-                          <i aria-hidden="true" />{mentionRuntimeLabel(profile)}
+                        <input type="checkbox" checked={checked} disabled={addSubmitting}
+                          onChange={() => toggleCandidate(profile.agentId)} aria-label={uiAttribute('选择{0}', profile.displayName)} />
+                        <MemberAvatar agentId={profile.agentId} avatarRef={profile.avatarRef} displayName={profile.displayName} size="picker" decorative />
+                        <span className="camp-member-candidate-identity">
+                          <strong>{profile.displayName}</strong>
+                          {profile.teamRole.trim() && <span>{profile.teamRole}</span>}
                         </span>
                       </label>
-                      <details className="camp-member-invite-detail">
-                        <summary><UiText zh={"职责"} /></summary>
-                        <p>{profile.professionalResponsibilities || uiAttribute('职责尚未填写')}</p>
-                      </details>
-                      {failure && <div className="camp-member-candidate-error" role="alert">{failure}</div>}
+                      {profile.professionalResponsibilities.trim()
+                        ? <details className="camp-member-invite-detail">
+                            <summary>
+                              <span>{mentionRuntimeLabel(profile)}</span>
+                              <span className="camp-member-invite-detail-label">
+                                <UiText zh="职责" />
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m5 6 3 3 3-3" /></svg>
+                              </span>
+                            </summary>
+                            <p>{profile.professionalResponsibilities}</p>
+                          </details>
+                        : <div className="camp-member-candidate-meta">{mentionRuntimeLabel(profile)}</div>}
+                      {failure && <p className="camp-member-candidate-error" role="alert">{failure}</p>}
                     </div>
                   )
                 })}

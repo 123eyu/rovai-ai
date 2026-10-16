@@ -5,7 +5,11 @@ import { optimisticThreadMessage } from '../../../apps/desktop/src/renderer/src/
 import { ThreadWorkspace, type ThreadLeaveGuard } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { loadLocalThreadComposerDraft } from '../../../apps/desktop/src/renderer/src/camp-composer-local-store'
+import { MobileLayoutProvider } from '../../../apps/desktop/src/renderer/src/MobileLayout'
+import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
 import '../../../apps/desktop/src/renderer/src/styles.css'
+import '../../../apps/desktop/src/renderer/src/member-editor.css'
+import '../../../apps/web/src/mobile.css'
 
 // Only the real Renderer and local draft store run here. Core transactions have
 // their own SQLite regression owner; this closed transport never starts a Runtime.
@@ -49,6 +53,7 @@ let visibleSnapshot = initial
 let visibleProfiles = profiles
 let setProfiles: React.Dispatch<React.SetStateAction<AgentProfile[]>>
 let setFixture: React.Dispatch<React.SetStateAction<ThreadSnapshot>>
+let setMobile: React.Dispatch<React.SetStateAction<boolean>>
 let setVisible: React.Dispatch<React.SetStateAction<boolean>>
 const client = {
   platform: 'darwin', onEvent: () => () => {},
@@ -65,6 +70,8 @@ const client = {
   composerAttachments: { discard: async () => {} }
 } as unknown as ThreadClient
 function Fixture() {
+  const [mobile, updateMobile] = useState(false)
+  setMobile = updateMobile
   const [snapshot, setSnapshot] = useState(initial)
   const [currentProfiles, updateProfiles] = useState(profiles)
   const [acceptedMessages, setAcceptedMessages] = useState<ThreadMessageView[]>([])
@@ -73,7 +80,7 @@ function Fixture() {
   const [inspectorVisible, setInspectorVisible] = useState(false)
   const [inspectorTab, setInspectorTab] = useState<'members' | 'tasks'>('members')
   visibleSnapshot = snapshot; visibleProfiles = currentProfiles; setProfiles = updateProfiles; setFixture = setSnapshot; setVisible = show
-  return <ThreadClientProvider client={client}><div>
+  return <MobileLayoutProvider value={mobile}><ThreadClientProvider client={client}><div>
     <header ref={setEntryHost} style={{ height: 40, display: 'flex', justifyContent: 'flex-end' }} />
     <main className="content task-content" style={{ height: 'calc(100vh - 40px)', width: '100vw' }}>
     {visible && <ThreadWorkspace snapshot={snapshot} optimisticMessages={acceptedMessages} agents={currentProfiles} busy={false} stopping={false}
@@ -131,7 +138,7 @@ function Fixture() {
         const addressedAgentIds = mentionedIds.length ? mentionedIds : [draft.continuationIntent?.recipient.agentId ?? snapshot.thread.defaultLeadAgentId!]
         return { threadMessageId: 'published-' + acceptedSends, publishedMessageSequence: acceptedSends, deliveryIds: ['delivery'], agentRunIds: [], addressedAgentIds }
       }} />}
-    </main></div></ThreadClientProvider>
+    </main></div></ThreadClientProvider></MobileLayoutProvider>
 }
 const errors: string[] = []
 window.addEventListener('error', e => errors.push(String(e.error?.stack ?? e.message)))
@@ -146,6 +153,14 @@ Object.assign(window, { invitationTest: {
     draft: loadLocalThreadComposerDraft(threadId),
     button: document.querySelector<HTMLButtonElement>('form.composer:has(#camp-message) button[type="submit"]')?.disabled,
     stored: Object.values(localStorage).join(' ') }),
+  mobile: (value: boolean) => setMobile(value),
+  language: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async () => ({ interfaceLanguage: language }) } as any, language),
+  presentation: () => {
+    setProfiles([...profiles.map(profile => profile.agentId === 'outside'
+      ? { ...profile, professionalResponsibilities: '负责落实界面设计，保留完整职责。'.repeat(8) } : profile),
+      { ...outside, agentId: 'research', displayName: '资料员', teamRole: '研究与核对', professionalResponsibilities: '' }])
+    setFixture({ ...initial, thread: { ...initial.thread, activationState: 'active' } })
+  },
   presence: (presence: AgentProfile['presence']) => setProfiles(current => current.map(profile => profile.agentId === 'outside' ? { ...profile, presence } : profile)),
   readiness: (status: AgentProfile['runtimeReadiness']['status']) => setProfiles(current => current.map(profile => profile.agentId === 'outside'
     ? { ...profile, runtimeConfiguration: status === 'runtime_not_configured' ? null : outside.runtimeConfiguration, runtimeReadiness: { status, blockers: [] } }

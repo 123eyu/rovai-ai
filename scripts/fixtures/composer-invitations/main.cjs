@@ -301,7 +301,54 @@ app.whenReady().then(async () => {
     state = await evaluate('invitationTest.state()')
     assert.ok(state.calls.indexOf('add:outside') < state.calls.indexOf('send'))
     assert.deepEqual(state.errors, [])
-    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'away refresh keeps pending name static', 'removed profile remains unavailable', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send', 'last member removal and CAS conflict refresh', 'empty conversation retains draft and history', 'failed invitation retains selection and retries without sending', 'stale continuation requires explicit recipient repair', 'current explicit mention has no duplicate recipient summary', 'all-away recovery opens member management', 'empty Active native invitation and send'], userData }))
+    // The real invitation owner also renders the accepted desktop and touch composition.
+    await evaluate('invitationTest.hide()')
+    await wait(`!document.querySelector('#camp-message')`)
+    await evaluate('invitationTest.presentation(); invitationTest.show()')
+    await wait(`!!document.querySelector('.camp-detail-entry[data-detail="members"]')`)
+    await click('.camp-detail-entry[data-detail="members"]')
+    await click('.camp-add-member-button')
+    await wait(`document.activeElement === document.querySelector('.camp-member-search-field input')`)
+    assert.equal(await evaluate(`document.querySelectorAll('.camp-member-candidate-row').length`), 2)
+    await click('.camp-member-invite-detail summary')
+    assert.equal(await evaluate(`document.querySelector('.camp-member-invite-detail').open && !document.querySelector('.camp-member-candidate-row input').checked`), true)
+    await click('.camp-member-candidate-row')
+    await click('.camp-member-search-field input')
+    await window.webContents.debugger.sendCommand('Input.insertText', { text: '研究' })
+    await wait(`document.querySelectorAll('.camp-member-candidate-row').length === 1`)
+    assert.match(await evaluate(`document.querySelector('.camp-member-candidate-row').textContent`), /资料员/)
+    assert.match(await evaluate(`document.querySelector('.camp-member-dialog .primary-button').textContent`), /1/)
+    await click('.camp-member-candidate-row')
+    assert.match(await evaluate(`document.querySelector('.camp-member-dialog .primary-button').textContent`), /2/)
+    assert.equal(await evaluate(`!!document.querySelector('.camp-member-invite-detail')`), false, 'Empty responsibilities do not add a disclosure or placeholder')
+    await click('.camp-member-dialog .app-dialog-close')
+    await evaluate('invitationTest.mobile(true)')
+    const sizes = [[375,812], [390,844], [430,932], [844,390], [390,420]]
+    for (const [width,height] of sizes) for (const theme of ['day','night']) {
+      await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:true })
+      await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+      await click('.camp-add-member-button')
+      await wait(`document.activeElement === document.querySelector('.camp-member-dialog')`)
+      await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      const geometry = await evaluate(`(() => {
+        const dialog=document.querySelector('.camp-member-dialog'), footer=dialog.querySelector('.app-dialog-footer'), list=dialog.querySelector('.camp-member-candidate-list');
+        const fits=e=>{const r=e.getBoundingClientRect(); return r.left>=0&&r.top>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&e.scrollWidth<=e.clientWidth+1};
+        return { fits:fits(dialog)&&fits(footer), footerAtBottom:Math.abs(dialog.getBoundingClientRect().bottom-footer.getBoundingClientRect().bottom)<=2,
+          inputSize:getComputedStyle(dialog.querySelector('input[type=search]')).fontSize, listHeight:list.clientHeight,
+          targets:[...dialog.querySelectorAll('.camp-member-candidate-row,.camp-member-invite-detail summary,button')].every(e=>e.getBoundingClientRect().height>=44) };
+      })()`)
+      assert.deepEqual(geometry, {fits:true,footerAtBottom:true,inputSize:'16px',listHeight:geometry.listHeight,targets:true})
+      assert.ok(geometry.listHeight>=140)
+      writeFileSync(join(evidence, `invitation-${theme}-${width}x${height}.png`), (await window.webContents.capturePage()).toPNG())
+      await click('.camp-member-dialog .app-dialog-close')
+    }
+    await evaluate('invitationTest.language("en")')
+    await click('.camp-add-member-button')
+    await wait(`document.querySelector('.camp-member-dialog .app-dialog-title').textContent === 'Invite teammate'`)
+    assert.equal(await evaluate(`document.querySelector('.camp-member-search-field input').getAttribute('aria-label')`), 'Search teammates')
+    writeFileSync(join(evidence, 'invitation-mobile-english.png'), (await window.webContents.capturePage()).toPNG())
+    assert.deepEqual((await evaluate('invitationTest.state()')).errors, [])
+    console.log(JSON.stringify({ ok: true, cases: ['pending invitation', 'rejected send preserves input', 'local restore', 'accepted send clears input', 'accepted mention before roster keeps name and identity', 'away refresh keeps pending name static', 'removed profile remains unavailable', 'pending mention copy matches displayed name', 'roster projection restores mention interaction', 'delayed activation clear and restore', 'follow-up keeps invited recipient', 'active add then send', 'last member removal and CAS conflict refresh', 'empty conversation retains draft and history', 'failed invitation retains selection and retries without sending', 'stale continuation requires explicit recipient repair', 'current explicit mention has no duplicate recipient summary', 'all-away recovery opens member management', 'empty Active native invitation and send', 'desktop search and multi-select retain selection', 'duties disclosure preserves selection and omits empty fields', 'mobile day/night portrait, landscape, reduced viewport and English'], userData }))
     app.exit(0)
   } catch (error) {
     console.error(error)

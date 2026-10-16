@@ -6,18 +6,19 @@ last_updated: 2026-10-16
 
 # Agent Runtime 兼容性清单
 
-## 2026-10-16 MiniMax Code ACP：Preview 接线与控制验收
+## 2026-10-16 MiniMax Code ACP：Preview 与真实开发 App 验收
 
-独立 `@minimax-ai/code` 的 mcode 0.6.12 已接入共享 ACP、Fleet、Bootstrap、恢复、MCP、审批、
-Steer、工具输出和部分数值 Usage；不接 Fast。macOS arm64 仅 Preview，其余平台 NotQualified。
-真实 CLI＋当前 Core＋本地脚本模型通过普通 Host 复用、冷恢复同 Session、同 Run 文本/图片 Steer、
-MCP 调用/移除、allow/deny、六类输出和取消进程清理。图片已验证到模型请求，未证明视觉理解。
-真实账户尝试在 session/new 被要求 `mcode login`，真实 LLM、压缩和完整资格矩阵仍未闭合。
-完整对照、失败修复与脱敏证据见[MiniMax 接入记录](research/minimax-code-runtime/README.md)。
-本分支十种 Steer 接线中新增的 MiniMax 不计作第十种真实 LLM 完整验收。
-后续文件补验通过原生 Read、Write 新建/覆盖/空文件、Edit/失败/相对路径十个 Run 与 Core 重开，
-修正相对路径、created 标识及截断预览误用；文件变更使用原生结果 patch，不从输入或 Git 推断。
-完整 19 Runtime 对照及控制验收边界见[全量对照](research/minimax-code-runtime/full-parity-2026-10-16.md)。
+独立 `@minimax-ai/code` 的 mcode 0.6.12 接入共享 ACP、Fleet、Bootstrap、精确恢复、MCP、审批、
+Steer、文件/命令输出和部分 Usage；不接 Fast。macOS arm64 为 Preview，其余平台 NotQualified。
+真实官方 `MiniMax-M3.1-Flash-Preview` 完成原生 Read/Write/Add/Edit、中文空格路径、六类命令输出、
+文本与图片 Steer；图片经 native read 后正确识别数字/颜色/形状。Files Changed/Diff 已在实际开发 Renderer 点击核对。
+官方 ACP 手动 compact 后重启 App/Core，恢复同一 Native Session，Bootstrap 内容摘要不变且系统层 Charter 一份；
+身份、历史、Skill 和 MCP 均继续可用。Sub2API 经官方 custom_provider 配置，CLI 和 App 的 `gpt-6` 真实调用成功；
+Provider 选模及 MCP 撤销/恢复仍保留原 Session。原生默认沿用恢复会话的已选模型，不代表重置全局默认。
+官方账号后续返回 quota exceeded，保留失败证据，开发 App 由显式 Sub2API 配置恢复并留给 User 查看。
+前轮受控协议/审批/取消与文件失败矩阵仍有效；自动 threshold/overflow 压缩、完整 Skills/MCP/CLI/并发/故障/平台
+矩阵尚未闭合，不晋升 First-Class。见[最新真实验收](research/minimax-code-runtime/live-acceptance-2026-10-16.md)、
+[19 Runtime 固定审计](research/minimax-code-runtime/full-parity-2026-10-16.md)和[接入记录](research/minimax-code-runtime/README.md)。
 
 ## 2026-10-15 User seq44：版本复核与 TRAE 完整产品验收
 

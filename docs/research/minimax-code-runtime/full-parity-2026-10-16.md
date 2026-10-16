@@ -7,6 +7,10 @@ last_updated: 2026-10-16
 
 # MiniMax Code 与全部 Runtime 的完整接入对照
 
+后续 User seq10/11 的[真实模型/App 增量验收](live-acceptance-2026-10-16.md)已补齐账号、图片理解、
+Renderer、手动 compact/cold 和能力更新。本表冻结于 seq8 的代码审计/控制服务阶段；
+其“真实未验”状态不代表最新验收结果，其他 18 款也未在本轮重跑。
+
 回应 User seq8：按最近接入清单核对全部能力，不把 Steer 或 Shell 写文件当作完整接入。
 范围为 `AdapterKind::ALL` 的 **19 个 closed identity：MiniMax Code 加其他 18 个**。
 这是当前分支代码审计、既有固定版本验收和本次 MiniMax 实测的合并对照，不是重新运行了其他 18 款。

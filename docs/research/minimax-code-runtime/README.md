@@ -16,6 +16,13 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
 下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
 
+## 最新真实验收（User seq10/11）
+
+[真实模型与开发 App 验收](live-acceptance-2026-10-16.md)及[脱敏证据](live-acceptance-2026-10-16.evidence.json)
+补齐官方账号、Sub2API、真实图片理解、原生文件界面、手动 compact 后冷恢复、MCP 与 Skill 更新。
+仍保持 Preview；官方额度后来返回不足，留给 User 的隔离开发 App 使用已验证的 Sub2API。
+下文为前轮控制服务记录，认证缺口和“下一步”按最新报告读取。
+
 ## 实施前 Parity Matrix
 
 参照共享 ACP 的 Kimi/DSH 生命周期、Claude 启动文件和 Codex 的精确恢复。

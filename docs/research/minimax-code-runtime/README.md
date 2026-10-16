@@ -16,6 +16,12 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
 下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
 
+## 2026-10-17 批复修复
+
+共享 ACP 的已发送空 final 结束规则、问卷审批防代答和 MiniMax 有界 Usage 尾读见
+[修复与剩余缺口](review-fixes-2026-10-17.md)。ask_user 默认工具移除仍缺官方局部入口，
+产品默认未改；不扩大 Preview 资格范围。
+
 ## 最新真实验收（User seq10/11）
 
 [真实模型与开发 App 验收](live-acceptance-2026-10-16.md)及[脱敏证据](live-acceptance-2026-10-16.evidence.json)

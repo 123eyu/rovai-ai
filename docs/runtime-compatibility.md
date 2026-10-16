@@ -1,10 +1,19 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-17 MiniMax 批复修复：保持 Preview
+
+共享 ACP 在有效本轮 send、正常 end_turn 且无未收敛工具/问卷时允许空 final；发送后原生错误仍失败且不重放。
+问卷 permission fallback 默认取消，普通文件/命令/MCP 审批不变；官方 ACP 局部配置入口仍缺，
+不能把防代答当作工具已经默认移除。Usage 按原生显式显示/canonical 身份映射有界后台补采，仍标部分观测。
+Host/resume、启动 System Prompt 内容 fence、Fast 排除及前轮压缩/配置刷新结论不变。
+本轮为真实 CLI + 受控 Provider，非新增真实 LLM 或完整资格验证；见
+[修复记录](research/minimax-code-runtime/review-fixes-2026-10-17.md)。
 
 ## 2026-10-16 MiniMax Code ACP：Preview 与真实开发 App 验收
 

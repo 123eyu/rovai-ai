@@ -68,6 +68,7 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 cargo build -p rovai-core --bins
 node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode
 node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --files-only
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --completion-only --fixture-root /absolute/empty-fixture
 ```
 
 脚本在新建隔离目录启动真实 mcode、生产 Core、确定性 loopback Provider 与 MCP fixture。
@@ -78,6 +79,11 @@ Golden Flows；短 Run 的异步 journal Usage 可能为空。结果留在打印
 是私有诊断，只导出白名单摘要；本次数据目录及派生 Runtime Files Root 都不属于日常实例。
 真实模型流程另用 `smoke-acp-runtime.mjs` / `smoke-steer.mjs` 的 `minimax-code-cli` 入口。
 当前证据见[MiniMax 接入报告](../research/minimax-code-runtime/README.md)。
+
+`--completion-only` 通过真实 mcode 和确定性本地 Provider 验证发送后空 final、后继 Host 复用、
+未发送且空 final、发送后原生错误的不同结算。它不调用真实 LLM，不证明问卷已从模型工具清单移除。
+终态修改扩展既有 `accepted_send_suppresses_missing_send_recovery_for_recipient_matrix`（slow-tests）、
+ACP suffix、审批 option、失败重试和 native cursor owners；Usage 生命周期扩展原有 flush partition owner。
 
 `--files-only` 验证原生 Read/Write/Edit、绝对/相对及中文空格路径、新建/覆盖/空文件、成功/失败编辑、
 原生 patch 与持久化 Files Changed，并重启 Core 核对卡片。它不启动 Renderer，不能代替点击展开验收。

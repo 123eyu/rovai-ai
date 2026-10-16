@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
-import { mkdtemp, mkdir, readFile, writeFile, realpath, access, rm, rename } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, realpath, access, rm, rename, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -14,8 +14,13 @@ import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 const repo = resolve(import.meta.dirname, '..')
 const native = process.argv[2]
 const filesOnly = process.argv.includes('--files-only')
+const completionOnly = process.argv.includes('--completion-only')
 assert.ok(native?.startsWith('/'), 'Pass the absolute installed mcode path')
-const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-minimax-control-')))
+const fixtureArg = process.argv.indexOf('--fixture-root')
+const suppliedRoot = fixtureArg < 0 ? null : process.argv[fixtureArg + 1]
+if (fixtureArg >= 0) assert.ok(suppliedRoot?.startsWith('/'), 'Pass an empty absolute fixture root')
+const root = await realpath(suppliedRoot ?? await mkdtemp(join(tmpdir(), 'rovai-minimax-control-')))
+assert.deepEqual(await readdir(root), [], 'fixture root must be empty')
 const data = join(root, 'core'), project = join(root, 'project'), nativeData = join(root, 'native')
 for (const path of [data, project, nativeData]) await mkdir(path, { mode: 0o700 })
 console.error(JSON.stringify({ channel: 'automatic acceptance', root, data, skills: join(data, 'managed-skill-library'), mcp: join(data, 'mcp.json'), nativeData }))
@@ -37,7 +42,7 @@ const server = createServer(async (req, res) => {
     if (tools.some(name => /^(bash|shell)$/i.test(name))) await new Promise(resolve => setTimeout(resolve, 250))
     report.requests.push({ stage, step, tools, charterCount: system.split('[SESSION_CHARTER]').length - 1, runInput: user.includes('[RUN_INPUT]'), steerVisible: user.includes('MINIMAX_STEER_TOKEN'), steerImagePath: user.includes(join(project, 'steer.png')), imageBlock: body.messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')), mcpResult: raw.includes('MINIMAX_MCP:verified') })
     let call = null
-    if (stage !== 'setup' && tools.some(name => /^(bash|shell)$/i.test(name)) && step++ === 0) {
+    if (stage !== 'setup' && stage !== 'EMPTY_NO_SEND' && tools.some(name => /^(bash|shell)$/i.test(name)) && step++ === 0) {
       const tool = body.tools.find(t => /^(bash|shell)$/i.test(t.function.name))
       assert.ok(tool, `No shell tool: ${tools.join(',')}`)
       const key = Object.keys(tool.function.parameters.properties).find(k => k.toLowerCase() === 'command')
@@ -72,7 +77,11 @@ const server = createServer(async (req, res) => {
       call = planned ? { id: `call-${stage}-${step}`, type: 'function', function: { name: planned.name, arguments: JSON.stringify(planned.input) } } : null
       if (planned) assert.ok(tools.includes(planned.name), `Native ${planned.name} tool missing`)
     }
-    const content = call ? null : 'CONTROL_DONE'
+    if (stage === 'SEND_ERROR' && !call) {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: 'controlled terminal authentication failure', type: 'authentication_error' } })); return
+    }
+    const content = call ? null : ['SEND_EMPTY', 'EMPTY_NO_SEND'].includes(stage) ? '' : 'CONTROL_DONE'
     const usage = { prompt_tokens: 120, completion_tokens: 5, total_tokens: 125, prompt_tokens_details: { cached_tokens: 20 } }
     const response = { id: `control-${randomUUID()}`, object: 'chat.completion', created: Math.floor(Date.now()/1000), model: 'rovai-control' }
     if (body.stream) {
@@ -151,7 +160,46 @@ try {
   const created = await core.request('threads.create', { commandId: randomUUID(), name: 'MiniMax controlled integration', workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
   assert.equal(created.status, 'applied'); threadId = created.payload.threadId
   db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
-  if (filesOnly) {
+  if (completionOnly) {
+    await turn('SEND_EMPTY')
+    const emptyFinalRun = runs().at(-1)
+    const messageCount = id => db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE source_agent_run_id=? AND author_type='agent'").get(id).n
+    assert.equal(messageCount(emptyFinalRun.id), 1)
+    assert.equal(db.prepare("SELECT json_extract(payload_json,'$.finalOutputDigest') AS digest FROM event_log WHERE entity_id=? AND event_type='agent_run.succeeded'").get(emptyFinalRun.id).digest, null)
+    // A normal follow-up keeps the Host and exact native Session; its numeric
+    // observations must not be assigned to the empty-final Run's tail reader.
+    const pids = await hostPids()
+    await turn('AFTER_EMPTY')
+    assert.deepEqual(await hostPids(), pids)
+    await new Promise(resolve => setTimeout(resolve, 5000))
+    const shortRunUsage = db.prepare('SELECT prompt_input_total_tokens,output_tokens,usage_quality FROM runtime_usage_run_summary WHERE agent_run_id=?').get(runs().at(-1).id)
+    assert.ok(shortRunUsage?.output_tokens > 0, 'mapped terminal message Usage should be collected')
+    assert.equal(shortRunUsage.usage_quality, 'runtime_reported_partial')
+    report.shortRunUsage = shortRunUsage
+    report.cases.push({ name: 'empty final accepts one committed send; same Host follow-up succeeds', status: 'passed' })
+    for (const name of ['EMPTY_NO_SEND', 'SEND_ERROR']) {
+      stage = name; step = 0
+      const before = runs().length
+      await send(`CONTROL_CASE=${name}`)
+      const deadline = Date.now() + 90_000
+      while (!(runs().length > before && ['failed', 'cancelled', 'succeeded'].includes(runs().at(-1).status))) {
+        assert.ok(Date.now() < deadline, `terminal timeout for ${name}`)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      const run = runs().at(-1)
+      assert.equal(run.status, 'failed', JSON.stringify(run))
+      assert.equal(messageCount(run.id), name === 'SEND_ERROR' ? 1 : 0)
+      if (name === 'EMPTY_NO_SEND') assert.equal(run.last_error_code, 'runtime_missing_final_output')
+      else {
+        assert.notEqual(run.last_error_code, 'runtime_missing_final_output')
+        const failure = db.prepare('SELECT public_runtime_failure_json AS failure FROM agent_run WHERE id=?').get(run.id)
+        assert.equal(JSON.parse(failure.failure).retryable, false)
+        assert.equal(JSON.parse(failure.failure).summary, '消息已发送，但运行结束校验失败')
+      }
+      report.cases.push({ name, status: 'passed', run: run.id })
+    }
+    report.status = 'passed'
+  } else if (filesOnly) {
     const folder = join(project, '文件矩阵'); await mkdir(folder)
     const editPath = join(folder, '编辑 file.txt'), newPath = join(folder, '新增 file.txt'), emptyPath = join(folder, '空 file.txt')
     const before = Array.from({ length: 40 }, (_, i) => `line-${i + 1}`).join('\n') + '\n'
@@ -331,7 +379,7 @@ try {
 } catch (error) { report.status = 'failed'; report.error = error.stack; process.exitCode = 1 }
 finally {
   await writeFile(join(project, 'hold.release'), 'release')
-  if (db) { report.runs = runs(); report.usage = db.prepare('SELECT agent_run_id,uncached_input_tokens,cache_read_tokens,cache_write_tokens,output_tokens FROM runtime_usage_run_summary').all(); db.close() }
+  if (db) { report.runs = runs(); report.usage = db.prepare('SELECT agent_run_id,uncached_input_tokens,cache_read_tokens,cache_write_tokens,output_tokens,usage_quality FROM runtime_usage_run_summary').all(); db.close() }
   if (core) report.exit = await core.stop()
   await new Promise(resolve => server.close(resolve))
   await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2))

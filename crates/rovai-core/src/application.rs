@@ -22191,6 +22191,9 @@ async fn process_agent_run_acp_message(
     if method != "rovai/acp_prompt_completed" {
         return;
     }
+    if let Some(reader) = runtime.native_usage_tail(native_prompt_id).await {
+        start_native_usage_tail(core, agent_run_id, execution_epoch, reader).await;
+    }
     finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     if let Err(error) = persist_acp_prompt_completion(
         core,
@@ -23021,6 +23024,14 @@ async fn process_agent_run_acp_approval_request(
         .await?;
         return Ok(());
     };
+    if acp::is_questionnaire_permission_request(params) {
+        // A native answer wrapped as allow_once must never create an execution
+        // Approval or use the ordinary bypass-permissions path.
+        runtime
+            .respond(request_id, json!({"outcome": {"outcome": "cancelled"}}))
+            .await?;
+        return Ok(());
+    }
     let observed_tool_context = match params
         .pointer("/toolCall/toolCallId")
         .and_then(Value::as_str)
@@ -23401,7 +23412,21 @@ async fn persist_acp_prompt_completion(
         } else {
             "unknown"
         });
-    let final_agent_message = runtime.final_agent_message(prompt_id).await;
+    let final_agent_message = runtime
+        .final_agent_message(prompt_id)
+        .await
+        .filter(|text| !text.trim().is_empty());
+    let committed_public_send = {
+        let database = core.database.lock().await;
+        ExecutionRuntimeService::default().has_current_run_public_send(
+            &database,
+            agent_run_id,
+            execution_epoch,
+        )?
+    };
+    let settled_for_empty_final = runtime
+        .allows_empty_final_after_public_send(prompt_id)
+        .await;
     let missing_send_recovery_candidate = if stop_reason == "end_turn" {
         runtime
             .missing_send_recovery_candidate(prompt_id)
@@ -23419,13 +23444,13 @@ async fn persist_acp_prompt_completion(
     } else {
         None
     };
-    let planned_outcome = if stop_reason == "end_turn" && final_agent_message.is_some() {
-        RuntimeTerminalOutcome::Succeeded
-    } else if stop_reason == "cancelled" {
-        RuntimeTerminalOutcome::Cancelled
-    } else {
-        RuntimeTerminalOutcome::Failed
-    };
+    let planned_outcome = acp_prompt_terminal_outcome(
+        stop_reason,
+        response_error.is_some(),
+        final_agent_message.is_some(),
+        committed_public_send,
+        settled_for_empty_final,
+    );
     let delivery_status = if planned_outcome == RuntimeTerminalOutcome::Failed {
         let delivery_id = params
             .get("deliveryId")
@@ -23437,8 +23462,14 @@ async fn persist_acp_prompt_completion(
         None
     };
     let manual_retry_allowed =
-        acp_prompt_manual_retry_allowed(planned_outcome, delivery_status.as_deref());
-    let base_error_code = if stop_reason == "end_turn" {
+        acp_prompt_manual_retry_allowed(planned_outcome, delivery_status.as_deref())
+            && !committed_public_send;
+    let base_error_code = if response_error.is_some() {
+        "runtime_prompt_runtime_error".to_string()
+    } else if stop_reason == "end_turn" && !settled_for_empty_final && final_agent_message.is_none()
+    {
+        "runtime_unsettled_activity".to_string()
+    } else if stop_reason == "end_turn" {
         "runtime_missing_final_output".to_string()
     } else {
         format!("runtime_prompt_{stop_reason}")
@@ -23452,7 +23483,11 @@ async fn persist_acp_prompt_completion(
             RuntimeFailureOrigin::Runtime,
             RuntimeFailurePhase::Execution,
             &base_error_code,
-            &format!("{} 未能完成运行", runtime_display_name(adapter_kind)),
+            &if committed_public_send {
+                "消息已发送，但运行结束校验失败".to_string()
+            } else {
+                format!("{} 未能完成运行", runtime_display_name(adapter_kind))
+            },
             Some(&error_detail),
             &[(&core.data_dir, "<data-dir>")],
             manual_retry_allowed,
@@ -23462,14 +23497,21 @@ async fn persist_acp_prompt_completion(
         // Provider retryability never overrides Core's delivery/effect safety. Once the input
         // was accepted, a successor instruction is required instead of replaying the Run.
         failure.retryable &= manual_retry_allowed;
+        if committed_public_send {
+            failure.summary = "消息已发送，但运行结束校验失败".to_string();
+        }
     }
-    let network_category = acp_prompt_network_recovery_category(
-        planned_outcome,
-        delivery_status.as_deref(),
-        params.get("nativeErrorKind").and_then(Value::as_str),
-        public_failure.as_ref().map(|failure| failure.code.as_str()),
-        response_error,
-    );
+    let network_category = (!committed_public_send)
+        .then(|| {
+            acp_prompt_network_recovery_category(
+                planned_outcome,
+                delivery_status.as_deref(),
+                params.get("nativeErrorKind").and_then(Value::as_str),
+                public_failure.as_ref().map(|failure| failure.code.as_str()),
+                response_error,
+            )
+        })
+        .flatten();
     if network_category.is_some()
         && let Some(failure) = public_failure.as_mut()
     {
@@ -23655,62 +23697,34 @@ async fn persist_acp_prompt_completion(
         let ending_git_observation = core
             .observe_run_git(&execution.project_binding_kind, &execution.project_path)
             .await;
-        let terminal = if stop_reason == "end_turn" {
-            if let Some(final_output) = final_agent_message.clone() {
-                let mut database = core.database.lock().await;
-                let envelope = CommandEnvelope {
-                    command_id: uuid::Uuid::new_v4().to_string(),
-                    actor: ActorRef::System {
-                        component_id: format!("runtime-adapter:{}", adapter_kind.as_str()),
-                    },
-                    camp_id: Some(execution.camp_id.clone()),
-                    expected_versions: Vec::new(),
-                    execution_epoch: None,
-                    payload: SucceedAgentRunCommand {
-                        agent_run_id: agent_run_id.to_string(),
-                        expected_version: execution.version,
-                        execution_epoch,
-                        native_turn_id: prompt_id.to_string(),
-                        final_output,
-                        missing_send_recovery_candidate: missing_send_recovery_candidate.clone(),
-                        ending_git_observation: ending_git_observation.clone(),
-                    },
-                };
-                let service = ExecutionRuntimeService::default();
-                match terminal_admission.planned_permit() {
-                    Some(permit) => service.succeed_agent_run_during_planned_shutdown(
-                        &mut database,
-                        permit,
-                        &envelope,
-                    ),
-                    None => service.succeed_agent_run(&mut database, &envelope),
-                }
-            } else {
-                let mut database = core.database.lock().await;
-                ExecutionRuntimeService::default().fail_agent_run(
+        let terminal = if planned_outcome == RuntimeTerminalOutcome::Succeeded {
+            let mut database = core.database.lock().await;
+            let envelope = CommandEnvelope {
+                command_id: uuid::Uuid::new_v4().to_string(),
+                actor: ActorRef::System {
+                    component_id: format!("runtime-adapter:{}", adapter_kind.as_str()),
+                },
+                camp_id: Some(execution.camp_id.clone()),
+                expected_versions: Vec::new(),
+                execution_epoch: None,
+                payload: SucceedAgentRunCommand {
+                    agent_run_id: agent_run_id.to_string(),
+                    expected_version: execution.version,
+                    execution_epoch,
+                    native_turn_id: prompt_id.to_string(),
+                    final_output: final_agent_message.clone().unwrap_or_default(),
+                    missing_send_recovery_candidate: missing_send_recovery_candidate.clone(),
+                    ending_git_observation: ending_git_observation.clone(),
+                },
+            };
+            let service = ExecutionRuntimeService::default();
+            match terminal_admission.planned_permit() {
+                Some(permit) => service.succeed_agent_run_during_planned_shutdown(
                     &mut database,
-                    &CommandEnvelope {
-                        command_id: uuid::Uuid::new_v4().to_string(),
-                        actor: ActorRef::System {
-                            component_id: format!("runtime-adapter:{}", adapter_kind.as_str()),
-                        },
-                        camp_id: Some(execution.camp_id.clone()),
-                        expected_versions: Vec::new(),
-                        execution_epoch: None,
-                        payload: FailAgentRunCommand {
-                            agent_run_id: agent_run_id.to_string(),
-                            expected_version: execution.version,
-                            execution_epoch,
-                            error_code: "runtime_missing_final_output".to_string(),
-                            error_detail: Some(
-                                "ACP Runtime ended the prompt without an Agent message".to_string(),
-                            ),
-                            failure: public_failure.clone(),
-                            manual_retry_allowed,
-                            ending_git_observation: ending_git_observation.clone(),
-                        },
-                    },
-                )
+                    permit,
+                    &envelope,
+                ),
+                None => service.succeed_agent_run(&mut database, &envelope),
             }
         } else {
             let mut database = core.database.lock().await;
@@ -23799,6 +23813,26 @@ async fn persist_acp_prompt_completion(
         }
     }
     Ok(())
+}
+
+fn acp_prompt_terminal_outcome(
+    stop_reason: &str,
+    has_error: bool,
+    has_final: bool,
+    committed_public_send: bool,
+    settled_for_empty_final: bool,
+) -> RuntimeTerminalOutcome {
+    if has_error {
+        RuntimeTerminalOutcome::Failed
+    } else if stop_reason == "cancelled" {
+        RuntimeTerminalOutcome::Cancelled
+    } else if stop_reason == "end_turn"
+        && (has_final || (committed_public_send && settled_for_empty_final))
+    {
+        RuntimeTerminalOutcome::Succeeded
+    } else {
+        RuntimeTerminalOutcome::Failed
+    }
 }
 
 fn acp_prompt_manual_retry_allowed(
@@ -23985,6 +24019,61 @@ async fn finish_runtime_monitoring_run(core: &Core, agent_run_id: &str, executio
         .lock()
         .await
         .finish_run(agent_run_id, execution_epoch);
+}
+
+async fn start_native_usage_tail(
+    core: &Arc<Core>,
+    agent_run_id: &str,
+    execution_epoch: i64,
+    reader: crate::native_usage::NativeUsageReader,
+) {
+    if !core
+        .runtime_usage
+        .lock()
+        .await
+        .begin_native_tail(agent_run_id, execution_epoch)
+    {
+        return;
+    }
+    let core = Arc::clone(core);
+    let agent_run_id = agent_run_id.to_string();
+    let reader = Arc::new(std::sync::Mutex::new(reader));
+    tokio::spawn(async move {
+        // Only the frozen message allowlist can enter this background reader.
+        // The Run, Host release and successor never await it. Limit both retries
+        // and accepted latency; late blocking-I/O results are discarded.
+        let _ = tokio::time::timeout(Duration::from_millis(1500), async {
+            for delay in [0, 250, 750] {
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                let reader = Arc::clone(&reader);
+                let observations = tokio::task::spawn_blocking(move || {
+                    reader
+                        .lock()
+                        .map(|mut reader| reader.poll())
+                        .unwrap_or_default()
+                })
+                .await
+                .unwrap_or_default();
+                let mut usage = core.runtime_usage.lock().await;
+                for item in observations {
+                    if let Err(error) = usage.observe_registered_run(
+                        &agent_run_id,
+                        execution_epoch,
+                        &item.source_identity,
+                        &[item.usage],
+                        Instant::now(),
+                    ) {
+                        eprintln!("failed to buffer terminal native Usage: {error:#}");
+                    }
+                }
+            }
+        })
+        .await;
+        core.runtime_usage
+            .lock()
+            .await
+            .end_native_tail(&agent_run_id, execution_epoch);
+    });
 }
 
 async fn process_runtime_usage_flusher(core: Arc<Core>, mut shutdown: oneshot::Receiver<()>) {
@@ -26857,6 +26946,85 @@ mod tests {
 
     #[test]
     fn acp_prompt_failure_is_retryable_only_when_input_was_not_accepted() {
+        for (reason, error, final_text, sent, settled, expected) in [
+            (
+                "end_turn",
+                false,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Succeeded,
+            ),
+            (
+                "end_turn",
+                false,
+                false,
+                false,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                false,
+                false,
+                true,
+                false,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                true,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                true,
+                true,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "cancelled",
+                false,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Cancelled,
+            ),
+            (
+                "max_turn_requests",
+                false,
+                true,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "unknown",
+                false,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                false,
+                true,
+                false,
+                true,
+                RuntimeTerminalOutcome::Succeeded,
+            ),
+        ] {
+            assert_eq!(
+                acp_prompt_terminal_outcome(reason, error, final_text, sent, settled),
+                expected
+            );
+        }
         assert!(acp_prompt_manual_retry_allowed(
             RuntimeTerminalOutcome::Failed,
             Some("not_accepted")

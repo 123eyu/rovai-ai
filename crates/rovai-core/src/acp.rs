@@ -679,6 +679,8 @@ struct AcpPromptObservation {
     delivery_id: String,
     assistant_suffix: AcpAssistantSuffixCollector,
     observed_tools: HashMap<String, ObservedToolMetadata>,
+    unsupported_interaction: bool,
+    native_usage_message_ids: BTreeSet<String>,
     images: AcpImageAccumulator,
 }
 
@@ -689,6 +691,8 @@ impl AcpPromptObservation {
             delivery_id,
             assistant_suffix: AcpAssistantSuffixCollector::default(),
             observed_tools: HashMap::new(),
+            unsupported_interaction: false,
+            native_usage_message_ids: BTreeSet::new(),
             images: AcpImageAccumulator::default(),
         }
     }
@@ -6007,6 +6011,7 @@ impl AcpRuntime {
         }
         if method == "session/request_permission" {
             observation.assistant_suffix.observe_tool_activity();
+            observation.unsupported_interaction |= is_questionnaire_permission_request(params);
             return Ok(None);
         }
         if method != "session/update" {
@@ -6016,6 +6021,27 @@ impl AcpRuntime {
             return Ok(None);
         };
         let session_update = update.get("sessionUpdate").and_then(Value::as_str);
+        if self.host.adapter_kind == AdapterKind::MinimaxCodeCli
+            && matches!(
+                session_update,
+                Some("agent_message_chunk" | "agent_thought_chunk")
+            )
+            && let Some(id) = update.get("messageId").and_then(Value::as_str)
+            && !id.is_empty()
+            && id.len() <= 256
+            && observation.native_usage_message_ids.len() < 8192
+        {
+            observation.native_usage_message_ids.insert(id.to_string());
+        }
+        if self.host.adapter_kind == AdapterKind::MinimaxCodeCli
+            && matches!(session_update, Some("tool_call" | "tool_call_update"))
+            && matches!(
+                update.get("name").and_then(Value::as_str),
+                Some("ask_user" | "request_feature_enable")
+            )
+        {
+            observation.unsupported_interaction = true;
+        }
         if session_update == Some("agent_message_chunk")
             && let Some(text) = update.pointer("/content/text").and_then(Value::as_str)
         {
@@ -6116,6 +6142,20 @@ impl AcpRuntime {
             .assistant_suffix
             .candidate()
             .map(|text| self.redact_text(&text))
+    }
+
+    /// Empty assistant output may only finish an already-published turn once
+    /// native tools have settled and no unsupported questionnaire was invoked.
+    pub async fn allows_empty_final_after_public_send(&self, native_prompt_id: &str) -> bool {
+        self.active_observation
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|observation| {
+                observation.prompt_id == native_prompt_id
+                    && observation.observed_tools.is_empty()
+                    && !observation.unsupported_interaction
+            })
     }
 
     pub async fn missing_send_recovery_candidate(&self, native_prompt_id: &str) -> Option<String> {
@@ -6242,6 +6282,23 @@ impl AcpRuntime {
             }
             _ => None,
         }
+    }
+
+    pub(crate) async fn native_usage_tail(&self, prompt_id: &str) -> Option<NativeUsageReader> {
+        if self.adapter_kind() != AdapterKind::MinimaxCodeCli {
+            return None;
+        }
+        let ids = self
+            .active_observation
+            .lock()
+            .await
+            .as_ref()
+            .filter(|observation| observation.prompt_id == prompt_id)?
+            .native_usage_message_ids
+            .clone();
+        let reader = self.native_usage.lock().await.clone()?;
+        // Never wait for an active disk read or baseline on the terminal route.
+        reader.try_lock().ok()?.minimax_tail(ids)
     }
 
     pub(crate) async fn poll_native_usage(&self) -> Vec<NativeUsageObservation> {
@@ -8424,7 +8481,26 @@ pub fn rejection_result(request: &Value) -> Result<Value> {
     approval_result(request, option_id)
 }
 
+/// MiniMax encodes questionnaire answers as allow_once permission options.
+/// They are user input, never execution authorization (including bypass mode).
+pub fn is_questionnaire_permission_request(request: &Value) -> bool {
+    request
+        .get("options")
+        .and_then(Value::as_array)
+        .is_some_and(|options| {
+            options.iter().any(|option| {
+                option
+                    .get("optionId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.starts_with("questionnaire:"))
+            })
+        })
+}
+
 pub fn legacy_approval_result(request: &Value, approved: bool) -> Result<Value> {
+    if is_questionnaire_permission_request(request) {
+        return Ok(json!({"outcome": {"outcome": "cancelled"}}));
+    }
     let options = request
         .get("options")
         .and_then(Value::as_array)
@@ -14111,6 +14187,41 @@ while IFS= read -r ignored; do :; done
             runtime.final_agent_message(prompt_id).await.as_deref(),
             Some("The core issue is the final-output source.")
         );
+        assert!(
+            !runtime
+                .allows_empty_final_after_public_send(prompt_id)
+                .await,
+            "tool still in progress"
+        );
+        runtime.observe_message(prompt_id, "session/update", &json!({"update":{
+            "sessionUpdate":"tool_call_update", "toolCallId":"tool-read", "status":"completed"
+        }})).await.unwrap();
+        assert!(
+            runtime
+                .allows_empty_final_after_public_send(prompt_id)
+                .await
+        );
+        assert!(
+            !runtime
+                .allows_empty_final_after_public_send("stale-prompt")
+                .await
+        );
+        runtime
+            .observe_message(
+                prompt_id,
+                "session/request_permission",
+                &json!({
+                    "options":[{"optionId":"questionnaire:ask-1:red","kind":"allow_once"}]
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(
+            !runtime
+                .allows_empty_final_after_public_send(prompt_id)
+                .await,
+            "dismissed question is not a completed answer"
+        );
 
         host.shutdown().await;
         std::fs::remove_dir_all(root).unwrap();
@@ -15266,6 +15377,38 @@ while IFS= read -r ignored; do :; done
             approval_result(&request, "reject").expect("denial should map"),
             json!({"outcome": {"outcome": "selected", "optionId": "reject"}})
         );
+        assert!(!is_questionnaire_permission_request(&request));
+        assert_eq!(
+            legacy_approval_result(&request, true).unwrap(),
+            approval_result(&request, "once").unwrap()
+        );
+        assert_eq!(
+            legacy_approval_result(&request, false).unwrap(),
+            approval_result(&request, "reject").unwrap()
+        );
+        // Upstream's simple-single-select fallback labels every answer allow_once.
+        // Neither bypass nor a manual legacy approve/deny may choose an answer.
+        for options in [
+            json!([
+                {"optionId":"questionnaire:ask-1:red","kind":"allow_once"},
+                {"optionId":"questionnaire:ask-1:blue","kind":"allow_once"},
+                {"optionId":"questionnaire:ask-1:cancel","kind":"reject_once"}
+            ]),
+            json!([
+                {"optionId":"ordinary-first","kind":"allow_once"},
+                {"optionId":"questionnaire:ask-1:red","kind":"allow_once"}
+            ]),
+        ] {
+            let question =
+                json!({"toolCall":{"toolCallId":"ask-1","kind":"other"},"options":options});
+            assert!(is_questionnaire_permission_request(&question));
+            for approved in [true, false] {
+                assert_eq!(
+                    legacy_approval_result(&question, approved).unwrap(),
+                    json!({"outcome":{"outcome":"cancelled"}})
+                );
+            }
+        }
     }
 
     #[test]

@@ -49,6 +49,19 @@ pub(crate) enum NativeUsageReader {
 }
 
 impl NativeUsageReader {
+    pub(crate) fn minimax_tail(&self, message_ids: BTreeSet<String>) -> Option<Self> {
+        let Self::Jsonl(reader) = self else {
+            return None;
+        };
+        if !matches!(reader.dialect, Dialect::Minimax) || reader.disabled || message_ids.is_empty()
+        {
+            return None;
+        }
+        let mut reader = reader.clone();
+        reader.minimax_messages = Some(message_ids);
+        reader.minimax_tail_offset = Some(reader.offset);
+        Some(Self::Jsonl(reader))
+    }
     pub(crate) fn for_prompt(
         kind: AdapterKind,
         workspace: &Path,
@@ -90,6 +103,7 @@ impl NativeUsageReader {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct NativeJsonlUsageReader {
     dialect: Dialect,
     root: PathBuf,
@@ -102,9 +116,14 @@ pub(crate) struct NativeJsonlUsageReader {
     seen: BTreeSet<String>,
     disabled: bool,
     context_model: Option<NativeContextModel>,
+    // A terminal reader may only collect message identities observed on this
+    // exact ACP prompt. Later Session turns cannot enter this snapshot.
+    minimax_messages: Option<BTreeSet<String>>,
+    minimax_canonical_messages: BTreeMap<String, String>,
+    minimax_tail_offset: Option<u64>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct FileIdentity {
     #[cfg(unix)]
     dev: u64,
@@ -212,6 +231,9 @@ impl NativeJsonlUsageReader {
             seen: BTreeSet::new(),
             disabled: false,
             context_model: None,
+            minimax_messages: None,
+            minimax_canonical_messages: BTreeMap::new(),
+            minimax_tail_offset: None,
         };
         if let Some(mut file) = reader.open()? {
             let metadata = file.metadata()?;
@@ -294,6 +316,16 @@ impl NativeJsonlUsageReader {
             bail!("native Usage journal continuity lost");
         }
         self.file_identity = Some(identity);
+        if let Some(ids) = self.minimax_messages.as_ref() {
+            self.minimax_canonical_messages =
+                minimax_message_bindings(&self.root, &self.session_id, ids)?;
+            // Mapping and complete journal lines may arrive at different times.
+            // Revisit only the frozen suffix, keeping seen identities and the
+            // previous end offset's continuity check above. At most three reads.
+            self.offset = self
+                .minimax_tail_offset
+                .context("missing terminal cursor")?;
+        }
         file.seek(SeekFrom::Start(self.offset))?;
         self.read_complete_lines(&mut file, metadata.len(), false)
     }
@@ -379,6 +411,14 @@ impl NativeJsonlUsageReader {
                         continue;
                     };
                     let id = format!("minimax-native:{}:{}", self.session_id, record.message_id);
+                    if self.minimax_messages.is_some()
+                        && !self
+                            .minimax_canonical_messages
+                            .get(&record.message_id)
+                            .is_some_and(|turn_id| record.turn_id.as_ref() == Some(turn_id))
+                    {
+                        continue;
+                    }
                     if baseline {
                         if self.seen.len() >= MAX_IDENTITIES {
                             self.disabled = true;
@@ -465,12 +505,8 @@ impl NativeJsonlUsageReader {
     }
 }
 
-// Only the exact root Session's locator is read from SQLite, never conversation content.
-fn minimax_session_path(root: &Path, workspace: &str, session_id: &str) -> Result<PathBuf> {
-    anyhow::ensure!(
-        safe_identity(session_id),
-        "invalid MiniMax Session identity"
-    );
+// Only locators and explicit identity mappings are selected, never message bodies.
+fn open_minimax_database(root: &Path) -> Result<rusqlite::Connection> {
     let path = root.join("v2/sqlite/runtime-state.sqlite");
     open_native_file(root, &path)?.context("MiniMax Session index missing")?;
     let c = rusqlite::Connection::open_with_flags(
@@ -480,6 +516,48 @@ fn minimax_session_path(root: &Path, workspace: &str, session_id: &str) -> Resul
             | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )?;
     c.busy_timeout(std::time::Duration::from_millis(250))?;
+    Ok(c)
+}
+
+fn minimax_message_bindings(
+    root: &Path,
+    session_id: &str,
+    ids: &BTreeSet<String>,
+) -> Result<BTreeMap<String, String>> {
+    let c = open_minimax_database(root)?;
+    let mut query = c.prepare(
+        "SELECT json_extract(data_json,'$.canonical_message_id'),turn_id FROM local_runtime_message_rows
+         WHERE session_id=?1 AND msg_id=?2 AND role='assistant' AND json_valid(data_json) LIMIT 2"
+    )?;
+    let mut bindings = BTreeMap::new();
+    for id in ids {
+        let rows = query
+            .query_map(rusqlite::params![session_id, id], |row| {
+                Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if let [(Some(canonical), turn)] = rows.as_slice()
+            && safe_identity(canonical)
+            && safe_identity(turn)
+        {
+            if bindings
+                .get(canonical)
+                .is_some_and(|existing| existing != turn)
+            {
+                bail!("conflicting MiniMax message binding");
+            }
+            bindings.insert(canonical.clone(), turn.clone());
+        }
+    }
+    Ok(bindings)
+}
+
+fn minimax_session_path(root: &Path, workspace: &str, session_id: &str) -> Result<PathBuf> {
+    anyhow::ensure!(
+        safe_identity(session_id),
+        "invalid MiniMax Session identity"
+    );
+    let c = open_minimax_database(root)?;
     let (cwd, parent, relative): (String, Option<String>, String) = c.query_row(
         "SELECT workspace_dir,parent_session_id,history_relative_dir FROM local_runtime_sessions WHERE session_id=?1",
         [session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -2083,6 +2161,54 @@ mod tests {
             drop(file);
             assert!(terminal.poll().is_empty());
             if matches!(dialect, Dialect::Minimax) {
+                assert!(terminal.minimax_tail(BTreeSet::new()).is_none());
+                let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))
+                    .unwrap();
+                c.execute_batch("CREATE TABLE local_runtime_message_rows(session_id TEXT,msg_id TEXT,role TEXT,turn_id TEXT,data_json TEXT);
+                    INSERT INTO local_runtime_message_rows VALUES
+                    ('session-1','display-old','assistant','turn-1','{\"canonical_message_id\":\"old\"}'),
+                    ('session-1','display-wrong-turn','assistant','another-turn','{\"canonical_message_id\":\"wrong-turn\"}'),
+                    ('other-session','display-owned','assistant','turn-1','{\"canonical_message_id\":\"successor\"}');").unwrap();
+                let mut tail = terminal
+                    .minimax_tail(
+                        [
+                            "display-owned".into(),
+                            "display-old".into(),
+                            "display-wrong-turn".into(),
+                        ]
+                        .into(),
+                    )
+                    .unwrap();
+                let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+                write!(
+                    file,
+                    "{}{}{}{}",
+                    line("old"),
+                    line("successor"),
+                    line("wrong-turn"),
+                    line("owned-tail").trim_end()
+                )
+                .unwrap();
+                file.flush().unwrap();
+                assert!(
+                    tail.poll().is_empty(),
+                    "history, next turn and incomplete line are excluded"
+                );
+                writeln!(file).unwrap();
+                file.flush().unwrap();
+                assert!(
+                    tail.poll().is_empty(),
+                    "no inferred display/canonical identity mapping"
+                );
+                c.execute("INSERT INTO local_runtime_message_rows VALUES('session-1','display-owned','assistant','turn-1','{\"canonical_message_id\":\"owned-tail\"}')", []).unwrap();
+                let observed = tail.poll();
+                assert_eq!(observed.len(), 1);
+                assert_eq!(
+                    observed[0].source_identity,
+                    "minimax-native:session-1:owned-tail"
+                );
+                assert!(tail.poll().is_empty(), "terminal retry cannot double count");
+                drop(file);
                 assert!(minimax_session_path(&root, "/another", "session-1").is_err());
                 assert!(minimax_session_path(&root, "/workspace", "other-session").is_err());
                 let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))

@@ -82,7 +82,7 @@ export function ToolOutputTruncationNotice({ visible }: { visible: boolean }): J
     : null
 }
 
-function handleToolResultKeyDown(
+export function handleToolResultKeyDown(
   event: ReactKeyboardEvent<HTMLPreElement>,
   summary: HTMLElement | null
 ): void {
@@ -616,7 +616,7 @@ export function ToolCallRow({
   )
 }
 
-function CommandExpandCue(): JSX.Element {
+export function CommandExpandCue(): JSX.Element {
   return <span className="command-expand-cue" aria-hidden="true">
     <svg viewBox="0 0 16 16" focusable="false"><path d="m6 4 4 4-4 4" /></svg>
   </span>

@@ -3890,5 +3890,14 @@
   "侧键 2": "Side button 2",
   "恢复{0}默认绑定": "Restore default binding for {0}",
   "修改{0}绑定，{1}": "Change binding for {0}, {1}",
-  "键盘未绑定": "Keyboard unbound"
+  "键盘未绑定": "Keyboard unbound",
+  "查看原消息": "View original message",
+  "原消息不可用": "Original message unavailable",
+  "正在读取原消息…": "Loading original message…",
+  "插话正文，可滚动": "Steer message, scrollable",
+  "用户插话，{0}，{1}": "User steer, {0}, {1}",
+  "正文区域可用方向键、Page Up、Page Down、空格、Home 和 End 滚动；按 Escape 返回插话行。": "Use arrow keys, Page Up, Page Down, Space, Home and End to scroll; press Escape to return to the steer row.",
+  "此消息没有文本。": "This message has no text.",
+  "已转排队": "Moved to queue",
+  "未送达": "Not delivered"
 }

@@ -2361,6 +2361,15 @@ impl ContextService {
                     ))"#,
             params![delivery_id, agent_run_id, execution_epoch, now],
         )?;
+        if changed == 1 {
+            let source: Option<String> = transaction.query_row(
+                "SELECT cm.source_delivery_id FROM runtime_input_delivery i JOIN context_manifest cm ON cm.id=i.context_manifest_id WHERE i.id=?1",
+                [delivery_id], |row| row.get(0),
+            )?;
+            if let Some(source) = source {
+                crate::execution_input::changed(&transaction, &source)?;
+            }
+        }
         transaction.commit()?;
         Ok(changed == 1)
     }
@@ -2459,7 +2468,10 @@ impl ContextService {
             "#,
             params![delivery_id, error, now],
         )?;
-        if row.source_delivery_id.is_some() {
+        if let Some(source) = &row.source_delivery_id {
+            if row.status != "delivery_unknown" {
+                crate::execution_input::changed(&transaction, source)?;
+            }
             append_raw_event(
                 &transaction,
                 "runtime.input_delivery_unknown",
@@ -2571,6 +2583,9 @@ impl ContextService {
         )?;
         if updated != 1 {
             anyhow::bail!("Runtime Input Delivery changed before rejection");
+        }
+        if let Some(source) = &row.source_delivery_id {
+            crate::execution_input::changed(&transaction, source)?;
         }
         append_raw_event(
             &transaction,
@@ -2836,6 +2851,7 @@ fn acknowledge_input_delivery_transaction(
         }
     }
     if let Some(source_id) = &row.source_delivery_id {
+        crate::execution_input::changed(transaction, source_id)?;
         transaction.execute("UPDATE camp_message_delivery SET status='settled', failure_code=NULL, ended_at=?2, updated_at=?2, version=version+1 WHERE id=?1 AND status IN ('claimed','failed') AND claimed_agent_run_id=?3", params![source_id,now,row.agent_run_id])?;
         crate::message_changes::record(transaction, &row.camp_id, true, &[]);
     }

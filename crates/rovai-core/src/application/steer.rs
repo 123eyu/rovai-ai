@@ -31,10 +31,14 @@ impl Core {
         let result = self.deliver_active_input(&pending).await;
         if let Err(error) = result {
             // Preparation errors belong to this source, never to the ongoing Run.
-            let database = self.database.lock().await;
-            if let Err(failure) = database.connection().execute(
-                "UPDATE camp_message_delivery SET status='failed',failure_code='input_preparation_failed',ended_at=datetime('now'),updated_at=datetime('now'),version=version+1
-                 WHERE id=?1 AND status='claimed' AND NOT EXISTS(SELECT 1 FROM context_manifest m JOIN runtime_input_delivery i ON i.context_manifest_id=m.id WHERE m.source_delivery_id=?1 AND i.dispatch_started_at IS NOT NULL)", [&pending.delivery_id]) {
+            let mut database = self.database.lock().await;
+            let recorded = (|| -> Result<()> {
+                let tx = database.connection_mut().transaction()?;
+                rovai_core::steer::fail_preparation(&tx, &pending.delivery_id)?;
+                tx.commit()?;
+                Ok(())
+            })();
+            if let Err(failure) = recorded {
                 eprintln!("failed to record input preparation failure: {failure:#}");
             }
             eprintln!("active input preparation failed: {error:#}");

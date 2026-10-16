@@ -8,7 +8,7 @@ confirmed_revision: 3
 confirmed_by: User
 confirmed_at: 2026-10-16T09:33:29Z
 confirmation_source: "Thread rvcamp_01m51tzyg3emhrkdf78r95pzgt message 19 (b27e38e9-8345-4198-bf97-6b47223395dc)"
-implementation_status: in_progress
+implementation_status: implemented
 source_commit: 3979e32ec4834ce5fc02cd72309bbd7b5cd800c6
 last_updated: 2026-10-16
 ---
@@ -310,7 +310,7 @@ Front Matter 已记录 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3`
 - Branch：`rovai/send-file-guidance`。
 - Base：`origin/main@3979e32ec4834ce5fc02cd72309bbd7b5cd800c6`；已 fetch 并核对与本次审阅源码一致。
 - Governance：R3 已由 User 消息 19 确认；无要求先合入 main 的独立治理提交。
-- Status：ready，R3 已实施，确定性检查通过；通用 Gate 证据不足，保留 worktree 等待收口。
+- Status：ready，R3 已实施；User 消息 22 已接受通用 Gate 的验证限制并授权合并 PR #780。
 - R1 Validation：正文/附件帮助、首例、删除段及渠道原文逐字匹配源码；`git diff --cached --check` 通过。
   `node --test scripts/lib/doc-decisions.test.mjs` 10/10 通过；带真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
@@ -326,7 +326,7 @@ Front Matter 已记录 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3`
   `git diff --check`、`pnpm docs:test`（10/10）及带上述真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
   `pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因本稿缺少四项二次确认记录而未通过。
-- Next：提交 PR；通用 Gate 收口或取得明确例外决定后合入 main，再清理 worktree。
+- Next：同步主线并通过必要检查后合并 PR #780，再清理 worktree。
 
 ## 实施与验证记录（2026-10-16）
 
@@ -363,3 +363,13 @@ attempt-01 新旧合同检查均 25/25 通过；24 个试跑均在 dispatch 前�
 候选生产源码摘要：`0f48b1a28a0c5178499ae75b829957f108c6a1b84ebc09a0f6d27aa9dc370c0f`。
 候选产物基于确认提交 `1a882e31` 加本次生产 diff；完整文件摘要保存在 `candidate-build/product.json`。
 未进行真实飞书/Lark/钉钉平台交付验收，未安装或重启日常 App。
+
+### 本次合并的验证例外
+
+User 已收到 PR #780、确定性测试与 CI 通过、通用回归启动失败和 Judge 缺失的完整说明，
+并在 Thread 消息 22（`c852ddbb-140d-4bfb-b45e-c3c7d9a64de0`）明确回复“merge”。
+记录时间为 2026-10-16T10:16:00Z。本次按该授权合入，通用 Gate 仍为 `insufficient`，
+不改写原报告或声称语义回归通过；此例外只适用于本 PR，不修改仓库评测规则。
+同步主线 `8ec2cc1c6` 时仅版本概览新增段落冲突，保留双方内容；R3 文案与选择条件不变。
+同步后重跑 Rust workspace，仍为 473 项通过、1 项原有 ignored；三个 Context owner 均通过。
+格式、文档治理与差异检查通过；与新主线相比，R3 的 Rust/Skill diff 和原已验证版本一致。

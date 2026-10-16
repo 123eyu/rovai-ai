@@ -2,7 +2,7 @@ import { createBrowserHtmlPreview } from './html-preview'
 import { browserMemberAvatars } from './member-avatars'
 import type { ThreadClient } from '../../desktop/src/renderer/src/camp-client'
 import type { BusinessEnvironment } from '../../desktop/src/renderer/src/business-environment'
-import type { ThreadReadInvalidation, SingleChatSnapshot, CoreMethod, FilePreviewApi, FilePreviewExternalUpdateEvent, FilePreviewOperationResult, OpenFilePreviewResult, RestoreFilePreviewRequest } from '@contracts'
+import type { ThreadReadInvalidation, SingleChatSnapshot, CoreMethod, FilePreviewApi, FilePreviewExternalUpdateEvent, FilePreviewOperationResult, OpenFilePreviewResult, RestoreFilePreviewRequest, LocalAttachmentSourceView } from '@contracts'
 import { ConsoleClient, WEB_OPERATIONS, type WebOperation } from './client'
 import { createBrowserNavigationHistory } from './navigation-history'
 import { browserEditingRecovery } from './editing-recovery'
@@ -64,6 +64,15 @@ export function createThreadAdapter(transport: ConsoleClient, selectWorkspaceDir
     },
     composerAttachments: {
       prepare: (threadId, revision, file) => transport.uploadFile(threadId, revision, file),
+      restore: async (threadId, attachments) => {
+        const views = await transport.files<Array<LocalAttachmentSourceView | null>>('restoreComposerAttachments', {
+          threadId, attachmentRefIds: attachments.map(({ id }) => id)
+        })
+        if (!Array.isArray(views) || views.length !== attachments.length) throw new Error('附件状态暂时无法确认，请重试。')
+        return attachments.map((attachment, index) => views[index]?.id === attachment.id
+          ? views[index]!
+          : { ...attachment, sourcePath: undefined, availability: 'missing' })
+      },
       preview: unimplemented
     },
     attachments: { kind: 'download', download: unimplemented }

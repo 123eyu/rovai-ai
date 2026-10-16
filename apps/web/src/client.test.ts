@@ -157,7 +157,7 @@ describe('console transport', () => {
   it('resumes an unknown source binding without uploading another file', async () => {
     let bound = false
     let intent: unknown
-    const draft = { threadId: 'test', draftId: 'test/editor', revision: 2, attachments: [{ id: 'bound' }] }
+    const draft = { id: 'bound', sourcePath: '/tmp/upload/source', displayName: 'input.txt', kind: 'file', mediaType: null, observedByteSize: 5 }
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
       if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
       if (String(url).endsWith('/uploads')) {
@@ -176,7 +176,10 @@ describe('console transport', () => {
     client.clear(); bound = true
     await client.login('b'.repeat(64))
     await client.reconcilePending()
-    await expect(pending).resolves.toEqual(draft)
+    await expect(pending).resolves.toEqual({
+      id: 'bound', sourcePath: '/tmp/upload/source', displayName: 'input.txt', kind: 'file',
+      mediaType: null, byteSize: 5, fileCount: 1, previewKind: 'none', availability: 'available'
+    })
     expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
   })
 

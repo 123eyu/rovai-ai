@@ -1,10 +1,11 @@
-//! Host temporary-file ingress into the existing source-reference Draft. There
-//! is no new asset lifetime: after binding, Core never deletes the source file.
+//! Host temporary-file ingress into client-scoped source references. There is
+//! no new asset lifetime: after binding, Core never deletes the source file.
 use crate::{
     command::*, db::Database, draft_client::DraftClient,
     local_attachment_source::LocalAttachmentSourceRef,
 };
 use anyhow::{Result, ensure};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -120,6 +121,74 @@ pub fn reconcile(
     intent: UploadIntent,
 ) -> Result<Option<CommandExecution>> {
     DomainCommandGateway.replay_if_recorded(database, &envelope(client, intent)?)
+}
+
+/// The upload receipt owns a Web Composer source after public drafts moved to
+/// the client. A path supplied by the browser is never an authorization source.
+pub fn load_composer_source(
+    database: &Database,
+    client: &DraftClient,
+    camp_id: &str,
+    attachment_id: &str,
+) -> Result<Option<LocalAttachmentSourceRef>> {
+    ensure!(
+        !client.is_desktop(),
+        "upload requires a verified Web editor"
+    );
+    crate::camp_id::ThreadId::parse(camp_id)?;
+    uuid::Uuid::parse_str(attachment_id)?;
+    let source: Option<String> = database
+        .connection()
+        .query_row(
+            r#"
+        SELECT json_extract(receipt.result_payload_json, '$.source')
+        FROM event_log AS receipt
+        JOIN camp ON camp.id = receipt.camp_id AND camp.deletion_operation_id IS NULL
+        WHERE receipt.event_type = 'command.result'
+          AND receipt.command_id = ?1 AND receipt.camp_id = ?2
+          AND receipt.command_type = 'camp.source_attachment.upload.bind'
+          AND receipt.command_client_id = ?3
+          AND receipt.actor_type = 'user' AND receipt.actor_id = ?4
+          AND receipt.result_status = 'applied'
+          AND receipt.result_code = 'attachment.upload_bound'
+          AND json_type(receipt.result_payload_json, '$.source') = 'object'
+        "#,
+            params![
+                attachment_id,
+                camp_id,
+                client.id(),
+                crate::current_user::CURRENT_USER_ID
+            ],
+            |row| row.get(0),
+        )
+        .optional()?;
+    source
+        .map(|json| {
+            let source: LocalAttachmentSourceRef = serde_json::from_str(&json)?;
+            ensure!(source.id == attachment_id, "upload reference changed");
+            Ok(source)
+        })
+        .transpose()
+}
+
+pub fn composer_source_view(source: &LocalAttachmentSourceRef) -> Result<serde_json::Value> {
+    use crate::local_attachment_source::{
+        LocalAttachmentAvailability, LocalAttachmentFailureCode, validate_source_attachment,
+    };
+    let availability = match validate_source_attachment(source) {
+        Ok(()) => LocalAttachmentAvailability::Available,
+        Err(error) => match error.code() {
+            LocalAttachmentFailureCode::Missing => LocalAttachmentAvailability::Missing,
+            LocalAttachmentFailureCode::Unreadable => LocalAttachmentAvailability::Unreadable,
+            LocalAttachmentFailureCode::KindChanged => LocalAttachmentAvailability::KindChanged,
+        },
+    };
+    let mut view = serde_json::to_value(source.view(availability))?;
+    if availability == LocalAttachmentAvailability::Available {
+        view["sourcePath"] = json!(source.source_path);
+        view["byteSize"] = json!(std::fs::metadata(&source.source_path)?.len());
+    }
+    Ok(view)
 }
 
 pub fn bind(

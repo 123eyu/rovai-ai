@@ -2953,7 +2953,8 @@ mod tests {
         assert_eq!(
             operation_help_examples("thread.message.send"),
             [
-                "Write reply.md:\n  Result:\n\n  Updated `src/example.rs`.\nAfter the write succeeds:\n  rovai send --public-only --input-file reply.md",
+                "rovai send --public-only --body 'Updated [src/example.rs](src/example.rs).'",
+                "Write a temporary body file (e.g. reply.md):\n  Result:\n\n  Updated [src/example.rs](src/example.rs).\nAfter the write succeeds:\n  rovai send --public-only --input-file reply.md",
                 "rovai send --to agent_5 --body 'Please reproduce on the previous client build and return the version and result.'",
                 "rovai send --public-only --to-user --body 'Please choose whether to roll back the client or continue the token investigation.'",
             ]
@@ -2975,12 +2976,15 @@ mod tests {
             "effectiveRecipients and deliveryIds are empty, and no Agent Delivery is created."
         ));
         assert!(!help.contains("inline Agent addressing"));
-        assert!(help.contains(r"Use --body for simple single-line text; \n remains literal."));
+        assert!(help.contains(
+            r"Use --body for simple single-line text, including Markdown; \n remains literal."
+        ));
         assert!(help.contains(CAMP_MESSAGE_SEND_INPUT_HELP));
-        assert!(help.contains("For multiline, Markdown, or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file."));
+        assert!(help.contains("For multiline or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file."));
+        assert!(help.contains("After a successful send, delete files you created solely as temporary input for that send."));
         assert!(!help.contains("JSON"));
         assert!(!help.contains("ROVAI_RUN_TMP"));
-        assert!(help.contains("Examples:\n  Write reply.md:\n    Result:\n\n    Updated `src/example.rs`.\n  After the write succeeds:\n    rovai send --public-only --input-file reply.md"));
+        assert!(help.contains("Examples:\n  rovai send --public-only --body 'Updated [src/example.rs](src/example.rs).'\n  Write a temporary body file (e.g. reply.md):\n    Result:\n\n    Updated [src/example.rs](src/example.rs).\n  After the write succeeds:\n    rovai send --public-only --input-file reply.md"));
         assert!(help.contains(CAMP_MESSAGE_SEND_FILE_HELP));
         assert!(!help.contains("Rovai privately snapshots"));
         assert!(help.contains("It may be combined with --to-user."));

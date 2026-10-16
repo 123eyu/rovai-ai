@@ -1,7 +1,7 @@
 ---
 document_type: current-decision-navigation
 authority: current-authority-and-rationale-routing
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # 当前规范与决定理由导航
@@ -116,6 +116,8 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 - 理由来源：[v0.14](../versions/v0.14/decisions.md)、[v0.15](../versions/v0.15/decisions.md)、[v0.16](../versions/v0.16/decisions.md)、[v0.27](../versions/v0.27/decisions.md)、[v0.50](../versions/v0.50/decisions.md)、[V1.29-D02](../versions/v1.29/decisions.md#v1-29-d02)、[V1.29-D03](../versions/v1.29/decisions.md#v1-29-d03)。
 
 ## Collaboration、Task 与 Message Delivery
+
+- 文件引用、临时正文与三渠道提示：[Send v27](../contracts/camp-message-send-v27.md#agent-文件引用与发送教学)与[已确认 R3](../versions/v1.72/model-context-change-send-file-guidance.md)；沿用旧 Binding 的冻结 Bootstrap，无新增 Version Decision。
 
 - User Steer：[公开投递架构](../architecture/public-a2a-message-delivery.md#用户运行中插话)、[Send v27](../contracts/camp-message-send-v27.md)、[Delivery v18](../contracts/message-delivery-v18.md)、[Manifest 39](../contracts/context-manifest-evidence-v39.md) 和 [Profile 14](../contracts/context-delivery-profile-v14.md)；复用取舍见 [V1.72-D48](../versions/v1.72/decisions.md#v1-72-d48)。
 

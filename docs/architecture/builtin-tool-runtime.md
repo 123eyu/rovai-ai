@@ -3,7 +3,7 @@ document_type: architecture
 architecture: builtin-tool-runtime
 authority: builtin-tool-component-boundaries
 status: accepted
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Built-in Tool Runtime Architecture
@@ -15,7 +15,7 @@ last_updated: 2026-10-15
 [Built-in Tool Agent Output Projection v1](../contracts/builtin-tool-agent-output-projection-v1.md)、
 [Camp History v11](../contracts/camp-history-v11.md)、
 [Durable Task v5](../contracts/durable-task-v5.md) 和
-[Camp Message Send v22](../contracts/camp-message-send-v22.md)、
+[Camp Message Send v27](../contracts/camp-message-send-v27.md)、
 [Current User Attention v7](../contracts/current-user-attention-v7.md)与
 [Missing-Send Recovery Publication v2](../contracts/missing-send-recovery-publication-v2.md) 为准；v19 及更早 Transport 只保留
 historical 语义。决策理由见
@@ -196,10 +196,10 @@ Camp History exact help 保持三段职责：目标未知时用 `history.search`
 回答或行动”正向条件、常规负向场景、消息局部不继承、无 Agent Delivery 与不代表批准；旧
 `--to-user` 只在 CLI 参数归一化层作为不可发现 alias。
 
-文件用途只在 `--file` 的精确帮助中说明：发送收件人需要的交付文件，不把中间产物当成交付。
+文件选择在 `--file` 的精确帮助中说明：普通引用优先 Markdown，明确请求的附件或渠道文件交付使用 `--file`。
 Summary 不再说明附件快照、路径优化或纯附件示例；输入 schema、纯附件发送和路径处理均不变。
-精确教学、Principal 寻址去歧义及飞书 Session 的补充提示由
-[Camp Message Send v22](../contracts/camp-message-send-v22.md) 拥有。
+精确教学、User 寻址和三渠道 Session 的补充提示由
+[Camp Message Send v27](../contracts/camp-message-send-v27.md) 及其继承链拥有。
 
 Send `body` exact help 只说明正文 payload；Bootstrap、Send summary/schema/CLI help
 都不公开 inline fallback 机制。`--to` 只接受 canonical ID，并是 Agent 目标 authoring 的唯一推荐入口。Core
@@ -209,7 +209,7 @@ CLI、Runtime Adapter、Bootstrap 与 Skill 都不重写正文或教学该 gramm
 目录静态复用，说明和 schema 不再计算目录摘要；真正不兼容的接口改动使用原协议版本。
 当前 Contract/CLI 为 38、Agent Output 为 10、capability 为 `builtin_cli.transport.v38`，IPC 为 3，Envelope 为 2，不生成或校验结果摘要 receipt。
 [Thread Runs v1](../contracts/thread-runs-v1.md) 复用公开读取范围，用一个事务组合实际 Run 和按队员聚合的等待消息；不进入调度写路径。
-Camp History 当前使用 v11。Charter revision 为 22；Binding compatibility 保持 16 及原冻结 context tuple，
+Camp History 当前使用 v11。Charter revision 为 23；Binding compatibility 保持 16 及原冻结 context tuple，
 Antigravity 使用当前工具协议版本，不含目录指纹。当前目录变化不轮换旧 Session；恢复和压缩补发复用原 Bootstrap。
 新 Binding 使用 Bootstrap v5/Formatter 5，新公开批次 Formatter/Manifest 34、非批次 35；原生恢复兼容标识保持。
 Skill 正文与 reference 通过现有受管同步更新原路径；旧、新 Session 后续读取均可使用新版。
@@ -495,11 +495,13 @@ Charter revision 22 按已确认的 [R2](../versions/v1.72/model-context-change-
 封闭操作白名单和冻结读取范围约束行为。Memory 索引只提供 locator，依赖条目前用完整 CLI 读取；
 空索引描述启动时点并引导按需搜索，不更改筛选、预算或授权。
 
-创建 Bootstrap evidence 时，Core 仅为存在 active 飞书 conversation binding 的 Camp，在静态 CLI Charter
-最后一条后、可选 Mission 约定前追加一条文件交付提示。Quick Chat/Project 共用该 Camp 级判断；普通、钉钉、
-closed 或尚未绑定的会话不追加。已有 Binding 从 Blob 复用冻结 Charter，不重新查询渠道，因此关闭绑定或
+Charter revision 23 按已确认的 [R3](../versions/v1.72/model-context-change-send-file-guidance.md)
+将文件交付提示扩展到 Lark、钉钉，正文保持。创建 Bootstrap evidence 时，Core 为存在 active
+`feishu | lark | dingtalk` conversation binding 的 Camp，在静态 CLI Charter 最后一条后、可选 Mission
+约定前追加一条文件交付提示。Quick Chat/Project 共用该 Camp 级判断；Single Chat、closed、无绑定或
+未知 provider 不追加。已有 Binding 从 Blob 复用冻结 Charter，不重新查询渠道，因此关闭绑定或
 从本地继续聊天不改写提示，也不触发 Session rotation。下一次正常新 Binding 才读取当前关系。
-精确文本见 [Send v22](../contracts/camp-message-send-v22.md)。
+精确文本见 [Send v27](../contracts/camp-message-send-v27.md#agent-文件引用与发送教学)。
 
 Charter 不承载 Task 创建克制、字段权限、Camp-wide read、local planning/A2A、wake/send、Memory
 治理或具体 polling 操作指导；上面的等待队友回复时结束 Run 是通用停止条件。普通 flags 属于精确 operation help；命令族选择、message→Task、多操作协调
@@ -581,7 +583,7 @@ AgentRun Formatter/Manifest binding contract，并由 Migration 89 clean break �
 v1.23 不修改 Bootstrap wrapper、Formatter 或数据库，而是在 Native Binding context contract 中加入
 `sessionCharterRevision: 2`；该字段只进入每个 Adapter 的 Binding compatibility digest，使新 Run 轮换旧
 Native Session 并投递完整新 Charter，历史 Bootstrap Evidence 保留原 bytes/digest。
-当前 Charter revision 为 22，User 通知主 flag 为 `--to-user`，结构化用户提及投影为 `@User`。
+当前 Charter revision 为 23，User 通知主 flag 为 `--to-user`，结构化用户提及投影为 `@User`。
 这些兼容教学更新保留 Binding compatibility 16；既有 Session 继续使用自身冻结的 Bootstrap，不因新 Charter
 revision 轮换。新 Session 才冻结新模板，既有 Evidence 保持原 bytes/digest。
 `MEMBER_IDENTITY` 是该 Native Session 唯一的 self identity，包含最新已提交的完整六字段；它只在

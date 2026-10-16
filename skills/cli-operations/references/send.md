@@ -19,7 +19,3 @@ Combine `--to` and `--to-user` only when each recipient has an independent actio
 A one-time answer, update, question or request uses a message. Use a [Task](task.md) only for durable, independently transferable responsibility. A Task-linked Send requires exactly one effective Agent recipient; User attention does not count.
 
 A successful Send proves publication and its frozen effects, not that a recipient has started or finished.
-
-## Files
-
-Use `--file <path>` to publish a file or directory with the message; repeat it to preserve attachment order. No separate upload is required. At least one file can form a message without a body.

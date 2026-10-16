@@ -1,49 +1,35 @@
-# Rovai AI v0.4.11
+# Rovai AI v0.4.12
 
 <!-- lang:zh-CN -->
 
-本次更新新增执行中插话和快捷键设置，改进消息处理状态、队员头像与会话阅读体验，并减少新增执行记录的存储占用。
+本次更新在执行过程中加入插话记录，调整队员卡片和邀请操作，并修复网页版新建会话、附件发送及删除会话后的错误提示。
 
-- 【功能】**支持执行中插话。** 队员执行任务时，可以继续发送补充说明，也可手动选择排队。启动阶段提交的补充消息会在初始输入接收后投递。已接入 Codex、Claude Code、Pi、CodeBuddy、Qwen Code、Grok Build、Kiro CLI、ZCode 和 TRAE CLI CN，按实际版本与执行状态启用。
-- 【交互】**消息处理状态更清楚。** 区分“待插话”“发送中”“已插话”和普通处理中等状态，多队员的接收、排队与失败情况分别显示。回执固定靠右，复制和撤回操作出现时不再挤动位置。“已插话”表示运行时已接收，不代表已经处理完成。
-- 【功能】**新增快捷键设置。** 可为导航、执行台、任务、队员、单聊和文件操作等 23 个动作配置键盘组合或鼠标侧键，支持冲突替换、清除和恢复默认。鼠标侧键默认不绑定；消息发送可选择 Enter 或 ⌘/Ctrl + Enter，自定义查找快捷键在 HTML 预览中同样生效。
-- 【交互】**消息和输入框中的网页链接可直接操作。** 公屏与单聊中的 HTTP、HTTPS 地址支持直接打开；输入框内可选择打开或复制，也可使用 ⌘/Ctrl 点击打开，保留原有编辑与撤销行为。
-- 【交互】**简化队员头像设置与身份卡。** 上传、裁切和确认在同一弹窗内完成，预设头像按需展开。身份卡改为紧凑单列，优先展示专业职责，“更多设定”默认收起，移除半身照展示。
-- 【交互】**减少创建队员时的额外设定。** 通过会话创建队员时，保留用户提供的信息，未指定外观时使用默认头像；有明确形象要求时再提出自定义方案。“工作准则”和“成长课题”不再默认补写，用户提供的设定仍会保留。
-- 【功能】**补齐协作消息中的发送者名称。** 队员接收消息、读取或搜索历史时，可直接看到发言队员的名称，便于区分不同成员的消息。
-- 【界面】**消息锚点预览增加回复者信息。** 在会话左侧查看消息预览时，会同时显示回复队员的头像、名称和回复摘要。
-- 【界面】**简化会话日期标记。** 只在跨日处显示日期，移除两侧横线，日期格式跟随中英文界面语言。
-- 【交互】**改善面板拖动与收起。** 侧栏、文件预览、执行详情、队员列表和定时任务详情缩到最小时会先停住，继续向内拖动才收起。修复底部执行台收起后仍显示、占位，以及连续切换时快捷键失效的问题。
-- 【性能】**减少新增执行记录的存储占用。** 减少工具输入、结果、文件差异和会话目录的重复保存，避免无变化的进度反复重写正文；文件变更预览按选中操作读取。主要作用于后续新增记录，不会自动压缩已有历史。
-- 【修复】**修复头像裁切位置不一致的问题。** 统一旧上传头像与内置头像的读取、裁切基准，避免队员调整头像时出现取景偏移。
-- 【修复】**修复 Pi 读取较大图片或 GIF 时执行中断的问题。** 调整图片结果的接收容量，并区分容量超限、协议异常和连接读取失败。
-- 【修复】**修复智能体版本号偶尔变为未知的问题。** 设置页与队员配置统一显示版本信息；同一程序暂未返回版本或检查失败时，保留已识别的版本号，更换程序后不会误用旧版本信息。
+- 【功能】**执行过程中可直接查看插话记录。** 插话在对应位置单独显示，可展开查看原文和投递状态，并点击“原消息”返回会话定位；前后的工具操作分组会保留清楚的边界。
+- 【交互】**调整队员卡片与邀请列表。** 角色、智能体和模型信息分层显示，长模型名称不再挤压智能体名称。邀请候选改用行尾复选框；邀请弹窗与 `@` 候选统一检查可用性，避免加入未配置或不可用的队员。
+- 【界面】**改善手机网页版的队员邀请体验。** 邀请窗口改为底部弹层，搜索和确认区域固定，候选列表独立滚动；首次打开不自动聚焦搜索框，适配横屏和键盘弹出后的可视区域。
+- 【交互】**调整队员的文件发送指引。** 普通文件引用优先使用 Markdown 链接，明确需要附件时再发送文件；为 Lark 和钉钉补齐与飞书一致的文件交付提示。
+- 【修复】**修复网页版新建会话时输入框无法初始化的问题。** 解决打开新对话后提示操作未开放、无法正常输入和发送的问题。
+- 【修复】**修复网页版上传附件后无法发送的问题。** 正确识别上传后的附件状态，同时修复草稿恢复后的附件预览与可用性检查。
+- 【修复】**修复删除会话后误报“会话不存在”的问题。** 删除或切换会话后，不再让过期刷新结果干扰当前页面；其他客户端删除会话后也能正确更新。
 
-感谢 [@arschlochnop](https://github.com/arschlochnop) 在 [#668](https://github.com/murray17/rovai-ai/issues/668) 中反馈鼠标侧键与系统操作冲突的问题。
+感谢 [@liangxyz](https://github.com/liangxyz) 在 [#779](https://github.com/murray17/rovai-ai/issues/779) 中反馈网页版附件发送问题。
 
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.10...v0.4.11)
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.11...v0.4.12)
 
 ---
 
 <!-- lang:en -->
 
-This release adds mid-execution steering and configurable shortcuts, improves message delivery status, teammate avatars, and conversation reading, and reduces storage used by new execution records.
+This release adds steering records to the execution view, updates teammate cards and invitations, and fixes new conversations, attachment sending, and misleading errors after conversation deletion in the Web app.
 
-- [Feature] **Send follow-up instructions during an execution.** Add instructions while a teammate is working, or choose to queue them instead. Follow-ups submitted during startup are delivered after the initial input is accepted. Steering is integrated with Codex, Claude Code, Pi, CodeBuddy, Qwen Code, Grok Build, Kiro CLI, ZCode, and TRAE CLI CN, subject to the actual version and execution state.
-- [Interaction] **See clearer message delivery status.** Pending steering, sending, accepted steering, and ordinary processing are shown separately, including each teammate's queued and failed deliveries. Receipts stay right-aligned when copy and recall actions appear. Accepted steering means the runtime has received the input, not that processing is complete.
-- [Feature] **Configure keyboard and mouse shortcuts.** Assign keyboard combinations or mouse side buttons to 23 actions covering navigation, executions, tasks, teammates, private chats, and files. Replace conflicts, clear bindings, or restore defaults. Mouse side buttons are unbound by default. Choose Enter or Cmd/Ctrl + Enter to send; custom find shortcuts also work in HTML previews.
-- [Interaction] **Open web links in messages and composers.** HTTP and HTTPS addresses in public and private conversations can be opened directly. In a composer, choose to open or copy a link, or Cmd/Ctrl-click to open it, while retaining normal editing and undo behavior.
-- [Interaction] **Simplify avatar settings and teammate cards.** Upload, crop, and confirm an avatar in one dialog, with preset avatars available on demand. Teammate cards use a compact single-column layout that prioritizes professional responsibilities, collapses additional settings by default, and removes portrait displays.
-- [Interaction] **Avoid unnecessary additions when creating teammates.** Creation through a conversation retains the information you supply and uses a default avatar unless an appearance is specified. Custom avatar plans are proposed for explicit visual requirements. Working principles and growth topics are no longer filled in by default; supplied settings are preserved.
-- [Feature] **Include teammate names in collaboration messages.** Teammates can see the speaking teammate's name when receiving messages or reading and searching history, making it easier to distinguish participants.
-- [UI] **Show reply authors in message anchor previews.** Previews on the left side of a conversation include the replying teammate's avatar, name, and reply summary.
-- [UI] **Simplify conversation date markers.** Dates appear only at day changes, without horizontal rules, and follow the selected English or Chinese interface language.
-- [Interaction] **Improve panel resizing and collapsing.** The sidebar, file preview, execution details, teammate list, and scheduled-task details pause at their minimum size before further inward dragging collapses them. Fix the bottom execution drawer remaining visible or taking space after collapse, and shortcuts failing during repeated toggling.
-- [Performance] **Reduce storage used by new execution records.** Avoid duplicate copies of tool inputs, results, file diffs, and conversation directories, and skip body rewrites for unchanged progress. File-change previews read the selected operation. These changes mainly affect new records and do not automatically compress existing history.
-- [Fix] **Keep avatar crop coordinates consistent.** Use matching image and crop coordinates for older uploaded avatars and built-in avatars, preventing misplaced crops when a teammate adjusts an avatar.
-- [Fix] **Prevent Pi executions from disconnecting when reading larger images or GIFs.** Increase capacity for incoming image results and distinguish capacity limits, protocol errors, and connection read failures.
-- [Fix] **Keep known runtime versions from unexpectedly becoming unknown.** Settings and teammate configuration use the same version information. A known version is retained when the same program omits it or a check fails, without carrying an old version over to a different program.
+- [Feature] **See steering records directly in the execution view.** Follow-up instructions appear as separate rows at their corresponding positions. Expand them to read the original text and delivery status, or select “Original message” to return to the source in the conversation. Tool operations before and after an input keep clear grouping boundaries.
+- [Interaction] **Update teammate cards and invitation lists.** Roles, runtimes, and models are shown separately, so long model names no longer squeeze runtime names. Invitation checkboxes move to the end of each row. The invitation dialog and `@` suggestions use the same availability checks to avoid adding unconfigured or unavailable teammates.
+- [UI] **Improve teammate invitations on mobile Web.** Invitations open in a bottom sheet with fixed search and confirmation areas and a separately scrolling candidate list. Opening the sheet no longer automatically focuses search; the layout adapts to landscape and the visible area above the keyboard.
+- [Interaction] **Adjust file-sending guidance for teammates.** Prefer Markdown links for ordinary file references and send attachments when explicitly needed. Lark and DingTalk receive the same channel file-delivery guidance already provided for Feishu.
+- [Fix] **Fix composer initialization when creating a Web conversation.** Resolve the unsupported-operation error that prevented the composer from becoming available for typing and sending.
+- [Fix] **Fix sending after uploading a Web attachment.** Recognize uploaded attachment state correctly, and restore attachment previews and availability checks when recovering a draft.
+- [Fix] **Avoid misleading “conversation does not exist” errors after deletion.** Obsolete refresh results no longer interfere after deleting or switching conversations. Deletion from another client is also handled correctly.
 
-Thanks to [@arschlochnop](https://github.com/arschlochnop) for reporting mouse side-button conflicts with system actions in [#668](https://github.com/murray17/rovai-ai/issues/668).
+Thanks to [@liangxyz](https://github.com/liangxyz) for reporting the Web attachment-sending issue in [#779](https://github.com/murray17/rovai-ai/issues/779).
 
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.10...v0.4.11)
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.11...v0.4.12)

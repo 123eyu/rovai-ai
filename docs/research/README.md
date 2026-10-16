@@ -1,7 +1,7 @@
 ---
 document_type: research-index
 authority: research-routing
-last_updated: 2026-09-24
+last_updated: 2026-10-16
 ---
 
 # Research
@@ -41,6 +41,7 @@ observation into a stronger claim.
 
 ## Current areas
 
+- [Task capability switch proposal](task-capability-switch.md) — proposed default-off Task control, shared Bootstrap, CLI discovery, Core admission and retained-data recovery.
 - [Member runtime environment acceptance](member-runtime-environment-acceptance.md) — private Core storage, process boundaries, warm compatibility and Claude Code loopback evidence.
 - [`camp.read` latest reads and withdrawn markers](camp-read-latest-and-withdrawn.md) — design input for explicit read/search visibility, withdrawal markers and publication boundaries; current contract is Camp History v10.
 - [Agent governance vision: memory, context evaluation, documentation and member growth](agent-governance-vision.md) — pre-implementation scope and discussion boundaries.

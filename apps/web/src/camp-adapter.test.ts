@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AgentRunExecutionEvidenceView } from '@contracts'
 import { ExecutionWindow } from '../../desktop/src/renderer/src/execution-window'
+import { emptyLocalThreadComposerDraft, loadLocalThreadComposerDraft } from '../../desktop/src/renderer/src/camp-composer-local-store'
+import { PendingThreadDraftPersistence } from '../../desktop/src/renderer/src/pending-thread-draft'
 import { ConsoleClient } from './client'
 import { createThreadAdapter } from './camp-adapter'
 
@@ -73,6 +75,50 @@ it('loads a command after an initially empty Web Run and refreshes its completio
     expect(current.evidence[0].phase).toBe('completed')
     expect(operations).toEqual(['agentRunExecution.page', 'agentRunExecution.changes', 'agentRunExecution.changes'])
   } finally { current.dispose(); transport.clear() }
+})
+
+it('通过 Web 适配器确认 Pending 输入框初始化和草稿 presence，失败后仍可重试', async () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value) },
+    removeItem: (key: string) => { values.delete(key) }
+  }
+  vi.stubGlobal('sessionStorage', storage); vi.stubGlobal('localStorage', storage)
+  vi.stubGlobal('navigator', { platform: 'Linux x86_64' })
+  vi.stubGlobal('window', { sessionStorage: storage, localStorage: storage, history: { state: null } })
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  const requests: unknown[] = []
+  let rejectPresence = false
+  const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+    expect(String(url)).toBe('http://127.0.0.1:8767/api/v1/request')
+    requests.push(JSON.parse(String(options?.body)))
+    return Response.json(rejectPresence
+      ? { error: { code: 'camp.pending_draft_unavailable', message: '暂时无法保留草稿' } }
+      : { result: { changed: true } })
+  })
+  const transport = new ConsoleClient('http://127.0.0.1:8767', fetcher)
+  await transport.login('b'.repeat(64))
+  const client = createThreadAdapter(transport, async () => null).environment.client
+  const persistence = new PendingThreadDraftPersistence(client)
+  const empty = emptyLocalThreadComposerDraft('pending')
+  const draft = { ...empty, body: '保留未发送内容', content: { version: 2 as const, segments: [{ kind: 'text' as const, text: '保留未发送内容' }] } }
+  try {
+    await persistence.persist(empty)
+    rejectPresence = true
+    await expect(persistence.persist(draft)).rejects.toMatchObject({ code: 'camp.pending_draft_unavailable' })
+    expect(loadLocalThreadComposerDraft('pending', storage)).toEqual(draft)
+    rejectPresence = false
+    await persistence.persist(draft)
+    await persistence.persist(draft)
+    await persistence.persist(empty)
+    expect(loadLocalThreadComposerDraft('pending', storage)).toBeNull()
+    expect(requests).toEqual([false, true, true, false].map(present => ({
+      operation: 'threads.pendingDraft.setPresence', params: { threadId: 'pending', present }
+    })))
+    expect(transport.pendingCommandCount).toBe(0)
+  } finally { transport.clear() }
 })
 
 // Subscription alone must not cause idle HTTP work; only retained handles do.

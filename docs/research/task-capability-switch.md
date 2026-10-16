@@ -2,7 +2,7 @@
 document_type: implementation-proposal
 authority: proposed-task-capability-design
 status: proposed
-revision: 2
+revision: 3
 confirmation_status: pending
 implementation_status: not_started
 review_baseline: 81bb808c72721f67e2f07ead49fa4aca2ad64c02
@@ -12,10 +12,11 @@ last_updated: 2026-10-16
 # 会话 Task 能力开关方案
 
 推荐采用一个 Core 持久管理、默认关闭的实例级开关。Bootstrap 与平台 Skill 的通用教学统一去掉
-Task 专用内容；动态上下文、CLI 发现与解析、业务准入、客户端投影分别读取同一个能力状态。
-开启后仍提供现有 Task 工作流和数据，关闭后保留数据但不提供 Task 功能。
+Task 专用内容。Send 在所有状态下使用同一份不含 Task 关联的公开定义；开关只控制 Task 命令组、
+新动态输入中的 Task 数据与客户端 Task 功能。设置随时保存，后续操作读取当前值，已有执行继续。
+开启后提供 Task 创建、查询和更新，关闭后保留数据；历史关联保留，新消息不再建立 Task 关联。
 
-本稿是待审阅的 R2 提案，尚未修改实现、Schema 或当前合同。当前版本从
+本稿是待审阅的 R3 提案，尚未修改实现、Schema 或当前合同。当前版本从
 [版本索引](../versions/README.md)解析。后续确认实施时，将本稿确认过的完整模型输入对照和兼容规则
 纳入该版本独立的 `model-context-change-task-capability.md`，记录确认的 revision，再进行编码；
 本稿不代替[模型上下文变更治理](../development/model-context-change-governance.md)。
@@ -26,27 +27,41 @@ Task 专用内容；动态上下文、CLI 发现与解析、业务准入、客�
 不是上一版提案；示例 ID 仅代替真实数据。写明“删除/不输出”表示对应字节不存在，不是向模型发送这几个字。
 Bootstrap 用 B 编号，动态上下文用 D 编号，CLI 用 C 编号，Skill 用 S 编号。
 
-R2 补齐逐项对照，并将 R1 的 Task family help 新增教学从七行压为两行。
+R3 保留逐项对照，统一 Send/Skill 文案和定义，取消忙时切换限制及开关造成的执行阻断。
 提示词只保留会改变操作选择的规则；字段、权限与状态细节留在精确命令帮助，不重复放入通用上下文。
 不新增“Task 已关闭”、开关原因或内部实现说明；同一项教学只维护一个文本来源。
 
+R3 的明确取舍：退役新消息的 Task 关联，包括开启模式；旧 `taskId` 参数只兼容为普通消息发送。
+任务记录仍可由 Task 操作维护，分工和唤醒统一通过消息完成。开关不取消已经授权的消息或执行。
+
 ## 方案选择
 
-| 项目 | R2 建议 |
+| 项目 | R3 建议 |
 | --- | --- |
 | 开关范围 | 一个 Core 数据实例；Desktop、Web、渠道和全部 Thread 共用 |
 | 默认值 | `false`；新安装与升级后缺少配置都关闭，已有 Task 不自动开启功能 |
 | Bootstrap | 所有开关状态使用同一份不含 Task 专用教学的公开 Charter |
 | 原生 Session | 保留；不因开关或 Charter 改动强制重建 |
-| 切换时机 | 首版只在执行空闲时提交，避免中途更换已冻结输入策略 |
+| 切换时机 | 随时保存，不等待 Run、队列或恢复记录清空；后续操作读取当前值 |
+| Send / cli-operations | 两个状态共用一份定义和教学；Send 不再建立 Task 关联 |
 | 数据 | 保留 Task、历史关联和审计；不批量完成、取消、释放或转换成 Mission |
 | Agent 权限 | Agent 不能修改这个开关；有记忆或旧工具名也不能绕过 Core |
-| 兼容范围 | 关闭新的功能入口与产品注入，不删除用户正文、历史证据或原生 Runtime 的 plan/todo |
+| 兼容范围 | 关闭新的 Task 发现、操作和输入选择；已冻结输入照常恢复，旧关联不阻断消息执行 |
 | 实施规模 | 一个业务开关及其投影，不引入通用 Feature Flag 平台或每 Thread／每成员继承规则 |
+
+维护范围收敛为：
+
+| 内容 | 定义数量 | 开关只影响什么 |
+| --- | --- | --- |
+| Bootstrap、Memory 入口规则、平台 Skill | 一套 | 不读取 Task 开关 |
+| Send help、Schema、错误表、旧参数兼容 | 一套 | 不读取 Task 开关 |
+| 四个 Task 命令及其 help/Schema | 每个命令一份 | 整组是否提供；新的 Task 操作是否执行 |
+| SELF_ACTIVE_TASKS 与 UI/读侧/通知 | 保留现有 shape/组件 | 是否选择 Task 数据、显示 Task 功能 |
 
 Task 创建不启动队员；消息的 Task 关联本来就是可选的。现有消息 → Delivery → AgentRun → 公开回复
 路径足以支持日常分工。Mission 继续表示整件工作的目标，Automation 继续表示定时执行，二者均不依赖
-Task 开启。关闭后的取舍是，独立责任的负责人、状态和单独验收不再通过 Task 对象管理。
+Task 开启。开启时 Task 只承担责任记录；消息的派发与继续执行不再以关联 Task 的状态或负责人为前置条件。
+关闭后的取舍是，独立责任的负责人、状态和单独验收不再通过 Task 对象管理。
 
 相比直接删除 Task，本方案保留存量用户的恢复入口；相比只隐藏面板，它同时关闭模型发现、上下文与业务调用。
 不建议首版按 Thread 配置：目前没有明确的混用需求，却会增加跨 Thread 操作、CLI 投影、设置继承和迁移分支。
@@ -105,7 +120,7 @@ Task 开启时，用户/Lead 的创建权限、Assignee 的更新权限、状态
 
 | 变更前 | 变更后 | 说明 |
 | --- | --- | --- |
-| 关系对手方优先级：A2A 来源 → 当前 Task 的 assignee、Agent 创建者 → 本轮参与者 → Default Lead → 按成员顺序兜底；去重且仅保留当前成员 | 开启时保持；关闭时跳过 Task 查询与该优先级组，其余组顺序不变 | Task 不再隐式影响关闭模式的关系 Memory 选择 |
+| 关系对手方优先级：A2A 来源 → 当前 Task 的 assignee、Agent 创建者 → 本轮参与者 → Default Lead → 按成员顺序兜底；去重且仅保留当前成员 | 两个状态都删除 Task 查询与该优先级组，其余组顺序不变 | 与 Send 解耦一致，Bootstrap 关系选择也不需要开关分支 |
 | 每个关系对手方最多 12 条，按上述组序轮转选出共 24 条；Hearth 最多 16 条、Companion 最多 32 条 | 数量、条目内部排序与轮转算法保持；只有移除 Task 优先级可能改变关系条目顺序或最终入选项 | 明确这会影响选择结果，不把它误写成“Memory 内容完全不变” |
 
 Memory 条目的内容、访问授权、表格 shape、末尾发现提示和空索引提示不变，不删除用户 Memory。
@@ -113,16 +128,25 @@ Memory 条目的内容、访问授权、表格 shape、末尾发现提示和空�
 
 ### Session 连续性
 
-当前实现已经按 `Run + Binding + generation` 保存 Bootstrap 准备结果；新 Run 读取当前模板，
-同一 Run 的恢复复用已冻结材料。是否实际投递仍由 Adapter delivery mode、Charter digest、补发要求与
-accepted ACK 决定。参见 `prepare_session_bootstrap_evidence_for_snapshot` 和
-[Session 不变量](../architecture/foundational-invariants.md#context-session-bootstrap)。
+这次改动不破坏会话连续性。原生 Session 是模型保留的会话历史；Run 是收到新输入后的一轮执行，
+同一个 Session 可以经历很多个 Run。
 
-因此，本方案不把开关加入 Native Binding compatibility digest，也不以删除 Task 文案为由重建原生
-Session。这修正了初轮调研中“切换后更换 Session”的过重建议。各 Runtime 的热续接、冷续接和补发仍要
-验证真实投递；已进入原生历史的旧说明允许保留，调用权限由当前 Core 裁决。
+| 场景 | 行为 |
+| --- | --- |
+| 老 Session 收到新消息，启动下一 Run | 继续原 Session、保留历史，同时用当前 Bootstrap 模板装配这一 Run |
+| 创建全新的 Session | 使用当前 Bootstrap 模板 |
+| 同一 Run 恢复或重试已冻结输入 | 使用该 Run 保存的原字节，不追改已经准备的材料 |
+| 执行中切换 Task | 当前执行继续；后续 Task 调用按当前值处理，新生成的动态输入按当前值选择 |
 
-## 2. 唯一配置与提交边界
+例如：`Session A / Run 1 → 关闭 Task → Session A / Run 2`。Session 仍是 A，Run 2 读取当前模板；
+不是只有换一个新 Session 才能使用新版 Bootstrap。开关两态本来就共用同一份 Charter 文本。
+
+实现上沿用 `prepare_session_bootstrap_evidence_for_snapshot` 的每 Run 冻结和现有投递判断：
+装配当前模板不代表无条件重复发送；是否补发仍由 Adapter、digest 与 accepted 记录决定。
+开关不进入 Binding compatibility digest，不触发 Session rotation；旧历史允许保留旧说明。
+参见 [Session 不变量](../architecture/foundational-invariants.md#context-session-bootstrap)。
+
+## 2. 唯一配置与即时切换
 
 建议新增窄接口，名称在确认后作为实施合同冻结：
 
@@ -144,23 +168,24 @@ preferences.tasks.set
 设置保存按以下顺序执行：
 
 1. 校验 User 调用和布尔输入；相同值是幂等读取，不产生变化事件。
-2. 在同一事务中确认没有非终态 Run、未结算 Runtime Input、等待/已领取的 Delivery 或尚未结算的
-   旧 A2A 投递；同时与新消息/claim 准入串行。普通空闲的 Native Session 不算占用。
-   唯一豁免是第 8 节因 `task.feature_disabled` 已停稳的恢复记录：必须证明无活跃 lease、
-   无在途请求、无 accepted/unknown 输入，且调度器不会自动投递；否则仍按忙处理。
-3. 忙时返回 `task.setting_busy`，保持原值；不停止执行、不取消消息、不保存隐藏的“待生效”状态。
-4. 空闲时提交新值，发布设置/读侧失效信号，刷新所有客户端。后续 claim 使用新值。
-5. 下一次绑定 Run lease 时写入新的 CLI 能力投影。无活跃 lease 的进程不发布 Task 能力。
+2. 直接提交新值，不查询“是否空闲”，不取消 Run，不清空或重排消息队列。
+3. 发布设置/读侧失效信号，刷新客户端与存活进程的 CLI 能力投影，不轮换 lease 或原生 Session。
+4. 后续 Task 操作在自己的事务中读取当前设置；新生成的上下文在 preparation 事务中读取一次并冻结。
 
-上述豁免使用户能够重新开启并恢复原记录，不形成“恢复需要开启、开启又要求恢复先结束”的死锁。
-提交开启只解除能力阻断；原有恢复资格、Binding/epoch 校验和输入防重仍然适用。
+没有 `task.setting_busy`、待生效状态、排空 worker 或“开启前先处理恢复阻断”的前置条件。
+Task 命令事务与设置事务按 Core 原有顺序串行：已经按旧值提交的命令保留真实结果，
+排在设置提交之后的新命令使用新值，不追溯撤销前一条命令。
 
-这里的“忙”是执行占用，不是 Task 的 `pending/in_progress/blocked` 状态。大量未完成 Task
-不能阻止关闭功能。首版采用实例空闲门槛，代价是存在后台工作时需等工作结束后切换；
-不为低频设置增加 desired/effective 双状态和后台切换 worker。
-历史终态 Run 及其仅供审计的 accepted/unknown 证据不算占用；仍有结算、清理或在途投递责任的记录才算。
+| 对象 | 何时应用设置 | 不做什么 |
+| --- | --- | --- |
+| Task CRUD / 旧客户端调用 | 每次新操作执行时读取当前值 | 不把 Run 启动时的布尔值当作整轮授权 |
+| 普通新 Run / 新 Steer 输入 | 各自 preparation 时读取并冻结选择 | 不重复渲染或改写已冻结输入 |
+| UI、CLI 命令发现 | 保存后刷新；新 lease 绑定时再次同步 | 不因投影刷新失败回滚设置或终止执行 |
+| Send、已发布消息、正在运行的 Run | 正常继续，与 Task 设置无关 | 不因为 Task 关闭取消或失败 |
 
-配置损坏不得自动解释成开启；返回明确读取错误，界面不显示已保存成功，原文件/记录不被修复覆盖。
+CLI 投影采用现有原子文件写入，刷新失败只记录诊断，后续绑定时再同步；短时旧展示不影响 Core
+按当前值执行。配置项缺失使用 `false`；该可选配置自身损坏时使用关闭状态并报告诊断、保留原记录，
+不阻止普通会话。设置持久化失败才向用户报告保存失败，不伪称成功；数据库与授权的真实故障仍走原流程。
 
 ## 3. 动态上下文按能力选择
 
@@ -175,7 +200,8 @@ preferences.tasks.set
 
 在共同选择入口读取 Core 状态，在现有 claim/frozen-context DTO 中携带本次的内部布尔选择结果；
 渲染、容量检查与物化使用同一个结果，不分别重新取设置。旧 DTO 的缺失字段仅在历史解码分支解释，
-不能让新请求用字段缺省恢复为开启。不新增模型可见 capability section。
+不能让新请求用字段缺省恢复为开启。这个值只解释该份输入，不是整个 Run 的授权快照；
+同一 Run 后来的 Steer 输入仍重新读取当前设置。不新增模型可见 capability section。
 
 ### D01：公开输入的 SELF_ACTIVE_TASKS
 
@@ -226,9 +252,9 @@ preferences.tasks.set
 }
 ```
 
-变更后：关闭时删除 `taskContext` 字段，不输出 `null`；开启时沿用原有条件与内容。
-说明：不再从新 Run Facts 提供 Task locator。公开 batch 通常原本就不含此字段，保持省略；
-关闭时 Task-linked 执行还会在准入处被阻止，不是只删除字段后继续执行。
+变更后：新生成的 Run Facts 在两个开关状态中都删除 `taskContext`，不输出 `null`。
+说明：消息不再绑定 Task，旧关联只保留为历史事实，不阻止派发与继续执行。
+开启时已有任务仍通过 D01 的责任列表提供；历史已冻结 Run Facts 保留原字节。
 
 ### D04：Single Chat 的 taskMutationAllowed
 
@@ -270,11 +296,11 @@ preferences.tasks.set
 | 新公开输入的 Task 选择 | 每次 prepare 选择 Task，claim/FIFO 预算与渲染使用该结果 | 关闭时选择结果明确为“不提供”；开启保持原结果；普通启动与 Steer 共用 | 防止 claim 算了一种输入、实际发送另一种 |
 | 容量计算 | Task bytes 参与完整 payload 预算，可能被逐项淘汰 | 关闭时 Task bytes 为零；仍按真实完整 payload 决定 FIFO 能装下多少消息 | 容量上限和完整用户消息规则不变，实际可领取数量可能变化 |
 | 新 Run 的材料 | 新 Run 读取当前模板和当时事实 | 新 Run 读取统一模板和当时能力选择 | 不复制旧 Run 的 Task 区段 |
-| 同一 Run 的既有冻结载荷 | 恢复使用保存的原字节，accepted/unknown 不自动重发 | 原字节不改；关闭时，尚需发送的旧 Task 载荷按第 8 节阻断；accepted/unknown 沿原结算规则 | 不裁剪历史 Blob，不把开关当作重放许可 |
+| 同一 Run 的既有冻结载荷 | 恢复使用保存的原字节，accepted/unknown 不自动重发 | 继续使用原字节，即使含旧 Task 信息；accepted/unknown 沿原结算规则 | 不因切换新增失败或恢复阻断，也不把开关当作重放许可 |
 
 来源：`DynamicInputContext::prepare`、`ClaimedBatchContext::payload_len`、
 `self_active_task_projection`、`build_run_facts` 与最终 formatter。
-上面的“关闭、不提供、阻断”等词仅解释实现行为，不进入模型输入。
+上面的“关闭、不提供”等词仅解释实现行为，不进入模型输入。
 
 必须区分三种内部状态：能力关闭、开启但没有候选、开启但预算淘汰。建议用
 `Option<SelfActiveTaskProjection>` 配合明确的选择原因表达；不能只清空 `Vec`，因为当前
@@ -299,9 +325,9 @@ operation help，再调用 `load_context()`。仅在 Router 拒绝操作不会�
 
 | 变更前 | 变更后 | 说明 |
 | --- | --- | --- |
-| 无 Task 能力字段，help 使用全量目录 | 增加 Core 生成的 `tasksEnabled: boolean`；缺失或不可信时按 `false` 展示 | 控制发现与解析，不在 Bootstrap 或动态输入中教模型识别这个布尔值 |
+| 无 Task 能力字段，help 使用全量目录 | 增加 Core 生成的 `tasksEnabled: boolean`；缺失或不可信时按 `false` 展示 | 只控制 Task 命令组是否提供，不修改 Send 或其他命令的定义 |
 
-这只是本进程的帮助/解析投影，不是授权凭证。Core 在绑定 Run lease 时由实例状态与运行模式计算它：
+这只是本进程的命令发现投影，不是授权凭证。Core 在绑定 Run lease 与设置变化时由实例状态和运行模式计算它：
 public Run 且功能开启才是 `true`；Single Chat、未绑定、无法确认状态都是 `false`。
 不把它作为单独环境变量，不让 CLI 读取日常数据库或自行扫描配置目录。
 
@@ -309,8 +335,8 @@ public Run 且功能开启才是 `true`；Single Chat、未绑定、无法确认
 
 ```text
 读取 CLI 上下文中的能力投影（不要求执行认证，也不为 help 发 IPC）
-    → 按能力选择目录/Schema
-    → root help / family help / operation help / 参数解析
+    → 仅筛选 Task 命令组是否可用
+    → 从同一份静态定义生成 help / Schema / 参数解析
     → 真正执行时才校验 active lease 并发送 IPC
     → Core 使用当前状态重新准入
 ```
@@ -319,10 +345,12 @@ public Run 且功能开启才是 `true`；Single Chat、未绑定、无法确认
 真实执行仍保留原有上下文/版本错误。脱离受管 Runtime 的终端默认不展示 Task，
 不会为了 help 唤醒或连接一个猜测的 Core 实例。
 
-实现上保留一个完整的静态基础 catalog，增加按当前能力生成的窄视图。
-根 help、family、精确 help、参数解析共用这个视图。不要让 `OnceLock` 缓存第一次读取的开关值；
-也不要维护一份手写的开关后命令名单。
-`builtin_tool_list`、`builtin_tool_description` 以及可对外返回的目录/描述路径也必须经过同一视图。
+实现上只保留一个静态 catalog 和一个 Task 命令组可用性判断。根 help、family、精确 help、
+`builtin_tool_list/description` 与命令查找共用该判断；各命令的文案、字段和错误定义不按开关改写。
+`OnceLock` 只缓存静态定义，不缓存开关。此处唯一差异是“Task 这一组是否存在”，不维护两套配置。
+
+只统一文案仍会留下 Send 的 `taskId` Schema 分支，因此 R3 选择同时退役新消息的 Task 关联。
+代价是开启模式也不再提供这项关联；Task CRUD、面板和数据保留，普通消息继续负责派发工作。
 
 ### C01：根 help 的 Task 行
 
@@ -352,17 +380,26 @@ Run an Agent operation's exact `--help` for its closed inputs.
 
 ### C02：四个 Task operation 的发现与精确 help
 
-来源：`builtin_tool_transport.rs` 与 `team_tool_catalog.rs`。下表逐个列出入口；
-开启模式的描述、参数和成功结果 Schema 不改写，关闭模式不返回这些内容。
+来源：`builtin_tool_transport.rs`、`team_tool_catalog.rs` 与 `team_tool.rs`。下表逐个列出入口；
+四个 operation 各只有一份定义，关闭模式只从可用集合移除，不改写定义内容。
 
 | 入口 | 变更前 | 变更后 | 说明 |
 | --- | --- | --- | --- |
-| `team.create_task` / `rovai task create --help` | 全量目录可发现，可读创建 help | 关闭时从目录省略，help 不返回说明/Schema；开启保持 | 不教学创建操作 |
-| `team.get_task` / `rovai task get --help` | 全量目录可发现，可读详情 help | 关闭时从目录省略，help 不返回说明/Schema；开启保持 | 不教学读取操作 |
-| `team.list_tasks` / `rovai task list --help` | 全量目录可发现，可读列表 help | 关闭时从目录省略，help 不返回说明/Schema；开启保持 | 不教学枚举操作 |
-| `team.update_task` / `rovai task update --help` | 全量目录可发现，可读更新 help | 关闭时从目录省略，help 不返回说明/Schema；开启保持 | 不教学更新操作 |
+| `team.create_task` / `rovai task create --help` | 全量目录可发现，可读创建 help | 关闭时省略；开启使用唯一静态定义 | 创建描述的统一微调见下表 |
+| `team.get_task` / `rovai task get --help` | 全量目录可发现，可读详情 help | 关闭时省略；开启使用唯一静态定义 | 参数与成功结果保持 |
+| `team.list_tasks` / `rovai task list --help` | 全量目录可发现，可读列表 help | 关闭时省略；开启使用唯一静态定义 | 参数与成功结果保持 |
+| `team.update_task` / `rovai task update --help` | 全量目录可发现，可读更新 help | 关闭时省略；开启使用唯一静态定义 | 参数与成功结果保持 |
 
-关闭时直接请求这些 help 返回 C10 的现有 CLI 短错误，不输出开启方法。
+关闭时直接请求这些 help 返回 C10 的同一份短错误，不输出开启方法。
+
+由于 Send 退役 Task 关联，create 的描述末行统一调整；输入字段、权限和成功结果不变：
+
+| 变更前 | 变更后 | 说明 |
+| --- | --- | --- |
+| `Does not notify or start work; use rovai send --task-id.` | `Does not notify or start work; use rovai send --to <assignee>.` | 用普通消息派发工作，不再教已经退役的关联参数 |
+
+这句同时存在于 catalog 和 `create_task_input_schema` 的描述中；实施时二者复用同一文本来源，
+一起替换，避免公开 Schema 仍保留旧教学。
 
 ### C03：Send 的 taskId / --task-id
 
@@ -378,24 +415,23 @@ Run an Agent operation's exact `--help` for its closed inputs.
 
 CLI 参数表提供 `--task-id`，当前没有为它追加专用参数说明。
 
-变更后：关闭时删除整个 `properties.taskId` 与 `--task-id` 参数行；开启时该 Schema 字段为：
-
-```json
-{
-  "type": "string",
-  "minLength": 1,
-  "description": "Link a current Task assigned to the sole Agent recipient. Invalid with --public-only; User attention does not count."
-}
-```
-
-开启时 CLI 在 `--task-id` 行下输出同一段 description，不维护第二套措辞。
-说明：Task 关联限制集中在自己的参数入口，通用 public-only 帮助不再重复 Task 规则。
+变更后：两个状态都从公开 Schema 删除整个 `properties.taskId`，从 help 删除 `--task-id` 参数行，
+不增加替代字段或参数教学。Send 的定义不再读取 Task 开关。
+说明：发送消息与管理任务分开；创建任务后用普通 `--to` 消息要求队员执行。
 来源：`team_tool.rs::camp_message_send_input_schema` 与 `bin/rovai.rs` 参数渲染。
 
 Send CLI 保持现有的 direct flags 或 `--input-file` 正文文件加发送 flags，不新增 JSON stdin
-或完整 JSON 文件入口。关闭时拒绝 `--task-id`；旧客户端/手写 IPC 的 JSON 请求按相同能力校验，
-包含 `taskId` 即拒绝，即使值为 `null` 也不能默默忽略。
-字段存在性检查在解码为 `Option` 之前执行，不能让显式 `null` 与缺字段合并后绕过这条规则。
+或完整 JSON 文件入口。兼容旧调用的规则也只有一套，与开关无关：
+
+| 旧输入 | 兼容处理 | 说明 |
+| --- | --- | --- |
+| CLI 中合法的 `--task-id <value>` | 在公开参数校验前消费并忽略该关联参数 | 旧模型指令不应阻止消息发送；不在新 help 列出 |
+| Agent IPC 的 `taskId`、User Send 的 `execution.taskId`，包括 `null` | 在新业务校验前按已知退役字段处理，不建立新 Task 关联 | 不查询 Task 是否存在、完成或换人，不因该元数据报错 |
+| 原有已提交消息/命令回执中的 Task 关联 | 保留原记录与准确回执 | 不改写过去已经发生的事实 |
+
+只兼容上述已知字段，不放宽其他字段、正文/附件验证或授权。有效收件人仍完全按消息的当前寻址规则确定，
+不从旧 Task ID 推断或补充收件人；正文、附件、`--to`、`--public-only` 与用户注意力保持。
+幂等仍核对原请求身份与内容，兼容转换不允许同一请求重复发布。
 
 ### C04–C06：Send 的通用教学
 
@@ -405,19 +441,19 @@ Send CLI 保持现有的 direct flags 或 `--input-file` 正文文件加发送 f
 | 项目 | 变更前 | 变更后 | 说明 |
 | --- | --- | --- | --- |
 | C04 · User attention help 末段 | `It creates no Agent Delivery, does not represent approval, and may be combined with --public-only. User attention is message-local and is never inherited by replies, Tasks, or downstream A2A work.` | `It creates no Agent Delivery, does not represent approval, and may be combined with --public-only. User attention is message-local and is never inherited.` | 删除继承对象的枚举，保留注意力仅属于本消息的规则 |
-| C05 · public-only help 末段 | `Do not combine this option with --to or --task-id. It may be combined with --to-user.` | `Do not combine this option with --to. It may be combined with --to-user.` | Task 互斥规则移到 C03；其他寻址规则不变 |
+| C05 · public-only help 末段 | `Do not combine this option with --to or --task-id. It may be combined with --to-user.` | `Do not combine this option with --to. It may be combined with --to-user.` | Send 不再创建 Task 关联，无需这条互斥教学 |
 | C06 · public-only Schema 完整 description | `Guarantee that this public Thread message addresses no Agent. When true, explicit Agent recipients and taskId are invalid, effectiveRecipients and deliveryIds are empty, and no Agent is woken. This may be combined with mentionUser because User attention is not Agent routing.` | `Guarantee that this public Thread message addresses no Agent. When true, explicit Agent recipients are invalid, effectiveRecipients and deliveryIds are empty, and no Agent is woken. This may be combined with mentionUser because User attention is not Agent routing.` | Schema 中同样删除 Task 专用枚举，保持回执与 User attention 语义 |
 
-真实业务仍执行 public-only 与 Task 关联互斥；删掉重复教学不改变校验。
+新业务不再建立 Task 关联；旧关联参数按 C03 兼容，不再导致 public-only 冲突。
 正文、附件、文件输入选择、发送结果和用户注意力规则保持。
 
 ### C07：Send 描述中的 Task 错误目录
 
 | 变更前 | 变更后 | 说明 |
 | --- | --- | --- |
-| `builtin_tool_description` 的 `errors` 包含 `message.task_recipient_ambiguous` 与 `message.invalid_task`，两者 recovery 均为 `fix_input` | 关闭时删除这两项；开启保持；其他错误条目不变 | 关闭后的可发现描述不再暴露 Task 校验细节；服务端仍识别历史错误 |
+| `builtin_tool_description` 的 `errors` 包含 `message.task_recipient_ambiguous` 与 `message.invalid_task`，两者 recovery 均为 `fix_input` | 两个状态都从当前 Send 描述中删除这两项，新的 Send 不再产生它们 | 发送消息不受 Task 关联约束；历史错误仍按原记录读取 |
 
-这里调整的是可发现的错误目录。旧请求主动调用被禁能力时，仍会得到第 6 节的短错误，不伪装成成功。
+旧 Send 关联参数按 C03 正常兼容。直接调用关闭的 Task CRUD 才得到 C10 的局部不可用结果。
 
 ### C08：Automation 描述中的术语
 
@@ -457,31 +493,27 @@ Use rovai task <command> --help for arguments.
 ```
 
 说明：只增加“何时用 Task”和“交接前维护状态”两行。复用已有 Task、权限、字段与“不自动唤醒”
-已经由 create/update/list 精确帮助拥有；Send 的单一接收者规则由 C03 拥有，不在这里复述。
+由 create/update/list 精确帮助拥有；Send 不再承担 Task 关联约束。
 S12 列出原 reference 每条规则的去向，避免缩短文案时丢失必要行为。
 
 ### C10：直接请求禁用能力时的错误文本
 
-这两种错误只回应实际请求，不主动注入上下文。
+这个结果只回应实际请求，不主动注入上下文。
 
 | 位置 | 变更前 | 变更后 | 说明 |
 | --- | --- | --- | --- |
-| 新 CLI 的 Task family/operation help 或执行入口 | help 返回当前帮助；执行请求按原规则解析 | 关闭时退出码为 2，返回下方现有 CLI 错误 | 不提供 Task 教程，也不增加一套错误提示词 |
-| Core 收到 Task 操作或带 Task 字段的旧客户端请求 | 按原领域规则执行，合法请求返回业务结果 | 关闭时返回下方领域错误，禁止本次业务副作用 | 能识别被禁能力，不引导 Agent 修改设置 |
+| 新 CLI 的 Task family/operation help 或执行入口 | help 返回当前帮助；执行请求按原规则解析 | 关闭时退出码为 2，返回下方同一不可用结果 | 只结束这次 Task 操作，不结束 Run |
+| Core 收到新的 Task CRUD | 按原领域规则执行，合法请求返回业务结果 | 关闭时返回同一不可用结果，不产生新的 Task 副作用 | Agent 可以继续使用消息、文件和其他操作 |
 
-关闭后的 CLI 返回体（复用 `bin/rovai.rs::print_safe_cli_error`）：
-
-```json
-{"error":{"code":"builtin_tool.cli_error","message":"Built-in Tool request could not be completed.","recovery":"stop"}}
-```
-
-关闭后的 Core 错误经 Agent 输出投影为：
+CLI 与 Core 共用的 Agent 可见结果：
 
 ```json
-{"error":{"code":"task.feature_disabled","message":"Task operations are unavailable.","recovery":"stop"}}
+{"error":{"code":"task.feature_disabled","message":"Tasks are disabled. Continue with messages.","recovery":"stop"}}
 ```
 
-其他错误和开启模式的成功输出保持原合同。领域拒绝和历史回执的边界见第 6 节。
+`stop` 沿用已有 Recovery 合同，只停止本次 operation；不得因此标记 Run failed、取消 Delivery
+或要求重新开启设置。Task 定义的错误表固定增加这一项，不按开关产生两份表；Send 不增加它。
+已提交请求的准确回执仍可重放，旧 Send 关联字段正常兼容。其他错误和成功输出保持原合同。
 
 ## 5. 平台 Skill 使用一套通用文本
 
@@ -512,16 +544,16 @@ Choose among Rovai messages, Missions, history and Memory; coordinate parallel m
 | --- | --- | --- | --- |
 | S02 · `cli-operations/SKILL.md` 选择表 | `Responsibility that survives Runs and can be handed off and accepted independently` → `Task` | 删除这一行 | 通用选择表不再引导创建 Task |
 | S03 · 同文件选择表后 | `Choose the smallest object that fully serves the request. Tasks own durable responsibilities; project sources and history own their facts.` | `Choose the smallest object that fully serves the request. Project sources and history own their facts.` | 删除 Task 定位，保留最小对象与事实来源规则 |
-| S04 · 同文件 References | `[Task](references/task.md): durable responsibility and Task-linked messages.` | 删除这一项 | 不留下被退役文件的入口 |
+| S04 · 同文件 References | `[Task](references/task.md): durable responsibility and Task-linked messages.` | 删除这一项 | 通用索引不再提供 Task 教程入口；旧路径按 S12 兼容 |
 | S05 · `references/send.md` attention 段首句 | `Attention belongs to this message; replies, Tasks and downstream work do not inherit it.` | `Attention belongs to this message and is not inherited.` | 用一句通则替代对象枚举 |
-| S06 · 同文件一次性协作段 | `A one-time answer, update, question or request uses a message. Use a [Task](task.md) only for durable, independently transferable responsibility. A Task-linked Send requires exactly one effective Agent recipient; User attention does not count.` | 删除整个段落 | 消息用法已在本页开头；Task 选择和关联规则分别由 C09、C03 拥有 |
+| S06 · 同文件一次性协作段 | `A one-time answer, update, question or request uses a message. Use a [Task](task.md) only for durable, independently transferable responsibility. A Task-linked Send requires exactly one effective Agent recipient; User attention does not count.` | 删除整个段落 | 消息用法已在本页开头；Task 选择见 C09，Send 不再建立关联 |
 | S07 · `references/mission.md` 定位句 | `A Mission owns the shared objective; a Task owns independently transferable responsibility. Do not automatically create a duplicate Task. Edit only the established objective and requirements.` | `A Mission owns the shared objective. Edit only the established objective and requirements.` | 仅保留 Mission 职责，不教学另一种对象 |
 | S08 · `references/memory.md` 权威句 | `Tasks, temporary plans, project facts and historical evidence belong to their existing authoritative sources.` | `Temporary plans, project facts and historical evidence belong to their existing authoritative sources.` | 保留临时计划与项目事实不应进入 Memory 的边界 |
 | S09 · `cli-operations/agents/openai.yaml` 的 `short_description` | `在 Send、Task、检索与 Memory 之间选择并安全协调` | `消息、Mission、检索与 Memory 操作` | 同步资源元数据，用短语表达用途 |
 | S10 · `memory-stewardship/references/authority-and-safety.md` 适用条件 | `belong in Memory rather than Tasks, history, project documents, code, tests, approval or audit records;` | `belong in Memory rather than history, project documents, code, tests, approval or audit records;` | 只删除 Task；下文已有临时进度排除规则，不另造替代对象名 |
 | S11 · `memory-stewardship/references/content-and-keys.md` 示例 | `Agreement: Include the goal, verified state, evidence, open issues and next action in durable Task handoffs.` | `Agreement: Include the goal, verified state, evidence, open issues and next action in handoffs.` | 保留交接内容要求，不绑定 Task 对象 |
 
-### S12：Task reference 退役及规则去向
+### S12：旧 Task reference 的兼容页及规则去向
 
 变更前，`skills/cli-operations/references/task.md` 完整正文为：
 
@@ -537,8 +569,16 @@ Decide from current Task state; read it when the needed information is missing o
 Tasks preserve responsibility; messages communicate it. Bring the Task to the appropriate state before publishing a required handoff, request or result. A Task-linked Send requires exactly one effective Agent recipient; User attention does not affect that count.
 ```
 
-变更后：从当前官方发布集合删除这个文件，所有开关状态一致。
-说明：规则放在能实际使用该能力的入口；关闭时不再发布独立 Task 教程。
+变更后：保留原路径，两个状态共用下面的完整短文本：
+
+```markdown
+# CLI operations
+
+Use `rovai --help` for available operations and exact command help for syntax.
+```
+
+说明：不再发布 Task 教程；老会话读旧路径仍能得到有效导航，不产生文件缺失错误。
+新 Skill 的 References 不列出此兼容页，不把它作为常规教学重复注入。
 
 | 原规则 | 变更后的唯一主要入口 | 简短说明 |
 | --- | --- | --- |
@@ -546,48 +586,40 @@ Tasks preserve responsibility; messages communicate it. Bring the Task to the ap
 | 先发现命令、再读精确 help | `cli-operations/SKILL.md` 首段，保持原文 | 已有通用规则，无需再迁入一遍 |
 | 复用已有 Task；范围和要求放入 `description` | 已有 create help 与 create/update 参数帮助，保持原文 | 与操作参数放在一起 |
 | 需要时读取当前状态；只提交要修改的字段 | Skill 的 `Read the authoritative state needed for the decision.` 与已有 get/update help，保持原文 | 不强制每次重复读取 |
-| 关联 Send 只有一位 Agent 接收者，User attention 不计入 | C03 的 `taskId` 参数说明 | 一个参数拥有完整关联约束 |
+| Task 关联 Send 只有一位 Agent 接收者 | 随新的 Task 关联一起退役，C03 兼容旧参数 | 普通 Send 仍按显式收件人和现有寻址规则执行 |
+| User attention 不计入 Agent 接收者 | Send 的既有 attention/public-only 规则 | 与 Task 无关，保留已有教学 |
 
 ### 受管文件同步
 
-[managed_skills.rs](../../crates/rovai-core/src/managed_skills.rs) 的 `sync_directory` 目前只复制和覆盖，
-不会清除源目录已移除的文件。因此需要一项明确、窄范围的旧受管文件退役：
+[managed_skills.rs](../../crates/rovai-core/src/managed_skills.rs) 的 `sync_directory` 现有复制/覆盖行为
+足以发布这份兼容页；不新增删文件、旧内容 hash 识别或开关专用清理流程。打包资源与 `include_str!`
+引用继续指向同一路径，发布新版时正文一起更新。切换 Task 不触发 Skill 同步；发布资源的故障仍使用
+现有诊断与修复路径，不新增 Task 开关的执行门禁。
+不扩展对第三方 Skill、用户 Memory、成员身份或 Runtime 原生技能库的写入范围。
+自然语言中的普通 `task`（当前工作）不做机械字符串清除。
 
-- 只处理这个已知官方路径，验证实际目录、非 symlink 和已发布内容身份；
-- 已知旧官方文件安全删除；未知或用户改写内容保留并给维护者明确诊断，不递归清理未知文件；
-- 断开的旧官方引用和原生缓存的旧说明不能提供权限，Core 仍拒绝调用；
-- 更新打包资源、历史 bundle 引用与资源校验，避免编译期 `include_str!` 或恢复同步重新放回旧文件；
-- 不修改第三方 Skill、用户 Memory、成员身份或 Runtime 原生技能库。
+## 6. Core 按当前值处理，失败只影响对应操作
 
-这里退役的是 Rovai Task 能力的操作指导；自然语言中的普通 `task`（当前工作）不做机械字符串清除。
+UI 和 CLI 的过滤只负责发现与呈现。只有新的 Task CRUD 需要读取当前开关；消息与执行主流程不依赖它：
 
-## 6. Core 在同一准入位置拒绝
-
-UI 和 CLI 的过滤只负责发现与呈现。业务操作要在 Core 最终调用路径再次检查：
-
-| 入口 | 关闭时行为 |
-| --- | --- |
-| `team.create_task/get_task/list_tasks/update_task` | 拒绝，既不读任务正文也不产生业务写入 |
-| `tasks.create/update/list/get` | Desktop/Web 同样拒绝 |
-| Agent Send 的 `taskId` | 在发布消息或创建 Delivery 之前拒绝整个请求 |
-| User 发送里的 `execution.taskId` | 同样在发布前拒绝 |
-| 旧 Run 的“继续执行” | 检查全部原输入关联；存在 Task link 时不给新执行准入 |
-| 旧客户端/手写 IPC/JSON | 不能依靠静态 catalog、历史 capability 或旧 DTO 绕过 |
-| 成员离队、永久删除 Thread | 继续维护保留数据的外键、assignment 和清理不变量 |
-
-建议统一业务拒绝为 `task.feature_disabled`，消息为 `Task operations are unavailable.`，
-恢复动作 `stop`。CLI 提前拒绝时复用 C10 的现有短错误；
-Core 的领域错误独立保持可识别。不返回任务正文，不提示 Agent 自行修改设置。
+| 入口 | 处理方式 | 可用性边界 |
+| --- | --- | --- |
+| `team.create_task/get_task/list_tasks/update_task` | 新调用按当前设置决定是否执行；关闭时返回 C10，不读写 Task 业务内容 | 不将 Run 标成失败，不取消关联消息 |
+| `tasks.create/update/list/get` | 同样读取当前值；关闭时界面收起旧面板 | 不用空任务列表冒充读取成功，不影响 Thread 主界面 |
+| Agent Send 的 `taskId`、User Send 的 `execution.taskId` | 两个状态都按 C03 兼容为普通消息发送 | 不因 Task 关闭、完成或负责人变化阻止发送 |
+| waiting 消息、旧 Run 的“继续执行” | Task 关联仅作历史数据，不再决定是否能派发或继续 | 保留消息未撤回、成员有效、User 授权、Mission 和实际 Runtime 恢复检查 |
+| 已按旧值执行完成的 Task 命令 | 返回真实结果；准确重试复用已提交回执 | 不因随后关闭改判失败，也不重复副作用 |
+| 成员离队、永久删除 Thread | 继续维护保留数据的外键、assignment 和清理不变量 | 开关不关闭数据生命周期管理 |
 
 Task CRUD 的最终 guard 放到 [collaboration.rs](../../crates/rovai-core/src/collaboration.rs) 中的
-业务入口，发送关联在 [message_delivery.rs](../../crates/rovai-core/src/message_delivery.rs) 与
-User publication 的共用准入处理；Router 再做早期拒绝。设置切换与这些判断共享事务顺序，
-避免“先读开关，释放锁，稍后仍写入”的竞态。
+业务入口，和设置保存使用同一事务顺序。已认证请求先按原身份与 digest 核对准确回执；有已提交结果就返回
+原结果，没有才按当前设置执行新操作。开关不是撤销历史授权或已提交结果的按钮。
 
-检查先于新的 Task 操作执行和 Agent 工具 Replay，防止关闭后返回缓存的 Task 详情。
-已经提交的命令回执、历史审计不改写成失败；Web 原有显式 command reconciliation 仍可核对
-“此前是否提交”，但不得重新派发原命令或借回执重新挂载 Task 面板。
-历史回执读取不是新的 Task 查询/操作，其历史 payload 按原审计合同保留。
+[message_delivery.rs](../../crates/rovai-core/src/message_delivery.rs) 与 User publication 共用
+Task 关联兼容规则，不再从旧参数产生新的 Task 关联或触发 Task 校验。
+[run_continuation.rs](../../crates/rovai-core/src/run_continuation.rs) 的 `eligible_source` 当前还检查
+原消息所关联 Task 的状态和 assignee；R3 在两个状态中统一去掉这一前置条件。
+其余来源、内容摘要、成员、撤回与恢复条件保留，不扩大收件人或修改用户消息。
 
 不禁用整个 CollaborationService、Scheduler 或 AgentRun。它们继续承担普通消息和执行职责。
 
@@ -600,7 +632,8 @@ User publication 的共用准入处理；Router 再做早期拒绝。设置切�
 启用任务面板和队员任务工具；关闭后保留已有任务。
 ```
 
-保存成功才应用新状态。忙时在该行说明“执行结束后可切换”，旧值保持。
+执行中也可保存；仅本次保存请求尚未完成时防止重复提交，成功后立即应用，不显示“执行结束后可切换”。
+确有保存失败时在设置行说明，不影响正在进行的会话。
 Desktop 与 Web 使用 Host 设置，远程连接切换时重新读取对应实例，不继承另一实例或浏览器缓存值。
 
 读侧应在同一读事务中投影 `tasksEnabled`。关闭时，常规界面投影不执行 Task 内容/计数查询，
@@ -637,31 +670,29 @@ Task 通知从当前列表、计数、heads-up 和可操作路由中一起过滤
 
 ## 8. 存量、冻结输入与升级
 
-“关闭”保证新的发现、上下文和调用不提供 Task；它不承诺擦除原生模型历史。
-用户正文、引用、旧消息和历史工具结果保持原样，不按字符串 `task` 过滤。
+“关闭”作用于后续新操作与新输入选择，不是撤销已经准备或投递的工作。
+用户正文、引用、旧消息、已冻结输入和历史工具结果保持原样，不按字符串 `task` 过滤。
 
 | 存量状态 | 处理规则 |
 | --- | --- |
-| 既有 Task 行、Task/消息关联、审计 | 原样保留；重新开启恢复 |
-| 空闲 Native Session | 正常 resume；新 Run 使用当前统一 Bootstrap 与当前动态选择 |
-| 设置切换时仍有非终态执行/待投递 | 拒绝切换并保持原值，等既有工作结算 |
-| 升级后的普通 waiting 消息，尚无冻结输入/Task link | 按默认关闭策略正常 claim，业务消息不改变 |
-| 升级后仍 waiting 的 Task-linked 消息 | 在 claim 前以能力未启用明确结算该目标的投递失败；保留消息/关联，不悄悄丢掉 Task ID 继续执行 |
-| 历史已准备但尚未发送、仍需投递的 Task 上下文 | 保留原 Blob，进入明确的恢复阻断；证明已停稳后不阻止重新开启，开启后按原恢复规则使用原证据，或用户通过现有停止/新消息入口另行继续 |
+| 既有 Task 行、Task/消息关联、审计 | 保留；重新开启可继续管理；关闭不批量完成、取消或转换 Task |
+| 老 Native Session | 正常 resume；其中的新 Run 同样使用当前模板，不要求新 Session |
+| 设置切换时仍有执行/待投递 | 立即保存，原执行与消息继续；不创建开关专用的暂停/失败状态 |
+| 尚未冻结输入的 waiting 消息 | 正常 claim，以当前设置构建新输入；正文、附件和收件人保持 |
+| 旧 Task-linked waiting 消息 | 保留历史关联，按已有消息收件人与当前授权正常派发；关联 Task 不再成为执行前提 |
+| 已冻结、尚未发送且仍具备原恢复资格的输入 | 按原字节继续，包括其中可能存在的旧 Task 内容；不重新 claim，不另发一次业务输入 |
 | accepted/unknown 输入 | 沿原有结算与隔离规则处理，不重发、不裁剪、不把状态改成未接受 |
-| 关闭后继续一个旧 Task-linked Run | 在继续准入处拒绝；检查所有原始消息关联，不能只看 batch Run 的 `task_id` |
-| 关闭后继续普通旧 Run | 创建新的 Run，读取当前无 Task 上下文，不复制历史冻结输入作为新载荷 |
+| User 继续一个旧 Run，包括 Task-linked Run | 沿现有继续入口创建新 Run，按当前设置选择输入；不因旧 Task 关联拒绝，不复制旧 Blob 作为新输入 |
+| 切换前已提交、响应尚未到达的 Task 命令 | 正常返回已提交结果；重试命中准确回执，不改判失败、不重复执行 |
+| 切换后旧模型调用 Task CRUD | 本次 Task 操作返回 C10；模型仍可完成普通消息协作与其他工作 |
+| 切换后旧模型使用 Send 的 Task 参数或读取旧 Task reference | 分别按 C03、S12 兼容，不因这两处旧用法失败 |
 
-升级不能简单依赖“设置保存时必须空闲”：升级启动仍可能存在旧队列和恢复记录。
-识别 Task-linked waiting 时同时覆盖 User publication event 与历史 A2A 关联；
-不能只查新 batch Run 的 `task_id`，该字段可能本来就是 NULL。
-投递失败需通过现有消息回执显示，不能只在日志记录后无限 waiting。
+升级后缺配置仍默认关闭，但不把旧队列和恢复记录标成失败。这里有一个明确的保留范围：
+已经冻结的旧输入可能继续包含 Task 信息；之后新生成的输入才保证不再选择 Task。
+这是保持输入证据和执行连续性的规则，不是让旧布尔值继续授权新的 Task 操作。
 
-历史输入恢复需区分“已存在的证据供人核对”和“准备再次发送给模型”。
-只读证据原样可用；需要再次投递的旧 Task 内容在关闭时不发送。
-判定依据是对应格式的结构化 section/关联与保存的输入元数据，不搜索用户正文里是否出现 Task 单词。
-同一 Run 的 Blob 不变；后续用户新指令创建的新 Run 使用新格式。
-该负向路径是实现验收重点，不能以删除所有旧 Binding/Manifest 作为迁移捷径。
+关闭期间 Run 完成不自动改写 Task 状态；重新开启恢复已有记录，成员离队等生命周期维护仍正常执行。
+开关不改变既有防重、取消、消息撤回和实际 Runtime 恢复约束，也不新增恢复协调器或数据清理步骤。
 
 ## 9. 合同与版本轴
 
@@ -676,25 +707,26 @@ Built-in transport/command 为 41、Agent output 为 14、IPC 为 3。
 | Native Binding compatibility | 保持，开关不进入兼容摘要，不强制换 Session |
 | Public 与 non-batch Formatter/Manifest | 各推进新版本，记录 Task section 的能力条件；旧载荷仍用原版本解释 |
 | Profile | 新版本记录 selector 规则改变；开启时上限仍为 8，不用 0 冒充关闭 |
-| Run Facts | 对 `taskContext` 条件和单聊删除字段推进相应版本 |
-| Built-in transport/command | 推进新版本，覆盖 context 能力字段、可用目录、Send Schema 与错误 |
+| Run Facts | 对新输入统一删除 `taskContext` 与单聊 Task 专用字段推进相应版本 |
+| Built-in transport/command | 推进新版本，覆盖 Task 命令组可用性、单一 Send Schema、旧关联兼容与局部错误 |
 | Agent output/IPC | Task 成功结果形状和 IPC framing 保持；是否需推进以最终字段差异核对，不能把新 Schema 冒称旧合同 |
 | Read-side/Host | 为能力字段和可选 Task 投影推进对应当前 Schema/协议 |
+| Send / Continuation | 明确新关联退役、旧参数兼容、旧 Task 关联不再约束消息派发与 User 继续执行 |
 | 数据库 | 仅增加配置及必要接口支持；不重建 Task 表，不改写旧快照与事件 |
 
 具体新整数在正式说明中按合入基线分配，不预占并行工作的版本号。
 当前权威同步范围包括 Durable Task、Built-in Transport、Context/Profile/Run Facts、Send、
-Camp Open、Notification、Single Chat、Host Web、UI 与相应架构。
+AgentRun Continuation、Camp Open、Notification、Single Chat、Host Web、UI 与相应架构。
 本稿阶段仅链接这些影响，不把当前合同提前改成已接受行为。
 
 ## 10. 实施顺序与验证
 
-1. 确认本 R2 的语义与逐项文案，在当时 current 版本保存独立模型变更说明及确认记录。
-2. 实现 Core 配置、业务准入与 Desktop/Web Host 路由；先证明关闭无法产生 Task 业务副作用。
-3. 接入 CLI 能力视图、各级 help、有效 Schema 与旧客户端负向路径。
-4. 统一 Bootstrap/Skill 教学，接入共用动态 selector、claim 预算与恢复检查。
+1. 确认本 R3 的语义与逐项文案，在当时 current 版本保存独立模型变更说明及确认记录。
+2. 实现 Core 配置、即时切换与每次 Task 操作的当前值判断；保证切换不停止已有工作。
+3. 统一 Send 定义与旧参数兼容；Task CLI 只筛选命令组，刷新活跃进程的发现投影。
+4. 统一 Bootstrap/Skill 教学与旧 reference 兼容页，接入新输入选择；旧输入沿原恢复路径继续。
 5. 收敛读侧、任务卡/入口、通知、快捷键与客户端失效刷新。
-6. 验证开启模式保真、真实上下文对照与升级恢复，再考虑发布。
+6. 验证保留的 Task 功能、消息解耦、执行中切换和升级恢复，再运行真实上下文 Gate。
 
 已有相关测试位于 `context.rs` 的 self-active selection/empty/budget 场景、
 `team_tool.rs` 的 Task 权限/幂等/不唤醒场景，以及 `delivery_queue.rs` 的 continuation Task links 场景。
@@ -703,12 +735,15 @@ Camp Open、Notification、Single Chat、Host Web、UI 与相应架构。
 
 | 验收组 | 必须证明 |
 | --- | --- |
-| 默认与保存 | 新库、旧库无配置均关闭；忙时原值不变；两个客户端一致；同值保存幂等 |
-| 发现与解析 | 根/family/operation help、目录/描述、Schema、错误表、直接参数与 JSON 输入一致；无 context/旧 context 不泄露 Task 目录；通用 Skill 无 Task 操作指导 |
-| 服务端拒绝 | 旧 CLI、直接 IPC、四个领域入口与 Task-linked Send 无业务副作用，Replay 不能绕过 |
-| 上下文 | on/off × 有/无任务 × 首轮/热续接/冷续接/Steer/补发/单聊；关闭时既无空 section，也不查 Task |
+| 默认与保存 | 新库、旧库无配置均关闭；running/waiting/恢复过程中都可切换；两个客户端一致；同值保存幂等 |
+| 单一定义 | on/off 的 Send help/Schema/错误表与 cli-operations 字节相同；Task 定义只有一份，整组可见性变化 |
+| 旧调用兼容 | CLI `--task-id`、IPC `taskId`、User `execution.taskId` 均正常发送一次，不新建关联、不改变收件人；旧 reference 可读 |
+| Task 操作 | 新调用读取当前值；关闭时无 Task 读写副作用，只有局部不可用结果，Run 与普通 Send 继续 |
+| 并发与回执 | 设置和 Task 命令前后交错的结果与事务顺序一致；已提交回执准确重放，没有重复 Task 或消息 |
+| 上下文 | on/off × 有/无任务 × 首轮/热续接/冷续接/Steer/补发/单聊；关闭后的新输入无 Task section，已冻结输入原字节保持 |
 | 预算 | FIFO claim 与实际渲染共用选择结果，开关不改变完整用户输入和超限失败规则 |
-| 存量 | Task 数据可恢复；旧未发送输入被明确阻断且不会造成重新开启死锁；accepted/unknown 不重放；继续执行检查全部关联 |
+| 存量 | Task 数据保留；旧 waiting/可恢复输入继续；旧关联不阻止 User 继续；accepted/unknown 不重放 |
+| 可选投影故障 | CLI 文件刷新失败不终止 Run；新 Task 操作仍服从当前状态；开关不触发 Skill 同步或文件清理 |
 | UI/通知 | Desktop/Web/手机均无任务入口；旧焦点、快捷键、迟到请求不会恢复面板；计数与分页一致 |
 | 数据生命周期 | 关闭时成员离队/永久移除/Thread 删除仍正确收口；重新开启没有悬空负责人 |
 | 无关主路径 | 普通消息协作、Mission、Automation、审批、停止、附件和 Runtime-native plan/todo 保持 |
@@ -719,4 +754,4 @@ Case、Judge、预算和判定标准。Task 关闭时的缺失能力按该模式
 自动算成协作失败；保留对实际分工、交接、结果和副作用的判断。
 模型/Runtime/预算配置须在正式执行计划中明确，本提案不把尚未运行的评测写成通过。
 
-本 R2 文档完成只代表方案可审阅；产品实现、真实 Runtime Gate、升级与 UI 验收均在确认后的实施阶段。
+本 R3 文档完成只代表方案可审阅；产品实现、真实 Runtime Gate、升级与 UI 验收均在确认后的实施阶段。

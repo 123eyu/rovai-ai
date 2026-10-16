@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-composer-atoms-and-structured-mentions
 status: accepted
-last_updated: 2026-10-12
+last_updated: 2026-10-16
 ---
 
 # 结构化 Mention 与 Composer Atom
@@ -45,7 +45,9 @@ critical-priority command 从当前 selection 同步重算 trigger：Catalog loa
 Member 与 Skill 菜单共享这项焦点同步，菜单关闭后移除该关联。
 
 `@` 空查询先显示 `@所有队员` 和当前 Camp 可接收的队员，再显示“邀请其他队员”入口；该入口在长名册中仍须
-处于可见候选上限内。进入邀请层后显示返回入口和其他资料仍在的队员。输入查询时按名称或团队角色查找，
+处于可见候选上限内。邀请层和按名称／角色查询的队外候选，与会话内邀请弹窗共用新建对话的可用性规则：
+资料为 `present`、已配置智能体，且 Runtime 为 `ready | light_ready | installed_unverified`；未配置或需要处理的队员不作为邀请候选。
+进入邀请层后显示返回入口和符合此规则的队员。输入查询时按名称或团队角色查找，
 当前 Camp 成员排在可邀请队员之前；队外候选标明邀请状态。普通 Member 候选主行显示当前名称，副行显示
 团队角色；团队角色为空时显示“团队角色未设置”。副行不得使用所有候选共享的“Camp 成员”等占位文案。
 All Members 候选继续显示广播说明，范围仍是发送时 Camp 中的全部可接收队员。
@@ -69,6 +71,8 @@ All Members 候选继续显示广播说明，范围仍是发送时 Camp 中的�
 这次本机发送流程，不会因为选中候选就提前改变 Camp 名册。
 普通一键 Pending 草稿也提供相同候选、Atom 与提示；首次发送直接交给 Core 原子邀请、激活和发布，
 不先调用单独加入命令。失败保留完整输入；本机恢复后仍按最新资料判定待邀请或不可用。
+已选队外队员的配置或可用性失效时，正文 Atom 保留姓名并标为不可用，发送前使用最新资料重验；
+邀请弹窗同步移除失效的待选项。此限制只约束新邀请，已有成员的提及仍按 membership 与 Presence 判断。
 
 ## Skill Typeahead
 
@@ -100,6 +104,7 @@ All Members 候选继续显示广播说明，范围仍是发送时 Camp 中的�
 
 Member 人物信息卡保持非模态，默认宽 376px，采用单列：紧凑头像、名称、团队角色与 Presence 对齐；正文优先展示专业职责，
 智能体、模型和思考强度保留但降低强调。性格底色、工作准则与成长课题在默认收起的“更多设定”中，
+更多设定排在运行配置之前，性格以普通文字排列；运行配置作为低强调度页脚，模型与强度紧凑并列。
 空字段不占位。它不是队员页链接、Dialog 或全局 Toast。长内容在视口内滚动，手机关闭点击区至少 44px。
 正常配置时智能体一栏只显示产品名称（例如 `Codex CLI`）；未配置或异常时才附加必要状态。
 点击外部或 Esc 关闭，Popover 不设 focus trap；拖选文本不得误触打开。Atom 本身不进入独立 tab 顺序；需要

@@ -197,3 +197,14 @@ Server 更新通过统一 Rust Host 的认证接口完成，使用独立 Server 
 消息头、接收者摘要与队员资料沿用桌面的模型／强度展示；队员列表支持直接点摘要展开无底色详情。
 只读信息在手机可用，不开放 Runtime 配置管理。摘要与关闭按钮保留 44px 触摸高度，详情长值换行，
 浮层避让视口边缘；英文使用独立标签列宽，完整身份与历史取值规则见 [Conversation Workspace](components/conversation-workspace.md#camp-队员管理)。
+
+### 会话邀请与身份资料
+
+邀请沿用共享候选和提交状态，以底部弹层分开布局搜索、候选列表和确认区。列表独立滚动，确认区计入安全区；
+搜索输入为 16px，首次打开聚焦弹层，显式点搜索后才聚焦输入框。人物卡保持非模态与视口避让，空字段省略，
+更多设定默认收起，运行配置置底。详细呈现规则由[会话队员管理](components/conversation-workspace.md#camp-队员管理)
+和[人物信息卡](components/structured-mentions.md#atom-激活与人物信息卡)拥有。
+
+自动验收沿用 `pnpm test:composer-input` 与 `pnpm test:run-presence-ui`，覆盖中英文、日夜主题、
+375 / 390 / 430px 竖屏、844×390 横屏、缩小可视高度、搜索多选、职责展开与空字段。
+Electron / Chrome 视口模拟不替代实体手机键盘和安全区验收。

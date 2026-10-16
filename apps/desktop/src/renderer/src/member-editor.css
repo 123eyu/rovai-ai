@@ -1266,50 +1266,52 @@
 .onboarding-member-layout { grid-template-columns: 270px minmax(0, 1fr); gap: 32px; }
 /* Existing anchored, non-modal profile popover; only its member composition changes. */
 .mention-profile-popover[data-content-kind='member'] { width: min(376px, calc(100vw - 24px)); border-radius: 12px; }
-.identity-card { min-width: 0; }
-.identity-card-header { display: grid; grid-template-columns: 52px minmax(0, 1fr) 28px; gap: 12px; align-items: start; padding: 20px 20px 18px; }
-.identity-card-header .identity-card-avatar { --member-avatar-size: 52px !important; }
-.identity-card-heading { min-width: 0; padding-top: 2px; }
-.identity-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; }
-.identity-card-title h2 { margin: 0; min-width: 0; color: var(--ink); font-size: 18px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-.identity-card-heading > p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-.identity-card-presence { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--muted); font-size: 11px; line-height: 1.5; white-space: nowrap; }
-.identity-card-presence i { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
-.identity-card-presence.presence-away i { background: var(--attention); }
-.identity-card-presence.presence-removed i { background: var(--danger); }
-.identity-card-close { display: grid; place-items: center; width: 28px; height: 28px; margin: -4px -4px 0 0; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
-.identity-card-close svg { width: 18px; height: 18px; }
-.identity-card-close:hover { color: var(--ink); background: var(--neutral-hover); }
-.identity-card-responsibilities { padding: 0 20px 18px; }
-.identity-card-responsibilities h3, .identity-card-more dt { margin: 0 0 7px; color: var(--muted); font-size: 11.5px; font-weight: 500; line-height: 1.5; }
-.identity-card-responsibilities p, .identity-card-more dd { margin: 0; color: var(--ink); font-size: 13px; font-weight: 400; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
-.identity-card-runtime { padding: 14px 20px; border-top: 1px solid var(--line); }
-.identity-card-runtime .mention-profile-model { padding: 8px 0 0; border: 0; }
-.identity-card-runtime .thread-model-fields { gap: 8px; }
-.identity-card-runtime .thread-model-fields > div { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
-.identity-card-runtime .thread-model-fields dt { font-size: 11.5px; }
-.identity-card-runtime .thread-model-fields dd { font-size: 12px; color: var(--muted); }
-.identity-card-runtime .runtime-needs_attention { color: var(--attention); }
-.identity-card-more { border-top: 1px solid var(--line); }
-.identity-card-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; padding: 10px 20px; color: var(--muted); font-size: 12px; cursor: pointer; list-style: none; }
-.identity-card-more > summary::-webkit-details-marker { display: none; }
-.identity-card-more > summary:hover { color: var(--ink); background: var(--surface-subtle); }
-.identity-card-more > summary svg { width: 16px; height: 16px; flex: none; }
-.identity-card-more[open] > summary svg { transform: rotate(180deg); }
-.identity-card-more dl { display: grid; gap: 16px; padding: 0 20px 20px; margin: 0; }
-.identity-card-more .identity-card-traits { display: flex; flex-wrap: wrap; gap: 6px; }
-.identity-card-traits > span { padding: 3px 7px; border-radius: 5px; color: var(--muted); background: var(--surface-subtle); font-size: 11.5px; line-height: 1.5; }
-:lang(en) .identity-card-runtime .thread-model-fields > div { grid-template-columns: 104px minmax(0, 1fr); }
+.identity-card { min-width:0; }
+.identity-card-header { display:grid; grid-template-columns:48px minmax(0,1fr) 24px; align-items:start; gap:12px; padding:20px 20px 18px; }
+.identity-card-header .member-avatar { --member-avatar-size:48px !important; margin-top:2px; }
+.identity-card-heading { min-width:0; }
+.identity-card-heading h2 { margin:0; color:var(--ink); font-size:17px; font-weight:600; line-height:1.45; overflow-wrap:anywhere; }
+.identity-card-heading p { margin:3px 0 0; color:var(--muted); font-size:12px; line-height:1.55; overflow-wrap:anywhere; }
+.identity-card-presence { display:inline-flex; align-items:center; gap:5px; margin-top:6px; color:var(--muted); font-size:11px; line-height:1.4; }
+.identity-card-presence i { width:5px; height:5px; border-radius:50%; background:var(--success); }
+.identity-card-presence.presence-away i { background:var(--attention); }
+.identity-card-presence.presence-removed i { background:var(--danger); }
+.identity-card-close { display:grid; place-items:center; width:28px; height:28px; margin:-4px -4px 0 0; padding:0; border:0; border-radius:6px; background:transparent; color:var(--muted); cursor:pointer; }
+.identity-card-close svg { width:17px; height:17px; }
+.identity-card-close:is(:hover,:focus-visible) { color:var(--ink); background:var(--neutral-hover); }
+.identity-card-responsibilities { padding:0 20px 12px; }
+.identity-card-responsibilities h3 { margin:0 0 7px; color:var(--muted); font-size:11px; font-weight:400; line-height:1.5; }
+.identity-card-responsibilities p { margin:0; color:var(--ink); font-size:13px; line-height:1.85; white-space:pre-wrap; overflow-wrap:anywhere; }
+.identity-card-more { margin:0 20px 12px; }
+.identity-card-more summary { display:flex; align-items:center; gap:5px; width:100%; min-height:30px; color:var(--muted); font-size:11.5px; list-style:none; cursor:pointer; }
+.identity-card-more summary::-webkit-details-marker { display:none; }
+.identity-card-more summary svg { width:13px; height:13px; flex:none; }
+.identity-card-more summary:is(:hover,:focus-visible) { color:var(--ink); text-decoration:underline; text-underline-offset:3px; }
+.identity-card-more[open] summary svg { transform:rotate(90deg); }
+.identity-card-more dl { display:grid; gap:14px; margin:10px 0 18px; }
+.identity-card-more dt { margin:0 0 5px; color:var(--muted); font-size:11px; line-height:1.5; }
+.identity-card-more dd { margin:0; color:var(--ink); font-size:12.5px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.identity-card-traits { display:flex; gap:6px 14px; flex-wrap:wrap; }
+.identity-card-traits span { white-space:normal; overflow-wrap:anywhere; }
+.identity-card-runtime { padding:13px 20px 15px; border-top:1px solid var(--line); }
+.identity-card-runtime-title { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; font-size:11.5px; line-height:1.6; }
+.identity-card-runtime-label { color:var(--muted); }
+.identity-card-runtime-value { color:var(--muted); }
+.identity-card-runtime-value.runtime-needs_attention { color:var(--attention); }
+.identity-card-runtime .mention-profile-model { padding:6px 0 0; border:0; }
+.identity-card-runtime .thread-model-fields { display:flex; flex-wrap:wrap; gap:4px 18px; }
+.identity-card-runtime .thread-model-fields > div { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; min-width:0; }
+.identity-card-runtime .thread-model-fields dt, .identity-card-runtime .thread-model-fields dd { color:var(--muted); font-size:11.5px; line-height:1.6; }
+.identity-card-runtime .thread-model-fields dd { overflow-wrap:anywhere; }
+.identity-card :is(button,summary):active { transform:none; }
+
 @media (max-width: 767px) {
   .onboarding-member-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .identity-card-header { grid-template-columns: 48px minmax(0, 1fr) 32px; gap: 12px; padding: 18px 18px 16px; }
-  .identity-card-header .identity-card-avatar { --member-avatar-size: 48px !important; }
-  .identity-card-close { width: 44px; height: 44px; margin: -8px -8px 0 -4px; }
-  .identity-card-responsibilities { padding: 0 18px 16px; }
-  .identity-card-responsibilities p, .identity-card-more dd { font-size: 14px; }
-  .identity-card-runtime { padding: 14px 18px; }
-  .identity-card-more > summary { min-height: 48px; padding-inline: 18px; }
-  .identity-card-more dl { padding-inline: 18px; }
+  .identity-card-header { grid-template-columns:48px minmax(0,1fr) 44px; padding:20px 12px 16px 20px; }
+  .identity-card-close { width:44px; height:44px; min-height:44px; margin:-10px 0 0; }
+  .identity-card-more summary { min-height:44px; font-size:12px; }
+  .identity-card-responsibilities p { font-size:14px; }
+  .identity-card-more dd { font-size:13px; }
   .member-profile-hero { position: relative; display: block; padding-top: 8px; }
   .member-profile-main { gap: 16px; padding-right: 52px; }
   .member-profile-title { gap: 6px 10px; }

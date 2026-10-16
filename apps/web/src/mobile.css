@@ -606,3 +606,70 @@ html[data-mobile-web="true"][data-motion-preference="reduce"] :is(.app-shell > .
 
 html[data-mobile-web="true"] .camp-nav-row .camp-status-cluster,
 html[data-mobile-web="true"] .camp-nav-row:is(:hover, :has(:focus-visible), [data-menu-open="true"]) .camp-status-cluster { right: 12px; visibility: visible; }
+
+/* Teammate identity and invitation keep the shared desktop composition at touch sizes. */
+html[data-mobile-web="true"] .camp-members-summary { padding:4px 20px 8px; }
+html[data-mobile-web="true"] .camp-members-summary-line small { font-size:12px; }
+html[data-mobile-web="true"] .camp-add-member-button { min-height:44px; padding:8px 14px; font-size:13px; }
+html[data-mobile-web="true"] .camp-inspector-member-list { padding:0 20px 24px; }
+html[data-mobile-web="true"] .camp-inspector-member-row, html[data-mobile-web="true"] .camp-inspector-member-row.has-fast { grid-template-columns:44px minmax(0,1fr) auto; gap:12px; padding:18px 0 12px; }
+html[data-mobile-web="true"] .camp-inspector-member-avatar { width:44px; height:44px; }
+html[data-mobile-web="true"] .camp-inspector-member-avatar .member-avatar { --member-avatar-size:44px !important; }
+html[data-mobile-web="true"] .camp-inspector-member-copy { gap:4px; }
+html[data-mobile-web="true"] .camp-inspector-member-name { flex-wrap:wrap; }
+html[data-mobile-web="true"] .camp-inspector-member-name strong { white-space:normal; font-size:14px; line-height:1.5; overflow-wrap:anywhere; }
+html[data-mobile-web="true"] .camp-inspector-member-copy > small { font-size:12px; line-height:1.6; }
+html[data-mobile-web="true"] .camp-inspector-member-state strong { font-size:12px; }
+html[data-mobile-web="true"] .camp-member-model-summary { min-height:44px; font-size:12px; align-items:center; margin-top:0; }
+html[data-mobile-web="true"] .camp-member-runtime-label { font-size:12px; }
+html[data-mobile-web="true"] .camp-inspector-runtime-detail { grid-column:2 / -1; padding:0 0 8px; }
+html[data-mobile-web="true"] .camp-detail-popover[data-detail="members"] .camp-detail-heading { height:56px; padding:6px 12px 6px 20px; }
+html[data-mobile-web="true"] .camp-detail-popover[data-detail="members"] .camp-detail-heading > strong { font-size:15px; }
+
+/* A sheet follows visualViewport; only the candidate list scrolls. */
+html[data-mobile-web="true"] .dialog-content.app-dialog.camp-member-dialog {
+  top:auto; bottom:max(0px,calc(100dvh - var(--mobile-viewport-height,100dvh) - var(--mobile-viewport-top,0px)));
+  left:50%; transform:translateX(-50%); width:min(600px,100vw); min-width:0; max-width:600px;
+  height:min(640px,calc(var(--mobile-viewport-height,100dvh) - max(12px,env(safe-area-inset-top))));
+  max-height:calc(var(--mobile-viewport-height,100dvh) - max(12px,env(safe-area-inset-top)));
+  display:flex; flex-direction:column; padding:0; border-radius:16px 16px 0 0;
+  background:var(--mobile-page); animation:none;
+}
+html[data-mobile-web="true"] .camp-member-dialog .app-dialog-header { flex:none; min-height:64px; padding:10px 12px 10px 20px; }
+html[data-mobile-web="true"] .camp-member-dialog .app-dialog-title-row { align-items:center; }
+html[data-mobile-web="true"] .camp-member-dialog .app-dialog-title { font-size:17px; font-weight:600; }
+html[data-mobile-web="true"] .camp-member-dialog .app-dialog-close { width:44px; min-width:44px; height:44px; min-height:44px; margin:0; }
+html[data-mobile-web="true"] .camp-member-dialog-body { display:flex; flex:1; flex-direction:column; min-height:0; max-height:none; gap:0; overflow:hidden; padding:0 20px; }
+html[data-mobile-web="true"] .camp-member-search-field { flex:none; min-height:44px; margin-bottom:10px; }
+html[data-mobile-web="true"] .dialog-content.app-dialog.camp-member-dialog .camp-member-search-field input[type="search"] { min-height:44px; height:44px; font-size:16px; }
+html[data-mobile-web="true"] .camp-member-candidate-caption { flex:none; min-height:28px; margin:0 0 4px; font-size:12px; }
+html[data-mobile-web="true"] .camp-member-candidate-caption strong { font-size:12px; font-weight:400; }
+html[data-mobile-web="true"] .camp-member-candidate-list { flex:1; min-height:0; max-height:none; overflow-y:auto; overscroll-behavior:contain; margin:0 -10px; padding:0 10px 12px; }
+html[data-mobile-web="true"] .camp-member-candidate-entry { padding:12px 10px 4px; border-radius:8px; }
+html[data-mobile-web="true"] .camp-member-candidate-row { grid-template-columns:44px minmax(0,1fr) 20px; min-height:48px; gap:12px; }
+html[data-mobile-web="true"] .camp-member-candidate-row .member-avatar { --member-avatar-size:44px !important; }
+html[data-mobile-web="true"] .camp-member-candidate-row input { width:20px; height:20px; }
+html[data-mobile-web="true"] .camp-member-candidate-identity strong { font-size:14px; font-weight:600; }
+html[data-mobile-web="true"] .camp-member-candidate-identity > span { font-size:12px; line-height:1.6; }
+html[data-mobile-web="true"] .camp-member-invite-detail { margin:4px 0 0 56px; }
+html[data-mobile-web="true"] .camp-member-invite-detail summary { min-height:44px; font-size:12px; }
+html[data-mobile-web="true"] .camp-member-invite-detail p { margin:0 0 12px; font-size:13px; line-height:1.8; }
+html[data-mobile-web="true"] .camp-member-candidate-error { margin:4px 0 10px 56px; font-size:12px; }
+html[data-mobile-web="true"] .camp-member-candidate-meta { min-height:44px; margin-left:56px; padding-right:0; font-size:12px; }
+html[data-mobile-web="true"] .camp-member-dialog .app-dialog-footer { flex:none; padding:12px 20px max(16px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:var(--mobile-page); }
+html[data-mobile-web="true"] .camp-member-dialog .dialog-actions { display:grid; width:100%; grid-template-columns:1fr 1.6fr; gap:12px; }
+html[data-mobile-web="true"] .camp-member-dialog .dialog-actions > button { width:100%; min-height:44px; font-size:13px; }
+html[data-mobile-web="true"] .camp-member-dialog-alert { flex:none; margin:0 0 8px; max-height:82px; overflow-y:auto; }
+
+html[data-mobile-web="true"] .identity-card-header { grid-template-columns:48px minmax(0,1fr) 44px; gap:12px; padding:20px 12px 16px 20px; }
+html[data-mobile-web="true"] .identity-card-close { width:44px; height:44px; min-height:44px; margin:-10px 0 0; }
+html[data-mobile-web="true"] .identity-card-more summary { min-height:44px; font-size:12px; }
+html[data-mobile-web="true"] .identity-card-responsibilities p { font-size:14px; line-height:1.85; }
+html[data-mobile-web="true"] .identity-card-heading p { font-size:12px; }
+html[data-mobile-web="true"] .identity-card-more dd { font-size:13px; }
+html[data-mobile-web="true"] .identity-card-runtime :is(.thread-model-fields dt,.thread-model-fields dd,.identity-card-runtime-title) { font-size:12px; }
+@media(max-height:480px) {
+  html[data-mobile-web="true"] .camp-member-dialog .app-dialog-header { min-height:52px; padding-block:4px; }
+  html[data-mobile-web="true"] .camp-member-dialog .app-dialog-footer { padding-block:8px; }
+  html[data-mobile-web="true"] .camp-member-search-field { margin-bottom:4px; }
+}

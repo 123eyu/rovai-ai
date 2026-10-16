@@ -5,7 +5,11 @@ import { optimisticThreadMessage } from '../../../apps/desktop/src/renderer/src/
 import { ThreadWorkspace, type ThreadLeaveGuard } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { loadLocalThreadComposerDraft } from '../../../apps/desktop/src/renderer/src/camp-composer-local-store'
+import { MobileLayoutProvider } from '../../../apps/desktop/src/renderer/src/MobileLayout'
+import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
 import '../../../apps/desktop/src/renderer/src/styles.css'
+import '../../../apps/desktop/src/renderer/src/member-editor.css'
+import '../../../apps/web/src/mobile.css'
 
 // Only the real Renderer and local draft store run here. Core transactions have
 // their own SQLite regression owner; this closed transport never starts a Runtime.
@@ -13,12 +17,19 @@ const now = '2026-10-08T10:00:00Z'
 const threadId = 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7g'
 const agent: AgentProfile = { agentId: 'lead', displayName: '负责人', avatarRef: null, accent: null,
   teamRole: '架构师', professionalResponsibilities: '', personalityTraits: [], workingPrinciples: '',
-  growthTopic: '', defaultCapabilities: [], presence: 'present', runtimeConfiguration: null,
+  growthTopic: '', defaultCapabilities: [], presence: 'present',
+  runtimeConfiguration: { adapterKind: 'codex-cli', model: { mode: 'explicit', modelId: 'configured-test-model', options: {} },
+    permissions: { adapterKind: 'codex-cli', schemaVersion: 1, values: {} } },
   runtimeReadiness: { status: 'ready', blockers: [] }, memberOrder: 0, version: 1,
   createdAt: now, updatedAt: now, removedAt: null }
 const outside: AgentProfile = { ...agent, agentId: 'outside', displayName: '爱丽丝', teamRole: '实现者', memberOrder: 1,
   runtimeConfiguration: { adapterKind: 'codex-cli', model: { mode: 'explicit', modelId: 'configured-test-model', options: {} },
     permissions: { adapterKind: 'codex-cli', schemaVersion: 1, values: {} } } }
+const profiles: AgentProfile[] = [agent, outside,
+  { ...agent, agentId: 'unconfigured', displayName: '未配置队员', memberOrder: 2, runtimeConfiguration: null,
+    runtimeReadiness: { status: 'runtime_not_configured', blockers: [] } },
+  { ...agent, agentId: 'unavailable', displayName: '不可用队员', memberOrder: 3,
+    runtimeReadiness: { status: 'needs_attention', blockers: [] } }]
 const member = (profile: AgentProfile) => ({ agentId: profile.agentId, displayName: profile.displayName, avatarRef: null,
   teamRole: profile.teamRole, accent: '', membershipStatus: 'active' as const, leaveRequestedAt: null,
   profilePresence: 'present' as const, memberOrder: profile.memberOrder, isDefaultLead: profile === agent, version: 1 })
@@ -39,9 +50,10 @@ let failNextInvite = false
 let conflictNextRemoval = false
 let prepareLeave: ThreadLeaveGuard | null = null
 let visibleSnapshot = initial
-let visibleProfiles = [agent, outside]
+let visibleProfiles = profiles
 let setProfiles: React.Dispatch<React.SetStateAction<AgentProfile[]>>
 let setFixture: React.Dispatch<React.SetStateAction<ThreadSnapshot>>
+let setMobile: React.Dispatch<React.SetStateAction<boolean>>
 let setVisible: React.Dispatch<React.SetStateAction<boolean>>
 const client = {
   platform: 'darwin', onEvent: () => () => {},
@@ -58,18 +70,20 @@ const client = {
   composerAttachments: { discard: async () => {} }
 } as unknown as ThreadClient
 function Fixture() {
+  const [mobile, updateMobile] = useState(false)
+  setMobile = updateMobile
   const [snapshot, setSnapshot] = useState(initial)
-  const [profiles, updateProfiles] = useState([agent, outside])
+  const [currentProfiles, updateProfiles] = useState(profiles)
   const [acceptedMessages, setAcceptedMessages] = useState<ThreadMessageView[]>([])
   const [visible, show] = useState(true)
   const [entryHost, setEntryHost] = useState<HTMLElement | null>(null)
   const [inspectorVisible, setInspectorVisible] = useState(false)
   const [inspectorTab, setInspectorTab] = useState<'members' | 'tasks'>('members')
-  visibleSnapshot = snapshot; visibleProfiles = profiles; setProfiles = updateProfiles; setFixture = setSnapshot; setVisible = show
-  return <ThreadClientProvider client={client}><div>
+  visibleSnapshot = snapshot; visibleProfiles = currentProfiles; setProfiles = updateProfiles; setFixture = setSnapshot; setVisible = show
+  return <MobileLayoutProvider value={mobile}><ThreadClientProvider client={client}><div>
     <header ref={setEntryHost} style={{ height: 40, display: 'flex', justifyContent: 'flex-end' }} />
     <main className="content task-content" style={{ height: 'calc(100vh - 40px)', width: '100vw' }}>
-    {visible && <ThreadWorkspace snapshot={snapshot} optimisticMessages={acceptedMessages} agents={profiles} busy={false} stopping={false}
+    {visible && <ThreadWorkspace snapshot={snapshot} optimisticMessages={acceptedMessages} agents={currentProfiles} busy={false} stopping={false}
       detailEntryHost={entryHost}
       inspectorVisible={inspectorVisible} inspectorTab={inspectorTab}
       onOpenInspector={tab => { setInspectorTab(tab); setInspectorVisible(true) }}
@@ -82,7 +96,7 @@ function Fixture() {
         calls.push('add:' + ids.join(','))
         if (failNextInvite) { failNextInvite = false; return { addedAgentIds: [], unchangedAgentIds: [], failures: ids.map(agentId => ({ agentId, message: '邀请暂时失败' })) } }
         setSnapshot(current => {
-          const additions = ids.map(id => ({ ...member(profiles.find(profile => profile.agentId === id)!), isDefaultLead: false }))
+          const additions = ids.map(id => ({ ...member(currentProfiles.find(profile => profile.agentId === id)!), isDefaultLead: false }))
           const members = [...current.members, ...additions]
           if (!members.some(item => item.isDefaultLead)) additions[0].isDefaultLead = true
           return { ...current, members, thread: { ...current.thread,
@@ -124,7 +138,7 @@ function Fixture() {
         const addressedAgentIds = mentionedIds.length ? mentionedIds : [draft.continuationIntent?.recipient.agentId ?? snapshot.thread.defaultLeadAgentId!]
         return { threadMessageId: 'published-' + acceptedSends, publishedMessageSequence: acceptedSends, deliveryIds: ['delivery'], agentRunIds: [], addressedAgentIds }
       }} />}
-    </main></div></ThreadClientProvider>
+    </main></div></ThreadClientProvider></MobileLayoutProvider>
 }
 const errors: string[] = []
 window.addEventListener('error', e => errors.push(String(e.error?.stack ?? e.message)))
@@ -139,7 +153,18 @@ Object.assign(window, { invitationTest: {
     draft: loadLocalThreadComposerDraft(threadId),
     button: document.querySelector<HTMLButtonElement>('form.composer:has(#camp-message) button[type="submit"]')?.disabled,
     stored: Object.values(localStorage).join(' ') }),
+  mobile: (value: boolean) => setMobile(value),
+  language: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async () => ({ interfaceLanguage: language }) } as any, language),
+  presentation: () => {
+    setProfiles([...profiles.map(profile => profile.agentId === 'outside'
+      ? { ...profile, professionalResponsibilities: '负责落实界面设计，保留完整职责。'.repeat(8) } : profile),
+      { ...outside, agentId: 'research', displayName: '资料员', teamRole: '研究与核对', professionalResponsibilities: '' }])
+    setFixture({ ...initial, thread: { ...initial.thread, activationState: 'active' } })
+  },
   presence: (presence: AgentProfile['presence']) => setProfiles(current => current.map(profile => profile.agentId === 'outside' ? { ...profile, presence } : profile)),
+  readiness: (status: AgentProfile['runtimeReadiness']['status']) => setProfiles(current => current.map(profile => profile.agentId === 'outside'
+    ? { ...profile, runtimeConfiguration: status === 'runtime_not_configured' ? null : outside.runtimeConfiguration, runtimeReadiness: { status, blockers: [] } }
+    : profile)),
   accept: () => { rejectSend = false },
   projectActivation: () => setFixture(current => ({ ...current, thread: { ...current.thread, activationState: 'active' }, members: [member(agent), member(outside)] })),
   hide: () => setVisible(false), show: () => setVisible(true),

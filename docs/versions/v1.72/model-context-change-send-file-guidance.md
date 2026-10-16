@@ -2,18 +2,19 @@
 document_type: model-context-change
 version: v1.72
 change_id: send-file-guidance
-revision: 1
+revision: 2
 confirmation_status: pending
 implementation_status: proposed
 source_commit: 3979e32ec4834ce5fc02cd72309bbd7b5cd800c6
 last_updated: 2026-10-16
 ---
 
-# Send 文件引用、临时正文清理与渠道提示：R1
+# Send 文件引用、临时正文清理与渠道提示：R2
 
 本稿供 User 审阅精确上下文差异，尚未修改产品提示词、实现或当前合同。
 需求来自 Thread `rvcamp_01m51tzyg3emhrkdf78r95pzgt` 消息 5
-（`2321c468-93a1-45c8-86eb-9c470dcf6536`）。
+（`2321c468-93a1-45c8-86eb-9c470dcf6536`）；R2 按消息 7
+（`2c1b26d5-f7c8-43ad-bd56-7473ee815568`）精简附件帮助，并明确临时正文文件名仅为示例。
 
 ## 选择与冲突处理
 
@@ -42,8 +43,8 @@ last_updated: 2026-10-16
 | 入口 | 本稿变化 |
 | --- | --- |
 | `camp_message_send_teaching.rs` 的 BODY_HELP | 保留现有两句，追加一句成功后清理 |
-| 同文件 FILE_HELP | 合并文件选择、按需归档与现有原路径引用语义 |
-| 同文件第一个 HELP_EXAMPLE | 明确临时正文，将反引号路径改成 Markdown 链接 |
+| 同文件 FILE_HELP | 仅保留文件选择、按需归档、文件/目录与重复参数用法 |
+| 同文件第一个 HELP_EXAMPLE | 明确临时正文及示例文件名，将反引号路径改成 Markdown 链接 |
 | `cli-operations/references/send.md` | 删除末尾 Files 段；其余全文不变 |
 | `context.rs` 的渠道 Charter 后缀 | 正文逐字不变，active binding 准入从飞书扩到三个现有 provider |
 | 公共 Charter 主文、Single Chat、Mission 后缀、其他 Skill、Runtime 专属指导 | 不变 |
@@ -113,16 +114,17 @@ After a successful send, delete files you created solely as temporary input for 
 ### 附件帮助
 
 ```text
-Prefer Markdown links for file references; use --file for requested attachments or external-channel file delivery. Archive only when requested or required for delivery. Attach files or directories at their actual paths; repeat to preserve order. Rovai references them without copying or changing permissions; keep source files available.
+Prefer Markdown file links; use --file for requested attachments or channel file delivery. Archive only when requested or required for delivery. --file accepts files or directories; repeat for multiple attachments.
 ```
 
-第一句同时给出默认方式和附件适用条件。最后一句保留现有原路径引用语义，并明确源文件需要保留；
-与只清理临时正文的规则一致。路径可访问、预览类型、相对路径基准仍由现有文件预览实现决定。
+第一句同时给出默认方式和附件适用条件。帮助只保留选择规则与必要用法，删除复制、权限和源文件保留说明；
+实际原路径引用语义不变。清理范围已由正文帮助中的 `solely as temporary input for that send` 限定，
+无需再为交付文件重复增加保留指令。路径可访问、预览类型、相对路径基准仍由现有文件预览实现决定。
 
 ### 首个普通发送示例
 
 ```text
-Write a temporary reply.md:
+Write a temporary body file (e.g. reply.md):
   Result:
 
   Updated [src/example.rs](src/example.rs).
@@ -130,6 +132,7 @@ After the write succeeds:
   rovai send --public-only --input-file reply.md
 ```
 
+`e.g.` 表明 `reply.md` 只是示例文件名，不增加固定命名要求。
 仍保留“写入成功后再发送”，清理规则只在正文帮助中说明一次。其余两个示例逐字不变：
 
 ```text
@@ -180,7 +183,7 @@ Quick Chat/项目会话共用 Camp 级判断，不根据当前使用 Desktop、W
 
 ## 版本轴、合同与兼容
 
-| 项目 | R1 计划 |
+| 项目 | R2 计划 |
 | --- | --- |
 | 当前产品版本 | 沿用版本索引的 v1.72 |
 | Session Charter revision | 22 → 23，记录渠道后缀准入扩展 |
@@ -223,26 +226,30 @@ baseline/candidate 各一次 repetition，使用相同明确冻结的既有 Runt
 
 ## 二次确认
 
-状态：待 User 审阅并明确确认 R1。消息 5 要求前后对照，不是对本稿完整文本的二次确认。
+状态：待 User 审阅并明确确认 R2。消息 5 要求前后对照，消息 7 要求文案精简，均不是对本稿完整文本的二次确认。
 确认前只保存本提案，不修改实现、Schema、当前合同或执行 clean break。
 依据是[核心模型上下文变更治理](../../development/model-context-change-governance.md)中的：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
 
-确认后填写真实 `confirmed_by`、`confirmed_at`、`confirmed_revision: 1` 与来源消息；语义变化则递增 revision。
+确认后填写真实 `confirmed_by`、`confirmed_at`、`confirmed_revision: 2` 与来源消息；语义变化则递增 revision。
 未确认提案触发文档门禁的 confirmation 检查属于预期状态，不伪造确认或为本次变更加 checker 例外。
 
 ## 工作记录
 
-- Work item：Send 文件教学及三渠道 Charter 的 R1 前后对照。
+- Work item：Send 文件教学及三渠道 Charter 的 R2 前后对照。
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-send-file-guidance`。
 - Branch：`rovai/send-file-guidance`。
 - Base：`origin/main@3979e32ec4834ce5fc02cd72309bbd7b5cd800c6`；已 fetch 并核对与本次审阅源码一致。
 - Governance：本稿待确认；无已合入治理提交。
 - Status：active，等待文本审阅；后续沿用此 worktree。
-- Validation：正文/附件帮助、首例、删除段及渠道原文逐字匹配源码；`git diff --cached --check` 通过。
+- R1 Validation：正文/附件帮助、首例、删除段及渠道原文逐字匹配源码；`git diff --cached --check` 通过。
   `node --test scripts/lib/doc-decisions.test.mjs` 10/10 通过；带真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
   `pnpm docs:check` 与 `pnpm docs:check:ci` 均只因本稿缺少四项二次确认记录而未通过，符合待审阅状态。
   初次并行 `pnpm` 调用触发依赖自动安装，其中 `docs:test` 启动因安装竞争失败；已用上述相同 Node 测试入口完成验证。
   不宣称产品实现或模型行为已通过。
-- Next：按 User 对 R1 的反馈修订或记录明确确认，再进入已确认范围的实施。
+- R2：附件帮助删除实现说明与重复保留指令；首例用 `e.g.` 明确示例文件名；临时正文清理及渠道规则保持不变。
+- R2 Validation：`git diff --check` 通过；`pnpm docs:test` 10/10 通过；带上述真实 base 的
+  `node scripts/check-doc-decisions.mjs --require-base` 通过。
+  `pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因本稿缺少四项二次确认记录而未通过。
+- Next：按 User 对 R2 的反馈修订或记录明确确认，再进入已确认范围的实施。

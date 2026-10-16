@@ -11,6 +11,11 @@ last_updated: 2026-10-16
 `3979e32ec4834ce5fc02cd72309bbd7b5cd800c6`，调查安装为 0.6.12（macOS arm64）。
 User 在 Thread seq6 授权实施下表方案，并要求完成后重新比较；seq4 明确不接 Fast。
 
+User seq8 后的[全部 19 Runtime 完整对照](full-parity-2026-10-16.md)补齐 System/compact、原生
+Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。原生文件补验发现并修复预览误当完整状态、
+相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
+下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
+
 ## 实施前 Parity Matrix
 
 参照共享 ACP 的 Kimi/DSH 生命周期、Claude 启动文件和 Codex 的精确恢复。

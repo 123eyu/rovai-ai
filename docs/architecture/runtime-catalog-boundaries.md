@@ -762,6 +762,10 @@ Host 兼容判断，不成为 Session 恢复资格。Dynamic Context、Steer 与
 原生 permission ID 与 tool-call ID 不同，只在同一 Session/Prompt 以完整输入和名称唯一配对，
 后续用确切 alias；歧义 fail closed。公开输出只取原生 content，命令退出码按原生明确字段归约，
 不遍历私有 details，native stderr 仅排空。
+文件观察另按 [File Change v8](../contracts/runtime-file-change-observation-v8.md) 窄取成功原生
+Write 的 Boolean `created` 与 Write/Edit 的结果 `details.patch`；编号/截断的展示 Diff 不是完整文件状态。
+相对路径只从同调用唯一结构化路径补齐，缺 patch 不从输入或磁盘重建；
+实测与其他 18 款的差异见[完整对照](../research/minimax-code-runtime/full-parity-2026-10-16.md)。
 
 运行中输入使用 `mcode/session/steer(text, clientRequestId)`，只在冻结版本已验证且当前 Prompt
 已接受时发送。原生 `steered` ACK 与活跃 Run/epoch 共同确认；歧义结果保持 unknown，不自动重发。

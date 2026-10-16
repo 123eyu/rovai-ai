@@ -1499,6 +1499,20 @@ fn enrich_paired_tool_message(
             {
                 update["rawInput"] = input;
             }
+            if update["rawInput"].is_null()
+                && let Some(input) = tools.get(&key).and_then(|value| value.get("rawInput"))
+            {
+                update["rawInput"] = input.clone();
+            }
+            let name = update["name"]
+                .as_str()
+                .or_else(|| update["title"].as_str())
+                .or_else(|| tools.get(&key).and_then(|v| v["toolName"].as_str()))
+                .map(str::to_owned);
+            if let Some(name) = &name {
+                update["name"] = json!(name);
+            }
+            normalize_minimax_file_update(update);
             // MiniMax returns the native command outcome under details; retain
             // only its numeric exit status for the shared command classifier.
             if let Some(code) = update
@@ -1511,11 +1525,6 @@ fn enrich_paired_tool_message(
                 update["toolCallId"] = json!(alias);
                 return Ok(true);
             }
-            let name = update["name"]
-                .as_str()
-                .or_else(|| update["title"].as_str())
-                .or_else(|| tools.get(&key).and_then(|v| v["toolName"].as_str()))
-                .map(str::to_owned);
             if update["rawInput"].is_object() && name.is_some() {
                 let matches: Vec<_> = tools
                     .iter()
@@ -1536,21 +1545,21 @@ fn enrich_paired_tool_message(
                     ensure!(tools.len() < 1024, "acp_tool_budget_exceeded");
                     let permission_id = permission_key.2.clone();
                     tools.get_mut(permission_key).unwrap()["bound"] = json!(id);
-                    tools.insert(key, json!({"alias":permission_id}));
+                    tools.insert(key, json!({"alias":permission_id,"toolName":name,"rawInput":update["rawInput"]}));
                     update["toolCallId"] = json!(permission_id);
                 } else if let Some(name) = name {
                     ensure!(
                         tools.len() < 1024 || tools.contains_key(&key),
                         "acp_tool_budget_exceeded"
                     );
-                    tools.insert(key, json!({"toolName":name}));
+                    tools.insert(key, json!({"toolName":name,"rawInput":update["rawInput"]}));
                 }
             } else if let Some(name) = name {
                 ensure!(
                     tools.len() < 1024 || tools.contains_key(&key),
                     "acp_tool_budget_exceeded"
                 );
-                tools.insert(key, json!({"toolName":name}));
+                tools.insert(key, json!({"toolName":name,"rawInput":update["rawInput"]}));
             }
         }
         return Ok(true);
@@ -1627,6 +1636,36 @@ fn enrich_paired_tool_message(
         enrich(update, Some(initial));
     }
     Ok(true)
+}
+
+fn minimax_input_path(update: &Value) -> Option<String> {
+    let input = update.get("rawInput")?.as_object()?;
+    let paths = ["path", "file_path", "filePath"]
+        .into_iter()
+        .filter_map(|key| input.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .collect::<BTreeSet<_>>();
+    (paths.len() == 1).then(|| (*paths.first().unwrap()).to_string())
+}
+
+fn normalize_minimax_file_update(update: &mut Value) {
+    // MiniMax's ACP diff is a rendered preview (line numbers, ellipses, possibly
+    // truncation), not full before/after. Only the native result's patch may
+    // enter the separate, path-bound patch admission below Application.
+    if let Some(content) = update.get_mut("content").and_then(Value::as_array_mut) {
+        content.retain(|block| block["type"] != "diff");
+    }
+    if matches!(update["name"].as_str(), Some("read" | "write" | "edit"))
+        && update
+            .get("locations")
+            .is_none_or(|value| value.is_null() || value.as_array().is_some_and(Vec::is_empty))
+        && let Some(path) = minimax_input_path(update)
+    {
+        // ACP omits workspace-relative locations; the native tool's exact
+        // structured argument is sufficient. Shared normalization owns roots.
+        update["locations"] = json!([{"path":path}]);
+    }
 }
 
 fn codebuddy_config_dir(spec: &ManagedProcessLaunchSpec) -> Result<PathBuf> {
@@ -8493,7 +8532,7 @@ pub fn completed_action(
         "locations": update.get("locations"),
     }))?;
     let effect_disposition = acp_effect_disposition(succeeded, &native_kind);
-    let public_file_changes = succeeded
+    let public_file_changes = (succeeded && adapter_kind != AdapterKind::MinimaxCodeCli)
         .then(|| public_acp_file_changes(update.get("content")))
         .flatten();
     let public_file_operation_path = (succeeded
@@ -8577,6 +8616,7 @@ fn reconcile_completed_action(
     }
     if matches!(completion.outcome, ActionResultOutcome::Succeeded)
         && completion.public_file_changes.is_none()
+        && adapter_kind != AdapterKind::MinimaxCodeCli
     {
         completion.public_file_changes = observed.public_file_changes;
     }
@@ -8640,9 +8680,25 @@ fn reconcile_completed_action(
         corroborating_file_operation_path.as_deref(),
         completion.public_file_operation_path.as_deref(),
     )
+    .or_else(|| {
+        (adapter_kind == AdapterKind::MinimaxCodeCli
+            && update["name"] == "write"
+            && matches!(completion.outcome, ActionResultOutcome::Succeeded)
+            && minimax_input_path(update).as_deref()
+                == completion.public_file_operation_path.as_deref()
+            && completion.public_file_operation_path.is_some())
+        .then(|| {
+            update
+                .pointer("/rawOutput/details/created")
+                .and_then(Value::as_bool)
+        })
+        .flatten()
+        .map(|created| if created { "add" } else { "update" })
+    })
     .map(str::to_string);
     if matches!(completion.outcome, ActionResultOutcome::Succeeded)
         && completion.public_file_changes.is_none()
+        && adapter_kind != AdapterKind::MinimaxCodeCli
         && completion.native_kind == "edit"
         && let Some(path) = completion.public_file_operation_path.as_deref()
     {
@@ -15747,6 +15803,24 @@ while IFS= read -r ignored; do :; done
         let mut successor = tool("call-1");
         enrich_paired_tool_message(mini, &mut tools, "a", "p2", &mut successor).unwrap();
         assert_eq!(successor["params"]["update"]["toolCallId"], "call-1");
+        let mut file = json!({"method":"session/update","params":{"update":{
+            "sessionUpdate":"tool_call","toolCallId":"relative-read","name":"read","kind":"read",
+            "rawInput":"{\"path\":\"src/中文 file.txt\"}",
+            "content":[{"type":"diff","path":"wrong","oldText":"preview","newText":"preview2"}]}}});
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut file).unwrap();
+        assert_eq!(
+            file["params"]["update"]["locations"],
+            json!([{"path":"src/中文 file.txt"}])
+        );
+        assert_eq!(file["params"]["update"]["content"], json!([]));
+        let mut sparse = json!({"method":"session/update","params":{"update":{
+            "sessionUpdate":"tool_call_update","toolCallId":"relative-read","status":"completed"}}});
+        enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut sparse).unwrap();
+        assert_eq!(sparse["params"]["update"]["name"], "read");
+        assert_eq!(
+            sparse["params"]["update"]["locations"],
+            file["params"]["update"]["locations"]
+        );
         enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut proposal("permission-2"))
             .unwrap();
         enrich_paired_tool_message(mini, &mut tools, "a", "p1", &mut proposal("permission-3"))
@@ -15916,6 +15990,54 @@ while IFS= read -r ignored; do :; done
 
     #[test]
     fn opencode_write_uses_terminal_metadata_exists_only_with_a_corroborated_path() {
+        for (created, status, name, path, expected) in [
+            (json!(true), "completed", "write", "src/a.txt", Some("add")),
+            (
+                json!(false),
+                "completed",
+                "write",
+                "src/a.txt",
+                Some("update"),
+            ),
+            (json!("true"), "completed", "write", "src/a.txt", None),
+            (Value::Null, "completed", "write", "src/a.txt", None),
+            (json!(true), "failed", "write", "src/a.txt", None),
+            (json!(true), "completed", "edit", "src/a.txt", None),
+            (json!(true), "completed", "write", "src/other.txt", None),
+        ] {
+            let terminal = json!({"sessionUpdate":"tool_call_update","toolCallId":"mini-file",
+                "status":status,"name":name,"kind":"edit","rawInput":{"path":path,"old_string":"old","new_string":"new"},
+                "locations":[{"path":"src/a.txt"}],"rawOutput":{"details":{"created":created}},
+                "content":[{"type":"diff","path":"src/a.txt","oldText":"preview","newText":"preview2"}]});
+            let completion =
+                completed_action(AdapterKind::MinimaxCodeCli, &json!({"update":terminal}))
+                    .unwrap()
+                    .unwrap();
+            let reconciled = reconcile_completed_action(
+                AdapterKind::MinimaxCodeCli,
+                &terminal,
+                ObservedToolMetadata {
+                    native_kind: Some("edit".into()),
+                    observation_digest: None,
+                    raw_input: Some(terminal["rawInput"].clone()),
+                    stable_meta: None,
+                    locations: Some(terminal["locations"].clone()),
+                    public_file_changes: Some(
+                        json!([{"path":"src/a.txt","oldText":"preview","newText":"preview2"}]),
+                    ),
+                },
+                completion,
+            )
+            .unwrap();
+            assert_eq!(
+                reconciled.public_file_operation_change_kind.as_deref(),
+                expected
+            );
+            assert!(
+                reconciled.public_file_changes.is_none(),
+                "preview or replacement input is not full file state"
+            );
+        }
         for (exists, expected_change_kind) in [(false, "add"), (true, "update")] {
             let terminal = json!({
                 "sessionUpdate": "tool_call_update",

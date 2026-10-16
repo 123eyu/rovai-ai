@@ -13,6 +13,7 @@ import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 
 const repo = resolve(import.meta.dirname, '..')
 const native = process.argv[2]
+const filesOnly = process.argv.includes('--files-only')
 assert.ok(native?.startsWith('/'), 'Pass the absolute installed mcode path')
 const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-minimax-control-')))
 const data = join(root, 'core'), project = join(root, 'project'), nativeData = join(root, 'native')
@@ -22,6 +23,7 @@ const events = []
 const report = { evidenceKind: 'real-cli-scripted-provider', root, cases: [], requests: [], status: 'running' }
 const mcpId = randomUUID(), mcpMarker = join(project, 'mcp-calls.txt')
 let stage = 'setup', step = 0, core, db, threadId
+const filePlans = new Map()
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`
 const server = createServer(async (req, res) => {
   try {
@@ -64,6 +66,11 @@ const server = createServer(async (req, res) => {
       const key = Object.keys(tool.function.parameters.properties).find(k => /^(file_?path|path)$/i.test(k))
       assert.ok(key, 'Native read path schema missing')
       call = { id: 'call-image', type: 'function', function: { name: 'read', arguments: JSON.stringify({ [key]: join(project, 'steer.png') }) } }
+    }
+    if (filePlans.has(stage)) {
+      const planned = filePlans.get(stage)[step - 1]
+      call = planned ? { id: `call-${stage}-${step}`, type: 'function', function: { name: planned.name, arguments: JSON.stringify(planned.input) } } : null
+      if (planned) assert.ok(tools.includes(planned.name), `Native ${planned.name} tool missing`)
     }
     const content = call ? null : 'CONTROL_DONE'
     const usage = { prompt_tokens: 120, completion_tokens: 5, total_tokens: 125, prompt_tokens_details: { cached_tokens: 20 } }
@@ -144,6 +151,72 @@ try {
   const created = await core.request('threads.create', { commandId: randomUUID(), name: 'MiniMax controlled integration', workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
   assert.equal(created.status, 'applied'); threadId = created.payload.threadId
   db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
+  if (filesOnly) {
+    const folder = join(project, '文件矩阵'); await mkdir(folder)
+    const editPath = join(folder, '编辑 file.txt'), newPath = join(folder, '新增 file.txt'), emptyPath = join(folder, '空 file.txt')
+    const before = Array.from({ length: 40 }, (_, i) => `line-${i + 1}`).join('\n') + '\n'
+    await writeFile(editPath, before); await writeFile(emptyPath, '')
+    const read = path => ({ name: 'read', input: { path } })
+    const write = (path, content) => ({ name: 'write', input: { path, content } })
+    const edit = (oldText, newText) => ({ name: 'edit', input: { file_path: editPath, old_string: oldText, new_string: newText } })
+    const cases = [
+      ['FILE_READ_ABS', [read(editPath)]],
+      ['FILE_READ_REL', [read('文件矩阵/编辑 file.txt')]],
+      ['FILE_WRITE_NEW', [write(newPath, 'created\n')]],
+      ['FILE_WRITE_EXISTING', [read(newPath), write(newPath, 'overwritten\n')]],
+      ['FILE_WRITE_EMPTY', [read(emptyPath), write(emptyPath, 'was-empty\n')]],
+      ['FILE_EDIT', [read(editPath), edit('line-20', 'line-20-edited')]],
+      ['FILE_EDIT_BACK', [read(editPath), edit('line-20-edited', 'line-20')]],
+      ['FILE_EDIT_FAILED', [read(editPath), edit('missing-old-text', 'must-not-appear')]],
+      ['FILE_WRITE_REL', [write('文件矩阵/相对 file.txt', 'relative\n')]],
+      ['FILE_EDIT_REL', [read('文件矩阵/相对 file.txt'), { name: 'edit', input: { file_path: '文件矩阵/相对 file.txt', old_string: 'relative', new_string: 'relative-edited' } }]],
+    ]
+    report.fileOperations = []
+    for (const [name, plan] of cases) {
+      filePlans.set(name, plan); stage = name; step = 0; const previousCount = runs().length
+      await send(`Execute native file-operation fixture ${name}.`)
+      await until(() => runs().length > previousCount && runs().at(-1).status === 'succeeded', name)
+      const run = runs().at(-1)
+      const terminal = events.filter(e => e.params?.agentRunId === run.id && e.params?.canonical?.phase === 'terminal')
+      assert.equal(terminal.length, plan.length, 'one terminal per native file tool')
+      for (const [index, event] of terminal.entries()) {
+        assert.equal(event.params.canonical.outcome, name === 'FILE_EDIT_FAILED' && index === plan.length - 1 ? 'failed' : 'succeeded', `${name}: actual Tool outcome`)
+      }
+      if (name === 'FILE_EDIT') assert.equal(await readFile(editPath, 'utf8'), before.replace('line-20', 'line-20-edited'))
+      for (const [index, event] of terminal.entries()) {
+        const payload = event.params.payload
+        if (event.params.canonical.outcome === 'failed') {
+          assert.ok(!payload.runtimeFileOperation && !payload.runtimeDiff, 'failed edit must not report a successful file change'); continue
+        }
+        assert.equal(payload.runtimeFileOperation?.status, 'available', `${name}: typed path required`)
+        if (plan[index].name === 'read') { assert.equal(payload.runtimeFileOperation.operationKind, 'read'); continue }
+        if (['FILE_WRITE_NEW', 'FILE_WRITE_REL'].includes(name)) {
+          assert.equal(payload.runtimeFileOperation.changeKind, 'add'); assert.ok(!payload.runtimeDiff, 'new-file input is not a result patch')
+        } else {
+          assert.equal(payload.runtimeDiff?.semanticKind, 'unified_diff_snapshot')
+          assert.ok(payload.runtimeDiff.entries.every(entry => entry.semantics === 'unified_diff_snapshot'))
+          assert.ok(!JSON.stringify(payload.runtimeDiff).includes('   ...'), 'numbered display preview must not enter Diff')
+        }
+      }
+      const evidence = await core.request('agentRunEvidence.list', { threadId, agentRunId: run.id, afterSequence: 0, limit: 1000 })
+      const snapshot = await core.request('camps.snapshot', { threadId })
+      const cards = snapshot.agentRunFileChanges.filter(card => card.agentRunId === run.id)
+      const expectedCard = !['FILE_READ_ABS', 'FILE_READ_REL', 'FILE_EDIT_FAILED'].includes(name)
+      assert.equal(cards.length, expectedCard ? 1 : 0)
+      report.fileOperations.push({ name, run: run.id, terminal: terminal.map(e => e.params), evidence, cards })
+      report.cases.push({ name, status: 'passed', run: run.id })
+    }
+    assert.equal(await readFile(editPath, 'utf8'), before)
+    assert.equal(await readFile(newPath, 'utf8'), 'overwritten\n')
+    assert.equal(await readFile(emptyPath, 'utf8'), 'was-empty\n')
+    assert.equal(await readFile(join(folder, '相对 file.txt'), 'utf8'), 'relative-edited\n')
+    await core.stop(); await start()
+    const reopened = await core.request('camps.snapshot', { threadId })
+    const ordered = cards => cards.toSorted((a, b) => a.agentRunId.localeCompare(b.agentRunId))
+    assert.deepEqual(ordered(reopened.agentRunFileChanges), ordered(report.fileOperations.flatMap(item => item.cards)))
+    report.cases.push({ name: 'file cards survive Core restart', status: 'passed' })
+    report.status = 'passed'
+  } else {
   await turn('A'); const warmPids = await hostPids(); assert.ok(warmPids.length)
   await turn('B'); assert.deepEqual(await hostPids(), warmPids, 'ordinary successor must reuse Host')
   report.cases.push({ name: 'warm Host reuse', status: 'passed' })
@@ -254,6 +327,7 @@ try {
   }
   report.cases.push({ name: 'zero-send recovery and accepted-send suppression', status: 'passed' })
   report.status = 'passed'
+  }
 } catch (error) { report.status = 'failed'; report.error = error.stack; process.exitCode = 1 }
 finally {
   await writeFile(join(project, 'hold.release'), 'release')

@@ -67,6 +67,7 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 ```sh
 cargo build -p rovai-core --bins
 node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --files-only
 ```
 
 脚本在新建隔离目录启动真实 mcode、生产 Core、确定性 loopback Provider 与 MCP fixture。
@@ -77,6 +78,14 @@ Golden Flows；短 Run 的异步 journal Usage 可能为空。结果留在打印
 是私有诊断，只导出白名单摘要；本次数据目录及派生 Runtime Files Root 都不属于日常实例。
 真实模型流程另用 `smoke-acp-runtime.mjs` / `smoke-steer.mjs` 的 `minimax-code-cli` 入口。
 当前证据见[MiniMax 接入报告](../research/minimax-code-runtime/README.md)。
+
+`--files-only` 验证原生 Read/Write/Edit、绝对/相对及中文空格路径、新建/覆盖/空文件、成功/失败编辑、
+原生 patch 与持久化 Files Changed，并重启 Core 核对卡片。它不启动 Renderer，不能代替点击展开验收。
+真实 CLI 的首轮调查发现显示预览被误记 full_before_after；修复使用原生 details.patch 和 created。
+文件校正扩展既有 `paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt`、
+`opencode_write_uses_terminal_metadata_exists_only_with_a_corroborated_path`、
+`pi_edit_patch_is_path_bound_normalized_and_counted_inside_hunks`、
+`acp_tool_events_expose_only_the_public_command_and_payload_digests` owners；不新增 Rust 测试函数。
 
 Rust 不增加平行 owner：模型与 per-model effort 扩展 `grouped_acp_models_keep_opaque_provider_routes_and_reject_empty_catalogs`；
 审批 ID 配对扩展 `paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt`；

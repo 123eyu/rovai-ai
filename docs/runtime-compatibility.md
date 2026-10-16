@@ -15,6 +15,9 @@ MCP 调用/移除、allow/deny、六类输出和取消进程清理。图片已�
 真实账户尝试在 session/new 被要求 `mcode login`，真实 LLM、压缩和完整资格矩阵仍未闭合。
 完整对照、失败修复与脱敏证据见[MiniMax 接入记录](research/minimax-code-runtime/README.md)。
 本分支十种 Steer 接线中新增的 MiniMax 不计作第十种真实 LLM 完整验收。
+后续文件补验通过原生 Read、Write 新建/覆盖/空文件、Edit/失败/相对路径十个 Run 与 Core 重开，
+修正相对路径、created 标识及截断预览误用；文件变更使用原生结果 patch，不从输入或 Git 推断。
+完整 19 Runtime 对照及控制验收边界见[全量对照](research/minimax-code-runtime/full-parity-2026-10-16.md)。
 
 ## 2026-10-15 User seq44：版本复核与 TRAE 完整产品验收
 

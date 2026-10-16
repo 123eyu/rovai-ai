@@ -22370,6 +22370,20 @@ fn normalize_acp_event_with_completion(
                 payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":zcode::PROTOCOL,
                     "sourceEventKind":"tool.updated.result","semanticKind":"zcode_edit_patch","entries":entries});
             }
+            if adapter_kind == AdapterKind::MinimaxCodeCli
+                && public_status == "completed"
+                && matches!(update["name"].as_str(), Some("write" | "edit"))
+                && update.pointer("/rawOutput/details/patchOmitted").is_none()
+                && let Some(patch) = update
+                    .pointer("/rawOutput/details/patch")
+                    .and_then(Value::as_str)
+                && let Some(path) =
+                    completion.and_then(|value| value.public_file_operation_path.as_deref())
+            {
+                payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
+                    "sourceEventKind":"session/update.tool_call_update.completed", "semanticKind":"minimax_file_patch",
+                    "entries":[{"path":path,"changeKind":"update","diff":patch}]});
+            }
             if adapter_kind == AdapterKind::CommandCodeCli
                 && public_status == "completed"
                 && let Some(entries) = update.pointer("/_meta/rovaiCommandMutation/entries")
@@ -33410,6 +33424,33 @@ for line in sys.stdin:
 
     #[test]
     fn acp_tool_events_expose_only_the_public_command_and_payload_digests() {
+        for (status, name, omitted, has_patch) in [
+            ("completed", "edit", false, true),
+            ("completed", "write", false, true),
+            ("failed", "edit", false, false),
+            ("completed", "read", false, false),
+            ("completed", "edit", true, false),
+        ] {
+            let mut update = json!({"sessionUpdate":"tool_call_update","toolCallId":"mini-file","status":status,"name":name,
+                "kind":"edit","locations":[{"path":"/repo/src/a.txt"}],
+                "rawOutput":{"details":{"patch":"--- /repo/src/a.txt\n+++ /repo/src/a.txt\n@@ -1 +1 @@\n-old\n+new\n", "private":"MINI_PRIVATE_DETAILS"}}});
+            if omitted {
+                update["rawOutput"]["details"]["patchOmitted"] = json!("too_large");
+            }
+            let params = json!({"update":update});
+            let completion = acp::completed_action(AdapterKind::MinimaxCodeCli, &params).unwrap();
+            let (_, payload) = normalize_acp_event_with_completion(
+                AdapterKind::MinimaxCodeCli,
+                "session/update",
+                &params,
+                completion.as_ref(),
+            );
+            assert_eq!(!payload["runtimeDiff"].is_null(), has_patch);
+            if has_patch {
+                assert_eq!(payload["runtimeDiff"]["semanticKind"], "minimax_file_patch");
+            }
+            assert!(!payload.to_string().contains("MINI_PRIVATE_DETAILS"));
+        }
         let (_, payload) = normalize_acp_event(
             AdapterKind::OpencodeCli,
             "session/update",

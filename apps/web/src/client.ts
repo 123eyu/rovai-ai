@@ -32,6 +32,7 @@ export const WEB_OPERATIONS = [
   'threads.deletionIssues',
   'threads.retryDeletion',
   'threads.discardPending',
+  'threads.pendingDraft.setPresence',
   'threads.members.fast.check',
   'threads.members.fast.set',
   'members.removalPreview',

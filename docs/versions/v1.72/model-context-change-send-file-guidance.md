@@ -104,10 +104,10 @@ Single Chat 仍使用专用 Charter，不追加。
 ```text
 Use --body for simple single-line text; \n remains literal.
 For multiline, Markdown, or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.
-After a successful send, delete files you created solely as temporary message input.
+After a successful send, delete files you created solely as temporary input for that send.
 ```
 
-`solely as temporary message input` 排除正文引用目标、附件、用户已有文档以及同时承担其他用途的文件。
+`solely as temporary input for that send` 将清理限定为本次发送，排除正文引用目标、附件、用户已有文档以及同时承担其他用途的文件。
 这是 Agent 清理教学，不给 CLI 增加自动删除行为、目录限制或新选项。
 
 ### 附件帮助

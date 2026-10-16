@@ -413,6 +413,9 @@ async fn file_operation(
     if body.action == "attachmentLocation" {
         return core_value(state, client, "camp.attachments.location", request).await;
     }
+    if body.action == "restoreComposerAttachments" {
+        return core_value(state, client, "host.upload.restore", request).await;
+    }
     if body.action == "updates" {
         let handles: Vec<_> = state
             .files

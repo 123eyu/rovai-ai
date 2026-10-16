@@ -5,7 +5,7 @@ authority: shared-host-web-transport
 status: accepted
 version: 4
 source_version: v1.67
-last_updated: 2026-10-11
+last_updated: 2026-10-16
 ---
 
 # Host Web v4
@@ -18,6 +18,19 @@ Task create/read/update 采用 [Durable Task v5](durable-task-v5.md)：Task read
 登录、票据兑换、Session identity 与 capabilities 的 `protocolVersion` 轮换为 4；新客户端与
 Host 拒绝旧版本 Session。旧 Task payload 不进行 reconcile 兼容解码或自动重播。命令 ID 幂等、
 `recorded`/`unknown`、用户草稿与恢复行为保持 v3 的非 Task 语义。
+
+## Public Composer 上传恢复
+
+Public Composer 内容按 [Camp Composer Draft v16](camp-composer-draft-v16.md) 保存在客户端。
+上传成功回执中的 `source` 是源文件引用；Web adapter 将其投影为含 `availability`、`byteSize`、
+`fileCount` 与 `previewKind` 的共享附件视图，不能直接将源引用当成附件视图。
+
+刷新后的恢复通过认证的 `files` 资源动作 `restoreComposerAttachments` 提交
+`{threadId, attachmentRefIds}`，单次最多 10 个 ID。Core 按当前已验证 editor、Thread、上传命令 ID
+及成功绑定回执取回来源，并检查当前文件类型与可读性，按输入顺序返回附件视图或 `null`。
+只有可用来源返回 `sourcePath`；缺失绑定显示为不可用，不接受浏览器保存的路径替代授权。
+发送前预览与位置查询使用同一回执归属，不再读取退役的 Public Core Draft。
+Thread 进入删除状态后归属即失效；Single Chat 的私有 Draft/Pending 规则保持不变。
 
 ## Windows Web 凭据可用性
 

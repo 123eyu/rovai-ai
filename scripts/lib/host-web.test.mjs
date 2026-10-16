@@ -349,6 +349,30 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal((await postUpload(replayUpload)).status, 200, 'file-before-intent remains supported')
     assert.equal((await spools()).length, 1, 'a replay discards only its duplicate spool')
 
+    const restoreUpload = (session, scope = threadId, attachmentId = bound.id) => authorized(session, 'files', {
+      method: 'POST', body: JSON.stringify({ action: 'restoreComposerAttachments', request: { threadId: scope, attachmentRefIds: [attachmentId] } })
+    }).then(response => response.json())
+    const [restoredUpload] = await restoreUpload(first)
+    assert.deepEqual(restoredUpload, { id: bound.id, sourcePath: bound.sourcePath, displayName: bound.displayName,
+      kind: 'file', mediaType: null, byteSize: input.length, fileCount: 1, previewKind: 'none', availability: 'available' })
+    assert.deepEqual(await restoreUpload(second), [null], 'another editor cannot recover an uploaded source by its ID')
+    assert.deepEqual(await restoreUpload(first, directoryCamp.payload.threadId), [null], 'upload authority is scoped to its original Thread')
+    const composerSource = { kind: 'attachment', threadId, locator: { owner: 'composer', threadId, attachmentRefId: bound.id } }
+    const openUploaded = session => authorized(session, 'files', { method: 'POST', body: JSON.stringify({ action: 'open', request: composerSource }) }).then(response => response.json())
+    const openedUpload = await openUploaded(first)
+    assert.equal(openedUpload.ok, true, JSON.stringify(openedUpload))
+    assert.equal((await openUploaded(second)).error.code, 'source_not_authorized')
+    const uploadedText = await (await authorized(first, 'files', { method: 'POST', body: JSON.stringify({ action: 'readText', request: { handleId: openedUpload.value.file.handleId, expectedGeneration: openedUpload.value.file.contentGeneration } }) })).json()
+    assert.equal(uploadedText.ok, true, JSON.stringify(uploadedText))
+    assert.equal(uploadedText.value.text, new TextDecoder().decode(input))
+    await authorized(first, 'files', { method: 'POST', body: JSON.stringify({ action: 'release', request: { handleId: openedUpload.value.file.handleId } }) })
+    await rename(bound.sourcePath, `${bound.sourcePath}-temporarily-missing`)
+    try {
+      const [missingUpload] = await restoreUpload(first)
+      assert.equal(missingUpload.availability, 'missing')
+      assert.equal('sourcePath' in missingUpload, false)
+    } finally { await rename(`${bound.sourcePath}-temporarily-missing`, bound.sourcePath) }
+
     // Actual HTTP ingress and the shared private page API use the verified
     // editor, never the client-provided conversation or command identity alone.
     const privateOpen = session => call(session, 'singleChat.open', { commandId: crypto.randomUUID(), command: { threadId, agentId: profiles[0].agentId } })
@@ -607,6 +631,17 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(deleted.status, 'accepted')
     assert.equal(await call(first, 'camps.exists', { threadId: temporaryId }), false)
     assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'camps.delete', params: deleteParams })).result, deleted, 'deleted Camp receipts remain queryable')
+    const deletionDatabase = new DatabaseSync(join(dataDir, 'rovai.sqlite'), { readOnly: true })
+    try {
+      const cleanup = deletionDatabase.prepare("SELECT status, error_code FROM camp_attachment_view_operation WHERE kind = 'camp_delete_cleanup' AND command_id = ?")
+      await within((async () => {
+        while (cleanup.get(deleted.payload.operationId)?.status !== 'completed') await pause(50)
+      })()).catch(error => { throw new Error(`${error.message}: ${JSON.stringify(cleanup.get(deleted.payload.operationId))}\n${host.stderr()}`) })
+    } finally { deletionDatabase.close() }
+    assert.deepEqual(await call(first, 'camps.deletionIssues'), [], 'completed cleanup cannot reappear on refresh')
+    const repeatedDelete = await call(first, 'camps.delete', { ...deleteParams, commandId: crypto.randomUUID() })
+    assert.equal(repeatedDelete.status, 'accepted')
+    assert.equal(repeatedDelete.payload.operationId, deleted.payload.operationId, 'a repeated delete uses the original durable operation')
     const unusedBeforeRotation = await host.request('host.web.loginTicket')
     const rotated = await host.request('host.web.rotate')
     assert.equal((await exchange(unusedBeforeRotation.ticket)).status, 401)

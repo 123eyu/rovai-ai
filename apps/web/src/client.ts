@@ -610,7 +610,17 @@ export class ConsoleClient {
   }
 
   async uploadFile(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView> {
-    return this.uploadTo<LocalAttachmentSourceView>(threadId, expectedRevision, file)
+    const source = await this.uploadTo<{
+      id: string; sourcePath: string; displayName: string; kind: 'file' | 'directory'
+      mediaType: string | null; observedByteSize: number | null
+    }>(threadId, expectedRevision, file)
+    return {
+      id: source.id, sourcePath: source.sourcePath, displayName: source.displayName, kind: source.kind,
+      mediaType: source.mediaType, byteSize: source.observedByteSize,
+      fileCount: source.kind === 'file' ? 1 : null,
+      previewKind: source.mediaType?.startsWith('image/') ? 'image' : 'none',
+      availability: 'available'
+    }
   }
 
   async uploadTo<T>(threadId: string, expectedRevision: number, file: File, target?:

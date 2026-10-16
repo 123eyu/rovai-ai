@@ -103,7 +103,7 @@ import {
   emptyComposerDocument,
   type ComposerLocalStatus
 } from './composer-document'
-import { composerInvitationTargets } from './composer-invitations'
+import { composerInvitationTargets, isThreadMemberInvitable } from './composer-invitations'
 import {
   composerBodyForContent,
   emptyLocalThreadComposerDraft,
@@ -1818,6 +1818,8 @@ export function ThreadWorkspace({
   } | null>(null)
   const activeThreadIdRef = useRef(snapshot.thread.id)
   const activeSnapshotRef = useRef(snapshot)
+  const activeProfilesRef = useRef(agents)
+  activeProfilesRef.current = agents
   const initialComposerDraftRef = useRef(initialComposerDraft)
   const focusedMemberCreationDraftRef = useRef<string | null>(null)
   const activationStateRef = useRef(snapshot.thread.activationState)
@@ -2212,7 +2214,7 @@ export function ThreadWorkspace({
         teamRole: agent.teamRole,
         avatarRef: agent.avatarRef,
         ...mentionCandidateRuntime(agent, installations),
-        mentionable: true,
+        mentionable: isThreadMemberInvitable(agent),
         inThread: false
       }))
     return [...current, ...outside]
@@ -4048,7 +4050,7 @@ export function ThreadWorkspace({
       const inviteTargets = composerInvitationTargets(
         composerMemberMentionIds(routedDraft.content),
         currentSnapshot.members,
-        agents,
+        activeProfilesRef.current,
         currentSnapshot.thread.activationState === 'pending' || Boolean(onAddMembers)
       )
       if (inviteTargets.unavailableAgentIds.length > 0) {
@@ -8431,7 +8433,7 @@ function ThreadMembersPanel({
   )
   const candidateProfiles = useMemo(
     () => [...profileById.values()]
-      .filter((profile) => profile.presence === 'present' && !activeAgentIds.has(profile.agentId))
+      .filter((profile) => isThreadMemberInvitable(profile) && !activeAgentIds.has(profile.agentId))
       .sort((left, right) => left.memberOrder - right.memberOrder || left.agentId.localeCompare(right.agentId)),
     [activeAgentIds, profileById]
   )
@@ -8453,6 +8455,14 @@ function ThreadMembersPanel({
     | { status: 'conflict' | 'error'; message: string }
   >({ status: 'idle' })
   const [removeSubmitting, setRemoveSubmitting] = useState(false)
+
+  useEffect(() => {
+    const eligibleIds = new Set(candidateProfiles.map((profile) => profile.agentId))
+    setSelectedCandidateIds((current) => {
+      const next = [...current].filter((agentId) => eligibleIds.has(agentId))
+      return next.length === current.size ? current : new Set(next)
+    })
+  }, [candidateProfiles])
 
   const filteredCandidates = useMemo(() => {
     const needle = addSearch.trim().toLocaleLowerCase()
@@ -8490,7 +8500,12 @@ function ThreadMembersPanel({
 
   const submitAddMembers = async (): Promise<void> => {
     if (!onAddMembers || selectedCandidateIds.size === 0 || addSubmitting) return
-    const requestedAgentIds = [...selectedCandidateIds]
+    const eligibleIds = new Set(candidateProfiles.map((profile) => profile.agentId))
+    const requestedAgentIds = [...selectedCandidateIds].filter((agentId) => eligibleIds.has(agentId))
+    if (requestedAgentIds.length !== selectedCandidateIds.size) {
+      setSelectedCandidateIds(new Set(requestedAgentIds))
+      return
+    }
     setAddSubmitting(true)
     setAddResult(null)
     try {
@@ -8828,7 +8843,7 @@ function ThreadMembersPanel({
                   <div className="camp-member-candidate-empty">
                     <strong>{candidateProfiles.length === 0 ? uiAttribute("没有可邀请的队员") : uiAttribute("没有匹配的队员")}</strong>
                     <p>{candidateProfiles.length === 0
-                      ? uiAttribute("所有当前在队的队员都已加入本会话。")
+                      ? uiAttribute("暂无其他可用队员，可在「队员」中检查配置。")
                       : uiAttribute("换一个姓名或角色关键词试试。")}</p>
                   </div>
                 )}

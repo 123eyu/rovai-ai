@@ -1,7 +1,16 @@
 import type { AgentProfile, ThreadMemberView } from '@contracts'
+import { isNewConversationMemberAvailable } from './new-conversation-availability'
 
 type Member = Pick<ThreadMemberView, 'agentId' | 'membershipStatus' | 'profilePresence'>
-type Profile = Pick<AgentProfile, 'agentId' | 'presence'>
+type Profile = Pick<AgentProfile, 'agentId' | 'presence' | 'runtimeConfiguration' | 'runtimeReadiness'>
+
+/** Desktop invitation eligibility; existing membership keeps its own addressing rules. */
+export function isThreadMemberInvitable(profile: Profile | undefined): boolean {
+  return Boolean(profile && profile.presence === 'present' && isNewConversationMemberAvailable({
+    runtimeConfigured: profile.runtimeConfiguration !== null,
+    runtimeReadiness: profile.runtimeReadiness.status
+  }))
+}
 
 export interface ComposerInvitationTargets {
   inviteAgentIds: string[]
@@ -23,7 +32,7 @@ export function composerInvitationTargets(
     const member = memberById.get(agentId)
     if (member?.membershipStatus === 'active') {
       if (member.profilePresence !== 'present') unavailableAgentIds.push(agentId)
-    } else if (canInvite && profileById.get(agentId)?.presence === 'present') {
+    } else if (canInvite && isThreadMemberInvitable(profileById.get(agentId))) {
       inviteAgentIds.push(agentId)
     } else {
       unavailableAgentIds.push(agentId)

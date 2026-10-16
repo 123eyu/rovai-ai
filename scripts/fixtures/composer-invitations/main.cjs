@@ -24,6 +24,12 @@ app.whenReady().then(async () => {
   const key = async (key, code) => {
     for (const type of ['keyDown', 'keyUp']) await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type, key, windowsVirtualKeyCode: code })
   }
+  const resetInput = async () => {
+    await evaluate('invitationTest.hide()')
+    await wait(`!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await evaluate('localStorage.clear(); invitationTest.show()')
+    await wait(`!!document.querySelector('#camp-message[contenteditable="true"]') && invitationTest.state().text === ""`)
+  }
   const click = async (selector, text) => {
     const point = await wait(`(() => { const node = [...document.querySelectorAll(${JSON.stringify(selector)})].find(node => node.getBoundingClientRect().width > 0 && (${JSON.stringify(text ?? null)} === null || node.textContent.trim() === ${JSON.stringify(text ?? null)})); if (!node || node.matches(':disabled,[aria-disabled="true"],[data-disabled]')) return null; const r = node.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; if (!node.contains(document.elementFromPoint(x, y))) return null; return {x, y}; })()`)
     for (const type of ['mousePressed', 'mouseReleased']) await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {type, ...point, button:'left', clickCount:1})
@@ -53,9 +59,41 @@ app.whenReady().then(async () => {
     window.webContents.debugger.attach('1.3')
     await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
     await wait(`!!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await evaluate('invitationTest.focus()')
+    await window.webContents.debugger.sendCommand('Input.insertText', { text: '@' })
+    await click('.structured-mention-menu [aria-label="邀请其他队员"]')
+    await wait(`document.querySelector('.structured-mention-menu [aria-label="可邀请队员"]')?.innerText.includes('爱丽丝')`)
+    let candidateText = await evaluate(`document.querySelector('.structured-mention-menu').innerText`)
+    assert.equal(candidateText.includes('未配置队员'), false)
+    assert.equal(candidateText.includes('不可用队员'), false)
+    await resetInput()
+    for (const name of ['未配置队员', '不可用队员']) {
+      await click('#camp-message')
+      await window.webContents.debugger.sendCommand('Input.insertText', { text: '@' + name })
+      await wait(`invitationTest.state().text === ${JSON.stringify('@' + name)}`)
+      await wait(`!!document.querySelector('.structured-mention-empty')`)
+      assert.equal(await evaluate(`document.querySelectorAll('.structured-mention-menu [role="option"]').length`), 0)
+      await resetInput()
+    }
     await mention()
     await wait('invitationTest.state().stored.includes("outside")')
     assert.equal((await evaluate('invitationTest.state()')).calls.includes('add:outside'), false)
+    const selectedContent = await evaluate('invitationTest.state().draft.content')
+    for (const status of ['needs_attention', 'runtime_not_configured']) {
+      await evaluate(`invitationTest.readiness(${JSON.stringify(status)})`)
+      await wait(`invitationTest.state().button && !!document.querySelector('[data-composer-atom="member"].is-unavailable')`)
+      assert.equal((await evaluate('invitationTest.state()')).text, '@爱丽丝 ')
+      assert.equal((await evaluate('invitationTest.state()')).invite, false)
+      await evaluate('invitationTest.submit()')
+      assert.equal((await evaluate('invitationTest.state()')).submissions.length, 0)
+      assert.deepEqual((await evaluate('invitationTest.state()')).draft.content, selectedContent)
+    }
+    await evaluate('invitationTest.hide()')
+    await wait(`!document.querySelector('#camp-message[contenteditable="true"]')`)
+    await evaluate('invitationTest.show()')
+    await wait(`invitationTest.state().button && !!document.querySelector('[data-composer-atom="member"].is-unavailable')`)
+    await evaluate('invitationTest.readiness("light_ready")')
+    await wait('invitationTest.state().invite && !invitationTest.state().button')
     await evaluate('invitationTest.submit()')
     await wait('invitationTest.state().submissions.length === 1 && !invitationTest.state().button')
     assert.equal((await evaluate('invitationTest.state()')).atoms, 1)
@@ -213,6 +251,20 @@ app.whenReady().then(async () => {
     }
     await click('.composer-recipient-recovery')
     await wait(`!!document.querySelector('.camp-member-candidate-row input')`)
+    candidateText = await evaluate(`document.querySelector('.camp-member-candidate-list').innerText`)
+    assert.equal(candidateText.includes('未配置队员'), false)
+    assert.equal(candidateText.includes('不可用队员'), false)
+    await click('.camp-member-candidate-entry:last-child input')
+    await evaluate('invitationTest.readiness("needs_attention")')
+    await wait(`!document.querySelector('.camp-member-candidate-list').innerText.includes('爱丽丝') && document.querySelector('.camp-member-dialog .primary-button').disabled`)
+    await evaluate('invitationTest.readiness("installed_unverified")')
+    await wait(`document.querySelector('.camp-member-candidate-list').innerText.includes('爱丽丝')`)
+    assert.equal(await evaluate(`document.querySelector('.camp-member-candidate-entry:last-child input').checked`), false)
+    for (const theme of ['day', 'night']) {
+      await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+      await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      writeFileSync(join(evidence, `available-invite-candidates-${theme}.png`), (await window.webContents.capturePage()).toPNG())
+    }
     await click('.camp-member-candidate-entry:last-child input')
     await evaluate('invitationTest.failInvite()')
     await click('.camp-member-dialog .primary-button')

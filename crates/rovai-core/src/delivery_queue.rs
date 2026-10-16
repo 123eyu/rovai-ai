@@ -3558,6 +3558,16 @@ mod tests {
                 .iter()
                 .find(|e| e.id == marker.id)
                 .unwrap()
+                .change_sequence,
+            accepted.change_sequence,
+            "Run settlement cannot rewrite an unchanged accepted receipt"
+        );
+        assert_eq!(
+            settled
+                .evidence
+                .iter()
+                .find(|e| e.id == marker.id)
+                .unwrap()
                 .payload["status"],
             "accepted"
         );
@@ -4195,8 +4205,54 @@ mod tests {
                 tx.commit().unwrap();
             }
             // Core restart recovery is idempotent; dispatch-started is never rewritten to unsent.
+            let before_recovery =
+                crate::execution_window::read_page(&mut f.database, &f.camp_id, &run, None, 24)
+                    .unwrap();
             f.database.prepare_v2_recovery().unwrap();
+            let recovered_changes = crate::execution_window::read_changes(
+                &mut f.database,
+                &f.camp_id,
+                &run,
+                before_recovery.through_change_sequence,
+                &[],
+                24,
+            )
+            .unwrap();
+            if submitted && fault != "lost-ack" {
+                let marker = recovered_changes
+                    .evidence
+                    .iter()
+                    .find(|e| e.event_type == crate::execution_input::EVENT)
+                    .unwrap();
+                assert_eq!(marker.payload["status"], "delivery_unknown");
+                assert_eq!(marker.sequence, before_recovery.evidence[0].sequence);
+            }
             f.database.prepare_v2_recovery().unwrap();
+            if submitted {
+                ContextService
+                    .mark_input_delivery_unknown(&mut f.database, &input.id, "still unknown")
+                    .unwrap();
+            } else {
+                let tx = f.database.connection_mut().transaction().unwrap();
+                crate::steer::return_to_queue(&tx, &source, &chrono::Utc::now().to_rfc3339())
+                    .unwrap();
+                tx.commit().unwrap();
+            }
+            let repeated_recovery =
+                crate::execution_window::read_page(&mut f.database, &f.camp_id, &run, None, 24)
+                    .unwrap();
+            assert_eq!(
+                repeated_recovery.through_change_sequence,
+                recovered_changes.through_change_sequence
+            );
+            assert_eq!(
+                repeated_recovery.evidence[0].payload["status"],
+                if submitted {
+                    "delivery_unknown"
+                } else {
+                    "queued"
+                }
+            );
             let status = ContextService
                 .runtime_input_delivery_status(&f.database, &input.id)
                 .unwrap()

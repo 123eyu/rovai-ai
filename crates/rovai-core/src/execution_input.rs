@@ -45,18 +45,6 @@ pub(crate) fn changed(tx: &Transaction<'_>, delivery: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn run_changed(tx: &Transaction<'_>, run: &str) -> Result<()> {
-    let ids = {
-        let mut q = tx.prepare("SELECT json_extract(payload_preview_json,'$.deliveryId') FROM agent_run_execution_evidence WHERE agent_run_id=?1 AND event_type=?2")?;
-        q.query_map(params![run, EVENT], |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-    for id in ids {
-        changed(tx, &id)?;
-    }
-    Ok(())
-}
-
 pub(crate) fn hydrate(c: &Connection, item: &mut AgentRunExecutionEvidenceView) -> Result<()> {
     if item.event_type != EVENT {
         return Ok(());

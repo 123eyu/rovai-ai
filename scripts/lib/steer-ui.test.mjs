@@ -214,7 +214,7 @@ test('production composer uses Core per-target eligibility and honest receipt la
     }
     await click('.run-input-source')
     await browser.wait('document.activeElement?.getAttribute("data-message-id") === "steer-example"')
-    assert.equal(await browser.evaluate('!!document.querySelector(".run-input-row")'), false, 'source navigation closes the covering execution inspector')
+    assert.equal(await browser.evaluate('document.querySelector(".run-input-row")?.getClientRects().length ?? 0'), 0, 'source navigation closes the covering execution inspector')
     report.push({ kind: 'run-input', rowHeight: 28, retainedAfterReceipt: true, historySource: true, onlyOriginalMessageLink: true, keyboard: true })
     assert.deepEqual(browser.errors, [])
     await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2))

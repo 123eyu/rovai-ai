@@ -2469,7 +2469,9 @@ impl ContextService {
             params![delivery_id, error, now],
         )?;
         if let Some(source) = &row.source_delivery_id {
-            crate::execution_input::changed(&transaction, source)?;
+            if row.status != "delivery_unknown" {
+                crate::execution_input::changed(&transaction, source)?;
+            }
             append_raw_event(
                 &transaction,
                 "runtime.input_delivery_unknown",

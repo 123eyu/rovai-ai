@@ -23,6 +23,11 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 仍保持 Preview；官方额度后来返回不足，留给 User 的隔离开发 App 使用已验证的 Sub2API。
 下文为前轮控制服务记录，认证缺口和“下一步”按最新报告读取。
 
+User seq17 的[配置刷新、自动压缩与 Ask-user 复核](followup-2026-10-16.md)进一步证明：
+当前 Core 路径中地址/Key 下一 Run 热刷新不更换 Host/Session；真实 threshold 自动压缩及随后连续性通过。
+原生 ask_user 当前问卷被 dismiss 并导致 Run 缺少最终输出，建议默认关闭，产品默认尚未修改。
+该复核修正“缺配置摘要需优先补齐”的判断，不扩大成全部刷新或完整压缩故障资格。
+
 ## 实施前 Parity Matrix
 
 参照共享 ACP 的 Kimi/DSH 生命周期、Claude 启动文件和 Codex 的精确恢复。

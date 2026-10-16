@@ -16,8 +16,12 @@ Steer、文件/命令输出和部分 Usage；不接 Fast。macOS arm64 为 Previ
 身份、历史、Skill 和 MCP 均继续可用。Sub2API 经官方 custom_provider 配置，CLI 和 App 的 `gpt-6` 真实调用成功；
 Provider 选模及 MCP 撤销/恢复仍保留原 Session。原生默认沿用恢复会话的已选模型，不代表重置全局默认。
 官方账号后续返回 quota exceeded，保留失败证据，开发 App 由显式 Sub2API 配置恢复并留给 User 查看。
-前轮受控协议/审批/取消与文件失败矩阵仍有效；自动 threshold/overflow 压缩、完整 Skills/MCP/CLI/并发/故障/平台
-矩阵尚未闭合，不晋升 First-Class。见[最新真实验收](research/minimax-code-runtime/live-acceptance-2026-10-16.md)、
+seq17 复核中，隔离 64K 配置在生产 Core/真实 Sub2API 下触发两次 threshold 自动压缩，后续记忆与公开发送成功，
+Host/Session 和系统层 Bootstrap 保持。已选 Provider 的地址/Key 外部修改在下一 Run 生效，不需新增 MiniMax 专属摘要。
+原生 ask_user 问卷立即被 dismiss、Run 缺 final；关闭官方开关后工具移除。默认关闭仍是建议，未改产品默认。
+前轮受控协议/审批/取消与文件失败矩阵仍有效；overflow 压缩、完整 Skills/MCP/CLI/并发/故障/平台
+矩阵尚未闭合，不晋升 First-Class。见[三项复核](research/minimax-code-runtime/followup-2026-10-16.md)、
+[前轮真实验收](research/minimax-code-runtime/live-acceptance-2026-10-16.md)、
 [19 Runtime 固定审计](research/minimax-code-runtime/full-parity-2026-10-16.md)和[接入记录](research/minimax-code-runtime/README.md)。
 
 ## 2026-10-15 User seq44：版本复核与 TRAE 完整产品验收

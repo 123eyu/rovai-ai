@@ -3,21 +3,25 @@ document_type: model-context-change
 version: v1.72
 change_id: send-file-guidance
 revision: 3
-confirmation_status: pending
-implementation_status: proposed
+confirmation_status: confirmed
+confirmed_revision: 3
+confirmed_by: User
+confirmed_at: 2026-10-16T09:33:29Z
+confirmation_source: "Thread rvcamp_01m51tzyg3emhrkdf78r95pzgt message 19 (b27e38e9-8345-4198-bf97-6b47223395dc)"
+implementation_status: in_progress
 source_commit: 3979e32ec4834ce5fc02cd72309bbd7b5cd800c6
 last_updated: 2026-10-16
 ---
 
 # Send 文件引用、临时正文清理与渠道提示：R3
 
-本稿供 User 审阅精确上下文差异，尚未修改产品提示词、实现或当前合同。
+本稿记录 User 已确认的 R3 精确上下文差异，实施按以下文本与边界进行。
 需求来自 Thread `rvcamp_01m51tzyg3emhrkdf78r95pzgt` 消息 5
 （`2321c468-93a1-45c8-86eb-9c470dcf6536`）；R2 按消息 7
 （`2c1b26d5-f7c8-43ad-bd56-7473ee815568`）精简附件帮助，并明确临时正文文件名仅为示例。
 R3 根据消息 11（`a64238d5-017c-4ce4-8966-6f874e833b42`）和消息 13
 （`1c49f3de-ebed-44d7-b12e-07c51cf90fec`）的审阅问题，提出删除归档句、优先直接发送单行 Markdown，
-并展示完整 CLI help；这些调整仍为提案。
+并展示完整 CLI help；User 在消息 19 明确确认实施并授权创建 PR、合入 main。
 
 ## 选择与冲突处理
 
@@ -290,13 +294,14 @@ baseline/candidate 各一次 repetition，使用相同明确冻结的既有 Runt
 
 ## 二次确认
 
-状态：待 User 审阅并明确确认 R3。消息 5/7/9/11/13 是对照、精简或解释请求，均不是对本稿完整文本的二次确认。
-确认前只保存本提案，不修改实现、Schema、当前合同或执行 clean break。
+状态：User 在消息 19（`b27e38e9-8345-4198-bf97-6b47223395dc`）明确确认 R3：
+“没问题，开启wt开始实现，实现完pr到mian merge”。确认前已在消息 18 提供逐项完整前后对照。
+记录时间为 2026-10-16T09:33:29Z；沿用既有 worktree，实施后创建 PR 并按门禁合入 main。
 依据是[核心模型上下文变更治理](../../development/model-context-change-governance.md)中的：
 “未取得确认时可以继续调查和编辑提案文档，但不得修改实现、Schema、当前合同或执行 clean break。”
 
-确认后填写真实 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3` 与来源消息；语义变化则递增 revision。
-未确认提案触发文档门禁的 confirmation 检查属于预期状态，不伪造确认或为本次变更加 checker 例外。
+Front Matter 已记录 `confirmed_by`、`confirmed_at`、`confirmed_revision: 3` 与来源消息。
+确认的前后文案保持不变；若实施改变方案语义，则递增 revision 并重新审阅。
 
 ## 工作记录
 
@@ -304,8 +309,8 @@ baseline/candidate 各一次 repetition，使用相同明确冻结的既有 Runt
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-send-file-guidance`。
 - Branch：`rovai/send-file-guidance`。
 - Base：`origin/main@3979e32ec4834ce5fc02cd72309bbd7b5cd800c6`；已 fetch 并核对与本次审阅源码一致。
-- Governance：本稿待确认；无已合入治理提交。
-- Status：active，等待文本审阅；后续沿用此 worktree。
+- Governance：R3 已由 User 消息 19 确认；无要求先合入 main 的独立治理提交。
+- Status：active，按已确认 R3 实施；沿用此 worktree。
 - R1 Validation：正文/附件帮助、首例、删除段及渠道原文逐字匹配源码；`git diff --cached --check` 通过。
   `node --test scripts/lib/doc-decisions.test.mjs` 10/10 通过；带真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
@@ -321,4 +326,4 @@ baseline/candidate 各一次 repetition，使用相同明确冻结的既有 Runt
   `git diff --check`、`pnpm docs:test`（10/10）及带上述真实 base 的
   `node scripts/check-doc-decisions.mjs --require-base` 通过。
   `pnpm docs:check` 与 `pnpm docs:check:ci` 仍仅因本稿缺少四项二次确认记录而未通过。
-- Next：按 User 对 R3 的反馈修订或记录明确确认，再进入已确认范围的实施。
+- Next：实施并验证已确认 R3，创建 PR，门禁通过后合入 main 并清理 worktree。

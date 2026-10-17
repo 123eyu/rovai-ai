@@ -52,13 +52,13 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { access, readFile, writeFile } from 'node:fs/promises';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-const cli = args => { const result = spawnSync(process.env.ROVAI_AGENT_CLI, args, {encoding:'utf8', timeout:15000}); if(result.error) throw result.error; return {code:result.status,stdout:result.stdout,stderr:result.stderr}; };
+const cli = args => { const result = spawnSync('rovai', args, {encoding:'utf8', timeout:15000}); if(result.error) throw result.error; return {code:result.status,stdout:result.stdout,stderr:result.stderr}; };
 const contextPath = process.env.ROVAI_CLI_CONTEXT;
 assert.ok(contextPath);
 const shell = process.env.SHELL || '/bin/sh';
 const loginCliPath = spawnSync(shell,['-lc','command -v rovai'],{encoding:'utf8',timeout:10000}).stdout.trim();
 const loginCliVersion = spawnSync(shell,['-lc','rovai --version'],{encoding:'utf8',timeout:10000}).stdout.trim();
-await writeFile('agent-ready.json', JSON.stringify({pid:process.pid,contextPath,boundCli:process.env.ROVAI_AGENT_CLI,boundCliVersion:cli(['--version']).stdout.trim(),loginCliPath,loginCliVersion}));
+await writeFile('agent-ready.json', JSON.stringify({pid:process.pid,contextPath,boundCli:process.env.ROVAI_AGENT_CLI,boundCliVersion:spawnSync(process.env.ROVAI_AGENT_CLI,['--version'],{encoding:'utf8'}).stdout.trim(),plainCliVersion:cli(['--version']).stdout.trim(),loginCliPath,loginCliVersion}));
 for(const [name, enabled] of [['off',false],['on',true],['off-again',false],['same-value-repair',true],['auto-retry',true]]) {
   if(name !== 'off') { const end=Date.now()+180000; for(;;) { try {await access(name+'.go');break;} catch {} if(Date.now()>end) throw new Error('Host did not release '+name); await delay(50); } }
   const context = JSON.parse(await readFile(contextPath,'utf8'));
@@ -117,7 +117,7 @@ try {
     assert.equal((await core.request('preferences.tasks.get')).enabled, false)
     const sent = await core.request('thread.messages.send', { commandId: randomUUID(), threadId,
       content: composerDocumentForAddress({ mode: 'explicit', agentIds: ['agent_1'] },
-        '这是隔离功能验收。请实际执行 node ./task-switch-agent.mjs 并等待它正常结束；脚本会等待 Host 切换开关并调用当前运行环境中的 rovai CLI。不要改脚本、不要创建任务、不要提前停止命令。若工具提前返回会话 ID，继续等待同一进程。脚本成功后执行 "$ROVAI_AGENT_CLI" send --public-only --body TASK_SWITCH_DONE，然后结束。本机还有日常安装版，最后一条也必须使用环境中注入的本次候选 CLI。'),
+        '这是隔离功能验收。使用普通命令工具，不指定 login 参数，不修改 PATH，不使用 CLI 绝对路径。先执行 command -v rovai > plain-cli-path.txt 和 rovai --version > plain-cli-version.txt，再实际执行 node ./task-switch-agent.mjs 并等待它正常结束；脚本会等待 Host 切换开关。不要改脚本、不要创建任务、不要提前停止命令。若工具提前返回会话 ID，继续等待同一进程。脚本成功后直接执行 rovai send --public-only --body TASK_SWITCH_DONE，然后结束。失败时保留原始错误并停止，不绕过正常命令入口。'),
       sourceAttachments: [], quotes: [], replyToThreadMessageId: null,
       execution: { taskId: null, purpose: 'Running Task capability acceptance', completionRole: 'required' } })
     assert.equal(sent.commandResult.status, 'accepted', JSON.stringify(sent))
@@ -135,12 +135,16 @@ try {
     }
     const enable = async enabled => assert.equal((await core.request('preferences.tasks.set', { enabled })).enabled, enabled)
     const release = name => writeFile(join(project, `${name}.go`), 'go')
+    await wait(() => exists('agent-ready.json'), 'normal CLI resolution')
+    const { contextPath, ...cliResolution } = JSON.parse(await readFile(join(project, 'agent-ready.json'), 'utf8'))
+    assert.ok(contextPath.startsWith(`${data}/runtime/builtin-tools/`))
+    report.cliResolution = { ...cliResolution, commandPath: (await readFile(join(project, 'plain-cli-path.txt'), 'utf8')).trim(), commandVersion: (await readFile(join(project, 'plain-cli-version.txt'), 'utf8')).trim() }
+    await persist()
+    assert.equal(report.cliResolution.plainCliVersion, report.cliResolution.boundCliVersion, 'Plain CLI must match the Run-bound version')
+    assert.equal(report.cliResolution.commandVersion, report.cliResolution.boundCliVersion, 'Normal Runtime command must resolve the bound version')
     await phase('off')
     await enable(true); await release('on'); await phase('on')
     await enable(false); await release('off-again'); await phase('off-again')
-    const { contextPath, ...cliResolution } = JSON.parse(await readFile(join(project, 'agent-ready.json'), 'utf8'))
-    report.cliResolution = cliResolution
-    assert.ok(contextPath.startsWith(`${data}/runtime/builtin-tools/`))
     const savedContext = `${contextPath}.saved`
     async function injectFailure() { await rename(contextPath, savedContext); await mkdir(contextPath) }
     async function restore() { await rmdir(contextPath); await rename(savedContext, contextPath) }

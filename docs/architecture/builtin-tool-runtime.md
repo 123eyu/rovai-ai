@@ -61,6 +61,18 @@ Memory 单命令的局部 Transport 决策见
 组合见 [Online Memory Capture](online-memory-capture.md)。Complete exact-Scope View 与 copyable target
 合同见 [Memory 读取与投影不变量](foundational-invariants.md#memory-read-projection)。
 
+## Run 中的 CLI 解析
+
+Core 将本次绑定的 CLI 目录放在 Runtime 的 PATH 首位，并注入 `ROVAI_AGENT_CLI` 供诊断。
+Codex 带 Built-in Tools 的 Host 使用 `allow_login_shell=false`，使原生命令工具的默认调用沿用
+已准备的环境，避免登录初始化将日常安装的另一版 `rovai` 排到前面。它只作用于该 Host，
+不修改用户 Shell 配置、全局 PATH 或安装版 CLI。显式请求 `login=true` 按 Codex 原生规则拒绝；
+用户显式运行 Shell 子进程仍由其自身初始化决定环境，不作为 CLI 版本绑定保证。
+
+普通命令入口须验证 `rovai --version` 与 Run 绑定版本一致，并实际执行 `rovai send`；
+仅显式调用 `ROVAI_AGENT_CLI` 的成功不能证明 PATH 解析正确。这个修正不改变 Rovai Bootstrap、
+冻结输入、Native Session 兼容键或 Task 开关规则。
+
 ## 总体路径
 
 ```text

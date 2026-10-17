@@ -24,7 +24,12 @@ export function frozenMemberRuntimeDifferences(member, profile) {
       differences.push({ field, expected, actual })
     }
   }
-  compare('runtimeReadiness.status', 'ready', profile?.runtimeReadiness?.status)
+  // Member reads are static, even after runtime.product.check succeeds. The
+  // Runner checks the real installation separately; this is not model drift.
+  if (!['ready', 'installed_unverified'].includes(profile?.runtimeReadiness?.status)) {
+    compare('runtimeReadiness.status', 'ready', profile?.runtimeReadiness?.status)
+  }
+  compare('runtimeReadiness.blockers', [], profile?.runtimeReadiness?.blockers)
   for (const field of ['adapterKind', 'model', 'permissions']) {
     compare(`runtimeConfiguration.${field}`, member[field], profile?.runtimeConfiguration?.[field])
   }

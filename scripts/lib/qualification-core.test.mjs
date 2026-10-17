@@ -2,11 +2,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { frozenMemberRuntimeDifferences, qualificationRuntimePrivateDiagnostic, sameProcessIdentity } from './qualification-core.mjs'
 
-test('frozen Runtime diagnostics identify exact fields without weakening equality or exposing auth', () => {
+test('frozen Runtime configuration is exact while static readiness does not reject a verified installation', () => {
   const member = { adapterKind: 'codex-cli', model: { mode: 'explicit', modelId: 'model', options: { reasoning_effort: 'medium' } },
     permissions: { adapterKind: 'codex-cli', schemaVersion: 1, values: { approval_policy: 'never' } } }
-  const profile = { runtimeReadiness: { status: 'ready' }, runtimeConfiguration: structuredClone(member), auth: 'private-auth' }
+  const profile = { runtimeReadiness: { status: 'ready', blockers: [] }, runtimeConfiguration: structuredClone(member), auth: 'private-auth' }
   assert.deepEqual(frozenMemberRuntimeDifferences(member, profile), [])
+  profile.runtimeReadiness.status = 'installed_unverified'
+  assert.deepEqual(frozenMemberRuntimeDifferences(member, profile), [])
+  profile.runtimeReadiness.blockers = [{ code: 'runtime_missing' }]
+  assert.deepEqual(frozenMemberRuntimeDifferences(member, profile), [
+    { field: 'runtimeReadiness.blockers', expected: [], actual: [{ code: 'runtime_missing' }] }
+  ])
+  profile.runtimeReadiness.blockers = []
   profile.runtimeReadiness.status = 'configuration_required'
   profile.runtimeConfiguration.model.options.reasoning_effort = 'high'
   profile.runtimeConfiguration.model.providerId = null

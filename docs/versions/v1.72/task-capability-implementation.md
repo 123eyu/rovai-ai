@@ -261,3 +261,67 @@ typecheck、Desktop/Web 构建、通用文档门禁与格式检查通过。
 
 本分支实施 R4，无每会话覆盖、Agent 改设置、数据清理或自动转换任务。此次不包含主分支合并、发版或日常 App 安装。
 历史 Session 可能仍含旧说明，Core 按当前开关执行；已冻结输入继续按原证据恢复，这是有意保留的连续性边界。
+
+
+## 用户输入与普通 CLI 入口收尾（2026-10-17）
+
+本节回应 User 消息 `e53193d0-498e-41a3-86c1-efca49abbb97` 对 `ed7c34f7` 的复查。
+通知快照、启用边界、游标与开关核心没有继续改动；Rovai Bootstrap、动态上下文、统一 Send 教学均无新增文本。
+
+### Task 编辑输入
+
+原来草稿 Map 与表单一起属于 TaskPanel，关闭功能时卸载即丢失。现在 Map 由 Renderer 按稳定
+ThreadClient（Host／Owner）、Thread、Task／新建标识持有，表单每次提交到 UI 的输入同步保留；
+面板仍按原规则完全卸载。重新开启并打开编辑器后恢复标题、说明、负责人、状态说明和取消原因。
+只重建 Task 编辑器以隔离 Host／Thread，不重建整个会话工作区，也不写数据库或自动提交任务。
+
+保存失败保留输入；成功只清除对应的已提交草稿，旧请求完成不能清除重开后继续编辑的新输入。
+编辑基线随草稿保留，因此未改动字段不会用旧值覆盖远端更新。草稿仅在当前窗口内存保留，窗口
+关闭／重载不承诺恢复。沿用原 Dialog 和文案，没有增加切换确认或阻止全局关闭。
+
+[会话界面说明](../../ui/components/conversation-workspace.md#taskapproval-与停止)同时明确：关闭期间
+工作可以继续，但任务状态不能更新；重新开启不自动从执行结果或聊天推算任务完成。
+
+### 普通 CLI 入口
+
+`live-06-normal` 通过真实 Codex 默认命令工具复现：Core 注入的候选为 `0.4.12 / contract-v42`，
+普通 `rovai` 却被登录初始化解析到日常安装的 `0.4.11 / contract-v41`。原记录保留，没有把显式路径成功
+当作普通入口成功。
+
+修正只有 Codex 的 Built-in Host 启动参数 `allow_login_shell=false`，沿用 Host 已准备的 PATH，
+避免再次登录初始化改变候选 CLI 的优先级。它不修改用户 Shell 配置、全局 PATH 或安装版 CLI；
+显式 `login=true` 请求按 Codex 原生规则拒绝。参数语义由本机 `codex-cli 0.162.1` 实测，并核对
+[OpenAI 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)。其他 Runtime 不改。
+
+新 `live-07-normal` 在独立 Core、Skill Library、MCP、原生 Codex 和项目目录完成真实执行：
+
+- Agent 的原生命令工具直接执行 `rovai --version` 和 `rovai send --public-only --body TASK_SWITCH_DONE`，
+  没有指定 login、改 PATH 或使用 CLI 绝对路径；普通路径和 Run 绑定路径均为候选 `target/debug/rovai`。
+- 同一个 Run `5c969f53-48f8-4c2d-bb5c-0e59a0452aca`、epoch 1 和同一 process／lease，走完关闭、开启、
+  再关闭、相同值修复、自动重试五阶段；每阶段普通 Send exit 0。Task help／list 在关闭时 exit 2、开启时 exit 0。
+- 最终 Run succeeded，六条 Agent 消息含精确 `TASK_SWITCH_DONE`，只有一次 start input accepted，Core 正常退出。
+- 另行显式启动登录 Shell 仍可解析到日常 CLI，这是保留的用户 Shell 行为；不把修正宣称为任意 Shell 子进程的版本绑定。
+
+私有原始证据保存在 `.local/task-capability-review/live-06-normal/`、`live-07-normal/`。
+这些是功能集成验证，不占用或冒充正式 Context Gate 尝试。
+
+### 验收前置排障
+
+1. Core 的 `members.get/list` 对有效静态配置返回 `installed_unverified`、空 blockers，
+   即使主动 Runtime 检查已成功也如此。Runner 不再把这个静态状态单独记作配置漂移；仍要求空 blockers、
+   adapter／model／options／permissions 精确一致，保留已有真实 installation 检查和执行时 Host 准入。
+   原来两次 campaign 的失败证据不重写。
+2. 当前模型目录的 `experimental_supported_tools` 额外声明异步提问和时钟，独立于既有 feature 开关。
+   诊断 Judge 目录清空该字段后，`judge-03` 的真实 CLI 本地传输探针捕获一次请求、工具数组为空。
+   这是无模型调用的能力检查，不是评分结果。之前 `judge-02` 中无效的额外配置尝试也保留，产品没有新增这些配置。
+3. CLI Judge 仍为 `catalog_bound_alias`，不能提供固定 provider snapshot 证明。原 campaign 两次尝试已经用尽，
+   本轮没有重置目录或更改次数上限。正式 Gate 仍是 insufficient；继续正式评分还需要合格 Judge 配置及明确的续跑预算。
+
+### 本轮验证记录
+
+生产组件 Electron owner 验证 Host／Thread／Task 隔离、关闭重开、失败／迟到／成功回执、
+相对编辑基线与状态说明恢复；Darwin 与 Win32 键位分支在 macOS Electron 中通过，不宣称 Windows 真机验证。
+TypeScript 检查、完整 pnpm test（246 文件／2729 Vitest 项；Node 356 通过、2 项平台跳过）通过。
+Runner／Judge 定向 11 项通过；真实普通 CLI 五阶段及最终发送通过。
+
+完整 Rust 扩展回归和最终构建仍在收尾；结果将在提交前补入，不以定向复验替代完整结果。

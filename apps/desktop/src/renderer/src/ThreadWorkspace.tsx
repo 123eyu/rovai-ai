@@ -11053,16 +11053,18 @@ interface TaskEditorDraft extends TaskEditorValues {
   base?: TaskEditorValues
 }
 
-export function TaskPanel({
-  snapshot,
-  coverage = null,
-  busy,
-  focusTaskId = null,
-  focusRequest = 0,
-  onTasksChanged,
-  onOpenAgent = () => {},
-  onCreateModeChange
-}: {
+interface TaskDraftStore {
+  identity: number
+  edits: Map<string, TaskEditorDraft>
+  cancellations: Map<string, string>
+}
+
+// Local input survives the optional panel, but never crosses a Host or Thread.
+// Weak Host ownership also releases drafts when the client is discarded.
+const taskDraftStores = new WeakMap<ThreadClient, Map<string, TaskDraftStore>>()
+let nextTaskDraftIdentity = 0
+
+interface TaskPanelProps {
   snapshot: ThreadSnapshot
   coverage?: ThreadOpenCollectionCoverage | null
   busy: boolean
@@ -11071,14 +11073,37 @@ export function TaskPanel({
   onTasksChanged(): Promise<void>
   onOpenAgent?(agentId: string, trigger?: HTMLButtonElement): void
   onCreateModeChange?(active: boolean): void
-}): JSX.Element {
+}
+
+export function TaskPanel(props: TaskPanelProps): JSX.Element {
+  const client = useThreadClient()
+  let threads = taskDraftStores.get(client)
+  if (!threads) taskDraftStores.set(client, threads = new Map())
+  let drafts = threads.get(props.snapshot.thread.id)
+  if (!drafts) {
+    drafts = { identity: ++nextTaskDraftIdentity, edits: new Map(), cancellations: new Map() }
+    threads.set(props.snapshot.thread.id, drafts)
+  }
+  return <TaskPanelEditor key={drafts.identity} {...props} drafts={drafts} />
+}
+
+function TaskPanelEditor({
+  drafts,
+  snapshot,
+  coverage = null,
+  busy,
+  focusTaskId = null,
+  focusRequest = 0,
+  onTasksChanged,
+  onOpenAgent = () => {},
+  onCreateModeChange
+}: TaskPanelProps & { drafts: TaskDraftStore }): JSX.Element {
   const client = useThreadClient()
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all')
   const [editorOpen, setEditorOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const detailRef = useRef<HTMLElement>(null)
-  const drafts = useRef(new Map<string, TaskEditorDraft>())
   const editBase = useRef<TaskEditorValues | null>(null)
   const [mode, setMode] = useState<'list' | 'create' | 'edit'>('list')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -11134,19 +11159,26 @@ export function TaskPanel({
     setFormError(null)
   }
 
-  const closeEditor = (): void => {
-    if (submitting) return
-    drafts.current.set(selectedTaskId ?? 'new', {
-      title, description, assigneeAgentId, status,
-      blockedReason, completionSummary,
+  // Capture committed input even if another window turns Task off before close.
+  useLayoutEffect(() => {
+    if (!editorOpen) return
+    drafts.edits.set(selectedTaskId ?? 'new', {
+      title, description, assigneeAgentId, status, blockedReason, completionSummary,
       ...(editBase.current ? { base: editBase.current } : {})
     })
-    setEditorOpen(false)
+  }, [drafts, editorOpen, selectedTaskId, title, description, assigneeAgentId, status, blockedReason, completionSummary])
+
+  useLayoutEffect(() => {
+    if (cancelOpen && selectedTaskId) drafts.cancellations.set(selectedTaskId, cancelReason)
+  }, [drafts, cancelOpen, selectedTaskId, cancelReason])
+
+  const closeEditor = (): void => {
+    if (!submitting) setEditorOpen(false)
   }
 
   const beginCreate = (): void => {
     resetForm()
-    const draft = drafts.current.get('new')
+    const draft = drafts.edits.get('new')
     if (draft) applyDraft(draft)
     setMode('create')
     setEditorOpen(true)
@@ -11162,7 +11194,7 @@ export function TaskPanel({
       blockedReason: task.blockedReason ?? '',
       completionSummary: task.completionSummary ?? ''
     }
-    applyDraft(drafts.current.get(task.taskId) ?? { ...values, base: values })
+    applyDraft(drafts.edits.get(task.taskId) ?? { ...values, base: values })
     setMode('edit')
     setEditorOpen(true)
   }
@@ -11192,6 +11224,7 @@ export function TaskPanel({
       setFormError(uiAttribute('请选择负责人。'))
       return
     }
+    const submittedDraft = drafts.edits.get(selectedTaskId ?? 'new')
     setSubmitting(true)
     setFormError(null)
     try {
@@ -11206,7 +11239,9 @@ export function TaskPanel({
         setFormError(taskCommandMessage(result))
         return
       }
-      drafts.current.delete(selectedTaskId ?? 'new')
+      if (drafts.edits.get(selectedTaskId ?? 'new') === submittedDraft) {
+        drafts.edits.delete(selectedTaskId ?? 'new')
+      }
       resetForm()
       await onTasksChanged()
     } catch (error) {
@@ -11231,6 +11266,7 @@ export function TaskPanel({
       setFormError(uiAttribute('请填写完成摘要。'))
       return
     }
+    const submittedDraft = drafts.edits.get(selectedTaskId ?? 'new')
     setSubmitting(true)
     setFormError(null)
     const base = editBase.current
@@ -11269,7 +11305,9 @@ export function TaskPanel({
         setFormError(taskCommandMessage(result))
         return
       }
-      drafts.current.delete(selectedTaskId ?? 'new')
+      if (drafts.edits.get(selectedTaskId ?? 'new') === submittedDraft) {
+        drafts.edits.delete(selectedTaskId ?? 'new')
+      }
       resetForm()
       await onTasksChanged()
     } catch (error) {
@@ -11295,7 +11333,9 @@ export function TaskPanel({
         setFormError(taskCommandMessage(result))
         return
       }
-      drafts.current.delete(selectedTaskId ?? 'new')
+      if (drafts.cancellations.get(selectedTask.taskId) === cancelReason) {
+        drafts.cancellations.delete(selectedTask.taskId)
+      }
       resetForm()
       await onTasksChanged()
     } catch (error) {
@@ -11373,7 +11413,7 @@ export function TaskPanel({
               <button className="quiet-button" type="button" disabled={busy} onClick={() => beginEdit(detailTask)}><UiText zh={"编辑"} /></button>
               <button className="quiet-button task-cancel-action" type="button" disabled={busy} onClick={() => {
                 setSelectedTaskId(detailTask.taskId)
-                setCancelReason('')
+                setCancelReason(drafts.cancellations.get(detailTask.taskId) ?? '')
                 setFormError(null)
                 setCancelOpen(true)
               }}><UiText zh={"取消任务"} /></button>

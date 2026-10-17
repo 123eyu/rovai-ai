@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { TaskDraftFixture } from './task-drafts'
 import { createRoot } from 'react-dom/client'
 import type { AdapterInstallation, ExecutionConsolePlacement, FilePreviewApi, ShortcutPreferencesApi } from '@contracts'
 import { ShortcutProvider, useShortcuts } from '../../../apps/desktop/src/renderer/src/ShortcutProvider'
@@ -64,7 +65,7 @@ function Fixture() {
   return <>
     <NavigationShell platform={platform} settings={screen === 'settings'}>
       <aside className="unified-sidebar settings-navigation-mode"><div className="unified-sidebar-drag" /><div className="unified-brand"><strong>Rovai AI</strong></div><SettingsSidebarNavigation groups={SETTINGS_SIDEBAR_GROUPS} section="shortcuts" updateBadge={null} onSectionChange={() => setScreen('settings')} onBack={() => setScreen('workspace')} /></aside>
-      {screen === 'settings' ? <main className="content settings-content"><div className="settings-workbench"><div className="settings-panel settings-panel-general settings-panel-shortcuts"><ShortcutSettings /></div></div></main> : screen === 'composer' ? <main className="content"><form className="composer" onSubmit={event => event.preventDefault()}>
+      {screen === 'drafts' ? <main className="content"><TaskDraftFixture client={client} /></main> : screen === 'settings' ? <main className="content settings-content"><div className="settings-workbench"><div className="settings-panel settings-panel-general settings-panel-shortcuts"><ShortcutSettings /></div></div></main> : screen === 'composer' ? <main className="content"><form className="composer" onSubmit={event => event.preventDefault()}>
         <StructuredMentionComposer id="send-composer" draftIdentity={`send:${identity}`} document={document} members={[]} ariaLabel="发送测试" placeholder="消息" disabled={false} persistDocument={async () => {}} onDocumentChange={setDocument} onSubmit={() => { sends++ }} />
         <ComposerPrimaryAction action="send" busy={false} disabled={false} type="button" onClick={() => { sends++ }} />
       </form></main> : <>

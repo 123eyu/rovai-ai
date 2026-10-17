@@ -305,6 +305,7 @@ app.whenReady().then(async () => {
       const persisted = JSON.parse(readFileSync(path, 'utf8')); assert.equal(persisted.sendMode, 'primary-enter')
       await run('window.shortcutTest.screen("settings")'); await settle()
       await click('.shortcut-page-footer button'); await click('.shortcut-reset-dialog .primary-button'); assert.deepEqual(store.get().preferences, defaults)
+      await require('./task-drafts.cjs')({ run, settle, click, capture })
       await run('window.shortcutTest.language("en")'); await settle(); await run('new Promise(resolve => setTimeout(resolve, 2600))'); await capture('english')
       const multiple = structuredClone(defaults); multiple.bindings.latest = 'Mod+Alt+Shift+J'; multiple.mouse = {side1:'latest',side2:'latest'}
       await run(`window.shortcutTest.save(${JSON.stringify(multiple)})`); window.setContentSize(960, 820); await settle()

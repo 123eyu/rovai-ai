@@ -17,7 +17,7 @@ R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前�
 [独立变更说明](model-context-change-task-capability.md)，界面依据见
 [设计稿](../../research/task-capability-ui.md)。默认关闭实例级 Task 能力；Send 与会话执行解耦，
 界面入口采用执行／队员／单聊／任务，数字快捷键一次性迁移为 1–4。
-功能、隔离 App 验证与回归结果见[实施与验证记录](task-capability-implementation.md)。两侧合同检查通过；真实场景均在 Runtime 预检受阻，且 Judge 不可用，Gate 为证据不足。
+功能、隔离 App 验证与回归结果见[实施与验证记录](task-capability-implementation.md)。已补 Task 编辑草稿保护与普通 CLI 入口修正，并完成同一真实 Run 中的切换与发送验证。原 campaign 两次尝试均在 Runtime 预检受阻；本轮修正预检误判并恢复 CLI Judge 无工具诊断，但尚无完整正式 Gate，原证据不足结论保留。
 
 ## Send 文件引用与三渠道提示（2026-10-16）
 

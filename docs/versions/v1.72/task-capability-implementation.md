@@ -11,15 +11,31 @@ last_updated: 2026-10-17
 `rovai/task-capability` 分支实施 [R4](model-context-change-task-capability.md)。主分支基线为
 `c69a97fbff1e986bbd1ff12ecfa55797b73e0553`；交互依据为
 [现有风格设计稿](../../research/task-capability-ui.md)。本页记录实际实现及证据，不改变已确认的模型输入方案。
-功能实施与隔离界面验收完成；真实 Runtime 上下文 Gate 为证据不足，不能视为完整验收通过。
-下文“评审后修复与真实执行验证”记录对 `e44171f8` 的后续修复，不替代原 Gate 结果。
+功能实施、当前窗口输入保护与真实普通 CLI 链路已完成验证；正式 Context Gate 仍为证据不足，
+不能视为完整质量验收通过。各轮记录按发生顺序保留，最新结果以下表及末节为准。
+
+## 最新验收摘要
+
+本轮实现冻结于 `bc53fa77f69bd816ac80170d9c22eb480d41f198`，后续提交只补充验收记录。
+
+| 检查 | 2026-10-17 最新结果 |
+| --- | --- |
+| Task 编辑输入 | 生产 TaskPanel 的 Electron owner 通过：关闭重开恢复、Host／Thread／Task 隔离、失败／迟到／成功保存及编辑基线；仅当前窗口内存保留 |
+| 普通 CLI 与运行中切换 | 真实 Codex Run 通过：普通 `rovai --version`、普通 `rovai send`，五阶段 Task 可用性与帮助显隐；同一 Run／epoch／process／lease |
+| 前端与构建 | `pnpm typecheck`、完整 `pnpm test`、`pnpm build:desktop` 通过；Darwin／Win32 fixture 分支在 macOS Electron 执行 |
+| 完整 Rust 扩展 workspace | 固定候选单次完整命令 exit 0：1064 通过、0 失败、8 项既有原生 Runtime 人工检查忽略；其中 Core lib 1018 通过 |
+| 验收前置 | 相同 Core 二进制的 Runtime 冻结配置差异为 `[]`；CLI Judge 传输探针为一次请求、`tools=[]`，仅诊断资格 |
+| 正式 Context Gate | 仍为 `insufficient`。原 campaign 两次尝试保留；尚缺固定模型快照 Judge 配置及后续正式运行预算 |
+
+首轮完整扩展运行的两项 ACP 失败和更早的清理超时均保留在后文；本轮完整复验没有再现它们，
+但不将未稳定复现解释为已经定位并修复了这些进程时序问题的根因。
 
 ## 已实现行为
 
 | 范围 | 结果 |
 | --- | --- |
 | 设置 | Core 实例级持久开关，默认关闭。设置位于通用 → 会话 → 世界地图下方；保存失败只影响这一行，并可重试 |
-| 旧任务 | 关闭后也不再允许新读取或更新，数据保留；重新开启后恢复管理 |
+| 旧任务 | 关闭后也不再允许新读取或更新，数据保留；重新开启后恢复管理，不自动补写关闭期间的任务状态 |
 | 执行可用性 | 随时切换，不等待任务结算，不取消 Run、消息或队列；实际操作在同一锁/事务内检查当前开关 |
 | Bootstrap / Skill | 开关两态共用精简教学；去掉 Task 对象依赖，不增加关闭说明。Native Session compatibility 仍为 16 |
 | 动态上下文 | 关闭时不选择或输出 SELF_ACTIVE_TASKS；新 Run Facts 移除 taskContext、singleChat.taskMutationAllowed；已冻结输入保持原字节 |
@@ -27,7 +43,7 @@ last_updated: 2026-10-17
 | Task 直接调用 | 返回 task.feature_disabled / recovery stop，CLI exit 2；只拒绝该次操作，不中止当前执行 |
 | Send | 开关两态共用无 Task 关联的定义。合法旧 taskId（含 null）兼容为普通发送；不推导接收者，不检查任务负责人/状态 |
 | 读侧 / 通知 | 关闭时省略 Task 数据、覆盖率及计数；通知在 SQL LIMIT 前过滤，未读数排除任务；关闭期间不新建任务提醒，旧通知导航退回来源会话 |
-| 会话界面 | 真实 DOM 顺序为执行、队员、单聊、任务；任务为可选第 4 项。关闭时卸载 Task 面板/弹窗，保留消息草稿与阅读状态 |
+| 会话界面 | 真实 DOM 顺序为执行、队员、单聊、任务；任务为可选第 4 项。关闭时卸载 Task 面板/弹窗，保留消息草稿、阅读状态与当前窗口的 Task 编辑草稿 |
 | 快捷键 | v1→v2 一次性统一执行/队员/单聊/任务为 Mod+1/2/3/4；清除其他操作对这四键的占用，保留其余键位、侧键和发送方式 |
 | 快捷键关闭态 | 隐藏并停用任务键位和侧键；不消费输入。隐藏任务键位被其他操作使用时原子转移，重开不抢回；迁移失败保留磁盘原值并提供重试 |
 | Host Web | 同步 Core 的开关事件；切换 Host 重置投影，重连/读取失败保留本 Host 已确认状态；设置与通知按序号合并，旧响应不能恢复旧 Host 或较旧开关状态 |
@@ -47,7 +63,7 @@ Migration 205 将 schema 从 154 升到 155，只新增设置及新输入格式�
 Run Facts v9、Send v28、Continuation v4、Camp Open v30、Notification Episode v10、Desktop Shortcuts v2、Host Web v6。
 当前权威入口已更新，历史合同不追改。
 
-## 已完成检查
+## 首轮检查记录
 
 | 检查 | 实际结果与范围 |
 | --- | --- |
@@ -310,7 +326,8 @@ ThreadClient（Host／Owner）、Thread、Task／新建标识持有，表单每�
 1. Core 的 `members.get/list` 对有效静态配置返回 `installed_unverified`、空 blockers，
    即使主动 Runtime 检查已成功也如此。Runner 不再把这个静态状态单独记作配置漂移；仍要求空 blockers、
    adapter／model／options／permissions 精确一致，保留已有真实 installation 检查和执行时 Host 准入。
-   原来两次 campaign 的失败证据不重写。
+   原来两次 campaign 的失败证据不重写。`live-07-normal` 中尚未修正 Helper 的静态 readiness 差异也保留；
+   后续 `preflight-08` 对同一 Core SHA-256 返回差异 `[]`，没有重写真实 Run 的旧记录。
 2. 当前模型目录的 `experimental_supported_tools` 额外声明异步提问和时钟，独立于既有 feature 开关。
    诊断 Judge 目录清空该字段后，`judge-03` 的真实 CLI 本地传输探针捕获一次请求、工具数组为空。
    这是无模型调用的能力检查，不是评分结果。之前 `judge-02` 中无效的额外配置尝试也保留，产品没有新增这些配置。
@@ -321,7 +338,32 @@ ThreadClient（Host／Owner）、Thread、Task／新建标识持有，表单每�
 
 生产组件 Electron owner 验证 Host／Thread／Task 隔离、关闭重开、失败／迟到／成功回执、
 相对编辑基线与状态说明恢复；Darwin 与 Win32 键位分支在 macOS Electron 中通过，不宣称 Windows 真机验证。
-TypeScript 检查、完整 pnpm test（246 文件／2729 Vitest 项；Node 356 通过、2 项平台跳过）通过。
+TypeScript 检查、完整 pnpm test（246 文件／2729 Vitest 项；主 Node 测试组 356 通过、2 项平台跳过）通过。
 Runner／Judge 定向 11 项通过；真实普通 CLI 五阶段及最终发送通过。
 
-完整 Rust 扩展回归和最终构建仍在收尾；结果将在提交前补入，不以定向复验替代完整结果。
+Desktop／Web 构建、Rust 格式检查和通用文档门禁通过。草稿 fixture 首次运行在语言切换为英文之后，
+中文字段选择器因此失败；将同一 owner 调整到语言切换之前后复验通过，生产界面没有为 fixture 修改语言行为。
+最终截图来自真实 TaskPanel 在隔离 Electron fixture 中的恢复状态，不冒充完整 App 或 Windows 真机证据。
+
+Rust 使用本机 `1.98.0-aarch64-apple-darwin`、`CARGO_BUILD_JOBS=4`。完整命令为：
+
+```bash
+cargo test --workspace --features extended-tests -- --test-threads=4
+```
+
+| 运行 | 实际结果 |
+| --- | --- |
+| 首轮，最终 Codex 参数修正前启动 | Core 1016 通过、2 失败、8 忽略，2408.31 秒，exit 101；Cargo 在 Core 失败后停止 |
+| 单项排查 | 两项 ACP owner 各复验通过；Codex 25 通过、1 项原生人工检查忽略。这些结果没有替代完整运行 |
+| 固定候选 `bc53fa77f` 完整复验 | Core 1018 通过、0 失败、8 忽略，2163.03 秒；CLI 31、Host 4、Web 11 通过；workspace 合计 1064 通过、exit 0 |
+
+首轮两项失败分别是 `acp::tests::leader_exit_reaps_inherited_pipes_and_preserves_buffered_response`
+（父进程退出后子进程仍写入）和 `acp::tests::runtime_cancellation_terminates_and_releases_client_terminals`
+（等待 Terminal response／cancel 回执超时）。两项均在固定候选的完整复验中通过；此前的
+`runtime_probe_process::tests::successful_leader_with_stdio_holding_descendant_finishes_bounded`
+也在两次完整运行中通过。没有修改 ACP 实现、超时或测试准入范围来取得这次结果；原失败仍留作未稳定复现的记录。
+
+这次结果是完整 **extended workspace**，不是 `--all-features` 或全部原生 Runtime 人工检查；
+也不替代正式 Context Gate。八项既有忽略项需要相应原生安装、配置或单独授权的 Provider。
+报告与脱敏 JSON、Darwin／Win32 fixture 截图一并交付；JSON 保留真实 Run、精确普通命令、
+各阶段退出码和测试日志摘要，process／lease 只导出摘要以证明连续性。私有原始数据留在本地，不进入 Git。

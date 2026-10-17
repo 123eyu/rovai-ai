@@ -88,7 +88,8 @@ ACP suffix、审批 option、失败重试和 native cursor owners；Usage 生命
 
 `--questionnaires-only` 保持原生问卷工具启用，验证单选、多选、发送后问卷、default 权限模式、
 取消后新指令、Core 重启精确恢复，以及后继普通命令 allow/deny。断言原生问卷为 dismissed、
-答案与注入字段为空、失败 Run 不可自动重放；已经发送的消息保留。Host 观察使用 Core 直属子进程
+答案与注入字段为空、`runtime_questionnaire_unsupported` 及可操作公开提示、失败 Run 不可自动重放；
+已经发送的消息保留。Host 观察使用 Core 直属子进程
 PID 集合，不能替代跨 Session 或并发 Fleet 资格。该矩阵不假造问卷 permission 请求；
 `questionnaire:` option 的防代答反例由既有 extended owner
 `approval_selects_the_exact_native_option_id` 负责。三种 focused 参数互斥。

@@ -20,6 +20,10 @@ Migration 205 从 schema 154 升至 **155**，保留业务行、索引、触发�
 [接入矩阵](../../research/minimax-code-runtime/README.md)分别记录脚本模型、真实模型与未验范围，
 实现交付不等同 Checklist 的 First-Class 资格。没有更换 current_version 或宣布本版本完成。
 
+User seq35/37 确认问卷采用取消、不代答。沿用现有原生 dismiss 与审批防代答，新增准确的
+`runtime_questionnaire_unsupported` 公开提示，非空结束文字或已发送消息不掩盖未承接问卷。
+不改原生配置、Host/Session 身份或模型上下文；后继新指令按原路径继续。
+
 ## 智能体已知版本保留（2026-10-15）
 
 修复静态扫描的空版本遮蔽已保存版本，以及单项检查推进全局搜索代次后其他版本重新出现的问题。

@@ -23427,6 +23427,7 @@ async fn persist_acp_prompt_completion(
     let settled_for_empty_final = runtime
         .allows_empty_final_after_public_send(prompt_id)
         .await;
+    let unsupported_questionnaire = runtime.has_unsupported_questionnaire(prompt_id).await;
     let missing_send_recovery_candidate = if stop_reason == "end_turn" {
         runtime
             .missing_send_recovery_candidate(prompt_id)
@@ -23450,6 +23451,7 @@ async fn persist_acp_prompt_completion(
         final_agent_message.is_some(),
         committed_public_send,
         settled_for_empty_final,
+        unsupported_questionnaire,
     );
     let delivery_status = if planned_outcome == RuntimeTerminalOutcome::Failed {
         let delivery_id = params
@@ -23463,9 +23465,12 @@ async fn persist_acp_prompt_completion(
     };
     let manual_retry_allowed =
         acp_prompt_manual_retry_allowed(planned_outcome, delivery_status.as_deref())
-            && !committed_public_send;
+            && !committed_public_send
+            && !unsupported_questionnaire;
     let base_error_code = if response_error.is_some() {
         "runtime_prompt_runtime_error".to_string()
+    } else if stop_reason == "end_turn" && unsupported_questionnaire {
+        "runtime_questionnaire_unsupported".to_string()
     } else if stop_reason == "end_turn" && !settled_for_empty_final && final_agent_message.is_none()
     {
         "runtime_unsettled_activity".to_string()
@@ -23474,17 +23479,31 @@ async fn persist_acp_prompt_completion(
     } else {
         format!("runtime_prompt_{stop_reason}")
     };
-    let error_detail = response_error
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("ACP prompt ended as {stop_reason}"));
+    let questionnaire_failure = base_error_code == "runtime_questionnaire_unsupported";
+    let error_detail = response_error.map(str::to_string).unwrap_or_else(|| {
+        if questionnaire_failure {
+            format!(
+                "{}原生问卷暂不受支持，未提交答案。请发送新消息，在对话中补充信息或继续任务。",
+                if committed_public_send { "消息已发送；" } else { "" }
+            )
+        } else {
+            format!("ACP prompt ended as {stop_reason}")
+        }
+    });
     let mut public_failure = (planned_outcome == RuntimeTerminalOutcome::Failed).then(|| {
         public_runtime_failure_from_output(
             adapter_kind,
-            RuntimeFailureOrigin::Runtime,
+            if questionnaire_failure {
+                RuntimeFailureOrigin::Compatibility
+            } else {
+                RuntimeFailureOrigin::Runtime
+            },
             RuntimeFailurePhase::Execution,
             &base_error_code,
             &if committed_public_send {
                 "消息已发送，但运行结束校验失败".to_string()
+            } else if questionnaire_failure {
+                "原生问卷暂不受支持".to_string()
             } else {
                 format!("{} 未能完成运行", runtime_display_name(adapter_kind))
             },
@@ -23821,12 +23840,14 @@ fn acp_prompt_terminal_outcome(
     has_final: bool,
     committed_public_send: bool,
     settled_for_empty_final: bool,
+    unsupported_questionnaire: bool,
 ) -> RuntimeTerminalOutcome {
     if has_error {
         RuntimeTerminalOutcome::Failed
     } else if stop_reason == "cancelled" {
         RuntimeTerminalOutcome::Cancelled
     } else if stop_reason == "end_turn"
+        && !unsupported_questionnaire
         && (has_final || (committed_public_send && settled_for_empty_final))
     {
         RuntimeTerminalOutcome::Succeeded
@@ -27021,10 +27042,28 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                acp_prompt_terminal_outcome(reason, error, final_text, sent, settled),
+                acp_prompt_terminal_outcome(reason, error, final_text, sent, settled, false),
                 expected
             );
         }
+        for has_final in [false, true] {
+            for sent in [false, true] {
+                assert_eq!(
+                    acp_prompt_terminal_outcome("end_turn", false, has_final, sent, true, true),
+                    RuntimeTerminalOutcome::Failed,
+                    "text or a committed send cannot answer an unsupported questionnaire"
+                );
+            }
+        }
+        assert_eq!(
+            acp_prompt_terminal_outcome("cancelled", false, true, true, true, true),
+            RuntimeTerminalOutcome::Cancelled
+        );
+        assert_eq!(
+            acp_prompt_terminal_outcome("cancelled", true, true, true, true, true),
+            RuntimeTerminalOutcome::Failed,
+            "a native error still takes precedence"
+        );
         assert!(acp_prompt_manual_retry_allowed(
             RuntimeTerminalOutcome::Failed,
             Some("not_accepted")

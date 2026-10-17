@@ -16,6 +16,14 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
 下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
 
+## 2026-10-17 问卷取消的产品修复
+
+User seq37 授权后的[产品修复](questionnaire-policy-2026-10-17.md)新增
+`runtime_questionnaire_unsupported` 与“未提交答案、发新消息继续”的公开提示；非空结束文字
+和已发送消息都不能掩盖未承接问卷。17 项控制场景与两轮真实 LLM 已验证，
+[本轮证据](questionnaire-policy-2026-10-17.evidence.json)单独记录，不覆盖以下历史批次。
+保留原生错误/取消优先级、普通审批及后继 Session，不隐藏工具、不改日常配置、不自动续跑。
+
 ## 2026-10-17 问卷取消与续接复核
 
 User seq35 改按“暂不支持原生问答、明确取消、不代答”验证，结果见

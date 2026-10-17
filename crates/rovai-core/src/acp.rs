@@ -6144,6 +6144,16 @@ impl AcpRuntime {
             .map(|text| self.redact_text(&text))
     }
 
+    pub async fn has_unsupported_questionnaire(&self, native_prompt_id: &str) -> bool {
+        self.active_observation
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|observation| {
+                observation.prompt_id == native_prompt_id && observation.unsupported_interaction
+            })
+    }
+
     /// Empty assistant output may only finish an already-published turn once
     /// native tools have settled and no unsupported questionnaire was invoked.
     pub async fn allows_empty_final_after_public_send(&self, native_prompt_id: &str) -> bool {
@@ -14201,6 +14211,7 @@ while IFS= read -r ignored; do :; done
                 .allows_empty_final_after_public_send(prompt_id)
                 .await
         );
+        assert!(!runtime.has_unsupported_questionnaire(prompt_id).await);
         assert!(
             !runtime
                 .allows_empty_final_after_public_send("stale-prompt")
@@ -14221,6 +14232,24 @@ while IFS= read -r ignored; do :; done
                 .allows_empty_final_after_public_send(prompt_id)
                 .await,
             "dismissed question is not a completed answer"
+        );
+        assert!(runtime.has_unsupported_questionnaire(prompt_id).await);
+        assert!(!runtime.has_unsupported_questionnaire("stale-prompt").await);
+        runtime
+            .observe_message(
+                prompt_id,
+                "session/update",
+                &json!({"update": {
+                    "sessionUpdate":"agent_message_chunk", "messageId":"after-question",
+                    "content":{"type":"text","text":"Waiting for your answer."}
+                }}),
+            )
+            .await
+            .unwrap();
+        assert!(runtime.final_agent_message(prompt_id).await.is_some());
+        assert!(
+            runtime.has_unsupported_questionnaire(prompt_id).await,
+            "assistant text does not resolve a dismissed questionnaire"
         );
 
         host.shutdown().await;

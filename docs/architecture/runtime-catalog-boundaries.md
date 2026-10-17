@@ -767,6 +767,14 @@ Write 的 Boolean `created` 与 Write/Edit 的结果 `details.patch`；编号/�
 相对路径只从同调用唯一结构化路径补齐，缺 patch 不从输入或磁盘重建；
 实测与其他 18 款的差异见[完整对照](../research/minimax-code-runtime/full-parity-2026-10-16.md)。
 
+原生问卷暂不承接为 Rovai 表单。客户端不广告 elicitation form，MiniMax 无可用答题路径时由
+原生 dismiss；`questionnaire:` permission options 在普通审批和免审批之前返回 `cancelled`，
+不能用允许执行代替选择答案。已观察到未承接问卷的 Prompt 不因非空文字或已公开发送而成功；
+原生错误与取消仍先按各自终态处理。正常 `end_turn` 下公开失败为
+`runtime_questionnaire_unsupported`，说明问卷不受支持、未提交答案并引导 User 发新消息继续。
+已发消息保留，问卷 Run 不自动重放；后继沿既有 Session/Fleet 路径运行，不额外换 Host。
+这不等于隐藏工具或自动转为 Thread 提问，不修改日常原生配置，Preview 资格边界保持。
+
 运行中输入使用 `mcode/session/steer(text, clientRequestId)`，只在冻结版本已验证且当前 Prompt
 已接受时发送。原生 `steered` ACK 与活跃 Run/epoch 共同确认；歧义结果保持 unknown，不自动重发。
 沿用 ACP 插话后 Host 退役策略，下一次以同一 Session 恢复，不能把普通 warm reuse 结论外推至插话后。

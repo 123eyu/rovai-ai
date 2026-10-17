@@ -21,7 +21,15 @@ last_updated: 2026-10-17
   故障注入 HTTP fixture 拥有回执丢失、冻结原提交、明确失败解锁、模态／快捷键、双主题和手机布局；
   Live 用例另用正式 WebEntry／BusinessApp 与真实 Host 验证停服重启、原 Composer DOM／草稿和 Session 保留，
   并检查刷新后的原提交恢复不阻断导航初始化。
-  Rust 本轮未修改；Live 复用已有 Host 二进制，报告保留二进制 SHA-256。没有调用 Runtime，
+  首轮 Rust 未修改、Live 复用已有 Host，仅通过重命名恢复，不能证明公共发送核对与草稿清理闭环。
+  复审后补齐 `commands.reconcile.operation` 的 Thread/Camp 归一化、公共草稿按原提交匹配清理与
+  已挂载 Composer 同步，并接入界面语言、移除额外 focus-visible 描边。
+  本次重新构建当前 worktree 的 Host；Live 增补真实 Core 校验失败的原 Promise 结算、真实提交丢响应
+  的零重发核对、刷新后公共草稿清理和后续编辑保留，报告记录二进制 SHA-256。
+  `web_commands` 新增低成本 serde 兼容入口 owner：修复前 canonical Thread 名不进入既有核对分支，
+  原 task 字段拒绝 owner 不拥有名称兼容；定向命令为 `cargo test -p rovai-core --lib application::web_commands::`。
+  `host-web.test.mjs` 扩展既有真实接口 owner 的新旧名称、recorded/unknown 回执覆盖，未新增 Rust 数据库 fixture。
+  定向 Web／草稿／语言测试 62 项、默认 Rust workspace 474 项通过（已有 1 项忽略）。没有调用 Runtime，
   不据此宣称实体手机网络切换或跨平台发布验收通过。日常服务和数据未参与测试。
 
 ## Steer 入队回执与阻塞工具核验（2026-10-15）

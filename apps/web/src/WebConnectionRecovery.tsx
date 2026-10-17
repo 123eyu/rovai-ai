@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { ConsoleClient } from './client'
+import { useUiText } from '../../desktop/src/renderer/src/interface-language'
 
 /** One Web-wide interaction boundary; the business page and its drafts stay mounted. */
 export function WebConnectionRecovery({ transport, enabled, onNotice, children }: {
@@ -9,6 +10,7 @@ export function WebConnectionRecovery({ transport, enabled, onNotice, children }
   onNotice(message: string): void
   children: ReactNode
 }) {
+  const t = useUiText()
   const subscribe = useCallback((listener: () => void) => transport.onConnectionChanged(listener), [transport])
   const snapshot = useCallback(() => transport.connectionState, [transport])
   const connection = useSyncExternalStore(subscribe, snapshot)
@@ -53,7 +55,7 @@ export function WebConnectionRecovery({ transport, enabled, onNotice, children }
     setBusy(true); setFailed(false)
     try {
       const needsFile = await transport.retryPending()
-      if (needsFile) onNotice('连接已恢复。未完成的上传需要重新选择原文件。')
+      if (needsFile) onNotice(t('连接已恢复。未完成的上传需要重新选择原文件。'))
     } catch { if (transport.authenticated) setFailed(true) }
     finally { active.current.busy = false; setBusy(false) }
   }
@@ -74,13 +76,13 @@ export function WebConnectionRecovery({ transport, enabled, onNotice, children }
             </svg>
           </div>
           <div role="status" aria-live="polite" aria-atomic="true">
-            <Dialog.Title className="web-offline-title">{busy ? '正在恢复连接…' : failed ? '仍无法连接服务' : '服务连接已断开'}</Dialog.Title>
-            <Dialog.Description className="web-offline-description">{busy ? '正在恢复未完成的操作，请稍候。' : failed ? '请确认服务已启动后重试，页面和草稿会继续保留。' : '页面和草稿已保留。恢复连接后，将重试未完成的操作。'}</Dialog.Description>
+            <Dialog.Title className="web-offline-title">{t(busy ? '正在恢复连接…' : failed ? '仍无法连接服务' : '服务连接已断开')}</Dialog.Title>
+            <Dialog.Description className="web-offline-description">{t(busy ? '正在恢复未完成的操作，请稍候。' : failed ? '请确认服务已启动后重试，页面和草稿会继续保留。' : '页面和草稿已保留。恢复连接后，将重试未完成的操作。')}</Dialog.Description>
           </div>
           <button ref={button} type="button" className="primary-button conversation-primary-button web-offline-retry"
             disabled={busy} onClick={() => { void recover() }}>
             {busy && <span className="web-login-spinner" aria-hidden="true" />}
-            {busy ? '正在恢复…' : '恢复连接并重试'}
+            {t(busy ? '正在恢复…' : '恢复连接并重试')}
           </button>
         </Dialog.Content>
       </Dialog.Portal>

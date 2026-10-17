@@ -25,6 +25,7 @@ Desktop 托管和独立 Server 的 Web 共用一个全屏断线遮罩，宽屏�
 正文只说明页面和草稿保留，以及连接恢复后处理未完成操作。失败时提示确认服务已启动。
 使用单一中性浮层、attention 图标与现有 `conversation-action` 主操作 Token；日夜主题共享结构，
 不得回退到通用蓝色 primary。手机宽度保持边距，短视口允许浮层内部滚动；减少动态效果时停止旋转。
+标题、说明、按钮与恢复通知跟随现有界面语言偏好。保留键盘焦点约束，不添加额外的 focus-visible 描边。
 
 服务恢复且没有待处理提交时可自动回到原页面。有未知提交时，自动重连仅核对；
 显式按钮才可使用原提交重试。成功和明确失败释放提交中状态；业务失败保留原页面的错误反馈与草稿。
@@ -36,6 +37,8 @@ Desktop 托管和独立 Server 的 Web 共用一个全屏断线遮罩，宽屏�
 该用例不启动 Core 或 Runtime，不能作为真实 Host 命令幂等或实体手机网络切换的验收证据。
 
 `pnpm test:host-web-recovery-live` 另验正式 WebEntry／BusinessApp 和真实 Rust Host 的停止、重启、
-登录态与 Composer DOM／草稿保留，以及刷新后原提交的恢复。运行前构建 WebUI 和 Host；
+登录态与 Composer DOM／草稿保留，以及刷新后公共发送成功时编辑器与持久草稿同步清理、后续编辑保留。
+同一用例还用正式 ConsoleClient 验证真实 Core 明确失败的 Promise 结算，以及提交后丢响应时只读核对、零重复发送。
+运行前构建 WebUI 和 Host；
 可用 `ROVAI_HOST_BIN` 指定现有 Host 二进制，报告记录其摘要。测试自行隔离数据、Skills、MCP 与浏览器，
 不配置或调用 Runtime。`ROVAI_WEB_RECOVERY_OUTPUT` 可指定两种用例的截图与 JSON 输出目录。

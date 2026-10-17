@@ -3,6 +3,7 @@ import { browserEditingRecovery } from './editing-recovery'
 import { RECOVERY_KEY, type RecoveryStorage } from './tab-recovery'
 import { fileDigest } from './file-digest'
 import { newCommandId } from '../../desktop/src/shared/command-id'
+import { recoverLocalThreadSend } from '../../desktop/src/renderer/src/camp-composer-send-recovery'
 import type { ThreadReadInvalidation, ChannelKind, ChannelSettingsSnapshot, FilePreviewBinaryContent, FilePreviewOperationResult, LocalAttachmentSourceView } from '@contracts'
 
 const HOST_WEB_PROTOCOL_VERSION = 4
@@ -428,6 +429,7 @@ export class ConsoleClient {
   }
 
   #settleRecovered(operation: WebOperation, params: unknown, result: unknown): void {
+    if (operation === 'thread.messages.send') recoverLocalThreadSend(params, result)
     if (operation === 'singleChat.send' && this.#storage && this.editingScope && (result as { status?: string })?.status !== 'rejected') {
       const command = (params as { command?: { threadId?: string; conversationId?: string; body?: string } })?.command
       if (command?.threadId && command.conversationId && typeof command.body === 'string') {

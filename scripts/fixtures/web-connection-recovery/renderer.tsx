@@ -4,6 +4,9 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { ConsoleClient } from '../../../apps/web/src/client'
 import { WebConnectionRecovery } from '../../../apps/web/src/WebConnectionRecovery'
 import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../../../apps/desktop/src/renderer/src/AppDialog'
+import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
+import { DEFAULT_GENERAL_PREFERENCES } from '../../../apps/desktop/src/shared/general-preferences-model'
+import type { GeneralPreferencesApi } from '@contracts'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 import '../../../apps/web/src/styles.css'
 import '../../../apps/web/src/mobile.css'
@@ -13,7 +16,11 @@ import '../../../apps/web/src/mobile.css'
 const transport = new ConsoleClient(location.origin, fetch, sessionStorage)
 const login = transport.restore().then(restored => restored || transport.login('fixture-only'))
 const observations = { mounts: 0, shortcuts: 0, results: [] as unknown[] }
-Object.assign(window, { connectionFixture: { transport, observations } })
+Object.assign(window, { connectionFixture: { transport, observations,
+  language: (language: 'en' | 'zh-CN') => changeInterfaceLanguage({
+    setInterfaceLanguage: async interfaceLanguage => ({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage })
+  } as GeneralPreferencesApi, language)
+} })
 
 function Form() {
   const [draft, setDraft] = useState('保留这段未发送的草稿')

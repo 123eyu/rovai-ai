@@ -3,6 +3,7 @@ import { browserEditingRecovery } from './editing-recovery'
 import { RECOVERY_KEY, type RecoveryStorage } from './tab-recovery'
 import { fileDigest } from './file-digest'
 import { newCommandId } from '../../desktop/src/shared/command-id'
+import { recoverLocalThreadSend } from '../../desktop/src/renderer/src/camp-composer-send-recovery'
 import type { ThreadReadInvalidation, ChannelKind, ChannelSettingsSnapshot, FilePreviewBinaryContent, FilePreviewOperationResult, LocalAttachmentSourceView } from '@contracts'
 
 const HOST_WEB_PROTOCOL_VERSION = 4
@@ -22,6 +23,10 @@ class CoreRequestError extends Error {
 
 export class SessionRequired extends Error {
   constructor() { super('会话已失效，请重新登录。') }
+}
+
+class ConnectionUnavailable extends Error {
+  constructor() { super('服务连接已中断，请恢复连接后重试。') }
 }
 
 export type WorkspaceListing = { name: string; projectPath: string; parentPath: string | null; roots: string[]; directories: { name: string; projectPath: string }[]; nextOffset: number | null }
@@ -240,7 +245,10 @@ const RECONCILABLE_COMMANDS = new Set<WebOperation>([
 
 export type ConnectionState = 'connecting' | 'live' | 'offline' | 'expired'
 type PendingCommand = { operation: WebOperation; params: unknown; resolve(value: unknown): void; reject(error: unknown): void }
-type PendingUpload = { intent: unknown; data: FormData | null; resolve(draft: unknown): void; reject(error: unknown): void }
+type UploadTarget = { kind: 'single_chat'; conversationId: string }
+  | { kind: 'single_chat_pending'; conversationId: string; pendingInputId: string; editToken: string }
+type UploadIntent = { commandId: string; threadId: string; expectedRevision: number; target?: UploadTarget; displayName: string; byteSize: number; sha256: string }
+type PendingUpload = { intent: UploadIntent; data: FormData | null; resolve(draft: unknown): void; reject(error: unknown): void }
 type CommandReceipt = { state: 'unknown' | 'recorded'; result?: unknown; error?: { code: string; message?: string } }
 
 /** Decodes bounded SSE frames; payloads are invalidations, never private Core events. */
@@ -297,7 +305,22 @@ export class ConsoleClient {
   #pending = new Map<string, PendingCommand>()
   #pendingUploads = new Map<string, PendingUpload>()
   #localUploads = new Map<string, File>()
-  #reconciling = false
+  #reconciling: Promise<void> | null = null
+  #retrying: Promise<boolean> | null = null
+  #connection: ConnectionState = 'connecting'
+  #needsRecovery = false
+  #connectionListeners = new Set<() => void>()
+  #wakeReconnect: (() => void) | null = null
+  get connectionState(): ConnectionState {
+    return this.#connection === 'live' && this.#needsRecovery ? 'offline' : this.#connection
+  }
+  onConnectionChanged(listener: () => void): () => void {
+    this.#connectionListeners.add(listener)
+    return () => { this.#connectionListeners.delete(listener) }
+  }
+  #notifyConnection(): void { for (const listener of this.#connectionListeners) listener() }
+  #setConnection(state: ConnectionState): void { this.#connection = state; this.#notifyConnection() }
+  #requireRecovery(): void { this.#needsRecovery = this.pendingCommandCount > 0; this.#notifyConnection() }
   #restored = false
   #storage?: RecoveryStorage
   #assertTab?: () => Promise<void>
@@ -310,7 +333,11 @@ export class ConsoleClient {
     this.#pendingListeners.add(listener)
     return () => { this.#pendingListeners.delete(listener) }
   }
-  #notifyPending(): void { this.#persistRecovery(); for (const listener of this.#pendingListeners) listener() }
+  #notifyPending(): void {
+    this.#persistRecovery()
+    if (!this.pendingCommandCount) { this.#needsRecovery = false; this.#notifyConnection() }
+    for (const listener of this.#pendingListeners) listener()
+  }
 
   get editingScope(): string | null {
     return this.#editor && this.#ownerId ? `${this.origin}/${this.#ownerId}/${this.#editor.clientId}` : null
@@ -371,8 +398,9 @@ export class ConsoleClient {
       }
       for (const intent of saved.uploads ?? []) {
         const id = (intent as { commandId?: string })?.commandId
-        if (typeof id === 'string') this.#pendingUploads.set(id, { intent, data: null, resolve: () => this.#notifyRecovered(), reject: () => this.#notifyRecovered() })
+        if (typeof id === 'string') this.#pendingUploads.set(id, { intent: intent as UploadIntent, data: null, resolve: () => this.#notifyRecovered(), reject: () => this.#notifyRecovered() })
       }
+      if (this.pendingCommandCount) this.#requireRecovery()
       this.#persistRecovery()
     }
     if (!authenticate || !authentication) return false
@@ -401,6 +429,7 @@ export class ConsoleClient {
   }
 
   #settleRecovered(operation: WebOperation, params: unknown, result: unknown): void {
+    if (operation === 'thread.messages.send') recoverLocalThreadSend(params, result)
     if (operation === 'singleChat.send' && this.#storage && this.editingScope && (result as { status?: string })?.status !== 'rejected') {
       const command = (params as { command?: { threadId?: string; conversationId?: string; body?: string } })?.command
       if (command?.threadId && command.conversationId && typeof command.body === 'string') {
@@ -467,6 +496,7 @@ export class ConsoleClient {
     this.#ownerId = session.ownerId
     this.#channels = session.channels === 'desktop' ? 'desktop' : 'unsupported'
     this.#token = session.token
+    this.#setConnection('live')
     this.#persistTabAuthentication()
     this.#persistRecovery()
   }
@@ -511,6 +541,7 @@ export class ConsoleClient {
     this.#localUploads.clear()
     this.#lifetime.abort()
     this.#lifetime = new AbortController()
+    this.#setConnection('expired')
     try {
       this.#persistTabAuthentication()
       this.#persistRecovery()
@@ -563,6 +594,7 @@ export class ConsoleClient {
     const commandId = params && typeof params === 'object' && 'commandId' in params ? params.commandId : undefined
     if (!RECONCILABLE_COMMANDS.has(operation) || typeof commandId !== 'string') return this.#rpc<T>(operation, params)
     if (!this.authenticated) throw new SessionRequired()
+    this.#assertConnected()
     if ([...this.#pending.values()].some(entry => entry.operation === operation)) throw new Error('同类操作的原提交仍待核对，请先核对原提交结果。')
     if (this.#pending.has(commandId)) throw new Error('原命令仍在核对中，请等待其结果。')
     // Keep the original request and promise alive through connection/session
@@ -577,20 +609,22 @@ export class ConsoleClient {
   }
 
   async #dispatchCommand(commandId: string, entry: PendingCommand, preserveUnknown = false): Promise<void> {
-    await this.#rpc(entry.operation, entry.params).then(value => {
+    await this.#rpc(entry.operation, entry.params, preserveUnknown).then(value => {
         if (this.#pending.get(commandId) !== entry) return
         this.#pending.delete(commandId); this.#notifyPending(); entry.resolve(value)
-      }).catch(error => {
-        if (preserveUnknown) { void this.reconcilePending(); return }
-        if (error instanceof HttpRequestError && ['operation_not_admitted', 'workspace_not_authorized', 'request_capacity'].includes(error.code)) {
+      }).catch(async error => {
+        if (!preserveUnknown && (error instanceof ConnectionUnavailable || error instanceof HttpRequestError && ['operation_not_admitted', 'workspace_not_authorized', 'request_capacity'].includes(error.code))) {
           if (this.#pending.get(commandId) === entry) { this.#pending.delete(commandId); this.#notifyPending(); entry.reject(error) }
           return
         }
-        if (error instanceof CoreRequestError || error instanceof SessionRequired) {
+        if (error instanceof CoreRequestError || !preserveUnknown && error instanceof SessionRequired) {
           // An explicit authentication rejection was not admitted. A Core error
           // is first checked for a receipt, including errors after a commit.
-          void this.#settleKnownFailure(commandId, entry, error)
-        } else { void this.reconcilePending() }
+          await this.#settleKnownFailure(commandId, entry, error)
+        } else {
+          this.#requireRecovery()
+          await this.reconcilePending()
+        }
       })
   }
 
@@ -606,24 +640,43 @@ export class ConsoleClient {
       if (receipt.state === 'recorded' && receipt.error) entry.reject(new CoreRequestError(receipt.error.code, receipt.error.message))
       else if (receipt.state === 'recorded') entry.resolve(receipt.result)
       else entry.reject(error) // Explicit Core completion plus a successful absent-receipt lookup.
-    } catch { /* Still unknown if reconciliation itself could not complete. */ }
+    } catch { this.#requireRecovery() /* Still unknown if reconciliation itself could not complete. */ }
   }
 
   async uploadFile(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView> {
-    return this.uploadTo<LocalAttachmentSourceView>(threadId, expectedRevision, file)
+    const source = await this.uploadTo<{
+      id: string; sourcePath: string; displayName: string; kind: 'file' | 'directory'
+      mediaType: string | null; observedByteSize: number | null
+    }>(threadId, expectedRevision, file)
+    return {
+      id: source.id, sourcePath: source.sourcePath, displayName: source.displayName, kind: source.kind,
+      mediaType: source.mediaType, byteSize: source.observedByteSize,
+      fileCount: source.kind === 'file' ? 1 : null,
+      previewKind: source.mediaType?.startsWith('image/') ? 'image' : 'none',
+      availability: 'available'
+    }
   }
 
-  async uploadTo<T>(threadId: string, expectedRevision: number, file: File, target?:
-    | { kind: 'single_chat'; conversationId: string }
-    | { kind: 'single_chat_pending'; conversationId: string; pendingInputId: string; editToken: string }
-  ): Promise<T> {
+  async uploadTo<T>(threadId: string, expectedRevision: number, file: File, target?: UploadTarget): Promise<T> {
     if (!this.authenticated) throw new SessionRequired()
+    this.#assertConnected()
     if (file.size > 20 * 1024 * 1024) throw new Error('单个上传文件不能超过 20 MB。')
     const scope = this.editingScope
     const digest = await fileDigest(file, this.#lifetime.signal)
-    const commandId = newCommandId()
-    const intent = { commandId, threadId, expectedRevision, ...(target ? { target } : {}), displayName: file.name, byteSize: file.size,
+    this.#assertConnected()
+    // Refresh can retain an intent, but not file bytes. Reselecting that file
+    // resumes its exact binding instead of manufacturing a second upload ID.
+    const restored = [...this.#pendingUploads.values()].find(entry => {
+      const previous = entry.intent.target
+      return !entry.data && entry.intent.threadId === threadId && entry.intent.sha256 === digest
+        && entry.intent.displayName === file.name && entry.intent.byteSize === file.size
+        && previous?.kind === target?.kind && previous?.conversationId === target?.conversationId
+        && (previous?.kind !== 'single_chat_pending' || target?.kind === 'single_chat_pending'
+          && previous.pendingInputId === target.pendingInputId && previous.editToken === target.editToken)
+    })
+    const intent = restored?.intent ?? { commandId: newCommandId(), threadId, expectedRevision, ...(target ? { target } : {}), displayName: file.name, byteSize: file.size,
       sha256: digest }
+    const commandId = intent.commandId
     const data = new FormData(); data.append('intent', JSON.stringify(intent)); data.append('file', file)
     return new Promise((resolve, reject) => {
       const entry: PendingUpload = { intent, data, resolve: value => {
@@ -633,7 +686,7 @@ export class ConsoleClient {
         resolve(value as T)
       }, reject }
       this.#pendingUploads.set(commandId, entry); this.#notifyPending()
-      void this.#dispatchUpload(commandId, entry)
+      void this.#dispatchUpload(commandId, entry, Boolean(restored))
     })
   }
 
@@ -658,29 +711,57 @@ export class ConsoleClient {
 
   async #dispatchUpload(commandId: string, entry: PendingUpload, preserveUnknown = false): Promise<void> {
     if (!entry.data) throw new Error('上传内容无法随刷新保留。请先核对原上传结果；未完成时重新选择文件。')
-    await this.#json<{ draft: unknown }>('uploads', { method: 'POST', body: entry.data }).then(result => {
+    await this.#json<{ draft: unknown }>('uploads', { method: 'POST', body: entry.data }, preserveUnknown).then(result => {
         if (this.#pendingUploads.get(commandId) !== entry) return
         this.#pendingUploads.delete(commandId); this.#notifyPending(); entry.resolve(result.draft)
-      }).catch(error => {
-        if (preserveUnknown) { void this.reconcilePending(); return }
-        if (error instanceof SessionRequired || (error instanceof HttpRequestError && ['draft_changed', 'invalid_upload', 'upload_too_large', 'upload_changed_or_session_expired', 'upload_conflict', 'upload_capacity'].includes(error.code))) {
+      }).catch(async error => {
+        // draft_changed is returned only after Core completion and a successful
+        // absent-binding lookup. Admission failures on a retry cannot establish
+        // what happened to its earlier attempt.
+        if (error instanceof HttpRequestError && error.code === 'draft_changed'
+          || !preserveUnknown && (error instanceof SessionRequired || error instanceof ConnectionUnavailable
+            || error instanceof HttpRequestError && ['invalid_upload', 'upload_too_large', 'upload_changed_or_session_expired', 'upload_conflict', 'upload_capacity'].includes(error.code))) {
           if (this.#pendingUploads.get(commandId) === entry) { this.#pendingUploads.delete(commandId); this.#notifyPending(); entry.reject(error) }
-        } else { void this.reconcilePending() }
+        } else { this.#requireRecovery(); await this.reconcilePending() }
       })
   }
 
   /** Explicit user action only. Reconcile first, then reuse exact identities and
    * payloads for requests whose receipts are still unknown. Never called by SSE,
    * reconnect or login. Core remains the sole command/replay authority. */
-  async retryPending(): Promise<void> {
+  retryPending(): Promise<boolean> {
+    if (this.#retrying) return this.#retrying
+    const retry = this.#recoverConnection().finally(() => { if (this.#retrying === retry) this.#retrying = null })
+    this.#retrying = retry
+    return retry
+  }
+
+  /** Returns whether an upload needs its local file reselected after refresh. */
+  async #recoverConnection(): Promise<boolean> {
     if (!this.authenticated) throw new SessionRequired()
+    const generation = this.#generation
+    // A Core read verifies the service even when there are no pending commands.
+    await this.#rpc('app.info', {}, true)
+    this.#setConnection('live')
+    this.#wakeReconnect?.()
     await this.reconcilePending()
     for (const [id, entry] of [...this.#pending]) {
       if (this.#pending.get(id) === entry) await this.#dispatchCommand(id, entry, true)
     }
     for (const [id, entry] of [...this.#pendingUploads]) {
-      if (this.#pendingUploads.get(id) === entry) await this.#dispatchUpload(id, entry, true)
+      if (entry.data && this.#pendingUploads.get(id) === entry) await this.#dispatchUpload(id, entry, true)
     }
+    if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
+    if (this.#pending.size || [...this.#pendingUploads.values()].some(entry => entry.data)) {
+      this.#requireRecovery()
+      throw new ConnectionUnavailable()
+    }
+    // Unavailable file bytes must not trap the entire app. Retain those intents
+    // for receipt lookup / exact-file reselection; they are not failed receipts.
+    this.#needsRecovery = false
+    this.#setConnection('live')
+    this.#notifyRecovered()
+    return this.#pendingUploads.size > 0
   }
 
   async avatar<T>(action: 'read' | 'save', request: unknown): Promise<T> {
@@ -700,8 +781,8 @@ export class ConsoleClient {
     const generation = this.#generation
     const response = await this.#authorized('files/bytes', { method: 'POST', body: JSON.stringify({ action, request }) })
     const value = response.headers.get('Content-Type')?.includes('application/json')
-      ? await response.json() as FilePreviewOperationResult<never>
-      : { ok: true as const, value: { blob: await response.blob(), mime: response.headers.get('Content-Type') ?? 'application/octet-stream',
+      ? await this.#readResponse(() => response.json(), generation) as FilePreviewOperationResult<never>
+      : { ok: true as const, value: { blob: await this.#readResponse(() => response.blob(), generation), mime: response.headers.get('Content-Type') ?? 'application/octet-stream',
         contentGeneration: response.headers.get('x-rovai-content-generation') ?? '',
         contentVersion: JSON.parse(response.headers.get('x-rovai-content-version') ?? 'null') as FilePreviewBinaryContent['contentVersion'],
         name: responseFileName(response) } }
@@ -711,40 +792,44 @@ export class ConsoleClient {
   async attachment(locator: unknown): Promise<{ blob: Blob; name: string }> {
     const generation = this.#generation
     const response = await this.#authorized('attachments', { method: 'POST', body: JSON.stringify(locator) })
-    const blob = await response.blob()
+    const blob = await this.#readResponse(() => response.blob(), generation)
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     return { blob, name: responseFileName(response) }
   }
 
-  async reconcilePending(): Promise<void> {
-    if (this.#reconciling || !this.authenticated) return
-    this.#reconciling = true
-    try {
-      for (const [id, entry] of this.#pending) {
-        try {
-          const receipt = await this.#rpc<CommandReceipt>('commands.reconcile', { operation: entry.operation, params: entry.params })
-          if (receipt.state === 'recorded' && this.#pending.get(id) === entry) {
-            this.#pending.delete(id); this.#notifyPending()
-            if (receipt.error) entry.reject(new CoreRequestError(receipt.error.code, receipt.error.message))
-            else entry.resolve(receipt.result)
-          }
-        } catch { /* Unknown stays associated with its original commandId. */ }
-      }
-      for (const [id, entry] of this.#pendingUploads) {
-        try {
-          const result = await this.#json<{ draft?: unknown }>('uploads/reconcile', { method: 'POST', body: JSON.stringify(entry.intent) })
-          if (result.draft && this.#pendingUploads.get(id) === entry) {
-            this.#pendingUploads.delete(id); this.#notifyPending(); entry.resolve(result.draft)
-          }
-        } catch { /* No deletion or redispatch while binding remains unknown. */ }
-      }
-    } finally { this.#reconciling = false }
+  reconcilePending(): Promise<void> {
+    if (this.#reconciling) return this.#reconciling
+    if (!this.authenticated) return Promise.resolve()
+    const reconciliation = this.#reconcilePending().finally(() => { if (this.#reconciling === reconciliation) this.#reconciling = null })
+    this.#reconciling = reconciliation
+    return reconciliation
   }
 
-  async #rpc<T>(operation: WebOperation, params: unknown): Promise<T> {
+  async #reconcilePending(): Promise<void> {
+    for (const [id, entry] of this.#pending) {
+      try {
+        const receipt = await this.#rpc<CommandReceipt>('commands.reconcile', { operation: entry.operation, params: entry.params })
+        if (receipt.state === 'recorded' && this.#pending.get(id) === entry) {
+          this.#pending.delete(id); this.#notifyPending()
+          if (receipt.error) entry.reject(new CoreRequestError(receipt.error.code, receipt.error.message))
+          else entry.resolve(receipt.result)
+        }
+      } catch { /* Unknown stays associated with its original commandId. */ }
+    }
+    for (const [id, entry] of this.#pendingUploads) {
+      try {
+        const result = await this.#json<{ draft?: unknown }>('uploads/reconcile', { method: 'POST', body: JSON.stringify(entry.intent) })
+        if (result.draft && this.#pendingUploads.get(id) === entry) {
+          this.#pendingUploads.delete(id); this.#notifyPending(); entry.resolve(result.draft)
+        }
+      } catch { /* No deletion or redispatch while binding remains unknown. */ }
+    }
+  }
+
+  async #rpc<T>(operation: WebOperation, params: unknown, recovery = false): Promise<T> {
     const generation = this.#generation
-    const response = await this.#authorized('request', { method: 'POST', body: JSON.stringify({ operation, params }) })
-    const body = await response.json() as { result: T; error?: { code?: string; message?: string } }
+    const response = await this.#authorized('request', { method: 'POST', body: JSON.stringify({ operation, params }) }, recovery || operation === 'commands.reconcile')
+    const body = await this.#readResponse(() => response.json(), generation) as { result: T; error?: { code?: string; message?: string } }
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     if (body.error) throw new CoreRequestError(body.error.code ?? 'request_failed', body.error.message)
     return body.result
@@ -773,29 +858,58 @@ export class ConsoleClient {
     return this.#json('workspaces', { method: 'POST', body: JSON.stringify({ path, offset }) })
   }
 
-  async #json<T>(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'avatars', options: RequestInit = {}): Promise<T> {
+  async #json<T>(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'avatars', options: RequestInit = {}, recovery = false): Promise<T> {
     const generation = this.#generation
-    const result = await (await this.#authorized(path, options)).json() as T
+    const response = await this.#authorized(path, options, recovery)
+    const result = await this.#readResponse(() => response.json(), generation) as T
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     return result
   }
 
-  async #authorized(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'request' | 'events' | 'logout' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'files/bytes' | 'attachments' | 'avatars', options: RequestInit = {}): Promise<Response> {
+  #assertConnected(allowPending = false): void {
+    if (this.#connection === 'offline' || !allowPending && this.#needsRecovery) throw new ConnectionUnavailable()
+  }
+
+  async #readResponse<T>(read: () => Promise<T>, generation: number): Promise<T> {
+    try { return await read() }
+    catch (error) { if (generation === this.#generation) this.#setConnection('offline'); throw error }
+  }
+
+  async #authorized(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'request' | 'events' | 'logout' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'files/bytes' | 'attachments' | 'avatars', options: RequestInit = {}, recovery = false): Promise<Response> {
     if (!this.#token) throw new SessionRequired()
+    const internal = recovery || ['session', 'session/renew', 'events', 'logout', 'uploads/reconcile'].includes(path)
+    // Pending domain submissions block new commands/uploads at their admission
+    // points. Once the service is reachable, background reads must still be able
+    // to mount/refresh the page behind the interaction boundary.
+    if (!internal) this.#assertConnected(true)
     const generation = this.#generation
     if (this.#localExpiry !== null && this.#localExpiry - this.#now() <= this.#renewalWindow && !['session', 'session/renew', 'logout'].includes(path)) await this.renewIfNeeded()
     if (this.#assertTab) await this.#assertTab()
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
-    const response = await this.#fetch(`${this.origin}/api/v1/${path}`, {
-      ...options, credentials: 'omit', redirect: 'error', cache: 'no-store',
-      headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${this.#token}` },
-      signal: options.signal ? AbortSignal.any([options.signal, this.#lifetime.signal]) : this.#lifetime.signal
-    })
+    if (!internal) this.#assertConnected(true)
+    const signals = [this.#lifetime.signal, ...(options.signal ? [options.signal] : [])]
+    // Bound recovery, including reading the response body; leave ordinary long
+    // Runtime operations and the streaming SSE body on their existing limits.
+    if (internal && path !== 'events') signals.push(AbortSignal.timeout(20_000))
+    let response: Response
+    try {
+      response = await this.#fetch(`${this.origin}/api/v1/${path}`, {
+        ...options, credentials: 'omit', redirect: 'error', cache: 'no-store',
+        headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${this.#token}` },
+        signal: AbortSignal.any(signals)
+      })
+    } catch (error) {
+      if (generation === this.#generation && !options.signal?.aborted && path !== 'session/renew') this.#setConnection('offline')
+      throw error
+    }
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     if (response.status === 401) { await this.#forgetAuthentication(); throw new SessionRequired() }
     if (!response.ok) {
       const error = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } }
-      throw new HttpRequestError(response.status, error.error?.code ?? 'connection_unavailable', sessionStorageMessage(error))
+      if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
+      const code = error.error?.code ?? 'connection_unavailable'
+      if (['connection_unavailable', 'core_unavailable', 'result_unavailable', 'upload_binding_unknown'].includes(code)) this.#setConnection('offline')
+      throw new HttpRequestError(response.status, code, sessionStorageMessage(error))
     }
     return response
   }
@@ -804,18 +918,23 @@ export class ConsoleClient {
     const controller = new AbortController()
     const lifetime = this.#lifetime.signal
     const signal = AbortSignal.any([controller.signal, lifetime])
+    const unsubscribe = this.onConnectionChanged(() => status(this.connectionState))
+    status(this.connectionState)
     const run = async (): Promise<void> => {
       let retry = 1000
       while (!signal.aborted) {
         let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
         try {
-          status('connecting')
+          // Starting another fetch neither proves availability nor invalidates
+          // the successful login. Keep an existing offline gate until it opens.
           const response = await this.#authorized('events', { signal })
+          if (signal.aborted) { await response.body?.cancel(); return }
           if (!response.body) throw new Error('实时连接不可用。')
           reader = response.body.getReader()
           const decoder = new TextDecoder()
           const frames = new InvalidationDecoder()
-          status('live')
+          this.#setConnection('live')
+          void this.reconcilePending()
           retry = 1000
           for (;;) {
             const { value, done } = await reader.read()
@@ -827,24 +946,29 @@ export class ConsoleClient {
             }
           }
         } catch (error) {
-          if (error instanceof SessionRequired) { status('expired'); return }
+          if (error instanceof SessionRequired) { this.#setConnection('expired'); return }
           if (signal.aborted) return
         } finally {
           await reader?.cancel().catch(() => undefined)
           reader?.releaseLock()
         }
         if (signal.aborted) return
-        status('offline')
+        this.#setConnection('offline')
         await new Promise<void>((resolve) => {
-          const onAbort = (): void => { clearTimeout(timer); resolve() }
-          const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, retry)
-          signal.addEventListener('abort', onAbort, { once: true })
+          const wake = (): void => {
+            clearTimeout(timer); signal.removeEventListener('abort', wake)
+            if (this.#wakeReconnect === wake) this.#wakeReconnect = null
+            resolve()
+          }
+          const timer = setTimeout(wake, retry)
+          this.#wakeReconnect = wake
+          signal.addEventListener('abort', wake, { once: true })
         })
         retry = Math.min(retry * 2, 30_000)
       }
     }
     void run()
-    return () => controller.abort()
+    return () => { unsubscribe(); controller.abort() }
   }
 }
 

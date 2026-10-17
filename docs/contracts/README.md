@@ -1,7 +1,7 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # 长期接口合同
@@ -435,7 +435,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Durable Task v5（当前）](durable-task-v5.md) | Task 对象全面去版本化，字段补丁后写覆盖，Agent 四类结果精简 |
 | [Durable Task v4（历史）](durable-task-v4.md) | 继承 v3 authority；单一 description、历史要求只读合成/编辑清理、16000 上限、精简 get Agent projection 与旧输入拒绝 |
 | [Durable Task v3（历史）](durable-task-v3.md) | User/Lead 责任定义、Assignee execution-state update、Camp-wide read、explicit owner、unassigned holding 与 advisory actions；字段 surface 由 v4 替代 |
-| [Camp Message Send v27（当前）](camp-message-send-v27.md) | User 消息按目标选择普通开始或指定活跃执行注入，允许多队员和附件 |
+| [Camp Message Send v27（当前）](camp-message-send-v27.md) | User 消息按目标选择普通开始或活跃执行注入；Agent 普通文件引用优先 Markdown，临时正文成功后清理，三渠道共用文件交付提示 |
 | [Camp Message Send v26（历史）](camp-message-send-v26.md) | Pending 首条 User 消息从结构化提及原子邀请队外队员 |
 | [Camp Message Send v25（历史）](camp-message-send-v25.md) | User 发送事件保存明确 Task 关联，续做按全部原输入校验当前范围；输入、回执和模型格式不变 |
 | [Camp Message Send v24（历史）](camp-message-send-v24.md) | 继承 v23；正文 Principal 与参数合并、PublicOnly 保留用户提及、昵称与 Markdown 投影 |

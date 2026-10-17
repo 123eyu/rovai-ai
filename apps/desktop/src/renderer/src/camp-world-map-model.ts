@@ -369,7 +369,7 @@ function executionProgressItemText(item: ExecutionProgressItem): string {
       ? publicTitle
       : `${publicTitle}${uiAttribute('：')}${item.step.detail}`
   }
-  if (item.kind === 'compaction' || item.kind === 'fast') return ''
+  if (item.kind === 'compaction' || item.kind === 'fast' || item.kind === 'input') return ''
   const currentStep = item.plan.find((step) => step.status === 'inProgress')
     ?? item.plan.find((step) => step.status === 'pending')
     ?? item.plan.at(-1)

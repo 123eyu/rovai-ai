@@ -1,4 +1,13 @@
 {
+  "服务连接已断开": "Connection lost",
+  "正在恢复连接…": "Restoring connection…",
+  "仍无法连接服务": "Still unable to connect",
+  "页面和草稿已保留。恢复连接后，将重试未完成的操作。": "Your page and drafts are preserved. Unfinished operations will be retried after reconnecting.",
+  "正在恢复未完成的操作，请稍候。": "Recovering unfinished operations. Please wait.",
+  "请确认服务已启动后重试，页面和草稿会继续保留。": "Make sure the service is running, then try again. Your page and drafts are preserved.",
+  "恢复连接并重试": "Reconnect and retry",
+  "正在恢复…": "Recovering…",
+  "连接已恢复。未完成的上传需要重新选择原文件。": "Connection restored. Select the original files again to finish pending uploads.",
   "已保存": "Saved",
   "启动设置已保存，连接更改尚未保存。": "Startup settings saved; connection changes are still unsaved.",
   "待邀请": "Pending invitation",
@@ -3890,5 +3899,14 @@
   "侧键 2": "Side button 2",
   "恢复{0}默认绑定": "Restore default binding for {0}",
   "修改{0}绑定，{1}": "Change binding for {0}, {1}",
-  "键盘未绑定": "Keyboard unbound"
+  "键盘未绑定": "Keyboard unbound",
+  "查看原消息": "View original message",
+  "原消息不可用": "Original message unavailable",
+  "正在读取原消息…": "Loading original message…",
+  "插话正文，可滚动": "Steer message, scrollable",
+  "用户插话，{0}，{1}": "User steer, {0}, {1}",
+  "正文区域可用方向键、Page Up、Page Down、空格、Home 和 End 滚动；按 Escape 返回插话行。": "Use arrow keys, Page Up, Page Down, Space, Home and End to scroll; press Escape to return to the steer row.",
+  "此消息没有文本。": "This message has no text.",
+  "已转排队": "Moved to queue",
+  "未送达": "Not delivered"
 }

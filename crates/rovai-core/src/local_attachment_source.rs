@@ -512,6 +512,20 @@ pub fn load_source_attachment_for_client(
     locator: &LocalAttachmentOwnerLocator,
     client: &crate::draft_client::DraftClient,
 ) -> Result<Option<LocalAttachmentSourceRef>> {
+    if let LocalAttachmentOwnerLocator::Composer {
+        camp_id,
+        attachment_ref_id,
+    } = locator
+    {
+        if !client.is_desktop() {
+            return crate::web_upload::load_composer_source(
+                database,
+                client,
+                camp_id,
+                attachment_ref_id,
+            );
+        }
+    }
     let connection = database.connection();
     let json = match locator {
         LocalAttachmentOwnerLocator::Composer { camp_id, .. } => connection

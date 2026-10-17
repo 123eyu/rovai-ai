@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: unified-rust-host
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 ---
 
 # 统一 Rust Host
@@ -10,7 +10,7 @@ last_updated: 2026-10-12
 [Runtime 兼容性](../runtime-compatibility.md)，不能由目标结构推断完成。
 现有准入、事务、Runtime 与关闭合同继续有效；新增 wire 合同随对应实现明确发布。
 原生 Server 数据根、初始 CLI 兼容、初始化准入和停止适配由[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)拥有；
-当前受控网络入口由[Host Web v3](../contracts/host-web-v3.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
+当前受控网络入口由[Host Web v4](../contracts/host-web-v4.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
 
 当前已实现父进程匿名管道与进程内请求共用一个 Host/Core、共享生产 Camp 页面、客户端草稿、source 上传及
 逐项准入的 Camp 写入。以下 UDS/Named Pipe 身份握手与完整公共 DTO 生成仍是后续目标，
@@ -87,16 +87,22 @@ HTTPS/VPN。普通地址分享不含凭据；显式扫码登录允许 URL fragme
 
 ## 草稿与用户文件
 
-每个客户端草稿有独立身份与后端验证的归属，贯穿读取、保存、附件、队列与发送消费。
-作用域含 Host/Owner/client/Camp，私聊再含 Conversation。客户端提交 ID 不是授权；保留 revision、
-原子消费、命令幂等与 Core FIFO，不做跨端同步、实时合并或多人共编。
+每个客户端编辑身份有后端验证的归属，作用域含 Host/Owner/client/Camp，私聊再含 Conversation。
+Public Composer 内容由 [Draft v16](../contracts/camp-composer-draft-v16.md) 的客户端存储拥有，
+不恢复 Core Draft revision 或消费；私聊保留自己的 revision、原子消费与队列规则。
+客户端提交 ID 不是授权；命令幂等与 Core FIFO 不变，不做跨端同步、实时合并或多人共编。
 可续期认证 Session 与标签页编辑身份分离；同页面同 Owner 重登保留编辑、原命令及 Core 验证的恢复证明。
+Web 断线在公共传输层阻止新业务请求，页面级遮罩保留挂载状态；显式恢复复用原提交，
+自动重连只查询回执，见 [Host Web v4](../contracts/host-web-v4.md#web-断线恢复)。
 普通刷新沿用原编辑身份，浏览器标签页占用记录仅存随机文档标识；复制标签页由已认证 Host 分配独立编辑身份和 Session，不复制草稿或原命令。浏览器重开只有认证材料时同样新建编辑身份，不借用其他标签页草稿；细节见[Draft v13](../contracts/camp-composer-draft-v13.md)。
 
-Web 上传写 Host 临时文件后绑定当前客户端草稿，复用现行 source reference。
+Web 上传写 Host 临时文件后绑定已验证编辑身份，复用现行 source reference。
+Public Composer 以成功上传回执授权恢复、预览与位置查询，adapter 补齐共享附件视图；
+恢复重验当前文件，不能用浏览器保存的路径或退役 Core Draft 作为归属，见
+[Host Web v4](../contracts/host-web-v4.md#public-composer-上传恢复)。
 失败或可确认未绑定文件由入口清理；绑定结果未知按原命令查询回执，不能证明未绑定就不删除。
 Core 接受后由 OS 决定临时文件寿命；发送失败、退出或删除一个引用不删除源文件。
-草稿/Pending/消息交接由 Core 原事务管理，重启或 OS 清理后按实际可用性处理；不承诺永久历史下载。
+消息发布及私聊 Draft/Pending 交接由 Core 原事务管理，重启或 OS 清理后按实际可用性处理；不承诺永久历史下载。
 Agent Managed 与 legacy 机制不变，不建对象存储、附件目录库或用户 Managed 资产。
 
 资源读取按精确身份、owner locator 与作用域授权；路径规范化、符号链接和读取时变化不能逃逸授权。

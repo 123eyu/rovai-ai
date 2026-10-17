@@ -225,7 +225,8 @@ export interface ActiveThreadRefreshCoordinator {
 }
 
 export function createActiveThreadRefreshCoordinator(
-  refreshOnce: (threadId: string) => Promise<void>
+  refreshOnce: (threadId: string) => Promise<void>,
+  isCurrent: (threadId: string) => boolean = () => true
 ): ActiveThreadRefreshCoordinator {
   const activeRefreshes = new Map<string, {
     dirty: boolean
@@ -234,6 +235,7 @@ export function createActiveThreadRefreshCoordinator(
 
   return {
     refresh(threadId: string): Promise<void> {
+      if (!isCurrent(threadId)) return Promise.resolve()
       const active = activeRefreshes.get(threadId)
       if (active) {
         active.dirty = true
@@ -250,6 +252,7 @@ export function createActiveThreadRefreshCoordinator(
           try {
             let lastError: unknown = null
             do {
+              if (!isCurrent(threadId)) return
               entry.dirty = false
               try {
                 await refreshOnce(threadId)
@@ -258,7 +261,7 @@ export function createActiveThreadRefreshCoordinator(
                 lastError = nextError
               }
             } while (entry.dirty)
-            if (lastError !== null) throw lastError
+            if (lastError !== null && isCurrent(threadId)) throw lastError
           } finally {
             if (activeRefreshes.get(threadId) === entry) activeRefreshes.delete(threadId)
           }
@@ -1927,18 +1930,36 @@ export function BusinessApp({
     void activateThread(threadId, { reconcileDefaultLead: false })
   }), [activateThread])
 
+  const threadRefreshIsCurrent = useCallback((threadId: string): boolean =>
+    activeThreadIdRef.current === threadId && !deletingThreadIdsRef.current.has(threadId), [])
+
   const refreshActiveThreadSnapshotOnce = useCallback(async (threadId: string): Promise<void> => {
-    const { snapshot } = await requestThreadProjection(threadId, 'open')
-    if (activeThreadIdRef.current !== threadId) return
+    let snapshot: ThreadSurfaceSnapshot
+    try {
+      snapshot = (await requestThreadProjection(threadId, 'open')).snapshot
+    } catch (nextError) {
+      if (!threadRefreshIsCurrent(threadId)) return
+      // Web invalidation can arrive before the delete receipt, or from another
+      // client. Confirm removal through Core instead of treating a stale read as
+      // a failed delete; a failed existence check still preserves the read error.
+      const exists = await client.request<boolean>('threads.exists', { threadId }).catch(() => true)
+      if (!threadRefreshIsCurrent(threadId)) return
+      if (!exists) {
+        hideAcceptedThreadDeletion(threadId)
+        return
+      }
+      throw nextError
+    }
+    if (!threadRefreshIsCurrent(threadId)) return
     if (snapshot.throughGlobalSequence < campEventSequenceMarker.current) return
     campEventSequenceMarker.current = snapshot.throughGlobalSequence
     setThreadSnapshot(snapshot)
     setConfirmingRunIds(new Set())
-  }, [requestThreadProjection, setThreadSnapshot])
+  }, [client, requestThreadProjection, setThreadSnapshot, threadRefreshIsCurrent])
 
   const activeThreadRefreshCoordinator = useMemo(
-    () => createActiveThreadRefreshCoordinator(refreshActiveThreadSnapshotOnce),
-    [refreshActiveThreadSnapshotOnce]
+    () => createActiveThreadRefreshCoordinator(refreshActiveThreadSnapshotOnce, threadRefreshIsCurrent),
+    [refreshActiveThreadSnapshotOnce, threadRefreshIsCurrent]
   )
 
   const refreshActiveThreadSnapshot = useCallback(
@@ -2589,7 +2610,7 @@ export function BusinessApp({
           )
       if (refresh && threadId) {
         void refresh.catch((nextError) => {
-          if (activeThreadIdRef.current === threadId) setError(errorMessage(nextError))
+          if (threadRefreshIsCurrent(threadId)) setError(errorMessage(nextError))
         })
       }
     })
@@ -2602,7 +2623,8 @@ export function BusinessApp({
     loadMemberData,
     loadOverview,
     loadThreadDeletionIssues,
-    navigationRefreshCoordinator
+    navigationRefreshCoordinator,
+    threadRefreshIsCurrent
   ])
 
   useEffect(() => {
@@ -2752,10 +2774,12 @@ export function BusinessApp({
     void loadThreadDeletionIssues().catch(() => undefined)
     const threadId = activeThreadIdRef.current
     if (threadId && !deletingThreadIdsRef.current.has(threadId)) {
-      void activeThreadRefreshCoordinator.refresh(threadId).catch((e) => setError(errorMessage(e)))
+      void activeThreadRefreshCoordinator.refresh(threadId).catch((e) => {
+        if (threadRefreshIsCurrent(threadId)) setError(errorMessage(e))
+      })
     }
     void loadAgents().catch(() => undefined)
-  }), [client, uiPreferences, loadNavigation, loadThreadDeletionIssues, loadAgents, activeThreadRefreshCoordinator])
+  }), [client, uiPreferences, loadNavigation, loadThreadDeletionIssues, loadAgents, activeThreadRefreshCoordinator, threadRefreshIsCurrent])
 
   const chooseCurrentProject = (
     nextProject: CurrentProject,

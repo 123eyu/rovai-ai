@@ -182,7 +182,17 @@ export type RuntimeDiagnostic = {
   retryAfterSeconds: number
 }
 
+export type RunInputDisplayItem = {
+  messageId: string
+  deliveryId: string
+  preview: string
+  status: 'pending' | 'sending' | 'accepted' | 'delivery_unknown' | 'not_accepted' | 'queued' | 'unavailable'
+  createdAt: string | null
+  sourceAvailable: boolean
+}
+
 export type ExecutionProgressItem =
+  | { key: string; kind: 'input'; input: RunInputDisplayItem }
   | { key: string; kind: 'narration'; body: string }
   | { key: string; kind: 'plan'; explanation: string; plan: ExecutionPlanStep[] }
   | { key: string; kind: 'diagnostic'; diagnostic: RuntimeDiagnostic }
@@ -353,6 +363,7 @@ const LIVE_RUNTIME_EVENT_TYPES = new Set([
   'runtime.plan',
   'runtime.plan.delta',
   'runtime.diagnostic',
+  'agent_run.input',
   'runtime.fast.observed',
   'runtime.compaction.display',
   'runtime.action',
@@ -574,6 +585,7 @@ export function buildLiveExecutionProgress(
   let runtimePhase: LiveExecutionProgress['runtimePhase']
   let runtimeThinkingTitle: string | null = null
   let phaseEpoch = -1
+  const inputsById = new Map<string, RunInputDisplayItem>()
   const diagnosticsById = new Map<string, RuntimeDiagnostic>()
   const fastById = new Map<string, Extract<ExecutionProgressItem, { kind: 'fast' }>>()
   const compactionsById = new Map<string, RuntimeCompactionDisplayItem>()
@@ -644,6 +656,22 @@ export function buildLiveExecutionProgress(
     if (event.agentRunId !== agentRunId) continue
     const payload = asRecord(event.payload)
 
+    if (event.eventType === 'agent_run.input') {
+      const messageId = stringField(payload, 'messageId')
+      const deliveryId = stringField(payload, 'deliveryId')
+      if (messageId && deliveryId) {
+        const key = `input:${event.id}`
+        const status = stringField(payload, 'status')
+        rememberItem(key)
+        inputsById.set(key, { messageId, deliveryId,
+          preview: stringField(payload, 'preview') ?? '',
+          status: ['pending', 'sending', 'accepted', 'delivery_unknown', 'not_accepted', 'queued'].includes(status ?? '')
+            ? status as RunInputDisplayItem['status'] : 'unavailable',
+          createdAt: stringField(payload, 'createdAt'), sourceAvailable: payload?.sourceAvailable === true })
+      }
+      finishNarrationStream()
+      continue
+    }
     if (event.eventType === 'agent_run.runtime_phase_changed') {
       const phase = stringField(payload, 'phase')
       if (phase === 'thinking' || phase === 'executing') {
@@ -908,6 +936,10 @@ export function buildLiveExecutionProgress(
       return safeMarkdownHasRenderableContent(body)
         ? [{ key, kind: 'narration', body }]
         : []
+    }
+    if (key.startsWith('input:')) {
+      const input = inputsById.get(key)
+      return input ? [{ key, kind: 'input', input }] : []
     }
     if (key.startsWith('fast:')) {
       const fast = fastById.get(key)

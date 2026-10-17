@@ -2,7 +2,7 @@
 document_type: architecture
 architecture: single-chat
 authority: single-chat-component-boundaries-and-data-flow
-last_updated: 2026-10-12
+last_updated: 2026-10-16
 ---
 
 # Single Chat Architecture
@@ -117,9 +117,10 @@ Memory Entrypoint；Dynamic Context 选择专用 Charter/Guidance，排除 Self 
 `single_chat.history` 外，只增加全局只读 `mission.list/get`。Mission read 不切换当前 Camp/Mission，也不取得
 写权限。历史 version 1 Run 保留原三项 allowlist；terminal/history 路径接受两种已知冻结版本，未知版本
 fail closed。Charter revision 9 引入该入口；revision 10 只轮换共享 Binding compatibility。
-当前 Charter revision 22 按 [R2](../versions/v1.72/model-context-change-charter-memory-concision.md)
+Charter revision 22 按 [R2](../versions/v1.72/model-context-change-charter-memory-concision.md)
 精简 Single Chat 教学，保留当前请求、引用定位、显式修改条件、封闭白名单与读取范围。
 共享 Binding compatibility 保持 16，已有单聊继续使用冻结 Bootstrap。
+当前 revision 23 仅扩展公共会话的渠道文件提示，Single Chat 文案及排除规则保持。
 完整 `cli-operations` Skill 仍从 Single Chat exposure 排除。
 
 ## 输出与迟到事件

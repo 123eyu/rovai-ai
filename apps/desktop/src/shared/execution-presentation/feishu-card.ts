@@ -597,7 +597,7 @@ function renderNonGroupItem(
   if (item.kind === 'diagnostic') {
     return `○ 正在重试智能体请求（${item.diagnostic.attempt}/${item.diagnostic.maxAttempts}）`
   }
-  if (item.kind === 'compaction' || item.kind === 'fast') return ''
+  if (item.kind === 'compaction' || item.kind === 'fast' || item.kind === 'input') return ''
   return renderTool(item, runStatus)
 }
 

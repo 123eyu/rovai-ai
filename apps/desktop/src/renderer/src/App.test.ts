@@ -517,6 +517,30 @@ describe('active Thread event invalidation', () => {
     expect(refreshOnce).toHaveBeenCalledTimes(2)
   })
 
+  it('discards an in-flight failure and queued refresh when its Thread is deleted', async () => {
+    let rejectRead!: (error: Error) => void
+    let current = true
+    const refreshOnce = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectRead = reject }))
+      .mockRejectedValue(new Error('Camp does not exist'))
+    const coordinator = createActiveThreadRefreshCoordinator(refreshOnce, () => current)
+    const refresh = coordinator.refresh('deleted-thread')
+    const settled = expect(refresh).resolves.toBeUndefined()
+    await Promise.resolve()
+    coordinator.refresh('deleted-thread')
+    current = false
+    rejectRead(new Error('Camp does not exist'))
+    await settled
+    await coordinator.refresh('deleted-thread')
+    expect(refreshOnce).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps refresh errors visible for a Thread that is still current', async () => {
+    const refreshOnce = vi.fn().mockRejectedValue(new Error('connection lost'))
+    const coordinator = createActiveThreadRefreshCoordinator(refreshOnce, () => true)
+    await expect(coordinator.refresh('current-thread')).rejects.toThrow('connection lost')
+  })
+
   it('refreshes terminal state from threads.open and replaces the running Thread surface', async () => {
     const projection = (status: AgentRunView['status']): ThreadOpenProjection => {
       const terminal = status === 'succeeded'

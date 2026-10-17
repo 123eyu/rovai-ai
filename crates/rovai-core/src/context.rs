@@ -19,7 +19,7 @@ use uuid::Uuid;
 const BUILTIN_CLI_CHARTER: &str = include_str!("../resources/charter-rovai-cli.md");
 const SINGLE_CHAT_SESSION_CHARTER: &str = include_str!("../resources/charter-rovai-single-chat.md");
 const SINGLE_CHAT_GUIDANCE: &str = include_str!("../resources/single-chat-guidance-v3.json");
-const FEISHU_FILE_DELIVERY_GUIDANCE: &str = "This Thread is connected to an external channel. Local file paths and Runtime image previews are not delivered there; when the recipient needs the file itself, include `--file <path>` in the corresponding `rovai send` message.";
+const CHANNEL_FILE_DELIVERY_GUIDANCE: &str = "This Thread is connected to an external channel. Local file paths and Runtime image previews are not delivered there; when the recipient needs the file itself, include `--file <path>` in the corresponding `rovai send` message.";
 // Historical ContextManifest v22-v25 rows remain readable after the v1.60
 // Gather capability removal. This is a decoder version, not a live feature.
 const LEGACY_GATHER_COMPLETION_INPUT_SCHEMA_VERSION: i64 = 3;
@@ -2362,6 +2362,15 @@ impl ContextService {
                     ))"#,
             params![delivery_id, agent_run_id, execution_epoch, now],
         )?;
+        if changed == 1 {
+            let source: Option<String> = transaction.query_row(
+                "SELECT cm.source_delivery_id FROM runtime_input_delivery i JOIN context_manifest cm ON cm.id=i.context_manifest_id WHERE i.id=?1",
+                [delivery_id], |row| row.get(0),
+            )?;
+            if let Some(source) = source {
+                crate::execution_input::changed(&transaction, &source)?;
+            }
+        }
         transaction.commit()?;
         Ok(changed == 1)
     }
@@ -2460,7 +2469,10 @@ impl ContextService {
             "#,
             params![delivery_id, error, now],
         )?;
-        if row.source_delivery_id.is_some() {
+        if let Some(source) = &row.source_delivery_id {
+            if row.status != "delivery_unknown" {
+                crate::execution_input::changed(&transaction, source)?;
+            }
             append_raw_event(
                 &transaction,
                 "runtime.input_delivery_unknown",
@@ -2572,6 +2584,9 @@ impl ContextService {
         )?;
         if updated != 1 {
             anyhow::bail!("Runtime Input Delivery changed before rejection");
+        }
+        if let Some(source) = &row.source_delivery_id {
+            crate::execution_input::changed(&transaction, source)?;
         }
         append_raw_event(
             &transaction,
@@ -2837,6 +2852,7 @@ fn acknowledge_input_delivery_transaction(
         }
     }
     if let Some(source_id) = &row.source_delivery_id {
+        crate::execution_input::changed(transaction, source_id)?;
         transaction.execute("UPDATE camp_message_delivery SET status='settled', failure_code=NULL, ended_at=?2, updated_at=?2, version=version+1 WHERE id=?1 AND status IN ('claimed','failed') AND claimed_agent_run_id=?3", params![source_id,now,row.agent_run_id])?;
         crate::message_changes::record(transaction, &row.camp_id, true, &[]);
     }
@@ -3117,7 +3133,7 @@ fn run_snapshot_adapter_kind(snapshot: &RunSnapshot) -> Result<AdapterKind> {
         .parse::<AdapterKind>()
 }
 
-fn camp_has_active_feishu_binding(connection: &Connection, camp_id: &str) -> Result<bool> {
+fn camp_has_active_file_delivery_binding(connection: &Connection, camp_id: &str) -> Result<bool> {
     Ok(connection.query_row(
         r#"
         SELECT EXISTS(
@@ -3125,7 +3141,7 @@ fn camp_has_active_feishu_binding(connection: &Connection, camp_id: &str) -> Res
             JOIN channel_conversation AS conversation
               ON conversation.id = binding.channel_conversation_id
             WHERE binding.camp_id = ?1 AND binding.status = 'active'
-              AND conversation.provider = 'feishu'
+              AND conversation.provider IN ('feishu', 'lark', 'dingtalk')
         )
         "#,
         [camp_id],
@@ -3135,14 +3151,14 @@ fn camp_has_active_feishu_binding(connection: &Connection, camp_id: &str) -> Res
 
 fn build_session_charter(
     snapshot: &RunSnapshot,
-    has_active_feishu_binding: bool,
+    has_active_file_delivery_binding: bool,
     is_mission: bool,
 ) -> Result<String> {
     if snapshot.invocation_kind == "single_chat" {
         return Ok(SINGLE_CHAT_SESSION_CHARTER.trim().to_string());
     }
-    let file_guidance = if has_active_feishu_binding {
-        format!("\n- {FEISHU_FILE_DELIVERY_GUIDANCE}")
+    let file_guidance = if has_active_file_delivery_binding {
+        format!("\n- {CHANNEL_FILE_DELIVERY_GUIDANCE}")
     } else {
         String::new()
     };
@@ -13617,17 +13633,17 @@ mod slow_tests {
         assert_eq!(evidence.0, NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION);
         assert_eq!(evidence.1, BOOTSTRAP_FORMATTER_VERSION);
         let charter_component = store.read_text(&fixture.database, &evidence.2).unwrap();
-        assert!(charter_component.ends_with(&format!("\n- {FEISHU_FILE_DELIVERY_GUIDANCE}")));
+        assert!(charter_component.ends_with(&format!("\n- {CHANNEL_FILE_DELIVERY_GUIDANCE}")));
         assert_eq!(
             charter_component
-                .matches(FEISHU_FILE_DELIVERY_GUIDANCE)
+                .matches(CHANNEL_FILE_DELIVERY_GUIDANCE)
                 .count(),
             1
         );
         assert!(
             !prepared
                 .rendered_payload
-                .contains(FEISHU_FILE_DELIVERY_GUIDANCE)
+                .contains(CHANNEL_FILE_DELIVERY_GUIDANCE)
         );
         assert_eq!(sha256_text(&charter_component), evidence.4);
         for blob_id in [&evidence.2, &evidence.3] {
@@ -13731,7 +13747,7 @@ mod slow_tests {
         assert_eq!(
             refreshed_bootstrap
                 .payload
-                .matches(FEISHU_FILE_DELIVERY_GUIDANCE)
+                .matches(CHANNEL_FILE_DELIVERY_GUIDANCE)
                 .count(),
             1
         );
@@ -14667,7 +14683,7 @@ mod slow_tests {
             assert_eq!(other_charter, charter, "{adapter_kind:?}");
             assert_eq!(
                 build_session_charter(&snapshot, true, false).unwrap(),
-                format!("{charter}\n- {FEISHU_FILE_DELIVERY_GUIDANCE}"),
+                format!("{charter}\n- {CHANNEL_FILE_DELIVERY_GUIDANCE}"),
                 "{adapter_kind:?}"
             );
         }
@@ -14729,13 +14745,13 @@ mod slow_tests {
         assert!(!charter.contains("Completing a Task or the current work"));
         assert!(!charter.contains("peer-coordination send"));
         assert!(!charter.contains("rovai_team"));
-        assert!(!charter.contains(FEISHU_FILE_DELIVERY_GUIDANCE));
+        assert!(!charter.contains(CHANNEL_FILE_DELIVERY_GUIDANCE));
         assert_eq!(
-            FEISHU_FILE_DELIVERY_GUIDANCE,
+            CHANNEL_FILE_DELIVERY_GUIDANCE,
             "This Thread is connected to an external channel. Local file paths and Runtime image previews are not delivered there; when the recipient needs the file itself, include `--file <path>` in the corresponding `rovai send` message."
         );
         assert!(
-            !camp_has_active_feishu_binding(fixture.database.connection(), &fixture.camp_id)
+            !camp_has_active_file_delivery_binding(fixture.database.connection(), &fixture.camp_id)
                 .unwrap()
         );
 
@@ -14749,10 +14765,16 @@ mod slow_tests {
             ("feishu", "project", "active", true),
             ("feishu", "quick_chat", "closed", false),
             ("feishu", "project", "closed", false),
-            ("dingtalk", "quick_chat", "active", false),
-            ("dingtalk", "project", "active", false),
-            ("lark", "quick_chat", "active", false),
-            ("lark", "project", "active", false),
+            ("dingtalk", "quick_chat", "active", true),
+            ("dingtalk", "project", "active", true),
+            ("dingtalk", "quick_chat", "closed", false),
+            ("dingtalk", "project", "closed", false),
+            ("lark", "quick_chat", "active", true),
+            ("lark", "project", "active", true),
+            ("lark", "quick_chat", "closed", false),
+            ("lark", "project", "closed", false),
+            ("unknown", "quick_chat", "active", false),
+            ("unknown", "project", "active", false),
         ] {
             fixture
                 .database
@@ -14778,21 +14800,27 @@ mod slow_tests {
                 )
                 .unwrap();
             assert_eq!(
-                camp_has_active_feishu_binding(fixture.database.connection(), &fixture.camp_id)
-                    .unwrap(),
+                camp_has_active_file_delivery_binding(
+                    fixture.database.connection(),
+                    &fixture.camp_id
+                )
+                .unwrap(),
                 expected,
                 "{provider}/{scope}/{status}"
             );
-            if provider == "lark" {
-                let guidance =
-                    camp_has_active_feishu_binding(fixture.database.connection(), &fixture.camp_id)
-                        .unwrap();
-                assert!(
-                    !build_session_charter(&snapshot, guidance, false)
-                        .unwrap()
-                        .contains(FEISHU_FILE_DELIVERY_GUIDANCE)
-                );
-            }
+            let guidance = camp_has_active_file_delivery_binding(
+                fixture.database.connection(),
+                &fixture.camp_id,
+            )
+            .unwrap();
+            assert_eq!(
+                build_session_charter(&snapshot, guidance, false)
+                    .unwrap()
+                    .matches(CHANNEL_FILE_DELIVERY_GUIDANCE)
+                    .count(),
+                usize::from(expected),
+                "{provider}/{scope}/{status}"
+            );
         }
         fixture
             .database
@@ -14803,20 +14831,20 @@ mod slow_tests {
             )
             .unwrap();
         assert!(
-            !camp_has_active_feishu_binding(fixture.database.connection(), &fixture.camp_id)
+            !camp_has_active_file_delivery_binding(fixture.database.connection(), &fixture.camp_id)
                 .unwrap()
         );
 
         for adapter in AdapterKind::ALL {
             snapshot.effective_config["runtimeAdapter"] = json!(adapter.as_str());
-            for feishu in [false, true] {
+            for channel in [false, true] {
                 for mission in [false, true] {
                     snapshot.invocation_kind = "batch".into();
-                    let common = build_session_charter(&snapshot, feishu, mission).unwrap();
+                    let common = build_session_charter(&snapshot, channel, mission).unwrap();
                     for invocation in ["direct", "a2a", "gather_completion"] {
                         snapshot.invocation_kind = invocation.into();
                         assert_eq!(
-                            build_session_charter(&snapshot, feishu, mission).unwrap(),
+                            build_session_charter(&snapshot, channel, mission).unwrap(),
                             common
                         );
                     }
@@ -14838,9 +14866,12 @@ mod slow_tests {
             "
         );
         snapshot.invocation_kind = "single_chat".to_string();
-        let single_chat_charter = build_session_charter(&snapshot, false, true).unwrap();
-        assert_eq!(single_chat_charter, SINGLE_CHAT_SESSION_CHARTER.trim());
-        assert!(!single_chat_charter.contains("Rovai Mission Contract"));
+        for channel in [false, true] {
+            let single_chat_charter = build_session_charter(&snapshot, channel, true).unwrap();
+            assert_eq!(single_chat_charter, SINGLE_CHAT_SESSION_CHARTER.trim());
+            assert!(!single_chat_charter.contains("Rovai Mission Contract"));
+            assert!(!single_chat_charter.contains(CHANNEL_FILE_DELIVERY_GUIDANCE));
+        }
         fixture.cleanup();
     }
 
@@ -15680,7 +15711,7 @@ mod slow_tests {
         assert!(
             !original_bootstrap
                 .payload
-                .contains(FEISHU_FILE_DELIVERY_GUIDANCE)
+                .contains(CHANNEL_FILE_DELIVERY_GUIDANCE)
         );
         bind_fixture_feishu_channel(&fixture);
         let frozen_bootstrap = context
@@ -15861,14 +15892,14 @@ mod slow_tests {
         assert_eq!(
             replacement_context
                 .runtime_payload
-                .matches(FEISHU_FILE_DELIVERY_GUIDANCE)
+                .matches(CHANNEL_FILE_DELIVERY_GUIDANCE)
                 .count(),
             1
         );
         assert!(
             !replacement_context
                 .rendered_payload
-                .contains(FEISHU_FILE_DELIVERY_GUIDANCE)
+                .contains(CHANNEL_FILE_DELIVERY_GUIDANCE)
         );
         assert_ne!(
             replacement_context.bootstrap_evidence_id,
@@ -15882,7 +15913,7 @@ mod slow_tests {
             .read_text(&fixture.database, &old_charter_blob_id)
             .unwrap();
         assert!(original_bootstrap.payload.contains(&old_charter));
-        assert!(!old_charter.contains(FEISHU_FILE_DELIVERY_GUIDANCE));
+        assert!(!old_charter.contains(CHANNEL_FILE_DELIVERY_GUIDANCE));
         assert!(
             !replacement_context
                 .rendered_payload

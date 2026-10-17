@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AgentRunExecutionEvidenceView } from '@contracts'
 import { ExecutionWindow } from '../../desktop/src/renderer/src/execution-window'
-import { emptyLocalThreadComposerDraft, loadLocalThreadComposerDraft } from '../../desktop/src/renderer/src/camp-composer-local-store'
+import { emptyLocalThreadComposerDraft, loadLocalThreadComposerDraft, saveLocalThreadComposerDraft } from '../../desktop/src/renderer/src/camp-composer-local-store'
+import { campMessageSendParams } from '../../desktop/src/renderer/src/BusinessApp'
 import { PendingThreadDraftPersistence } from '../../desktop/src/renderer/src/pending-thread-draft'
 import { ConsoleClient } from './client'
 import { createThreadAdapter } from './camp-adapter'
@@ -171,14 +172,21 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
   const file = new File([new Uint8Array(600_000)], 'photo.png', { type: 'image/png' })
   vi.spyOn(file, 'arrayBuffer').mockRejectedValue(Error('No complete upload buffer'))
   let digest = '', changed = false, missing = false
+  const attachmentId = '11111111-1111-4111-8111-111111111111'
+  const source = { id: attachmentId, sourcePath: '/tmp/upload/source', displayName: 'photo.png', kind: 'file', mediaType: 'image/png', observedByteSize: file.size }
   const actions: string[] = []
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
     if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
     if (String(url).endsWith('/uploads')) {
       digest = JSON.parse(String((options!.body as FormData).get('intent'))).sha256
-      return Response.json({ draft: { attachments: [{ id: 'attachment' }] } })
+      return Response.json({ draft: source })
     }
-    const { action } = JSON.parse(String(options?.body)); actions.push(action)
+    const { action, request } = JSON.parse(String(options?.body)); actions.push(action)
+    if (action === 'restoreComposerAttachments') {
+      expect(request).toEqual({ threadId: 'camp', attachmentRefIds: [attachmentId] })
+      return Response.json(missing ? [null] : [{ id: attachmentId, sourcePath: source.sourcePath, displayName: source.displayName,
+        kind: 'file', mediaType: 'image/png', byteSize: file.size, fileCount: 1, previewKind: 'image', availability: 'available' }])
+    }
     if (action === 'open') return Response.json(missing ? { ok: false, error: { code: 'file_not_found' } } : {
       ok: true, value: { kind: 'file_preview', file: { handleId: 'file', displayPath: 'photo.png', kind: 'image', size: file.size, contentGeneration: changed ? 'c'.repeat(64) : digest } }
     })
@@ -191,9 +199,22 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
   const transport = new ConsoleClient('http://127.0.0.1:8766', fetcher)
   await transport.login('b'.repeat(64))
   const adapter = createThreadAdapter(transport, async () => null)
-  const preview = () => adapter.environment.client.composerAttachments.preview({ owner: 'composer', threadId: 'camp', attachmentRefId: 'attachment' })
+  const attachments = adapter.environment.client.composerAttachments
+  const preview = () => attachments.preview({ owner: 'composer', threadId: 'camp', attachmentRefId: attachmentId })
   try {
-    await transport.uploadFile('camp', 1, file)
+    const prepared = await attachments.prepare('camp', 1, file)
+    expect(prepared).toEqual({ id: attachmentId, sourcePath: source.sourcePath, displayName: source.displayName,
+      kind: 'file', mediaType: 'image/png', byteSize: file.size, fileCount: 1, previewKind: 'image', availability: 'available' })
+    const saved = new Map<string, string>()
+    const draftStorage = { getItem: (key: string) => saved.get(key) ?? null,
+      setItem: (key: string, value: string) => { saved.set(key, value) }, removeItem: (key: string) => { saved.delete(key) } }
+    saveLocalThreadComposerDraft({ ...emptyLocalThreadComposerDraft('camp'), attachments: [prepared] }, draftStorage)
+    const draft = loadLocalThreadComposerDraft('camp', draftStorage)!
+    expect(draft).not.toBeNull()
+    const restored = await attachments.restore!('camp', [{ ...draft.attachments[0], sourcePath: '/forged/browser/path' }])
+    expect(restored).toEqual([prepared])
+    expect(campMessageSendParams('send-command', 'camp', { ...draft, attachments: restored }).sourceAttachments).toEqual([source])
+    actions.length = 0
     expect((await preview()).preview).toEqual({ blob: file })
     expect(actions).toEqual(['open', 'release'])
     changed = true
@@ -204,6 +225,7 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
     missing = true
     expect(await preview()).toEqual({ preview: null, availability: 'missing' })
     expect(actions.at(-1)).toBe('open')
+    expect(await attachments.restore!('camp', [prepared])).toEqual([{ ...prepared, sourcePath: undefined, availability: 'missing' }])
     transport.clear()
     expect(transport.confirmedUpload('camp', digest, file.size)).toBeNull()
   } finally { transport.clear() }

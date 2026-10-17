@@ -3,7 +3,7 @@ document_type: architecture
 architecture: lark-channel
 authority: lark-channel-component-and-authority-boundaries
 status: accepted
-last_updated: 2026-09-24
+last_updated: 2026-10-16
 ---
 
 # Lark 渠道架构
@@ -64,8 +64,12 @@ Core 只从请求名决定 actor：`channels.lark.*` 以 `lark-channel-host` 执
 
 ## 模型上下文
 
-Lark 不改变任何模型可见内容。飞书绑定 Camp 的文件交付提示仍只对 `provider = 'feishu'` 注入；是否扩展到 Lark
-需要独立的核心模型上下文变更与开发者二次确认。
+新公共 Session Bootstrap 为 active 飞书、Lark、钉钉绑定追加同一条文件交付提示；收件人需要文件本身时
+使用 `rovai send --file`，普通引用优先 Markdown。该条件由 Core 读取 Thread 的有效绑定决定，
+不依赖当前客户端；Single Chat、closed、无绑定和未知 provider 不追加。
+已有 Session 继续使用冻结的 Bootstrap，不因本次教学轮换；精确边界见
+[Lark Channel v1 §7](../contracts/lark-channel-v1.md#7-模型上下文)，确认见
+[R3](../versions/v1.72/model-context-change-send-file-guidance.md)。
 
 ## 验证 Gate
 

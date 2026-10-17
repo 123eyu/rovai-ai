@@ -3108,6 +3108,17 @@ mod tests {
                 .unwrap()
                 .can_steer
         );
+        // This existing Steer transaction owner also verifies its execution-window
+        // boundary: receipt updates and late tool completion cannot move the input.
+        let write_tool = |f: &mut Fixture, id: &str, terminal: bool| {
+            crate::execution_evidence::ExecutionEvidenceService.record_runtime_event(
+                &mut f.database, &crate::managed_blob::ManagedBlobStore::new(&f._directory),
+                &run, 1, if terminal { "activity.completed" } else { "activity.started" },
+                &serde_json::json!({"item":{"id":id,"type":"commandExecution","command":"pwd",
+                    "status":if terminal {"completed"} else {"inProgress"},"aggregatedOutput":"workspace"}}),
+            ).unwrap();
+        };
+        write_tool(&mut fixture, "before-input", false);
         let ordinary = fixture.enqueue("ordinary-before-steer", "leave this queued");
         // Exceed the Builder's 8 KiB budget floor, then succeed with the normal budget.
         let correction = "first correction ".repeat(1024);
@@ -3189,6 +3200,69 @@ mod tests {
             crate::steer::route_user_message(&tx, "steer-two", None).unwrap();
             tx.commit().unwrap();
         }
+        write_tool(&mut fixture, "after-input", true);
+        let input_page = crate::execution_window::read_block_page(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            None,
+            None,
+            24,
+        )
+        .unwrap();
+        assert_eq!(
+            input_page
+                .blocks
+                .iter()
+                .map(|b| (b.kind, b.tool_count))
+                .collect::<Vec<_>>(),
+            vec![("toolGroup", 1), ("item", 0), ("item", 0), ("toolGroup", 1)]
+        );
+        let marker = &input_page.blocks[1].evidence[0];
+        assert_eq!(marker.event_type, crate::execution_input::EVENT);
+        assert_eq!(marker.payload["status"], "pending");
+        assert_eq!(
+            marker.payload["preview"].as_str().unwrap().chars().count(),
+            240
+        );
+        assert_eq!(marker.payload["messageId"], "steer-one");
+        assert!(marker.canonical.is_none());
+        let stored: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT payload_preview_json FROM agent_run_execution_evidence WHERE id=?1",
+                [&marker.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&stored).unwrap(),
+            serde_json::json!({"deliveryId":one,"messageId":"steer-one"})
+        );
+        let tail = crate::execution_window::read_block_page(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            None,
+            None,
+            1,
+        )
+        .unwrap();
+        let previous = crate::execution_window::read_block_page(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            tail.next_before_sequence,
+            None,
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            previous.blocks[0].evidence[0].payload["messageId"],
+            "steer-two"
+        );
+        write_tool(&mut fixture, "before-input", true);
         let pending = crate::steer::pending_inputs(fixture.database.connection()).unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].delivery_id, one);
@@ -3318,6 +3392,29 @@ mod tests {
         let one_input = ContextService
             .prepare_input_delivery_for_context(&mut fixture.database, &run, 1, &one_context)
             .unwrap();
+        assert!(
+            ContextService
+                .begin_runtime_input_dispatch(&mut fixture.database, &one_input.id, &run, 1)
+                .unwrap()
+        );
+        let sending = crate::execution_window::read_changes(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            input_page.through_change_sequence,
+            &[],
+            24,
+        )
+        .unwrap();
+        assert_eq!(
+            sending
+                .evidence
+                .iter()
+                .find(|e| e.id == marker.id)
+                .unwrap()
+                .payload["status"],
+            "sending"
+        );
         fixture.database.connection().execute("UPDATE agent_profile SET display_name='Changed after first preparation' WHERE id='agent_1'", []).unwrap();
         let two_context = materialize(&mut fixture, &two);
         assert!(
@@ -3362,6 +3459,58 @@ mod tests {
                 [&run],
             )
             .unwrap();
+        let changed = crate::execution_window::read_block_changes(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            input_page.through_change_sequence,
+            &[],
+            24,
+        )
+        .unwrap();
+        let accepted = changed
+            .blocks
+            .iter()
+            .flat_map(|b| &b.evidence)
+            .find(|e| e.id == marker.id)
+            .unwrap();
+        assert_eq!(accepted.sequence, marker.sequence);
+        assert_eq!(accepted.occurred_at, marker.occurred_at);
+        assert_eq!(accepted.payload["status"], "accepted");
+        assert!(accepted.change_sequence > marker.change_sequence);
+        let restored = crate::execution_window::read_block_page(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            None,
+            None,
+            24,
+        )
+        .unwrap();
+        assert_eq!(
+            restored
+                .blocks
+                .iter()
+                .map(|b| (&b.key, b.sequence, b.tool_count))
+                .collect::<Vec<_>>(),
+            input_page
+                .blocks
+                .iter()
+                .map(|b| (&b.key, b.sequence, b.tool_count))
+                .collect::<Vec<_>>()
+        );
+        let group = crate::execution_window::read_group_page(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            restored.blocks[0].sequence,
+            None,
+            None,
+            24,
+        )
+        .unwrap();
+        assert_eq!(group.evidence.len(), 1);
+        assert_eq!(group.evidence[0].phase, "completed");
         let digest: String = fixture.database.connection().query_row("SELECT native_collaboration_state_digest FROM conversation WHERE id='delivery-queue-agent-1'", [], |r|r.get(0)).unwrap();
         assert_eq!(digest, two_context.collaboration_state_digest);
         assert_eq!(
@@ -3395,6 +3544,42 @@ mod tests {
             .unwrap();
             tx.commit().unwrap();
         }
+        let settled = crate::execution_window::read_page(
+            &mut fixture.database,
+            &fixture.camp_id,
+            &run,
+            None,
+            24,
+        )
+        .unwrap();
+        assert_eq!(
+            settled
+                .evidence
+                .iter()
+                .find(|e| e.id == marker.id)
+                .unwrap()
+                .change_sequence,
+            accepted.change_sequence,
+            "Run settlement cannot rewrite an unchanged accepted receipt"
+        );
+        assert_eq!(
+            settled
+                .evidence
+                .iter()
+                .find(|e| e.id == marker.id)
+                .unwrap()
+                .payload["status"],
+            "accepted"
+        );
+        assert_eq!(
+            settled
+                .evidence
+                .iter()
+                .find(|e| e.payload["messageId"] == "steer-unsent")
+                .unwrap()
+                .payload["status"],
+            "queued"
+        );
         for id in [&ordinary, &unsent] {
             let status: (String, Option<String>) = fixture
                 .database
@@ -4033,8 +4218,54 @@ mod tests {
                 tx.commit().unwrap();
             }
             // Core restart recovery is idempotent; dispatch-started is never rewritten to unsent.
+            let before_recovery =
+                crate::execution_window::read_page(&mut f.database, &f.camp_id, &run, None, 24)
+                    .unwrap();
             f.database.prepare_v2_recovery().unwrap();
+            let recovered_changes = crate::execution_window::read_changes(
+                &mut f.database,
+                &f.camp_id,
+                &run,
+                before_recovery.through_change_sequence,
+                &[],
+                24,
+            )
+            .unwrap();
+            if submitted && fault != "lost-ack" {
+                let marker = recovered_changes
+                    .evidence
+                    .iter()
+                    .find(|e| e.event_type == crate::execution_input::EVENT)
+                    .unwrap();
+                assert_eq!(marker.payload["status"], "delivery_unknown");
+                assert_eq!(marker.sequence, before_recovery.evidence[0].sequence);
+            }
             f.database.prepare_v2_recovery().unwrap();
+            if submitted {
+                ContextService
+                    .mark_input_delivery_unknown(&mut f.database, &input.id, "still unknown")
+                    .unwrap();
+            } else {
+                let tx = f.database.connection_mut().transaction().unwrap();
+                crate::steer::return_to_queue(&tx, &source, &chrono::Utc::now().to_rfc3339())
+                    .unwrap();
+                tx.commit().unwrap();
+            }
+            let repeated_recovery =
+                crate::execution_window::read_page(&mut f.database, &f.camp_id, &run, None, 24)
+                    .unwrap();
+            assert_eq!(
+                repeated_recovery.through_change_sequence,
+                recovered_changes.through_change_sequence
+            );
+            assert_eq!(
+                repeated_recovery.evidence[0].payload["status"],
+                if submitted {
+                    "delivery_unknown"
+                } else {
+                    "queued"
+                }
+            );
             let status = ContextService
                 .runtime_input_delivery_status(&f.database, &input.id)
                 .unwrap()

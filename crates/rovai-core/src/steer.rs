@@ -243,6 +243,7 @@ pub(crate) fn route_user_message(
                 claimed_at=updated_at,version=version+1 WHERE id=?1 AND status='waiting'",
                 params![delivery, run, epoch],
             )?;
+            crate::execution_input::record(tx, &delivery)?;
             tx.execute(
                 "UPDATE camp_message SET recall_state='closed',version=version+1
                 WHERE id=?1 AND recall_state='recallable'",
@@ -287,15 +288,27 @@ pub fn pending_inputs(connection: &Connection) -> Result<Vec<PendingInput>> {
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Preparation failures update the source receipt and its existing execution marker atomically.
+pub fn fail_preparation(tx: &Transaction<'_>, delivery: &str) -> Result<()> {
+    let changed = tx.execute("UPDATE camp_message_delivery SET status='failed',failure_code='input_preparation_failed',ended_at=datetime('now'),updated_at=datetime('now'),version=version+1 WHERE id=?1 AND status='claimed' AND NOT EXISTS(SELECT 1 FROM context_manifest m JOIN runtime_input_delivery i ON i.context_manifest_id=m.id WHERE m.source_delivery_id=?1 AND i.dispatch_started_at IS NOT NULL)", [delivery])?;
+    if changed == 1 {
+        crate::execution_input::changed(tx, delivery)?;
+    }
+    Ok(())
+}
+
 /// Called only with proof that native submission did not accept this input.
 pub fn return_to_queue(tx: &Transaction<'_>, delivery_id: &str, now: &str) -> Result<()> {
-    tx.execute("UPDATE camp_message_delivery SET requested_mode='start',status='waiting',claimed_agent_run_id=NULL,target_execution_epoch=NULL,
+    let updated = tx.execute("UPDATE camp_message_delivery SET requested_mode='start',status='waiting',claimed_agent_run_id=NULL,target_execution_epoch=NULL,
         claimed_at=NULL,ended_at=NULL,failure_code=NULL,updated_at=?2,version=version+1
         WHERE id=?1 AND requested_mode='steer' AND (status='claimed' OR (status='failed' AND failure_code='input_delivery_unknown'))
           AND EXISTS(SELECT 1 FROM agent_run r WHERE r.id=claimed_agent_run_id AND r.cancel_requested_at IS NULL AND r.status IN ('running','waiting','succeeded'))
           AND NOT EXISTS(SELECT 1 FROM context_manifest m JOIN runtime_input_delivery i ON i.context_manifest_id=m.id
               WHERE m.source_delivery_id=?1 AND (i.status IN ('accepted','delivery_unknown')
                   OR (i.status='prepared' AND i.dispatch_started_at IS NOT NULL)))", params![delivery_id,now])?;
+    if updated == 1 {
+        crate::execution_input::changed(tx, delivery_id)?;
+    }
     Ok(())
 }
 
@@ -305,6 +318,18 @@ pub(crate) fn settle_execution(
     run_status: &str,
     now: &str,
 ) -> Result<()> {
+    // Only unfinished receipts whose presentation actually changes at settlement.
+    // Accepted/unknown inputs retain their receipt regardless of the Run outcome.
+    let changed_sources = {
+        let mut query = tx.prepare("SELECT d.id FROM camp_message_delivery d
+            LEFT JOIN context_manifest m ON m.source_delivery_id=d.id
+            LEFT JOIN runtime_input_delivery i ON i.context_manifest_id=m.id AND i.input_kind='steer'
+            WHERE d.claimed_agent_run_id=?1 AND d.requested_mode='steer' AND d.status='claimed'
+              AND (i.id IS NULL OR i.status='prepared' OR (?2='succeeded' AND i.status='not_accepted'))")?;
+        query
+            .query_map(params![run_id, run_status], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
     // Prepared-but-unsent sources survive ordinary Run success. Dispatch-started sources never replay.
     tx.execute("UPDATE runtime_input_delivery SET status='not_accepted',resolved_at=?2,updated_at=?2
         WHERE agent_run_id=?1 AND input_kind='steer' AND status='prepared' AND dispatch_started_at IS NULL", params![run_id,now])?;
@@ -321,5 +346,8 @@ pub(crate) fn settle_execution(
         WHERE claimed_agent_run_id=?1 AND requested_mode='steer' AND status='claimed'
           AND EXISTS(SELECT 1 FROM context_manifest m JOIN runtime_input_delivery i ON i.context_manifest_id=m.id
               WHERE m.source_delivery_id=camp_message_delivery.id AND i.status='delivery_unknown')", params![run_id,now])?;
+    for source in changed_sources {
+        crate::execution_input::changed(tx, &source)?;
+    }
     Ok(())
 }

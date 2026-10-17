@@ -1,3 +1,4 @@
+import { RunInputRow, RunInputSourceContext } from './RunInputRow'
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 import { groupExecutionEventsByRunId } from './execution-events'
@@ -112,6 +113,7 @@ import {
   nextLocalThreadComposerDraftAfterSend,
   saveLocalThreadComposerDraft
 } from './camp-composer-local-store'
+import { localDraftMatchesSubmission, onLocalThreadSendRecovered } from './camp-composer-send-recovery'
 import {
   DraftMutationCoordinator,
   draftCoordinatorChangeRefreshesProjection,
@@ -3457,6 +3459,19 @@ export function ThreadWorkspace({
     return () => { cancelled = true }
   }, [snapshot.thread.id])
 
+  useLayoutEffect(() => onLocalThreadSendRecovered(({ submitted, next }) => {
+    if (draftThreadId.current !== next.threadId || composerHandleRef.current?.isDirty()) return
+    const current = draftCoordinator.getCurrentDraft()
+    if (current && !localDraftMatchesSubmission(current, submitted)) return
+    // Fence a load/mutation that began before the receipt was recovered. Merely
+    // clearing localStorage would let that older read restore the sent document.
+    draftCoordinator.acceptAuthoritativeDraft(next, true)
+    initializedComposerRoute.current = { revision: next.revision, publishedMessageSequence }
+    composerHandleRef.current?.replaceDocument(next.content, 'end')
+    setComposerPersistenceError(null)
+    setDraftLoadState({ state: 'ready' })
+  }), [draftCoordinator, snapshot.thread.id, publishedMessageSequence])
+
   useEffect(() => {
     const previousCount = previousPendingApprovalCount.current
     previousPendingApprovalCount.current = pendingApprovals.length
@@ -4871,6 +4886,20 @@ export function ThreadWorkspace({
   })
 
   return (
+    <RunInputSourceContext.Provider value={{
+      body: async messageId => {
+        const threadId = snapshot.thread.id
+        const message = visibleMessageById.get(messageId)
+          ?? (replyAnchorWindows.get(messageId) ?? await loadReplyAnchorWindow(messageId))?.find(item => item.id === messageId)
+        return activeThreadIdRef.current === threadId && message && !message.withdrawn ? anchorText(message) : null
+      },
+      reveal: messageId => {
+        setConversationView('conversation')
+        if (executionPlacement === 'inspector') onCloseInspector()
+        else if (executionPlacement === 'right') filePreview?.hidePane()
+        navigateUserAnchor(messageId)
+      }
+    }}>
     <section ref={workspaceShellRef} className="workspace-shell camp-workspace" data-mobile-panel={mobile && inspectorVisible ? inspectorSurfaceTab : undefined} data-mobile-execution-maximized={mobile && mobileExecutionMaximized || undefined} aria-label={uiAttribute("会话：{0}", String(formatThreadTitle(snapshot.thread, firstRunThreadId)))}>
       <FilePreviewWorkspace
       >
@@ -6347,6 +6376,7 @@ export function ThreadWorkspace({
         </Dialog.Portal>
       </Dialog.Root>
     </section>
+    </RunInputSourceContext.Provider>
   )
 }
 
@@ -10649,6 +10679,7 @@ function RunExecutionContent({
             />
           )
         }
+        if (item.kind === 'input') return <RunInputRow key={item.key} itemKey={item.key} input={item.input} runId={run.id} />
         if (item.kind === 'fast') {
           const label = item.state === 'fast' ? uiAttribute('原生反馈：Fast')
             : item.state === 'standard' ? uiAttribute('原生反馈：标准速度')

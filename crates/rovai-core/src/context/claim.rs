@@ -20,7 +20,7 @@ impl BootstrapContents {
         let connection = database.context_connection();
         let session_charter = build_session_charter(
             snapshot,
-            camp_has_active_feishu_binding(connection, &snapshot.camp_id)?,
+            camp_has_active_file_delivery_binding(connection, &snapshot.camp_id)?,
             mission_facts(connection, snapshot)?.is_some(),
         )?;
         let (memory_entrypoint, observed_memory_revisions, authorization_basis_digest) =

@@ -7495,6 +7495,45 @@ impl Core {
                     rovai_core::draft_client::resolve_editor(&database, resume)?,
                 )?)
             }
+            "host.upload.restore" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Restore {
+                    thread_id: String,
+                    attachment_ref_ids: Vec<String>,
+                }
+                let params: Restore = serde_json::from_value(request.params.clone())?;
+                anyhow::ensure!(
+                    params.attachment_ref_ids.len() <= 10,
+                    "too many Composer attachments"
+                );
+                let sources = {
+                    let database = self.database.lock().await;
+                    params
+                        .attachment_ref_ids
+                        .iter()
+                        .map(|id| {
+                            rovai_core::web_upload::load_composer_source(
+                                &database,
+                                &request.client,
+                                &params.thread_id,
+                                id,
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                };
+                tokio::task::spawn_blocking(move || {
+                    sources
+                        .iter()
+                        .map(|source| match source {
+                            Some(source) => rovai_core::web_upload::composer_source_view(source),
+                            None => Ok(Value::Null),
+                        })
+                        .collect::<Result<Vec<_>>>()
+                        .map(|views| json!(views))
+                })
+                .await?
+            }
             "host.upload.bind" => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -23484,7 +23523,11 @@ async fn persist_acp_prompt_completion(
         if questionnaire_failure {
             format!(
                 "{}原生问卷暂不受支持，未提交答案。请发送新消息，在对话中补充信息或继续任务。",
-                if committed_public_send { "消息已发送；" } else { "" }
+                if committed_public_send {
+                    "消息已发送；"
+                } else {
+                    ""
+                }
             )
         } else {
             format!("ACP prompt ended as {stop_reason}")

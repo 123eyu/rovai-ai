@@ -22,6 +22,10 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 [修复与剩余缺口](review-fixes-2026-10-17.md)。ask_user 默认工具移除仍缺官方局部入口，
 产品默认未改；不扩大 Preview 资格范围。
 
+User seq23 的[继续修复记录](continuation-2026-10-17.md)补充七行上游局部开关候选、
+五项源码隔离验证和官方 0.6.12 最新开发包的三轮真实模型验收。候选未替换安装版，
+问卷默认隐藏仍未正式交付；不把公开源码 0.6.5 的结果外推到 npm 0.6.12。
+
 ## 最新真实验收（User seq10/11）
 
 [真实模型与开发 App 验收](live-acceptance-2026-10-16.md)及[脱敏证据](live-acceptance-2026-10-16.evidence.json)

@@ -22,14 +22,16 @@ const api = (window as unknown as { shortcutsApi: ShortcutPreferencesApi }).shor
 const fileApi = (window as unknown as { filePreviewApi: FilePreviewApi }).filePreviewApi
 const model = createReviewModel('desktop', 'running')
 let tasksEnabled = true
+let taskSequence = 0
 const taskListeners = new Set<(event: import('@contracts').CoreEvent) => void>()
 const client = { ...model.client, platform,
   request: (async <T,>(method: import('@contracts').CoreMethod, params?: unknown): Promise<T> => {
-    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled, headsUpAfterSequence: 0 } as T
+    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled, headsUpAfterSequence: 0, observedThroughChangeSequence: taskSequence } as T
     if (method === 'preferences.tasks.set') {
       tasksEnabled = (params as { enabled: boolean }).enabled
+      taskSequence++
       taskListeners.forEach(listener => listener({ method: 'preferences.tasks_changed', params: { enabled: tasksEnabled } }))
-      return { enabled: tasksEnabled, headsUpAfterSequence: 0 } as T
+      return { enabled: tasksEnabled, headsUpAfterSequence: 0, observedThroughChangeSequence: taskSequence } as T
     }
     return model.client.request<T>(method, params)
   }) as typeof model.client.request,

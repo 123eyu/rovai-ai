@@ -1581,6 +1581,9 @@ PR 默认层仍为 `cargo test --workspace`；Renderer 复用 `SingleChatPanel.t
 数据库当前准入和 Steer 升级 owner 更新到 schema 156，继续检查保留的输入唯一性与迁移回滚；
 固定 Task 通知边界继续扩展同一 inbox/cursor owner，验证同值保存不后移、重启保留与已安装 schema 155 升级。
 Task 升级 owner 同时验证 Migration 206 列与收据的原子回滚；没有新增 Rust owner。
+同一 inbox/cursor owner 还验证通知批次携带同事务能力快照、无新通知的切换顺序、空页/reset 快照、同值保存不递增及事务回滚。
+既有通知 Electron owner 覆盖设置 get pending、失败和迟到时普通提醒及精确 Task acknowledgement 各处理一次，
+旧 Task 不补弹、迟到开启批次不能覆盖较新关闭，以及 Host 保存/切换隔离；不新建等待队列或平行 fixture。
 历史夹具的降级只用于测试，生产迁移不修改旧输入字节。
 Pending invitation owner 将旧 `execution.taskId` 从拒绝分支移到成功发送分支，验证未知旧 Task
 不会阻断首次发布/邀请，且不建立关联；无效回复、权限拒绝和事务回滚断言保留。

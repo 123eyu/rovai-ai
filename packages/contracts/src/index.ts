@@ -1154,6 +1154,7 @@ export interface ThreadMemberRemovalPreview {
 export interface TaskCapabilitySnapshot {
   enabled: boolean
   headsUpAfterSequence: number
+  observedThroughChangeSequence: number
 }
 
 export interface TaskView {
@@ -2861,6 +2862,7 @@ export interface NotificationEpisodeChangeBatch {
   requestedAfterChangeSequence: number
   nextChangeSequence: number
   throughChangeSequence: number
+  taskCapability: TaskCapabilitySnapshot
   resetRequired: boolean
   hasMore: boolean
   changes: NotificationEpisodeChange[]

@@ -13,11 +13,12 @@ pub struct TaskPreferences {
     pub enabled: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskCapabilitySnapshot {
     pub enabled: bool,
     pub heads_up_after_sequence: i64,
+    pub observed_through_change_sequence: i64,
 }
 
 pub fn snapshot(connection: &Connection) -> Result<TaskCapabilitySnapshot> {
@@ -31,6 +32,11 @@ pub fn snapshot(connection: &Connection) -> Result<TaskCapabilitySnapshot> {
             )
             .optional()?
             .unwrap_or(0),
+        observed_through_change_sequence: connection.query_row(
+            "SELECT current_sequence FROM notification_change_clock WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?,
     })
 }
 
@@ -57,7 +63,7 @@ pub fn require_enabled(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// The caller owns the Core database lock. No Run, queue or Session is changed.
+/// The caller owns the Core transaction. No Run, queue or Session is changed.
 pub fn set(connection: &Connection, next: bool) -> Result<bool> {
     let changed = enabled(connection)? != next;
     connection.execute(
@@ -68,6 +74,15 @@ pub fn set(connection: &Connection, next: bool) -> Result<bool> {
            THEN excluded.heads_up_after_sequence ELSE task_preference.heads_up_after_sequence END",
         [next],
     )?;
+    if changed {
+        // Visibility is a notification projection change. Tick the existing clock
+        // even without a journal row, so reads before/after a toggle can be ordered.
+        // Capture the enable boundary first; reads and same-value saves never move it.
+        connection.execute(
+            "UPDATE notification_change_clock SET current_sequence=current_sequence+1 WHERE singleton=1",
+            [],
+        )?;
+    }
     Ok(changed)
 }
 

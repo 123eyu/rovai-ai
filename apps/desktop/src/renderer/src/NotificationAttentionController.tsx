@@ -1,4 +1,4 @@
-import { useTaskCapability } from './TaskCapabilityProvider'
+import { useTaskCapability, validTaskCapability } from './TaskCapabilityProvider'
 import { useThreadClient } from './camp-client'
 import { newCommandId } from '../../shared/command-id'
 import { readErrorMessage } from './error-message'
@@ -12,7 +12,8 @@ import type {
   NotificationHeadsUpSignal,
   NotificationPreference,
   NotificationSemantic,
-  StoredCommandResult
+  StoredCommandResult,
+  TaskCapabilitySnapshot
 } from '@contracts'
 import type { VisibleNotificationSources } from './ThreadWorkspace'
 import { preferenceFromUnknown } from './NotificationSettings'
@@ -221,12 +222,19 @@ export async function readNotificationChangePages(
   changes: NotificationEpisodeChange[]
   nextChangeSequence: number
   resetRequired: boolean
+  taskCapability: TaskCapabilitySnapshot
 }> {
   const changes: NotificationEpisodeChange[] = []
+  let taskCapability: TaskCapabilitySnapshot | null = null
   let candidateCursor = startCursor
   for (let page = 0; page < maximumPages; page += 1) {
     const batch = await requestPage(candidateCursor)
     if (batch.schemaVersion !== 9) throw new Error(uiAttribute('提醒增量合同不兼容。'))
+    if (!validTaskCapability(batch.taskCapability)
+      || batch.taskCapability.observedThroughChangeSequence !== batch.throughChangeSequence) {
+      throw new Error(uiAttribute('提醒增量合同不兼容。'))
+    }
+    taskCapability = batch.taskCapability
     if (batch.requestedAfterChangeSequence !== candidateCursor) {
       throw new Error(uiAttribute('提醒增量游标边界不一致。'))
     }
@@ -234,7 +242,8 @@ export async function readNotificationChangePages(
       return {
         changes: [],
         nextChangeSequence: batch.nextChangeSequence,
-        resetRequired: true
+        resetRequired: true,
+        taskCapability
       }
     }
     if (
@@ -247,7 +256,8 @@ export async function readNotificationChangePages(
     if (!batch.hasMore) break
     await Promise.resolve()
   }
-  return { changes, nextChangeSequence: candidateCursor, resetRequired: false }
+  if (!taskCapability) throw new Error(uiAttribute('提醒增量合同不兼容。'))
+  return { changes, nextChangeSequence: candidateCursor, resetRequired: false, taskCapability }
 }
 
 export function shouldPollForNotificationEvent(method: string): boolean {
@@ -334,9 +344,10 @@ export function NotificationAttentionController({
   singleChatSources = null,
   onHeadsUpVisibleChange
 }: NotificationAttentionControllerProps): React.JSX.Element {
-  const { enabled: tasksEnabled, headsUpAfterSequence } = useTaskCapability()
-  const taskCapability = useRef({ enabled: tasksEnabled, headsUpAfterSequence })
-  taskCapability.current = { enabled: tasksEnabled, headsUpAfterSequence }
+  const capability = useTaskCapability()
+  const { enabled: tasksEnabled, headsUpAfterSequence, acceptSnapshot } = capability
+  const taskCapability = useRef<TaskCapabilitySnapshot>(capability)
+  taskCapability.current = capability
   const client = useThreadClient()
   const readingSources = useMemo(() => activeThreadVisible
     ? [publicSources, singleChatSources].filter((source): source is VisibleNotificationSources => (
@@ -487,17 +498,20 @@ export function NotificationAttentionController({
         )
       )
       if (generation !== baselineGeneration.current) return
+      const batchCapability = acceptSnapshot(collected.taskCapability)
+      if (!batchCapability) return
       if (collected.resetRequired) {
         await establishBaseline()
         return
       }
-      // The enable boundary is fixed in the settings transaction. No auxiliary
-      // inbox request can block this batch or move the boundary past new signals.
-      const includesChange = (change: NotificationEpisodeChange): boolean => (
-        (change.episode?.kind !== 'task' && change.headsUpSignal?.semantic !== 'task_status_changed')
-        || (taskCapability.current.enabled
-          && change.changeSequence > taskCapability.current.headsUpAfterSequence)
-      )
+      // Use this batch's atomic snapshot, unless a newer settings/notification
+      // snapshot has already confirmed another toggle. Never await settings.
+      const includesChange = (change: NotificationEpisodeChange): boolean => {
+        const current = taskCapability.current.observedThroughChangeSequence > batchCapability.observedThroughChangeSequence
+          ? taskCapability.current : batchCapability
+        return (change.episode?.kind !== 'task' && change.headsUpSignal?.semantic !== 'task_status_changed')
+          || (current.enabled && change.changeSequence > current.headsUpAfterSequence)
+      }
       const changes = collected.changes.filter(includesChange)
       for (const change of changes) {
         if (change.changeCause === 'occurrence_admitted' && change.episode) {
@@ -581,6 +595,7 @@ export function NotificationAttentionController({
       pollRunning.current = false
     }
   }, [
+    acceptSnapshot,
     acknowledgeAction,
     activeThreadId,
     activeThreadVisible,

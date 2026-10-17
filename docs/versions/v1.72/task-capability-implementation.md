@@ -30,7 +30,7 @@ last_updated: 2026-10-17
 | 会话界面 | 真实 DOM 顺序为执行、队员、单聊、任务；任务为可选第 4 项。关闭时卸载 Task 面板/弹窗，保留消息草稿与阅读状态 |
 | 快捷键 | v1→v2 一次性统一执行/队员/单聊/任务为 Mod+1/2/3/4；清除其他操作对这四键的占用，保留其余键位、侧键和发送方式 |
 | 快捷键关闭态 | 隐藏并停用任务键位和侧键；不消费输入。隐藏任务键位被其他操作使用时原子转移，重开不抢回；迁移失败保留磁盘原值并提供重试 |
-| Host Web | 同步 Core 的开关事件；切换 Host 或重连时先按未知/关闭处理，旧响应不能恢复旧 Host 的能力 |
+| Host Web | 同步 Core 的开关事件；切换 Host 重置投影，重连/读取失败保留本 Host 已确认状态；设置与通知按序号合并，旧响应不能恢复旧 Host 或较旧开关状态 |
 
 Task 历史消息、审计、旧关联、已提交回执仍可按原有历史/恢复规则保留。领域 commandId 重试遵循
 既有“返回首次提交结果”语义；CLI 的 requestId 另外校验原始请求摘要，旧 taskId 仍参与该摘要。
@@ -223,6 +223,39 @@ User 消息 `9a39dd92-80f7-4131-bbac-b96b0aa105ce` 的两个问题均成立：�
 最终 `pnpm test` 完整通过：Vitest 246 文件 / 2729 项，Node 包测试 356 通过、2 个既有 Windows 平台项跳过；文档、Skills 与 Electron capability 子门禁同时通过。
 最终 `cargo test --workspace` 完整通过：473 通过、1 个既有人工验收项忽略，其中 Core 为 427 通过。最终 typecheck、Desktop/Web 构建、通知两个 Electron owner、快捷键 owner、通用文档门禁与格式检查均通过。
 原正式上下文 Gate 仍为 insufficient，上一轮完整扩展回归的一处清理超时仍保留记录；本轮没有重跑完整 extended workspace、真实模型 Run 或正式 Context campaign，不将普通回归写作整体质量 Gate 通过。
+
+## Task 设置与通知响应乱序修复
+
+User 消息 `a2580c5b-0b9c-4d70-9b1a-29631a1ec525` 指出的竞态成立。固定边界没有移动，但通知先返回时，
+Renderer 仍可能用旧的 enabled=false 丢掉边界后的 Task，再推进全局游标。上一节的 Inbox pending/失败测试
+没有覆盖 settings get；不将前一轮通过解释成已经验证本次跨响应时序。
+
+| 项目 | 改前 | 改后 |
+| --- | --- | --- |
+| 消费依据 | 依赖独立 settings get 更新的缓存 | changesSince 在同一读取事务内返回增量、开关与固定边界 |
+| 响应乱序 | 启用响应迟到可能丢 Task；无法按 Core 顺序合并 | get/set/通知共用 observedThroughChangeSequence，只接收不旧于已确认状态的快照 |
+| 仅切换、没有新通知 | 无法区分同水位的开启/关闭 | 实际切换在同一事务内递增已有通知时钟，不创建通知或改未读 |
+| 设置读取失败 | 本地回到关闭/未知 | 保留本 Host 已确认状态；有效通知批次可直接恢复投影 |
+| 重复空批次 | 新接入投影时可能重复触发渲染 | 相同快照返回原 React state，不形成渲染/轮询循环 |
+
+复用一个开关、现有固定边界和已有通知时钟。没有新增表、列、Migration、等待队列、后台同步器或用户配置。
+普通提醒不等待设置；全局游标只在正常批次消费后推进。Host A→B→A 仍按访问代次隔离，不重建会话工作区。
+模型上下文、提示词、冻结 R4 与 CLI 执行策略均未修改。
+
+验证沿用已有 owner：
+
+- 新 Electron fixture 在未改生产实现时，稳定复现 `pending: the new Task was queued before settings returned` 断言失败；普通提醒已经处理，精确新 Task 没有进入队列。
+- 修复中间版本的 Electron owner 触发 75 秒超时：相同快照重复 setState 形成渲染/轮询反馈；增加相同状态不更新后复验，保留原失败记录，不放宽超时或修改生产回调以隐藏问题。
+- 核心场景包括 settings get 长期 pending、pending 后 reject、立即读取失败、旧关闭响应单独迟到、旧开启通知批次晚于已确认关闭；逐个核对精确 Task acknowledgement 一次、旧 Task 不补弹、普通提醒继续处理。
+- Rust 继续扩展现有 inbox/cursor owner：批次有效快照、空页/reset、一致的开关过滤、无通知间隔的切换顺序、同值保存不递增、事务回滚；未新增或停用 Rust owner。分页局部游标 owner 验证跨页能力变化。
+
+最终通知 Electron 两个 owner、快捷键一个 owner（macOS 上执行 Darwin/Windows 分支）、定向 Vitest 210 项、
+Rust 通知 12 项均通过。完整 `pnpm test` 通过：Vitest 246 文件 / 2729 项，Node 包测试 356 通过、2 个既有平台项跳过。
+完整默认 `cargo test --workspace` 通过：473 通过、1 个既有人工验收项忽略，Core 427 通过；
+typecheck、Desktop/Web 构建、通用文档门禁与格式检查通过。
+
+正式 Context Gate 仍为 insufficient；前一轮完整扩展回归的清理超时保留。本轮未重跑完整 extended workspace、
+真实模型 Run 或正式 Context campaign。历史 `live-05` 是 `997c0840` 的功能执行证据，不冒充本轮新验收。
 
 ## 交付边界
 

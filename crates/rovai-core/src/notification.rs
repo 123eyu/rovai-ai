@@ -449,6 +449,7 @@ pub struct NotificationEpisodeChangeBatch {
     pub requested_after_change_sequence: i64,
     pub next_change_sequence: i64,
     pub through_change_sequence: i64,
+    pub task_capability: crate::task_capability::TaskCapabilitySnapshot,
     pub reset_required: bool,
     pub has_more: bool,
     pub changes: Vec<NotificationEpisodeChange>,
@@ -638,6 +639,7 @@ impl NotificationEpisodeService {
         let limit = normalized_limit(limit);
         let transaction = database.connection_mut().transaction()?;
         let (through_change_sequence, retained_floor_sequence) = change_clock(&transaction)?;
+        let task_capability = crate::task_capability::snapshot(&transaction)?;
         let reset_required = after_change_sequence < retained_floor_sequence
             || after_change_sequence < 0
             || after_change_sequence > through_change_sequence;
@@ -648,6 +650,7 @@ impl NotificationEpisodeService {
                 requested_after_change_sequence: after_change_sequence,
                 next_change_sequence: through_change_sequence,
                 through_change_sequence,
+                task_capability,
                 reset_required: true,
                 has_more: false,
                 changes: Vec::new(),
@@ -672,7 +675,7 @@ impl NotificationEpisodeService {
                 after_change_sequence,
                 through_change_sequence,
                 (limit + 1) as i64,
-                crate::task_capability::enabled(&transaction)?
+                task_capability.enabled
             ],
             raw_change_from_row,
         )?;
@@ -746,6 +749,7 @@ impl NotificationEpisodeService {
             requested_after_change_sequence: after_change_sequence,
             next_change_sequence,
             through_change_sequence,
+            task_capability,
             reset_required: false,
             has_more,
             changes,
@@ -3040,6 +3044,11 @@ mod slow_tests {
             changes.next_change_sequence,
             changes.through_change_sequence
         );
+        assert!(!changes.task_capability.enabled);
+        assert_eq!(
+            changes.task_capability.observed_through_change_sequence,
+            changes.through_change_sequence
+        );
         crate::task_capability::set(database.connection(), true).unwrap();
         let restored = service
             .inbox(
@@ -3062,7 +3071,15 @@ mod slow_tests {
         let boundary = crate::task_capability::snapshot(database.connection()).unwrap();
         assert_eq!(
             boundary.heads_up_after_sequence,
+            changes.through_change_sequence
+        );
+        assert_eq!(
+            boundary.observed_through_change_sequence,
             restored.through_change_sequence
+        );
+        assert!(
+            boundary.observed_through_change_sequence
+                > changes.task_capability.observed_through_change_sequence
         );
         record_task(&mut database, "task-after-enable");
         assert!(!crate::task_capability::set(database.connection(), true).unwrap());
@@ -3090,6 +3107,14 @@ mod slow_tests {
                 100,
             )
             .unwrap();
+        assert_eq!(
+            new_tasks.task_capability,
+            crate::task_capability::snapshot(database.connection()).unwrap()
+        );
+        assert_eq!(
+            new_tasks.task_capability.observed_through_change_sequence,
+            new_tasks.through_change_sequence
+        );
         assert_eq!(
             new_tasks
                 .changes
@@ -3141,6 +3166,45 @@ mod slow_tests {
             .unwrap();
         assert_eq!(retained.unread_count, late.unread_count);
         assert_eq!(retained.items.len(), late.items.len());
+
+        // Toggle-only changes share the notification clock. Even with no new
+        // journal row, an older enabled response cannot override a later disable.
+        let tx = database.connection_mut().transaction().unwrap();
+        assert!(crate::task_capability::set(&tx, false).unwrap());
+        let disabled = crate::task_capability::snapshot(&tx).unwrap();
+        assert!(
+            disabled.observed_through_change_sequence > upgraded.observed_through_change_sequence
+        );
+        assert!(!crate::task_capability::set(&tx, false).unwrap());
+        assert_eq!(crate::task_capability::snapshot(&tx).unwrap(), disabled);
+        tx.commit().unwrap();
+        let empty = service
+            .changes_since(
+                &mut database,
+                CURRENT_USER_ID,
+                upgraded.observed_through_change_sequence,
+                1,
+            )
+            .unwrap();
+        assert!(empty.changes.is_empty());
+        assert_eq!(empty.task_capability, disabled);
+        assert_eq!(
+            empty.next_change_sequence,
+            disabled.observed_through_change_sequence
+        );
+        let reset = service
+            .changes_since(&mut database, CURRENT_USER_ID, -1, 1)
+            .unwrap();
+        assert!(reset.reset_required);
+        assert_eq!(reset.task_capability, disabled);
+        let tx = database.connection_mut().transaction().unwrap();
+        crate::task_capability::set(&tx, true).unwrap();
+        tx.rollback().unwrap();
+        assert_eq!(
+            crate::task_capability::snapshot(database.connection()).unwrap(),
+            disabled,
+            "flag, boundary and ordering clock roll back together"
+        );
 
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();

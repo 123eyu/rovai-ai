@@ -229,6 +229,63 @@ app.whenReady().then(async () => {
     await run('window.notificationTest.tasks(false); window.notificationTest.tasks(true)')
     assert.equal((await state()).cards.length, 0, 'A new boundary clears old queued Tasks even when React batches off/on')
 
+    // The notification response owns its capability snapshot. A settings read can
+    // stay pending or fail while both ordinary and new Task signals are consumed.
+    for (const mode of ['pending', 'late-failure', 'failed']) {
+      await run('window.notificationTest.tasks(false)')
+      await state()
+      await run(`window.notificationTest.admit('task_status_changed', null, 'before-${mode}', undefined, false);
+        ${mode === 'failed' ? 'window.notificationTest.failTaskReads(1)' : 'window.notificationTest.holdTaskReads()'};
+        window.notificationTest.tasks(true)`)
+      current = await state()
+      if (mode === 'failed') assert.equal(current.failedTaskReads, 0, 'The capability request really failed')
+      else assert.ok(current.pendingTaskReads > 0, 'The capability request is really pending')
+      await run("window.notificationTest.admit('turn_completed'); window.capabilityWindowTask = window.notificationTest.admit('task_status_changed')")
+      current = await state()
+      assert.equal(current.cards[0]?.message, '本轮已完成', `${mode}: ordinary reminders do not wait for settings`)
+      await click('.notification-heads-up-open')
+      assert.equal((await state()).cards[0]?.summary, true, `${mode}: the new Task was queued before settings returned`)
+      await click('.notification-heads-up-open')
+      assert.match((await state()).cards[0]?.message, /验收任务/)
+      await click('.notification-heads-up-open')
+      await run(`window.notificationTest.releaseTaskReads(${mode === 'late-failure'}); window.notificationTest.poll()`)
+      current = await state()
+      const acknowledgementId = await run('window.capabilityWindowTask')
+      assert.equal(current.acknowledgements.filter(item => item.request.command.acknowledgementId === acknowledgementId).length, 1,
+        `${mode}: the exact Task is acknowledged once`)
+      assert.equal(current.cards.length, 0, `${mode}: old Task is not replayed`)
+      assert.deepEqual(current.taskCapability, { enabled: true, ready: true, error: null }, `${mode}: late failure cannot erase the batch snapshot`)
+    }
+
+    // A settings response captured while disabled must not overwrite a newer
+    // notification snapshot. Release the stale disabled response on its own.
+    await run('window.notificationTest.tasks(false)')
+    await state()
+    await run('window.notificationTest.holdTaskReads(); window.notificationTest.tasks(false); window.notificationTest.tasks(true)')
+    await state()
+    await run("window.notificationTest.admit('task_status_changed')")
+    assert.match((await state()).cards[0]?.message, /验收任务/)
+    await run('window.notificationTest.releaseTaskRead()')
+    assert.equal((await state()).taskCapability.enabled, true)
+    assert.match((await state()).cards[0]?.message, /验收任务/, 'A stale disabled settings response cannot discard the queued Task')
+    await run('window.notificationTest.releaseTaskReads()')
+    await click('.notification-heads-up-open')
+
+    // Capture an enabled batch, then confirm disable without any intervening
+    // notification. The late batch must not re-enable Tasks or lose ordinary work.
+    await run("window.notificationTest.holdChanges(); window.notificationTest.admit('task_status_changed'); window.notificationTest.admit('turn_completed')")
+    assert.ok((await state()).pendingChanges > 0)
+    await run('window.notificationTest.tasks(false)')
+    assert.equal((await state()).taskCapability.enabled, false)
+    await run('window.notificationTest.releaseChanges()')
+    current = await state()
+    assert.equal(current.cards[0]?.message, '本轮已完成')
+    assert.equal(current.taskCapability.enabled, false, 'An old enabled batch cannot undo a newer confirmed disable')
+    await click('.notification-heads-up-open')
+    assert.equal((await state()).cards.length, 0, 'The late Task is not queued')
+    const idleReads = (await state()).changeReads
+    assert.ok((await state()).changeReads - idleReads <= 1, 'An unchanged snapshot cannot create a render/poll loop')
+
     for (const fail of [false, true]) {
       await run('window.taskCapabilityTest.start()')
       await state()

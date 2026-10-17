@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: current-foundational-invariants
-last_updated: 2026-10-15
+last_updated: 2026-10-17
 ---
 
 # 当前基础架构不变量
@@ -89,7 +89,7 @@ last_updated: 2026-10-15
 - Core SQLite 是通知唯一持久真源。合格来源事实、不可变 `NotificationOccurrence`、独立 Disposition、聚合 `NotificationEpisode` 和最小 `NotificationChangeJournal` 在同一 SQLite 事务中提交；通知是用户注意力投影，不能批准 Approval、改变 CampTurn 或替代来源业务对象。
 - Episode 的一般语义版本与新增注意事项 revision 分离；clear 绑定用户观察到的 attention revision，普通元数据变化、确认或解决不得复活已清除事项。
 - Core 拥有聚合、原因计数、排序、最早未确认 mention、类型化 action 和 availability。Renderer 只负责本地化、布局与执行 action；Electron Main 不保存通知副本，普通 Agent 公屏消息也不会仅因出现而生成通知。
-- 通知命令、snapshot、有界 incremental journal 与重新 snapshot 规则都是 Core API；Renderer 不保存可独立写入的 inbox、不从 Toast 生命周期推算已读/清除。序列缺口或未知 schema 时必须重取 snapshot。
+- 通知命令、snapshot、有界 incremental journal 与重新 snapshot 规则都是 Core API；Renderer 不保存可独立写入的 inbox、不从 Toast 生命周期推算已读/清除。Core 指示历史已不可连续读取（resetRequired）或未知 schema 时必须重取 snapshot；能力过滤或仅可见性切换产生的空序号沿批次游标消费，不推断为历史丢失。
 
 - 新本轮完成只由全部消息输入/产出关联分量的 Run 成功与 Delivery 结算产生；通知图不参与执行调度、预算或权限。Mission/Task 只在真实状态转换时生成事实，用户自己的状态操作不提醒，问题正文只来自显式消息来源。详见 [Notification Episode v10](../contracts/notification-episode-v10.md)。
 

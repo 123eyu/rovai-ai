@@ -24,13 +24,25 @@ let failPreferenceSave = false
 let failedInboxReads = 0
 let holdInbox = false
 const pendingInbox: Array<() => void> = []
+let holdTaskReads = false
+let failedTaskReads = 0
+const pendingTaskReads: Array<(fail: boolean) => void> = []
+let holdChanges = false
+const pendingChanges: Array<() => void> = []
+let changeReads = 0
 let setSources: (source: VisibleNotificationSources | null) => void
 let sequence = 0
+const taskSnapshot = () => ({ enabled: tasksEnabled, headsUpAfterSequence, observedThroughChangeSequence: sequence })
 const read = () => ({ threadId: 'camp-other', surfaceVisible: true, snapshotSequence: 0,
   messageIds: [], campTurnIds: [], agentRunIds: [], approvalIds: [] })
 Object.assign(window, { rovai: {
   request: async (method: string, request: any) => {
-    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled, headsUpAfterSequence }
+    if (method === 'preferences.tasks.get') {
+      const snapshot = taskSnapshot()
+      if (holdTaskReads) await new Promise<void>((resolve, reject) => pendingTaskReads.push(fail => fail ? reject(new Error('Temporary capability failure')) : resolve()))
+      if (failedTaskReads > 0) { failedTaskReads--; throw new Error('Temporary capability failure') }
+      return snapshot
+    }
     if (method === 'notifications.preference.get') return preference
     if (method === 'notifications.preference.update') {
       if (failPreferenceSave) { failPreferenceSave = false; throw new Error('测试保存失败') }
@@ -44,9 +56,15 @@ Object.assign(window, { rovai: {
       if (failedInboxReads > 0) { failedInboxReads--; throw new Error('Temporary inbox failure') }
       return { schemaVersion: 9, throughChangeSequence: sequence, unreadCount: journal.length, items: [], nextCursor: null }
     }
-    if (method === 'notifications.changesSince') return { schemaVersion: 9, requestedAfterChangeSequence: request.afterChangeSequence,
+    if (method === 'notifications.changesSince') {
+      changeReads++
+      const batch = { schemaVersion: 9, requestedAfterChangeSequence: request.afterChangeSequence,
       nextChangeSequence: sequence, throughChangeSequence: sequence, retainedFloorChangeSequence: 0,
-      hasMore: false, resetRequired: false, changes: journal.filter(change => change.changeSequence > request.afterChangeSequence) }
+      taskCapability: taskSnapshot(), hasMore: false, resetRequired: false,
+      changes: journal.filter(change => change.changeSequence > request.afterChangeSequence && (tasksEnabled || change.episode?.kind !== 'task')) }
+      if (holdChanges) await new Promise<void>(resolve => pendingChanges.push(resolve))
+      return batch
+    }
     if (method === 'notifications.acknowledge' || method === 'notifications.acknowledgeVisibleSources') {
       acknowledgements.push({ method, request }); return { status: 'applied', code: 'ok', payload: {} }
     }
@@ -74,6 +92,7 @@ function admit(semantic: NotificationSemantic, privateId: string | null = null, 
   return `occurrence-${n}`
 }
 function Fixture() {
+  notificationCapability = useTaskCapability()
   const [sources, updateSources] = useState<VisibleNotificationSources | null>(read())
   setSources = updateSources
   const [settings, setSettings] = useState(false)
@@ -87,10 +106,12 @@ function Fixture() {
       onRefreshVisibleThread={async () => false} onError={message => { throw new Error(message) }} />
   </main>
 }
+let notificationCapability: ReturnType<typeof useTaskCapability>
 Object.assign(window, { notificationTest: {
   admit,
   tasks: (enabled: boolean) => {
     if (!tasksEnabled && enabled) headsUpAfterSequence = sequence
+    if (tasksEnabled !== enabled) sequence++
     tasksEnabled = enabled
     listeners.forEach(callback => callback({ method: 'preferences.tasks_changed' }))
   },
@@ -100,6 +121,12 @@ Object.assign(window, { notificationTest: {
   failInboxReads: (count: number) => { failedInboxReads = count },
   holdInbox: () => { holdInbox = true },
   releaseInbox: () => { holdInbox = false; pendingInbox.splice(0).forEach(resolve => resolve()) },
+  holdTaskReads: () => { holdTaskReads = true },
+  releaseTaskRead: () => pendingTaskReads.shift()?.(false),
+  releaseTaskReads: (fail = false) => { holdTaskReads = false; pendingTaskReads.splice(0).forEach(resolve => resolve(fail)) },
+  failTaskReads: (count: number) => { failedTaskReads = count },
+  holdChanges: () => { holdChanges = true },
+  releaseChanges: () => { holdChanges = false; pendingChanges.splice(0).forEach(resolve => resolve()) },
   poll: () => listeners.forEach(callback => callback({ method: 'notification_episode.changed' })),
   source: (conversationId: string | null, visible = true, turnVisible = false) => setSources({ ...read(), threadId: 'camp-target',
     conversationId, surfaceVisible: visible, campTurnIds: turnVisible ? ['turn-target'] : [] }),
@@ -112,7 +139,10 @@ Object.assign(window, { notificationTest: {
   state: () => ({ cards: [...document.querySelectorAll<HTMLElement>('.notification-heads-up:not([hidden])')].map(node => ({
     text: node.textContent, source: node.querySelector('strong')?.textContent, message: node.querySelector('.notification-heads-up-message')?.textContent,
     width: node.getBoundingClientRect().width, summary: node.classList.contains('notification-heads-up-summary') })),
-    acknowledgements, navigations, pendingInbox: pendingInbox.length, failedInboxReads, focused: (document.activeElement as HTMLElement)?.id, overflow: document.documentElement.scrollWidth > innerWidth })
+    acknowledgements, navigations, pendingInbox: pendingInbox.length, failedInboxReads,
+    pendingTaskReads: pendingTaskReads.length, failedTaskReads, pendingChanges: pendingChanges.length, changeReads,
+    taskCapability: { enabled: notificationCapability.enabled, ready: notificationCapability.ready, error: notificationCapability.error },
+    focused: (document.activeElement as HTMLElement)?.id, overflow: document.documentElement.scrollWidth > innerWidth })
 }})
 createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={desktopThreadClient}><Fixture /></ThreadClientProvider>)
 
@@ -121,8 +151,8 @@ let capability: ReturnType<typeof useTaskCapability>
 let settleSave: (fail: boolean) => void
 const host = (enabled: boolean) => ({ ...desktopThreadClient, onEvent: undefined,
   request: (async (method: string) => {
-    if (method === 'preferences.tasks.get') return { enabled, headsUpAfterSequence: 0 }
-    return new Promise((resolve, reject) => { settleSave = fail => fail ? reject(new Error('old Host failure')) : resolve({ enabled: true, headsUpAfterSequence: 0 }) })
+    if (method === 'preferences.tasks.get') return { enabled, headsUpAfterSequence: 0, observedThroughChangeSequence: 0 }
+    return new Promise((resolve, reject) => { settleSave = fail => fail ? reject(new Error('old Host failure')) : resolve({ enabled: true, headsUpAfterSequence: 0, observedThroughChangeSequence: 1 }) })
   }) as typeof desktopThreadClient.request })
 let switchHost: (client: typeof desktopThreadClient) => void
 let hostA = host(true)

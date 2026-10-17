@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
+import { parse as parseYaml } from 'yaml'
 import { startQualificationCore, processTable } from './lib/qualification-core.mjs'
 import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 
@@ -15,6 +16,8 @@ const repo = resolve(import.meta.dirname, '..')
 const native = process.argv[2]
 const filesOnly = process.argv.includes('--files-only')
 const completionOnly = process.argv.includes('--completion-only')
+const questionnairesOnly = process.argv.includes('--questionnaires-only')
+assert.ok([filesOnly, completionOnly, questionnairesOnly].filter(Boolean).length <= 1, 'Choose one focused matrix')
 assert.ok(native?.startsWith('/'), 'Pass the absolute installed mcode path')
 const fixtureArg = process.argv.indexOf('--fixture-root')
 const suppliedRoot = fixtureArg < 0 ? null : process.argv[fixtureArg + 1]
@@ -76,6 +79,15 @@ const server = createServer(async (req, res) => {
       const planned = filePlans.get(stage)[step - 1]
       call = planned ? { id: `call-${stage}-${step}`, type: 'function', function: { name: planned.name, arguments: JSON.stringify(planned.input) } } : null
       if (planned) assert.ok(tools.includes(planned.name), `Native ${planned.name} tool missing`)
+    }
+    if ((stage.startsWith('ASK_') && call) || (stage === 'SEND_ASK' && !call && step === 2)) {
+      assert.ok(tools.includes('ask_user'), 'The cancellation matrix must leave the native questionnaire tool enabled')
+      const question = { id: 'color', question: 'Choose a synthetic test color.',
+        selectionMode: stage === 'ASK_MULTIPLE' ? 'multiple' : 'single',
+        options: [{ id: 'blue', label: 'Blue' }, { id: 'green', label: 'Green' }] }
+      call = { id: `call-${stage}-questionnaire`, type: 'function', function: { name: 'ask_user',
+        arguments: JSON.stringify({ title: stage, requiresExplicitResponse: true,
+          steps: stage === 'ASK_MULTIPLE' ? [question, { ...question, id: 'secondary' }] : [question] }) } }
     }
     if (stage === 'SEND_ERROR' && !call) {
       res.writeHead(401, { 'content-type': 'application/json' })
@@ -160,7 +172,116 @@ try {
   const created = await core.request('threads.create', { commandId: randomUUID(), name: 'MiniMax controlled integration', workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
   assert.equal(created.status, 'applied'); threadId = created.payload.threadId
   db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
-  if (completionOnly) {
+  if (questionnairesOnly) {
+    const binding = () => db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2')
+    const published = id => db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE source_agent_run_id=? AND author_type='agent'").get(id).n
+    const terminal = async (before, onTick = null) => {
+      const deadline = Date.now() + 90_000
+      while (Date.now() < deadline) {
+        if (onTick) await onTick()
+        const current = runs()
+        if (current.length > before && ['failed', 'cancelled', 'succeeded'].includes(current.at(-1).status)) return current.at(-1)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      throw new Error(`Terminal timeout for ${stage}`)
+    }
+    await turn('QUESTION_BASELINE')
+    const originalBinding = binding()
+    const nativeDb = new DatabaseSync(join(nativeData, 'v2/sqlite/runtime-state.sqlite'), { readOnly: true })
+    try {
+      for (const name of ['ASK_SINGLE', 'ASK_MULTIPLE', 'SEND_ASK', 'ASK_DEFAULT']) {
+        if (name === 'ASK_DEFAULT') {
+          const member = await core.request('members.get', { agentId: 'agent_2' })
+          const changed = await core.request('members.runtime.set', { commandId: randomUUID(), command: {
+            agentId: 'agent_2', expectedVersion: member.version, adapterKind: 'minimax-code-cli',
+            model: member.runtimeConfiguration.model,
+            permissions: { ...member.runtimeConfiguration.permissions, values: { permission_mode: 'default', mode: 'default' } }
+          } })
+          assert.equal(changed.status, 'applied')
+        }
+        stage = name; step = 0
+        const before = runs().length
+        await send(`CONTROL_CASE=${name}; this is a synthetic questionnaire cancellation test.`)
+        const run = await terminal(before)
+        assert.equal(run.status, 'failed', JSON.stringify(run))
+        assert.equal(run.last_error_code, 'runtime_unsettled_activity')
+        assert.equal(published(run.id), name === 'SEND_ASK' ? 1 : 0)
+        assert.deepEqual(binding(), originalBinding)
+        const failure = JSON.parse(db.prepare('SELECT public_runtime_failure_json AS failure FROM agent_run WHERE id=?').get(run.id).failure)
+        assert.equal(failure.retryable, false, 'An accepted questionnaire turn must not be replayed')
+        if (name === 'SEND_ASK') assert.equal(failure.summary, '消息已发送，但运行结束校验失败')
+        const rows = nativeDb.prepare(`SELECT request_id,status,answered_at,reply_payload,injected_at,dismissed_at
+          FROM questionnaire_requests WHERE session_id=? AND json_extract(request_json,'$.title')=?`).all(originalBinding.native_session_id, name)
+        assert.equal(rows.length, 1, 'Exactly one native questionnaire must be created')
+        for (const row of rows) {
+          assert.equal(row.status, 'dismissed')
+          assert.ok(row.dismissed_at != null)
+          assert.equal(row.answered_at, null); assert.equal(row.reply_payload, null); assert.equal(row.injected_at, null)
+        }
+        const snapshot = await core.request('camps.snapshot', { threadId })
+        assert.equal(snapshot.approvals.filter(a => a.status === 'pending').length, 0)
+        report.cases.push({ name, status: 'passed', run: run.id, nativeQuestionnaires: rows,
+          runOutcome: run.status, publicSendCount: published(run.id), retryable: failure.retryable })
+        const pids = await hostPids()
+        if (name === 'ASK_MULTIPLE') { await core.stop(); await start() }
+        stage = `AFTER_${name}`; step = 0
+        const beforeSuccessor = runs().length
+        await send(`CONTROL_CASE=${stage}; follow this new instruction; no questionnaire is required.`)
+        const successor = await terminal(beforeSuccessor, name === 'ASK_DEFAULT' ? async () => {
+          const current = await core.request('camps.snapshot', { threadId })
+          for (const approval of current.approvals.filter(a => a.status === 'pending')) {
+            const option = approval.options.find(o => o.kind === 'allow_once')
+            assert.ok(option)
+            const result = await core.request('action.approvals.resolve', { commandId: randomUUID(), threadId,
+              approvalId: approval.id, expectedVersion: approval.version, optionId: option.optionId,
+              reason: 'Allow the independent synthetic successor command, not a questionnaire answer' })
+            assert.notEqual(result.status, 'rejected')
+          }
+        } : null)
+        assert.equal(successor.status, 'succeeded', JSON.stringify(successor))
+        assert.equal(published(successor.id), 1)
+        assert.equal((await readFile(join(project, `result-${stage}.txt`), 'utf8')).trim(), `MINIMAX_CONTROL_${stage}`)
+        assert.deepEqual(binding(), originalBinding)
+        const successorPids = await hostPids()
+        assert.ok(successorPids.length)
+        if (name === 'ASK_MULTIPLE') assert.notDeepEqual(successorPids, pids)
+        else assert.deepEqual(successorPids, pids)
+        report.cases.push({ name: stage, status: 'passed', run: successor.id,
+          sameSession: true, coreRestarted: name === 'ASK_MULTIPLE',
+          sameCoreChildPids: name !== 'ASK_MULTIPLE', coreChildPids: successorPids })
+      }
+      // Questionnaire cancellation must leave ordinary execution approvals usable.
+      for (const name of ['ALLOW', 'DENY']) {
+        stage = name; step = 0; const before = runs().length; let approvals = 0
+        await send(`CONTROL_CASE=${name}; exercise ordinary command approval after a questionnaire.`)
+        const run = await terminal(before, async () => {
+          const snapshot = await core.request('camps.snapshot', { threadId })
+          for (const approval of snapshot.approvals.filter(a => a.status === 'pending')) {
+            const option = approval.options.find(o => o.kind === (name === 'ALLOW' ? 'allow_once' : 'deny'))
+            assert.ok(option)
+            const result = await core.request('action.approvals.resolve', { commandId: randomUUID(), threadId,
+              approvalId: approval.id, expectedVersion: approval.version, optionId: option.optionId,
+              reason: 'Synthetic ordinary execution approval' })
+            assert.notEqual(result.status, 'rejected'); approvals++
+          }
+        })
+        assert.equal(run.status, 'succeeded', JSON.stringify(run)); assert.ok(approvals > 0)
+        assert.equal(await exists(`result-${name}.txt`), name === 'ALLOW')
+        assert.deepEqual(binding(), originalBinding)
+        report.cases.push({ name: `ordinary ${name} after questionnaire`, status: 'passed', approvals, run: run.id })
+      }
+      const finalQuestions = nativeDb.prepare(`SELECT status,answered_at,reply_payload,injected_at
+        FROM questionnaire_requests WHERE session_id=?`).all(originalBinding.native_session_id)
+      assert.equal(finalQuestions.length, 4)
+      for (const row of finalQuestions) {
+        assert.equal(row.status, 'dismissed')
+        assert.equal(row.answered_at, null); assert.equal(row.reply_payload, null); assert.equal(row.injected_at, null)
+      }
+      assert.notEqual(parseYaml(await readFile(join(nativeData, 'config.yaml'), 'utf8')).askUser?.enabled, false)
+      report.cases.push({ name: 'native ask_user remains enabled; no synthetic answer injected', status: 'passed' })
+      report.status = 'passed'
+    } finally { nativeDb.close() }
+  } else if (completionOnly) {
     await turn('SEND_EMPTY')
     const emptyFinalRun = runs().at(-1)
     const messageCount = id => db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE source_agent_run_id=? AND author_type='agent'").get(id).n

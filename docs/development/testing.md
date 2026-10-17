@@ -69,6 +69,7 @@ cargo build -p rovai-core --bins
 node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode
 node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --files-only
 node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --completion-only --fixture-root /absolute/empty-fixture
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --questionnaires-only --fixture-root /absolute/empty-fixture
 ```
 
 脚本在新建隔离目录启动真实 mcode、生产 Core、确定性 loopback Provider 与 MCP fixture。
@@ -84,6 +85,13 @@ Golden Flows；短 Run 的异步 journal Usage 可能为空。结果留在打印
 未发送且空 final、发送后原生错误的不同结算。它不调用真实 LLM，不证明问卷已从模型工具清单移除。
 终态修改扩展既有 `accepted_send_suppresses_missing_send_recovery_for_recipient_matrix`（slow-tests）、
 ACP suffix、审批 option、失败重试和 native cursor owners；Usage 生命周期扩展原有 flush partition owner。
+
+`--questionnaires-only` 保持原生问卷工具启用，验证单选、多选、发送后问卷、default 权限模式、
+取消后新指令、Core 重启精确恢复，以及后继普通命令 allow/deny。断言原生问卷为 dismissed、
+答案与注入字段为空、失败 Run 不可自动重放；已经发送的消息保留。Host 观察使用 Core 直属子进程
+PID 集合，不能替代跨 Session 或并发 Fleet 资格。该矩阵不假造问卷 permission 请求；
+`questionnaire:` option 的防代答反例由既有 extended owner
+`approval_selects_the_exact_native_option_id` 负责。三种 focused 参数互斥。
 
 `--files-only` 验证原生 Read/Write/Edit、绝对/相对及中文空格路径、新建/覆盖/空文件、成功/失败编辑、
 原生 patch 与持久化 Files Changed，并重启 Core 核对卡片。它不启动 Renderer，不能代替点击展开验收。

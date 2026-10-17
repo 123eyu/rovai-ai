@@ -2,7 +2,7 @@
 document_type: research-report
 authority: observed-minimax-code-runtime-integration
 status: in_progress
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # MiniMax Code ACP 接入与对照
@@ -15,6 +15,16 @@ User seq8 后的[全部 19 Runtime 完整对照](full-parity-2026-10-16.md)补�
 Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。原生文件补验发现并修复预览误当完整状态、
 相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
 下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
+
+## 2026-10-17 问卷取消与续接复核
+
+User seq35 改按“暂不支持原生问答、明确取消、不代答”验证，结果见
+[取消与续接报告](questionnaire-cancellation-2026-10-17.md)及
+[脱敏证据](questionnaire-cancellation-2026-10-17.evidence.json)。官方 0.6.12 的控制服务矩阵与真实
+开发 App 均观察到问卷 dismissed、没有用户答案，失败后新指令沿同一 Session 正常完成。
+当前问卷 Run 仍失败，不能自动转为普通 Thread 提问，也没有隐藏工具。
+按此方向，不再把上游局部关闭开关作为本轮阻塞项；此前候选未安装、用户原生配置未改。
+其他 Runtime 分别记录取消、skipped、禁自动解答或未发现统一禁用，不能合称“已全部关闭”。
 
 ## 2026-10-17 批复修复
 

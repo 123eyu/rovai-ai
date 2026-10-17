@@ -34,6 +34,13 @@ mod run_continuation;
 mod simplification;
 #[path = "db_steer.rs"]
 mod steer;
+#[path = "db_task_capability.rs"]
+mod task_capability;
+#[cfg(test)]
+pub(crate) fn assert_task_capability_upgrade(database: &mut Database) {
+    task_capability::assert_upgrade(database);
+}
+
 #[cfg(test)]
 #[path = "db_steer_legacy_test.rs"]
 mod steer_legacy_test;
@@ -74,7 +81,7 @@ pub(crate) fn upgrade_member_routing_fixture(database: &mut Database) {
     live_directory::migrate(database).unwrap();
     unified_activity::migrate(database).unwrap();
     compact_execution::migrate(database).unwrap();
-    steer::migrate(database).unwrap();
+    database.migrate(false).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -132,7 +139,7 @@ pub(crate) fn upgrade_message_senders_fixture(database: &mut Database) {
     live_directory::migrate(database).unwrap();
     unified_activity::migrate(database).unwrap();
     compact_execution::migrate(database).unwrap();
-    steer::migrate(database).unwrap();
+    database.migrate(false).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -449,7 +456,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 154;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 155;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -928,6 +935,7 @@ struct CurrentMigrationState {
     v202: bool,
     v203: bool,
     v204: bool,
+    v205: bool,
 }
 
 impl CurrentMigrationState {
@@ -949,6 +957,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v205 {
+            let mut previous = *self;
+            previous.v205 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 155
+                && self.v204
+                && previous.admits("v1.72", 154, classifier);
+        }
         if self.v204 {
             let mut previous = *self;
             previous.v204 = false;
@@ -3127,7 +3143,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
             contract == CURRENT_DATA_CONTRACT_VERSION
                 && matches!(
                     schema,
-                    145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154
+                    145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155
                 )
         })
     {
@@ -3537,7 +3553,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154
+            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3557,7 +3573,9 @@ pub(crate) fn classify_database_contract(
                 } else if marker.projection_schema_version == 148 {
                     claim_context::schema_matches(connection)
                 } else {
-                    if marker.projection_schema_version == 154 {
+                    if marker.projection_schema_version == 155 {
+                        task_capability::schema_matches(connection)?
+                    } else if marker.projection_schema_version == 154 {
                         steer::schema_matches(connection)
                     } else {
                         steer::pre_steer_schema_matches(connection)
@@ -5820,7 +5838,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 201),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 202),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 203),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 204)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 204),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=205)
         "#,
         [],
         |row| {
@@ -5960,6 +5979,7 @@ fn load_current_migration_state(
                 v202: row.get(132)?,
                 v203: row.get(133)?,
                 v204: row.get(134)?,
+                v205: row.get(135)?,
             })
         },
     )
@@ -9225,6 +9245,9 @@ impl Database {
             if !self.schema_migration_applied(204)? {
                 migration_step!("migration_204", steer::migrate(self));
             }
+            if !self.schema_migration_applied(205)? {
+                migration_step!("migration_205", task_capability::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -10055,6 +10078,9 @@ impl Database {
         }
         if !self.schema_migration_applied(204)? {
             migration_step!("migration_204", steer::migrate(self));
+        }
+        if !self.schema_migration_applied(205)? {
+            migration_step!("migration_205", task_capability::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -40243,7 +40269,7 @@ mod tests {
         assert_eq!(historical_delivery(&reopened), delivery_before);
         assert_eq!(historical_bootstrap(&reopened), bootstrap_before);
         assert!(reopened.schema_migration_applied(174).unwrap());
-        assert!(steer::schema_matches(reopened.connection()));
+        assert!(task_capability::schema_matches(reopened.connection()).unwrap());
         let historical_claim: (Option<i64>, Option<i64>) = reopened
             .connection()
             .query_row(
@@ -40273,7 +40299,7 @@ mod tests {
         assert!(
             old_insert
                 .to_string()
-                .contains("must use ContextManifest v39")
+                .contains("must use ContextManifest v40")
         );
         for (column, invalid) in [
             ("claim_previous_public_boundary_sequence", -1),
@@ -40652,7 +40678,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("rovai-v160-delivery-schema-{}", Uuid::new_v4()));
         let database = crate::test_support::fresh_schema_database_fast_at(&directory);
-        assert!(steer::schema_matches(database.connection()));
+        assert!(task_capability::schema_matches(database.connection()).unwrap());
         let marker = database
             .connection()
             .query_row(
@@ -41831,6 +41857,7 @@ mod tests {
             v202: version >= 202,
             v203: version >= 203,
             v204: version >= 204,
+            v205: version >= 205,
         }
     }
 
@@ -42025,7 +42052,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                204,
+                205,
             ),
             (
                 "v1.72/schema 152 before compact operations",
@@ -42601,7 +42628,12 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(204);
+        let current = migration_state_through(205);
+        assert!(current.admits(
+            CURRENT_DATA_CONTRACT_VERSION,
+            CURRENT_PROJECTION_SCHEMA_VERSION,
+            V147_CLASSIFIER_VERSION,
+        ));
         let v092_source = migration_state_through(91);
         let mut missing_intermediate = current;
         missing_intermediate.v84 = false;
@@ -43248,7 +43280,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(204));
+        assert_eq!(state, migration_state_through(205));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43264,15 +43296,18 @@ mod tests {
             "optional_usage",
             "required_column",
             "current_receipt",
+            "steer_identity",
+            "task_guard",
+            "task_settings",
         ] {
             connection
                 .execute_batch("SAVEPOINT current_admission")
                 .unwrap();
             match change {
                 "equivalent_sql" => {
-                    let sql: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='context_manifest_v39_only_insert'", [], |r| r.get(0)).unwrap();
+                    let sql: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='context_manifest_v40_only_insert'", [], |r| r.get(0)).unwrap();
                     connection
-                        .execute_batch("DROP TRIGGER context_manifest_v39_only_insert")
+                        .execute_batch("DROP TRIGGER context_manifest_v40_only_insert")
                         .unwrap();
                     connection
                         .execute_batch(&sql.replacen(
@@ -43301,14 +43336,36 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=204", [])
+                        .execute("DELETE FROM schema_migration WHERE version=205", [])
+                        .unwrap();
+                }
+                "steer_identity" => {
+                    connection
+                        .execute_batch("DROP INDEX context_manifest_source_delivery")
+                        .unwrap();
+                }
+                "task_guard" => {
+                    connection
+                        .execute_batch("DROP TRIGGER agent_run_input_v40_only_insert")
+                        .unwrap();
+                }
+                "task_settings" => {
+                    connection
+                        .execute_batch("DROP TABLE task_preference")
                         .unwrap();
                 }
                 _ => unreachable!(),
             }
             assert_eq!(
                 connection_has_current_data_contract(connection).unwrap(),
-                !matches!(change, "required_column" | "current_receipt"),
+                !matches!(
+                    change,
+                    "required_column"
+                        | "current_receipt"
+                        | "steer_identity"
+                        | "task_guard"
+                        | "task_settings"
+                ),
                 "{change}"
             );
             connection
@@ -43336,7 +43393,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<204;
+                "DELETE FROM schema_migration WHERE version<205;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();
@@ -44942,7 +44999,7 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41))"
         ));
         let conversation: (Option<String>, Option<String>, i64, i64) = reopened
             .connection()
@@ -45276,10 +45333,10 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41))"
         ));
         assert!(manifest_schema.contains(
-            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14))"
+            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))"
         ));
         assert!(!manifest_schema.contains("CHECK(context_delivery_profile_version = 3)"));
         let run: (String, Option<String>) = reopened
@@ -55741,7 +55798,7 @@ mod tests {
             connection,
             &[
                 58, 59, 60, 61, 62, 67, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
-                102, 103, 104, 105, 106, 107, 108, 145, 146, 147,
+                102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205,
             ],
         );
         for table in [
@@ -55803,6 +55860,7 @@ mod tests {
                 "mission_pr",
                 "mission_execution_host",
                 "mission_workspace",
+                "task_preference",
             ],
             true,
         );
@@ -55984,9 +56042,9 @@ mod tests {
             connection,
             "trigger",
             &[
-                "context_manifest_v39_only_insert",
+                "context_manifest_v40_only_insert",
                 "context_manifest_version_immutable",
-                "agent_run_input_v39_only_insert",
+                "agent_run_input_v40_only_insert",
                 "agent_run_input_context_projection_immutable",
                 "runtime_input_delivery_attachment_auth_insert",
                 "camp_attachment_view_camp_insert",
@@ -56035,7 +56093,7 @@ mod tests {
             assert_eq!(default, "'[]'", "{table}");
         }
         assert!(manifest_schema.contains(
-            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14))"
+            "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))"
         ));
         assert!(manifest_schema.contains("collaboration_state_included INTEGER NOT NULL"));
         let delivery_schema: String = connection

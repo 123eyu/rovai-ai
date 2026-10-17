@@ -1885,6 +1885,9 @@ mod tests {
             )
             .unwrap();
         let mut run_ids = vec![];
+        // The original input was frozen while Tasks were off. New claims use
+        // the current setting without changing that source evidence.
+        crate::task_capability::set(fixture.database.connection(), true).unwrap();
         for expected in [
             vec!["earlier-message"],
             vec!["original-a", "original-b"],
@@ -2146,6 +2149,7 @@ mod tests {
             for change in ["cancelled", "completed", "reassigned", "unassigned"] {
                 for queued_before_change in [false, true] {
                     let mut fixture = Fixture::with_members(&["agent_1", "agent_2"]);
+                    crate::task_capability::set(fixture.database.connection(), true).unwrap();
                     let service = CollaborationService::default();
                     let mut tasks = Vec::new();
                     for title in ["Task whose scope changes", "Other valid Task"] {
@@ -2299,48 +2303,47 @@ mod tests {
                         let claimed =
                             claim_waiting_delivery_batches(&mut fixture.database, 1).unwrap();
                         assert_eq!(claimed.len(), 1);
+                        let state: (String, Option<String>) = fixture.database.connection().query_row(
+                            "SELECT status,claimed_agent_run_id FROM camp_message_delivery WHERE id=?1", [&delivery], |r| Ok((r.get(0)?,r.get(1)?)),
+                        ).unwrap();
+                        assert_eq!(
+                            state,
+                            ("claimed".into(), Some(claimed[0].clone())),
+                            "Task {change} cannot invalidate accepted work"
+                        );
+                        fixture.stop_run(&claimed[0]);
+                        let next =
+                            claim_waiting_delivery_batches(&mut fixture.database, 1).unwrap();
+                        assert_eq!(next.len(), 1);
                         let input: String = fixture
                             .database
                             .connection()
                             .query_row(
                                 "SELECT message_id FROM agent_run_input WHERE agent_run_id=?1",
-                                [&claimed[0]],
+                                [&next[0]],
                                 |r| r.get(0),
                             )
                             .unwrap();
-                        assert_eq!(
-                            input, ordinary,
-                            "expired {change} continuation must not claim old business input"
-                        );
-                        let state: (String, Option<String>, Option<String>) = fixture.database.connection().query_row(
-                            "SELECT status,failure_code,claimed_agent_run_id FROM camp_message_delivery WHERE id=?1", [&delivery],
-                            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                        ).unwrap();
-                        assert_eq!(
-                            state,
-                            (
-                                "cancelled".into(),
-                                Some("agent_run.continuation_unavailable".into()),
-                                None
-                            )
-                        );
+                        assert_eq!(input, ordinary);
                     } else {
+                        crate::task_capability::set(fixture.database.connection(), false).unwrap();
                         let result = continue_agent_run(&mut fixture.database, &command).unwrap();
                         assert_eq!(
-                            result.result.code, "agent_run.continuation_unavailable",
+                            result.result.code, "agent_run.continuation_requested",
                             "{change}, agent_send={agent_send}"
                         );
-                        assert!(
+                        assert_eq!(
                             claim_waiting_delivery_batches(&mut fixture.database, 1)
                                 .unwrap()
-                                .is_empty()
+                                .len(),
+                            1
                         );
                     }
                     let event_task: Option<String> = fixture.database.connection().query_row(
                         "SELECT json_extract(payload_json,'$.taskId') FROM event_log WHERE entity_type='camp_message' AND entity_id=?1 AND event_type='camp_message.sent'",
                         [&first_message], |r| r.get(0),
                     ).unwrap();
-                    assert_eq!(event_task.as_deref(), Some(tasks[0].as_str()));
+                    assert_eq!(event_task, None, "new Send never freezes a Task relation");
                     let unchanged = fixture
                         .database
                         .connection()

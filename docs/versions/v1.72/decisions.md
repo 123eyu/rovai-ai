@@ -1056,3 +1056,15 @@ Core 统一提供 UI 与发送前判断；当前成员配置不能替代已有 H
 启动连接暂未就绪不等于不支持插话。已明确目标且版本支持时沿用 Delivery 绑定意图，初始输入接受后
 再构建／投递；失败、停止不自动创建新任务。选择有界读取冻结程序缺失版本，避免旧发现缓存误挡新版本，
 读取失败仍保留普通运行。没有改用 Hook，也不引入独立核对服务、提示词、消息副本或新存储结构。
+
+<a id="v1-72-d50"></a>
+
+## V1.72-D50：Task 以实例能力退出默认工作流，执行保持可用
+
+状态：accepted；确认：User 2026-10-17 消息 fd9bee73-2ea8-4798-9d3d-dbb9ca067963，R4。
+
+Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此默认关闭业务能力，保留历史，只在调用时校验；不采用忙时拒绝切换或中止既有执行。Bootstrap、Send、Skill 统一一套教学，Task 只在局部发现与动态 section 受控，避免双套配置漂移。
+
+数字键位按真实入口顺序一次迁移，其他冲突键清空、非冲突偏好保留；迁移失败以内存新映射维持可用，再显式重试落盘。代价是四个旧自定义键位会被覆盖，这是 User 明确选择的升级行为。
+
+当前规范：[Task v6](../../contracts/durable-task-v6.md)、[Transport v42](../../contracts/builtin-tool-transport-v42.md)、[Manifest v40/v41](../../contracts/context-manifest-evidence-v40.md)、[Shortcuts v2](../../contracts/desktop-shortcuts-v2.md)。逐项输入对照与实施状态见 [R4](model-context-change-task-capability.md)。

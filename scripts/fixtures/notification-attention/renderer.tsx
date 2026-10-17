@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client'
 import type { NotificationEpisodeChange, NotificationEpisodeView, NotificationSemantic, NotificationActionView } from '@contracts'
 import { NotificationSettings } from '../../../apps/desktop/src/renderer/src/NotificationSettings'
 import { NotificationAttentionController } from '../../../apps/desktop/src/renderer/src/NotificationAttentionController'
+import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
+import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
 import type { VisibleNotificationSources } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
 let attentive = true
+let tasksEnabled = true
 Object.defineProperty(document, 'hasFocus', { value: () => attentive })
 const listeners = new Set<(event: { method: string }) => void>()
 const journal: NotificationEpisodeChange[] = []
@@ -22,6 +25,7 @@ const read = () => ({ threadId: 'camp-other', surfaceVisible: true, snapshotSequ
   messageIds: [], campTurnIds: [], agentRunIds: [], approvalIds: [] })
 Object.assign(window, { rovai: {
   request: async (method: string, request: any) => {
+    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled }
     if (method === 'notifications.preference.get') return preference
     if (method === 'notifications.preference.update') {
       if (failPreferenceSave) { failPreferenceSave = false; throw new Error('测试保存失败') }
@@ -43,12 +47,13 @@ Object.assign(window, { rovai: {
 }})
 function admit(semantic: NotificationSemantic, privateId: string | null = null, episodeId = `episode-${sequence + 1}`, agentDisplayName = '洛克') {
   const n = ++sequence
-  const action: NotificationActionView = { actionId: `action-${n}`, kind: privateId ? 'open_single_chat' : semantic === 'approval_pending' ? 'open_approval' : 'open_camp_turn',
+  const action: NotificationActionView = { actionId: `action-${n}`, kind: privateId ? 'open_single_chat' : semantic === 'task_status_changed' ? 'open_task' : semantic === 'approval_pending' ? 'open_approval' : 'open_camp_turn',
     available: true, threadId: 'camp-target', threadTurnId: 'turn-target', agentRunId: null, messageId: null,
     approvalId: semantic === 'approval_pending' ? `approval-${n}` : null,
     acknowledgementId: `occurrence-${n}`, observedEpisodeVersion: n,
+    ...(semantic === 'task_status_changed' ? { subject: { kind: 'task' as const, id: 'retained-task', title: '验收任务', status: 'blocked', sourceMessageId: null } } : {}),
     singleChat: privateId ? { conversationId: privateId, agentId: 'agent-1', agentDisplayName, agentRunId: 'private-run' } : null }
-  const episode: NotificationEpisodeView = { id: episodeId, kind: semantic === 'approval_pending' ? 'approval' : 'collaboration',
+  const episode: NotificationEpisodeView = { id: episodeId, kind: semantic === 'task_status_changed' ? 'task' : semantic === 'approval_pending' ? 'approval' : 'collaboration',
     episodeVersion: n, attentionRevision: n, changeSequence: n,
     thread: { id: 'camp-target', title: '通知交互与单聊来源定位方案'.repeat(3) }, threadTurnId: 'turn-target', agentRunId: null,
     primarySemantic: semantic, unread: true, resolved: false, satisfied: false, pendingApprovalCount: 0, mentionCount: 0,
@@ -69,11 +74,12 @@ function Fixture() {
       visibleSources={sources?.conversationId ? null : sources} singleChatSources={sources?.conversationId ? sources : null}
       onNavigate={async (_episode, action) => { navigations.push(action); return { status: 'navigated' } }}
       onPresentNavigation={async () => true} onCancelNavigation={() => undefined}
-      onRefreshVisibleCamp={async () => false} onError={message => { throw new Error(message) }} />
+      onRefreshVisibleThread={async () => false} onError={message => { throw new Error(message) }} />
   </main>
 }
 Object.assign(window, { notificationTest: {
   admit,
+  tasks: (enabled: boolean) => { tasksEnabled = enabled; listeners.forEach(callback => callback({ method: 'preferences.tasks_changed' })) },
   settings: (visible: boolean) => showSettings(visible),
   preference: () => preference,
   failPreferenceSave: () => { failPreferenceSave = true },
@@ -90,4 +96,4 @@ Object.assign(window, { notificationTest: {
     width: node.getBoundingClientRect().width, summary: node.classList.contains('notification-heads-up-summary') })),
     acknowledgements, navigations, focused: (document.activeElement as HTMLElement)?.id, overflow: document.documentElement.scrollWidth > innerWidth })
 }})
-createRoot(document.getElementById('root')!).render(<Fixture />)
+createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={desktopThreadClient}><Fixture /></ThreadClientProvider>)

@@ -662,6 +662,7 @@ impl NotificationEpisodeService {
                    cleared_through_attention_revision, changed_at
             FROM notification_change_journal
             WHERE change_sequence > ?1 AND change_sequence <= ?2
+              AND (?4 OR NOT EXISTS(SELECT 1 FROM notification_episode e WHERE e.id=notification_change_journal.episode_id AND e.kind='task'))
             ORDER BY change_sequence ASC
             LIMIT ?3
             "#,
@@ -670,7 +671,8 @@ impl NotificationEpisodeService {
             params![
                 after_change_sequence,
                 through_change_sequence,
-                (limit + 1) as i64
+                (limit + 1) as i64,
+                crate::task_capability::enabled(&transaction)?
             ],
             raw_change_from_row,
         )?;
@@ -1317,6 +1319,7 @@ fn unread_episode_count(
         JOIN notification_episode_disposition AS episode_disposition
           ON episode_disposition.episode_id = episode.id
         WHERE episode.recipient_user_id = ?1
+          AND (?3 OR episode.kind <> 'task')
           AND episode.created_change_sequence <= ?2
           AND episode.attention_revision
               > episode_disposition.cleared_through_attention_revision
@@ -1337,7 +1340,11 @@ fn unread_episode_count(
                 )
           )
         "#,
-            params![recipient_user_id, through_change_sequence],
+            params![
+                recipient_user_id,
+                through_change_sequence,
+                crate::task_capability::enabled(connection)?
+            ],
             |row| row.get(0),
         )
         .context("failed to count unread Notification Episodes")
@@ -1435,6 +1442,7 @@ fn load_episode_page(
             LEFT JOIN channel_conversation
               ON channel_conversation.id = channel_binding.channel_conversation_id
             WHERE episode.recipient_user_id = :recipient
+              AND (:tasks_enabled OR episode.kind <> 'task')
               AND episode.created_change_sequence <= :through
               AND episode.attention_revision
                   > episode_disposition.cleared_through_attention_revision
@@ -1478,6 +1486,7 @@ fn load_episode_page(
     let rows = statement.query_map(
         named_params! {
             ":recipient": recipient_user_id,
+            ":tasks_enabled": crate::task_capability::enabled(transaction)?,
             ":through": through_change_sequence,
             ":filter": filter.as_str(),
             ":cursor_priority": cursor_priority,
@@ -1536,10 +1545,15 @@ fn load_raw_episode_by_id(
             LEFT JOIN channel_conversation
               ON channel_conversation.id = channel_binding.channel_conversation_id
             WHERE episode.id = ?1 AND episode.recipient_user_id = ?2
+              AND (?3 OR episode.kind <> 'task')
               AND episode.attention_revision
                   > disposition.cleared_through_attention_revision
             "#,
-            params![episode_id, recipient_user_id],
+            params![
+                episode_id,
+                recipient_user_id,
+                crate::task_capability::enabled(connection)?
+            ],
             raw_episode_from_row,
         )
         .optional()
@@ -2955,6 +2969,89 @@ mod slow_tests {
                 .is_err(),
             "a cursor must not be reused across filters"
         );
+
+        // A hidden Task must not consume a page slot or contribute to counts.
+        // The same owner also checks admission and the filtered journal cursor.
+        crate::task_capability::set(database.connection(), true).unwrap();
+        let record_task = |database: &mut Database, id: &str| {
+            let tx = database.connection_mut().transaction().unwrap();
+            record_status_transition(
+                &tx,
+                &ActorRef::System {
+                    component_id: "notification-test".into(),
+                },
+                StatusTransition {
+                    kind: "task",
+                    id,
+                    camp_id: "camp-page-a",
+                    status: "completed",
+                    source_message_id: None,
+                },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        };
+        record_task(&mut database, "task-before-off");
+        let visible = service
+            .inbox(
+                &mut database,
+                CURRENT_USER_ID,
+                NotificationEpisodeFilter::All,
+                None,
+                10,
+            )
+            .unwrap();
+        assert_eq!(visible.items.len(), 4);
+        assert_eq!(visible.unread_count, 4);
+        crate::task_capability::set(database.connection(), false).unwrap();
+        record_task(&mut database, "task-while-off");
+        let hidden = service
+            .inbox(
+                &mut database,
+                CURRENT_USER_ID,
+                NotificationEpisodeFilter::All,
+                None,
+                1,
+            )
+            .unwrap();
+        assert_eq!(hidden.items.len(), 1);
+        assert_ne!(hidden.items[0].kind, NotificationEpisodeKind::Task);
+        assert_eq!(hidden.unread_count, 3);
+        assert!(hidden.next_cursor.is_some());
+        let changes = service
+            .changes_since(
+                &mut database,
+                CURRENT_USER_ID,
+                first_page.through_change_sequence,
+                100,
+            )
+            .unwrap();
+        assert!(changes.changes.iter().all(|change| {
+            change
+                .episode
+                .as_ref()
+                .is_none_or(|episode| episode.kind != NotificationEpisodeKind::Task)
+        }));
+        assert_eq!(
+            changes.next_change_sequence,
+            changes.through_change_sequence
+        );
+        crate::task_capability::set(database.connection(), true).unwrap();
+        let restored = service
+            .inbox(
+                &mut database,
+                CURRENT_USER_ID,
+                NotificationEpisodeFilter::All,
+                None,
+                10,
+            )
+            .unwrap();
+        assert_eq!(
+            restored.items.len(),
+            4,
+            "off admission must not leave a new occurrence to replay"
+        );
+        assert_eq!(restored.unread_count, 4);
 
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();

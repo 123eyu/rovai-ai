@@ -1,3 +1,4 @@
+import { useTaskCapability } from './TaskCapabilityProvider'
 import { ShortcutSettings } from './ShortcutSettings'
 import { useShortcutAction } from './ShortcutProvider'
 import { AppToast, type AppToastValue } from './AppToast'
@@ -475,7 +476,8 @@ export function campOpenProjectionAsSnapshot(
     thread: projection.thread,
     members: projection.members,
     membershipReconciliations: projection.membershipReconciliations,
-    tasks: projection.tasks,
+    tasksEnabled: projection.tasksEnabled,
+    ...(projection.tasks ? { tasks: projection.tasks } : {}),
     memberCreations: projection.memberCreations ?? [],
     messages,
     messageDeliveries: projection.messageDeliveries,
@@ -998,6 +1000,9 @@ export function BusinessApp({
   initialStartupSnapshot?: DesktopStartupSnapshot
   startupStartedAtMs?: number
 }): React.JSX.Element {
+  const taskCapability = useTaskCapability()
+  const taskCapabilityRef = useRef(taskCapability.enabled)
+  taskCapabilityRef.current = taskCapability.enabled
   const { client, preferences: uiPreferences, desktop } = environment
   const userAnchorNavigationFor = useThreadUserAnchorCache(client)
   const interfaceLanguage = useInterfaceLanguage()
@@ -1209,6 +1214,11 @@ export function BusinessApp({
     entryPreview = false,
     initialComposerDraft: ThreadComposerDraftView | null = null
   ): void => {
+    if (snapshot && !taskCapabilityRef.current) {
+      const { tasks: _tasks, ...rest } = snapshot
+      const { tasks: _coverage, ...coverage } = snapshot.openCoverage ?? {}
+      snapshot = { ...rest, tasksEnabled: false, ...(snapshot.openCoverage ? { openCoverage: coverage as typeof snapshot.openCoverage } : {}) }
+    }
     campSnapshotRef.current = snapshot
     campSnapshotEntryPreviewRef.current = entryPreview
     if (snapshot) rememberThreadSnapshot(campSnapshotCache.current, snapshot)
@@ -1374,7 +1384,7 @@ export function BusinessApp({
           command: { threadId }
         })
       : await requestAuthoritativeThreadOpenProjection(client, threadId, traceId)
-    if (projection.schemaVersion !== 8) throw new Error(uiAttribute('会话打开数据版本不兼容。'))
+    if (projection.schemaVersion !== 9) throw new Error(uiAttribute('会话打开数据版本不兼容。'))
     const receivedAt = performance.now()
     console.info(
       `[camp-open] trace=${traceId} stage=renderer_received method=${method} `
@@ -1966,6 +1976,20 @@ export function BusinessApp({
     (threadId: string): Promise<void> => activeThreadRefreshCoordinator.refresh(threadId),
     [activeThreadRefreshCoordinator]
   )
+
+  useEffect(() => {
+    if (!taskCapability.enabled) {
+      campSnapshotCache.current.clear()
+      if (campSnapshotRef.current) setThreadSnapshot(campSnapshotRef.current, campSnapshotEntryPreviewRef.current, campSnapshotState.initialComposerDraft)
+      if (campInspectorTab === 'tasks') setThreadInspectorThreadId(null)
+      if (notificationFocusRef.current?.kind === 'task') {
+        notificationPresentationRef.current?.cancel()
+        setNotificationFocus(null)
+      }
+    }
+    if (!taskCapability.ready || !activeThreadId) return
+    void refreshActiveThreadSnapshot(activeThreadId).catch(() => undefined)
+  }, [taskCapability.enabled, taskCapability.ready, activeThreadId, refreshActiveThreadSnapshot])
 
   const loadEarlierThreadMessages = useCallback(async (): Promise<void> => {
     const requestedSnapshot = campSnapshotRef.current
@@ -3116,17 +3140,17 @@ export function BusinessApp({
           }
         }
         let anchoredTasks: readonly import('@contracts').TaskView[] = []
-        if (action.kind === 'open_mission' || action.kind === 'open_task') {
+        if (action.kind === 'open_mission' || (action.kind === 'open_task' && taskCapabilityRef.current)) {
           const source = action.subject
           if (!source || source.kind !== (action.kind === 'open_mission' ? 'mission' : 'task')) {
             throw new Error(uiAttribute('通知缺少原始事项标识。'))
           }
           const snapshot = await client.request<ThreadSnapshot>('threads.snapshot', { threadId: action.threadId })
           if (snapshot.thread.id !== action.threadId
-            || (source.kind === 'mission' ? snapshot.thread.missionId !== source.id : !snapshot.tasks.some(task => task.taskId === source.id))) {
+            || (source.kind === 'mission' ? snapshot.thread.missionId !== source.id : taskCapabilityRef.current && snapshot.tasksEnabled && !(snapshot.tasks ?? []).some(task => task.taskId === source.id))) {
             throw new Error(uiAttribute('原事项已删除或暂时不可用。'))
           }
-          if (source.kind === 'task') anchoredTasks = snapshot.tasks.filter(task => task.taskId === source.id)
+          if (source.kind === 'task' && taskCapabilityRef.current) anchoredTasks = (snapshot.tasks ?? []).filter(task => task.taskId === source.id)
         }
         let anchoredMessages: readonly ThreadMessageView[] = []
         let anchoredAgentRuns: readonly AgentRunView[] = []
@@ -3183,7 +3207,7 @@ export function BusinessApp({
           }
           anchoredAgentRuns = [run]
         }
-        const target: NotificationFocusTarget | null = (action.kind === 'open_mission' || action.kind === 'open_task') && action.subject
+        const target: NotificationFocusTarget | null = (action.kind === 'open_mission' || (action.kind === 'open_task' && taskCapabilityRef.current)) && action.subject
           ? { requestId: ++notificationFocusSequence.current, kind: action.subject.kind === 'mission' ? 'mission' : 'task', subjectId: action.subject.id, threadTurnId: null }
           : action.kind === 'open_single_chat' && action.singleChat
           ? { requestId: ++notificationFocusSequence.current, kind: 'single_chat',
@@ -3275,7 +3299,7 @@ export function BusinessApp({
     action: NotificationActionView
   ): Promise<boolean> => {
     if (activeThreadIdRef.current !== action.threadId || viewRef.current !== 'camp') return false
-    if (action.kind === 'open_camp') return true
+    if (action.kind === 'open_camp' || (action.kind === 'open_task' && !taskCapabilityRef.current)) return true
     const focus = notificationFocusRef.current
     if (!focus || !notificationFocusMatchesAction(focus, action)) return false
     const coordinator = notificationPresentationRef.current
@@ -3284,7 +3308,9 @@ export function BusinessApp({
     setNotificationFocus((current) => current?.requestId === focus.requestId
       ? { ...current, active: true }
       : current)
-    return presentation
+    const presented = await presentation
+    return presented || (action.kind === 'open_task' && !taskCapabilityRef.current
+      && activeThreadIdRef.current === action.threadId && viewRef.current === 'camp')
   }, [])
 
   const completeNotificationNavigation = useCallback((requestId: number): void => {
@@ -4931,8 +4957,8 @@ export function campSnapshotWithCurrentAnchor(
 ): ThreadSnapshot {
   if (anchor?.threadId !== threadId) return snapshot
   let withTasks = snapshot
-  if (anchor.tasks?.length) {
-    const tasks = new Map(snapshot.tasks.map(task => [task.taskId, task]))
+  if (snapshot.tasksEnabled && anchor.tasks?.length) {
+    const tasks = new Map((snapshot.tasks ?? []).map(task => [task.taskId, task]))
     for (const task of anchor.tasks) {
       if (!tasks.has(task.taskId)) tasks.set(task.taskId, task)
     }

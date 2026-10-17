@@ -3,10 +3,18 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-15
+last_updated: 2026-10-17
 ---
 
 # v1.72 实施与验收
+
+## 会话 Task 能力开关
+
+R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前后对照、兼容和 worktree 记录见
+[独立变更说明](model-context-change-task-capability.md)，界面依据见
+[设计稿](../../research/task-capability-ui.md)。默认关闭实例级 Task 能力；Send 与会话执行解耦，
+界面入口采用执行／队员／单聊／任务，数字快捷键一次性迁移为 1–4。
+功能、隔离 App 验证与回归结果见[实施与验证记录](task-capability-implementation.md)。两侧合同检查通过；真实场景均在 Runtime 预检受阻，且 Judge 不可用，Gate 为证据不足。
 
 ## Steer 入队回执与阻塞工具核验（2026-10-15）
 

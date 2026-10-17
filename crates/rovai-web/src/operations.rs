@@ -36,6 +36,10 @@ pub enum Operation {
     #[serde(rename = "missions.linkPr")]
     MissionLinkPr,
 
+    #[serde(rename = "preferences.tasks.get")]
+    TasksGet,
+    #[serde(rename = "preferences.tasks.set")]
+    TasksSet,
     #[serde(rename = "preferences.newConversation.get")]
     NewConversationGet,
     #[serde(rename = "preferences.newConversation.setDefaults")]
@@ -418,6 +422,8 @@ impl Operation {
 
     pub fn method(self) -> &'static str {
         match self {
+            Self::TasksGet => "preferences.tasks.get",
+            Self::TasksSet => "preferences.tasks.set",
             Self::NewConversationGet => "preferences.newConversation.get",
             Self::NewConversationSetDefaults => "preferences.newConversation.setDefaults",
             Self::NewConversationSetOneClick => "preferences.newConversation.setOneClick",

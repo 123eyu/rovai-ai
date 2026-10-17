@@ -877,8 +877,8 @@ const MemberEditor = forwardRef<
                   <AppDialogFactGrid>
                     <AppDialogFact label={uiAttribute("当前会话")}>
                       {removal.preview.currentThreadMembershipCount}<UiText zh={" 个"} /></AppDialogFact>
-                    <AppDialogFact label={uiAttribute("未完成任务")}>
-                      {removal.preview.openAssignedTaskCount}<UiText zh={" 个将释放"} /></AppDialogFact>
+                    {removal.preview.openAssignedTaskCount !== undefined && <AppDialogFact label={uiAttribute("未完成任务")}>
+                      {removal.preview.openAssignedTaskCount}<UiText zh={" 个将释放"} /></AppDialogFact>}
                     <AppDialogFact label={uiAttribute("会话将变空")}>
                       {removal.preview.soleMemberThreadCount}<UiText zh={" 个"} /></AppDialogFact>
                   </AppDialogFactGrid>

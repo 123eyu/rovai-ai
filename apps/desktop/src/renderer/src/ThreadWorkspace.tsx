@@ -1,3 +1,4 @@
+import { useTaskCapability } from './TaskCapabilityProvider'
 import { RunInputRow, RunInputSourceContext } from './RunInputRow'
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
@@ -1054,9 +1055,9 @@ function emptyThreadStarters(): FirstRunThreadStarter[] {
     prompt: uiAttribute('先了解当前项目结构，再告诉我最值得优先处理的三件事。')
   },
   {
-    title: uiAttribute('整理成任务'),
+    title: uiAttribute('梳理步骤'),
     body: uiAttribute('把目标拆分为负责人、顺序和验收点。'),
-    prompt: uiAttribute('把这次改动拆成可执行的任务，并标出需要我决策的部分。')
+    prompt: uiAttribute('把这次改动拆成可执行的步骤，并标出需要我决策的部分。')
   },
   {
     title: uiAttribute('检查工作区'),
@@ -1741,6 +1742,9 @@ export function ThreadWorkspace({
   onNotify?(message: string): void
   onNotifyError?(message: string): void
 }): JSX.Element {
+  const taskCapability = useTaskCapability()
+  const tasksEnabled = taskCapability.enabled && snapshot.tasksEnabled
+  const taskFocusWasRemoved = !tasksEnabled && typeof document !== 'undefined' && !!document.activeElement?.closest('.task-panel-scroll, .camp-detail-entry[data-detail="tasks"], .task-editor-dialog, .task-cancel-dialog')
   const client = useThreadClient()
   const interfaceLanguage = useInterfaceLanguage()
   const { profile: currentUserProfile } = useCurrentUserProfile()
@@ -2077,6 +2081,13 @@ export function ThreadWorkspace({
   }, [mobile, singleChatVisible, inspectorVisible, inspectorSurfaceTab])
   const [taskCreationActive, setTaskCreationActive] = useState(false)
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    if (tasksEnabled) return
+    setFocusedTaskId(null)
+    if (inspectorVisible && inspectorSurfaceTab === 'tasks') onCloseInspector()
+    if (taskFocusWasRemoved) composerHandleRef.current?.focus()
+  }, [tasksEnabled, inspectorVisible, inspectorSurfaceTab, onCloseInspector, taskFocusWasRemoved])
+
   const [taskFocusRequest, setTaskFocusRequest] = useState(0)
   const [earlierMessageStatus, setEarlierMessageStatus] = useState<
     'idle' | 'loading' | 'error'
@@ -2490,7 +2501,7 @@ export function ThreadWorkspace({
       visibleThreadMessages,
       snapshot.turns,
       snapshot.agentRuns,
-      snapshot.tasks,
+      tasksEnabled ? snapshot.tasks ?? [] : [],
       snapshot.agentRunFileChanges,
       snapshot.agentRunImages,
       snapshot.memberCreations
@@ -2498,6 +2509,7 @@ export function ThreadWorkspace({
     [
       snapshot.agentRuns,
       snapshot.tasks,
+      tasksEnabled,
       snapshot.turns,
       snapshot.agentRunFileChanges,
       snapshot.agentRunImages,
@@ -3501,6 +3513,7 @@ export function ThreadWorkspace({
     if (!notificationFocus?.active || ['approval', 'single_chat'].includes(notificationFocus.kind)) return
     setConversationView('conversation')
     if (notificationFocus.kind === 'task' && notificationFocus.subjectId) {
+      if (!tasksEnabled) return
       setFocusedTaskId(notificationFocus.subjectId)
       setTaskFocusRequest(notificationFocus.requestId)
       openInspector('tasks')
@@ -4402,6 +4415,7 @@ export function ThreadWorkspace({
   }
 
   const selectInspectorSurfaceTab = (tab: ThreadInspectorSurfaceTab): void => {
+    if (tab === 'tasks' && !tasksEnabled) return
     if (tab === 'execution') {
       setExecutionInspectorActive(true)
       restoreExecutionReadingPositionAfterLayout(executionReadingPosition.current)
@@ -4429,6 +4443,7 @@ export function ThreadWorkspace({
   }
 
   const openInspector = (tab: ThreadInspectorTab): void => {
+    if (tab === 'tasks' && !tasksEnabled) return
     setExecutionInspectorActive(false)
     selectInspectorTab(tab)
     onOpenInspector?.(tab)
@@ -4829,7 +4844,7 @@ export function ThreadWorkspace({
     }
   })
   useShortcutAction('tasks', () => {
-    if (!workspaceAvailable()) return false
+    if (!tasksEnabled || !workspaceAvailable()) return false
     if (inspectorVisible && inspectorSurfaceTab === 'tasks') onCloseInspector()
     else openInspector('tasks')
   })
@@ -5697,7 +5712,8 @@ export function ThreadWorkspace({
               onToggleMobileExecutionMaximized={mobile ? () => setMobileExecutionMaximized((expanded) => !expanded) : undefined}
               runningMembers={runningMembers}
               executionCount={executionProcesses.length}
-              taskCount={openCoverage?.tasks.totalCount ?? snapshot.tasks.length}
+              tasksEnabled={tasksEnabled}
+              taskCount={openCoverage?.tasks?.totalCount ?? (snapshot.tasks ?? []).length}
               memberCount={campInspectorMembers(snapshot.members).length}
               singleChatVisible={singleChatVisible}
               onOpenSingleChat={onOpenSingleChat}
@@ -5706,6 +5722,7 @@ export function ThreadWorkspace({
                 filePreview.openMissionActivity(snapshot.thread.missionId!)
               } : undefined}
               onOpen={(tab) => {
+                if (tab === 'tasks' && !tasksEnabled) return
                 if (tab === 'execution' && executionPlacement === 'right') {
                   onCloseInspector()
                   if (executionDrawerAgentId === null) openExecutionOverview(null, false)
@@ -5761,7 +5778,7 @@ export function ThreadWorkspace({
                 )}
               </div>
             </section>
-            <section className="camp-detail-content tab-scroll task-panel-scroll" hidden={inspectorSurfaceTab !== 'tasks'}>
+            {tasksEnabled && <section className="camp-detail-content tab-scroll task-panel-scroll" hidden={inspectorSurfaceTab !== 'tasks'}>
               <TaskPanel
                 snapshot={snapshot}
                 coverage={openCoverage?.tasks ?? null}
@@ -5772,7 +5789,7 @@ export function ThreadWorkspace({
                 onOpenAgent={openExecutionProcess}
                 onCreateModeChange={setTaskCreationActive}
               />
-            </section>
+            </section>}
             <section className="camp-detail-content tab-scroll camp-members-panel" hidden={inspectorSurfaceTab !== 'members'}>
               <ThreadMembersPanel key={snapshot.thread.id}
                 addDialogOpen={memberInvitationThreadId === snapshot.thread.id}
@@ -6149,7 +6166,7 @@ export function ThreadWorkspace({
                 ? uiAttribute("输入框暂不可用")
                 : isThreadEmpty
                   ? uiAttribute("集结队伍，写下这次冒险的目标…")
-                  : uiAttribute("和队伍继续前行：补充线索、调整方向或布置新任务…")}
+                  : uiAttribute("和队伍继续前行：补充线索或调整方向…")}
               disabled={composerInteractionDisabled}
               editorRef={composerEditorRef}
               onActivateMemberMention={(member, trigger, focusPanel) =>
@@ -8636,7 +8653,7 @@ function ThreadMembersPanel({
     : 0
   const removalHasActualImpact = Boolean(removalPreview && (
     removalPreview.nonTerminalAgentRunCount > 0
-    || removalPreview.openAssignedTaskCount > 0
+    || (removalPreview.openAssignedTaskCount ?? 0) > 0
     || removalDeliveryCount > 0
     || removalPreview.isDefaultLead
     || removalPreview.remainingMemberCount === 0
@@ -8932,7 +8949,7 @@ function ThreadMembersPanel({
                           <AppDialogImpact tone="warning" icon="bolt" label={uiAttribute("已开始的执行")}>
                             {removalPreview.nonTerminalAgentRunCount}<UiText zh={" 个执行将停止接收新写入，并在后台收拢。"} /></AppDialogImpact>
                         )}
-                        {removalPreview.openAssignedTaskCount > 0 && (
+                        {(removalPreview.openAssignedTaskCount ?? 0) > 0 && (
                           <AppDialogImpact tone="warning" icon="keep" label={uiAttribute("未完成任务")}>
                             {removalPreview.openAssignedTaskCount}<UiText zh={" 个任务将释放负责人，回到待分配状态。"} /></AppDialogImpact>
                         )}
@@ -11075,13 +11092,13 @@ export function TaskPanel({
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const selectedTask = selectedTaskId
-    ? snapshot.tasks.find((task) => task.taskId === selectedTaskId) ?? null
+    ? (snapshot.tasks ?? []).find((task) => task.taskId === selectedTaskId) ?? null
     : null
   const detailTask = detailTaskId
-    ? snapshot.tasks.find((task) => task.taskId === detailTaskId) ?? null
+    ? (snapshot.tasks ?? []).find((task) => task.taskId === detailTaskId) ?? null
     : null
-  const visibleTasks = snapshot.tasks.filter((task) => statusFilter === 'all' || task.status === statusFilter)
-  const openTaskCount = snapshot.tasks.filter((task) => task.status !== 'completed' && task.status !== 'cancelled').length
+  const visibleTasks = (snapshot.tasks ?? []).filter((task) => statusFilter === 'all' || task.status === statusFilter)
+  const openTaskCount = (snapshot.tasks ?? []).filter((task) => task.status !== 'completed' && task.status !== 'cancelled').length
   const activeMembers = snapshot.members.filter((member) =>
     member.membershipStatus === 'active' && member.leaveRequestedAt === null)
 
@@ -11152,7 +11169,7 @@ export function TaskPanel({
 
   useEffect(() => {
     if (!focusTaskId || focusRequest === 0) return
-    const task = snapshot.tasks.find((candidate) => candidate.taskId === focusTaskId)
+    const task = (snapshot.tasks ?? []).find((candidate) => candidate.taskId === focusTaskId)
     if (task) {
       setDetailTaskId(task.taskId)
     } else {
@@ -11298,7 +11315,7 @@ export function TaskPanel({
     <div className="task-panel">
       {!detailTask && <>
         <div className="task-action-row">
-          <span className="task-list-summary">{openTaskCount > 0 ? uiAttribute("{0} 项未完成", String(openTaskCount)) : uiAttribute("{0} 项任务", String(snapshot.tasks.length))}</span>
+          <span className="task-list-summary">{openTaskCount > 0 ? uiAttribute("{0} 项未完成", String(openTaskCount)) : uiAttribute("{0} 项任务", String((snapshot.tasks ?? []).length))}</span>
           <select
             className="task-status-filter"
             aria-label={uiAttribute("筛选任务状态")}
@@ -11334,7 +11351,7 @@ export function TaskPanel({
               <svg className="task-list-chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="m6 4 4 4-4 4" /></svg>
             </button>
           ))}
-          {visibleTasks.length === 0 && <p className="task-empty">{snapshot.tasks.length === 0 ? uiAttribute("暂无任务") : uiAttribute("没有符合筛选条件的任务")}</p>}
+          {visibleTasks.length === 0 && <p className="task-empty">{(snapshot.tasks ?? []).length === 0 ? uiAttribute("暂无任务") : uiAttribute("没有符合筛选条件的任务")}</p>}
         </div>
       </>}
 

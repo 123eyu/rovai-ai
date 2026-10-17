@@ -1565,3 +1565,28 @@ Rust 复用原 owner 并保持所有仍有效的保护：
 `failed_session_replacement`、`uncertain_input_acknowledgement`、`session_header_scan`、`manual_native_session_restart`。
 PR 默认层仍为 `cargo test --workspace`；Renderer 复用 `SingleChatPanel.test.ts`、`App.test.ts` 与 typecheck。
 不新增真实模型调用、常驻验证进程或永久禁用测试。
+
+
+## 会话 Task 开关的合同 owner（2026-10-17）
+
+复用既有 Rust owner，不新增独立 Rust fixture：`lightweight_task_updates_submitted_fields_and_is_terminal`
+扩展默认关闭、旧记录禁读写、精确回执重放、重开、升级数据/冻结证据保留与迁移故障回滚；
+`self_active_tasks_are_compact_bounded_and_frozen_in_input` 与空快照 owner 分别覆盖冻结选择不变、关闭时整节缺席。
+`continuation_rechecks_scope_and_selects_safe_session_at_claim` 保留目标和 Session 栅栏，但 Task 变更不再使等待/续做失败。
+原 Task 推导接收者 owner 改名为 `legacy_task_link_is_ignored_without_changing_explicit_recipients`：
+新 Send 的关联和接收者推导已由 Send v28 退役，显式接收者、消息授权与 raw input 幂等身份仍保留。
+原始 requestId/digest 冲突由既有 `lease_rotates_fences_and_replays_exact_request` owner 验证；
+领域 commandId 仍沿用首次结果重放，不能将运输层的摘要比较强加到领域网关。
+通知 inbox/cursor owner 扩展任务关闭时的 SQL 分页、未读数、变化水位与重新开启断言。
+数据库当前准入和 Steer 升级 owner 更新到 schema 155，继续检查保留的输入唯一性与迁移回滚；
+历史夹具的降级只用于测试，生产迁移不修改旧输入字节。
+Pending invitation owner 将旧 `execution.taskId` 从拒绝分支移到成功发送分支，验证未知旧 Task
+不会阻断首次发布/邀请，且不建立关联；无效回复、权限拒绝和事务回滚断言保留。
+`user_continuation_preserves_source_and_claims_independent_fifo_batches` 在原输入冻结后显式开启 Task，
+继续验证新 claim 选择当前任务、原输入不变、独立 FIFO 与完整历史读取。
+CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`pnpm test:send-input-file` 的唯一进程 owner
+增加缺失/损坏/旧版/未来版/无 lease 投影、关闭错误和帮助零 IPC。普通 Rust/Renderer 通过不能替代该进程检查。
+
+最小定向命令为 `cargo test -p rovai-core --lib --features slow-tests,extended-tests task`、
+`cargo test -p rovai-core --lib --features slow-tests,extended-tests continuation_rechecks_scope_and_selects_safe_session_at_claim`、
+`cargo test -p rovai-core --bin rovai` 和 `pnpm test:send-input-file`。

@@ -5917,7 +5917,7 @@ impl Core {
                         "requestId must be a UUID",
                     );
                 }
-                if builtin_tool_description(&operation).is_err() {
+                if builtin_tool_description(&operation, true).is_err() {
                     return BuiltinToolIpcResponse::ipc_error(
                         "builtin_tool.unknown_operation",
                         "Requested Built-in Tool operation is unavailable",
@@ -8877,6 +8877,34 @@ impl Core {
             "runtime.subsystems.retry" => {
                 self.initialize_optional_subsystems().await;
                 Ok(serde_json::to_value(self.subsystems.snapshot())?)
+            }
+            "preferences.tasks.get" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Empty {}
+                let _: Empty = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                Ok(json!({"enabled": rovai_core::task_capability::enabled(database.connection())?}))
+            }
+            "preferences.tasks.set" => {
+                let input: rovai_core::task_capability::TaskPreferences =
+                    serde_json::from_value(request.params.clone())?;
+                let changed = {
+                    let mut database = self.database.lock().await;
+                    let tx = database.connection_mut().transaction()?;
+                    let changed = rovai_core::task_capability::set(&tx, input.enabled)?;
+                    tx.commit()?;
+                    changed
+                };
+                if changed {
+                    emit(
+                        &self.output,
+                        "preferences.tasks_changed",
+                        json!({"enabled": input.enabled}),
+                    );
+                    self.refresh_task_discovery().await;
+                }
+                Ok(serde_json::to_value(input)?)
             }
             "preferences.newConversation.get"
             | "preferences.newConversation.initialize"
@@ -14717,6 +14745,24 @@ impl Core {
         self.builtin_tool_process_config_factory()?.create()
     }
 
+    async fn refresh_task_discovery(&self) {
+        let _gate = self.builtin_tool_leases.invocation_guard().await;
+        let enabled_runs = {
+            let database = self.database.lock().await;
+            (|| -> Result<HashSet<String>> {
+                if !rovai_core::task_capability::enabled(database.connection())? {
+                    return Ok(HashSet::new());
+                }
+                Ok(database.connection().prepare("SELECT id FROM agent_run WHERE invocation_kind <> 'single_chat' AND status IN ('queued','running','waiting')")?
+                    .query_map([], |row| row.get(0))?.collect::<rusqlite::Result<HashSet<String>>>()?)
+            })()
+        };
+        match enabled_runs {
+            Ok(enabled_runs) => self.builtin_tool_leases.refresh_tasks(&enabled_runs).await,
+            Err(error) => eprintln!("Task CLI capability read failed: {error:#}"),
+        }
+    }
+
     async fn bind_builtin_tool_runtime(
         &self,
         config: &BuiltinToolProcessConfig,
@@ -14732,6 +14778,7 @@ impl Core {
                 Path::new(&execution.workspace.execution_root),
             )
             .await?;
+        self.refresh_task_discovery().await;
         Ok(())
     }
 

@@ -1,10 +1,14 @@
 ---
 document_type: implementation-proposal
 authority: proposed-task-capability-design
-status: proposed
+status: confirmed
 revision: 4
-confirmation_status: pending
-implementation_status: not_started
+confirmation_status: confirmed
+confirmed_revision: 4
+confirmed_by: User
+confirmed_at: 2026-10-17
+confirmation_message_id: fd9bee73-2ea8-4798-9d3d-dbb9ca067963
+implementation_status: in_progress
 review_baseline: 81bb808c72721f67e2f07ead49fa4aca2ad64c02
 last_updated: 2026-10-17
 ---
@@ -17,7 +21,7 @@ Task 专用内容。Send 在所有状态下使用同一份不含 Task 关联的�
 开启后提供 Task 创建、查询和更新；关闭后包括已有 Task 在内均不可新读取或更新，仅保留记录供重新开启后管理。
 历史消息/审计、已提交回执与已冻结输入沿连续性规则保留，新消息不再建立 Task 关联。
 
-本稿是待审阅的 R4 提案，尚未修改实现、Schema 或当前合同。当前版本从
+本 R4 已获 User 实施授权；完整确认说明见 [当前版本变更说明](../versions/v1.72/model-context-change-task-capability.md)。当前版本从
 [版本索引](../versions/README.md)解析。后续确认实施时，将本稿确认过的完整模型输入对照和兼容规则
 纳入该版本独立的 `model-context-change-task-capability.md`，记录确认的 revision，再进行编码；
 本稿不代替[模型上下文变更治理](../development/model-context-change-governance.md)。

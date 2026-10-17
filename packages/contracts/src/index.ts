@@ -325,7 +325,7 @@ export interface MemberRemovalPreview {
   version: number
   nonTerminalAgentRunCount: number
   currentThreadMembershipCount: number
-  openAssignedTaskCount: number
+  openAssignedTaskCount?: number
   defaultLeadThreadCount: number
   soleMemberThreadCount: number
   affectedThreads: MemberRemovalThreadImpact[]
@@ -1144,7 +1144,7 @@ export interface ThreadMemberRemovalPreview {
   remainingMemberCount: number
   nextDefaultLeadAgentId: string | null
   nonTerminalAgentRunCount: number
-  openAssignedTaskCount: number
+  openAssignedTaskCount?: number
   pendingDeliveryCount: number
   runningDeliveryCount: number
   removable: boolean
@@ -2456,7 +2456,7 @@ export interface AgentRunImageContent {
   data: string
 }
 
-export const THREAD_SNAPSHOT_SCHEMA_VERSION = 35
+export const THREAD_SNAPSHOT_SCHEMA_VERSION = 36
 
 export interface ThreadSnapshot {
   schemaVersion: typeof THREAD_SNAPSHOT_SCHEMA_VERSION
@@ -2477,7 +2477,8 @@ export interface ThreadSnapshot {
   }
   members: ThreadMemberView[]
   membershipReconciliations: ThreadMembershipReconciliationView[]
-  tasks: TaskView[]
+  tasksEnabled: boolean
+  tasks?: TaskView[]
   memberCreations?: MemberCreationView[]
   messages: ThreadMessageView[]
   messageDeliveries: MessageDeliveryView[]
@@ -2506,12 +2507,13 @@ export interface ThreadOpenMessageCoverage extends ThreadOpenCollectionCoverage 
 }
 
 export interface ThreadOpenProjection {
-  schemaVersion: 8
+  schemaVersion: 9
   throughGlobalSequence: number
   thread: ThreadSnapshot['thread']
   members: ThreadMemberView[]
   membershipReconciliations: ThreadMembershipReconciliationView[]
-  tasks: TaskView[]
+  tasksEnabled: boolean
+  tasks?: TaskView[]
   memberCreations?: MemberCreationView[]
   messages: ThreadMessageView[]
   messageDeliveries: MessageDeliveryView[]
@@ -2522,7 +2524,7 @@ export interface ThreadOpenProjection {
   agentRunImages?: AgentRunImagesView[]
   approvals: ActionApprovalView[]
   coverage: {
-    tasks: ThreadOpenCollectionCoverage
+    tasks?: ThreadOpenCollectionCoverage
     messages: ThreadOpenMessageCoverage
     messageDeliveries: ThreadOpenCollectionCoverage
     turns: ThreadOpenCollectionCoverage
@@ -2560,6 +2562,7 @@ export interface ThreadMessageChange {
   throughGlobalSequence: number
 }
 export interface ThreadReadInvalidation {
+  tasksChanged?: boolean
   resync?: boolean
   messages?: ThreadMessageChange[]
 }
@@ -4102,6 +4105,8 @@ export interface UpdateAutomationCommand {
 }
 
 export type CoreMethod =
+  | 'preferences.tasks.get'
+  | 'preferences.tasks.set'
   | 'preferences.newConversation.get'
   | 'preferences.newConversation.setDefaults'
   | 'preferences.newConversation.setOneClick'

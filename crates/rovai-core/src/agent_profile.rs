@@ -968,7 +968,8 @@ pub struct MemberRemovalPreview {
         alias = "currentCampMembershipCount"
     )]
     pub current_camp_membership_count: i64,
-    pub open_assigned_task_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_assigned_task_count: Option<i64>,
     #[serde(rename = "defaultLeadThreadCount", alias = "defaultLeadCampCount")]
     pub default_lead_camp_count: i64,
     #[serde(rename = "soleMemberThreadCount", alias = "soleMemberCampCount")]
@@ -3068,13 +3069,16 @@ impl AgentProfileService {
                           ON conversation.id = agent_run.conversation_id
                         WHERE conversation.agent_id = profile.id
                           AND agent_run.status IN ('queued', 'running', 'waiting')),
-                       (SELECT COUNT(*) FROM task
+                       CASE WHEN ?2 THEN (SELECT COUNT(*) FROM task
                         WHERE assignee_agent_id = profile.id
-                          AND status IN ('pending', 'in_progress', 'blocked'))
+                          AND status IN ('pending', 'in_progress', 'blocked')) ELSE NULL END
                 FROM agent_profile AS profile
                 WHERE profile.id = ?1 AND profile.profile_status <> 'removed'
                 "#,
-                [agent_id],
+                params![
+                    agent_id,
+                    crate::task_capability::enabled(database.connection())?
+                ],
                 |row| {
                     let non_terminal_agent_run_count = row.get::<_, i64>(3)?;
                     Ok(MemberRemovalPreview {

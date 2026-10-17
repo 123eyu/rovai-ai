@@ -2429,6 +2429,7 @@ struct Core {
     trae_cn_cli: AcpCliRuntimeAdapter,
     cursor_agent: AcpCliRuntimeAdapter,
     kimi_code_cli: AcpCliRuntimeAdapter,
+    minimax_code_cli: AcpCliRuntimeAdapter,
     grok_build: AcpCliRuntimeAdapter,
     deepseek_harness: AcpCliRuntimeAdapter,
     cline_cli: AcpCliRuntimeAdapter,
@@ -2784,6 +2785,7 @@ fn runtime_display_name(kind: AdapterKind) -> &'static str {
         AdapterKind::TraeCnCli => "TRAE CLI",
         AdapterKind::CursorAgent => "Cursor Agent",
         AdapterKind::KimiCodeCli => "Kimi Code",
+        AdapterKind::MinimaxCodeCli => "MiniMax Code",
         AdapterKind::GrokBuild => "Grok Build",
         AdapterKind::DeepseekHarness => "DeepSeek Harness",
         AdapterKind::ClineCli => "Cline",
@@ -5663,6 +5665,13 @@ impl Core {
             return Some(AgentRunRuntime::Acp(runtime));
         }
         if let Some(runtime) = self
+            .minimax_code_cli
+            .get_agent_run(agent_run_id, execution_epoch)
+            .await
+        {
+            return Some(AgentRunRuntime::Acp(runtime));
+        }
+        if let Some(runtime) = self
             .zcode_app
             .get_agent_run(agent_run_id, execution_epoch)
             .await
@@ -5806,6 +5815,7 @@ impl Core {
             self.trae_cn_cli.shutdown_all(),
             self.cursor_agent.shutdown_all(),
             self.kimi_code_cli.shutdown_all(),
+            self.minimax_code_cli.shutdown_all(),
             self.grok_build.shutdown_all(),
             self.deepseek_harness.shutdown_all(),
             self.command_code_cli.shutdown_all(),
@@ -5831,6 +5841,7 @@ impl Core {
                 self.trae_cn_cli.shutdown_all(),
                 self.cursor_agent.shutdown_all(),
                 self.kimi_code_cli.shutdown_all(),
+                self.minimax_code_cli.shutdown_all(),
                 self.grok_build.shutdown_all(),
                 self.deepseek_harness.shutdown_all(),
                 self.command_code_cli.shutdown_all(),
@@ -5859,6 +5870,7 @@ impl Core {
             rovai_core::agent_profile::AdapterKind::TraeCnCli => Some(&self.trae_cn_cli),
             rovai_core::agent_profile::AdapterKind::CursorAgent => Some(&self.cursor_agent),
             rovai_core::agent_profile::AdapterKind::KimiCodeCli => Some(&self.kimi_code_cli),
+            rovai_core::agent_profile::AdapterKind::MinimaxCodeCli => Some(&self.minimax_code_cli),
             rovai_core::agent_profile::AdapterKind::GrokBuild => Some(&self.grok_build),
             AdapterKind::DeepseekHarness => Some(&self.deepseek_harness),
             AdapterKind::CommandCodeCli => Some(&self.command_code_cli),
@@ -11974,6 +11986,7 @@ impl Core {
             | rovai_core::agent_profile::AdapterKind::TraeCnCli
             | rovai_core::agent_profile::AdapterKind::CursorAgent
             | rovai_core::agent_profile::AdapterKind::KimiCodeCli
+            | rovai_core::agent_profile::AdapterKind::MinimaxCodeCli
             | rovai_core::agent_profile::AdapterKind::GrokBuild
             | rovai_core::agent_profile::AdapterKind::DeepseekHarness
             | rovai_core::agent_profile::AdapterKind::CommandCodeCli
@@ -17539,13 +17552,16 @@ impl Core {
     // A native file Rule is immutable for the lifetime of its member Host.
     // Freeze B before acquisition so a changed Binding payload gets a new Host;
     // a normal warm Run observes the same frozen payload and reuses its Host.
-    async fn acp_host_bootstrap_digest(
+    async fn acp_host_bootstrap(
         &self,
         execution: &AgentRunExecution,
         digest: String,
-    ) -> Result<String> {
-        if execution.runtime.adapter_kind != AdapterKind::ClineCli {
-            return Ok(digest);
+    ) -> Result<(String, Option<String>)> {
+        if !matches!(
+            execution.runtime.adapter_kind,
+            AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
+        ) {
+            return Ok((digest, None));
         }
         let mut database = self.database.lock().await;
         let bootstrap = ContextService.prepare_session_bootstrap(
@@ -17553,9 +17569,15 @@ impl Core {
             &ManagedBlobStore::new(&self.data_dir),
             &execution.agent_run_id,
             execution.execution_epoch,
-            CharterDeliveryMode::ManagedSystemPrompt,
+            charter_delivery_mode_for_adapter(execution.runtime.adapter_kind),
         )?;
-        canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))
+        let digest =
+            canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))?;
+        Ok((
+            digest,
+            (execution.runtime.adapter_kind == AdapterKind::MinimaxCodeCli)
+                .then_some(bootstrap.payload),
+        ))
     }
 
     async fn launch_acp_agent_run(
@@ -17592,15 +17614,15 @@ impl Core {
             .prepare_initial_builtin_tool_binding(execution, resume_disposition)
             .await?;
         let builtin_tool_factory = self.builtin_tool_process_config_factory()?;
-        let mut runtime_compatibility_digest = acp::runtime_compatibility_digest(
+        let runtime_compatibility_digest = acp::runtime_compatibility_digest(
             &execution.runtime,
             &execution.workspace,
             execution.permission_semantics,
             &mcp_projection.servers,
             attachment_authorization,
         )?;
-        runtime_compatibility_digest = self
-            .acp_host_bootstrap_digest(execution, runtime_compatibility_digest)
+        let (mut runtime_compatibility_digest, mut startup_bootstrap) = self
+            .acp_host_bootstrap(execution, runtime_compatibility_digest)
             .await?;
         self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
             .await?;
@@ -17619,6 +17641,7 @@ impl Core {
                 &mcp_projection.projection_digest,
                 attachment_access_root,
                 &runtime_compatibility_digest,
+                startup_bootstrap.as_deref(),
             )
             .await;
         let mut runtime = runtime_result?;
@@ -17646,7 +17669,10 @@ impl Core {
                 );
             }
             binding_credential = self.prepare_builtin_tool_binding(execution, true).await?;
-            if execution.runtime.adapter_kind == AdapterKind::ClineCli {
+            if matches!(
+                execution.runtime.adapter_kind,
+                AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
+            ) {
                 let digest = acp::runtime_compatibility_digest(
                     &execution.runtime,
                     &execution.workspace,
@@ -17654,7 +17680,8 @@ impl Core {
                     &mcp_projection.servers,
                     attachment_authorization,
                 )?;
-                let digest = self.acp_host_bootstrap_digest(execution, digest).await?;
+                let (digest, bootstrap) = self.acp_host_bootstrap(execution, digest).await?;
+                startup_bootstrap = bootstrap;
                 if digest != runtime_compatibility_digest {
                     adapter
                         .forget_agent_run(&execution.agent_run_id, execution.execution_epoch)
@@ -17680,6 +17707,7 @@ impl Core {
                             &mcp_projection.projection_digest,
                             attachment_access_root,
                             &runtime_compatibility_digest,
+                            startup_bootstrap.as_deref(),
                         )
                         .await?;
                 }
@@ -17775,8 +17803,8 @@ impl Core {
                     &mcp_projection.servers,
                     attachment_authorization,
                 )?;
-                runtime_compatibility_digest = self
-                    .acp_host_bootstrap_digest(execution, runtime_compatibility_digest)
+                (runtime_compatibility_digest, startup_bootstrap) = self
+                    .acp_host_bootstrap(execution, runtime_compatibility_digest)
                     .await?;
                 self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
                     .await?;
@@ -17796,6 +17824,7 @@ impl Core {
                         &mcp_projection.projection_digest,
                         attachment_access_root,
                         &runtime_compatibility_digest,
+                        startup_bootstrap.as_deref(),
                     )
                     .await?;
                 let active_builtin_tools = runtime
@@ -18205,6 +18234,7 @@ impl Core {
             | rovai_core::agent_profile::AdapterKind::TraeCnCli
             | rovai_core::agent_profile::AdapterKind::CursorAgent
             | rovai_core::agent_profile::AdapterKind::KimiCodeCli
+            | rovai_core::agent_profile::AdapterKind::MinimaxCodeCli
             | rovai_core::agent_profile::AdapterKind::GrokBuild
             | rovai_core::agent_profile::AdapterKind::DeepseekHarness
             | rovai_core::agent_profile::AdapterKind::CommandCodeCli
@@ -19199,6 +19229,15 @@ async fn run_core(
             runtime_fleet.clone(),
             compaction_detector_policies
                 .policy_for(AdapterKind::KimiCodeCli)
+                .unwrap_or(CompactionDetectorPolicy::Disabled),
+        ),
+        minimax_code_cli: AcpCliRuntimeAdapter::deferred(
+            rovai_core::agent_profile::AdapterKind::MinimaxCodeCli,
+            acp_tx.clone(),
+            data_dir.join("runtime/minimax-code"),
+            runtime_fleet.clone(),
+            compaction_detector_policies
+                .policy_for(AdapterKind::MinimaxCodeCli)
                 .unwrap_or(CompactionDetectorPolicy::Disabled),
         ),
         deepseek_harness: AcpCliRuntimeAdapter::deferred(
@@ -22191,6 +22230,9 @@ async fn process_agent_run_acp_message(
     if method != "rovai/acp_prompt_completed" {
         return;
     }
+    if let Some(reader) = runtime.native_usage_tail(native_prompt_id).await {
+        start_native_usage_tail(core, agent_run_id, execution_epoch, reader).await;
+    }
     finish_runtime_monitoring_run(core, agent_run_id, execution_epoch).await;
     if let Err(error) = persist_acp_prompt_completion(
         core,
@@ -22311,7 +22353,11 @@ fn normalize_acp_event_with_completion(
                     .get("locations")
                     .and_then(Value::as_array)
                     .map_or(0, Vec::len),
-                "output": public_acp_tool_output(&update),
+                "output": public_acp_tool_output(&update).or_else(|| {
+                    (adapter_kind == AdapterKind::MinimaxCodeCli)
+                        .then(|| public_acp_content_text(update.pointer("/rawOutput/content")))
+                        .flatten()
+                }),
                 "input": public_command,
                 "rawInputDigest": update
                     .get("rawInput")
@@ -22365,6 +22411,20 @@ fn normalize_acp_event_with_completion(
             {
                 payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":zcode::PROTOCOL,
                     "sourceEventKind":"tool.updated.result","semanticKind":"zcode_edit_patch","entries":entries});
+            }
+            if adapter_kind == AdapterKind::MinimaxCodeCli
+                && public_status == "completed"
+                && matches!(update["name"].as_str(), Some("write" | "edit"))
+                && update.pointer("/rawOutput/details/patchOmitted").is_none()
+                && let Some(patch) = update
+                    .pointer("/rawOutput/details/patch")
+                    .and_then(Value::as_str)
+                && let Some(path) =
+                    completion.and_then(|value| value.public_file_operation_path.as_deref())
+            {
+                payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
+                    "sourceEventKind":"session/update.tool_call_update.completed", "semanticKind":"minimax_file_patch",
+                    "entries":[{"path":path,"changeKind":"update","diff":patch}]});
             }
             if adapter_kind == AdapterKind::CommandCodeCli
                 && public_status == "completed"
@@ -23003,6 +23063,14 @@ async fn process_agent_run_acp_approval_request(
         .await?;
         return Ok(());
     };
+    if acp::is_questionnaire_permission_request(params) {
+        // A native answer wrapped as allow_once must never create an execution
+        // Approval or use the ordinary bypass-permissions path.
+        runtime
+            .respond(request_id, json!({"outcome": {"outcome": "cancelled"}}))
+            .await?;
+        return Ok(());
+    }
     let observed_tool_context = match params
         .pointer("/toolCall/toolCallId")
         .and_then(Value::as_str)
@@ -23383,7 +23451,22 @@ async fn persist_acp_prompt_completion(
         } else {
             "unknown"
         });
-    let final_agent_message = runtime.final_agent_message(prompt_id).await;
+    let final_agent_message = runtime
+        .final_agent_message(prompt_id)
+        .await
+        .filter(|text| !text.trim().is_empty());
+    let committed_public_send = {
+        let database = core.database.lock().await;
+        ExecutionRuntimeService::default().has_current_run_public_send(
+            &database,
+            agent_run_id,
+            execution_epoch,
+        )?
+    };
+    let settled_for_empty_final = runtime
+        .allows_empty_final_after_public_send(prompt_id)
+        .await;
+    let unsupported_questionnaire = runtime.has_unsupported_questionnaire(prompt_id).await;
     let missing_send_recovery_candidate = if stop_reason == "end_turn" {
         runtime
             .missing_send_recovery_candidate(prompt_id)
@@ -23401,13 +23484,14 @@ async fn persist_acp_prompt_completion(
     } else {
         None
     };
-    let planned_outcome = if stop_reason == "end_turn" && final_agent_message.is_some() {
-        RuntimeTerminalOutcome::Succeeded
-    } else if stop_reason == "cancelled" {
-        RuntimeTerminalOutcome::Cancelled
-    } else {
-        RuntimeTerminalOutcome::Failed
-    };
+    let planned_outcome = acp_prompt_terminal_outcome(
+        stop_reason,
+        response_error.is_some(),
+        final_agent_message.is_some(),
+        committed_public_send,
+        settled_for_empty_final,
+        unsupported_questionnaire,
+    );
     let delivery_status = if planned_outcome == RuntimeTerminalOutcome::Failed {
         let delivery_id = params
             .get("deliveryId")
@@ -23419,22 +23503,53 @@ async fn persist_acp_prompt_completion(
         None
     };
     let manual_retry_allowed =
-        acp_prompt_manual_retry_allowed(planned_outcome, delivery_status.as_deref());
-    let base_error_code = if stop_reason == "end_turn" {
+        acp_prompt_manual_retry_allowed(planned_outcome, delivery_status.as_deref())
+            && !committed_public_send
+            && !unsupported_questionnaire;
+    let base_error_code = if response_error.is_some() {
+        "runtime_prompt_runtime_error".to_string()
+    } else if stop_reason == "end_turn" && unsupported_questionnaire {
+        "runtime_questionnaire_unsupported".to_string()
+    } else if stop_reason == "end_turn" && !settled_for_empty_final && final_agent_message.is_none()
+    {
+        "runtime_unsettled_activity".to_string()
+    } else if stop_reason == "end_turn" {
         "runtime_missing_final_output".to_string()
     } else {
         format!("runtime_prompt_{stop_reason}")
     };
-    let error_detail = response_error
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("ACP prompt ended as {stop_reason}"));
+    let questionnaire_failure = base_error_code == "runtime_questionnaire_unsupported";
+    let error_detail = response_error.map(str::to_string).unwrap_or_else(|| {
+        if questionnaire_failure {
+            format!(
+                "{}原生问卷暂不受支持，未提交答案。请发送新消息，在对话中补充信息或继续任务。",
+                if committed_public_send {
+                    "消息已发送；"
+                } else {
+                    ""
+                }
+            )
+        } else {
+            format!("ACP prompt ended as {stop_reason}")
+        }
+    });
     let mut public_failure = (planned_outcome == RuntimeTerminalOutcome::Failed).then(|| {
         public_runtime_failure_from_output(
             adapter_kind,
-            RuntimeFailureOrigin::Runtime,
+            if questionnaire_failure {
+                RuntimeFailureOrigin::Compatibility
+            } else {
+                RuntimeFailureOrigin::Runtime
+            },
             RuntimeFailurePhase::Execution,
             &base_error_code,
-            &format!("{} 未能完成运行", runtime_display_name(adapter_kind)),
+            &if committed_public_send {
+                "消息已发送，但运行结束校验失败".to_string()
+            } else if questionnaire_failure {
+                "原生问卷暂不受支持".to_string()
+            } else {
+                format!("{} 未能完成运行", runtime_display_name(adapter_kind))
+            },
             Some(&error_detail),
             &[(&core.data_dir, "<data-dir>")],
             manual_retry_allowed,
@@ -23444,14 +23559,21 @@ async fn persist_acp_prompt_completion(
         // Provider retryability never overrides Core's delivery/effect safety. Once the input
         // was accepted, a successor instruction is required instead of replaying the Run.
         failure.retryable &= manual_retry_allowed;
+        if committed_public_send {
+            failure.summary = "消息已发送，但运行结束校验失败".to_string();
+        }
     }
-    let network_category = acp_prompt_network_recovery_category(
-        planned_outcome,
-        delivery_status.as_deref(),
-        params.get("nativeErrorKind").and_then(Value::as_str),
-        public_failure.as_ref().map(|failure| failure.code.as_str()),
-        response_error,
-    );
+    let network_category = (!committed_public_send)
+        .then(|| {
+            acp_prompt_network_recovery_category(
+                planned_outcome,
+                delivery_status.as_deref(),
+                params.get("nativeErrorKind").and_then(Value::as_str),
+                public_failure.as_ref().map(|failure| failure.code.as_str()),
+                response_error,
+            )
+        })
+        .flatten();
     if network_category.is_some()
         && let Some(failure) = public_failure.as_mut()
     {
@@ -23637,62 +23759,34 @@ async fn persist_acp_prompt_completion(
         let ending_git_observation = core
             .observe_run_git(&execution.project_binding_kind, &execution.project_path)
             .await;
-        let terminal = if stop_reason == "end_turn" {
-            if let Some(final_output) = final_agent_message.clone() {
-                let mut database = core.database.lock().await;
-                let envelope = CommandEnvelope {
-                    command_id: uuid::Uuid::new_v4().to_string(),
-                    actor: ActorRef::System {
-                        component_id: format!("runtime-adapter:{}", adapter_kind.as_str()),
-                    },
-                    camp_id: Some(execution.camp_id.clone()),
-                    expected_versions: Vec::new(),
-                    execution_epoch: None,
-                    payload: SucceedAgentRunCommand {
-                        agent_run_id: agent_run_id.to_string(),
-                        expected_version: execution.version,
-                        execution_epoch,
-                        native_turn_id: prompt_id.to_string(),
-                        final_output,
-                        missing_send_recovery_candidate: missing_send_recovery_candidate.clone(),
-                        ending_git_observation: ending_git_observation.clone(),
-                    },
-                };
-                let service = ExecutionRuntimeService::default();
-                match terminal_admission.planned_permit() {
-                    Some(permit) => service.succeed_agent_run_during_planned_shutdown(
-                        &mut database,
-                        permit,
-                        &envelope,
-                    ),
-                    None => service.succeed_agent_run(&mut database, &envelope),
-                }
-            } else {
-                let mut database = core.database.lock().await;
-                ExecutionRuntimeService::default().fail_agent_run(
+        let terminal = if planned_outcome == RuntimeTerminalOutcome::Succeeded {
+            let mut database = core.database.lock().await;
+            let envelope = CommandEnvelope {
+                command_id: uuid::Uuid::new_v4().to_string(),
+                actor: ActorRef::System {
+                    component_id: format!("runtime-adapter:{}", adapter_kind.as_str()),
+                },
+                camp_id: Some(execution.camp_id.clone()),
+                expected_versions: Vec::new(),
+                execution_epoch: None,
+                payload: SucceedAgentRunCommand {
+                    agent_run_id: agent_run_id.to_string(),
+                    expected_version: execution.version,
+                    execution_epoch,
+                    native_turn_id: prompt_id.to_string(),
+                    final_output: final_agent_message.clone().unwrap_or_default(),
+                    missing_send_recovery_candidate: missing_send_recovery_candidate.clone(),
+                    ending_git_observation: ending_git_observation.clone(),
+                },
+            };
+            let service = ExecutionRuntimeService::default();
+            match terminal_admission.planned_permit() {
+                Some(permit) => service.succeed_agent_run_during_planned_shutdown(
                     &mut database,
-                    &CommandEnvelope {
-                        command_id: uuid::Uuid::new_v4().to_string(),
-                        actor: ActorRef::System {
-                            component_id: format!("runtime-adapter:{}", adapter_kind.as_str()),
-                        },
-                        camp_id: Some(execution.camp_id.clone()),
-                        expected_versions: Vec::new(),
-                        execution_epoch: None,
-                        payload: FailAgentRunCommand {
-                            agent_run_id: agent_run_id.to_string(),
-                            expected_version: execution.version,
-                            execution_epoch,
-                            error_code: "runtime_missing_final_output".to_string(),
-                            error_detail: Some(
-                                "ACP Runtime ended the prompt without an Agent message".to_string(),
-                            ),
-                            failure: public_failure.clone(),
-                            manual_retry_allowed,
-                            ending_git_observation: ending_git_observation.clone(),
-                        },
-                    },
-                )
+                    permit,
+                    &envelope,
+                ),
+                None => service.succeed_agent_run(&mut database, &envelope),
             }
         } else {
             let mut database = core.database.lock().await;
@@ -23781,6 +23875,28 @@ async fn persist_acp_prompt_completion(
         }
     }
     Ok(())
+}
+
+fn acp_prompt_terminal_outcome(
+    stop_reason: &str,
+    has_error: bool,
+    has_final: bool,
+    committed_public_send: bool,
+    settled_for_empty_final: bool,
+    unsupported_questionnaire: bool,
+) -> RuntimeTerminalOutcome {
+    if has_error {
+        RuntimeTerminalOutcome::Failed
+    } else if stop_reason == "cancelled" {
+        RuntimeTerminalOutcome::Cancelled
+    } else if stop_reason == "end_turn"
+        && !unsupported_questionnaire
+        && (has_final || (committed_public_send && settled_for_empty_final))
+    {
+        RuntimeTerminalOutcome::Succeeded
+    } else {
+        RuntimeTerminalOutcome::Failed
+    }
 }
 
 fn acp_prompt_manual_retry_allowed(
@@ -23891,6 +24007,7 @@ async fn flush_runtime_usage(
         AdapterKind::CodebuddyCli,
         AdapterKind::ClineCli,
         AdapterKind::KimiCodeCli,
+        AdapterKind::MinimaxCodeCli,
         AdapterKind::OpencodeCli,
         AdapterKind::QoderCli,
         AdapterKind::TraeCnCli,
@@ -23966,6 +24083,61 @@ async fn finish_runtime_monitoring_run(core: &Core, agent_run_id: &str, executio
         .lock()
         .await
         .finish_run(agent_run_id, execution_epoch);
+}
+
+async fn start_native_usage_tail(
+    core: &Arc<Core>,
+    agent_run_id: &str,
+    execution_epoch: i64,
+    reader: crate::native_usage::NativeUsageReader,
+) {
+    if !core
+        .runtime_usage
+        .lock()
+        .await
+        .begin_native_tail(agent_run_id, execution_epoch)
+    {
+        return;
+    }
+    let core = Arc::clone(core);
+    let agent_run_id = agent_run_id.to_string();
+    let reader = Arc::new(std::sync::Mutex::new(reader));
+    tokio::spawn(async move {
+        // Only the frozen message allowlist can enter this background reader.
+        // The Run, Host release and successor never await it. Limit both retries
+        // and accepted latency; late blocking-I/O results are discarded.
+        let _ = tokio::time::timeout(Duration::from_millis(1500), async {
+            for delay in [0, 250, 750] {
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                let reader = Arc::clone(&reader);
+                let observations = tokio::task::spawn_blocking(move || {
+                    reader
+                        .lock()
+                        .map(|mut reader| reader.poll())
+                        .unwrap_or_default()
+                })
+                .await
+                .unwrap_or_default();
+                let mut usage = core.runtime_usage.lock().await;
+                for item in observations {
+                    if let Err(error) = usage.observe_registered_run(
+                        &agent_run_id,
+                        execution_epoch,
+                        &item.source_identity,
+                        &[item.usage],
+                        Instant::now(),
+                    ) {
+                        eprintln!("failed to buffer terminal native Usage: {error:#}");
+                    }
+                }
+            }
+        })
+        .await;
+        core.runtime_usage
+            .lock()
+            .await
+            .end_native_tail(&agent_run_id, execution_epoch);
+    });
 }
 
 async fn process_runtime_usage_flusher(core: Arc<Core>, mut shutdown: oneshot::Receiver<()>) {
@@ -26838,6 +27010,103 @@ mod tests {
 
     #[test]
     fn acp_prompt_failure_is_retryable_only_when_input_was_not_accepted() {
+        for (reason, error, final_text, sent, settled, expected) in [
+            (
+                "end_turn",
+                false,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Succeeded,
+            ),
+            (
+                "end_turn",
+                false,
+                false,
+                false,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                false,
+                false,
+                true,
+                false,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                true,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                true,
+                true,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "cancelled",
+                false,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Cancelled,
+            ),
+            (
+                "max_turn_requests",
+                false,
+                true,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "unknown",
+                false,
+                false,
+                true,
+                true,
+                RuntimeTerminalOutcome::Failed,
+            ),
+            (
+                "end_turn",
+                false,
+                true,
+                false,
+                true,
+                RuntimeTerminalOutcome::Succeeded,
+            ),
+        ] {
+            assert_eq!(
+                acp_prompt_terminal_outcome(reason, error, final_text, sent, settled, false),
+                expected
+            );
+        }
+        for has_final in [false, true] {
+            for sent in [false, true] {
+                assert_eq!(
+                    acp_prompt_terminal_outcome("end_turn", false, has_final, sent, true, true),
+                    RuntimeTerminalOutcome::Failed,
+                    "text or a committed send cannot answer an unsupported questionnaire"
+                );
+            }
+        }
+        assert_eq!(
+            acp_prompt_terminal_outcome("cancelled", false, true, true, true, true),
+            RuntimeTerminalOutcome::Cancelled
+        );
+        assert_eq!(
+            acp_prompt_terminal_outcome("cancelled", true, true, true, true, true),
+            RuntimeTerminalOutcome::Failed,
+            "a native error still takes precedence"
+        );
         assert!(acp_prompt_manual_retry_allowed(
             RuntimeTerminalOutcome::Failed,
             Some("not_accepted")
@@ -27295,6 +27564,15 @@ mod tests {
                 runtime_fleet.clone(),
                 compaction_detector_policies
                     .policy_for(AdapterKind::KimiCodeCli)
+                    .unwrap_or(CompactionDetectorPolicy::Disabled),
+            )?,
+            minimax_code_cli: AcpCliRuntimeAdapter::new(
+                AdapterKind::MinimaxCodeCli,
+                acp_tx.clone(),
+                data_dir.join("runtime/minimax-code"),
+                runtime_fleet.clone(),
+                compaction_detector_policies
+                    .policy_for(AdapterKind::MinimaxCodeCli)
                     .unwrap_or(CompactionDetectorPolicy::Disabled),
             )?,
             deepseek_harness: AcpCliRuntimeAdapter::new(
@@ -33396,6 +33674,33 @@ for line in sys.stdin:
 
     #[test]
     fn acp_tool_events_expose_only_the_public_command_and_payload_digests() {
+        for (status, name, omitted, has_patch) in [
+            ("completed", "edit", false, true),
+            ("completed", "write", false, true),
+            ("failed", "edit", false, false),
+            ("completed", "read", false, false),
+            ("completed", "edit", true, false),
+        ] {
+            let mut update = json!({"sessionUpdate":"tool_call_update","toolCallId":"mini-file","status":status,"name":name,
+                "kind":"edit","locations":[{"path":"/repo/src/a.txt"}],
+                "rawOutput":{"details":{"patch":"--- /repo/src/a.txt\n+++ /repo/src/a.txt\n@@ -1 +1 @@\n-old\n+new\n", "private":"MINI_PRIVATE_DETAILS"}}});
+            if omitted {
+                update["rawOutput"]["details"]["patchOmitted"] = json!("too_large");
+            }
+            let params = json!({"update":update});
+            let completion = acp::completed_action(AdapterKind::MinimaxCodeCli, &params).unwrap();
+            let (_, payload) = normalize_acp_event_with_completion(
+                AdapterKind::MinimaxCodeCli,
+                "session/update",
+                &params,
+                completion.as_ref(),
+            );
+            assert_eq!(!payload["runtimeDiff"].is_null(), has_patch);
+            if has_patch {
+                assert_eq!(payload["runtimeDiff"]["semanticKind"], "minimax_file_patch");
+            }
+            assert!(!payload.to_string().contains("MINI_PRIVATE_DETAILS"));
+        }
         let (_, payload) = normalize_acp_event(
             AdapterKind::OpencodeCli,
             "session/update",
@@ -33573,6 +33878,15 @@ for line in sys.stdin:
     #[test]
     fn acp_command_output_uses_standard_content_and_allowlisted_raw_fallbacks() {
         let fixtures = [
+            (
+                "minimax-code-cli",
+                json!({"rawOutput": {
+                    "content": [{"type":"text","text":"MINIMAX_STDOUT\nMINIMAX_STDERR"}],
+                    "details": {"processOutput": {"rawOutputPath":"MINIMAX_MUST_NOT_LEAK"}}
+                }}),
+                "MINIMAX_STDOUT\nMINIMAX_STDERR",
+                "MINIMAX_MUST_NOT_LEAK",
+            ),
             (
                 "opencode-cli",
                 json!({

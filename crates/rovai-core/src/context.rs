@@ -136,9 +136,10 @@ impl CharterDeliveryMode {
 
 pub const fn charter_delivery_mode_for_adapter(adapter_kind: AdapterKind) -> CharterDeliveryMode {
     match adapter_kind {
-        AdapterKind::CodexCli | AdapterKind::ClaudeCodeCli | AdapterKind::GrokBuild => {
-            CharterDeliveryMode::NativeAppend
-        }
+        AdapterKind::CodexCli
+        | AdapterKind::ClaudeCodeCli
+        | AdapterKind::GrokBuild
+        | AdapterKind::MinimaxCodeCli => CharterDeliveryMode::NativeAppend,
         AdapterKind::Pi
         | AdapterKind::DeepseekHarness
         | AdapterKind::CommandCodeCli
@@ -8306,7 +8307,10 @@ mod tests {
         for adapter_kind in AdapterKind::ALL {
             let expected = if matches!(
                 adapter_kind,
-                AdapterKind::CodexCli | AdapterKind::ClaudeCodeCli | AdapterKind::GrokBuild
+                AdapterKind::CodexCli
+                    | AdapterKind::ClaudeCodeCli
+                    | AdapterKind::GrokBuild
+                    | AdapterKind::MinimaxCodeCli
             ) {
                 CharterDeliveryMode::NativeAppend
             } else if matches!(

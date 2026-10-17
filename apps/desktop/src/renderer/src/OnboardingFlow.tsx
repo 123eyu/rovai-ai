@@ -1,3 +1,4 @@
+import minimaxLogo from './assets/runtime-logos/minimax-color.svg'
 import { useState, type KeyboardEvent } from 'react'
 import { runtimeInstallGuide } from './runtime-install-guide'
 import type {
@@ -72,6 +73,7 @@ const RUNTIME_LOGOS: Record<AdapterKind, string> = {
   'trae-cn-cli': traeLogo,
   'cursor-agent': cursorLogo,
   'kimi-code-cli': kimiLogo,
+  'minimax-code-cli': minimaxLogo,
   'grok-build': grokLogo,
   'deepseek-harness': deepseekLogo,
   'cline-cli': clineLogo,
@@ -93,6 +95,7 @@ const RUNTIME_LABELS: Record<AdapterKind, string> = {
   'trae-cn-cli': 'TRAE CLI',
   'cursor-agent': 'Cursor Agent',
   'kimi-code-cli': 'Kimi Code',
+    'minimax-code-cli': 'MiniMax Code',
   'grok-build': 'Grok Build',
   'deepseek-harness': 'DeepSeek Harness',
   'cline-cli': 'Cline',

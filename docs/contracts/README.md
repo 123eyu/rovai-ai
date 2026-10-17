@@ -171,7 +171,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Runtime Launch and Verification v31（历史）](runtime-launch-and-verification-v31.md) | v30 的 Pi wire/安全语义不变；三平台改为明确的可运行 experimental preview，仍不宣称 qualified |
 | [Runtime Launch and Verification v30（历史）](runtime-launch-and-verification-v30.md) | v29 保留；增加 Pi JSONL Host、专属 Ready/exact resume、managed receipt、动态 Skills/MCP、Action/Usage 与三平台未准入边界 |
 | [Runtime Launch and Verification v29（历史）](runtime-launch-and-verification-v29.md) | v28 保留；现有 Check Manager 的 Fast metadata 与单执行原生覆盖 |
-| [Runtime Usage Monitoring v9（当前）](runtime-usage-monitoring-v9.md) | Run 终态独立于统计刷盘，后台采样与迟到数据去重 |
+| [Runtime Usage Monitoring v10（当前）](runtime-usage-monitoring-v10.md) | 精确消息身份限定的有界后台补采；业务终态不等待统计，journal 仍标部分观测 |
+| [Runtime Usage Monitoring v9（历史）](runtime-usage-monitoring-v9.md) | Run 终态独立于统计刷盘，后台采样与迟到数据去重 |
 | [Runtime Usage Monitoring v8（历史）](runtime-usage-monitoring-v8.md) | 逐调用归一化、批次无关计数与 Input/Output 部分状态 |
 | [Runtime Usage Monitoring v7（历史）](runtime-usage-monitoring-v7.md) | Antigravity 同调用原生 SQLite 数值补充与完整输入分类 |
 | [Runtime Usage Monitoring v6（历史）](runtime-usage-monitoring-v6.md) | DSH 原生完整调用 total 接通，缓存缺失继续保留未知 |
@@ -281,7 +282,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Permanent Deletion v3（历史）](camp-permanent-deletion-v3.md) | 原删除权限/journal 不变；先定向业务终态，再有界 Runtime 清理和物理删除 |
 | [Camp Permanent Deletion v2（历史）](camp-permanent-deletion-v2.md) | v1 删除合同不变；增加 Camp Published Attachment View journal cleanup，并规定先 fence Runtime、再取得 View write gate |
 | [Camp Permanent Deletion v1（历史）](camp-permanent-deletion-v1.md) | `camps.delete` force 字段、兼容 blocker、单事务物理删除、Runtime cleanup 与 Renderer 确认边界；不含 Published View cleanup |
-| [Runtime File Change Observation v7（当前）](runtime-file-change-observation-v7.md) | 已成功的原生补丁片段、来源标签、按序统计与共享 Command/Files Changed 投影 |
+| [Runtime File Change Observation v8（当前）](runtime-file-change-observation-v8.md) | MiniMax 原生 patch、创建标志与相对路径；排除预览伪完整状态，继承共享文件投影 |
+| [Runtime File Change Observation v7（历史）](runtime-file-change-observation-v7.md) | 已成功的原生补丁片段、来源标签、按序统计与共享 Command/Files Changed 投影 |
 | [Runtime File Change Observation v6（历史）](runtime-file-change-observation-v6.md) | exact-epoch 文件事实水位、stale/no_changes 重算、稳定文件 ID 与原子 projection 发布 |
 | [Runtime File Change Observation v5（历史）](runtime-file-change-observation-v5.md) | 官方 ZCode Runtime 与原生证据边界；继承上一版合同 |
 | [Runtime File Change Observation v4（历史）](runtime-file-change-observation-v4.md) | v3 typed read/write 与文件汇总不变；准入 Pi 成功 edit 的 path-bound 原生 patch，activity-v4 隔离新映射且不回写历史 |
@@ -475,7 +477,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Current User Attention v3 (historical)](current-user-attention-v3.md) | v2 精确确认加同 CampTurn 一卡、逐 Mention acknowledgement、最早未确认 action 与导航版本绑定；不含普通会话可见即已读 |
 | [Current User Attention v2 (historical)](current-user-attention-v2.md) | v1 当前用户注意力加 Message Mention 独立已读、锚点导航、焦点确认与 Markdown 保真；不含 Episode 聚合 |
 | [Current User Attention v1 (historical)](current-user-attention-v1.md) | 当前用户身份、结构化内容与原子通知基线；不含独立已读、锚点窗口与 Markdown 保真勘误 |
-| [Missing-Send Recovery Publication v2（当前）](missing-send-recovery-publication-v2.md) | v1 candidate/replay 不变；普通输出与 Missing-Send 均受 frozen membership lifetime publication fence 约束 |
+| [Missing-Send Recovery Publication v3（当前）](missing-send-recovery-publication-v3.md) | 原生正常结束且本轮已有效发送时允许空 final；问卷不得作为执行审批自动代答 |
+| [Missing-Send Recovery Publication v2（历史）](missing-send-recovery-publication-v2.md) | v1 candidate/replay 不变；普通输出与 Missing-Send 均受 frozen membership lifetime publication fence 约束 |
 | [Missing-Send Recovery Publication v1（历史）](missing-send-recovery-publication-v1.md) | 成功 AgentRun 的 typed final candidate、同 Run accepted-send 抑制、recipient-free 原子恢复消息与 terminal replay/竞态语义 |
 | [Pending Camp Activation v5（当前）](pending-camp-activation-v5.md) | User 首条输入原子邀请、激活与发布，拒绝回滚及幂等并发 |
 | [Pending Camp Activation v4（历史）](pending-camp-activation-v4.md) | 普通一键草稿按 Thread 本机保存，客户端 presence 驱动导航与启动保护；首发送原子激活 |

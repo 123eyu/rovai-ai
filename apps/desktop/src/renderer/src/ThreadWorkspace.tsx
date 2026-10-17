@@ -113,6 +113,7 @@ import {
   nextLocalThreadComposerDraftAfterSend,
   saveLocalThreadComposerDraft
 } from './camp-composer-local-store'
+import { localDraftMatchesSubmission, onLocalThreadSendRecovered } from './camp-composer-send-recovery'
 import {
   DraftMutationCoordinator,
   draftCoordinatorChangeRefreshesProjection,
@@ -3457,6 +3458,19 @@ export function ThreadWorkspace({
     })
     return () => { cancelled = true }
   }, [snapshot.thread.id])
+
+  useLayoutEffect(() => onLocalThreadSendRecovered(({ submitted, next }) => {
+    if (draftThreadId.current !== next.threadId || composerHandleRef.current?.isDirty()) return
+    const current = draftCoordinator.getCurrentDraft()
+    if (current && !localDraftMatchesSubmission(current, submitted)) return
+    // Fence a load/mutation that began before the receipt was recovered. Merely
+    // clearing localStorage would let that older read restore the sent document.
+    draftCoordinator.acceptAuthoritativeDraft(next, true)
+    initializedComposerRoute.current = { revision: next.revision, publishedMessageSequence }
+    composerHandleRef.current?.replaceDocument(next.content, 'end')
+    setComposerPersistenceError(null)
+    setDraftLoadState({ state: 'ready' })
+  }), [draftCoordinator, snapshot.thread.id, publishedMessageSequence])
 
   useEffect(() => {
     const previousCount = previousPendingApprovalCount.current

@@ -92,13 +92,7 @@ pub(super) async fn read_known(
     let path = path.to_path_buf();
     // Keep disk I/O and hashing off the async executor, without scheduling one
     // blocking filesystem task for each small chunk.
-    tokio::task::spawn_blocking(move || {
-        // An HTTP cancellation cannot release capacity while its blocking scan
-        // is still running. No handle publication is detached from the request.
-        let _permit = permit;
-        scan(&path, selection, known.as_deref())
-    })
-    .await?
+    super::blocking(permit, move || scan(&path, selection, known.as_deref())).await
 }
 fn scan(path: &Path, selection: Selection, known: Option<&Analysis>) -> Result<Content> {
     let mut file =
@@ -367,5 +361,27 @@ mod tests {
         );
         write(b"valid text followed by incomplete UTF-8\xf0\x9f");
         assert!(!read(&fixture.0, Selection::Metadata).await.unwrap().text);
+
+        // The scanner and download opener share this ownership seam. Abort the
+        // waiting HTTP task only after its blocking operation has actually begun.
+        let capacity = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = Arc::new(capacity.clone().acquire_owned().await.unwrap());
+        let (started, entered) = tokio::sync::oneshot::channel();
+        let (finish, wait) = std::sync::mpsc::channel();
+        let request = tokio::spawn(super::super::blocking(permit, move || {
+            started.send(()).unwrap();
+            wait.recv().unwrap();
+            Ok(())
+        }));
+        entered.await.unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        assert!(capacity.clone().try_acquire_owned().is_err());
+        finish.send(()).unwrap();
+        let restored = tokio::time::timeout(std::time::Duration::from_secs(2), capacity.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        drop(restored);
     }
 }

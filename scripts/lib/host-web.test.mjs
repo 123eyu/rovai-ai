@@ -521,6 +521,42 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       assert.equal(value.expiresInSeconds, 120)
       return value
     }
+    // A reauthenticated tab keeps its preview, proved editor and seen version;
+    // its old Session and old download tickets must still be revoked.
+    const previewSession = await login()
+    const savedPreview = (await fileCall(previewSession, 'open', { kind: 'camp_workspace', threadId: fileCampId, rawReference: 'large-preview.txt' })).value.file
+    const savedRequest = { kind: 'preview', handleId: savedPreview.handleId, expectedGeneration: savedPreview.contentGeneration }
+    const oldPreviewGrant = await (await prepareDownload(previewSession, savedRequest)).json()
+    await authorized(previewSession, 'logout', { method: 'POST' })
+    const sameEditor = await login({ clientId: previewSession.clientId, proof: previewSession.editorProof })
+    assert.equal((await fetch(origin + oldPreviewGrant.url)).status, 401, 'reauthentication never revives the revoked Session')
+    const restoredPreview = await prepareDownload(sameEditor, savedRequest)
+    assert.equal(restoredPreview.status, 200, 'same editor can download the retained preview through its new Session')
+    assert.equal(await (await fetch(origin + (await restoredPreview.json()).url)).text(), largeText)
+    assert.equal((await fetch(origin + oldPreviewGrant.url)).status, 410, 'new preparation removes tickets belonging to revoked Sessions')
+    assert.equal((await prepareDownload(second, savedRequest)).status, 403, 'another editor cannot borrow the retained handle')
+    const childSource = { kind: 'child_of_handle', threadId: fileCampId, parentHandleId: savedPreview.handleId, rawReference: 'large-preview.txt' }
+    const restoredChild = await prepareDownload(sameEditor, { kind: 'source', source: childSource })
+    assert.equal(restoredChild.status, 200, 'same-editor parent capability is reauthorized after login')
+    assert.equal((await prepareDownload(second, { kind: 'source', source: childSource })).status, 403)
+    await writeFile(largePath, largeText.replace('a', 'b')); await utimes(largePath, fileTime, fileTime)
+    assert.equal((await prepareDownload(sameEditor, savedRequest)).status, 409, 'reauthentication cannot silently replace the seen version')
+    await writeFile(largePath, largeText); await utimes(largePath, fileTime, fileTime)
+    await authorized(sameEditor, 'logout', { method: 'POST' })
+
+    // Sequential completed downloads exercise cache pressure, not active limits.
+    const repeatSession = await login()
+    const tinySource = { kind: 'camp_workspace', threadId: fileCampId, rawReference: 'repeated-download.txt' }
+    await writeFile(join(workspace, 'repeated-download.txt'), 'small file')
+    const completedTickets = []
+    for (let index = 0; index < 20; index++) {
+      const prepared = await grant(tinySource, repeatSession)
+      assert.equal(await (await fetch(origin + prepared.url)).text(), 'small file')
+      completedTickets.push(prepared.url)
+    }
+    assert.equal((await fetch(origin + completedTickets[0])).status, 410, 'completed tickets are evicted under pressure')
+    assert.equal(await (await fetch(origin + completedTickets.at(-1))).text(), 'small file', 'recent completed tickets retain retry support')
+    await authorized(repeatSession, 'logout', { method: 'POST' })
     assert.equal((await prepareDownload(second, { kind: 'source', source: composerSource })).status, 403)
     assert.equal((await prepareDownload(first, { kind: 'source', source: { kind: 'path', path: largePath } })).status, 403)
     assert.equal((await request('downloads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'source', source: composerSource }) })).status, 401)
@@ -613,6 +649,15 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     await authorized(revokedSession, 'logout', { method: 'POST' })
     await assert.rejects(async () => { for await (const _ of revokedStream.body) { /* drain already queued bytes */ } })
     assert.equal((await fetch(origin + revokedGrant.url)).status, 401)
+    const interruptions = host.stderr().split('\n').flatMap(line => {
+      try { const value = JSON.parse(line); return value.event === 'web.download.interrupted' ? [value] : [] } catch { return [] }
+    })
+    assert.ok(interruptions.some(value => value.code === 'session_required'))
+    assert.ok(interruptions.some(value => value.code === 'read_failed' || value.code === 'file_changed'))
+    for (const record of interruptions) {
+      assert.deepEqual(Object.keys(record).sort(), ['bytesEmitted', 'code', 'event', 'operationId', 'stage'])
+      assert.equal(typeof record.operationId, 'number'); assert.equal(typeof record.bytesEmitted, 'number')
+    }
 
     const largeOpen = await fileCall(first, 'open', { kind: 'camp_workspace', threadId: fileCampId, rawReference: 'large-preview.txt' })
     assert.equal(largeOpen.ok, true, JSON.stringify(largeOpen))

@@ -7,6 +7,19 @@ use rovai_core::draft_client::DraftClient;
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, sync::Mutex};
 
+/// A cancelled HTTP future cannot release capacity while its filesystem work
+/// still runs on Tokio's blocking pool.
+pub(super) async fn blocking<T: Send + 'static>(
+    capacity: impl Send + 'static,
+    operation: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(move || {
+        let _capacity = capacity;
+        operation()
+    })
+    .await?
+}
+
 #[derive(Default)]
 pub struct Handles(Mutex<HashMap<String, Handle>>);
 impl Handles {
@@ -139,7 +152,7 @@ pub(super) async fn download_source(
                     .as_str()
                     .context("source_not_authorized")?,
             )
-            .filter(|handle| Arc::ptr_eq(&handle.session, session) && handle.allow_children)
+            .filter(|handle| handle.client == client.id() && handle.allow_children)
             .cloned()
             .context("source_not_authorized")?;
         reauthorize(state, &client, &parent).await?;
@@ -183,14 +196,18 @@ pub(super) async fn download_preview(
     session: &Arc<Session>,
     id: &str,
     expected: &str,
+    permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Result<DownloadTarget> {
+    let client = DraftClient::verified_web(&session.client_id)?;
     let handle = state
         .files
         .0
         .lock()
         .expect("file registry poisoned")
         .get(id)
-        .filter(|handle| Arc::ptr_eq(&handle.session, session))
+        // Handles belong to the proved editor identity, as do ordinary preview
+        // reads. Reauthentication grants a new Session, never revives its tickets.
+        .filter(|handle| handle.client == client.id())
         .cloned()
         .context("source_not_authorized")?;
     ensure!(
@@ -200,11 +217,10 @@ pub(super) async fn download_preview(
             .is_some_and(|analysis| analysis.generation == expected),
         "file_changed"
     );
-    let client = DraftClient::verified_web(&session.client_id)?;
     reauthorize(state, &client, &handle).await?;
     // This bounded preview-generation check reports changes before handing off
     // to the browser. The transfer hashes the actual bytes again before its tail.
-    let current = content::read(&handle.path, Selection::Digest, None)
+    let current = content::read(&handle.path, Selection::Digest, Some(permit))
         .await
         .map_err(|error| {
             if error.to_string() == "file_too_large" {

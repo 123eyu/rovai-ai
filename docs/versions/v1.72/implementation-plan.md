@@ -8,6 +8,36 @@ last_updated: 2026-10-17
 
 # v1.72 实施与验收
 
+## 文件传输审查收尾（2026-10-17）
+
+针对 `208343138` 的固定提交审查，继续在 `rovai/web-file-transfers` 实施。独立核对后的处理：
+
+- 确认重登回归：下载句柄改用已有的已证明编辑身份边界，再由 Core 重验来源；新票据只绑定新 Session，
+  保留所见版本校验，另一个编辑身份仍被拒绝。没有增加前端句柄恢复机制。
+- 确认阻塞扫描许可缺口：准备摘要和安全打开把许可交给实际阻塞操作，取消 HTTP 不提前释放；
+  最终打开也保留活动许可，Body 取消与 worker 并发退出按已取消处理。
+- 调整 Lagged 策略：暂停正文放行，建立新订阅窗口并核对当前来源；新缺口再核对，明确撤销仍终止。
+  来源重验合并为一个循环；两秒兜底仍覆盖 Core 之外的路径变化和既有非统一撤销路径，不直接删除。
+- 完成票据在缓存紧张时先回收，保留空闲重试；单独表达不可回收的票据容量，避免暗含小文件下载次数限制。
+- 中断记录非凭证操作标识、阶段、安全错误码和交给 HTTP 的字节数，不记录 URL、票据、来源或路径。
+- 上传多 Map 的维护风险成立，但没有发现本轮必须修复的新状态错误；本轮不重写原 commandId/回执恢复。
+
+测试归属：扩展既有 content scan owner，以受控阻塞操作证明取消后许可仍被占用；既有 HTTP owner 覆盖
+同编辑身份重登/跨身份拒绝/旧票据撤销/所见版本、20 次顺序下载及日志字段。新增一个低成本内存 owner
+`event_gaps_revalidate_before_releasing_bytes_and_keep_explicit_revocations`，负责广播缺口、重验中的再次缺口、
+字节门及明确撤销；这些时序不是原解析/分页测试的职责，不引入 SQLite/Core fixture。
+最小命令：`cargo test -p rovai-web --lib`（12 项通过），Host HTTP owner 与
+`pnpm test:host-web-html`（含设置退出、同页重登、原预览下载）通过；Web client/adapter 32 项及 TypeScript 通过。
+最终 `pnpm test:rust:staged` 路由至完整 `cargo test --workspace` 并通过；Host/Web 构建、
+`pnpm docs:test` 及以 `c69a97fbf` 为基线的 `pnpm docs:check:ci` 通过。工具链的 rust-objcopy
+缺少 libLLVM 警告未阻断构建和测试；既有多标签草稿基线问题仍按下述记录处理。
+
+交互稿由真实 ThreadNavigation、AppHeader、ThreadWorkspace、AttachmentCard、ImageGallery、FilePreviewProvider/Pane
+和生产 CSS 编译成独立 HTML，模拟下载结果，不连接 Host、不传真实文件。保留 Porcelain Day / Steel Night，覆盖
+桌面、手机、准备中、交给浏览器、文件变化、来源失效、不能预览及图片附件下载。原型源码按本地规则放在忽略目录，
+交付 HTML 与截图独立提供；它是交互评审材料，不能替代上述真实 Host 验收。
+本轮仍在 macOS arm64 隔离环境验证；Linux/Windows 原生与实体手机资格没有因此增加。
+
 ## 浏览器文件传输（2026-10-17）
 
 独立分支实现 [Host Web v6](../../contracts/host-web-v6.md)：上传 30 MiB 与独立预览预算，

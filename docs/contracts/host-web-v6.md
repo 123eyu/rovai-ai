@@ -67,10 +67,13 @@ Core 拥有来源与业务权限，Host 拥有传输，浏览器下载管理器�
 ```
 
 source 支持现有 attachment owner locator、message_reference、camp_workspace、run_evidence 的 open_current、
-run_activity_file，以及有效当前 Session 父句柄内的 child_of_handle；不接受单独路径、任意新来源或外部跳转。
+run_activity_file，以及同一已证明编辑身份下可重新授权父句柄内的 child_of_handle；不接受单独路径、任意新来源或外部跳转。
 Core 按原来源重验归属、私有作用域与删除状态。Host 只准入存在、可读、允许的普通文件；空文件有效。
 source 下载当前内容，文件变大/替换后重新申请仍可用；legacy managed 的既有完整性验证不放松。
 preview 下载绑定所见 SHA-256，申请时发现变化即返回错误，必须刷新预览再申请。
+预览句柄及 child_of_handle 按已证明的编辑身份归属；同页重新登录后允许重新检查原来源和所见版本，
+新票据只绑定当前 Session，旧 Session 和旧票据不复活。另一个编辑身份不能借用旧句柄。
+准备额度通过 Arc 传入摘要扫描及阻塞打开任务，HTTP 取消后仍由实际文件操作持有至结束。
 
 成功返回 `{url,name,byteSize,expiresInSeconds:120}`。url 只能是当前 Host 的
 `/api/v1/downloads/<64位小写十六进制票据>` 相对地址。浏览器校验固定路由及连接代次后点击原生下载链接；
@@ -88,12 +91,18 @@ Host 重启全部票据失效，普通 Session 的持久规则不变。
 
 GET 再次检查 Session、Core 来源和安全打开后的文件身份，不能依赖申请时一次检查。
 先订阅 Core 再重验，确保准入间的删除不会漏掉。退出、Session 替换/撤销、显式关闭 Web、Host 停止、
-Core 停止、Camp 删除接受及相应来源失效取消活动流。来源变更事件触发重验，并有两秒存活重验兜底；事件丢失时拒绝继续。
+Core 停止、Camp 删除接受及相应来源失效取消活动流。明确撤销直接终止；事件缺口不能冒充权限撤销。
+来源变更或广播 Lagged 暂停 HTTP 正文放行，在重新订阅后重验当前来源；验证期间再发生缺口或相关变更则重新核对，
+成功后继续，失败/超时才终止。有限通道继续形成背压，不在暂停时堆积文件内容。
+同一活动下载只运行一个来源重验循环，合并积压事件。两秒兜底保留，以覆盖 Core 之外的路径变化和未统一发出
+来源撤销事件的既有生命周期；Session/Core 生命周期独立监听，不能被来源查询阻塞。最终块检查继续保留。
 Session 的真实到期也停止传输；票据 120 秒只限制新请求，已准入流不会因此中断。
 
 不采用一次访问即消耗票据。HEAD 验证元数据但不读取文件正文、不消耗 GET 机会；Range 当前忽略并返回完整 200，
 `Accept-Ranges: none`，不承诺续传。额度为准备并发 4、活动下载全 Host 8/每 Session 2/每票据 1、
-未过期票据全 Host 256/每 Session 16。票据不阻止空闲 Session 回收，活动下载持有 Session。
+缓存票据全 Host 256/每 Session 16。已发完正文的票据在空闲时保留重试能力；缓存紧张时优先回收较早完成且
+当前没有活动 GET 的票据，正常连续下载不兼作两分钟次数限流。未使用/活动票据仍保留有界容量；全部不可回收时
+返回单独的 download_ticket_capacity，区分活动并发繁忙。HEAD 不标记完成。票据不阻止空闲 Session 回收，活动下载持有 Session。
 
 ## 数据与终止
 
@@ -111,6 +120,8 @@ Session 的真实到期也停止传输；票据 120 秒只限制新请求，已�
 
 响应前错误没有 attachment 头，返回 JSON；已开始响应的错误使 body 失败，不正常 EOF、不附加 JSON/HTML。
 Host 发完字节不证明浏览器写入用户磁盘。
+中断输出最小结构化日志：web.download.interrupted、非凭证 operationId、阶段、安全错误码和 bytesEmitted。
+bytesEmitted 只代表已交给 HTTP 正文的字节数；日志不含票据、完整 URL、来源对象或敏感文件路径。
 
 | 错误 | HTTP | 意义 |
 | --- | --- | --- |
@@ -120,8 +131,10 @@ Host 发完字节不证明浏览器写入用户磁盘。
 | file_changed | 409 | 申请对象或所见内容已变化 |
 | download_expired | 410 | 票据未知或准入过期 |
 | download_too_large | 413 | 独立部署下载额度 |
-| download_capacity | 429 | 准备、票据或活动传输额度 |
-| file_unreadable / not_regular_file / download_unavailable | 400 | 不可读、非普通文件或其他读取失败 |
+| download_capacity | 429 | 准备或活动传输并发额度 |
+| download_ticket_capacity | 429 | 票据缓存已满，且没有可回收的完成票据 |
+| core_unavailable / download_timeout | 503 / 504 | 授权服务关闭或准入/重验超时 |
+| file_unreadable / not_regular_file / read_failed / download_unavailable | 400 | 不可读、非普通文件或其他读取失败 |
 
 ## 界面与边界
 

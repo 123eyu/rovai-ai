@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{io::Read, path::Path, sync::Arc};
 
 const CHUNK_BYTES: usize = 64 * 1024;
+const MAX_PREVIEW_BYTES: usize = 20 * 1024 * 1024;
 
 pub(super) struct Analysis {
     pub generation: String,
@@ -104,10 +105,7 @@ fn scan(path: &Path, selection: Selection, known: Option<&Analysis>) -> Result<C
         rovai_core::local_attachment_snapshot::open_resolved_file_without_following(path)?;
     let meta = file.metadata()?;
     ensure!(meta.is_file(), "not_regular_file");
-    ensure!(
-        meta.len() <= crate::uploads::MAX_BYTES as u64,
-        "file_too_large"
-    );
+    ensure!(meta.len() <= MAX_PREVIEW_BYTES as u64, "file_too_large");
     let mut bytes = Vec::with_capacity(match selection {
         Selection::All => meta.len() as usize,
         Selection::Page { maximum, .. } => maximum.min(256 * 1024) as usize + 3,
@@ -154,7 +152,7 @@ fn scan(path: &Path, selection: Selection, known: Option<&Analysis>) -> Result<C
             break;
         }
         let chunk = &chunk[..count];
-        ensure!(size + count <= crate::uploads::MAX_BYTES, "file_too_large");
+        ensure!(size + count <= MAX_PREVIEW_BYTES, "file_too_large");
         digest.update(chunk);
         prefix.extend_from_slice(&chunk[..count.min(12 - prefix.len())]);
         if known.is_none()
@@ -317,7 +315,7 @@ mod tests {
         assert!(digest.bytes.is_empty());
         assert_eq!(digest.generation, metadata.generation);
         let analysis = metadata.analysis.clone().unwrap();
-        assert!(analysis.block_lines.len() <= crate::uploads::MAX_BYTES.div_ceil(CHUNK_BYTES));
+        assert!(analysis.block_lines.len() <= MAX_PREVIEW_BYTES.div_ceil(CHUNK_BYTES));
         // Cached facts must produce the same byte/line results at boundaries,
         // after the first chunk, and beyond the last line.
         for selection in [

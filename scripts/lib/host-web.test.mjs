@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { spawn, execFileSync } from 'node:child_process'
-import { mkdtemp, realpath, rm, mkdir, rename, writeFile, readdir, readFile as readAssetFile, cp, utimes, symlink, chmod } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, mkdir, rename, writeFile, readdir, readFile as readAssetFile, cp, utimes, symlink, chmod, open as openFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { launchHost, within } from './host-test-client.mjs'
@@ -35,7 +36,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
   const host = launchHost(binary, [
     ...coreDataDirectoryArguments(dataDir),
     '--skill-library-root', join(dataDir, 'skills'), '--mcp-config-path', join(dataDir, 'mcp.json')
-  ], { cwd: repository, env: { ...process.env, TMPDIR: uploadScratch, TMP: uploadScratch, TEMP: uploadScratch } })
+  ], { cwd: repository, env: { ...process.env, TMPDIR: uploadScratch, TMP: uploadScratch, TEMP: uploadScratch, ROVAI_WEB_DOWNLOAD_MAX_BYTES: String(80 * 1024 * 1024) } })
   const controllers = []
   try {
     await within(host.ready)
@@ -177,6 +178,8 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     }
     const first = await login()
     assert.equal(first.protocolVersion, 4)
+    assert.deepEqual(first.fileTransfers, { uploadMaxBytes: 30 * 1024 * 1024, nativeDownload: true,
+      downloadMaxBytes: 80 * 1024 * 1024, downloadAdmissionSeconds: 120 })
     assert.ok(first.expiresAt - first.serverTime <= 30 * 24 * 60 * 60 * 1000 && first.expiresAt - first.serverTime > 30 * 24 * 60 * 60 * 1000 - 10000)
     assert.equal(first.renewalWindowSeconds, 7 * 24 * 60 * 60)
     const second = await login()
@@ -303,7 +306,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const postUpload = body => request('uploads', { method: 'POST', headers: { Authorization: `Bearer ${first.token}` }, body })
     for (const scenario of ['digest', 'duplicate-file', 'too-large']) {
       const invalid = new FormData(); invalid.append('intent', JSON.stringify(intent))
-      invalid.append('file', new Blob([scenario === 'too-large' ? new Uint8Array(20 * 1024 * 1024 + 1) : input]), 'input')
+      invalid.append('file', new Blob([scenario === 'too-large' ? new Uint8Array(30 * 1024 * 1024 + 1) : input]), 'input')
       if (scenario === 'duplicate-file') invalid.append('file', new Blob([input]), 'duplicate')
       if (scenario === 'digest') { invalid.set('intent', JSON.stringify({ ...intent, sha256: '0'.repeat(64) })) }
       // Invalid multipart requests may be rejected before their body finishes.
@@ -334,10 +337,11 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       controller.enqueue(new TextEncoder().encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="partial"\r\nContent-Type: application/octet-stream\r\n\r\n`))
       controller.enqueue(new Uint8Array(64 * 1024))
     } })
-    const interruptedUpload = fetch(`${origin}/api/v1/uploads`, { method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': `multipart/form-data; boundary=${boundary}` }, body: partial, duplex: 'half', signal: abort.signal }).catch(() => undefined)
+    const interruptedUpload = fetch(`${origin}/api/v1/uploads`, { method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'X-Rovai-Upload-Command-Id': intent.commandId, 'Content-Type': `multipart/form-data; boundary=${boundary}` }, body: partial, duplex: 'half', signal: abort.signal }).catch(() => undefined)
     await within((async () => { while ((await spools()).length === 0) await pause(10) })())
     abort.abort(); await interruptedUpload
     await within((async () => { while ((await spools()).length !== 0) await pause(10) })())
+    assert.equal((await (await authorized(first, 'uploads/reconcile', { method: 'POST', body: JSON.stringify(intent) })).json()).state, 'unbound')
     const upload = new FormData(); upload.append('intent', JSON.stringify(intent)); upload.append('file', new Blob([input]), 'web-source.txt')
     const uploadResponse = await request('uploads', { method: 'POST', headers: { Authorization: `Bearer ${first.token}` }, body: upload })
     assert.equal(uploadResponse.status, 200, `${await uploadResponse.clone().text()}\n${host.stderr()}`)
@@ -348,6 +352,13 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const replayUpload = new FormData(); replayUpload.append('file', new Blob([input]), 'replay'); replayUpload.append('intent', JSON.stringify(intent))
     assert.equal((await postUpload(replayUpload)).status, 200, 'file-before-intent remains supported')
     assert.equal((await spools()).length, 1, 'a replay discards only its duplicate spool')
+
+    // File quota excludes the multipart envelope, including a Unicode filename.
+    const exactLimit = Buffer.alloc(30 * 1024 * 1024, 0x61)
+    const exactIntent = { ...intent, commandId: crypto.randomUUID(), byteSize: exactLimit.length,
+      displayName: '三十 MiB.txt', sha256: createHash('sha256').update(exactLimit).digest('hex') }
+    const exactForm = new FormData(); exactForm.append('intent', JSON.stringify(exactIntent)); exactForm.append('file', new Blob([exactLimit]), exactIntent.displayName)
+    assert.equal((await postUpload(exactForm)).status, 200, 'exactly 30 MiB succeeds with multipart overhead')
 
     const restoreUpload = (session, scope = threadId, attachmentId = bound.id) => authorized(session, 'files', {
       method: 'POST', body: JSON.stringify({ action: 'restoreComposerAttachments', request: { threadId: scope, attachmentRefIds: [attachmentId] } })
@@ -501,6 +512,108 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       assert.equal(response.status, 200)
       return response.json()
     }
+    const prepareDownload = (session, body) => authorized(session, 'downloads', { method: 'POST', body: JSON.stringify(body) })
+    const grant = async (source, session = first) => {
+      const response = await prepareDownload(session, { kind: 'source', source })
+      assert.equal(response.status, 200, await response.clone().text())
+      const value = await response.json()
+      assert.match(value.url, /^\/api\/v1\/downloads\/[a-f0-9]{64}$/)
+      assert.equal(value.expiresInSeconds, 120)
+      return value
+    }
+    assert.equal((await prepareDownload(second, { kind: 'source', source: composerSource })).status, 403)
+    assert.equal((await prepareDownload(first, { kind: 'source', source: { kind: 'path', path: largePath } })).status, 403)
+    assert.equal((await request('downloads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'source', source: composerSource }) })).status, 401)
+    const transferName = '结果 包 #1.bin'
+    const transferPath = join(workspace, transferName)
+    const transferSource = { kind: 'camp_workspace', threadId: fileCampId, rawReference: encodeURIComponent(transferName) }
+    const sparse = await openFile(transferPath, 'w'); await sparse.truncate(33 * 1024 * 1024 + 13); await sparse.close()
+    assert.equal((await fileCall(first, 'open', transferSource)).error.code, 'file_too_large')
+    const largeGrant = await grant(transferSource)
+    assert.equal(largeGrant.byteSize, 33 * 1024 * 1024 + 13)
+    assert.equal(largeGrant.name, transferName)
+    const head = await fetch(origin + largeGrant.url, { method: 'HEAD' })
+    assert.equal(head.status, 200)
+    assert.equal(Number(head.headers.get('content-length')), largeGrant.byteSize)
+    assert.equal((await head.arrayBuffer()).byteLength, 0)
+    const streamed = await fetch(origin + largeGrant.url, { headers: { Range: 'bytes=0-3' } })
+    assert.equal(streamed.status, 200, 'initial release deliberately sends the authorized complete file')
+    assert.equal(streamed.headers.get('accept-ranges'), 'none')
+    assert.equal(streamed.headers.get('cache-control'), 'no-store, no-transform')
+    assert.match(streamed.headers.get('content-disposition'), /^attachment;/)
+    assert.equal(decodeURIComponent(streamed.headers.get('content-disposition').split("filename*=UTF-8''")[1]), transferName)
+    let transferred = 0
+    for await (const bytes of streamed.body) { transferred += bytes.length; assert.ok(bytes.every(byte => byte === 0)) }
+    assert.equal(transferred, largeGrant.byteSize)
+    assert.equal((await fetch(origin + largeGrant.url, { method: 'HEAD' })).status, 200, 'HEAD and complete GET do not consume a ticket')
+    assert.equal((await fetch(origin + largeGrant.url, { headers: { Origin: 'https://outside.invalid' } })).status, 403)
+    assert.equal((await fetch(origin + largeGrant.url + '?path=other')).status, 400)
+    const forgedToken = await fetch(origin + '/api/v1/downloads/' + '0'.repeat(64))
+    assert.equal(forgedToken.status, 410); assert.equal(forgedToken.headers.has('content-disposition'), false)
+    await writeFile(transferPath, Buffer.from([0xff, 0, 0x7f]))
+    const changed = await fetch(origin + largeGrant.url)
+    assert.equal(changed.status, 409); assert.equal(changed.headers.has('content-disposition'), false)
+    assert.equal((await fileCall(first, 'open', transferSource)).error.code, 'decode_failed')
+    const latest = await grant(transferSource)
+    assert.deepEqual(new Uint8Array(await (await fetch(origin + latest.url)).arrayBuffer()), new Uint8Array([0xff, 0, 0x7f]))
+    await writeFile(transferPath, '')
+    const empty = await grant(transferSource)
+    const emptyResponse = await fetch(origin + empty.url)
+    assert.equal(emptyResponse.status, 200); assert.equal(emptyResponse.headers.get('content-length'), '0')
+    assert.equal((await emptyResponse.arrayBuffer()).byteLength, 0)
+    const missingDownload = await prepareDownload(first, { kind: 'source', source: { ...transferSource, rawReference: 'does-not-exist.bin' } })
+    assert.equal(missingDownload.status, 404)
+    assert.equal((await missingDownload.json()).error.code, 'file_not_found')
+    const directoryDownload = await prepareDownload(first, { kind: 'source', source: { ...transferSource, rawReference: '.' } })
+    assert.equal(directoryDownload.status, 400)
+    assert.equal((await directoryDownload.json()).error.code, 'not_regular_file')
+    const grow = await openFile(transferPath, 'w'); await grow.truncate(81 * 1024 * 1024); await grow.close()
+    const oversized = await prepareDownload(first, { kind: 'source', source: transferSource })
+    assert.equal(oversized.status, 413); assert.equal((await oversized.json()).error.code, 'download_too_large')
+
+    // Hold a socket without consuming it: backpressure must retain the permit,
+    // still allow business commands, and release it after client cancellation.
+    const sizeForSlow = 64 * 1024 * 1024
+    const slowFile = await openFile(transferPath, 'w'); await slowFile.truncate(sizeForSlow); await slowFile.close()
+    const slowGrant = await grant(transferSource)
+    const slow = await new Promise((resolve, reject) => {
+      const req = httpRequest(origin + slowGrant.url, { agent: false }, response => { response.pause(); resolve(response) })
+      req.on('error', reject); req.end()
+    })
+    assert.equal(slow.statusCode, 200)
+    assert.equal((await fetch(origin + slowGrant.url)).status, 429, 'one active GET per ticket')
+    assert.equal((await call(first, 'app.info')).name, info.name, 'slow transfer leaves the business queue available')
+    slow.destroy()
+    await within((async () => {
+      for (;;) {
+        const response = await fetch(origin + slowGrant.url)
+        if (response.status === 200) { await response.body.cancel(); return }
+        assert.equal(response.status, 429); await pause(10)
+      }
+    })())
+    // Mutation while a response is backpressured must produce an incomplete
+    // response, not JSON appended to a successful Content-Length body.
+    const changingGrant = await grant(transferSource)
+    const changing = await new Promise((resolve, reject) => {
+      const req = httpRequest(origin + changingGrant.url, { agent: false }, response => { response.pause(); resolve(response) })
+      req.on('error', reject); req.end()
+    })
+    await writeFile(transferPath, 'changed during transmission')
+    let partialLength = 0
+    const interrupted = new Promise(resolve => { changing.on('data', bytes => { partialLength += bytes.length }); changing.on('error', () => resolve(true)); changing.on('end', () => resolve(false)) })
+    changing.resume()
+    assert.equal(await within(interrupted), true)
+    assert.ok(partialLength < sizeForSlow)
+    // Revocation also reaches a transfer created through the dedicated token
+    // route, and a new admission cannot revive its ordinary Session.
+    const revokedSession = await login()
+    const reset = await openFile(transferPath, 'w'); await reset.truncate(sizeForSlow); await reset.close()
+    const revokedGrant = await grant(transferSource, revokedSession)
+    const revokedStream = await fetch(origin + revokedGrant.url)
+    await authorized(revokedSession, 'logout', { method: 'POST' })
+    await assert.rejects(async () => { for await (const _ of revokedStream.body) { /* drain already queued bytes */ } })
+    assert.equal((await fetch(origin + revokedGrant.url)).status, 401)
+
     const largeOpen = await fileCall(first, 'open', { kind: 'camp_workspace', threadId: fileCampId, rawReference: 'large-preview.txt' })
     assert.equal(largeOpen.ok, true, JSON.stringify(largeOpen))
     let largeFile = largeOpen.value.file
@@ -514,6 +627,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(line.value.offset, 10)
     await writeFile(largePath, largeText.replace('a', 'b')); await utimes(largePath, fileTime, fileTime)
     assert.equal((await fileCall(first, 'readPage', { handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration, offset: 0 })).ok, false, 'same length and restored mtime cannot hide changed bytes')
+    assert.equal((await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })).status, 409)
     await writeFile(largePath, largeText); await utimes(largePath, fileTime, fileTime)
 
     assert.equal((await fileCall(second, 'readPage', { handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration, offset: 0 })).ok, false)
@@ -529,6 +643,12 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const downloaded = await fileCall(first, 'download', { handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })
     assert.equal(downloaded.ok, true)
     assert.equal(Buffer.compare(downloaded.value.bytes, Buffer.from(largeText + '\nchanged')), 0)
+    const seen = await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })
+    assert.equal(seen.status, 200)
+    const seenGrant = await seen.json()
+    assert.equal(await (await fetch(origin + seenGrant.url)).text(), largeText + '\nchanged')
+    const grownPreview = await openFile(largePath, 'w'); await grownPreview.truncate(21 * 1024 * 1024); await grownPreview.close()
+    assert.equal((await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })).status, 409, 'a preview that grows beyond its budget is a version conflict')
     await fileCall(first, 'release', { handleId: largeFile.handleId })
     // HTML classification, original-source reads and editor/generation fences use
     // the real Host API. The separate Chrome case owns rendering and native browser capabilities.
@@ -642,6 +762,17 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const repeatedDelete = await call(first, 'camps.delete', { ...deleteParams, commandId: crypto.randomUUID() })
     assert.equal(repeatedDelete.status, 'accepted')
     assert.equal(repeatedDelete.payload.operationId, deleted.payload.operationId, 'a repeated delete uses the original durable operation')
+    const deletingCamp = await call(first, 'camps.create', { ...directoryParams, commandId: crypto.randomUUID(), name: 'Active download deleted from Desktop' })
+    const deletingId = deletingCamp.payload.threadId
+    const deletingSource = { ...transferSource, threadId: deletingId }
+    const deletingGrant = await grant(deletingSource)
+    const deletingStream = await fetch(origin + deletingGrant.url)
+    const deletingVersion = (await call(first, 'camps.open', { threadId: deletingId, traceId: crypto.randomUUID() })).thread.version
+    assert.equal((await host.request('camps.delete', { commandId: crypto.randomUUID(), command: { threadId: deletingId, expectedVersion: deletingVersion, force: false } })).status, 'accepted')
+    await assert.rejects(async () => { for await (const _ of deletingStream.body) { /* drain bytes queued before revocation */ } })
+    assert.equal((await fetch(origin + deletingGrant.url)).status, 403)
+    assert.equal((await prepareDownload(first, { kind: 'source', source: deletingSource })).status, 403)
+    assert.equal((await readAssetFile(transferPath)).length, sizeForSlow, 'cancelling a download never removes its workspace source')
     const unusedBeforeRotation = await host.request('host.web.loginTicket')
     const rotated = await host.request('host.web.rotate')
     assert.equal((await exchange(unusedBeforeRotation.ticket)).status, 401)

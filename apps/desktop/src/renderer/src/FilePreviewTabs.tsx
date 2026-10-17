@@ -387,7 +387,7 @@ export function FilePreviewTabs({ compact = false }: { compact?: boolean } = {})
           >
             {tab.kind === 'file' && <>
             {(tab.file?.capabilities ?? tab.retainedCapabilities)?.includes('download') && <button role="menuitem" type="button" onClick={() => void runSystemAction(
-              () => download(tab.id), uiAttribute('已开始下载')
+              () => download(tab.id), uiAttribute('已交给浏览器下载。')
             )}><UiText zh={"下载文件"} /></button>}
             {(tab.file?.capabilities ?? tab.retainedCapabilities)?.includes('open_in_system') && <><button role="menuitem" type="button" disabled={!tab.file && !tab.sourceRequest} onClick={() => void runSystemAction(
               () => openInSystem(tab.id),

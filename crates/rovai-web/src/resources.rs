@@ -46,10 +46,12 @@ pub struct FileRequest {
 
 fn failure(code: &str) -> Value {
     json!({"ok":false,"error":{"code":code,"message":match code {
-        "file_too_large" => "文件超出浏览器预览范围，请下载查看。",
+        "file_too_large" | "decode_failed" => "此文件暂不支持在线预览，可下载到本机查看。",
         "outside_authorized_root" => "此引用超出当前预览来源的文件范围。",
         "source_not_authorized" => "当前来源已失效或未获授权。",
-        "file_not_found" => "源文件已不可用，可能已被系统清理。",
+        "file_not_found" | "attachment_missing" => "源文件已不可用，可能已被系统清理。",
+        "file_unreadable" | "attachment_unreadable" => "服务器暂时无法读取此文件，请检查文件权限后重试。",
+        "not_regular_file" | "attachment_kind_changed" => "此来源当前不是可下载的普通文件。",
         _ => "文件已变化或暂不可读，请重新打开。"
     },"retryable":true}})
 }
@@ -64,7 +66,14 @@ async fn core_value(
         .core
         .request_for_editor(method, params, client.clone())
         .await?;
-    ensure!(reply.error.is_none(), "source_not_authorized");
+    if let Some(error) = reply.error {
+        anyhow::bail!(match error["code"].as_str() {
+            Some("attachment_missing") => "file_not_found",
+            Some("attachment_unreadable") => "file_unreadable",
+            Some("attachment_kind_changed") => "not_regular_file",
+            _ => "source_not_authorized",
+        });
+    }
     reply
         .result
         .filter(|value| !value.is_null())
@@ -76,6 +85,143 @@ struct ResolvedSource {
     root: PathBuf,
     name: String,
     allow_children: bool,
+}
+
+/// A download keeps the exact Core source and optional seen generation, never a
+/// preview parser or arbitrary client path. Closing a preview does not release a
+/// separately admitted download; source/session invalidation still does.
+#[derive(Clone)]
+pub(super) struct DownloadTarget {
+    pub path: PathBuf,
+    pub name: String,
+    pub source: Value,
+    pub expected_generation: Option<String>,
+    root: PathBuf,
+    anchor: PathBuf,
+}
+
+impl DownloadTarget {
+    pub async fn reauthorize(&self, state: &WebState, client: &DraftClient) -> Result<()> {
+        let resolved = resolve(state, client, &self.source).await?;
+        ensure!(
+            resolved.path == self.anchor && resolved.root == self.root,
+            "source_not_authorized"
+        );
+        let current = tokio::fs::canonicalize(&self.path)
+            .await
+            .context("file_not_found")?;
+        ensure!(
+            current == self.path && current.starts_with(&self.root),
+            "source_not_authorized"
+        );
+        Ok(())
+    }
+}
+
+pub(super) async fn download_source(
+    state: &WebState,
+    session: &Arc<Session>,
+    mut source: Value,
+) -> Result<DownloadTarget> {
+    normalize_thread_scope(&mut source)?;
+    if let Some(locator) = source.get_mut("locator") {
+        normalize_thread_scope(locator)?;
+    }
+    let client = DraftClient::verified_web(&session.client_id)?;
+    if source["kind"] == "child_of_handle" {
+        let parent = state
+            .files
+            .0
+            .lock()
+            .expect("file registry poisoned")
+            .get(
+                source["parentHandleId"]
+                    .as_str()
+                    .context("source_not_authorized")?,
+            )
+            .filter(|handle| Arc::ptr_eq(&handle.session, session) && handle.allow_children)
+            .cloned()
+            .context("source_not_authorized")?;
+        reauthorize(state, &client, &parent).await?;
+        let candidate = reference_path(
+            source["rawReference"]
+                .as_str()
+                .context("source_not_authorized")?,
+            parent.path.parent().context("source_not_authorized")?,
+        )?;
+        let path = tokio::fs::canonicalize(candidate)
+            .await
+            .context("file_not_found")?;
+        ensure!(path.starts_with(&parent.root), "source_not_authorized");
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .context("source_not_authorized")?
+            .to_owned();
+        return Ok(DownloadTarget {
+            path,
+            name,
+            source: parent.source,
+            root: parent.root,
+            anchor: parent.anchor_path,
+            expected_generation: None,
+        });
+    }
+    let resolved = resolve(state, &client, &source).await?;
+    Ok(DownloadTarget {
+        anchor: resolved.path.clone(),
+        path: resolved.path,
+        root: resolved.root,
+        name: resolved.name,
+        source,
+        expected_generation: None,
+    })
+}
+
+pub(super) async fn download_preview(
+    state: &WebState,
+    session: &Arc<Session>,
+    id: &str,
+    expected: &str,
+) -> Result<DownloadTarget> {
+    let handle = state
+        .files
+        .0
+        .lock()
+        .expect("file registry poisoned")
+        .get(id)
+        .filter(|handle| Arc::ptr_eq(&handle.session, session))
+        .cloned()
+        .context("source_not_authorized")?;
+    ensure!(
+        handle
+            .analysis
+            .as_ref()
+            .is_some_and(|analysis| analysis.generation == expected),
+        "file_changed"
+    );
+    let client = DraftClient::verified_web(&session.client_id)?;
+    reauthorize(state, &client, &handle).await?;
+    // This bounded preview-generation check reports changes before handing off
+    // to the browser. The transfer hashes the actual bytes again before its tail.
+    let current = content::read(&handle.path, Selection::Digest, None)
+        .await
+        .map_err(|error| {
+            if error.to_string() == "file_too_large" {
+                anyhow::anyhow!("file_changed")
+            } else {
+                error
+            }
+        })?;
+    ensure!(current.generation == expected, "file_changed");
+    Ok(DownloadTarget {
+        path: handle.path,
+        name: handle.name,
+        source: handle.source,
+        root: handle.root,
+        anchor: handle.anchor_path,
+        expected_generation: Some(expected.to_owned()),
+    })
 }
 
 fn is_core_file_source_kind(kind: Option<&str>) -> bool {
@@ -378,6 +524,9 @@ pub async fn files(
     Json(result.unwrap_or_else(|error| {
         failure(match error.to_string().as_str() {
             "file_too_large" => "file_too_large",
+            "decode_failed" => "decode_failed",
+            "file_unreadable" => "attachment_unreadable",
+            "not_regular_file" => "not_regular_file",
             "outside_authorized_root" => "outside_authorized_root",
             "file_not_found" => "file_not_found",
             "source_not_authorized" => "source_not_authorized",
@@ -796,6 +945,9 @@ pub async fn binary(
     result.unwrap_or_else(|error| {
         Json(failure(match error.to_string().as_str() {
             "file_too_large" => "file_too_large",
+            "decode_failed" => "decode_failed",
+            "file_unreadable" => "attachment_unreadable",
+            "not_regular_file" => "not_regular_file",
             "outside_authorized_root" => "outside_authorized_root",
             "file_not_found" => "file_not_found",
             "source_not_authorized" => "source_not_authorized",
@@ -805,7 +957,7 @@ pub async fn binary(
     })
 }
 
-fn disposition(name: &str) -> String {
+pub(super) fn disposition(name: &str) -> String {
     let encoded: String = name
         .as_bytes()
         .iter()

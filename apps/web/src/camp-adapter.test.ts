@@ -171,7 +171,7 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
   vi.stubGlobal('atob', () => { throw Error('Binary previews must not use Base64') })
   const file = new File([new Uint8Array(600_000)], 'photo.png', { type: 'image/png' })
   vi.spyOn(file, 'arrayBuffer').mockRejectedValue(Error('No complete upload buffer'))
-  let digest = '', changed = false, missing = false
+  let digest = '', changed = false, missing = false, tooLarge = false
   const attachmentId = '11111111-1111-4111-8111-111111111111'
   const source = { id: attachmentId, sourcePath: '/tmp/upload/source', displayName: 'photo.png', kind: 'file', mediaType: 'image/png', observedByteSize: file.size }
   const actions: string[] = []
@@ -187,7 +187,7 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
       return Response.json(missing ? [null] : [{ id: attachmentId, sourcePath: source.sourcePath, displayName: source.displayName,
         kind: 'file', mediaType: 'image/png', byteSize: file.size, fileCount: 1, previewKind: 'image', availability: 'available' }])
     }
-    if (action === 'open') return Response.json(missing ? { ok: false, error: { code: 'file_not_found' } } : {
+    if (action === 'open') return Response.json(tooLarge ? { ok: false, error: { code: 'file_too_large' } } : missing ? { ok: false, error: { code: 'file_not_found' } } : {
       ok: true, value: { kind: 'file_preview', file: { handleId: 'file', displayPath: 'photo.png', kind: 'image', size: file.size, contentGeneration: changed ? 'c'.repeat(64) : digest } }
     })
     if (action === 'readBinary') {
@@ -222,7 +222,9 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
     expect(result.availability).toBe('available')
     expect('blob' in result.preview! && await result.preview.blob.arrayBuffer()).toEqual(new Uint8Array([137, 80, 78, 71]).buffer)
     expect(actions.slice(-3)).toEqual(['open', 'readBinary', 'release'])
-    missing = true
+    tooLarge = true
+    expect(await preview()).toEqual({ preview: null, availability: 'available' })
+    tooLarge = false; missing = true
     expect(await preview()).toEqual({ preview: null, availability: 'missing' })
     expect(actions.at(-1)).toBe('open')
     expect(await attachments.restore!('camp', [prepared])).toEqual([{ ...prepared, sourcePath: undefined, availability: 'missing' }])

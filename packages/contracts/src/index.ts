@@ -1797,6 +1797,8 @@ export interface FilePreviewApi {
   prepareHtml(request: { handleId: string; expectedGeneration: string }): Promise<FilePreviewOperationResult<FilePreviewHtmlDocument>>
   reload(request: { handleId: string; reopenToken: string; expectedGeneration: string }): Promise<FilePreviewOperationResult<ResolvedFilePreview>>
   release(request: { handleId: string }): Promise<{ released: true }>
+  /** Browser source download remains available without a successful preview. */
+  downloadSource?(request: OpenFilePreviewRequest): Promise<FilePreviewOperationResult<{ started: true }>>
   download?(request: { handleId: string; expectedGeneration: string }): Promise<FilePreviewOperationResult<{ started: true }>>
   openInSystem(request: { handleId: string }): Promise<FilePreviewOperationResult<{ opened: true }>>
   revealInFolder(request: { handleId: string }): Promise<FilePreviewOperationResult<{ revealed: true }>>

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, realpath, readFile, writeFile, rm, mkdir, readdir, rename } from 'node:fs/promises'
+import { access, mkdtemp, realpath, readFile, writeFile, rm, mkdir, readdir, rename, open } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
@@ -36,7 +37,7 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
   try {
     await within(host.ready)
     const profiles = await host.request('members.list')
-    await host.request('camps.create', { commandId: crypto.randomUUID(), name: 'HTML attachment acceptance', workspace: null, memberAgentIds: [profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId, collaborationMode: 'peer' })
+    const created = await host.request('camps.create', { commandId: crypto.randomUUID(), name: 'HTML attachment acceptance', workspace: null, memberAgentIds: [profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId, collaborationMode: 'peer' })
     const service = await host.request('host.web.start', { listen: '127.0.0.1:0', uiDirectory: join(repository, 'out/web') })
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Interactive attachment</title><link rel="stylesheet" href="./theme.css"><style>body{margin:0}button{position:absolute;left:20px;top:60px;width:200px;height:40px}h1{font:24px sans-serif}</style></head><body><h1>Rendered HTML</h1><button id="run">Run interaction</button><p id="result"></p><form action="${formOrigin}/submit" method="post" target="form-result"><input name="value" value="native-form"><button id="submit" style="top:120px">Submit form</button></form><iframe name="form-result" hidden></iframe><script>
       const visits=Number(localStorage.getItem('preview-visits')||0)+1;
@@ -47,6 +48,8 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
     </script></body></html>`
     const file = join(fixture, 'interactive.html'); await writeFile(file, html)
     browser = await launchAcceptanceBrowser({ executable, args: ['--headless=new', `--user-data-dir=${join(fixture, 'chrome')}`, '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', 'about:blank'] })
+    const downloadDirectory = join(fixture, 'downloads'); await mkdir(downloadDirectory)
+    await browser.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDirectory })
     const listen = `window.htmlAcceptance=[];addEventListener('message',e=>{if(e.source===document.querySelector('.file-preview-html')?.contentWindow&&e.origin===location.origin&&e.data?.type==='html-acceptance')window.htmlAcceptance.push(e.data)})`
     await browser.send('Page.addScriptToEvaluateOnNewDocument', { source: listen })
     await browser.send('Page.navigate', { url: service.origin })
@@ -56,6 +59,7 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
     await browser.send('Input.insertText', { text: service.administratorToken })
     await browser.click(`document.querySelector('.web-login button[type=submit]')`)
     await browser.wait(`document.querySelector('.web-login-overlay') === null`)
+    await browser.wait(`[...document.querySelectorAll('button')].some(e=>e.textContent.includes('HTML attachment acceptance'))`)
     await browser.click(`[...document.querySelectorAll('button')].find(e=>e.textContent.includes('HTML attachment acceptance'))`)
     await browser.wait(`document.querySelector('.conversation-controls .composer-file-input:not(:disabled)') !== null`)
     await browser.evaluate(`sessionStorage.setItem('acceptance-sentinel','private')`)
@@ -106,6 +110,12 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
     await browser.wait(`document.body.textContent.includes('共 1 处匹配')`)
     await browser.key('Escape')
     await browser.capture('/tmp/rovai-web-html-rendered.png')
+    await browser.evaluate(`window.downloadBlobCount=0;window.originalObjectURL=URL.createObjectURL;URL.createObjectURL=function(...args){window.downloadBlobCount++;return window.originalObjectURL.apply(this,args)}`)
+    await browser.click(`document.querySelector('.file-download-action button')`)
+    await within((async () => { while (!await access(join(downloadDirectory, 'interactive.html')).then(() => true, () => false)) await new Promise(resolve => setTimeout(resolve, 50)) })())
+    assert.equal(await readFile(join(downloadDirectory, 'interactive.html'), 'utf8'), html)
+    assert.equal(await browser.evaluate('window.downloadBlobCount'), 0, 'native download must not create a full-file Blob')
+
     const toggleSource = async label => {
       const target = await browser.evaluate(`(()=>{const r=document.querySelector('.file-preview-tab-activate').getBoundingClientRect();return{x:r.x+40,y:r.y+r.height/2}})()`)
       await browser.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...target, button: 'right', clickCount: 1 })
@@ -136,10 +146,75 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
     assert.equal(await readFile(file, 'utf8'), html, 'preview never rewrites the original attachment')
     await browser.click(`document.querySelector('[aria-label="关闭 interactive.html"]')`)
     await browser.wait(`document.querySelector('.file-preview-html')===null`)
+    // Binary files have a direct download even though their preview cannot open.
+    const binaryPath = join(fixture, 'unsupported.bin'); const binaryBytes = Buffer.from([0xff, 0, 1, 2, 3])
+    await writeFile(binaryPath, binaryBytes)
+    await browser.setFiles('.conversation-controls .composer-file-input', [binaryPath])
+    await browser.wait(`document.querySelector('[aria-label="下载文件 unsupported.bin"]')!==null`)
+    await browser.click(`document.querySelector('[aria-label="下载文件 unsupported.bin"]').closest('.composer-attachment-card').querySelector('.attachment-open')`)
+    await browser.wait(`document.querySelector('.file-preview-recovery')!==null`)
+    // Reload creates a new URL global, so instrument this document too.
+    await browser.evaluate(`window.downloadBlobCount=0;window.originalObjectUrl=URL.createObjectURL.bind(URL);URL.createObjectURL=(...args)=>{window.downloadBlobCount++;return window.originalObjectUrl(...args)}`)
+    await browser.click(`document.querySelector('.file-download-action button')`)
+    await within((async () => { while (!await access(join(downloadDirectory, 'unsupported.bin')).then(() => true, () => false)) await new Promise(resolve => setTimeout(resolve, 50)) })())
+    assert.deepEqual(await readFile(join(downloadDirectory, 'unsupported.bin')), binaryBytes)
+    assert.equal(await browser.evaluate('window.downloadBlobCount ?? 0'), 0)
+    await browser.capture('/tmp/rovai-web-file-download-mobile.png')
+    await browser.click(`document.querySelector('[aria-label="关闭 unsupported.bin"]')`)
+    const oversizedPath = join(fixture, 'too-large.bin')
+    const oversized = await open(oversizedPath, 'w'); await oversized.truncate(30 * 1024 * 1024 + 1); await oversized.close()
+    const uploadsBeforeLimit = browser.responses.filter(response => response.path === '/api/v1/uploads').length
+    await browser.click(`document.querySelector('#camp-message')`)
+    await browser.send('Input.insertText', { text: '保留正文和其他附件' })
+    await browser.setFiles('.conversation-controls .composer-file-input', [oversizedPath])
+    await browser.wait(`document.querySelector('.attachment-error')?.textContent.includes('30 MiB')`)
+    assert.equal(browser.responses.filter(response => response.path === '/api/v1/uploads').length, uploadsBeforeLimit)
+    assert.equal(await browser.evaluate(`document.querySelector('#camp-message').textContent`), '保留正文和其他附件')
+    assert.equal(await browser.evaluate(`document.querySelectorAll('.attachment-download').length`), 2)
+    await browser.click(`document.querySelector('[aria-label="移除失败附件 too-large.bin"]')`)
+    const cancelledPath = join(fixture, 'cancel-and-retry.bin')
+    await writeFile(cancelledPath, Buffer.alloc(2 * 1024 * 1024, 0x61))
+    await browser.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 128 * 1024 })
+    await browser.setFiles('.conversation-controls .composer-file-input', [cancelledPath])
+    await browser.wait(`document.querySelector('.web-upload-row progress')?.value > 0`)
+    await browser.capture('/tmp/rovai-web-upload-progress-mobile.png')
+    await browser.click(`[...document.querySelectorAll('.web-upload-actions button')].find(e=>e.textContent==='取消上传')`)
+    await browser.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })
+    await browser.wait(`!document.querySelector('.web-upload-status') || document.querySelector('.web-upload-status').textContent.includes('已取消')`)
+    // The automatic reconciliation may finish between frames and remove this
+    // action. Request another check only while the operation is still unknown.
+    await browser.evaluate(`[...document.querySelectorAll('.web-upload-actions button')].find(e=>e.textContent==='核对结果')?.click()`)
+    await browser.wait(`!document.querySelector('.web-upload-status') || document.querySelector('.web-upload-status').textContent.includes('原上传已确认')`)
+    await browser.click(`document.querySelector('[aria-label="移除失败附件 cancel-and-retry.bin"]')`)
+    await browser.setFiles('.conversation-controls .composer-file-input', [cancelledPath])
+    await browser.wait(`document.querySelector('[aria-label="下载文件 cancel-and-retry.bin"]')!==null`)
+    assert.equal((await readdir(uploadScratch)).filter(name => name.startsWith('rovai-web-upload-')).length, 3, 'cancelled unbound bytes are cleaned before retry')
+    // Publish an image-shaped file without starting a Run. A failed image
+    // decoder must leave the message attachment's source download accessible.
+    const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])
+    const author = await (await fetch(service.origin + '/api/v1/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ protocolVersion: 4, administratorToken: service.administratorToken }) })).json()
+    const imageIntent = { commandId: crypto.randomUUID(), threadId: created.payload.threadId, expectedRevision: 0, displayName: 'broken.png', byteSize: imageBytes.length, sha256: createHash('sha256').update(imageBytes).digest('hex') }
+    const imageForm = new FormData(); imageForm.append('intent', JSON.stringify(imageIntent)); imageForm.append('file', new Blob([imageBytes]), 'broken.png')
+    const imageUpload = await fetch(service.origin + '/api/v1/uploads', { method: 'POST', headers: { Authorization: `Bearer ${author.token}`, 'X-Rovai-Upload-Command-Id': imageIntent.commandId }, body: imageForm })
+    assert.equal(imageUpload.status, 200)
+    const imageSource = (await imageUpload.json()).draft
+    const publication = await (await fetch(service.origin + '/api/v1/request', { method: 'POST', headers: { Authorization: `Bearer ${author.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: 'camp.messages.send', params: {
+      commandId: crypto.randomUUID(), threadId: created.payload.threadId, content: { version: 2, segments: [{ kind: 'text', text: 'Image source download' }] }, sourceAttachments: [imageSource], quotes: [], replyToThreadMessageId: null, execution: null
+    } }) })).json()
+    assert.equal(publication.result.commandResult.status, 'applied')
+    await browser.wait(`document.querySelector('.image-tile-placeholder')?.textContent==='暂不支持预览'`)
+    const imageBlobsBeforeDownload = await browser.evaluate('window.downloadBlobCount')
+    await browser.click(`document.querySelector('.image-gallery [aria-label="下载文件 broken.png"]')`)
+    await within((async () => { while (!await access(join(downloadDirectory, 'broken.png')).then(() => true, () => false)) await new Promise(resolve => setTimeout(resolve, 50)) })())
+    assert.deepEqual(await readFile(join(downloadDirectory, 'broken.png')), imageBytes)
+    assert.equal(await browser.evaluate('window.downloadBlobCount'), imageBlobsBeforeDownload)
+    await browser.capture('/tmp/rovai-web-image-download-mobile.png')
+    await browser.evaluate(`document.documentElement.dataset.theme='night'`)
+    await browser.capture('/tmp/rovai-web-image-download-mobile-night.png')
     assert.deepEqual(browser.errors, [])
-    console.log(JSON.stringify({ rendered: true, realClick: true, originalSource: true, nativeStorage: true, form: true, popup: true, modal: true, mobileWidth: true, relativeCss: true, replacementSave: true, refresh: true, released: true }))
+    console.log(JSON.stringify({ rendered: true, realClick: true, originalSource: true, nativeStorage: true, form: true, popup: true, modal: true, mobileWidth: true, relativeCss: true, replacementSave: true, refresh: true, released: true, nativeDownload: true, imageDownload: true, uploadLimitAndCancel: true }))
   } catch (error) {
-    if (browser) console.log(JSON.stringify(await browser.evaluate(`({samples:window.htmlAcceptance,search:document.querySelector('input[aria-label="查找文件内容"]')?.value,active:document.activeElement?.outerHTML,frame:document.querySelector('.file-preview-html')?.getBoundingClientRect().toJSON()})`).catch(()=>null)))
+    if (browser) console.log(JSON.stringify(await browser.evaluate(`({samples:window.htmlAcceptance,search:document.querySelector('input[aria-label="查找文件内容"]')?.value,active:document.activeElement?.tagName,visibleText:document.body.innerText.slice(-800),frame:document.querySelector('.file-preview-html')?.getBoundingClientRect().toJSON()})`).catch(()=>null)))
     if (browser) await browser.capture('/tmp/rovai-web-html-failure.png').catch(() => {})
     throw error
   } finally {

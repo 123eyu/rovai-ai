@@ -1015,9 +1015,17 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
     try { return await action(file) }
     finally { if (!tab.file) void api.release({ handleId: file.handleId }) }
   }
-  const download = (tabId: string) => withActionFile<{ started: true }>(tabId, file => api.download
-    ? api.download({ handleId: file.handleId, expectedGeneration: file.contentGeneration })
-    : Promise.resolve({ ok: false, error: unavailableSourceError() }))
+  const download = async (tabId: string): Promise<FilePreviewOperationResult<{ started: true }>> => {
+    const tab = tabsRef.current.find(entry => entry.id === tabId)
+    if (tab?.kind !== 'file') return { ok: false, error: unavailableSourceError() }
+    if (!tab.file && tab.sourceRequest && api.downloadSource) {
+      await owner.sync()
+      return api.downloadSource(tab.sourceRequest)
+    }
+    return withActionFile(tabId, file => api.download
+      ? api.download({ handleId: file.handleId, expectedGeneration: file.contentGeneration })
+      : Promise.resolve({ ok: false, error: unavailableSourceError() }))
+  }
   const openInSystem = (tabId: string) => withActionFile(tabId, file => api.openInSystem({ handleId: file.handleId }))
   const revealInFolder = (tabId: string) => withActionFile(tabId, file => api.revealInFolder({ handleId: file.handleId }))
   const copyPath = (tabId: string) => withActionFile(tabId, file => api.copyPath({

@@ -93,6 +93,7 @@ export function AttachmentCard({
   const [imageAction, setImageAction] = useState<ImageAction | null>(null)
   const [imageNotice, setImageNotice] = useState<string | null>(null)
   const imageActionPending = useRef(false)
+  const attachmentActionPending = useRef(false)
   const attachmentButtonRef = useRef<HTMLButtonElement>(null)
   const locatorRef = useRef(locator)
   locatorRef.current = locator
@@ -196,8 +197,10 @@ export function AttachmentCard({
     action: 'open' | 'reveal',
     forceSystem = false
   ): Promise<void> => {
-    if (!primaryActionAvailable || disabled || attachmentAction) return
+    if (!primaryActionAvailable || disabled || attachmentActionPending.current) return
+    attachmentActionPending.current = true
     setAttachmentAction(action)
+    if (action === 'open' && forceSystem && client.attachments.kind === 'download') onNotify(uiAttribute('准备下载…'))
     try {
       if (action === 'open') {
         if (!forceSystem && attachment.kind === 'file' && filePreview) {
@@ -218,6 +221,7 @@ export function AttachmentCard({
           ? await client.attachments.download(locator)
           : await client.attachments.open(locator)
         setAvailability(result.availability)
+        if (!result.error && client.attachments.kind === 'download') onNotify(uiAttribute('已交给浏览器下载。'))
         if (result.error === 'target_unavailable') onNotify(uiAttribute('此附件当前不可用'))
         else if (result.error) onNotify(client.attachments.kind === 'download' ?uiAttribute("下载附件失败") :uiAttribute("无法使用系统应用打开此附件"))
       } else if (client.attachments.kind === 'native') {
@@ -232,11 +236,13 @@ export function AttachmentCard({
               :uiAttribute("无法显示此附件所在位置"))
         }
       }
-    } catch {
+    } catch (error) {
+      if (client.attachments.kind === 'download' && error instanceof Error) { onNotify(error.message); return }
       onNotify(action === 'open'
         ? (client.attachments.kind === 'download' ?uiAttribute("下载附件失败") :uiAttribute("无法使用系统应用打开此附件"))
         :uiAttribute("无法显示此附件所在位置"))
     } finally {
+      attachmentActionPending.current = false
       setAttachmentAction(null)
     }
   }
@@ -429,6 +435,12 @@ export function AttachmentCard({
               </button>
             )
           : <div className="attachment-open">{content}</div>}
+      {client.attachments.kind === 'download' && attachment.kind === 'file' && <button
+        className="attachment-download" type="button" disabled={disabled || attachmentAction !== null}
+        aria-label={uiAttribute('下载文件 {0}', attachment.displayName)}
+        title={attachmentAction ? uiAttribute('准备下载…') : uiAttribute('下载文件')}
+        onClick={() => void runAttachmentAction('open', true)}
+      ><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg></button>}
       {!previewOpen && imageContextMenu}
       {imageNotice && createPortal(<div className="image-action-notice" role="status" aria-hidden={previewOpen || undefined}>{imageNotice}</div>, document.body)}
       {hasImagePreview && (

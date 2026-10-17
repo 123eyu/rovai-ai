@@ -4850,6 +4850,11 @@ body:has(.composer-image-attachment[data-context-open="true"]) .image-action-not
 .image-gallery-agent-output .image-gallery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 240px)); gap: 10px; }
 .image-gallery-agent-output .image-gallery-grid.is-single { grid-template-columns: minmax(0, 560px); }
 .image-tile { display: flex; flex-direction: column; min-width: 0; margin: 0; }
+.image-gallery-user-attachment .image-tile:has(.image-download) { height: auto; }
+.image-download { align-self: flex-end; padding: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; }
+.image-download:hover:not(:disabled) { color: var(--ink); background: var(--surface-hover); }
+.image-download:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+@media (pointer: coarse) { .image-download { min-height: 44px; } }
 .image-tile-preview { display: grid; place-items: center; align-self: flex-start; width: fit-content; max-width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: zoom-in; }
 .image-tile-preview:has(.image-tile-placeholder) { width: 100%; height: 240px; }
 .image-gallery-agent-output .image-gallery-grid.is-single .image-tile-preview:has(.image-tile-placeholder) { height: min(420px, 48vh); min-height: 180px; }
@@ -9438,3 +9443,14 @@ button.skill-file-current:hover, .skill-file-current[aria-expanded="true"] { bac
 
 .run-input-source { width: max-content; max-width: 100%; color: var(--muted); font-size: 10.5px; }
 .run-input-source:focus-visible { outline: 2px solid var(--conversation-focus); outline-offset: 1px; }
+
+/* Native browser transfers stay available alongside bounded previews. */
+.attachment-download { display: grid; place-items: center; flex: none; width: 32px; padding: 4px; border: 0; border-left: 1px solid var(--line); color: var(--ink); background: transparent; }
+.attachment-download svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.attachment-download:hover:not(:disabled) { background: var(--surface-hover); }
+.attachment-download:disabled { color: var(--muted); }
+.attachment-download:focus-visible { outline: 2px solid var(--brand); outline-offset: -3px; }
+.file-download-action { display: flex; flex: none; justify-content: flex-end; align-items: center; gap: 8px; padding: 4px 10px; color: var(--muted); font-size: 11px; }
+.file-download-action > span { min-width: 0; overflow-wrap: anywhere; }
+.file-download-action > button { flex: none; }
+@media (pointer: coarse) { .attachment-download, .file-download-action > button { min-height: 44px; } .attachment-download { width: 44px; } }

@@ -252,6 +252,20 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
   const hadCachedPayload = useRef(false)
   const committedUrl = useRef<string | null>(null)
   const ownedUrls = useRef(new Set<string>())
+  const canDownload = source.kind === 'attachment' && client.attachments.kind === 'download'
+
+  const downloadFile = async (): Promise<void> => {
+    if (source.kind !== 'attachment' || client.attachments.kind !== 'download' || actionPending.current) return
+    actionPending.current = true
+    setAction('save'); setActionNotice(uiAttribute('准备下载…'))
+    try {
+      const result = await client.attachments.download(source.locator)
+      if (result.error) throw new Error(uiAttribute('下载附件失败'))
+      setActionNotice(uiAttribute('已交给浏览器下载。'))
+    } catch (error) {
+      setActionNotice(error instanceof Error ? error.message : uiAttribute('下载附件失败'))
+    } finally { actionPending.current = false; setAction(null) }
+  }
 
   useEffect(() => {
     if (!actionNotice || action) return
@@ -431,7 +445,7 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
       ? uiAttribute('图片不可读')
       : availability === 'kind_changed'
         ? uiAttribute('文件类型已变化')
-        : uiAttribute('图片已不可用')
+        : canDownload && availability === 'available' ? uiAttribute('暂不支持预览') : uiAttribute('图片已不可用')
   const loading = !url && !failed
 
   return (
@@ -449,6 +463,10 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
               {failed ? unavailableLabel : uiAttribute("正在读取图片…")}
             </span>}
       </button>
+      {canDownload && <button type="button" className="image-download" disabled={action !== null}
+        aria-label={uiAttribute('下载文件 {0}', source.image.displayName)} onClick={() => { void downloadFile() }}>
+        <UiText zh={action === 'save' ? '准备下载…' : '下载文件'} />
+      </button>}
       {notice && <figcaption className="image-tile-notice" role="status">{notice}</figcaption>}
       {!open && contextMenu}
       {actionNotice && createPortal(<div className="image-action-notice" role="status" aria-hidden={open || undefined}>{actionNotice}</div>, document.body)}

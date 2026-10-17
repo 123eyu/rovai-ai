@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: unified-rust-host
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # 统一 Rust Host
@@ -10,7 +10,7 @@ last_updated: 2026-10-16
 [Runtime 兼容性](../runtime-compatibility.md)，不能由目标结构推断完成。
 现有准入、事务、Runtime 与关闭合同继续有效；新增 wire 合同随对应实现明确发布。
 原生 Server 数据根、初始 CLI 兼容、初始化准入和停止适配由[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)拥有；
-当前受控网络入口由[Host Web v4](../contracts/host-web-v4.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
+当前受控网络入口由[Host Web v6](../contracts/host-web-v6.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
 
 当前已实现父进程匿名管道与进程内请求共用一个 Host/Core、共享生产 Camp 页面、客户端草稿、source 上传及
 逐项准入的 Camp 写入。以下 UDS/Named Pipe 身份握手与完整公共 DTO 生成仍是后续目标，
@@ -53,8 +53,9 @@ Web 长期登录 Token 可重复兑换默认 30 天的可撤销 opaque Bearer Se
 客户端申请延期至续期成功起 30 天，不轮换 Bearer 或编辑身份。正常访问、续期和重启不更换长期 Token。
 Host 在准入的 Core data-dir 内持久保存私有认证文档，浏览器 IndexedDB 保存普通 Session；
 标签页的编辑证明、草稿与原命令另归 sessionStorage，启动先认证再恢复。不使用认证 Cookie、双 Token 或 OAuth。
-仅固定控制台 origin 的封闭 API 使用显式 Authorization；登录和认证 Fetch 拒绝重定向，SSE、图片、下载同样
-走认证 Fetch，必要时生成并释放 Blob URL。不把管理令牌、Bearer 或编辑证明写 URL、预览链接或日志；浏览器长期存储只允许普通 Session 认证材料，
+仅固定控制台 origin 的封闭 API 使用显式 Authorization；登录和认证 Fetch 拒绝重定向，SSE、图片仍走认证 Fetch。
+上传固定端点使用带 Bearer 的 XHR 提供进度与取消；独立下载经已认证申请取得短期、精确来源的下载专用凭证，
+再交浏览器原生下载。该凭证路由属于明确的认证例外。不把管理令牌、Bearer 或编辑证明写 URL、预览链接或日志；浏览器长期存储只允许普通 Session 认证材料，
 不保存长期登录 Token 或编辑证明；
 扫码登录的一次性 fragment 票据按下述短期例外处理。
 
@@ -106,10 +107,13 @@ Agent Managed 与 legacy 机制不变，不建对象存储、附件目录库或�
 资源读取按精确身份、owner locator 与作用域授权；路径规范化、符号链接和读取时变化不能逃逸授权。
 远程 Owner 直接选择 Host 有权访问的工作目录，不需要本机预授权名单；Core 继续拥有原有项目和文件校验。
 文件分页仍逐次完整验证 SHA-256，复用与摘要绑定的 UTF-8 / 稀疏行号信息以减少重复扫描，读取仅保留所需页。
-图片与下载使用认证原始字节响应；上传按块写入和计算摘要。草稿缩略图仅在 Host 确认绑定、可用性及摘要一致后
+图片使用认证的有界预览响应；上传按块写入和计算摘要，单文件 30 MiB，预览保留独立 20 MiB 预算。
+下载以独立票据、并发额度、有界通道和背压在 Host 队外运行，默认不设文件大小上限，可独立配置。
+GET 再验证来源与对象，活动流订阅 Session/Core 撤销；最终块发送前验证实际内容，失败中断响应。
+预览失败不阻止来源下载，文件内容沿用 source reference 与 legacy 的既有生命周期。草稿缩略图仅在 Host 确认绑定、可用性及摘要一致后
 复用当前客户端的有界 File 缓存；刷新、内容变化或缓存淘汰恢复 Host 读取。空句柄不启动文件更新轮询。
 静态服务只挂应用构建产物。长期缓存只准入构建清单中带内容哈希且字节校验相符的文件，入口及私有响应仍不缓存。
-具体字段和边界由 [Host Web v2](../contracts/host-web-v2.md#workspaces-uploads-and-resources) 拥有。
+具体字段和边界由 [Host Web v6](../contracts/host-web-v6.md) 及其继承的预览规则拥有。
 HTML/HTM 附件复用共享交互查看器，由认证 POST 读取后交给同来源静态预览壳。Desktop 托管 Web 和独立
 Server Web 共用该 Rust 路径；响应 CSP 与 iframe 均采用
 `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"`，仅预览响应允许 HTTP(S)

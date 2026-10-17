@@ -340,7 +340,27 @@ function Viewer({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element {
   return <SourceViewer tab={tab} />
 }
 
+function FileDownloadAction({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element | null {
+  const api = useFilePreviewApi()
+  const { download } = useFilePreview()
+  const pending = useRef(false)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  if (!api.download || (!tab.file && !api.downloadSource)) return null
+  return <div className="file-download-action">
+    <span role="status">{notice}</span>
+    <button type="button" className="quiet-button compact" disabled={busy || tab.loadState === 'opening'} onClick={() => {
+      if (pending.current) return
+      pending.current = true; setBusy(true); setNotice(null)
+      void download(tab.id).then(result => setNotice(result.ok ? uiAttribute('已交给浏览器下载。') : result.error.message))
+        .catch(error => setNotice(error instanceof Error ? error.message : uiAttribute('下载申请失败，请重试。')))
+        .finally(() => { pending.current = false; setBusy(false) })
+    }}>{busy ? uiAttribute('准备下载…') : uiAttribute('下载文件')}</button>
+  </div>
+}
+
 function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element {
+  const api = useFilePreviewApi()
   const { reload, retry, changePage, revealInFolder, displayed } = useFilePreview()
   const [pathActionError, setPathActionError] = useState<string | null>(null)
   useEffect(() => setPathActionError(null), [tab.file?.handleId, tab.id])
@@ -378,10 +398,11 @@ function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.E
     </span>}
   </> : null
   if (tab.content?.kind === 'html') {
-    return <HtmlViewer tab={tab} pathControl={pathControl} updateAction={tab.isRefreshing ? null : updateAction} />
+    return <><FileDownloadAction key={tab.id} tab={tab} /><HtmlViewer tab={tab} pathControl={pathControl} updateAction={tab.isRefreshing ? null : updateAction} /></>
   }
   return (
     <>
+      <FileDownloadAction key={tab.id} tab={tab} />
       {showPath && <div className="file-preview-path-row">
         {pathControl}
         {updateAction}
@@ -395,7 +416,8 @@ function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.E
           <div className="file-preview-recovery-stage">
             <div className="file-preview-recovery" role="status" aria-live="polite">
               <ResourceReferenceIcon kind="file" className="file-preview-recovery-icon" />
-              <p>{tab.error?.message ?? uiAttribute("暂时无法读取文件")}</p>
+              <p>{api.downloadSource && ['decode_failed', 'file_too_large'].includes(tab.error?.code ?? '')
+                ? uiAttribute('此文件暂不支持在线预览，可下载到本机查看。') : tab.error?.message ?? uiAttribute("暂时无法读取文件")}</p>
               {tab.file?.kind === 'html' && <button type="button" onClick={() => void retry(tab.id)}><UiText zh={"重试"} /></button>}
             </div>
           </div>

@@ -3,10 +3,30 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-15
+last_updated: 2026-10-17
 ---
 
 # v1.72 实施与验收
+
+## 浏览器文件传输（2026-10-17）
+
+独立分支实现 [Host Web v6](../../contracts/host-web-v6.md)：上传 30 MiB 与独立预览预算，
+下载专用短期能力、背压、最终块校验、权限撤销和浏览器原生下载；恢复沿用 Core command receipt。
+没有新 Rust 测试 fixture；扩展既有 HTTP Host owner 验证传输 seam，前端 transport owner 验证地址/代次/取消。
+
+验证基线 `c69a97fbf`，工作分支 `rovai/web-file-transfers`。本机 macOS arm64：
+
+- TypeScript、`pnpm test`（246 个 Vitest 文件／2,730 项，脚本 355 通过／2 项平台跳过）、
+  Rust 默认工作区（473 通过／1 项既有忽略）、收尾 `rovai-web` 11 项、Desktop/Web 构建通过。
+- 既有 Host HTTP owner 扩展并通过：30 MiB 精确边界及附加信息、取消后未绑定清理、私有来源拒绝、
+  33 MiB 文件、64 MiB 背压／中途变化、空文件、独立额度、HEAD／Range、所见版本、退出及 Desktop 删除 Camp 撤销。
+- 隔离 Chrome 使用生产界面验证原生 HTML／二进制下载、零下载 Blob、390px 直接入口、超限保留正文与附件、
+  上传进度／取消／重选。未知上传重选和刷新恢复在 transport owner 中核对原 intent，避免第二个来源。
+- Host 渠道和定时任务回归通过。`test:host-web` 的多标签用例未通过：新 CDP 标签默认 756px，桌面导航选择器失效；
+  统一测试视口后进一步发现新标签复用了旧正文。独立构建基线 Web 也复现后者，当前本地 Composer store 仍按 Camp
+  使用共享 localStorage。本次保留原测试判据，不把该套件记为全绿；跨标签草稿隔离需另行修复。
+
+文档按通用治理门禁验证。本次没有真实模型调用、Linux/Windows 原生运行或实体手机验收，不推断这些平台已实测。
 
 ## Steer 入队回执与阻塞工具核验（2026-10-15）
 

@@ -2,13 +2,30 @@ import { TAB_AUTH_KEY, type AuthStorage, type BrowserSession } from './auth-stor
 import { browserEditingRecovery } from './editing-recovery'
 import { RECOVERY_KEY, type RecoveryStorage } from './tab-recovery'
 import { fileDigest } from './file-digest'
+import { uploadRequest } from './upload-request'
 import { newCommandId } from '../../desktop/src/shared/command-id'
 import type { ThreadReadInvalidation, ChannelKind, ChannelSettingsSnapshot, FilePreviewBinaryContent, FilePreviewOperationResult, LocalAttachmentSourceView } from '@contracts'
 
 const HOST_WEB_PROTOCOL_VERSION = 4
 
+const transferErrors: Record<string, string> = {
+  upload_too_large: '单个上传文件不能超过 30 MiB（31,457,280 字节）。',
+  upload_envelope_too_large: '上传请求超出传输额度，请检查文件大小和附加信息。',
+  upload_capacity: '当前上传较多，请稍后重试。',
+  invalid_upload: '上传内容未能通过校验，请重新选择文件后重试。',
+  download_expired: '下载地址已过期，请重新点击下载。',
+  download_capacity: '当前下载较多，请稍后重试。',
+  download_too_large: '文件超过此服务器设置的下载额度。',
+  file_changed: '文件已变化，请刷新预览或重新申请下载。',
+  file_not_found: '源文件已不存在，可能已被清理。',
+  file_unreadable: '服务器暂时无法读取此文件，请检查文件权限后重试。',
+  source_not_authorized: '此文件来源已失效或未获授权。',
+  not_regular_file: '当前入口只支持下载普通文件。',
+  download_unavailable: '文件暂不可读，请稍后重试。'
+}
+
 class HttpRequestError extends Error {
-  constructor(readonly status: number, readonly code: string, message?: string) { super(message || `请求未完成（${code}）。`) }
+  constructor(readonly status: number, readonly code: string, message?: string) { super(message || transferErrors[code] || `请求未完成（${code}）。`) }
 }
 
 function sessionStorageMessage(body: { error?: { code?: string; message?: string } }): string | undefined {
@@ -240,7 +257,8 @@ const RECONCILABLE_COMMANDS = new Set<WebOperation>([
 
 export type ConnectionState = 'connecting' | 'live' | 'offline' | 'expired'
 type PendingCommand = { operation: WebOperation; params: unknown; resolve(value: unknown): void; reject(error: unknown): void }
-type PendingUpload = { intent: unknown; data: FormData | null; resolve(draft: unknown): void; reject(error: unknown): void }
+export type UploadProgress = { id: string; name: string; phase: 'hashing' | 'transferring' | 'binding' | 'unknown' | 'received'; percent: number; cancelled: boolean }
+type PendingUpload = { cancelled?: boolean; signal?: AbortSignal; intent: unknown; data: FormData | null; resolve(draft: unknown): void; reject(error: unknown): void }
 type CommandReceipt = { state: 'unknown' | 'recorded'; result?: unknown; error?: { code: string; message?: string } }
 
 /** Decodes bounded SSE frames; payloads are invalidations, never private Core events. */
@@ -273,12 +291,15 @@ export class InvalidationDecoder {
   }
 }
 
-type SessionResponse = { protocolVersion?: unknown; token?: unknown; clientId?: unknown; editorProof?: unknown; ownerId?: unknown; channels?: unknown; expiresAt?: unknown; serverTime?: unknown; renewalWindowSeconds?: unknown }
+type SessionResponse = { protocolVersion?: unknown; token?: unknown; clientId?: unknown; editorProof?: unknown; ownerId?: unknown; channels?: unknown; fileTransfers?: { uploadMaxBytes?: unknown; nativeDownload?: unknown }; expiresAt?: unknown; serverTime?: unknown; renewalWindowSeconds?: unknown }
 
 export class ConsoleClient {
   readonly origin: string
   #channels: 'desktop' | 'unsupported' = 'unsupported'
   get channels(): 'desktop' | 'unsupported' { return this.#channels }
+  #uploadMaxBytes = 20 * 1024 * 1024
+  #nativeDownload = false
+  get nativeDownload(): boolean { return this.#nativeDownload }
   #token: string | null = null
   #authStorage?: AuthStorage
   #now: () => number
@@ -296,6 +317,41 @@ export class ConsoleClient {
 
   #pending = new Map<string, PendingCommand>()
   #pendingUploads = new Map<string, PendingUpload>()
+  #receivedUploads = new Map<string, unknown>()
+  #uploadProgress = new Map<string, UploadProgress>()
+  #uploadControllers = new Map<string, AbortController>()
+  #uploadListeners = new Set<() => void>()
+  get uploadProgress(): UploadProgress[] { return [...this.#uploadProgress.values()] }
+  onUploadsChanged(listener: () => void): () => void { this.#uploadListeners.add(listener); return () => { this.#uploadListeners.delete(listener) } }
+  #notifyUploads(): void { for (const listener of this.#uploadListeners) listener() }
+  #uploadPhase(id: string, phase: UploadProgress['phase'], percent = 0): void {
+    const current = this.#uploadProgress.get(id)
+    if (current) { this.#uploadProgress.set(id, { ...current, phase, percent }); this.#notifyUploads() }
+  }
+  dismissUpload(id: string): void { this.#uploadProgress.delete(id); this.#notifyUploads() }
+  cancelUpload(id: string): void {
+    const current = this.#uploadProgress.get(id)
+    if (!current || current.cancelled || current.phase === 'received') return
+    this.#uploadProgress.set(id, { ...current, cancelled: true, phase: 'unknown' })
+    const entry = this.#pendingUploads.get(id)
+    if (entry) {
+      entry.cancelled = true; entry.data = null
+      entry.reject(new Error('已取消上传；若服务器已接收，将继续核对原结果。'))
+    }
+    this.#uploadControllers.get(id)?.abort()
+    this.#notifyUploads()
+  }
+  canRetryUpload(id: string): boolean { const entry = this.#pendingUploads.get(id); return Boolean(entry?.data && !entry.cancelled) }
+  #resetUploadSignal(id: string, entry: PendingUpload): void {
+    const controller = new AbortController()
+    this.#uploadControllers.set(id, controller)
+    entry.signal = AbortSignal.any([controller.signal, this.#lifetime.signal])
+  }
+  async retryUpload(id: string): Promise<void> {
+    await this.reconcilePending()
+    const entry = this.#pendingUploads.get(id)
+    if (entry?.data && !entry.cancelled) { this.#resetUploadSignal(id, entry); await this.#dispatchUpload(id, entry, true) }
+  }
   #localUploads = new Map<string, File>()
   #reconciling = false
   #restored = false
@@ -341,7 +397,7 @@ export class ConsoleClient {
     if (this.#restored) return this.authenticated
     this.#restored = true
     const raw = this.#storage?.getItem(RECOVERY_KEY)
-    type Recovery = { version: number; origin: string; token?: string | null; editor: { clientId: string; proof: string }; ownerId: string; pending?: Array<{ operation: WebOperation; params: unknown }>; uploads?: unknown[] }
+    type Recovery = { version: number; origin: string; token?: string | null; editor: { clientId: string; proof: string }; ownerId: string; pending?: Array<{ operation: WebOperation; params: unknown }>; uploads?: unknown[]; receivedUploads?: unknown[] }
     let saved: Recovery | null = null
     const identity = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
     if (raw) {
@@ -371,7 +427,19 @@ export class ConsoleClient {
       }
       for (const intent of saved.uploads ?? []) {
         const id = (intent as { commandId?: string })?.commandId
-        if (typeof id === 'string') this.#pendingUploads.set(id, { intent, data: null, resolve: () => this.#notifyRecovered(), reject: () => this.#notifyRecovered() })
+        if (typeof id === 'string') {
+          this.#uploadProgress.set(id, { id, name: (intent as { displayName: string }).displayName, phase: 'unknown', percent: 0, cancelled: false })
+          this.#pendingUploads.set(id, { intent, data: null, resolve: () => {
+            this.#receivedUploads.set(id, intent); this.#persistRecovery(); this.#uploadPhase(id, 'received'); this.#notifyRecovered()
+          }, reject: () => this.#notifyRecovered() })
+        }
+      }
+      for (const intent of saved.receivedUploads ?? []) {
+        const recorded = intent as { commandId?: string; displayName?: string }
+        if (typeof recorded.commandId === 'string' && typeof recorded.displayName === 'string') {
+          this.#receivedUploads.set(recorded.commandId, intent)
+          this.#uploadProgress.set(recorded.commandId, { id: recorded.commandId, name: recorded.displayName, phase: 'received', percent: 0, cancelled: true })
+        }
       }
       this.#persistRecovery()
     }
@@ -417,7 +485,7 @@ export class ConsoleClient {
   #persistRecovery(): void {
     if (!this.#storage || !this.#editor || !this.#ownerId) return
     this.#storage.setItem(RECOVERY_KEY, JSON.stringify({ version: 2, origin: this.origin, editor: this.#editor, ownerId: this.#ownerId,
-      pending: [...this.#pending.values()].map(({ operation, params }) => ({ operation, params })), uploads: [...this.#pendingUploads.values()].map(({ intent }) => intent) }))
+      pending: [...this.#pending.values()].map(({ operation, params }) => ({ operation, params })), uploads: [...this.#pendingUploads.values()].map(({ intent }) => intent), receivedUploads: [...this.#receivedUploads.values()] }))
   }
 
   clearEditingRecovery(): void { this.#storage?.removeItem('rovai.web.edits.v1') }
@@ -466,6 +534,9 @@ export class ConsoleClient {
     this.#editor = { clientId: session.clientId, proof: session.editorProof }
     this.#ownerId = session.ownerId
     this.#channels = session.channels === 'desktop' ? 'desktop' : 'unsupported'
+    this.#uploadMaxBytes = typeof session.fileTransfers?.uploadMaxBytes === 'number' && Number.isSafeInteger(session.fileTransfers.uploadMaxBytes) && session.fileTransfers.uploadMaxBytes >= 0
+      ? Math.min(30 * 1024 * 1024, session.fileTransfers.uploadMaxBytes) : 20 * 1024 * 1024
+    this.#nativeDownload = session.fileTransfers?.nativeDownload === true
     this.#token = session.token
     this.#persistTabAuthentication()
     this.#persistRecovery()
@@ -628,22 +699,65 @@ export class ConsoleClient {
     | { kind: 'single_chat_pending'; conversationId: string; pendingInputId: string; editToken: string }
   ): Promise<T> {
     if (!this.authenticated) throw new SessionRequired()
-    if (file.size > 20 * 1024 * 1024) throw new Error('单个上传文件不能超过 20 MB。')
+    if (file.size > this.#uploadMaxBytes) throw new Error(`单个上传文件不能超过 ${this.#uploadMaxBytes / (1024 * 1024)} MiB（${this.#uploadMaxBytes.toLocaleString('en-US')} 字节）。`)
     const scope = this.editingScope
-    const digest = await fileDigest(file, this.#lifetime.signal)
-    const commandId = newCommandId()
-    const intent = { commandId, threadId, expectedRevision, ...(target ? { target } : {}), displayName: file.name, byteSize: file.size,
+    let commandId = newCommandId()
+    const controller = new AbortController()
+    const signal = AbortSignal.any([controller.signal, this.#lifetime.signal])
+    this.#uploadControllers.set(commandId, controller)
+    this.#uploadProgress.set(commandId, { id: commandId, name: file.name, phase: 'hashing', percent: 0, cancelled: false }); this.#notifyUploads()
+    let digest: string
+    try { digest = await fileDigest(file, signal) }
+    catch (error) { this.#uploadControllers.delete(commandId); this.dismissUpload(commandId); throw controller.signal.aborted ? new Error('已取消上传。') : error }
+    const matchesFile = (intent: unknown): boolean => {
+      const previous = intent as { threadId: string; sha256: string; target?: unknown }
+      return previous.threadId === threadId && previous.sha256 === digest && JSON.stringify(previous.target) === JSON.stringify(target)
+    }
+    const pendingUpload = [...this.#pendingUploads.entries()].find(([, entry]) => matchesFile(entry.intent))
+    if (pendingUpload) {
+      try {
+        if (pendingUpload[1].data) throw new Error('同一文件的原上传仍待核对，请先核对原结果。')
+        await this.#reconcileUpload(pendingUpload[0], pendingUpload[1], signal)
+        signal.throwIfAborted()
+      } catch (error) { this.#uploadControllers.delete(commandId); this.dismissUpload(commandId); throw error }
+    }
+    // Re-selecting a file after a confirmed cancelled/recovered upload reuses
+    // its original receipt. No second byte upload or source is created.
+    for (const [id, original] of this.#receivedUploads) {
+      if (!matchesFile(original)) continue
+      try {
+        const confirmed = await this.#json<{ draft?: T }>('uploads/reconcile', { method: 'POST', body: JSON.stringify(original), signal })
+        signal.throwIfAborted()
+        if (!confirmed.draft) throw new Error('原上传结果仍待核对，请稍后重试。')
+        this.#receivedUploads.delete(id); this.dismissUpload(id); this.#persistRecovery()
+        return confirmed.draft
+      } finally { this.#uploadControllers.delete(commandId); this.dismissUpload(commandId) }
+    }
+    const previousUpload = [...this.#pendingUploads.entries()].find(([, entry]) => matchesFile(entry.intent))
+    if (previousUpload?.[1].data) { this.#uploadControllers.delete(commandId); this.dismissUpload(commandId); throw new Error('同一文件的原上传仍待核对，请先核对原结果。') }
+    if (previousUpload) {
+      // A cancelled request or a refreshed page has lost its File body. This
+      // explicit re-selection supplies bytes for the original idempotent intent.
+      this.#uploadControllers.delete(commandId); this.dismissUpload(commandId)
+      commandId = previousUpload[0]
+      this.#uploadControllers.set(commandId, controller)
+      this.#uploadProgress.set(commandId, { id: commandId, name: file.name, phase: 'hashing', percent: 0, cancelled: false }); this.#notifyUploads()
+    }
+    const intent = previousUpload?.[1].intent ?? { commandId, threadId, expectedRevision, ...(target ? { target } : {}), displayName: file.name, byteSize: file.size,
       sha256: digest }
     const data = new FormData(); data.append('intent', JSON.stringify(intent)); data.append('file', file)
     return new Promise((resolve, reject) => {
-      const entry: PendingUpload = { intent, data, resolve: value => {
+      const entry: PendingUpload = { intent, data, signal, resolve: value => {
         // A successful binding or its canonical reconciliation is required before
         // retaining a payload for previews. Never persist local bytes or credentials.
+        this.#uploadControllers.delete(commandId)
+        if (entry.cancelled) { this.#receivedUploads.set(commandId, intent); this.#persistRecovery(); this.#uploadPhase(commandId, 'received'); this.#notifyRecovered(); return }
+        this.dismissUpload(commandId)
         if (scope === this.editingScope && this.authenticated) this.#retainUpload(threadId, digest, file)
         resolve(value as T)
       }, reject }
       this.#pendingUploads.set(commandId, entry); this.#notifyPending()
-      void this.#dispatchUpload(commandId, entry)
+      void this.#dispatchUpload(commandId, entry, Boolean(previousUpload))
     })
   }
 
@@ -668,15 +782,35 @@ export class ConsoleClient {
 
   async #dispatchUpload(commandId: string, entry: PendingUpload, preserveUnknown = false): Promise<void> {
     if (!entry.data) throw new Error('上传内容无法随刷新保留。请先核对原上传结果；未完成时重新选择文件。')
-    await this.#json<{ draft: unknown }>('uploads', { method: 'POST', body: entry.data }).then(result => {
+    this.#uploadPhase(commandId, 'transferring')
+    await this.#sendUpload(commandId, entry).then(result => {
         if (this.#pendingUploads.get(commandId) !== entry) return
         this.#pendingUploads.delete(commandId); this.#notifyPending(); entry.resolve(result.draft)
       }).catch(error => {
-        if (preserveUnknown) { void this.reconcilePending(); return }
-        if (error instanceof SessionRequired || (error instanceof HttpRequestError && ['draft_changed', 'invalid_upload', 'upload_too_large', 'upload_changed_or_session_expired', 'upload_conflict', 'upload_capacity'].includes(error.code))) {
-          if (this.#pendingUploads.get(commandId) === entry) { this.#pendingUploads.delete(commandId); this.#notifyPending(); entry.reject(error) }
-        } else { void this.reconcilePending() }
+        if (preserveUnknown) { this.#uploadPhase(commandId, 'unknown'); void this.reconcilePending(); return }
+        if (error instanceof SessionRequired || (error instanceof HttpRequestError && ['draft_changed', 'invalid_upload', 'upload_too_large', 'upload_envelope_too_large', 'upload_changed_or_session_expired', 'upload_conflict', 'upload_capacity'].includes(error.code))) {
+          if (this.#pendingUploads.get(commandId) === entry) { this.#pendingUploads.delete(commandId); this.#uploadControllers.delete(commandId); this.dismissUpload(commandId); this.#notifyPending(); entry.reject(error) }
+        } else { this.#uploadPhase(commandId, 'unknown'); void this.reconcilePending() }
       })
+  }
+
+  async #sendUpload(id: string, entry: PendingUpload): Promise<{ draft: unknown }> {
+    const generation = this.#generation
+    if (!this.#token) throw new SessionRequired()
+    await this.renewIfNeeded()
+    await this.#assertTab?.()
+    if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
+    const signal = entry.signal ? AbortSignal.any([entry.signal, this.#lifetime.signal]) : this.#lifetime.signal
+    // Non-browser test transports retain Fetch; production uses native upload progress.
+    if (typeof XMLHttpRequest === 'undefined') return this.#json('uploads', { method: 'POST', body: entry.data, signal, headers: { 'X-Rovai-Upload-Command-Id': id } })
+    const response = await uploadRequest(`${this.origin}/api/v1/uploads`, this.#token!, id, entry.data!, signal, fraction => {
+      this.#uploadPhase(id, fraction >= 1 ? 'binding' : 'transferring', Math.min(100, Math.floor(fraction * 100)))
+    })
+    if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
+    if (response.status === 401) { await this.#forgetAuthentication(); throw new SessionRequired() }
+    const body = await response.json()
+    if (!response.ok) throw new HttpRequestError(response.status, body.error?.code ?? 'connection_unavailable')
+    return body
   }
 
   /** Explicit user action only. Reconcile first, then reuse exact identities and
@@ -689,7 +823,7 @@ export class ConsoleClient {
       if (this.#pending.get(id) === entry) await this.#dispatchCommand(id, entry, true)
     }
     for (const [id, entry] of [...this.#pendingUploads]) {
-      if (this.#pendingUploads.get(id) === entry) await this.#dispatchUpload(id, entry, true)
+      if (this.#pendingUploads.get(id) === entry && entry.data && !entry.cancelled) { this.#resetUploadSignal(id, entry); await this.#dispatchUpload(id, entry, true) }
     }
   }
 
@@ -718,12 +852,37 @@ export class ConsoleClient {
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     return value
   }
+  async download(request: { kind: 'source'; source: unknown } | { kind: 'preview'; handleId: string; expectedGeneration: string }): Promise<void> {
+    if (!this.#nativeDownload) throw new Error('此 Host 尚不支持独立下载，请升级 Host 后重试。')
+    const generation = this.#generation
+    const result = await this.#json<{ url: string; name: string }>('downloads', { method: 'POST', body: JSON.stringify(request) })
+    // A short-lived capability is never persisted, logged, or passed to an
+    // external origin. Do not follow a server-provided arbitrary URL.
+    if (typeof result.url !== 'string' || !/^\/api\/v1\/downloads\/[a-f0-9]{64}$/.test(result.url)) throw new Error('下载地址无效。')
+    const url = new URL(result.url, this.origin)
+    if (url.origin !== this.origin || generation !== this.#generation || !this.authenticated) throw new DOMException('Connection replaced', 'AbortError')
+    const link = document.createElement('a')
+    link.href = url.href; link.download = result.name; link.rel = 'noreferrer'; link.referrerPolicy = 'no-referrer'
+    document.body.append(link); link.click(); link.remove()
+  }
+
   async attachment(locator: unknown): Promise<{ blob: Blob; name: string }> {
     const generation = this.#generation
     const response = await this.#authorized('attachments', { method: 'POST', body: JSON.stringify(locator) })
     const blob = await response.blob()
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     return { blob, name: responseFileName(response) }
+  }
+
+  async #reconcileUpload(id: string, entry: PendingUpload, signal?: AbortSignal): Promise<void> {
+    const result = await this.#json<{ draft?: unknown; state?: 'unknown' | 'unbound' }>('uploads/reconcile', { method: 'POST', body: JSON.stringify(entry.intent), signal })
+    if (this.#pendingUploads.get(id) !== entry) return
+    if (result.draft) {
+      this.#pendingUploads.delete(id); this.#notifyPending(); entry.resolve(result.draft)
+    } else if (result.state === 'unbound') {
+      this.#pendingUploads.delete(id); this.#uploadControllers.delete(id); this.dismissUpload(id); this.#notifyPending()
+      entry.reject(new Error('文件未完成上传，请重新选择后重试。'))
+    }
   }
 
   async reconcilePending(): Promise<void> {
@@ -742,10 +901,7 @@ export class ConsoleClient {
       }
       for (const [id, entry] of this.#pendingUploads) {
         try {
-          const result = await this.#json<{ draft?: unknown }>('uploads/reconcile', { method: 'POST', body: JSON.stringify(entry.intent) })
-          if (result.draft && this.#pendingUploads.get(id) === entry) {
-            this.#pendingUploads.delete(id); this.#notifyPending(); entry.resolve(result.draft)
-          }
+          await this.#reconcileUpload(id, entry)
         } catch { /* No deletion or redispatch while binding remains unknown. */ }
       }
     } finally { this.#reconciling = false }
@@ -783,14 +939,14 @@ export class ConsoleClient {
     return this.#json('workspaces', { method: 'POST', body: JSON.stringify({ path, offset }) })
   }
 
-  async #json<T>(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'avatars', options: RequestInit = {}): Promise<T> {
+  async #json<T>(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'downloads' | 'avatars', options: RequestInit = {}): Promise<T> {
     const generation = this.#generation
     const result = await (await this.#authorized(path, options)).json() as T
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     return result
   }
 
-  async #authorized(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'request' | 'events' | 'logout' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'files/bytes' | 'attachments' | 'avatars', options: RequestInit = {}): Promise<Response> {
+  async #authorized(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'request' | 'events' | 'logout' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'files/bytes' | 'attachments' | 'downloads' | 'avatars', options: RequestInit = {}): Promise<Response> {
     if (!this.#token) throw new SessionRequired()
     const generation = this.#generation
     if (this.#localExpiry !== null && this.#localExpiry - this.#now() <= this.#renewalWindow && !['session', 'session/renew', 'logout'].includes(path)) await this.renewIfNeeded()
@@ -798,7 +954,7 @@ export class ConsoleClient {
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     const response = await this.#fetch(`${this.origin}/api/v1/${path}`, {
       ...options, credentials: 'omit', redirect: 'error', cache: 'no-store',
-      headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${this.#token}` },
+      headers: { ...Object.fromEntries(new Headers(options.headers)), ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), Authorization: `Bearer ${this.#token}` },
       signal: options.signal ? AbortSignal.any([options.signal, this.#lifetime.signal]) : this.#lifetime.signal
     })
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')

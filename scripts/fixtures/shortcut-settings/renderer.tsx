@@ -25,11 +25,11 @@ let tasksEnabled = true
 const taskListeners = new Set<(event: import('@contracts').CoreEvent) => void>()
 const client = { ...model.client, platform,
   request: (async <T,>(method: import('@contracts').CoreMethod, params?: unknown): Promise<T> => {
-    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled } as T
+    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled, headsUpAfterSequence: 0 } as T
     if (method === 'preferences.tasks.set') {
       tasksEnabled = (params as { enabled: boolean }).enabled
       taskListeners.forEach(listener => listener({ method: 'preferences.tasks_changed', params: { enabled: tasksEnabled } }))
-      return { enabled: tasksEnabled } as T
+      return { enabled: tasksEnabled, headsUpAfterSequence: 0 } as T
     }
     return model.client.request<T>(method, params)
   }) as typeof model.client.request,

@@ -8884,17 +8884,20 @@ impl Core {
                 struct Empty {}
                 let _: Empty = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
-                Ok(json!({"enabled": rovai_core::task_capability::enabled(database.connection())?}))
+                Ok(serde_json::to_value(
+                    rovai_core::task_capability::snapshot(database.connection())?,
+                )?)
             }
             "preferences.tasks.set" => {
                 let input: rovai_core::task_capability::TaskPreferences =
                     serde_json::from_value(request.params.clone())?;
-                let changed = {
+                let (changed, snapshot) = {
                     let mut database = self.database.lock().await;
                     let tx = database.connection_mut().transaction()?;
                     let changed = rovai_core::task_capability::set(&tx, input.enabled)?;
+                    let snapshot = rovai_core::task_capability::snapshot(&tx)?;
                     tx.commit()?;
-                    changed
+                    (changed, snapshot)
                 };
                 if changed {
                     emit(
@@ -8917,7 +8920,7 @@ impl Core {
                         }
                     });
                 }
-                Ok(serde_json::to_value(input)?)
+                Ok(serde_json::to_value(snapshot)?)
             }
             "preferences.newConversation.get"
             | "preferences.newConversation.initialize"

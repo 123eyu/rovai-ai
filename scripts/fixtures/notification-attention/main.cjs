@@ -180,11 +180,54 @@ app.whenReady().then(async () => {
     assert.match((await state()).cards[0]?.message, /验收任务/, 'New Task signals are still admitted')
     await run('window.notificationTest.tasks(false)')
     assert.equal((await state()).cards.length, 0)
-    await run("window.notificationTest.failInboxReads(2); window.notificationTest.admit('turn_completed'); window.notificationTest.tasks(true)")
-    assert.equal((await state()).cards[0]?.message, '本轮已完成', 'Task baseline failure cannot drop unrelated changes')
+    // Keep an actual unread refresh pending while toggling. No Task-only read may
+    // hold the global poll or delay ordinary reminders, even after Task is off.
+    await run("window.notificationTest.admit('turn_completed')")
+    await state()
+    await run('window.notificationTest.holdInbox()')
     await click('.notification-heads-up-open')
+    assert.ok((await state()).pendingInbox > 0, 'Unread refresh is really pending')
+    await run("window.notificationTest.tasks(true); window.notificationTest.admit('turn_completed')")
+    assert.equal((await state()).cards[0]?.message, '本轮已完成', 'A pending Task/inbox watermark cannot block an ordinary batch')
+    await run('window.notificationTest.tasks(false)')
+    assert.equal((await state()).cards[0]?.message, '本轮已完成', 'Disabling cannot leave the ordinary batch awaiting the old Promise')
+    await click('.notification-heads-up-open')
+    await run('window.notificationTest.releaseInbox()')
+    assert.equal((await state()).cards.length, 0)
+
+    // Old Task is before the settings transaction; both new signals are after it.
+    // Failing every inbox read cannot swallow the new Task or move that boundary.
+    await run("window.notificationTest.admit('task_status_changed', null, 'old-failure-task', undefined, false); window.notificationTest.failInboxReads(10); window.notificationTest.tasks(true); window.notificationTest.admit('turn_completed'); window.failureWindowTask = window.notificationTest.admit('task_status_changed')")
+    assert.equal((await state()).cards[0]?.message, '本轮已完成')
+    await click('.notification-heads-up-open')
+    assert.ok((await state()).failedInboxReads < 10, 'An inbox request actually failed')
+    await run('window.notificationTest.failInboxReads(0); window.notificationTest.poll()')
+    assert.equal((await state()).cards[0]?.summary, true)
+    await click('.notification-heads-up-open')
+    assert.match((await state()).cards[0]?.message, /验收任务/, 'The Task generated during the failure window is retained')
+    await click('.notification-heads-up-open')
+    assert.equal(await run('window.notificationTest.state().acknowledgements.at(-1).request.command.acknowledgementId'), await run('window.failureWindowTask'))
+    await run('window.notificationTest.poll()')
+    assert.equal((await state()).cards.length, 0, 'New Task appears once; old Task never enters overflow')
+
+    // A delayed read sees a later global waterline, but cannot redefine enablement.
+    await run("window.notificationTest.tasks(false); window.notificationTest.admit('turn_completed')")
+    await state()
+    await run('window.notificationTest.holdInbox()')
+    await click('.notification-heads-up-open')
+    assert.ok((await state()).pendingInbox > 0)
+    await run("window.notificationTest.admit('task_status_changed', null, 'old-delayed-task', undefined, false); window.notificationTest.tasks(true); window.delayedWindowTask = window.notificationTest.admit('task_status_changed')")
+    assert.match((await state()).cards[0]?.message, /验收任务/, 'New Task is processed before the delayed inbox response')
+    await run('window.notificationTest.releaseInbox(); window.notificationTest.tasks(true); window.notificationTest.poll()')
+    await state()
+    await click('.notification-heads-up-open')
+    assert.equal(await run('window.notificationTest.state().acknowledgements.at(-1).request.command.acknowledgementId'), await run('window.delayedWindowTask'))
+    assert.equal((await state()).cards.length, 0, 'Late reads and same-value saves cannot replay old Tasks')
+
     await run("window.notificationTest.admit('task_status_changed')")
-    assert.match((await state()).cards[0]?.message, /验收任务/, 'Subsequent polling repairs the Task baseline')
+    assert.match((await state()).cards[0]?.message, /验收任务/)
+    await run('window.notificationTest.tasks(false); window.notificationTest.tasks(true)')
+    assert.equal((await state()).cards.length, 0, 'A new boundary clears old queued Tasks even when React batches off/on')
 
     for (const fail of [false, true]) {
       await run('window.taskCapabilityTest.start()')

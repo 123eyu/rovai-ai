@@ -2975,6 +2975,10 @@ mod slow_tests {
         crate::task_capability::set(database.connection(), true).unwrap();
         let record_task = |database: &mut Database, id: &str| {
             let tx = database.connection_mut().transaction().unwrap();
+            tx.execute("INSERT INTO task(id,camp_id,title,status,completion_summary,
+                created_by_type,created_by_id,closed_by_type,closed_by_id,created_at,updated_at,closed_at)
+                VALUES(?1,'camp-page-a','Task signal','completed','done','user','local_user','user','local_user',
+                '2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z')", [id]).unwrap();
             record_status_transition(
                 &tx,
                 &ActorRef::System {
@@ -3052,6 +3056,91 @@ mod slow_tests {
             "off admission must not leave a new occurrence to replay"
         );
         assert_eq!(restored.unread_count, 4);
+
+        // The setting transaction fixes the Task enable boundary once. A late
+        // inbox response or a same-value repair must not consume newer signals.
+        let boundary = crate::task_capability::snapshot(database.connection()).unwrap();
+        assert_eq!(
+            boundary.heads_up_after_sequence,
+            restored.through_change_sequence
+        );
+        record_task(&mut database, "task-after-enable");
+        assert!(!crate::task_capability::set(database.connection(), true).unwrap());
+        let late = service
+            .inbox(
+                &mut database,
+                CURRENT_USER_ID,
+                NotificationEpisodeFilter::All,
+                None,
+                10,
+            )
+            .unwrap();
+        assert!(late.through_change_sequence > boundary.heads_up_after_sequence);
+        assert_eq!(
+            crate::task_capability::snapshot(database.connection())
+                .unwrap()
+                .heads_up_after_sequence,
+            boundary.heads_up_after_sequence
+        );
+        let new_tasks = service
+            .changes_since(
+                &mut database,
+                CURRENT_USER_ID,
+                boundary.heads_up_after_sequence,
+                100,
+            )
+            .unwrap();
+        assert_eq!(
+            new_tasks
+                .changes
+                .iter()
+                .filter(
+                    |change| change.heads_up_signal.as_ref().is_some_and(
+                        |signal| signal.semantic == NotificationSemantic::TaskStatusChanged
+                    )
+                )
+                .count(),
+            1
+        );
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(
+            crate::task_capability::snapshot(database.connection())
+                .unwrap()
+                .heads_up_after_sequence,
+            boundary.heads_up_after_sequence,
+            "reopening preserves the fixed boundary"
+        );
+
+        // An already-installed schema 155 upgrades without changing its flag or
+        // notification facts; existing history becomes the initial boundary.
+        database
+            .connection()
+            .execute_batch(
+                "ALTER TABLE task_preference DROP COLUMN heads_up_after_sequence;
+            DELETE FROM schema_migration WHERE version=206;
+            UPDATE rovai_data_contract SET projection_schema_version=155 WHERE singleton=1;",
+            )
+            .unwrap();
+        drop(database);
+        let mut database = Database::open(&directory).unwrap();
+        let upgraded = crate::task_capability::snapshot(database.connection()).unwrap();
+        assert!(upgraded.enabled);
+        assert_eq!(
+            upgraded.heads_up_after_sequence,
+            late.through_change_sequence
+        );
+        let retained = service
+            .inbox(
+                &mut database,
+                CURRENT_USER_ID,
+                NotificationEpisodeFilter::All,
+                None,
+                10,
+            )
+            .unwrap();
+        assert_eq!(retained.unread_count, late.unread_count);
+        assert_eq!(retained.items.len(), late.items.len());
 
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();

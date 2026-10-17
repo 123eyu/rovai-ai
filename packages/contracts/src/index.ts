@@ -1151,6 +1151,11 @@ export interface ThreadMemberRemovalPreview {
   blockerCode: 'camp.member_not_active' | null
 }
 
+export interface TaskCapabilitySnapshot {
+  enabled: boolean
+  headsUpAfterSequence: number
+}
+
 export interface TaskView {
   taskId: string
   threadId: string

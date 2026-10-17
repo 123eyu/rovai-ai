@@ -24,13 +24,20 @@ fn new_fact(base: &str, version: i64, facts: i64) -> String {
 }
 
 pub(super) fn schema_matches(c: &Connection) -> rusqlite::Result<bool> {
+    matches_columns(c, &["singleton", "enabled", "heads_up_after_sequence"])
+}
+
+pub(super) fn legacy_schema_matches(c: &Connection) -> rusqlite::Result<bool> {
+    matches_columns(c, &["singleton", "enabled"])
+}
+
+fn matches_columns(c: &Connection, expected: &[&str]) -> rusqlite::Result<bool> {
     Ok(c.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_preference')",
         [],
         |r| r.get::<_, bool>(0),
     )? && steer::retained_schema_matches(c)
-        && table_columns(c, "task_preference")
-            .is_ok_and(|columns| columns == ["singleton", "enabled"])
+        && table_columns(c, "task_preference").is_ok_and(|columns| columns == expected)
         && schema(c, "trigger", "context_manifest_v40_only_insert")
             .is_ok_and(|sql| sql.contains("NEW.context_manifest_version = 40"))
         && schema(c, "trigger", "agent_run_input_v40_only_insert")
@@ -156,7 +163,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
-                DatabaseContractClassification::Current(_)
+                DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 155
             ),
             "Task capability admission failed"
         );
@@ -169,12 +176,43 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
     Ok(())
 }
 
+/// Capture one durable boundary; polling and preference reads never move it.
+pub(super) fn migrate_notification_boundary(database: &mut Database) -> Result<()> {
+    let tx = database
+        .connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    anyhow::ensure!(
+        matches!(classify_database_contract(&tx)?,
+        DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 155),
+        "Task notification boundary requires schema 155"
+    );
+    tx.execute_batch("ALTER TABLE task_preference ADD COLUMN heads_up_after_sequence INTEGER NOT NULL DEFAULT 0 CHECK(heads_up_after_sequence>=0);
+        UPDATE task_preference SET heads_up_after_sequence=(SELECT current_sequence FROM notification_change_clock WHERE singleton=1);
+        INSERT INTO schema_migration VALUES(206,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=156,updated_at=datetime('now') WHERE singleton=1;")?;
+    anyhow::ensure!(
+        matches!(
+            classify_database_contract(&tx)?,
+            DatabaseContractClassification::Current(_)
+        ),
+        "Task notification boundary admission failed"
+    );
+    tx.commit()?;
+    Ok(())
+}
+
 // Synthetic upgrade fixtures only. Product code never rewrites frozen input.
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
     if !schema_matches(c).unwrap() {
         return;
     }
+    c.execute_batch(
+        "ALTER TABLE task_preference DROP COLUMN heads_up_after_sequence;
+        DELETE FROM schema_migration WHERE version=206;
+        UPDATE rovai_data_contract SET projection_schema_version=155 WHERE singleton=1;",
+    )
+    .unwrap();
     c.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
     let tx = c.unchecked_transaction().unwrap();
     let immutable = schema(&tx, "trigger", "context_manifest_version_immutable").unwrap();
@@ -273,6 +311,23 @@ pub(super) fn assert_upgrade(db: &mut Database) {
         .execute_batch("DROP TRIGGER reject_task_capability_receipt;")
         .unwrap();
     migrate(db).unwrap();
+    // The additive migration must preserve data and roll back its column and receipt together.
+    db.connection().execute_batch("CREATE TEMP TRIGGER reject_task_boundary_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=206 BEGIN SELECT RAISE(ABORT,'task boundary rollback'); END;").unwrap();
+    assert!(
+        migrate_notification_boundary(db)
+            .unwrap_err()
+            .to_string()
+            .contains("task boundary rollback")
+    );
+    assert!(legacy_schema_matches(db.connection()).unwrap());
+    assert_eq!(
+        evidence,
+        public_history_claim_preserved_evidence_digest(db.connection()).unwrap()
+    );
+    db.connection()
+        .execute_batch("DROP TRIGGER reject_task_boundary_receipt;")
+        .unwrap();
+    migrate_notification_boundary(db).unwrap();
     assert!(!crate::task_capability::enabled(db.connection()).unwrap());
     assert_eq!(
         evidence,

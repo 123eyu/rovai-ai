@@ -203,6 +203,16 @@ function filterHeadsUpByPreference(
   }
 }
 
+function filterTaskHeadsUp(
+  current: NotificationHeadsUpState,
+  enabled: boolean,
+  afterSequence: number
+): NotificationHeadsUpState {
+  const retain = (entry: NotificationHeadsUpEntry): boolean => entry.episode.kind !== 'task'
+    || (enabled && entry.changeSequence > afterSequence)
+  return { entries: current.entries.filter(retain), overflowEntries: current.overflowEntries.filter(retain) }
+}
+
 export async function readNotificationChangePages(
   startCursor: number,
   requestPage: (afterChangeSequence: number) => Promise<NotificationEpisodeChangeBatch>,
@@ -324,9 +334,9 @@ export function NotificationAttentionController({
   singleChatSources = null,
   onHeadsUpVisibleChange
 }: NotificationAttentionControllerProps): React.JSX.Element {
-  const { enabled: tasksEnabled } = useTaskCapability()
-  const tasksEnabledRef = useRef(tasksEnabled)
-  tasksEnabledRef.current = tasksEnabled
+  const { enabled: tasksEnabled, headsUpAfterSequence } = useTaskCapability()
+  const taskCapability = useRef({ enabled: tasksEnabled, headsUpAfterSequence })
+  taskCapability.current = { enabled: tasksEnabled, headsUpAfterSequence }
   const client = useThreadClient()
   const readingSources = useMemo(() => activeThreadVisible
     ? [publicSources, singleChatSources].filter((source): source is VisibleNotificationSources => (
@@ -345,9 +355,8 @@ export function NotificationAttentionController({
     emptyNotificationHeadsUpState
   )
   useEffect(() => {
-    if (tasksEnabled) return
-    setHeadsUpState(state => ({ entries: state.entries.filter(item => item.episode.kind !== 'task'), overflowEntries: state.overflowEntries.filter(item => item.episode.kind !== 'task') }))
-  }, [tasksEnabled])
+    setHeadsUpState(state => filterTaskHeadsUp(state, tasksEnabled, headsUpAfterSequence))
+  }, [tasksEnabled, headsUpAfterSequence])
   const [hasUnreadAttention, setHasUnreadAttention] = useState(false)
   const [observedThroughChangeSequence, setObservedThroughChangeSequence] = useState(0)
   const [baselineRetry, setBaselineRetry] = useState(0)
@@ -358,7 +367,6 @@ export function NotificationAttentionController({
   const changeCursor = useRef(0)
   const baselineReady = useRef(false)
   const baselineGeneration = useRef(0)
-  const taskHeadsUpBaseline = useRef<Promise<number> | null>(null)
   const pollRunning = useRef(false)
   const pollFailureCount = useRef(0)
   const pollRetryAt = useRef(0)
@@ -397,22 +405,6 @@ export function NotificationAttentionController({
     setHasUnreadAttention(inbox.unreadCount > 0)
     return inbox
   }, [])
-
-  // Task re-enablement suppresses old Task signals without advancing the shared
-  // cursor. Unconsumed collaboration/Mission changes still pass through polling.
-  const readTaskHeadsUpBaseline = useCallback((): Promise<number> => {
-    const pending = readUnreadStatus().then(inbox => inbox.throughChangeSequence).catch(() => {
-      if (taskHeadsUpBaseline.current === pending) taskHeadsUpBaseline.current = null
-      return Number.POSITIVE_INFINITY
-    })
-    taskHeadsUpBaseline.current = pending
-    return pending
-  }, [readUnreadStatus])
-
-  useEffect(() => {
-    taskHeadsUpBaseline.current = null
-    if (enabled && tasksEnabled) void readTaskHeadsUpBaseline()
-  }, [enabled, tasksEnabled, readTaskHeadsUpBaseline])
 
   const establishBaseline = useCallback(async (): Promise<void> => {
     const generation = ++baselineGeneration.current
@@ -499,14 +491,12 @@ export function NotificationAttentionController({
         await establishBaseline()
         return
       }
-      const taskBaseline = tasksEnabledRef.current
-        ? taskHeadsUpBaseline.current ?? readTaskHeadsUpBaseline()
-        : null
-      const taskHeadsUpAfter = taskBaseline ? await taskBaseline : Number.POSITIVE_INFINITY
+      // The enable boundary is fixed in the settings transaction. No auxiliary
+      // inbox request can block this batch or move the boundary past new signals.
       const includesChange = (change: NotificationEpisodeChange): boolean => (
         (change.episode?.kind !== 'task' && change.headsUpSignal?.semantic !== 'task_status_changed')
-        || (tasksEnabledRef.current && taskBaseline === taskHeadsUpBaseline.current
-          && change.changeSequence > taskHeadsUpAfter)
+        || (taskCapability.current.enabled
+          && change.changeSequence > taskCapability.current.headsUpAfterSequence)
       )
       const changes = collected.changes.filter(includesChange)
       for (const change of changes) {
@@ -598,7 +588,6 @@ export function NotificationAttentionController({
     loadPreference,
     onRefreshVisibleThread,
     preference,
-    readTaskHeadsUpBaseline,
     readingSources,
     windowAttentive
   ])
@@ -766,7 +755,7 @@ export function NotificationAttentionController({
   }
 
   const presentableState = filterVisibleNotificationHeadsUp(
-    tasksEnabled ? headsUpState : { entries: headsUpState.entries.filter(item => item.episode.kind !== 'task'), overflowEntries: headsUpState.overflowEntries.filter(item => item.episode.kind !== 'task') },
+    filterTaskHeadsUp(headsUpState, tasksEnabled, headsUpAfterSequence),
     readingSources,
     windowAttentive,
     activeThreadVisible ? activeThreadId : null

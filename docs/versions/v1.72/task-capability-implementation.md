@@ -39,6 +39,7 @@ Task 历史消息、审计、旧关联、已提交回执仍可按原有历史/�
 ## 合同与迁移
 
 Migration 205 将 schema 从 154 升到 155，只新增设置及新输入格式准入，不重写旧任务或冻结输入。
+后续 Migration 206 将 schema 升到 156，仅为设置增加固定通知边界，兼容已安装的 schema 155。
 新公开输入使用 ContextManifest 40 / Profile 15 / Facts 11；非批量输入使用 41 / 16 / 12。
 旧 Steer 输入唯一性、来源关联和不可变约束继续参与数据库准入；迁移故障回滚后可重试。
 
@@ -117,6 +118,8 @@ Core 摘要为 `f6096353486a30d8a88126894e9d4bd8b172fe3f8e68628c94196c1e97c85e14
 
 ## 评审后修复与真实执行验证
 
+本节记录 `997c0840` 的实施与验证；其中异步 Task 水位方案仍有慢请求和失败窗口缺陷，已由下节固定边界方案替代。
+
 根据 User 消息 `376f5143-18de-4241-8938-d9792254345f` 独立核对，三项问题均成立；修复不改变
 Session 连续性、冻结输入、统一 Send 或旧 taskId 的既定行为，没有新增用户配置。
 
@@ -192,6 +195,34 @@ readiness 的 ready 是 Runner 的内置预期，其余项来自冻结 team 配�
 Runner 只增加了限定字段的差异诊断，没有放宽原 Gate 条件，也不输出原生认证或环境变量。
 功能探针按当前 Core 正常执行准入启动，真实 input accepted / Run succeeded 单独作为执行证据。
 原 campaign 的 24 个 slot 仍为未 dispatch，Judge 仍未运行，正式 Gate 状态继续为 insufficient。
+
+## Task 通知固定边界修复
+
+User 消息 `9a39dd92-80f7-4131-bbac-b96b0aa105ce` 的两个问题均成立：原 Task 水位 Promise 会占住全局 poll；
+失败返回 Infinity 后推进游标，会吞掉失败窗口内的新 Task。立即 reject 的旧测试没有覆盖 pending 和窗口内通知。
+
+| 项目 | 改前 | 改后 |
+| --- | --- | --- |
+| 开启边界 | Renderer 另读 Inbox，读取成功时才决定 | Core 开启事务保存一个通知序号，与 enabled 一起返回 |
+| 慢请求/失败 | 整批等待；Infinity 过滤并消费 Task；重试边界后移 | 删除 Task 水位请求、Promise 和重试；直接使用固定数字 |
+| 重读/重复保存 | 可能取得更晚水位 | 固定边界不变；再次 false→true 才更新 |
+| 旧库 | schema 155 只有 enabled | Migration 206 增加一列；保留开关、通知、未读与业务数据 |
+
+没有增加用户配置、等待队列或通用开关调度。模型上下文和冻结 R4 未变。
+通知 Electron 既有 owner 扩展三条时序；Rust 复用 inbox/cursor、Task 升级与当前 schema 准入 owner，
+验证固定边界、同值保存、重开保留及 155→156 升级/回滚，不新增 Rust 测试函数。
+
+已经完成的定向验证：
+
+- 同一新 Electron fixture 放回 `997c0840` Controller 后，在 pending 场景失败：普通提醒未出现；恢复修复后两个 owner 全部通过，包含三条评审时序、精确 Task acknowledgement ID、一次处理及快速关/开队列清理。
+- App/通知 Vitest 210 项通过；快捷键隔离 Electron 的 macOS/Windows 分支通过；typecheck 和 Desktop/Web 构建通过。
+- Rust 使用 `extended-tests,slow-tests` 实际执行通知 12 项，以及 Task 升级、当前迁移矩阵、当前库准入、必要对象、Delivery-first 和 v1.72 保留输入六个 owner，共 18 项通过；没有新增或停用 Rust 测试函数。
+- 初次 Rust 命令只启用 extended-tests，目标 owner 在 slow-tests 下，实际 0 项，不计通过。补全 feature 后，新 heads-up 断言发现原 inbox fixture 没有对应业务 Task；补入合法 Task 来源后验证真实信号，不将来源不可用误当水位缺陷。
+- 首轮 `pnpm test` 的 Vitest 全部通过；Node 的 Product Contract Fingerprint 仍硬编码 schema 155，按实际 Migration 206 更新为 156 后重跑。没有放宽比较条件。
+
+最终 `pnpm test` 完整通过：Vitest 246 文件 / 2729 项，Node 包测试 356 通过、2 个既有 Windows 平台项跳过；文档、Skills 与 Electron capability 子门禁同时通过。
+最终 `cargo test --workspace` 完整通过：473 通过、1 个既有人工验收项忽略，其中 Core 为 427 通过。最终 typecheck、Desktop/Web 构建、通知两个 Electron owner、快捷键 owner、通用文档门禁与格式检查均通过。
+原正式上下文 Gate 仍为 insufficient，上一轮完整扩展回归的一处清理超时仍保留记录；本轮没有重跑完整 extended workspace、真实模型 Run 或正式 Context campaign，不将普通回归写作整体质量 Gate 通过。
 
 ## 交付边界
 

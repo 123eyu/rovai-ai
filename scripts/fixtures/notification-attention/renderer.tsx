@@ -11,6 +11,7 @@ import '../../../apps/desktop/src/renderer/src/styles.css'
 
 let attentive = true
 let tasksEnabled = true
+let headsUpAfterSequence = 0
 Object.defineProperty(document, 'hasFocus', { value: () => attentive })
 const listeners = new Set<(event: { method: string }) => void>()
 const journal: NotificationEpisodeChange[] = []
@@ -21,13 +22,15 @@ let preference = { headsUpEnabled: true, approvalHeadsUpEnabled: true, userMenti
 let showSettings: (visible: boolean) => void
 let failPreferenceSave = false
 let failedInboxReads = 0
+let holdInbox = false
+const pendingInbox: Array<() => void> = []
 let setSources: (source: VisibleNotificationSources | null) => void
 let sequence = 0
 const read = () => ({ threadId: 'camp-other', surfaceVisible: true, snapshotSequence: 0,
   messageIds: [], campTurnIds: [], agentRunIds: [], approvalIds: [] })
 Object.assign(window, { rovai: {
   request: async (method: string, request: any) => {
-    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled }
+    if (method === 'preferences.tasks.get') return { enabled: tasksEnabled, headsUpAfterSequence }
     if (method === 'notifications.preference.get') return preference
     if (method === 'notifications.preference.update') {
       if (failPreferenceSave) { failPreferenceSave = false; throw new Error('测试保存失败') }
@@ -37,6 +40,7 @@ Object.assign(window, { rovai: {
       return { status: 'applied', code: 'saved', payload: preference }
     }
     if (method === 'notifications.inbox') {
+      if (holdInbox) await new Promise<void>(resolve => pendingInbox.push(resolve))
       if (failedInboxReads > 0) { failedInboxReads--; throw new Error('Temporary inbox failure') }
       return { schemaVersion: 9, throughChangeSequence: sequence, unreadCount: journal.length, items: [], nextCursor: null }
     }
@@ -67,6 +71,7 @@ function admit(semantic: NotificationSemantic, privateId: string | null = null, 
     changeCause: 'occurrence_admitted', headsUpSignal: { semantic, admittedAttentionRevision: n, action, mention: null },
     headsUpInvalidation: null, changedAt: '2026-09-07', episode })
   if (notify) listeners.forEach(callback => callback({ method: 'notification_episode.changed' }))
+  return `occurrence-${n}`
 }
 function Fixture() {
   const [sources, updateSources] = useState<VisibleNotificationSources | null>(read())
@@ -84,11 +89,18 @@ function Fixture() {
 }
 Object.assign(window, { notificationTest: {
   admit,
-  tasks: (enabled: boolean) => { tasksEnabled = enabled; listeners.forEach(callback => callback({ method: 'preferences.tasks_changed' })) },
+  tasks: (enabled: boolean) => {
+    if (!tasksEnabled && enabled) headsUpAfterSequence = sequence
+    tasksEnabled = enabled
+    listeners.forEach(callback => callback({ method: 'preferences.tasks_changed' }))
+  },
   settings: (visible: boolean) => showSettings(visible),
   preference: () => preference,
   failPreferenceSave: () => { failPreferenceSave = true },
   failInboxReads: (count: number) => { failedInboxReads = count },
+  holdInbox: () => { holdInbox = true },
+  releaseInbox: () => { holdInbox = false; pendingInbox.splice(0).forEach(resolve => resolve()) },
+  poll: () => listeners.forEach(callback => callback({ method: 'notification_episode.changed' })),
   source: (conversationId: string | null, visible = true, turnVisible = false) => setSources({ ...read(), threadId: 'camp-target',
     conversationId, surfaceVisible: visible, campTurnIds: turnVisible ? ['turn-target'] : [] }),
   away: () => setSources(read()),
@@ -100,7 +112,7 @@ Object.assign(window, { notificationTest: {
   state: () => ({ cards: [...document.querySelectorAll<HTMLElement>('.notification-heads-up:not([hidden])')].map(node => ({
     text: node.textContent, source: node.querySelector('strong')?.textContent, message: node.querySelector('.notification-heads-up-message')?.textContent,
     width: node.getBoundingClientRect().width, summary: node.classList.contains('notification-heads-up-summary') })),
-    acknowledgements, navigations, focused: (document.activeElement as HTMLElement)?.id, overflow: document.documentElement.scrollWidth > innerWidth })
+    acknowledgements, navigations, pendingInbox: pendingInbox.length, failedInboxReads, focused: (document.activeElement as HTMLElement)?.id, overflow: document.documentElement.scrollWidth > innerWidth })
 }})
 createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={desktopThreadClient}><Fixture /></ThreadClientProvider>)
 
@@ -109,8 +121,8 @@ let capability: ReturnType<typeof useTaskCapability>
 let settleSave: (fail: boolean) => void
 const host = (enabled: boolean) => ({ ...desktopThreadClient, onEvent: undefined,
   request: (async (method: string) => {
-    if (method === 'preferences.tasks.get') return { enabled }
-    return new Promise((resolve, reject) => { settleSave = fail => fail ? reject(new Error('old Host failure')) : resolve({ enabled: true }) })
+    if (method === 'preferences.tasks.get') return { enabled, headsUpAfterSequence: 0 }
+    return new Promise((resolve, reject) => { settleSave = fail => fail ? reject(new Error('old Host failure')) : resolve({ enabled: true, headsUpAfterSequence: 0 }) })
   }) as typeof desktopThreadClient.request })
 let switchHost: (client: typeof desktopThreadClient) => void
 let hostA = host(true)

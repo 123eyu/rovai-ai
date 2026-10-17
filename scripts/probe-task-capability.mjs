@@ -114,7 +114,7 @@ try {
     assert.equal(created.status, 'applied')
     threadId = created.payload.threadId
     report.threadId = threadId
-    assert.deepEqual(await core.request('preferences.tasks.get'), { enabled: false })
+    assert.equal((await core.request('preferences.tasks.get')).enabled, false)
     const sent = await core.request('thread.messages.send', { commandId: randomUUID(), threadId,
       content: composerDocumentForAddress({ mode: 'explicit', agentIds: ['agent_1'] },
         '这是隔离功能验收。请实际执行 node ./task-switch-agent.mjs 并等待它正常结束；脚本会等待 Host 切换开关并调用当前运行环境中的 rovai CLI。不要改脚本、不要创建任务、不要提前停止命令。若工具提前返回会话 ID，继续等待同一进程。脚本成功后执行 "$ROVAI_AGENT_CLI" send --public-only --body TASK_SWITCH_DONE，然后结束。本机还有日常安装版，最后一条也必须使用环境中注入的本次候选 CLI。'),
@@ -133,7 +133,7 @@ try {
       await persist()
       console.error(`Passed phase: ${name}`)
     }
-    const enable = async enabled => assert.deepEqual(await core.request('preferences.tasks.set', { enabled }), { enabled })
+    const enable = async enabled => assert.equal((await core.request('preferences.tasks.set', { enabled })).enabled, enabled)
     const release = name => writeFile(join(project, `${name}.go`), 'go')
     await phase('off')
     await enable(true); await release('on'); await phase('on')
@@ -147,7 +147,7 @@ try {
     const projection = async () => JSON.parse(await readFile(contextPath, 'utf8'))
     await injectFailure()
     await enable(true)
-    assert.deepEqual(await core.request('preferences.tasks.get'), { enabled: true })
+    assert.equal((await core.request('preferences.tasks.get')).enabled, true)
     // Exhaust the three bounded retry delays before exercising same-value repair.
     await sleep(3500)
     await restore()

@@ -17,3 +17,4 @@ Host Web protocolVersion **5**，与新 Task 可选读取投影共同配套发�
 
 切换 Host 时同时重置本地 enabled、ready、saving、error；旧 Host 的保存成功或失败不能覆盖新 Host 状态。
 只重置能力 Provider 的本地投影，不重建整个会话工作区或清空草稿。
+能力投影同时携带 Core 固定的 `headsUpAfterSequence`，与 enabled 原子接收；Renderer 不通过额外 Inbox 请求推测开启时间。

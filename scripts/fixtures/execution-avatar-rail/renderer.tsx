@@ -118,7 +118,7 @@ Object.assign(window, { rovai: {
   filePreview: { bindThread: async () => {}, onExternalUpdate: () => () => {} },
   windowControls: { onCloseTabRequested: () => () => {} },
   request: async (method: string, params?: Record<string, unknown>): Promise<unknown> => {
-    if (method === 'preferences.tasks.get') return { enabled: true }
+    if (method === 'preferences.tasks.get') return { enabled: true, headsUpAfterSequence: 0 }
     if (method === 'skills.list' || method === 'skills.deliveryGroups.list') return []
     if (method === 'camp.composerDraft.get') return draft
     if (method === 'camp.composerDraft.save') { draft = { ...draft, ...params, revision: draft.revision + 1 }; return draft }

@@ -13,6 +13,27 @@ pub struct TaskPreferences {
     pub enabled: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCapabilitySnapshot {
+    pub enabled: bool,
+    pub heads_up_after_sequence: i64,
+}
+
+pub fn snapshot(connection: &Connection) -> Result<TaskCapabilitySnapshot> {
+    Ok(TaskCapabilitySnapshot {
+        enabled: enabled(connection)?,
+        heads_up_after_sequence: connection
+            .query_row(
+                "SELECT heads_up_after_sequence FROM task_preference WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0),
+    })
+}
+
 pub fn enabled(connection: &Connection) -> Result<bool> {
     let value = connection
         .query_row(
@@ -40,8 +61,11 @@ pub fn require_enabled(connection: &Connection) -> Result<()> {
 pub fn set(connection: &Connection, next: bool) -> Result<bool> {
     let changed = enabled(connection)? != next;
     connection.execute(
-        "INSERT INTO task_preference(singleton,enabled) VALUES(1,?1)
-         ON CONFLICT(singleton) DO UPDATE SET enabled=excluded.enabled",
+        "INSERT INTO task_preference(singleton,enabled,heads_up_after_sequence)
+         SELECT 1,?1,current_sequence FROM notification_change_clock WHERE singleton=1
+         ON CONFLICT(singleton) DO UPDATE SET enabled=excluded.enabled,
+         heads_up_after_sequence=CASE WHEN task_preference.enabled=0 AND excluded.enabled=1
+           THEN excluded.heads_up_after_sequence ELSE task_preference.heads_up_after_sequence END",
         [next],
     )?;
     Ok(changed)

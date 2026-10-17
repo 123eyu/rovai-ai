@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-15
+last_updated: 2026-10-17
 ---
 
 # 测试与 Smoke Test
@@ -1578,7 +1578,9 @@ PR 默认层仍为 `cargo test --workspace`；Renderer 复用 `SingleChatPanel.t
 原始 requestId/digest 冲突由既有 `lease_rotates_fences_and_replays_exact_request` owner 验证；
 领域 commandId 仍沿用首次结果重放，不能将运输层的摘要比较强加到领域网关。
 通知 inbox/cursor owner 扩展任务关闭时的 SQL 分页、未读数、变化水位与重新开启断言。
-数据库当前准入和 Steer 升级 owner 更新到 schema 155，继续检查保留的输入唯一性与迁移回滚；
+数据库当前准入和 Steer 升级 owner 更新到 schema 156，继续检查保留的输入唯一性与迁移回滚；
+固定 Task 通知边界继续扩展同一 inbox/cursor owner，验证同值保存不后移、重启保留与已安装 schema 155 升级。
+Task 升级 owner 同时验证 Migration 206 列与收据的原子回滚；没有新增 Rust owner。
 历史夹具的降级只用于测试，生产迁移不修改旧输入字节。
 Pending invitation owner 将旧 `execution.taskId` 从拒绝分支移到成功发送分支，验证未知旧 Task
 不会阻断首次发布/邀请，且不建立关联；无效回复、权限拒绝和事务回滚断言保留。

@@ -8902,7 +8902,20 @@ impl Core {
                         "preferences.tasks_changed",
                         json!({"enabled": input.enabled}),
                     );
-                    self.refresh_task_discovery().await;
+                }
+                // A same-value save also repairs a previously failed projection.
+                // Retry only this derived file state; the preference stays saved
+                // and each attempt reads the latest value under the invocation gate.
+                if !self.refresh_task_discovery().await {
+                    let core = Arc::clone(self);
+                    tokio::spawn(async move {
+                        for delay_ms in [100, 500, 2_000] {
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                            if core.refresh_task_discovery().await {
+                                break;
+                            }
+                        }
+                    });
                 }
                 Ok(serde_json::to_value(input)?)
             }
@@ -14745,7 +14758,7 @@ impl Core {
         self.builtin_tool_process_config_factory()?.create()
     }
 
-    async fn refresh_task_discovery(&self) {
+    async fn refresh_task_discovery(&self) -> bool {
         let _gate = self.builtin_tool_leases.invocation_guard().await;
         let enabled_runs = {
             let database = self.database.lock().await;
@@ -14759,7 +14772,10 @@ impl Core {
         };
         match enabled_runs {
             Ok(enabled_runs) => self.builtin_tool_leases.refresh_tasks(&enabled_runs).await,
-            Err(error) => eprintln!("Task CLI capability read failed: {error:#}"),
+            Err(error) => {
+                eprintln!("Task CLI capability read failed: {error:#}");
+                false
+            }
         }
     }
 

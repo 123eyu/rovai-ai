@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { qualificationRuntimePrivateDiagnostic, sameProcessIdentity } from './qualification-core.mjs'
+import { frozenMemberRuntimeDifferences, qualificationRuntimePrivateDiagnostic, sameProcessIdentity } from './qualification-core.mjs'
+
+test('frozen Runtime diagnostics identify exact fields without weakening equality or exposing auth', () => {
+  const member = { adapterKind: 'codex-cli', model: { mode: 'explicit', modelId: 'model', options: { reasoning_effort: 'medium' } },
+    permissions: { adapterKind: 'codex-cli', schemaVersion: 1, values: { approval_policy: 'never' } } }
+  const profile = { runtimeReadiness: { status: 'ready' }, runtimeConfiguration: structuredClone(member), auth: 'private-auth' }
+  assert.deepEqual(frozenMemberRuntimeDifferences(member, profile), [])
+  profile.runtimeReadiness.status = 'configuration_required'
+  profile.runtimeConfiguration.model.options.reasoning_effort = 'high'
+  profile.runtimeConfiguration.model.providerId = null
+  profile.runtimeConfiguration.permissions.values.approval_policy = 'on-request'
+  assert.deepEqual(frozenMemberRuntimeDifferences(member, profile), [
+    { field: 'runtimeReadiness.status', expected: 'ready', actual: 'configuration_required' },
+    { field: 'runtimeConfiguration.model.options.reasoning_effort', expected: 'medium', actual: 'high' },
+    { field: 'runtimeConfiguration.model.providerId', expected: '<missing>', actual: null },
+    { field: 'runtimeConfiguration.permissions.values.approval_policy', expected: 'never', actual: 'on-request' }
+  ])
+  assert.ok(frozenMemberRuntimeDifferences(member, null).some(diff => diff.actual === '<missing>'))
+  assert.ok(!JSON.stringify(frozenMemberRuntimeDifferences(member, profile)).includes('private-auth'))
+})
 
 test('long process waits reject a reused Windows PID by creation identity', () => {
   const expected = { pid: 42, startedAt: '/Date(1000)/' }

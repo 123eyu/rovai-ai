@@ -5,6 +5,7 @@ import { NotificationSettings } from '../../../apps/desktop/src/renderer/src/Not
 import { NotificationAttentionController } from '../../../apps/desktop/src/renderer/src/NotificationAttentionController'
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
+import { TaskCapabilityProvider, useTaskCapability } from '../../../apps/desktop/src/renderer/src/TaskCapabilityProvider'
 import type { VisibleNotificationSources } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
@@ -19,6 +20,7 @@ let preference = { headsUpEnabled: true, approvalHeadsUpEnabled: true, userMenti
   turnCompletedHeadsUpEnabled: true, turnIncompleteHeadsUpEnabled: true, singleChatHeadsUpEnabled: true, missionNeedsYouHeadsUpEnabled: true, missionStatusHeadsUpEnabled: true, taskStatusHeadsUpEnabled: false, missionStatuses: ['completed'], taskStatuses: ['completed','blocked','cancelled'], version: 1, updatedAt: '2026-09-07' }
 let showSettings: (visible: boolean) => void
 let failPreferenceSave = false
+let failedInboxReads = 0
 let setSources: (source: VisibleNotificationSources | null) => void
 let sequence = 0
 const read = () => ({ threadId: 'camp-other', surfaceVisible: true, snapshotSequence: 0,
@@ -34,7 +36,10 @@ Object.assign(window, { rovai: {
       preference = { ...next, version: expectedVersion + 1, updatedAt: new Date().toISOString() }
       return { status: 'applied', code: 'saved', payload: preference }
     }
-    if (method === 'notifications.inbox') return { schemaVersion: 9, throughChangeSequence: sequence, unreadCount: journal.length, items: [], nextCursor: null }
+    if (method === 'notifications.inbox') {
+      if (failedInboxReads > 0) { failedInboxReads--; throw new Error('Temporary inbox failure') }
+      return { schemaVersion: 9, throughChangeSequence: sequence, unreadCount: journal.length, items: [], nextCursor: null }
+    }
     if (method === 'notifications.changesSince') return { schemaVersion: 9, requestedAfterChangeSequence: request.afterChangeSequence,
       nextChangeSequence: sequence, throughChangeSequence: sequence, retainedFloorChangeSequence: 0,
       hasMore: false, resetRequired: false, changes: journal.filter(change => change.changeSequence > request.afterChangeSequence) }
@@ -45,7 +50,7 @@ Object.assign(window, { rovai: {
   },
   onEvent: (callback: (event: { method: string }) => void) => { listeners.add(callback); return () => listeners.delete(callback) }
 }})
-function admit(semantic: NotificationSemantic, privateId: string | null = null, episodeId = `episode-${sequence + 1}`, agentDisplayName = '洛克') {
+function admit(semantic: NotificationSemantic, privateId: string | null = null, episodeId = `episode-${sequence + 1}`, agentDisplayName = '洛克', notify = true) {
   const n = ++sequence
   const action: NotificationActionView = { actionId: `action-${n}`, kind: privateId ? 'open_single_chat' : semantic === 'task_status_changed' ? 'open_task' : semantic === 'approval_pending' ? 'open_approval' : 'open_camp_turn',
     available: true, threadId: 'camp-target', threadTurnId: 'turn-target', agentRunId: null, messageId: null,
@@ -61,7 +66,7 @@ function admit(semantic: NotificationSemantic, privateId: string | null = null, 
   journal.push({ changeSequence: n, episodeId, episodeVersion: n, attentionRevision: n, operation: 'upsert',
     changeCause: 'occurrence_admitted', headsUpSignal: { semantic, admittedAttentionRevision: n, action, mention: null },
     headsUpInvalidation: null, changedAt: '2026-09-07', episode })
-  listeners.forEach(callback => callback({ method: 'notification_episode.changed' }))
+  if (notify) listeners.forEach(callback => callback({ method: 'notification_episode.changed' }))
 }
 function Fixture() {
   const [sources, updateSources] = useState<VisibleNotificationSources | null>(read())
@@ -83,6 +88,7 @@ Object.assign(window, { notificationTest: {
   settings: (visible: boolean) => showSettings(visible),
   preference: () => preference,
   failPreferenceSave: () => { failPreferenceSave = true },
+  failInboxReads: (count: number) => { failedInboxReads = count },
   source: (conversationId: string | null, visible = true, turnVisible = false) => setSources({ ...read(), threadId: 'camp-target',
     conversationId, surfaceVisible: visible, campTurnIds: turnVisible ? ['turn-target'] : [] }),
   away: () => setSources(read()),
@@ -97,3 +103,38 @@ Object.assign(window, { notificationTest: {
     acknowledgements, navigations, focused: (document.activeElement as HTMLElement)?.id, overflow: document.documentElement.scrollWidth > innerWidth })
 }})
 createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={desktopThreadClient}><Fixture /></ThreadClientProvider>)
+
+// Exercise the actual Provider across Host changes without remounting its children.
+let capability: ReturnType<typeof useTaskCapability>
+let settleSave: (fail: boolean) => void
+const host = (enabled: boolean) => ({ ...desktopThreadClient, onEvent: undefined,
+  request: (async (method: string) => {
+    if (method === 'preferences.tasks.get') return { enabled }
+    return new Promise((resolve, reject) => { settleSave = fail => fail ? reject(new Error('old Host failure')) : resolve({ enabled: true }) })
+  }) as typeof desktopThreadClient.request })
+let switchHost: (client: typeof desktopThreadClient) => void
+let hostA = host(true)
+let hostB = host(false)
+let retainedDraft: HTMLInputElement | null = null
+function CapabilityProbe() {
+  capability = useTaskCapability()
+  return <input id="host-draft" defaultValue="Host 草稿" />
+}
+function CapabilityFixture() {
+  const [client, setClient] = useState(() => host(false))
+  switchHost = setClient
+  return <TaskCapabilityProvider client={client}><CapabilityProbe /></TaskCapabilityProvider>
+}
+const probeRoot = document.createElement('div')
+probeRoot.hidden = true
+document.body.append(probeRoot)
+createRoot(probeRoot).render(<CapabilityFixture />)
+Object.assign(window, { taskCapabilityTest: {
+  start: () => { hostA = host(true); hostB = host(false); switchHost(hostA); retainedDraft = document.querySelector('#host-draft') },
+  save: () => { void capability.setEnabled(false) },
+  switchHost: () => switchHost(hostB),
+  returnToHost: () => switchHost(hostA),
+  settle: (fail: boolean) => settleSave(fail),
+  state: () => ({ enabled: capability.enabled, ready: capability.ready, saving: capability.saving, error: capability.error,
+    draftRetained: document.querySelector('#host-draft') === retainedDraft && retainedDraft?.value === 'Host 草稿' })
+} })

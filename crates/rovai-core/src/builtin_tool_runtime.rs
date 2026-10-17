@@ -342,8 +342,12 @@ impl BuiltinToolLeaseRegistry {
 
     /// Called under the invocation gate after reading the current instance state.
     /// A failed projection refresh cannot revoke a lease or cancel execution.
-    pub(crate) async fn refresh_tasks(&self, enabled_runs: &std::collections::HashSet<String>) {
+    pub(crate) async fn refresh_tasks(
+        &self,
+        enabled_runs: &std::collections::HashSet<String>,
+    ) -> bool {
         let processes = self.processes.lock().await;
+        let mut refreshed = true;
         for process in processes.values() {
             let Some(active) = &process.active else {
                 continue;
@@ -360,8 +364,10 @@ impl BuiltinToolLeaseRegistry {
                 enabled_runs.contains(&active.agent_run_id),
             ) {
                 eprintln!("Task CLI discovery refresh failed: {error:#}");
+                refreshed = false;
             }
         }
+        refreshed
     }
 
     pub(crate) async fn unbind(&self, process_id: &str, agent_run_id: &str, execution_epoch: i64) {
@@ -873,6 +879,26 @@ mod tests {
         let lease = context.lease.unwrap();
         assert_eq!(Path::new(&lease.execution_root), root);
         assert_eq!(Path::new(&lease.run_tmp), config.run_tmp());
+        // A projection write can fail while the original Run/lease stays usable.
+        // Retrying the same desired state repairs that process without rebinding.
+        let saved_context = config.context_path().with_extension("saved");
+        fs::rename(config.context_path(), &saved_context).unwrap();
+        fs::create_dir(config.context_path()).unwrap();
+        let enabled_runs = std::collections::HashSet::from(["run-1".to_string()]);
+        assert!(!registry.refresh_tasks(&enabled_runs).await);
+        assert!(registry.authenticate(&first).await.is_ok());
+        fs::remove_dir(config.context_path()).unwrap();
+        fs::rename(saved_context, config.context_path()).unwrap();
+        assert!(registry.refresh_tasks(&enabled_runs).await);
+        let repaired: BuiltinToolCliContext =
+            serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+        assert!(repaired.tasks_enabled);
+        assert_eq!(repaired.lease.unwrap().lease_id, first.lease_id);
+        assert!(registry.refresh_tasks(&Default::default()).await);
+        let disabled: BuiltinToolCliContext =
+            serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+        assert!(!disabled.tasks_enabled);
+        assert!(registry.authenticate(&first).await.is_ok());
         let member_image = rovai_core::member_avatar::materialize_member_avatar(
             &root,
             config.run_tmp(),

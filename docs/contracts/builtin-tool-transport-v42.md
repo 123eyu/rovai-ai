@@ -20,6 +20,8 @@ CLI context 增加 `tasksEnabled:boolean`。发现值仅用于过滤静态目录
 ```
 
 Task CLI 错误退出码 2。错误不终止 Session/Run、不宣告整个工作失败、不教学如何开启。
-开关变化和 Run bind 后刷新 registry 的活跃发现文件；失败只诊断，不能撤销 lease。最终执行仍按 Core 当前值判断。
+每次保存开关（包括同值保存）和 Run bind 后刷新 registry 的活跃发现文件；失败不能回滚设置、撤销 lease 或取消 Run。
+保存触发的刷新失败最多补偿三次，每次重新读取 Core 当前值；等待期间不持有调用锁。耗尽后再次同值保存仍可修复投影。
+最终执行仍按 Core 当前值判断。
 
 所有状态使用同一份 Send schema、help 和 Skill；public schema/help 不公开 taskId / --task-id。旧 CLI flag 与 IPC 可选 string/null taskId 作为输入兼容被忽略，原请求摘要与幂等身份保留。非法类型与缺值仍按参数错误处理，不猜测接收者。

@@ -358,7 +358,7 @@ export function NotificationAttentionController({
   const changeCursor = useRef(0)
   const baselineReady = useRef(false)
   const baselineGeneration = useRef(0)
-  const baselineTasksEnabled = useRef(tasksEnabled)
+  const taskHeadsUpBaseline = useRef<Promise<number> | null>(null)
   const pollRunning = useRef(false)
   const pollFailureCount = useRef(0)
   const pollRetryAt = useRef(0)
@@ -398,13 +398,27 @@ export function NotificationAttentionController({
     return inbox
   }, [])
 
-  const establishBaseline = useCallback(async (preserveOtherHeadsUp = false): Promise<void> => {
+  // Task re-enablement suppresses old Task signals without advancing the shared
+  // cursor. Unconsumed collaboration/Mission changes still pass through polling.
+  const readTaskHeadsUpBaseline = useCallback((): Promise<number> => {
+    const pending = readUnreadStatus().then(inbox => inbox.throughChangeSequence).catch(() => {
+      if (taskHeadsUpBaseline.current === pending) taskHeadsUpBaseline.current = null
+      return Number.POSITIVE_INFINITY
+    })
+    taskHeadsUpBaseline.current = pending
+    return pending
+  }, [readUnreadStatus])
+
+  useEffect(() => {
+    taskHeadsUpBaseline.current = null
+    if (enabled && tasksEnabled) void readTaskHeadsUpBaseline()
+  }, [enabled, tasksEnabled, readTaskHeadsUpBaseline])
+
+  const establishBaseline = useCallback(async (): Promise<void> => {
     const generation = ++baselineGeneration.current
     const inbox = await readUnreadStatus()
     if (generation !== baselineGeneration.current) return
-    setHeadsUpState(current => preserveOtherHeadsUp
-      ? { entries: current.entries.filter(entry => entry.episode.kind !== 'task'), overflowEntries: current.overflowEntries.filter(entry => entry.episode.kind !== 'task') }
-      : emptyNotificationHeadsUpState())
+    setHeadsUpState(emptyNotificationHeadsUpState())
     changeCursor.current = inbox.throughChangeSequence
     visibleAcknowledgementKeys.current.clear()
     visibleCommands.current.clear()
@@ -423,12 +437,10 @@ export function NotificationAttentionController({
       return undefined
     }
     baselineReady.current = false
-    const capabilityChanged = baselineTasksEnabled.current !== tasksEnabled
-    baselineTasksEnabled.current = tasksEnabled
     let cancelled = false
     let retryTimer: number | null = null
     void Promise.all([
-      establishBaseline(capabilityChanged),
+      establishBaseline(),
       loadPreference().catch(() => null)
     ]).catch(() => {
       if (cancelled) return
@@ -440,7 +452,7 @@ export function NotificationAttentionController({
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [baselineRetry, enabled, tasksEnabled, establishBaseline, loadPreference])
+  }, [baselineRetry, enabled, establishBaseline, loadPreference])
 
   const acknowledgeAction = useCallback(async (
     episode: NotificationEpisodeView,
@@ -487,9 +499,17 @@ export function NotificationAttentionController({
         await establishBaseline()
         return
       }
-      const changes = collected.changes.filter(change => tasksEnabledRef.current || (change.episode?.kind !== 'task' && change.headsUpSignal?.semantic !== 'task_status_changed'))
+      const taskBaseline = tasksEnabledRef.current
+        ? taskHeadsUpBaseline.current ?? readTaskHeadsUpBaseline()
+        : null
+      const taskHeadsUpAfter = taskBaseline ? await taskBaseline : Number.POSITIVE_INFINITY
+      const includesChange = (change: NotificationEpisodeChange): boolean => (
+        (change.episode?.kind !== 'task' && change.headsUpSignal?.semantic !== 'task_status_changed')
+        || (tasksEnabledRef.current && taskBaseline === taskHeadsUpBaseline.current
+          && change.changeSequence > taskHeadsUpAfter)
+      )
+      const changes = collected.changes.filter(includesChange)
       for (const change of changes) {
-        if (!tasksEnabledRef.current && (change.episode?.kind === 'task' || change.headsUpSignal?.semantic === 'task_status_changed')) continue
         if (change.changeCause === 'occurrence_admitted' && change.episode) {
           visibleThreadAdmissions.current.set(change.episode.thread.id, change.changeSequence)
         }
@@ -549,7 +569,7 @@ export function NotificationAttentionController({
       if (headsUpChanges.length > 0) {
         setHeadsUpState((current) => applyNotificationHeadsUpChanges(
           current,
-          headsUpChanges
+          headsUpChanges.filter(includesChange)
         ))
       }
       if (changes.some((change) => change.episode?.unread === true)) {
@@ -578,6 +598,7 @@ export function NotificationAttentionController({
     loadPreference,
     onRefreshVisibleThread,
     preference,
+    readTaskHeadsUpBaseline,
     readingSources,
     windowAttentive
   ])

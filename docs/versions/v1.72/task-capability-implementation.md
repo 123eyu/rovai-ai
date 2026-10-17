@@ -12,6 +12,7 @@ last_updated: 2026-10-17
 `c69a97fbff1e986bbd1ff12ecfa55797b73e0553`；交互依据为
 [现有风格设计稿](../../research/task-capability-ui.md)。本页记录实际实现及证据，不改变已确认的模型输入方案。
 功能实施与隔离界面验收完成；真实 Runtime 上下文 Gate 为证据不足，不能视为完整验收通过。
+下文“评审后修复与真实执行验证”记录对 `e44171f8` 的后续修复，不替代原 Gate 结果。
 
 ## 已实现行为
 
@@ -113,6 +114,84 @@ Judge 准备返回 `judge.cli_tools_not_disabled`，未产生合格配置。本�
 Core 摘要为 `f6096353486a30d8a88126894e9d4bd8b172fe3f8e68628c94196c1e97c85e14`。
 构建记录的候选 Git HEAD 是提交前的 `d30c1fe`，实际改动由源码摘要冻结；报告完成后再提交实现。
 已确认 R4 文档保持冻结版本，最新实施状态由本页提供。
+
+## 评审后修复与真实执行验证
+
+根据 User 消息 `376f5143-18de-4241-8938-d9792254345f` 独立核对，三项问题均成立；修复不改变
+Session 连续性、冻结输入、统一 Send 或旧 taskId 的既定行为，没有新增用户配置。
+
+| 问题 | 最小修复 | 回归证据 |
+| --- | --- | --- |
+| A 保存中切换 B，B 继承 saving/error | Host 变化时重置能力 Provider 的完整 React state；本地代次也隔离 A→B→A 的旧保存结果，不 key/remount 工作区 | 真实 React/Electron：A 的保存悬而未决，切到 B 后 ready=true、saving=false；A 后续成功/失败不污染 B，切回原 A 对象也不恢复旧错误，子树输入 DOM 与草稿保留 |
+| Task 切换推进全局游标，漏掉未轮询的普通提醒 | 全局游标继续原增量消费；只给 Task 建立启用水位，关闭时过滤 Task 排队项和在途结果 | 两次轮询间插入普通提醒，再分别关闭/开启，提醒仍弹出；旧 Task 不入队，新 Task 正常弹出；水位读取短暂失败时普通提醒仍显示，后续轮询恢复 |
+| 投影写入失败后，相同值无法修复旧进程 | 每次保存均刷新；失败后最多三次有界重试，间隔 100/500/2000ms，各次在调用锁内重读当前值，等待时不持锁 | 既有 lease owner 注入文件故障，验证原 lease 有效及同状态重写；真实 Run 分别验证耗尽后同值保存修复与自动重试 |
+
+定向验证：TypeScript typecheck 通过；App/通知 Vitest 203 项通过；通知 Electron 两个 owner 通过；
+`builtin_tool_runtime::tests::lease_rotates_fences_and_replays_exact_request` 实际执行 1 项通过；
+Qualification Core/Artifacts/Evaluation Context 12 项通过。初次误选 binary test target 的命令执行了 0 项，
+已改用 `--lib` 真正运行 owner，不将 0 项计为测试通过。Rust 未新增、删除或永久禁用 owner，文件故障分支扩展原 lease owner。
+
+本次另执行完整 `cargo test --workspace --features extended-tests -- --test-threads=4`：Core **1017 通过、
+1 失败、8 忽略**，耗时 1951.41s，命令 exit 101，在 Core 失败后停止，后续 workspace targets 未运行。
+此前八个修正 owner 在本轮均已通过；本次失败为未修改模块中的
+`runtime_probe_process::tests::successful_leader_with_stdio_holding_descendant_finishes_bounded`，具体错误是
+`runtime_probe_stdout_cleanup_timed_out`（500ms 清理预算）。随后带 `--features extended-tests --lib` 的精确单项
+复验执行 1 项、0.02s 通过。根因尚未确认，没有放宽时间预算、忽略或删除测试，也没有把单项复验计作全套全绿。
+完整日志为 `/tmp/rovai-task-review-rust-extended.log`，单项复验为 `/tmp/rovai-task-review-probe-rerun.log`。
+最终 typecheck、Desktop 构建、通知 Electron 两个 owner（含 A→B→A 和水位读取失败恢复）、文档通用门禁均通过。
+
+真实功能探针为 [`scripts/probe-task-capability.mjs`](../../../scripts/probe-task-capability.mjs)，使用新建的绝对目录、
+独立 Core/Skill Library/MCP/原生 Codex 目录；调用生产 Core、真实 Codex CLI 和随 Run 注入的 Rovai CLI，
+不是伪造 lease 或直接修改 SQLite。Agent 执行探针脚本，Host 从外部切换设置。
+冻结的 gpt-6.1-sol / medium、danger-full-access / never 保持不变。最终 `live-05/report.json` 的实际结果：
+
+| 阶段 | 根帮助发现 Task | Task help / task list 退出码 | 普通 Send 退出码 |
+| --- | --- | --- | --- |
+| 默认关闭 | 否 | 2 / 2，task.feature_disabled | 0 |
+| 开启 | 是 | 0 / 0 | 0 |
+| 再关闭 | 否 | 2 / 2，task.feature_disabled | 0 |
+| 写入失败、三次重试耗尽、恢复文件后保存相同 true | 是 | 0 / 0 | 0 |
+| 写入短暂失败，文件恢复后自动重试 | 是 | 0 / 0 | 0 |
+
+五阶段共用 Run `1984ed06-b2e6-4300-9a86-b6a22b8e5bde`、execution epoch 1、同一进程和 lease；
+每阶段读取的 Run 均为 running，最后 succeeded。Runtime input 只有一条 start / accepted，未重绑定或重启 Run。
+Agent 还成功发布 `TASK_SWITCH_DONE`；六条消息均核对 author_type=agent 与同一 source_agent_run_id，
+收尾标记按完整正文精确匹配。验收 Core 正常停止，exit 0。
+本次 Core SHA-256 为 `168eab9fe5a3891bff4d908229eef397bc70719c16a205369c5f236d9b836751`。
+这是同一真实 Run 的工具切换及 Send 集成证据；草稿由前述独立 UI 和 Provider 子树测试覆盖，
+本次 headless 探针不声称完成“真实 Run 中的整套 Desktop 手工验收”。
+
+证据保存在 `.local/task-capability-review/`；`live-01` 的旧环境配置接口错误、`live-02` 的静态 readiness
+断言和 `live-03` 的帮助匹配断言错误均保留。`live-04` 的五阶段成功，但 Agent 最后裸 `rovai send`
+解析到日常 CLI v41，对候选 v42 context 返回 cli_error；旧探针的 includes 断言误匹配 User 提示，不能采信其
+整体 passed。原报告保留并在本页纠正；`live-05` 在同一个真实 Agent 环境中记录了两条 CLI 的绝对路径与版本，
+显式使用 Run 注入的候选 CLI，收紧收尾消息校验后才完整通过。没有升级或修改日常 CLI。
+`live-05` 使用的 CLI 为 0.4.12 / contract-v42 / ipc-v3；登录 shell 解析到的日常版本为 0.4.11 / v41 / ipc-v3。
+这些是功能诊断，不新增或重置 Context Gate campaign 的尝试次数。
+
+### Runtime drift 的逐字段复现
+
+本次重新读取配置后的成员，原始配置与冻结值的比较结果如下；只有一项不同。
+readiness 的 ready 是 Runner 的内置预期，其余项来自冻结 team 配置：
+
+| 字段 | Runner 预期／冻结配置 | 实际读回 |
+| --- | --- | --- |
+| runtimeReadiness.status | ready | installed_unverified |
+| runtimeConfiguration.adapterKind | codex-cli | codex-cli |
+| runtimeConfiguration.model.mode | explicit | explicit |
+| runtimeConfiguration.model.modelId | gpt-6.1-sol | gpt-6.1-sol |
+| runtimeConfiguration.model.options.reasoning_effort | medium | medium |
+| runtimeConfiguration.permissions.adapterKind | codex-cli | codex-cli |
+| runtimeConfiguration.permissions.schemaVersion | 1 | 1 |
+| runtimeConfiguration.permissions.values.sandbox_mode | danger-full-access | danger-full-access |
+| runtimeConfiguration.permissions.values.approval_policy | never | never |
+
+`runtime.product.check` 同时返回 ready=true，成员 blockers=[]。当前 `agent_profile::runtime_readiness()`
+对有效静态配置返回 installed_unverified，已有 Rust owner 明确断言此行为；成员查询不替代真实 Host 启动校验。
+因此，本次复现定位为 Runner 仍要求旧成员投影 ready；没有观察到模型或权限漂移。
+Runner 只增加了限定字段的差异诊断，没有放宽原 Gate 条件，也不输出原生认证或环境变量。
+功能探针按当前 Core 正常执行准入启动，真实 input accepted / Run succeeded 单独作为执行证据。
+原 campaign 的 24 个 slot 仍为未 dispatch，Judge 仍未运行，正式 Gate 状态继续为 insufficient。
 
 ## 交付边界
 

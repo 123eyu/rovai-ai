@@ -18,10 +18,12 @@ export const useTaskCapability = (): TaskCapability => useContext(Context)
 export function TaskCapabilityProvider({ client, children }: { client: ThreadClient; children: ReactNode }): React.JSX.Element {
   const [state, setState] = useState({ client, enabled: false, ready: false, saving: false, error: null as TaskCapability['error'] })
   const current = useRef(client)
+  // A return to a cached client is still a new Host visit.
+  const clientGeneration = useRef(0)
   const version = useRef(0)
   const pendingSave = useRef<boolean | null>(null)
   const saving = useRef(false)
-  if (current.current !== client) { current.current = client; version.current++; pendingSave.current = null; saving.current = false }
+  if (current.current !== client) { current.current = client; clientGeneration.current++; version.current++; pendingSave.current = null; saving.current = false }
   const reload = useCallback(async () => {
     const request = ++version.current
     try {
@@ -33,6 +35,7 @@ export function TaskCapabilityProvider({ client, children }: { client: ThreadCli
     }
   }, [client])
   useEffect(() => {
+    setState({ client, enabled: false, ready: false, saving: false, error: null })
     void reload()
     const event = client.onEvent?.(value => { if (value.method === 'preferences.tasks_changed') void reload() })
     const invalidation = client.onInvalidated?.(change => {
@@ -49,19 +52,20 @@ export function TaskCapabilityProvider({ client, children }: { client: ThreadCli
     if (saving.current) return
     saving.current = true
     pendingSave.current = enabled
+    const generation = clientGeneration.current
     const request = ++version.current
     setState(old => ({ ...old, client, saving: true, error: null }))
     try {
       const next = await client.request<{ enabled: boolean }>('preferences.tasks.set', { enabled })
       if (typeof next?.enabled !== 'boolean') throw new Error('Invalid Task preference receipt')
-      if (current.current !== client) return
+      if (current.current !== client || generation !== clientGeneration.current) return
       pendingSave.current = null
       if (request === version.current) setState(old => ({ ...old, client, enabled: next.enabled, ready: true, error: null }))
       void reload()
     } catch {
-      if (current.current === client) setState(old => ({ ...old, error: 'save' }))
+      if (current.current === client && generation === clientGeneration.current) setState(old => ({ ...old, error: 'save' }))
     } finally {
-      if (current.current === client) { saving.current = false; setState(old => ({ ...old, saving: false })) }
+      if (current.current === client && generation === clientGeneration.current) { saving.current = false; setState(old => ({ ...old, saving: false })) }
     }
   }, [client, reload])
   const value = state.client === client ? state : { ...unavailable, client }

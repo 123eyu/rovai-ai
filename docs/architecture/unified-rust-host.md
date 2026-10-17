@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: unified-rust-host
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # 统一 Rust Host
@@ -92,6 +92,8 @@ Public Composer 内容由 [Draft v16](../contracts/camp-composer-draft-v16.md) �
 不恢复 Core Draft revision 或消费；私聊保留自己的 revision、原子消费与队列规则。
 客户端提交 ID 不是授权；命令幂等与 Core FIFO 不变，不做跨端同步、实时合并或多人共编。
 可续期认证 Session 与标签页编辑身份分离；同页面同 Owner 重登保留编辑、原命令及 Core 验证的恢复证明。
+Web 断线在公共传输层阻止新业务请求，页面级遮罩保留挂载状态；显式恢复复用原提交，
+自动重连只查询回执，见 [Host Web v4](../contracts/host-web-v4.md#web-断线恢复)。
 普通刷新沿用原编辑身份，浏览器标签页占用记录仅存随机文档标识；复制标签页由已认证 Host 分配独立编辑身份和 Session，不复制草稿或原命令。浏览器重开只有认证材料时同样新建编辑身份，不借用其他标签页草稿；细节见[Draft v13](../contracts/camp-composer-draft-v13.md)。
 
 Web 上传写 Host 临时文件后绑定已验证编辑身份，复用现行 source reference。

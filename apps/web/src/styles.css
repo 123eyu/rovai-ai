@@ -40,7 +40,16 @@
 }
 html[data-motion-preference="reduce"] .web-login-spinner { animation: none; }
 html[data-motion-preference="reduce"] .web-login-submit { transition: none; }
-.web-connection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 6px; color: var(--muted); font-size: 11px; }
+.web-connection-content { display: contents; }
+.web-offline-scrim { position: fixed; inset: 0; z-index: 1000; background: var(--overlay); }
+.web-offline-dialog.app-dialog { position: fixed; z-index: 1001; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(400px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 28px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow-float); outline: none; }
+.web-offline-symbol { width: 36px; height: 36px; display: grid; place-items: center; margin-bottom: 20px; border: 1px solid color-mix(in srgb, var(--attention) 28%, var(--line)); border-radius: 8px; background: var(--attention-soft); color: var(--attention); }
+.web-offline-symbol svg { width: 20px; height: 20px; }
+.web-offline-title { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.5; letter-spacing: -.025em; }
+.web-offline-description { margin: 8px 0 24px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.web-offline-retry { width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.web-offline-retry .web-login-spinner { border-color: currentColor; border-top-color: transparent; }
+.web-offline-retry:focus-visible { outline: 2px solid var(--muted); outline-offset: 3px; }
 :root .dialog-content.app-dialog.web-workspace-picker { width: min(560px, calc(100vw - 48px)); }
 :root .web-workspace-body { display: flex; min-height: 240px; flex-direction: column; gap: 0; }
 .web-workspace-location { display: grid; min-height: 42px; grid-template-columns: 36px 36px minmax(0, 1fr) 36px; align-items: center; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }

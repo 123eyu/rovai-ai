@@ -6,10 +6,19 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## Web 断线统一恢复（2026-10-17）
+
+按 User 确认的中性主题全屏遮罩实现 Web 断线恢复：页面与草稿保持挂载，统一暂停操作，
+单一按钮核对并使用原 ID／原 payload 重试未知提交，明确失败结算原 Promise。
+规则见 [Host Web v4](../../contracts/host-web-v4.md#web-断线恢复)与
+[连接恢复 UI](../../ui/host-web-connection-recovery.md)，验证范围见[实施记录](implementation-plan.md#web-断线统一恢复2026-10-17)。
+本项保持 v1.72，无新 Version Decision；Architecture、Contract、UI 与文档路由同步，
+无 Core／Runtime 协议、模型上下文、迁移或 Root README 变更。
 
 ## Send 文件引用与三渠道提示（2026-10-16）
 

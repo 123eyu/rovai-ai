@@ -3,10 +3,26 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-15
+last_updated: 2026-10-17
 ---
 
 # v1.72 实施与验收
+
+## Web 断线统一恢复（2026-10-17）
+
+- 基线 `c69a97fbff1e986bbd1ff12ecfa55797b73e0553`；分支 `rovai/web-offline-recovery`。
+  沿用公共 ConsoleClient 的原提交与回执机制，不增加持久队列或业务页面的独立禁用逻辑。
+- 传输失败／SSE 断线进入统一可用性状态；显式恢复先验证服务并等待现有核对，未知结果只重试冻结原请求。
+  Core 明确失败与成功缺失回执查询可以结算原 Promise；仅本次重试被拒绝不能抹掉此前未知提交。
+- 生产 `WebConnectionRecovery` 保持页面与弹窗挂载，拦截底层键盘快捷键，使用中性主操作。
+  刷新丢失上传内容时保留意图并允许重选原文件，不无限锁定页面。
+- 验证命令：`pnpm exec vitest run apps/web/src`（54 项）、`pnpm typecheck`、`pnpm build:web`、
+  `pnpm test:host-web-recovery`、`pnpm test:host-web-recovery-live`，以及通用文档门禁。
+  故障注入 HTTP fixture 拥有回执丢失、冻结原提交、明确失败解锁、模态／快捷键、双主题和手机布局；
+  Live 用例另用正式 WebEntry／BusinessApp 与真实 Host 验证停服重启、原 Composer DOM／草稿和 Session 保留，
+  并检查刷新后的原提交恢复不阻断导航初始化。
+  Rust 本轮未修改；Live 复用已有 Host 二进制，报告保留二进制 SHA-256。没有调用 Runtime，
+  不据此宣称实体手机网络切换或跨平台发布验收通过。日常服务和数据未参与测试。
 
 ## Steer 入队回执与阻塞工具核验（2026-10-15）
 

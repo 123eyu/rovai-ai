@@ -31,7 +31,7 @@ HTTP 并发不改变领域调度，SSE 不占命令队列，取消与审批不�
 业务事务提交成功后，正文定稿只向既有文本维护任务发出唤醒；命令及回执 replay 不同步读 Run、
 保存正文 Blob 或更新正文 revision。运行期首次定稿及失败重试均由该后台任务拥有，沿用有界退避并发布
 正文更新。正常退出另由[关闭监督器](planned-shutdown.md#6-deadline-与-runtime-reap)提供有界末次落盘机会。正文暂未完成不改变已提交命令或 Run 的结果；执行结束也不等待 Usage 刷盘，详见
-[Usage v10](../contracts/runtime-usage-monitoring-v10.md)与[V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。
+[Usage v11](../contracts/runtime-usage-monitoring-v11.md)与[V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。
 默认新对话队伍、队长和一键创建开关由 Core 在当前数据根统一保存；Desktop 的旧值只导入一次，
 两端经共享偏好适配读取，窗口、外观与导航展示偏好继续各端保存。细节见 [Host Web v2](../contracts/host-web-v2.md#shared-creation-preferences)。
 Desktop-only 窗口、原生交互与更新保留 Electron；基础 Server 不要求 Electron 或 Node。

@@ -1,7 +1,7 @@
 // Real mcode + production Core, with a deterministic local OpenAI provider.
 // This verifies transport/lifecycle seams; it is NOT real-model qualification.
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { mkdtemp, mkdir, readFile, writeFile, realpath, access, rm, rename, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,16 +13,19 @@ import { startQualificationCore, processTable } from './lib/qualification-core.m
 import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 
 const repo = resolve(import.meta.dirname, '..')
+const coreExecutable = resolve(process.env.ROVAI_MINIMAX_CONTROL_CORE_EXECUTABLE ?? process.env.ROVAI_QUALIFICATION_CORE_BIN
+  ?? join(repo, 'target', 'debug', process.platform === 'win32' ? 'rovai-core.exe' : 'rovai-core'))
 const native = process.argv[2]
 const filesOnly = process.argv.includes('--files-only')
 const completionOnly = process.argv.includes('--completion-only')
 const questionnairesOnly = process.argv.includes('--questionnaires-only')
-assert.ok([filesOnly, completionOnly, questionnairesOnly].filter(Boolean).length <= 1, 'Choose one focused matrix')
+const fleetOnly = process.argv.includes('--fleet-only')
+const planOnly = process.argv.includes('--plan-only')
+const mcpOnly = process.argv.includes('--mcp-only')
+assert.ok([filesOnly, completionOnly, questionnairesOnly, fleetOnly, planOnly, mcpOnly].filter(Boolean).length <= 1, 'Choose one focused matrix')
 assert.ok(native && isAbsolute(native), 'Pass the absolute installed mcode path')
 const nativeScript = process.env.ROVAI_MINIMAX_NATIVE_SCRIPT
 if (nativeScript) assert.ok(isAbsolute(nativeScript), 'Native npm script must be absolute')
-const coreExecutable = process.env.ROVAI_QUALIFICATION_CORE_BIN
-  ?? join(repo, 'target', 'debug', process.platform === 'win32' ? 'rovai-core.exe' : 'rovai-core')
 const fixtureArg = process.argv.indexOf('--fixture-root')
 const suppliedRoot = fixtureArg < 0 ? null : process.argv[fixtureArg + 1]
 if (fixtureArg >= 0) assert.ok(suppliedRoot && isAbsolute(suppliedRoot), 'Pass an empty absolute fixture root')
@@ -35,7 +38,8 @@ const project = join(root, 'project'), nativeData = join(root, 'native')
 for (const path of [...(process.platform === 'win32' ? [] : [data]), project, nativeData]) await mkdir(path, { mode: 0o700 })
 console.error(JSON.stringify({ channel: 'automatic acceptance', root, data, skills: join(data, 'managed-skill-library'), mcp: join(data, 'mcp.json'), nativeData }))
 const events = []
-const report = { evidenceKind: 'real-cli-scripted-provider', root, cases: [], requests: [], status: 'running' }
+const report = { evidenceKind: 'real-cli-scripted-provider', root, coreExecutable,
+  coreSha256: createHash('sha256').update(await readFile(coreExecutable)).digest('hex'), cases: [], requests: [], status: 'running' }
 const mcpId = randomUUID(), mcpMarker = join(project, 'mcp-calls.txt')
 let stage = 'setup', step = 0, core, db, threadId
 const filePlans = new Map()
@@ -67,10 +71,10 @@ const server = createServer(async (req, res) => {
         : `node ${quote(join(project, 'output.mjs'))} ${quote(stage)} ${quote(output)} ${quote(token)}`
       call = { id: `call-${stage}`, type: 'function', function: { name: tool.function.name, arguments: JSON.stringify({ [key]: command }) } }
     }
-    if (stage === 'MCP' && call) {
-      const tool = body.tools.find(t => t.function.name.includes('echo') && t.function.name.includes('minimax_fixture'))
+    if (['MCP', 'MCP_CANCEL'].includes(stage) && call) {
+      const tool = body.tools.find(t => t.function.name.includes(stage === 'MCP' ? 'echo' : 'hold') && t.function.name.includes('minimax_fixture'))
       assert.ok(tool, `MCP tool missing: ${tools.join(',')}`)
-      call = { id: 'call-mcp', type: 'function', function: { name: tool.function.name, arguments: JSON.stringify({ text: 'verified' }) } }
+      call = { id: 'call-mcp', type: 'function', function: { name: tool.function.name, arguments: JSON.stringify(stage === 'MCP' ? { text: 'verified' } : {}) } }
     }
     if (stage === 'HOLD' && !call && step === 2 && tools.includes('read')) {
       const tool = body.tools.find(t => t.function.name === 'read')
@@ -168,7 +172,8 @@ else if(stage==='NONZERO'){console.log('NONZERO_STDOUT');process.exitCode=7}
 else if(stage==='LARGE')process.stdout.write('CONTROL_LARGE_'+'x'.repeat(100000));
 else if(stage!=='EMPTY'){writeFileSync(output,token+'\\n');console.log('CONTROL_STDOUT');console.error('CONTROL_STDERR');const result=spawnSync(process.platform==='win32'?'rovai.exe':'rovai',['send','--public-only','--input-file',output],{stdio:'inherit',windowsHide:true});if(result.error)throw result.error;process.exitCode=result.status??1}
 `)
-  await writeFile(join(data, 'mcp.json'), JSON.stringify({ mcpServers: { minimax_fixture: { command: process.execPath, args: [join(repo, 'crates/rovai-core/tests/fixtures/mcp-smoke-server.mjs')], env: { ROVAI_MCP_SMOKE_SOURCE: 'MINIMAX_MCP', ROVAI_MCP_SMOKE_CALL_MARKER: mcpMarker } } }, _rovai: { schemaVersion: 2, servers: { minimax_fixture: { serverId: mcpId, enabled: true, source: 'user', riskLevel: 'standard' } }, assignments: [{ serverId: mcpId, agentId: 'agent_2' }] } }), { mode: 0o600 })
+  await writeFile(join(data, 'mcp.json'), JSON.stringify({ mcpServers: { minimax_fixture: { command: process.execPath, args: [join(repo, 'crates/rovai-core/tests/fixtures/mcp-smoke-server.mjs')], env: { ROVAI_MCP_SMOKE_SOURCE: 'MINIMAX_MCP', ROVAI_MCP_SMOKE_CALL_MARKER: mcpMarker,
+    ...(mcpOnly ? { ROVAI_MCP_SMOKE_HOLD_READY: join(project, 'mcp-hold.ready'), ROVAI_MCP_SMOKE_HOLD_EFFECT: join(project, 'mcp-late-effect.txt') } : {}) } } }, _rovai: { schemaVersion: 2, servers: { minimax_fixture: { serverId: mcpId, enabled: true, source: 'user', riskLevel: 'standard' } }, assignments: [{ serverId: mcpId, agentId: 'agent_2' }] } }), { mode: 0o600 })
   await start()
   const config = await core.request('runtime.startup.get', { runtimeKind: 'minimax-code-cli' })
   await core.request('runtime.startup.save', { runtimeKind: 'minimax-code-cli', expectedRevision: config.revision, configuration: { programPath: native, environment: [] } })
@@ -187,7 +192,80 @@ else if(stage!=='EMPTY'){writeFileSync(output,token+'\\n');console.log('CONTROL_
   const created = await core.request('threads.create', { commandId: randomUUID(), name: 'MiniMax controlled integration', workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
   assert.equal(created.status, 'applied'); threadId = created.payload.threadId
   db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
-  if (questionnairesOnly) {
+  if (fleetOnly) {
+    const threads = [threadId], bindings = new Map(), firstPids = []
+    for (let index = 0; index < 21; index++) {
+      if (index > 0) {
+        const created = await core.request('threads.create', { commandId: randomUUID(), name: `MiniMax Fleet ${index}`,
+          workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
+        assert.equal(created.status, 'applied'); threads.push(created.payload.threadId)
+      }
+      threadId = threads[index]
+      await turn(`FLEET_${index}`)
+      bindings.set(threadId, db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'))
+      const pids = await hostPids()
+      assert.ok(pids.length <= 20, 'production per-member resident cap')
+      if (index === 0) firstPids.push(...pids)
+    }
+    assert.equal((await hostPids()).length, 20)
+    const resident = new Set(await hostPids())
+    assert.ok(firstPids.every(pid => !resident.has(pid)), 'the least-recently-used native Host must be reaped')
+    threadId = threads[0]
+    await turn('FLEET_RETURN')
+    assert.deepEqual(db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'), bindings.get(threadId))
+    report.cases.push({ name: 'production 20-Host per-member LRU evicts the oldest idle Host and resumes its exact Session', status: 'passed', sessionCount: threads.length, residentCount: (await hostPids()).length })
+    report.idleEviction = { productionTtlMs: 30 * 60_000, startedAt: new Date().toISOString(), pids: await hostPids() }
+    await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2), { mode: 0o600 })
+    console.error(JSON.stringify({ case: 'native production idle TTL', status: 'waiting', root }))
+    const began = Date.now(), deadline = began + 32 * 60_000
+    while ((await hostPids()).length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10_000))
+    assert.deepEqual(await hostPids(), [], 'the unmodified production idle TTL must reap all idle Hosts')
+    report.idleEviction.elapsedMs = Date.now() - began
+    await turn('AFTER_IDLE_TTL')
+    assert.deepEqual(db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'), bindings.get(threadId))
+    report.cases.push({ name: 'production 30-minute idle eviction and exact native Session continuation', status: 'passed', elapsedMs: report.idleEviction.elapsedMs })
+    const crashChildren = await hostPids()
+    process.kill(core.pid, 'SIGKILL')
+    await new Promise(resolve => setTimeout(resolve, 5_000))
+    const surviving = new Set((await processTable()).map(process => process.pid))
+    assert.ok(crashChildren.every(pid => !surviving.has(pid)), 'Core crash must reap its native Hosts')
+    await core.stop(); await start(); await turn('AFTER_CORE_CRASH')
+    assert.deepEqual(db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'), bindings.get(threadId))
+    report.cases.push({ name: 'Core crash cleanup and exact Session recovery', status: 'passed' })
+    report.status = 'passed'
+  } else if (mcpOnly) {
+    stage = 'MCP_CANCEL'; step = 0
+    await send('Call the held native MCP mutation for cancellation qualification.')
+    await until(() => exists('mcp-hold.ready'), 'held native MCP')
+    const run = runs().at(-1), childPid = Number(await readFile(join(project, 'mcp-hold.ready'), 'utf8'))
+    const version = db.prepare('SELECT version FROM agent_run WHERE id=?').get(run.id).version
+    await core.request('agentRuns.cancel', { commandId: randomUUID(), command: { threadId, agentRunId: run.id, expectedVersion: version } })
+    await until(() => runs().at(-1).status === 'cancelled', 'native MCP cancel terminal')
+    await new Promise(resolve => setTimeout(resolve, 37_000))
+    assert.equal(await exists('mcp-late-effect.txt'), false)
+    assert.ok(!(await processTable()).some(process => process.pid === childPid), 'cancel must reap the held MCP server')
+    report.cases.push({ name: 'cancel actual native MCP invocation, reap its server and prevent delayed mutation after 37 seconds', status: 'passed', run: run.id, serverPid: childPid })
+    await turn('AFTER_MCP_CANCEL')
+    report.status = 'passed'
+  } else if (planOnly) {
+    const member = await core.request('members.get', { agentId: 'agent_2' })
+    const configured = await core.request('members.runtime.set', { commandId: randomUUID(), command: {
+      agentId: 'agent_2', expectedVersion: member.version, adapterKind: 'minimax-code-cli', model: member.runtimeConfiguration.model,
+      permissions: { ...member.runtimeConfiguration.permissions, values: { permission_mode: 'bypassPermissions', mode: 'plan' } }
+    } })
+    assert.equal(configured.status, 'applied')
+    stage = 'PLAN_WRITE'; step = 0
+    await send('Attempt the controlled workspace mutation under native plan mode.')
+    const deadline = Date.now() + 90_000
+    while (!runs().some(run => ['succeeded', 'failed', 'cancelled'].includes(run.status)) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
+    assert.ok(runs().some(run => ['succeeded', 'failed'].includes(run.status)), 'native plan attempt must reach an authoritative terminal')
+    assert.equal(await exists('result-PLAN_WRITE.txt'), true, 'native plan is a workflow mode; explicit bypassPermissions still permits tools')
+    const calls = report.requests.filter(request => request.stage === stage)
+    assert.ok(calls.length > 0)
+    report.nativePlan = { sandboxGuarantee: 'none', explicitBypassMutationObserved: true, requests: calls, actions: events.filter(event => event.params?.agentRunId === runs().at(-1).id).map(event => event.params) }
+    report.cases.push({ name: 'native plan stays a workflow mode under explicit bypassPermissions; no read-only sandbox is claimed', status: 'passed', run: runs().at(-1).id })
+    report.status = 'passed'
+  } else if (questionnairesOnly) {
     const binding = () => db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2')
     const published = id => db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE source_agent_run_id=? AND author_type='agent'").get(id).n
     const terminal = async (before, onTick = null) => {

@@ -49,17 +49,25 @@ pub(crate) enum NativeUsageReader {
 }
 
 impl NativeUsageReader {
-    pub(crate) fn minimax_tail(&self, message_ids: BTreeSet<String>) -> Option<Self> {
+    pub(crate) fn minimax_tail(
+        &self,
+        message_ids: BTreeSet<String>,
+        tool_call_ids: BTreeSet<String>,
+    ) -> Option<Self> {
         let Self::Jsonl(reader) = self else {
             return None;
         };
-        if !matches!(reader.dialect, Dialect::Minimax) || reader.disabled || message_ids.is_empty()
+        if !matches!(reader.dialect, Dialect::Minimax)
+            || (message_ids.is_empty() && tool_call_ids.is_empty())
         {
             return None;
         }
         let mut reader = reader.clone();
         reader.minimax_messages = Some(message_ids);
-        reader.minimax_tail_offset = Some(reader.offset);
+        reader.minimax_tool_calls = tool_call_ids;
+        // Compaction can replace the active journal during a prompt. Only this
+        // frozen, identity-filtered tail may revisit native history artifacts.
+        reader.disabled = false;
         Some(Self::Jsonl(reader))
     }
     pub(crate) fn for_prompt(
@@ -116,11 +124,11 @@ pub(crate) struct NativeJsonlUsageReader {
     seen: BTreeSet<String>,
     disabled: bool,
     context_model: Option<NativeContextModel>,
-    // A terminal reader may only collect message identities observed on this
-    // exact ACP prompt. Later Session turns cannot enter this snapshot.
+    // A terminal reader admits only message or tool-call identities observed on
+    // this exact ACP prompt. Tool-only assistant messages have no display ID.
     minimax_messages: Option<BTreeSet<String>>,
     minimax_canonical_messages: BTreeMap<String, String>,
-    minimax_tail_offset: Option<u64>,
+    minimax_tool_calls: BTreeSet<String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -233,7 +241,7 @@ impl NativeJsonlUsageReader {
             context_model: None,
             minimax_messages: None,
             minimax_canonical_messages: BTreeMap::new(),
-            minimax_tail_offset: None,
+            minimax_tool_calls: BTreeSet::new(),
         };
         if let Some(mut file) = reader.open()? {
             let metadata = file.metadata()?;
@@ -298,6 +306,9 @@ impl NativeJsonlUsageReader {
     }
 
     fn poll_checked(&mut self) -> Result<Vec<NativeUsageObservation>> {
+        if self.minimax_messages.is_some() {
+            return self.poll_minimax_tail();
+        }
         let Some(mut file) = self.open()? else {
             if self.file_identity.is_some() {
                 bail!("native Usage journal disappeared");
@@ -316,18 +327,42 @@ impl NativeJsonlUsageReader {
             bail!("native Usage journal continuity lost");
         }
         self.file_identity = Some(identity);
-        if let Some(ids) = self.minimax_messages.as_ref() {
-            self.minimax_canonical_messages =
-                minimax_message_bindings(&self.root, &self.session_id, ids)?;
-            // Mapping and complete journal lines may arrive at different times.
-            // Revisit only the frozen suffix, keeping seen identities and the
-            // previous end offset's continuity check above. At most three reads.
-            self.offset = self
-                .minimax_tail_offset
-                .context("missing terminal cursor")?;
-        }
         file.seek(SeekFrom::Start(self.offset))?;
         self.read_complete_lines(&mut file, metadata.len(), false)
+    }
+
+    fn poll_minimax_tail(&mut self) -> Result<Vec<NativeUsageObservation>> {
+        anyhow::ensure!(
+            minimax_session_path(&self.root, &self.workspace, &self.session_id)? == self.path,
+            "native Usage Session location changed"
+        );
+        self.minimax_canonical_messages = minimax_message_bindings(
+            &self.root,
+            &self.session_id,
+            self.minimax_messages
+                .as_ref()
+                .context("missing terminal identities")?,
+        )?;
+        let paths = minimax_history_artifacts(&self.root, &self.path, &self.session_id)?;
+        let mut remaining = MAX_JOURNAL_BYTES;
+        let mut observations = Vec::new();
+        // Active history wins over its older snapshots. The exact ACP identities
+        // and original baseline remain mandatory, even after a file replacement.
+        for path in paths {
+            let Some(mut file) = open_native_file(&self.root, &path)? else {
+                continue;
+            };
+            let end = file.metadata()?.len();
+            anyhow::ensure!(end <= remaining, "native Usage history exceeds bound");
+            remaining -= end;
+            self.offset = 0;
+            self.skip_partial = false;
+            observations.extend(self.read_complete_lines(&mut file, end, false)?);
+            if self.disabled {
+                break;
+            }
+        }
+        Ok(observations)
     }
 
     fn read_complete_lines(
@@ -415,7 +450,19 @@ impl NativeJsonlUsageReader {
                         && !self
                             .minimax_canonical_messages
                             .get(&record.message_id)
-                            .is_some_and(|turn_id| record.turn_id.as_ref() == Some(turn_id))
+                            .map_or_else(
+                                || {
+                                    record.turn_id.as_ref().is_some_and(|turn| {
+                                        self.minimax_canonical_messages
+                                            .values()
+                                            .any(|observed| observed == turn)
+                                    }) && !record
+                                        .message
+                                        .tool_call_ids
+                                        .is_disjoint(&self.minimax_tool_calls)
+                                },
+                                |turn_id| record.turn_id.as_ref() == Some(turn_id),
+                            )
                     {
                         continue;
                     }
@@ -519,6 +566,62 @@ fn open_minimax_database(root: &Path) -> Result<rusqlite::Connection> {
     Ok(c)
 }
 
+fn minimax_history_artifacts(root: &Path, active: &Path, session_id: &str) -> Result<Vec<PathBuf>> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Catalog {
+        schema_version: u32,
+        session_id: String,
+        artifacts: Vec<Artifact>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Artifact {
+        generation: u64,
+        kind: String,
+        file_name: String,
+    }
+    let directory = active
+        .parent()
+        .context("missing native history directory")?;
+    let mut paths = vec![active.to_path_buf()];
+    let Some(file) = open_native_file(root, &directory.join("history-catalog.json"))? else {
+        return Ok(paths);
+    };
+    anyhow::ensure!(
+        file.metadata()?.len() <= MAX_LINE_BYTES,
+        "native history catalog exceeds bound"
+    );
+    let catalog: Catalog = serde_json::from_reader(file.take(MAX_LINE_BYTES))?;
+    anyhow::ensure!(
+        catalog.schema_version == 1 && catalog.session_id == session_id,
+        "native history catalog does not match"
+    );
+    anyhow::ensure!(
+        catalog.artifacts.len() <= MAX_IDENTITIES,
+        "native history catalog exceeds bound"
+    );
+    let mut snapshots: Vec<_> = catalog
+        .artifacts
+        .into_iter()
+        .filter(|item| item.kind == "snapshot")
+        .collect();
+    snapshots.sort_by_key(|item| std::cmp::Reverse(item.generation));
+    for item in snapshots.into_iter().take(63) {
+        let prefix = format!("g{:012}--ctx_", item.generation);
+        let identity = item
+            .file_name
+            .strip_prefix(&prefix)
+            .and_then(|name| name.strip_suffix(".jsonl"));
+        anyhow::ensure!(
+            identity.is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()),
+            "invalid native history artifact"
+        );
+        paths.push(directory.join("snapshots").join(item.file_name));
+    }
+    Ok(paths)
+}
+
 fn minimax_message_bindings(
     root: &Path,
     session_id: &str,
@@ -600,6 +703,41 @@ struct MinimaxMessage {
     stop_reason: Option<String>,
     usage: Option<MinimaxUsage>,
     timestamp: Option<i64>,
+    #[serde(
+        default,
+        rename = "content",
+        deserialize_with = "minimax_content_tool_ids"
+    )]
+    tool_call_ids: BTreeSet<String>,
+}
+
+fn minimax_content_tool_ids<'de, D>(
+    deserializer: D,
+) -> std::result::Result<BTreeSet<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct Part {
+        #[serde(rename = "type")]
+        kind: Option<String>,
+        id: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Content {
+        Parts(Vec<Part>),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Content::deserialize(deserializer)? {
+        Content::Parts(parts) => parts
+            .into_iter()
+            .filter(|part| part.kind.as_deref() == Some("toolCall"))
+            .filter_map(|part| part.id.filter(|id| !id.is_empty() && id.len() <= 256))
+            .take(MAX_IDENTITIES)
+            .collect(),
+        Content::Other(_) => BTreeSet::new(),
+    })
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1578,6 +1716,24 @@ mod tests {
                 .unwrap()
                 .contains("PRIVATE_MINIMAX_CANARY")
         );
+        let mut tool_only = frame.clone();
+        tool_only["message"]["content"] = json!([
+            {"type":"toolCall","id":"call-1|provider-id","arguments":{"secret":"PRIVATE_TOOL_ARGUMENT"}},
+            {"type":"thinking","id":"not-a-tool","text":"PRIVATE_REASONING"}
+        ]);
+        assert_eq!(
+            minimax_record(tool_only.to_string().as_bytes())
+                .unwrap()
+                .message
+                .tool_call_ids,
+            ["call-1|provider-id".to_string()].into()
+        );
+        let usage = parse_minimax(tool_only.to_string().as_bytes(), "root-1").unwrap();
+        assert!(
+            !serde_json::to_string(&usage.usage)
+                .unwrap()
+                .contains("PRIVATE_")
+        );
         for patch in [
             json!({"role":"user"}),
             json!({"stopReason":"error"}),
@@ -2169,7 +2325,11 @@ mod tests {
             drop(file);
             assert!(terminal.poll().is_empty());
             if matches!(dialect, Dialect::Minimax) {
-                assert!(terminal.minimax_tail(BTreeSet::new()).is_none());
+                assert!(
+                    terminal
+                        .minimax_tail(BTreeSet::new(), BTreeSet::new())
+                        .is_none()
+                );
                 let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))
                     .unwrap();
                 c.execute_batch("CREATE TABLE local_runtime_message_rows(session_id TEXT,msg_id TEXT,role TEXT,turn_id TEXT,data_json TEXT);
@@ -2185,6 +2345,7 @@ mod tests {
                             "display-wrong-turn".into(),
                         ]
                         .into(),
+                        ["active-tool|provider-id".into()].into(),
                     )
                     .unwrap();
                 let mut file = OpenOptions::new().append(true).open(&path).unwrap();
@@ -2216,7 +2377,90 @@ mod tests {
                     "minimax-native:session-1:owned-tail"
                 );
                 assert!(tail.poll().is_empty(), "terminal retry cannot double count");
+                let mut tool_only = make("owned-tool-only");
+                tool_only["turn_id"] = json!("turn-1");
+                tool_only["message"]["content"] = json!([{
+                    "type":"toolCall", "id":"active-tool|provider-id", "name":"bash",
+                    "arguments":{"command":"PRIVATE_ARGUMENT_MUST_NOT_ENTER_USAGE"}
+                }]);
+                let mut another_tool = tool_only.clone();
+                another_tool["message_id"] = json!("unobserved-tool");
+                another_tool["message"]["content"][0]["id"] = json!("another-prompt-tool");
+                let mut wrong_type = tool_only.clone();
+                wrong_type["message_id"] = json!("unknown-content-type");
+                wrong_type["message"]["content"][0]["type"] = json!("thinking");
+                let mut conflicting = tool_only.clone();
+                conflicting["message_id"] = json!("wrong-turn");
+                let mut reused_id = tool_only.clone();
+                reused_id["message_id"] = json!("older-turn-reused-tool-id");
+                reused_id["turn_id"] = json!("unobserved-historical-turn");
+                write!(
+                    file,
+                    "{tool_only}\n{another_tool}\n{wrong_type}\n{conflicting}\n{reused_id}\n"
+                )
+                .unwrap();
+                file.flush().unwrap();
+                let observed = tail.poll();
+                assert_eq!(
+                    observed.len(),
+                    1,
+                    "only the frozen native tool-call ID admits a tool-only assistant"
+                );
+                assert_eq!(
+                    observed[0].source_identity,
+                    "minimax-native:session-1:owned-tool-only"
+                );
+                assert_eq!(observed[0].usage.fields.output_tokens, Some(5));
+                assert!(
+                    tail.poll().is_empty(),
+                    "re-reading the tool-only tail cannot double count"
+                );
                 drop(file);
+                let mut active = tool_only.clone();
+                active["message_id"] = json!("after-compaction-active");
+                let mut archived = tool_only.clone();
+                archived["message_id"] = json!("before-compaction-archived");
+                let archive_name = "g000000000001--ctx_11111111-1111-4111-8111-111111111111.jsonl";
+                let directory = path.parent().unwrap();
+                fs::create_dir_all(directory.join("snapshots")).unwrap();
+                fs::write(
+                    directory.join("snapshots").join(archive_name),
+                    format!(
+                        "{archived}\n{tool_only}\n{another_tool}\n{conflicting}\n{reused_id}\n"
+                    ),
+                )
+                .unwrap();
+                let catalog_path = directory.join("history-catalog.json");
+                let mut catalog = json!({"schemaVersion":1,"sessionId":"session-1","artifacts":[
+                    {"generation":1,"kind":"snapshot","fileName":archive_name}
+                ]});
+                fs::write(&catalog_path, catalog.to_string()).unwrap();
+                fs::write(&path, format!("{}\n{active}\n", make("old"))).unwrap();
+                assert!(terminal.poll().is_empty());
+                let mut rotated = tail
+                    .minimax_tail(
+                        ["display-owned".into(), "display-wrong-turn".into()].into(),
+                        ["active-tool|provider-id".into()].into(),
+                    )
+                    .unwrap();
+                let observed = rotated.poll();
+                assert_eq!(
+                    observed.len(),
+                    2,
+                    "rotation admits only exact prompt identities in active and archived history"
+                );
+                assert!(
+                    rotated.poll().is_empty(),
+                    "compaction copies cannot duplicate consumption"
+                );
+                catalog["sessionId"] = json!("other-session");
+                fs::write(&catalog_path, catalog.to_string()).unwrap();
+                assert!(rotated.poll().is_empty());
+                assert!(matches!(&rotated, NativeUsageReader::Jsonl(reader) if reader.disabled));
+                catalog["sessionId"] = json!("session-1");
+                catalog["artifacts"][0]["fileName"] = json!("../foreign.jsonl");
+                fs::write(&catalog_path, catalog.to_string()).unwrap();
+                assert!(minimax_history_artifacts(&root, &path, "session-1").is_err());
                 assert!(minimax_session_path(&root, "/another", "session-1").is_err());
                 assert!(minimax_session_path(&root, "/workspace", "other-session").is_err());
                 let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))

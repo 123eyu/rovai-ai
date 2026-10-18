@@ -32,9 +32,9 @@ use crate::{
         DSH_MACOS_X64_EVIDENCE_REVISION, DSH_WINDOWS_X64_EVIDENCE_REVISION,
         GROK_BUILD_MACOS_ARM64_EVIDENCE_REVISION, GROK_BUILD_MACOS_X64_EVIDENCE_REVISION,
         GROK_BUILD_WINDOWS_X64_EVIDENCE_REVISION, MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION,
-        MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION, MINIMAX_CODE_WINDOWS_X64_EVIDENCE_REVISION,
-        PI_MACOS_ARM64_EVIDENCE_REVISION, PI_MACOS_X64_EVIDENCE_REVISION,
-        PI_WINDOWS_X64_EVIDENCE_REVISION, RuntimePlatformAdmission,
+        MINIMAX_CODE_LINUX_X64_EVIDENCE_REVISION, MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION,
+        MINIMAX_CODE_WINDOWS_X64_EVIDENCE_REVISION, PI_MACOS_ARM64_EVIDENCE_REVISION,
+        PI_MACOS_X64_EVIDENCE_REVISION, PI_WINDOWS_X64_EVIDENCE_REVISION, RuntimePlatformAdmission,
         RuntimePlatformAdmissionReasonCode, WINDOWS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION,
         ZCODE_MACOS_ARM64_EVIDENCE_REVISION, ZCODE_WINDOWS_X64_EVIDENCE_REVISION,
     },
@@ -789,12 +789,16 @@ impl AgentRuntimeAdapterRegistry {
                     platform,
                     MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION,
                 ),
+                HostPlatformKey::LinuxX64 => RuntimePlatformAdmission::qualified(
+                    kind,
+                    platform,
+                    MINIMAX_CODE_LINUX_X64_EVIDENCE_REVISION,
+                ),
                 HostPlatformKey::WindowsX64 => RuntimePlatformAdmission::qualified(
                     kind,
                     platform,
                     MINIMAX_CODE_WINDOWS_X64_EVIDENCE_REVISION,
                 ),
-                HostPlatformKey::LinuxX64 => unqualified(),
             };
         }
         if kind == AdapterKind::DeepseekHarness {
@@ -1067,7 +1071,7 @@ impl AgentRuntimeAdapterRegistry {
             ),
             AdapterKind::MinimaxCodeCli => native_skill_discovery(
                 [SkillDeliveryGroupKey::Minimax],
-                SkillDiscoveryVerification::DocumentationOnly,
+                SkillDiscoveryVerification::Verified,
             ),
             AdapterKind::KimiCodeCli => native_skill_discovery(
                 [SkillDeliveryGroupKey::Kimi],
@@ -5429,6 +5433,11 @@ mod tests {
                 SkillDiscoveryVerification::DocumentationOnly,
             ),
             (
+                AdapterKind::MinimaxCodeCli,
+                &[SkillDeliveryGroupKey::Minimax],
+                SkillDiscoveryVerification::Verified,
+            ),
+            (
                 AdapterKind::KimiCodeCli,
                 &[SkillDeliveryGroupKey::Kimi],
                 SkillDiscoveryVerification::Verified,
@@ -5476,6 +5485,7 @@ mod tests {
             AdapterKind::QwenCode,
             AdapterKind::TraeCnCli,
             AdapterKind::KimiCodeCli,
+            AdapterKind::MinimaxCodeCli,
             AdapterKind::GrokBuild,
             AdapterKind::DeepseekHarness,
         ] {

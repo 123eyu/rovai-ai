@@ -1,35 +1,39 @@
-# Rovai AI v0.4.12
+# Rovai AI v0.4.13
 
 <!-- lang:zh-CN -->
 
-本次更新在执行过程中加入插话记录，调整队员卡片和邀请操作，并修复网页版新建会话、附件发送及删除会话后的错误提示。
+本次更新新增 MiniMax Code 接入，支持网页版文件上传与下载、文件预览自动刷新和执行来源定位，并修复网页断线后无法继续发送的问题。
 
-- 【功能】**执行过程中可直接查看插话记录。** 插话在对应位置单独显示，可展开查看原文和投递状态，并点击“原消息”返回会话定位；前后的工具操作分组会保留清楚的边界。
-- 【交互】**调整队员卡片与邀请列表。** 角色、智能体和模型信息分层显示，长模型名称不再挤压智能体名称。邀请候选改用行尾复选框；邀请弹窗与 `@` 候选统一检查可用性，避免加入未配置或不可用的队员。
-- 【界面】**改善手机网页版的队员邀请体验。** 邀请窗口改为底部弹层，搜索和确认区域固定，候选列表独立滚动；首次打开不自动聚焦搜索框，适配横屏和键盘弹出后的可视区域。
-- 【交互】**调整队员的文件发送指引。** 普通文件引用优先使用 Markdown 链接，明确需要附件时再发送文件；为 Lark 和钉钉补齐与飞书一致的文件交付提示。
-- 【修复】**修复网页版新建会话时输入框无法初始化的问题。** 解决打开新对话后提示操作未开放、无法正常输入和发送的问题。
-- 【修复】**修复网页版上传附件后无法发送的问题。** 正确识别上传后的附件状态，同时修复草稿恢复后的附件预览与可用性检查。
-- 【修复】**修复删除会话后误报“会话不存在”的问题。** 删除或切换会话后，不再让过期刷新结果干扰当前页面；其他客户端删除会话后也能正确更新。
+- 【功能】**新增 MiniMax Code 接入。** 支持使用本机官方 `mcode`，读取原生模型与思考档位配置，接入 Skills、MCP、图片与文件工具，并支持插话和会话恢复。
+- 【功能】**网页版单文件上传上限提高至 30 MiB。** 增加上传进度和取消操作；上传失败或取消时，保留正文和其他附件。
+- 【功能】**网页版支持直接下载文件。** 可在文件查看区下载到本机，无法在线预览的文件也可下载。采用流式传输，进度与取消由浏览器管理，不再受在线预览大小限制。
+- 【功能】**文件保存后，预览自动更新。** 支持文本、Markdown、代码、图片和 HTML；后台标签在重新打开时更新。大文本刷新后尽量保留原阅读行号，读取失败时保留旧内容。
+- 【功能】**执行记录支持定位原消息。** 可查看触发本次执行的消息，多条输入可展开来源列表；定位后可返回原执行位置，不影响正在编辑的草稿。
+- 【功能】**会话任务改为按需开启。** 默认关闭，可在“通用设置”中开启。关闭后隐藏任务面板、提醒和队员任务工具，已有任务记录保留，不中断当前执行。
+- 【界面】**调整会话中的文件列表。** 队员发送的文件改为紧凑单列，宽度与差异卡片对齐，点击整行即可打开；窄窗口下保持自适应。
+- 【交互】**统一网页链接的显示和操作。** 消息、输入框、单聊和使命描述中的网页链接使用统一图标；编辑使命时可直接打开或复制链接，不打断当前编辑。
+- 【修复】**修复网页断线后一直提示“原提交仍待核对”的问题。** 服务断开时保留页面和草稿，提供“恢复连接并重试”入口；恢复时先核对原提交结果，再重试未完成的操作，避免重复提交。
+- 【修复】**修正部分智能体的执行结束判断。** 本轮已正常发送回复、工具操作也已结束时，不再仅因原生结束文本为空而误报失败；真实错误和取消仍会如实显示。
+- 【优化】**精简单聊中的重复上下文。** 减少每轮重复传入的固定说明，不改写已有会话记录和历史输入。
 
-感谢 [@liangxyz](https://github.com/liangxyz) 在 [#779](https://github.com/murray17/rovai-ai/issues/779) 中反馈网页版附件发送问题。
-
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.11...v0.4.12)
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)
 
 ---
 
 <!-- lang:en -->
 
-This release adds steering records to the execution view, updates teammate cards and invitations, and fixes new conversations, attachment sending, and misleading errors after conversation deletion in the Web app.
+This release adds MiniMax Code, browser file uploads and downloads, automatic file preview refresh, and links from executions to their source messages. It also fixes Web submissions that remained blocked after a service disconnect.
 
-- [Feature] **See steering records directly in the execution view.** Follow-up instructions appear as separate rows at their corresponding positions. Expand them to read the original text and delivery status, or select “Original message” to return to the source in the conversation. Tool operations before and after an input keep clear grouping boundaries.
-- [Interaction] **Update teammate cards and invitation lists.** Roles, runtimes, and models are shown separately, so long model names no longer squeeze runtime names. Invitation checkboxes move to the end of each row. The invitation dialog and `@` suggestions use the same availability checks to avoid adding unconfigured or unavailable teammates.
-- [UI] **Improve teammate invitations on mobile Web.** Invitations open in a bottom sheet with fixed search and confirmation areas and a separately scrolling candidate list. Opening the sheet no longer automatically focuses search; the layout adapts to landscape and the visible area above the keyboard.
-- [Interaction] **Adjust file-sending guidance for teammates.** Prefer Markdown links for ordinary file references and send attachments when explicitly needed. Lark and DingTalk receive the same channel file-delivery guidance already provided for Feishu.
-- [Fix] **Fix composer initialization when creating a Web conversation.** Resolve the unsupported-operation error that prevented the composer from becoming available for typing and sending.
-- [Fix] **Fix sending after uploading a Web attachment.** Recognize uploaded attachment state correctly, and restore attachment previews and availability checks when recovering a draft.
-- [Fix] **Avoid misleading “conversation does not exist” errors after deletion.** Obsolete refresh results no longer interfere after deleting or switching conversations. Deletion from another client is also handled correctly.
+- [Feature] **Add MiniMax Code.** Connect the official local `mcode` CLI, read its native models and thinking levels, and use Skills, MCP, image and file tools, steering, and session recovery.
+- [Feature] **Increase the Web upload limit to 30 MiB per file.** Uploads now show progress and can be cancelled. Failed or cancelled uploads preserve the message text and other attachments.
+- [Feature] **Download files directly from the Web app.** Download from the file viewer even when online preview is unavailable. Files stream to the browser, which manages progress and cancellation, independently of the preview size limit.
+- [Feature] **Refresh file previews after saving.** Text, Markdown, code, images, and HTML update automatically. Background tabs refresh when shown again. Large text previews try to retain the visible line, and failed reads keep the previous content.
+- [Feature] **Navigate from an execution to its source messages.** See the messages that triggered a run, expand the source list for multiple inputs, and return to the execution after navigating without changing the current draft.
+- [Feature] **Make conversation Tasks optional.** Tasks are off by default and can be enabled in General settings. Turning them off hides the task panel, notifications, and teammate task tools while preserving existing records and running executions.
+- [UI] **Adjust conversation file lists.** Teammate files use a compact single-column list aligned with diff cards. The entire row opens the file, and the list adapts to narrow windows.
+- [Interaction] **Use consistent web-link icons and actions.** Messages, composers, Single Chat, and Mission descriptions share the same link icon. Open or copy links while editing a Mission without interrupting the edit.
+- [Fix] **Recover Web submissions blocked by an unresolved earlier request.** Keep the page and drafts during disconnection and provide a “Reconnect and retry” action. Recovery checks the original result before retrying unfinished work to avoid duplicate submissions.
+- [Fix] **Correct completion handling for some runtimes.** A run that has sent its reply successfully and finished its tool operations is no longer reported as failed solely because its native final text is empty. Actual errors and cancellation remain visible.
+- [Optimization] **Remove redundant Single Chat context.** Send fewer repeated fixed instructions on each turn without rewriting existing conversation records or historical inputs.
 
-Thanks to [@liangxyz](https://github.com/liangxyz) for reporting the Web attachment-sending issue in [#779](https://github.com/murray17/rovai-ai/issues/779).
-
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.11...v0.4.12)
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)

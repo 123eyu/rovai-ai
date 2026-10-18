@@ -11,7 +11,7 @@ export type ProductRuntimeCheckResult = {
 }
 
 export async function requestProductRuntimeCheck(runtimeKind: AdapterKind, request: RovaiApi['request'] = desktopThreadClient.request): Promise<ProductRuntimeCheckResult> {
-  // Core refreshes discovery inputs for every explicit check, including guides.
+  // Checks reuse valid discovery inputs; Core refreshes them when the entry is missing.
   return request<ProductRuntimeCheckResult>('runtime.product.check', { runtimeKind })
 }
 
@@ -21,4 +21,24 @@ export function openRuntimeModelCatalog(runtimeKind: AdapterKind, request: Rovai
     ...(waitForRefresh ? { waitForRefresh: true } : {}),
     ...(runtimeKind === 'deepseek-harness' && target ? target : {})
   })
+}
+
+// One local read in flight, with one trailing read for invalidations received
+// during it. The same rule applies while the trailing read is in progress.
+export function createRuntimeRefresh(read: () => Promise<void>): () => Promise<void> {
+  let pending: Promise<void> | null = null
+  let again = false
+  return () => {
+    again = true
+    if (pending) return pending
+    pending = Promise.resolve().then(async () => {
+      try {
+        do {
+          again = false
+          try { await read() } catch (error) { if (!again) throw error }
+        } while (again)
+      } finally { pending = null }
+    })
+    return pending
+  }
 }

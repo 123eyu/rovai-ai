@@ -42,6 +42,7 @@ function aboutSnapshot() {
 const channelListeners = new Set(), webListeners = new Set()
 let pendingChannelAction = null
 let pendingStartupInspection = null
+const pendingRuntimeChecks = new Map()
 const emitChannels = () => channelListeners.forEach(fn => fn(clone(state.channels)))
 async function channelAction(action, kind) {
   await request(`channels.${action}`, { kind })
@@ -145,7 +146,10 @@ Object.assign(window, { rovai: {
         executablePath: params.configuration.programPath ?? '/sample/bin/codex', reportedVersion: state.previewVersion ?? '0.153.4'
       }
     }
-    if (method === 'runtime.product.check') return { ready: false, outcome: state.checkOutcome ?? 'stable_failure' }
+    if (method === 'runtime.product.check') {
+      if (state.holdRuntimeKind === params.runtimeKind) return new Promise(resolve => pendingRuntimeChecks.set(params.runtimeKind, resolve))
+      return { ready: false, outcome: state.checkOutcome ?? 'stable_failure' }
+    }
     if (method === 'notifications.preference.get') return clone(state.notifications)
     if (method === 'notifications.preference.update') {
       state.notifications = { ...state.notifications, ...params.command, version: state.notifications.version + 1 }
@@ -204,6 +208,7 @@ function Fixture() {
   </div>
 }
 window.settingsTest = {
+  finishRuntimeCheck: (kind, result) => { pendingRuntimeChecks.get(kind)(result); pendingRuntimeChecks.delete(kind) },
   requests, state,
   releaseHostStatus: () => releaseHostStatus?.(),
   updateChannel: (kind, patch) => {

@@ -9415,6 +9415,11 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable.display().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable.display().to_string(),
                     command_name: "codex".to_string(),

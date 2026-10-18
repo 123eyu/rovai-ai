@@ -215,6 +215,8 @@ pub enum Operation {
     MemoryReviews,
     #[serde(rename = "health.check")]
     Health,
+    #[serde(rename = "runtime.status.get")]
+    RuntimeStatus,
     #[serde(rename = "skills.deliveryGroups.list")]
     SkillGroups,
     #[serde(rename = "agentRunEvidence.list")]
@@ -555,6 +557,7 @@ impl Operation {
             Self::CampViewed => "navigation.campViewed",
             Self::MemoryReviews => "memory.hearthReviewItems.list",
             Self::Health => "health.check",
+            Self::RuntimeStatus => "runtime.status.get",
             Self::SkillGroups => "skills.deliveryGroups.list",
             Self::RunEvidence => "agentRunEvidence.list",
             Self::RunEvidenceContent => "agentRunEvidence.getContent",
@@ -712,6 +715,7 @@ mod tests {
             .expect("User message withdrawal should be admitted by the Web Host");
         assert_eq!(withdraw.method(), "camp.messages.withdraw");
         for (public, internal) in [
+            ("runtime.status.get", "runtime.status.get"),
             ("thread.messages.anchors", "camp.messages.anchors"),
             (
                 "thread.messages.anchorPreview",

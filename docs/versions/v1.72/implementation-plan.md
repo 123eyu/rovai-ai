@@ -3130,3 +3130,124 @@ Rust 扩展既有 `resources::content::tests` owner 并按当前合同改名，�
 现有 Host HTTP 集成 `node --test --test-name-pattern='Desktop and Web share' scripts/lib/host-web.test.mjs`。
 Host 验收使用独立临时 data、Skill Library 与 MCP 路径，不启动模型。
 `pnpm docs:test`、`pnpm docs:check`、以上述真实 base 为输入的 `docs:check:ci` 与 `git diff --check` 通过。
+
+## 智能体检测减重第一批（2026-10-18）
+
+按 User seq25 从撤回后的实现逐项实施公共减重与 Codex，工作基线为
+`9a5127ed8a26531808a61c62565c097cf498fd43`，使用独立 `rovai/runtime-check-weight` 分支。
+保留“重新检测”“检查状态”的名称、位置、文案、状态映射、安装／登录引导、参数选择与平台准入。
+本批不包含 MiniMax 参数工作移位、ZCode/Grok/Claude/Antigravity 的后续局部优化或冷启动顺序调整。
+没有新增表、迁移、后台服务、持久字段、缓存体系、第二套 generation 或检查管理器。
+
+### 删除或合并的工作
+
+- 单项检查复用当前有效入口与搜索环境，无有效入口才补充搜索；显式重新检测捕获一次环境。
+  有效输入未变化时保留搜索 generation，同目标请求继续由既有 pending/active 队列合并。
+- 静态发现直接复用已有文件身份，原生稳定文件完整哈希为未变 0 次、首次或升级 1 次。
+  必要校验与手动版本补读均留在各 Runtime 工作任务，形成既有 `VerifiedDiscoveredRuntimeEntry` 后短提交；
+  收集循环不再执行第二遍完整哈希或等待版本命令。正常候选成功时不构建保存路径的备用候选。
+- 完整检查复用同轮入口指纹，移除 health 层重复完整哈希，保留结束前的身份复核。
+  Windows shim、解释器和 ZCode bundle 依赖继续按原有规则校验，不套用普通原生程序的 0/1 计数。
+- Codex 删除独立 `login status` 和第二个 app-server；一个临时进程依次完成初始化响应校验、
+  `initialized` 通知、现有 Host 认证判定及分页模型读取。必要版本与 Schema 能力检查继续保留。
+- 设置页改为行级 pending/error；完成后按钮与事件共用 `runtime.status.get` 和统一安装列表读取，
+  一个在途 Promise 加补刷标记处理读取期间及补刷期间的新事件。取消这条路径对 Overview、导航、记忆、
+  `health.check` 中 Git 探针的等待。
+
+### 保留的正确性边界
+
+自动启动发现和页面打开仍静态；手动重新检测只补读未知或新程序的有界版本，未变可信版本直接复用。
+版本命令期间程序变化则丢弃该结果，后续显式重扫可读取新程序；未知版本不构成额外执行禁用条件。
+静态结果不写完整 Ready，同一程序的检查失败不会被普通重扫清除。真实 Host、消息投递和权限行为不变。
+
+合并及写回复用现有安装 ID/version、文件身份与 locator；路径消失／恢复只在实际变化时推进 version。
+当前安装身份决定安装是否变化，健康快照决定旧 Ready／认证／能力是否有效，旧 F1 快照不会让已发现 F2
+在检查开头再次推进版本。Supervisor 在数据库锁外观察文件，返回后复核原目标才写失败；无法证明归属的
+错误只交给原请求。公开错误也按当前已记录指纹筛选，防止旧快照保留 F1 错误或隐藏 F2 的合法超时；
+该读取只用现有数据库身份，不做文件 I/O。没有不断改变 active attempt 目标，也没有新失效层。
+
+首次 Pi 目录请求从未知安装变成已建立安装时，后来的请求保守排队一次；已知同目标请求继续合并。
+本批不为消除这个首次重复增加例外管理。
+
+### 定向回归与 owner
+
+复用 `runtime_check_refresh_tests` 的 Core／临时进程夹具，增加三个 slow owner：
+
+- `independent_checks_reuse_environment_and_same_target_check`：原正式／草稿用例覆盖配置切换，不能证明
+  同代次 A/B 独立结束、同目标合并及 F1 健康快照 → 静态 F2 → 检查 F2 的版本稳定。
+- `supervisor_failure_belongs_only_to_the_captured_installation`：普通完成路径不经过 Supervisor 超时分支；
+  该 owner 控制文件检查与数据库提交间的替换，验证旧错误归属、合法失败持久化及锁外文件检查。
+- `manual_rescan_reuses_versions_and_discards_replaced_version_responses`：现有纯发现 owner 不拥有版本持久化，
+  用同一临时程序验证被动发现零进程、重复重扫只补读一次、升级重读、检查失败保留及版本执行期间替换。
+
+这些失败涉及现有管理器、数据库和子进程之间的时序，纯 helper 测试无法覆盖；全部沿用已有夹具与 slow 层，
+没有新增默认层 owner 或测试框架。原发现 owner 补充 0/1 哈希计数，原发现提交 owner 补迟到缺失／恢复／升级；
+Codex 原认证 owner 扩展为认证、通知、分页、Schema 分支和进程回收矩阵，原目录 owner 保留“目录成功不替代完整检查”。
+
+最小相关命令：
+
+```sh
+cargo test -p rovai-core --features slow-tests --lib application::runtime_check_environment::tests::
+cargo test -p rovai-core --features slow-tests --lib discovered_runtime_verification_keeps_database_available_and_identity_after_restart
+cargo test -p rovai-core --features slow-tests --lib agent_profile::slow_tests::
+cargo test -p rovai-core --features slow-tests --lib codex_catalog_waiters_share_refresh_without_satisfying_full_validation
+cargo test -p rovai-core --features slow-tests --lib pi_catalog_observations_are_independent_of_health_and_fenced_by_identity
+cargo test -p rovai-core --features slow-tests --lib runtime_check_task_ids_clear_activity_after_success_panic_abort_and_shutdown
+cargo test -p rovai-core --features slow-tests --lib application::tests::runtime_check_manager_
+cargo test -p rovai-core --features extended-tests --lib codex_probe_requires_login_unless_native_provider_explicitly_waives_it
+cargo test -p rovai-core --features extended-tests --lib installed_catalog_discovery_runs_only_bounded_identity_commands
+```
+
+设置页专项使用生产 `RuntimeInstallationsPanel`，覆盖行级等待、错误隔离、按钮路由、启动设置和原有状态文案。
+其 `onReload` 为夹具回调，因此不据此声称验证了真实 BusinessApp 全链路；生产接线另以源码核查确认只调用
+Runtime 聚合及安装列表。刷新函数用受控 Promise 验证首读与补刷期间的连续事件，以及失败后的补刷／重试。
+夹具中原已过期的环境编辑器、隐藏 Cline 和通知数量断言按当前页面纠正，不改生产界面。
+
+### 验收结果与同机计时
+
+本地定向 Rust 共 49 项通过，包含上述 owner、既有程序替换后的有界重试 owner 以及 32 项 managed 安装／快照
+回归。默认 `cargo test --workspace` 为 474 passed、0 failed、1 个既有 ignored；类型检查、Web 构建及设置页
+生产组件专项通过。完整 `pnpm test` 为 246 个 Vitest 文件／2784 项通过，Node owner 为 357 passed、2 个平台 skip。
+提交前合入主线 `6554b12fffec44835843fc480c9b436e79540a2a` 的独立文件预览变更，继续运行类型、Node、
+Web Rust 和差异文档门禁。最终错误归属修正后，7 项并发／环境 owner、32 项安装／快照 owner、
+2 项错误投影 owner 再次通过；Web Rust 11 项通过。
+
+同步主线后的完整 Vitest 为 2794 passed、1 failed：文件预览既有真实 watcher 用例等待通知超时。
+该 owner 在本 worktree 单独复测 59 项通过，在未修改主线源码归档中也通过，但整套运行仍出现失败，
+包括关闭 Vitest 缓存的一次运行。保留该本机验收限制，不改或跳过该测试，也不将其认定为已证明的基线失败。
+
+计数与竞态结论：
+
+| 验收 | 结果与证据范围 |
+| --- | --- |
+| 普通原生未变／首次／升级发现 | 既有发现夹具完整哈希计数分别 0／1／1，提交路径不再补一遍哈希；不是 Windows 多文件入口计数 |
+| 版本补读 | 被动发现 0 命令；同一目标三次手动重扫只读一次版本；升级重读；命令期间替换的结果不入库 |
+| Codex 直接启动 | 未复用版本的夹具为 3 次，可选 experimental Schema 分支 4 次；相对原流程 5／6 次，删除 login 与第二个 app-server；可信版本再少一次 |
+| 并发与归属 | A 尚未结束时 B 已结束；同目标合并；同 generation 迟到扫描、路径缺失／恢复、F1 快照与 F2 安装、旧超时及异常均通过 |
+| 刷新终态 | 首次读取、补刷期间连续事件均读到终态；检查后读取只接 Runtime 数据，生产接线源码核查无 Overview／导航／记忆／Git |
+| 清理与功能 | Codex 临时进程回收、取消／panic／shutdown、目录请求不替代完整检查通过；参数、权限、默认模型及失效目录的原有测试保留 |
+
+同一 macOS arm64 机器、相同现有登录及默认配置，以独立全新数据库／Skill Library／MCP／runtimeFilesRoot
+启动改前 Debug Core（`9a5127ed8`）与改后 Debug Core，先等首次静态发现结束，再依次做三次重新检测、
+三次 Codex 完整检查，每次分别读取 Runtime 与安装列表。前后 16 个已发现入口的路径及指纹逐项相同，
+Codex 为 `0.162.1`；不向模型提交 Prompt。以下为 RPC 发出至回复耗时，单位 ms：
+
+| 场景 | 改前 | 改后 |
+| --- | --- | --- |
+| 初始化后首次手动重新检测 | 7637 | 924（包含未知版本补读） |
+| 后续两次重新检测 | 7631／6396 | 70／68（可信版本复用） |
+| 三次重新检测后的数据读取 | 24／14／16 | 3／4／4 |
+| 三次 Codex 完整检查 | 2285／2132／1736 | 2297／1940／2032 |
+| 三次 Codex 检查后的数据读取 | 15／15／16 | 5／4／4 |
+| 全新 Debug Core／数据库启动到首轮发现完成 | 13295 | 14765 |
+
+改后最终复测日志中的首轮静态发现阶段为 4155 ms，首次手动发现阶段为 840 ms，重复发现阶段为 11／12 ms；
+它们不含各自前置等待，不能替代上表总 RPC／启动耗时。改前没有相同发现阶段日志，不推算阶段提升。
+数据读取的改前入口为 `health.check` 加安装列表，改后为 `runtime.status.get` 加安装列表，表示实际接线变化。
+
+计时表使用最终错误投影修正后的重新构建。第一次改后样本的重新检测为 748／71／73 ms，Codex 为
+3766／1986／2080 ms，冷启动为 12148 ms；同样保留该样本，不只选择更快的数据。
+重复重新检测已明显减少等待；Codex 完整检查和冷启动耗时没有稳定下降，不能仅凭减少两次进程就宣称端到端提速。
+首次版本补读、实际认证／网络／模型 RPC、Schema、完整检查的结束前文件复核及最后短读取仍需等待。
+全新数据库与可选子系统初始化仍保留，首轮全量发现完成也不等于首个智能体可用或 UI 开始响应。
+本轮没有测桌面真实点击到渲染总耗时，没有实测 Windows，亦未重跑整个 Rust 扩展／慢速集；这些边界不写成通过。

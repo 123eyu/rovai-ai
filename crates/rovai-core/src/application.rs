@@ -2219,6 +2219,7 @@ struct RuntimeCheckRequest {
 }
 
 struct RuntimeCheckAttempt {
+    installation_target: Option<(String, i64)>,
     search: Arc<RuntimeSearchEnvironment>,
     startup_preview: Option<Arc<startup_settings::StartupPreview>>,
     model_target: Option<DshOptionsTarget>,
@@ -2241,8 +2242,13 @@ struct RuntimeCheckWorkerResult {
 }
 
 impl RuntimeCheckAttempt {
-    fn accepts(&self, request: &RuntimeCheckRequest) -> bool {
-        request.startup_preview.is_none()
+    fn accepts(
+        &self,
+        request: &RuntimeCheckRequest,
+        installation_target: &Option<(String, i64)>,
+    ) -> bool {
+        self.installation_target == *installation_target
+            && request.startup_preview.is_none()
             && self.startup_preview.is_none()
             && self.model_target == request.model_target
             && self.runtime_kind == request.runtime_kind
@@ -3483,20 +3489,6 @@ impl Core {
                         for candidate in &mut candidates {
                             candidate.source = installation.source;
                         }
-                    } else if !search.has_startup_configuration(kind) {
-                        if let Some(mut candidate) = search
-                            .candidates(kind, saved_path)
-                            .into_iter()
-                            .find(|candidate| is_runtime_entrypoint_file(&candidate.path))
-                        {
-                            candidate.source = installation.source;
-                            if !candidates
-                                .iter()
-                                .any(|existing| existing.path == candidate.path)
-                            {
-                                candidates.push(candidate);
-                            }
-                        }
                     }
                 }
                 let previous = saved.as_ref().and_then(|(installation, _, identity)| {
@@ -3508,10 +3500,34 @@ impl Core {
                         )
                     })
                 });
-                let (observation, verified) =
+                let (mut observation, mut verified) =
                     rovai_core::runtime_discovery::discover_runtime_entry_from_candidates(
                         kind, &search, candidates, previous,
                     );
+                // Resolving a saved Windows shim also reads its dependencies.
+                // Only build that fallback when normal discovery found no entry.
+                if verified.is_none()
+                    && !explicit
+                    && !search.has_startup_configuration(kind)
+                    && let Some((installation, _, _)) = &saved
+                {
+                    let fallback = search.as_ref().clone().with_startup_configuration(
+                        kind,
+                        rovai_core::runtime_startup::RuntimeStartupConfiguration {
+                            program_path: saved_path
+                                .map(|path| path.to_string_lossy().into_owned()),
+                            ..Default::default()
+                        },
+                    );
+                    let mut candidates = fallback.candidates(kind, std::iter::empty());
+                    for candidate in &mut candidates {
+                        candidate.source = installation.source;
+                    }
+                    (observation, verified) =
+                        rovai_core::runtime_discovery::discover_runtime_entry_from_candidates(
+                            kind, &search, candidates, previous,
+                        );
+                }
                 (observation, verified, expected)
             });
             attempts.insert(handle.id(), kind);
@@ -4050,34 +4066,65 @@ impl Core {
             .map(|outcome| outcome.unwrap_or(RuntimeCheckOutcome::Superseded))
     }
 
+    async fn runtime_check_installation_target(
+        &self,
+        kind: AdapterKind,
+    ) -> Result<Option<(String, i64)>> {
+        Ok(self.database.lock().await.connection().query_row(
+            "SELECT id, version FROM adapter_installation WHERE adapter_kind = ?1 AND auth_scope = 'default' AND installation_class = 'managed_default'",
+            [kind.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional()?)
+    }
+
     async fn record_runtime_check_manager_failure(
         &self,
         kind: AdapterKind,
+        expected: &Option<(String, i64)>,
         diagnostic_code: &str,
-    ) -> Result<()> {
-        let mut database = self.database.lock().await;
-        let installation =
-            AgentProfileService::default().managed_installation(&database, kind, "default")?;
-        let Some(installation) = installation else {
-            return Ok(());
+    ) -> Result<bool> {
+        let Some((expected_id, expected_version)) = expected else {
+            return Ok(false);
         };
-        let fingerprint = installation
-            .snapshot
+        let mut database = self.database.lock().await;
+        let service = AgentProfileService::default();
+        let Some(installation) = service.managed_installation(&database, kind, "default")? else {
+            return Ok(false);
+        };
+        if installation.id != *expected_id || installation.version != *expected_version {
+            return Ok(false);
+        }
+        // A timed-out worker never reaches its normal post-probe identity check.
+        // Without unchanged recorded file evidence, keep the error on its request only.
+        let Some((fingerprint, identity)) = service.recorded_executable_identity(
+            &database,
+            &installation.id,
+            &installation.executable_path,
+        )?
+        else {
+            return Ok(false);
+        };
+        if observe_executable_file_identity(Path::new(&installation.executable_path))
+            .ok()
             .as_ref()
-            .and_then(|snapshot| snapshot.executable_fingerprint.clone());
-        AgentProfileService::default().record_managed_probe_failure(
+            != Some(&identity)
+        {
+            return Ok(false);
+        }
+        service.record_managed_probe_failure(
             &mut database,
             ManagedProbeFailure {
                 adapter_kind: kind,
                 auth_scope: "default",
                 candidate_path: &installation.executable_path,
-                fingerprint: fingerprint.as_deref(),
+                fingerprint: Some(&fingerprint),
                 source: Some(installation.source),
                 failure_class: "transient",
                 diagnostic_code,
                 failure: None,
             },
-        )
+        )?;
+        Ok(true)
     }
 
     async fn ensure_runtime_check(
@@ -25737,9 +25784,19 @@ async fn process_runtime_check_manager(
                     let _ = request.acknowledged.send(false);
                     continue;
                 }
+                let installation_target = match core.runtime_check_installation_target(request.runtime_kind).await {
+                    Ok(target) => target,
+                    Err(error) => {
+                        if let Some(completion) = request.completion {
+                            let _ = completion.send(Err(format!("runtime_check_target_unavailable: {error:#}")));
+                        }
+                        let _ = request.acknowledged.send(false);
+                        continue;
+                    }
+                };
                 if let Some(existing) = pending
                     .iter_mut()
-                    .find(|attempt| attempt.accepts(&request))
+                    .find(|attempt| attempt.accepts(&request, &installation_target))
                 {
                     if request.trigger != RuntimeCheckTrigger::CatalogOpen {
                         existing.catalog_only = false;
@@ -25756,7 +25813,7 @@ async fn process_runtime_check_manager(
                 }
                 if let Some(existing) = active
                     .values_mut()
-                    .find(|attempt| attempt.accepts(&request)
+                    .find(|attempt| attempt.accepts(&request, &installation_target)
                         && runtime_check_can_satisfy(attempt.catalog_only, request.trigger))
                 {
                     if request.trigger > existing.trigger {
@@ -25781,6 +25838,7 @@ async fn process_runtime_check_manager(
                 }
                 let is_private_check = request.startup_preview.is_some() || request.model_target.is_some();
                 let attempt = RuntimeCheckAttempt {
+                    installation_target,
                     search: request.search,
                     startup_preview: request.startup_preview,
                     model_target: request.model_target,
@@ -26039,19 +26097,35 @@ async fn finalize_runtime_check(
         return;
     }
 
-    if let Err(diagnostic_code) = &result
+    let owns_diagnostic = if let Err(diagnostic_code) = &result
+        && update.is_some()
         && runtime_check_writes_diagnostic(finalization)
     {
-        if finalization == RuntimeCheckFinalization::Supervisor
-            && let Err(error) = core
-                .record_runtime_check_manager_failure(attempt.runtime_kind, diagnostic_code)
+        if finalization == RuntimeCheckFinalization::Supervisor {
+            core.record_runtime_check_manager_failure(
+                attempt.runtime_kind,
+                &attempt.installation_target,
+                diagnostic_code,
+            )
+            .await
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "failed to persist Runtime check supervisor failure for {}: {error:#}",
+                    attempt.runtime_kind.as_str()
+                );
+                false
+            })
+        } else {
+            core.runtime_check_installation_target(attempt.runtime_kind)
                 .await
-        {
-            eprintln!(
-                "failed to persist Runtime check supervisor failure for {}: {error:#}",
-                attempt.runtime_kind.as_str()
-            );
+                .is_ok_and(|current| current == attempt.installation_target)
         }
+    } else {
+        false
+    };
+    if let Err(diagnostic_code) = &result
+        && owns_diagnostic
+    {
         core.runtime_product_diagnostics
             .write()
             .await
@@ -27358,7 +27432,9 @@ mod tests {
                     RuntimeCheckTrigger::UserCheck,
                 ] {
                     let search = Arc::new(RuntimeSearchEnvironment::for_test_paths(1, Vec::new()));
+                    let installation_target = Some(("installation".to_string(), 1));
                     let attempt = RuntimeCheckAttempt {
+                        installation_target: installation_target.clone(),
                         search: search.clone(),
                         startup_preview: None,
                         model_target: None,
@@ -27383,10 +27459,15 @@ mod tests {
                         completion: None,
                     };
                     assert_eq!(
-                        attempt.accepts(&request),
+                        attempt.accepts(&request, &installation_target),
                         kind != AdapterKind::Pi
                             || catalog_only == (trigger == RuntimeCheckTrigger::CatalogOpen)
                     );
+                    assert!(
+                        !attempt.accepts(&request, &Some(("installation".into(), 2))),
+                        "same-generation requests for a new installation revision cannot join"
+                    );
+                    assert!(!attempt.accepts(&request, &None));
                 }
             }
         }
@@ -28373,8 +28454,8 @@ done
             })
             .unwrap();
         assert!(
-            !acknowledgement.await.unwrap(),
-            "same-environment opens share one probe"
+            acknowledgement.await.unwrap(),
+            "an installation created after admission cannot be assumed to be the old attempt's target"
         );
         std::fs::write(root.join("release"), "").unwrap();
         assert_eq!(waiter.await.unwrap().unwrap(), RuntimeCheckOutcome::Ready);
@@ -28390,7 +28471,7 @@ done
                 .unwrap()
                 .lines()
                 .count(),
-            1
+            2 // The first attempt had no installation identity; the new target queues once.
         );
         {
             let database = core.database.lock().await;
@@ -29130,6 +29211,67 @@ done
                         .unwrap()
                         .is_some()
                 );
+                // The same fingerprint may disappear and recover without any
+                // search change. All managed writers must maintain the CAS version.
+                let kind = AdapterKind::CodexCli;
+                let snapshot = AgentRuntimeAdapterRegistry::default().light_ready_snapshot(
+                    kind, None, upgraded.executable_fingerprint.clone().unwrap(),
+                    chrono::Utc::now().to_rfc3339(),
+                ).unwrap();
+                let restore = |database: &mut Database, verified: bool| {
+                    if verified {
+                        let mut ready = snapshot.clone();
+                        ready.probe_status = "ready".into();
+                        ready.models.push(rovai_core::agent_profile::ModelDescriptor {
+                            id: "fixture-model".into(), display_name: "Fixture".into(),
+                            description: None, runtime_metadata: None, is_default: true,
+                            hidden: false, deprecated: false, options: Vec::new(),
+                        });
+                        service.commit_verified_managed_installation(database, VerifiedManagedInstallation {
+                            adapter_kind: kind, executable_path: executable.to_string_lossy().into_owned(),
+                            command_name: "codex".into(), source: InstallationSource::Manual,
+                            auth_scope: "default".into(), snapshot: ready, entrypoint_locator_identity: None,
+                        }).unwrap();
+                    } else {
+                        service.commit_discovered_managed_installation(database, DiscoveredManagedInstallation {
+                            adapter_kind: kind, executable_path: executable.to_string_lossy().into_owned(),
+                            command_name: "codex".into(), source: InstallationSource::Manual,
+                            auth_scope: "default".into(), snapshot: snapshot.clone(), entrypoint_locator_identity: None,
+                        }).unwrap();
+                    }
+                };
+                restore(&mut *core.database.lock().await, false);
+                for verified in [false, true] {
+                    let found_target = core.runtime_check_installation_target(kind).await.unwrap();
+                    let found_entry = core.verify_runtime_entry(&upgraded).await.unwrap();
+                    std::fs::rename(&executable, root.join("temporarily-absent")).unwrap();
+                    let (missing, _) = rovai_core::runtime_discovery::discover_runtime_entry_from_candidates(
+                        kind, &search, search.candidates(kind, std::iter::empty()), None,
+                    );
+                    assert_eq!(missing.discovery_status, RuntimeDiscoveryStatus::Missing);
+                    for repeated in [false, true] {
+                        service.record_managed_probe_failure(&mut *core.database.lock().await, ManagedProbeFailure {
+                            adapter_kind: kind, auth_scope: "default", candidate_path: executable.to_str().unwrap(),
+                            fingerprint: upgraded.executable_fingerprint.as_deref(), source: Some(InstallationSource::Manual),
+                            failure_class: "path_missing", diagnostic_code: "runtime_path_missing", failure: None,
+                        }).unwrap();
+                        let missing_target = core.runtime_check_installation_target(kind).await.unwrap().unwrap();
+                        assert_eq!(missing_target.1, found_target.as_ref().unwrap().1 + 1,
+                            "repeated missing={repeated} must not keep invalidating checks");
+                    }
+                    core.publish_runtime_discovery(upgraded.clone(), Some(found_entry), found_target).await;
+                    assert_eq!(service.managed_installation(&*core.database.lock().await, kind, "default").unwrap().unwrap().path_state, "path_missing");
+                    let missing_target = core.runtime_check_installation_target(kind).await.unwrap();
+                    std::fs::rename(root.join("temporarily-absent"), &executable).unwrap();
+                    for repeated in [false, true] {
+                        restore(&mut *core.database.lock().await, verified);
+                        assert_eq!(core.runtime_check_installation_target(kind).await.unwrap().unwrap().1,
+                            missing_target.as_ref().unwrap().1 + 1,
+                            "restoration verified={verified}, repeated={repeated} must only advance on a state change");
+                    }
+                    core.publish_runtime_discovery(missing, None, missing_target).await;
+                    assert_eq!(service.managed_installation(&*core.database.lock().await, kind, "default").unwrap().unwrap().path_state, "valid");
+                }
                 drop(core);
                 std::fs::remove_dir_all(root).unwrap();
             });

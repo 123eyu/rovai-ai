@@ -1846,14 +1846,19 @@ impl AgentProfileService {
         }
 
         let transaction = database.connection_mut().transaction()?;
+        // Before any health snapshot, reuse static file evidence. An existing
+        // health fingerprint must still fence preservation of its old capabilities.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
                        installation.generation, installation.version,
-                       snapshot.executable_fingerprint,
+                       COALESCE(snapshot.executable_fingerprint, identity.executable_fingerprint),
                        locator.compatibility_fingerprint
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN runtime_entrypoint_locator_identity AS locator
@@ -1906,7 +1911,9 @@ impl AgentProfileService {
                     transaction.execute(
                         r#"
                         UPDATE adapter_installation
-                        SET enabled = 1, path_state = 'valid', updated_at = ?2
+                        SET enabled = 1, path_state = 'valid',
+                            version = version + CASE WHEN path_state <> 'valid' THEN 1 ELSE 0 END,
+                            updated_at = ?2
                         WHERE id = ?1
                         "#,
                         params![id, now],
@@ -2280,11 +2287,13 @@ impl AgentProfileService {
             observe_executable_file_identity(Path::new(&discovered.executable_path)).ok();
 
         let transaction = database.connection_mut().transaction()?;
+        // Before any health snapshot, reuse static file evidence. An existing
+        // health fingerprint must still fence preservation of its old capabilities.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
-                       snapshot.executable_fingerprint, snapshot.probe_status,
+                       COALESCE(snapshot.executable_fingerprint, identity.executable_fingerprint), snapshot.probe_status,
                        snapshot.permission_schema_version,
                        snapshot.permission_schema_digest,
                        snapshot.permission_options_json,
@@ -2293,6 +2302,9 @@ impl AgentProfileService {
                        locator.compatibility_fingerprint,
                        COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at)
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN runtime_entrypoint_locator_identity AS locator
@@ -2361,7 +2373,9 @@ impl AgentProfileService {
                     r#"
                     UPDATE adapter_installation
                     SET command_name = ?3, source = ?4, enabled = 1,
-                        path_state = 'valid', updated_at = ?5
+                        path_state = 'valid',
+                        version = version + CASE WHEN path_state <> 'valid' THEN 1 ELSE 0 END,
+                        updated_at = ?5
                     WHERE id = ?1
                     "#
                 },
@@ -2610,7 +2624,9 @@ impl AgentProfileService {
             transaction.execute(
                 r#"
                 UPDATE adapter_installation
-                SET path_state = 'path_missing', updated_at = ?2
+                SET path_state = 'path_missing',
+                    version = version + CASE WHEN path_state <> 'path_missing' THEN 1 ELSE 0 END,
+                    updated_at = ?2
                 WHERE id = ?1
                 "#,
                 params![installation_id, attempted_at],

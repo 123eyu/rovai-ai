@@ -5394,7 +5394,16 @@ pub(crate) fn delete_camp_aggregate(transaction: &Connection, camp_id: &str) -> 
     // link cannot be nulled. The occurrence belongs to this Camp: remove it
     // (its notification deliveries cascade) before the Camp's messages and
     // Deliveries. The Automation definition and other occurrences are kept.
-    transaction.execute("DELETE FROM automation_run WHERE camp_id = ?1", [camp_id])?;
+    // Historical migration fixtures also use aggregate deletion before the
+    // Automation schema exists (for example, the v135-v139 Pi receipt owner).
+    let automation_runs_exist: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'automation_run')",
+        [],
+        |row| row.get(0),
+    )?;
+    if automation_runs_exist {
+        transaction.execute("DELETE FROM automation_run WHERE camp_id = ?1", [camp_id])?;
+    }
     transaction.execute(
         "DELETE FROM message_attachment WHERE camp_id = ?1",
         [camp_id],

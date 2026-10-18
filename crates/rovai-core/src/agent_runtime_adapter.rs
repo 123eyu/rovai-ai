@@ -32,6 +32,7 @@ use crate::{
         DSH_MACOS_X64_EVIDENCE_REVISION, DSH_WINDOWS_X64_EVIDENCE_REVISION,
         GROK_BUILD_MACOS_ARM64_EVIDENCE_REVISION, GROK_BUILD_MACOS_X64_EVIDENCE_REVISION,
         GROK_BUILD_WINDOWS_X64_EVIDENCE_REVISION, MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION,
+        MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION, MINIMAX_CODE_WINDOWS_X64_EVIDENCE_REVISION,
         PI_MACOS_ARM64_EVIDENCE_REVISION, PI_MACOS_X64_EVIDENCE_REVISION,
         PI_WINDOWS_X64_EVIDENCE_REVISION, RuntimePlatformAdmission,
         RuntimePlatformAdmissionReasonCode, WINDOWS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION,
@@ -122,7 +123,14 @@ pub fn executable_fingerprint(path: &Path) -> Result<String> {
     file_content_fingerprint(path)
 }
 
+#[cfg(all(test, feature = "extended-tests"))]
+thread_local! {
+    pub(crate) static FULL_HASH_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn file_content_fingerprint(path: &Path) -> Result<String> {
+    #[cfg(all(test, feature = "extended-tests"))]
+    FULL_HASH_READS.with(|count| count.set(count.get() + 1));
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut file = File::open(&canonical)
         .with_context(|| format!("failed to open {}", canonical.display()))?;
@@ -770,14 +778,23 @@ impl AgentRuntimeAdapterRegistry {
             )
         };
         if kind == AdapterKind::MinimaxCodeCli {
-            return if platform == HostPlatformKey::MacosArm64 {
-                RuntimePlatformAdmission::preview(
+            return match platform {
+                HostPlatformKey::MacosArm64 => RuntimePlatformAdmission::preview(
                     kind,
                     platform,
                     RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
-                )
-            } else {
-                unqualified()
+                ),
+                HostPlatformKey::MacosX64 => RuntimePlatformAdmission::qualified(
+                    kind,
+                    platform,
+                    MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION,
+                ),
+                HostPlatformKey::WindowsX64 => RuntimePlatformAdmission::qualified(
+                    kind,
+                    platform,
+                    MINIMAX_CODE_WINDOWS_X64_EVIDENCE_REVISION,
+                ),
+                HostPlatformKey::LinuxX64 => unqualified(),
             };
         }
         if kind == AdapterKind::DeepseekHarness {

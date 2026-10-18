@@ -326,7 +326,7 @@ export interface MemberRemovalPreview {
   version: number
   nonTerminalAgentRunCount: number
   currentThreadMembershipCount: number
-  openAssignedTaskCount: number
+  openAssignedTaskCount?: number
   defaultLeadThreadCount: number
   soleMemberThreadCount: number
   affectedThreads: MemberRemovalThreadImpact[]
@@ -513,6 +513,8 @@ export interface ProductRuntimeAvailability {
   lastAttemptedAt?: string | null
   lastSuccessfulProbeAt?: string | null
 }
+
+export type RuntimeStatus = Pick<HealthStatus, 'hostPlatform' | 'runtimeCatalog' | 'runtimePlatformAdmission' | 'runtimeAvailability' | 'searchEnvironment'>
 
 export interface HealthStatus {
   core: {
@@ -1145,11 +1147,17 @@ export interface ThreadMemberRemovalPreview {
   remainingMemberCount: number
   nextDefaultLeadAgentId: string | null
   nonTerminalAgentRunCount: number
-  openAssignedTaskCount: number
+  openAssignedTaskCount?: number
   pendingDeliveryCount: number
   runningDeliveryCount: number
   removable: boolean
   blockerCode: 'camp.member_not_active' | null
+}
+
+export interface TaskCapabilitySnapshot {
+  enabled: boolean
+  headsUpAfterSequence: number
+  observedThroughChangeSequence: number
 }
 
 export interface TaskView {
@@ -2274,9 +2282,9 @@ export interface ContextManifestView {
   historyThreads: ContextManifestHistoryThreadView[]
   rawMessageCount: number
   previousAcceptedPublicBoundarySequence: number
-  contextDeliveryProfileVersion: 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
+  contextDeliveryProfileVersion: 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16
   contextDeliveryProfile: {
-    profileVersion: 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
+    profileVersion: 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16
     maxPublicMessages: number
     maxPublicHistoryChars: number
     maxMessageBodyChars: number
@@ -2315,7 +2323,7 @@ export interface ContextManifestView {
   mcpProjectionDigest: string | null
   selfActiveTaskEvidence: unknown
   selfActiveTaskEvidenceDigest: string | null
-  formatterVersion: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35
+  formatterVersion: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42
   renderedPayloadDigest: string | null
   delivery: RuntimeInputDeliveryView | null
   createdAt: string
@@ -2460,7 +2468,7 @@ export interface AgentRunImageContent {
   data: string
 }
 
-export const THREAD_SNAPSHOT_SCHEMA_VERSION = 35
+export const THREAD_SNAPSHOT_SCHEMA_VERSION = 36
 
 export interface ThreadSnapshot {
   schemaVersion: typeof THREAD_SNAPSHOT_SCHEMA_VERSION
@@ -2481,7 +2489,8 @@ export interface ThreadSnapshot {
   }
   members: ThreadMemberView[]
   membershipReconciliations: ThreadMembershipReconciliationView[]
-  tasks: TaskView[]
+  tasksEnabled: boolean
+  tasks?: TaskView[]
   memberCreations?: MemberCreationView[]
   messages: ThreadMessageView[]
   messageDeliveries: MessageDeliveryView[]
@@ -2510,12 +2519,13 @@ export interface ThreadOpenMessageCoverage extends ThreadOpenCollectionCoverage 
 }
 
 export interface ThreadOpenProjection {
-  schemaVersion: 8
+  schemaVersion: 9
   throughGlobalSequence: number
   thread: ThreadSnapshot['thread']
   members: ThreadMemberView[]
   membershipReconciliations: ThreadMembershipReconciliationView[]
-  tasks: TaskView[]
+  tasksEnabled: boolean
+  tasks?: TaskView[]
   memberCreations?: MemberCreationView[]
   messages: ThreadMessageView[]
   messageDeliveries: MessageDeliveryView[]
@@ -2526,7 +2536,7 @@ export interface ThreadOpenProjection {
   agentRunImages?: AgentRunImagesView[]
   approvals: ActionApprovalView[]
   coverage: {
-    tasks: ThreadOpenCollectionCoverage
+    tasks?: ThreadOpenCollectionCoverage
     messages: ThreadOpenMessageCoverage
     messageDeliveries: ThreadOpenCollectionCoverage
     turns: ThreadOpenCollectionCoverage
@@ -2564,6 +2574,7 @@ export interface ThreadMessageChange {
   throughGlobalSequence: number
 }
 export interface ThreadReadInvalidation {
+  tasksChanged?: boolean
   resync?: boolean
   messages?: ThreadMessageChange[]
 }
@@ -2857,6 +2868,7 @@ export interface NotificationEpisodeChangeBatch {
   requestedAfterChangeSequence: number
   nextChangeSequence: number
   throughChangeSequence: number
+  taskCapability: TaskCapabilitySnapshot
   resetRequired: boolean
   hasMore: boolean
   changes: NotificationEpisodeChange[]
@@ -4107,6 +4119,8 @@ export interface UpdateAutomationCommand {
 }
 
 export type CoreMethod =
+  | 'preferences.tasks.get'
+  | 'preferences.tasks.set'
   | 'preferences.newConversation.get'
   | 'preferences.newConversation.setDefaults'
   | 'preferences.newConversation.setOneClick'
@@ -4117,6 +4131,7 @@ export type CoreMethod =
   | 'diagnostics.check'
   | 'monitoring.snapshot'
   | 'monitoring.execution'
+  | 'runtime.status.get'
   | 'runtime.discovery.rescan'
   | 'runtime.networkRecovery.wake'
   | 'runtime.subsystems.get'

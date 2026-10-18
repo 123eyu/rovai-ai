@@ -3,7 +3,7 @@ import { ConsoleClient } from './client'
 import { RECOVERY_KEY } from './tab-recovery'
 import { newCommandId } from '../../desktop/src/shared/command-id'
 
-const identity = { protocolVersion: 4, token: 'a'.repeat(64), clientId: 'b'.repeat(64), editorProof: 'c'.repeat(64), ownerId: 'owner' }
+const identity = { protocolVersion: 5, token: 'a'.repeat(64), clientId: 'b'.repeat(64), editorProof: 'c'.repeat(64), ownerId: 'owner' }
 const origin = 'http://localhost:4317'
 const storage = () => {
   const values = new Map<string, string>()

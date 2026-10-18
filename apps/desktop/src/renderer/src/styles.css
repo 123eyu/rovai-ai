@@ -1294,6 +1294,8 @@ html[data-rovai-platform="win32"] .bootstrap-shell-brand { padding-left: 20px; }
 .topbar-conversation-context .topbar-context-status { min-width: 0; margin-left: auto; -webkit-app-region: no-drag; }
 .topbar-conversation-context .approval-badge { overflow: hidden; text-overflow: ellipsis; }
 .camp-detail-entry-host { display: flex; min-width: 0; flex: 0 0 auto; -webkit-app-region: no-drag; }
+.camp-detail-entry-slot { display: flex; min-width: 0; }
+.camp-detail-entry-slot:empty { display: none; }
 .camp-detail-entries { display: flex; align-items: center; gap: 2px; }
 .camp-detail-entry { display: inline-flex; height: 28px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 7px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }
 .camp-detail-entry > svg { width: 14px; height: 14px; }
@@ -1950,6 +1952,7 @@ html.file-preview-resizing .file-preview-pane { pointer-events: none; }
 .file-reference-label,
 .resource-reference-label { min-width: 0; overflow-wrap: anywhere; }
 .message-web-reference { color: var(--resource-link); overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 2px; }
+.message-web-reference > .web-reference-icon { margin-inline-end: .28em; user-select: none; }
 .message-web-reference:hover { color: var(--resource-link-hover); }
 .message-web-reference:focus-visible,
 .markdown-web-reference:focus-visible { outline: 1px solid var(--resource-link); outline-offset: 2px; }
@@ -1966,7 +1969,8 @@ html.file-preview-resizing .file-preview-pane { pointer-events: none; }
   box-shadow: var(--shadow-float);
   font-size: 12px;
 }
-.composer-web-link-address { overflow-wrap: anywhere; max-height: 7em; overflow-y: auto; user-select: text; }
+.composer-web-link-address { display: flex; align-items: baseline; gap: .28em; overflow-wrap: anywhere; max-height: 7em; overflow-y: auto; user-select: text; }
+.composer-web-link-address > .web-reference-icon { user-select: none; }
 .composer-web-link-buttons { display: flex; gap: 8px; margin-top: 8px; }
 .file-preview-inline-error { max-width: 780px; margin: 0 auto 12px; color: var(--danger); font-size: 10px; }
 .file-preview-html-stage { display: flex; flex: 1; flex-direction: column; width: 100%; min-width: 0; min-height: 0; }

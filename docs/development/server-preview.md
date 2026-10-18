@@ -229,7 +229,7 @@ node scripts/build-server.mjs --target-key macos-arm64 --output-dir /absolute/ne
 
 ## 文件传输与反向代理
 
-当前源码的 [Host Web v6](../contracts/host-web-v6.md) 将浏览器上传限制为单文件 30 MiB
+当前源码的 [Host Web v7](../contracts/host-web-v7.md) 将浏览器上传限制为单文件 30 MiB
 （31,457,280 字节），预览独立保留 20 MiB；下载不复用这两个预算。需要限制已有成果下载时，在启动 Host 的
 环境设置 `ROVAI_WEB_DOWNLOAD_MAX_BYTES`，单位字节；未设置时不限大小，`0` 只允许空文件。
 Desktop 托管 Web 使用相同能力。部署后以登录/capabilities 的 `fileTransfers` 判断版本能力，不能由前端版本推断。

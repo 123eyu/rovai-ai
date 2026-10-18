@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # Runtime Catalog Boundaries
@@ -186,7 +186,9 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 [OpenCode V1/V2 实施记录](../versions/v1.72/opencode-v1-v2-implementation.md)。
 
 启动与 rescan 只解析入口、检查平台与执行条件、保存同次稳定的 fingerprint/file identity；
-不执行 `--version` 或协议深检。发现安装即可保存配置并尝试运行，版本未知不影响普通运行准入。
+不执行 `--version` 或协议深检。未变的原生文件复用既有身份和指纹；首次或升级在同项工作内完成
+前身份／哈希／后身份，再直接短提交。提交沿用搜索代次和 Installation version，避免同代次旧结果覆盖。
+发现安装即可保存配置并尝试运行，版本未知不影响普通运行准入。
 安装记录不伪造 Ready、认证或能力；旧健康证据只供主动诊断和模型 Picker 参考，已知版本的展示复用单独判断。
 
 已知程序版本复用现有快照保存，独立于健康状态：本次静态发现未读取版本或版本读取失败时，Core
@@ -201,6 +203,8 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 运行中的初始化/错误属于当前 Run；修复环境后的新任务重新尝试，不必手动解除历史健康状态。
 
 主动诊断沿用有界 Runtime Check Manager 和进程清理，Probe 前后仍校验目标身份；其结果不授权运行。
+单项诊断复用当前搜索环境，只有有效输入或配置变化才推进代次；不以另一项诊断的开始使当前结果失效。
+设置页只读 Runtime 聚合及安装列表，不等待 Git、导航或记忆；已有请求期间的事件只标记一次必要补刷。
 Antigravity 的正文只能进入 argv，因此保留有界 help/models 无正文预检；Fast 可选偏好直接进入真实 Host，不再进行资格预检。
 特例和字段由 [Runtime Launch v49](../contracts/runtime-launch-and-verification-v49.md)拥有，不扩展为统一健康门禁。
 
@@ -745,14 +749,22 @@ output 与 reasoning。缺失字段与 cost 保持 unknown，不从占用或模�
 `minimax-code-cli` 对应独立的 `@minimax-ai/code` / `mcode acp`。沿用共享 ACP Host、Fleet、
 精确 Session continuation、Run 冻结、审批、Action、Usage 和 Built-in CLI，不新增进程池或上下文副本。
 Migration 205 将 schema 154 升为 155，只扩展 Runtime 与 Skill group `minimax` 的闭合集合。
-macOS arm64 开放 Preview，保留 `qualification_evidence_missing` 和空 evidence revision；其余平台
-保持 NotQualified。实现和实测边界见[接入对照](../research/minimax-code-runtime/README.md)，
-取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。这不是 First-Class 资格声明。
+macOS arm64 开放 Preview，保留 `qualification_evidence_missing` 和空 evidence revision。
+macOS x64 按 2026-10-18 User seq43 的验收确认标记 Qualified，绑定独立的
+[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)摘要。
+Windows x64 另经官方 0.6.12 目标机完整验证进入 Qualified，绑定
+[独立证据](../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)；Linux x64 保持 NotQualified。
+各平台资格不增加未记录的目标机结果或继承其他平台证据。
+实现和实测边界见[接入对照](../research/minimax-code-runtime/README.md)，
+初始 Preview 取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。
 
 完整 Bootstrap 通过私有 `--append-system-prompt-file` 追加到原生 System。文件由 Host 持有，
 相同内容继续复用；内容真实变化时替换 Host，并恢复同一 Native Session。Bootstrap digest 只参与
 Host 兼容判断，不成为 Session 恢复资格。Dynamic Context、Steer 与同 Run 恢复继续使用既有准备字节。
-原生系统提示独立于历史，策略为 `native_system_prompt_preserved`；未宣称压缩全部路径已经验收。
+原生系统提示独立于历史，策略为 `native_system_prompt_preserved`；Windows 的 manual、threshold、
+overflow+retry、产品取消与 cold resume 范围见[实测报告](../research/minimax-code-runtime/windows-qualification-2026-10-18.md)。
+Windows 私有 Bootstrap 目录沿统一 private storage DACL 准备；Skill 的模型可见路径去除无需保留的
+verbatim 前缀，冻结 sourcePath 和 canonical 身份不变。Usage cwd 比较仅规范化等价 Windows 路径。
 
 模型 ID 原样保留 Provider、模型和 variant 的不透明组合，通过 `session/set_config_option` 选择并
 校验 ACK。`thinkingEffort` 只属于原生实际广告的模型；探测某候选失败不抹去可用的目录或原生默认。
@@ -773,7 +785,7 @@ Write 的 Boolean `created` 与 Write/Edit 的结果 `details.patch`；编号/�
 原生错误与取消仍先按各自终态处理。正常 `end_turn` 下公开失败为
 `runtime_questionnaire_unsupported`，说明问卷不受支持、未提交答案并引导 User 发新消息继续。
 已发消息保留，问卷 Run 不自动重放；后继沿既有 Session/Fleet 路径运行，不额外换 Host。
-这不等于隐藏工具或自动转为 Thread 提问，不修改日常原生配置，Preview 资格边界保持。
+这不等于隐藏工具或自动转为 Thread 提问，不修改日常原生配置，各平台准入分别按上文记录。
 
 运行中输入使用 `mcode/session/steer(text, clientRequestId)`，只在冻结版本已验证且当前 Prompt
 已接受时发送。原生 `steered` ACK 与活跃 Run/epoch 共同确认；歧义结果保持 unknown，不自动重发。

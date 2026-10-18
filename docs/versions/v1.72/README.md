@@ -16,16 +16,37 @@ last_updated: 2026-10-18
 按 User 确认方案实施单文件 30 MiB 上传、进度/取消与原结果核对，及独立授权的原生流式下载。
 预览预算与下载分离，下载保留申请来源授权、准入 Session 校验和资源约束，不增加附件资产或保存期限。
 2026-10-18 按 User seq27 收敛为准入后直接流式发送，取消持续重验及下载所见版本/尾块检查；不新增严格模式。
-当前规范为 [Host Web v6](../../contracts/host-web-v6.md)，取舍见 [D51](decisions.md#v1-72-d51)。
+当前规范为 [Host Web v7](../../contracts/host-web-v7.md)，取舍见 [D52](decisions.md#v1-72-d52)。
 实施及验收状态见[下载链路收尾记录](implementation-plan.md#文件下载准入后直接传输2026-10-18)。
 
 本项保持 v1.72 生命周期；Contracts、Architecture、UI、Decisions、用户/部署文档及导航已更新。
 Runtime Activity、Runtime compatibility 与 Root README 无需调整：没有模型输入、运行时资格或产品定位变更。
 
+## 单聊固定事实精简（2026-10-18）
+
+User 已确认 [R1](model-context-change-single-chat-facts.md)，删除新单聊的 `RUN_FACTS.singleChat`。
+non-batch 使用 Formatter/Manifest 42、Facts 13，Profile 16 保持；Migration 208 / schema 158 保留旧冻结输入。
+当前合同为 [Single Chat v9](../../contracts/single-chat-v9.md)，验证和交付记录追加在 R1。
+同时记录官方 Skill 适用范围、公屏历史按需读取及重复 Guidance 的优化候选；这些候选不进入 R1 实施范围。
+
+## 会话 Task 能力开关
+
+R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前后对照、兼容和 worktree 记录见
+[独立变更说明](model-context-change-task-capability.md)，界面依据见
+[设计稿](../../research/task-capability-ui.md)。默认关闭实例级 Task 能力；Send 与会话执行解耦，
+界面入口采用执行／队员／单聊／任务，数字快捷键一次性迁移为 1–4。
+功能、隔离 App 验证与回归结果见[实施与验证记录](task-capability-implementation.md)。Task 草稿已补齐提交生命周期，关闭重开保留未决状态，原样重试复用命令身份，成功只清除对应输入版本。上一轮已修正普通 CLI 入口并完成同一真实 Run 中的切换与发送验证；固定候选的完整 Rust 扩展 workspace 为 1064 通过、0 失败、8 项既有原生人工检查忽略。原 campaign 两次尝试均在 Runtime 预检受阻；虽已修正预检误判并恢复 CLI Judge 无工具诊断，正式 Gate 仍为证据不足。
+
 ## MiniMax Code ACP（2026-10-16）
 
 新增 `minimax-code-cli`，复用 ACP Host/Fleet、精确 Session、现有 Bootstrap、Steer、权限、
-Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview，其余平台 NotQualified；无 Fast。
+Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview；2026-10-18 按 User seq43 的
+[验收确认](../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)将 macOS Intel 提升为
+Qualified；本次平台确认未重跑 Intel 模型会话。同日完成 Windows x64 的
+[十四轴/九流程实测](../../research/minimax-code-runtime/windows-qualification-2026-10-18.md)，
+修复私有 Bootstrap ACL、Usage cwd 匹配及 Skill 链接路径，Windows 单独绑定
+[目标机证据](../../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)进入 Qualified。
+Linux 仍为 NotQualified；无 Fast。各平台证据不互相外推。
 Migration 205 从 schema 154 升至 **155**，保留业务行、索引、触发器和既有 migration receipts。
 当前行为由[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)拥有；
 [接入矩阵](../../research/minimax-code-runtime/README.md)分别记录脚本模型、真实模型与未验范围，
@@ -66,6 +87,19 @@ UI、Runtime Activity、Root README 无需更新；Runtime compatibility 保持�
 详情仅保留正文和原消息入口；Core 保存来源指针和稳定顺序，回执从原投递记录投影，模型输入保持。
 当前合同见 [Delivery v18](../../contracts/message-delivery-v18.md#执行窗口中的输入标记)，界面见
 [Run Card 插话](../../ui/components/conversation-workspace.md#run-card-中的插话)。
+
+## 智能体检测简化（2026-10-18）
+
+按 User 要求在独立 worktree 简化现有路径：静态发现复用文件身份，工作任务直接产生验证对象，
+发布阶段删除重复完整哈希；以现有安装 version 与搜索代次防止旧结果覆盖。未变输入不推进 generation，
+单项诊断复用搜索环境。设置页等待和错误按行维护，按钮与事件共用 Runtime 只读刷新，不再等待
+Overview、导航、记忆或 Git 探针；请求中事件通过一个补刷标记保留。主列表改为“已安装”，完整检查为“诊断”。
+发现与可选子系统初始化并行，搜索代次先入库，恢复仍受现有门禁约束。没有新增表、迁移、后台服务、
+缓存层或检查管理器；真实 Host、模型/权限和输入防重复投递边界保持。
+当前规则见 [Runtime Launch v64](../../contracts/runtime-launch-and-verification-v64.md#静态发现与诊断等待范围)、
+[Runtime 架构](../../architecture/runtime-catalog-boundaries.md#安装发现与真实-host-验证)与
+[UI](../../ui/README.md#runtime-安装与执行状态)。验证及 worktree 状态见
+[实施记录](implementation-plan.md#智能体检测简化2026-10-18)。
 
 ## 智能体已知版本保留（2026-10-15）
 
@@ -264,8 +298,11 @@ Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持
 独立执行行补齐头像／姓名卡片入口与可点击模型摘要，复用消息交互。Run 与公开消息共用冻结模型、
 强度投影，不使用队员当前配置替代运行记录；同 Run 连续回复仍省略重复身份。
 同日修正：新执行初始位置使用已冻结的启动公开消息边界；任何执行行都不拆开回复与附属产物组。
-当前边界见 [Run Process Detail Surface v54](../../contracts/run-process-detail-surface-v54.md)，验证与交付见
-[实施记录](implementation-plan.md#会话内队员占位)及[启动状态修正](implementation-plan.md#执行行误回到启动状态2026-10-13)。
+2026-10-18 增补：执行行使用 Run 输入 ID 显示原消息引用与批量来源，支持按需定位较早输入和返回执行位置。
+复用现有引用及 Footer／动作样式，保持草稿、精确 Run 控制和迟到读取隔离；不新增 Core 数据或后台读取。
+当前边界见 [Run Process Detail Surface v55](../../contracts/run-process-detail-surface-v55.md)，验证与交付见
+[实施记录](implementation-plan.md#会话内队员占位)、[启动状态修正](implementation-plan.md#执行行误回到启动状态2026-10-13)
+及[原消息引用](implementation-plan.md#执行行原消息引用2026-10-18)。
 
 ## Windows Web 凭据可用性（2026-10-11）
 

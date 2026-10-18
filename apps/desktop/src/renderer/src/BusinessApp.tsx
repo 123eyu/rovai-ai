@@ -45,7 +45,7 @@ import type {
   EventBatch,
   ExecutionConsolePlacement,
   GeneralPreferencesSnapshot,
-  RuntimeStatus,
+  HealthStatus,
   NotificationActionView,
   NotificationEpisodeView,
   OnboardingRuntimeSelection,
@@ -103,7 +103,7 @@ import { MissionBoard, MissionInteractionProvider, MissionIntro } from './Missio
 import { MissionActivityDocument } from './MissionDelivery'
 import { MissionCommandRejected, missionCommand, missionError, unreadMissionCount, useMissions } from './useMissions'
 import './mission.css'
-import { createRuntimeRefresh, openRuntimeModelCatalog } from './runtime-check'
+import { openRuntimeModelCatalog } from './runtime-check'
 import { MissionSurface } from './MissionSurface'
 import { MissionHeader } from './MissionHeader'
 import { FilePreviewProvider } from './FilePreviewContext'
@@ -1034,7 +1034,7 @@ export function BusinessApp({
     () => initialAppearanceSnapshot(document.documentElement)
   )
   const appUpdates = useAppUpdates(desktop?.appUpdates ?? null)
-  const [health, setHealth] = useState<RuntimeStatus | null>(null)
+  const [health, setHealth] = useState<HealthStatus | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
   const [healthAttempted, setHealthAttempted] = useState(false)
   const [agents, setAgents] = useState<AgentProfile[]>([])
@@ -1176,7 +1176,7 @@ export function BusinessApp({
   const [openedNavigationRow, setOpenedNavigationRow] = useState<NavigationThreadItem | null>(null)
   const pinnedThreadIdsRef = useRef<string[]>([])
   pinnedThreadIdsRef.current = navigationPins.filter(pin => pin.kind === 'camp').map(pin => pin.targetKey)
-  const installationsRequest = useRef<Promise<AdapterInstallation[]> | null>(null)
+  const healthRequest = useRef<Promise<HealthStatus> | null>(null)
   const navigationSnapshotRef = useRef<NavigationSnapshot | null>(null)
   const deletingThreadIdsRef = useRef(new Set<string>())
   const shownDeletionIssuesRef = useRef(new Set<string>())
@@ -1187,6 +1187,8 @@ export function BusinessApp({
   const startupTraceId = useRef(newCommandId())
   const startupStartedAt = useRef(startupStartedAtMs ?? performance.now())
   const liveRuntimeEventSequence = useRef(0)
+  const runtimeHealthRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const runtimeHealthRefreshIncludesMembers = useRef(false)
   const membersViewRef = useRef<MembersViewHandle>(null)
   const campLeaveGuardRef = useRef<{ threadId: string; guard: ThreadLeaveGuard } | null>(null)
   const navigationThreadPreparation = useRef<{
@@ -1595,15 +1597,6 @@ export function BusinessApp({
     }
   }, [uiPreferences, applyNavigationPreferences, legacySelectedProject, notifyError])
 
-  const loadInstallations = useCallback((): Promise<AdapterInstallation[]> => {
-    if (installationsRequest.current) return installationsRequest.current
-    const request = client.request<AdapterInstallation[]>('runtime.installations.list')
-      .then(next => { setInstallations(next); return next })
-      .finally(() => { if (installationsRequest.current === request) installationsRequest.current = null })
-    installationsRequest.current = request
-    return request
-  }, [client])
-
   const loadOverview = useCallback((showLoading = false): Promise<boolean> => {
     if (showLoading) setState('loading')
     if (overviewRequest.current) return overviewRequest.current
@@ -1615,7 +1608,12 @@ export function BusinessApp({
         // projections can populate independently as their serialized Core replies arrive.
         const nextNavigationPromise = loadNavigation()
         const nextAgentsPromise = loadAgents()
-        const nextInstallationsPromise = loadInstallations()
+        const nextInstallationsPromise = client
+          .request<AdapterInstallation[]>('runtime.installations.list')
+          .then((nextInstallations) => {
+            setInstallations(nextInstallations)
+            return nextInstallations
+          })
         const nextMemoryReviewItemsPromise = client
           .request<HearthReviewItem[]>('memory.hearthReviewItems.list')
           .then((nextMemoryReviewItems) => {
@@ -1669,21 +1667,24 @@ export function BusinessApp({
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadInstallations, loadNavigation, applyNavigationPreferences, completeLegacyProjects])
+  }, [loadAgents, loadNavigation, applyNavigationPreferences, completeLegacyProjects])
 
-  const loadRuntime = useMemo(() => createRuntimeRefresh(async () => {
+  const loadHealth = useCallback((): Promise<HealthStatus> => {
+    if (healthRequest.current) return healthRequest.current
     setHealthAttempted(true)
     setHealthLoading(true)
-    try {
-      const results = await Promise.allSettled([
-        client.request<RuntimeStatus>('runtime.status.get'),
-        loadInstallations()
-      ])
-      if (results[0].status === 'fulfilled') setHealth(results[0].value)
-      const failure = results.find(result => result.status === 'rejected')
-      if (failure?.status === 'rejected') throw failure.reason
-    } finally { setHealthLoading(false) }
-  }), [client, loadInstallations])
+    const request = client.request<HealthStatus>('health.check')
+      .then((nextHealth) => {
+        setHealth(nextHealth)
+        return nextHealth
+      })
+      .finally(() => {
+        if (healthRequest.current === request) healthRequest.current = null
+        setHealthLoading(false)
+      })
+    healthRequest.current = request
+    return request
+  }, [])
 
   const refreshOnboardingRuntime = useCallback((): Promise<void> => {
     if (onboardingRuntimeRequest.current) return onboardingRuntimeRequest.current
@@ -1693,7 +1694,16 @@ export function BusinessApp({
         setOnboardingRuntimePhase('discovering')
         await client.request('runtime.discovery.rescan', { interactiveShell: true })
 
-        await loadRuntime()
+        setOnboardingRuntimePhase('checking')
+        const nextHealth = await client.request<HealthStatus>('health.check')
+        setHealth(nextHealth)
+        setHealthAttempted(true)
+
+        setOnboardingRuntimePhase('models')
+        const nextInstallations = await client.request<AdapterInstallation[]>(
+          'runtime.installations.list'
+        )
+        setInstallations(nextInstallations)
         setOnboardingRuntimePhase('ready')
       } catch (nextError) {
         setOnboardingRuntimePhase('error')
@@ -1705,7 +1715,12 @@ export function BusinessApp({
       if (onboardingRuntimeRequest.current === request) onboardingRuntimeRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [client, loadRuntime])
+  }, [])
+
+  const loadInstallations = useCallback(async (): Promise<void> => {
+    const nextInstallations = await client.request<AdapterInstallation[]>('runtime.installations.list')
+    setInstallations(nextInstallations)
+  }, [])
 
   const loadMemberData = useCallback(async (): Promise<void> => {
     await Promise.all([loadAgents(), loadInstallations()])
@@ -2404,8 +2419,8 @@ export function BusinessApp({
       health !== null,
       healthAttempted
     )) return
-    void loadRuntime().catch((nextError) => setError(errorMessage(nextError)))
-  }, [health, healthAttempted, loadRuntime, settingsSection, startupStatus, view])
+    void loadHealth().catch((nextError) => setError(errorMessage(nextError)))
+  }, [health, healthAttempted, loadHealth, settingsSection, startupStatus, view])
 
   useEffect(() => {
     if (startupStatus !== 'resolved' || shuttingDown) return undefined
@@ -2572,7 +2587,17 @@ export function BusinessApp({
         || event.method === 'runtime.discovery.completed'
         || event.method === 'runtime.availability.updated'
       ) {
-        void loadRuntime().catch(() => undefined)
+        runtimeHealthRefreshIncludesMembers.current ||= event.method !== 'runtime.availability.updated'
+        if (runtimeHealthRefreshTimer.current) clearTimeout(runtimeHealthRefreshTimer.current)
+        runtimeHealthRefreshTimer.current = setTimeout(() => {
+          runtimeHealthRefreshTimer.current = null
+          const includeMembers = runtimeHealthRefreshIncludesMembers.current
+          runtimeHealthRefreshIncludesMembers.current = false
+          void Promise.all([
+            loadHealth(),
+            includeMembers ? loadMemberData() : loadInstallations()
+          ]).catch(() => undefined)
+        }, 80)
       }
       if (event.method === 'navigation.invalidated') {
         const reason = stringField(params, 'reason')
@@ -2616,7 +2641,7 @@ export function BusinessApp({
     return () => { unsubscribe?.(); liveEvents.dispose() }
   }, [
     activeThreadRefreshCoordinator,
-    loadRuntime,
+    loadHealth,
     loadInstallations,
     loadAgents,
     loadMemberData,
@@ -3993,7 +4018,7 @@ export function BusinessApp({
       const [nextAgents, , nextInstallations] = await Promise.all([
         client.request<AgentProfile[]>('members.list'),
         loadNavigation(),
-        loadInstallations()
+        client.request<AdapterInstallation[]>('runtime.installations.list')
       ])
       setAgents(nextAgents)
       setInstallations(nextInstallations)
@@ -4246,7 +4271,10 @@ export function BusinessApp({
           onRefreshRuntime={() => void refreshOnboardingRuntime()}
           onOpenModelCatalog={async (runtimeKind, target) => {
             const catalog = await openRuntimeModelCatalog(runtimeKind, client.request, false, target)
-            await loadInstallations()
+            const nextInstallations = await client.request<AdapterInstallation[]>(
+              'runtime.installations.list'
+            )
+            setInstallations(nextInstallations)
             return catalog
           }}
           onRuntimeSelectionChange={(selection: OnboardingRuntimeSelection | null) => {
@@ -4536,7 +4564,9 @@ export function BusinessApp({
             updates={appUpdates}
             serverUpdates={environment.serverUpdates}
             onDiagnosticsNavigate={(section) => chooseSettingsSection(section)}
-            onReload={loadRuntime}
+            onReload={async () => {
+              await Promise.all([loadOverview(), loadHealth()])
+            }}
             onAppearanceChange={changeAppearancePreferences}
           />
           </MobileSettingsLayout>
@@ -4824,7 +4854,7 @@ export function SettingsView({
   zoomManagedBy?: 'desktop' | 'browser'
   platform?: NodeJS.Platform
   appearance: AppearanceSnapshot
-  health: RuntimeStatus | null
+  health: HealthStatus | null
   agents: AgentProfile[]
   generalPreferences?: GeneralPreferencesSnapshot | null
   onGeneralPreferencesChange?(preferences: GeneralPreferencesSnapshot): void

@@ -34,7 +34,7 @@ describe('Runtime installation guidance', () => {
   it('keeps login recovery separate from reinstalling', () => {
     const markup = render('opencode-cli', 'macos-x64', 'login')
     expect(markup).toContain('/connect')
-    expect(markup).toContain('我已登录，诊断')
+    expect(markup).toContain('我已登录，重新检测')
     expect(markup).not.toContain('curl')
     expect(markup).not.toContain('其他安装方式')
   })

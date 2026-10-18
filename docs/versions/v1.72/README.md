@@ -115,18 +115,12 @@ UI、Runtime Activity、Root README 无需更新；Runtime compatibility 保持�
 当前合同见 [Delivery v18](../../contracts/message-delivery-v18.md#执行窗口中的输入标记)，界面见
 [Run Card 插话](../../ui/components/conversation-workspace.md#run-card-中的插话)。
 
-## 智能体检测简化（2026-10-18）
+## 撤回智能体检测简化（2026-10-18）
 
-按 User 要求在独立 worktree 简化现有路径：静态发现复用文件身份，工作任务直接产生验证对象，
-发布阶段删除重复完整哈希；以现有安装 version 与搜索代次防止旧结果覆盖。未变输入不推进 generation，
-单项诊断复用搜索环境。设置页等待和错误按行维护，按钮与事件共用 Runtime 只读刷新，不再等待
-Overview、导航、记忆或 Git 探针；请求中事件通过一个补刷标记保留。主列表改为“已安装”，完整检查为“诊断”。
-发现与可选子系统初始化并行，搜索代次先入库，恢复仍受现有门禁约束。没有新增表、迁移、后台服务、
-缓存层或检查管理器；真实 Host、模型/权限和输入防重复投递边界保持。
-当前规则见 [Runtime Launch v64](../../contracts/runtime-launch-and-verification-v64.md#静态发现与诊断等待范围)、
-[Runtime 架构](../../architecture/runtime-catalog-boundaries.md#安装发现与真实-host-验证)与
-[UI](../../ui/README.md#runtime-安装与执行状态)。验证及 worktree 状态见
-[实施记录](implementation-plan.md#智能体检测简化2026-10-18)。
+按 User 要求整项撤回 PR #797，恢复原有“检查状态”文案、状态呈现及检测流程。
+相关 Runtime、刷新和启动顺序改动一起撤回；后续其他功能保留。当前 Architecture、Contract、UI 和
+设置页 brief 同步恢复，未新增表、迁移或替代机制。范围及测试退役依据见
+[撤回记录](implementation-plan.md#撤回智能体检测简化2026-10-18)。
 
 ## 智能体已知版本保留（2026-10-15）
 

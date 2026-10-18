@@ -123,14 +123,7 @@ pub fn executable_fingerprint(path: &Path) -> Result<String> {
     file_content_fingerprint(path)
 }
 
-#[cfg(all(test, feature = "extended-tests"))]
-thread_local! {
-    pub(crate) static FULL_HASH_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 fn file_content_fingerprint(path: &Path) -> Result<String> {
-    #[cfg(all(test, feature = "extended-tests"))]
-    FULL_HASH_READS.with(|count| count.set(count.get() + 1));
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut file = File::open(&canonical)
         .with_context(|| format!("failed to open {}", canonical.display()))?;

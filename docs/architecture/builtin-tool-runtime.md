@@ -11,11 +11,11 @@ last_updated: 2026-10-16
 人类用户的主称呼、双别名、结构化搜索与冻结投影边界见 [User Naming v1](../contracts/user-naming-v1.md)。
 
 本文件说明 Rovai built-in operations 的长期组件结构。当前字段与版本以
-[Built-in Tool Transport v41](../contracts/builtin-tool-transport-v41.md)、
+[Built-in Tool Transport v42](../contracts/builtin-tool-transport-v42.md)、
 [Built-in Tool Agent Output Projection v1](../contracts/builtin-tool-agent-output-projection-v1.md)、
 [Camp History v11](../contracts/camp-history-v11.md)、
-[Durable Task v5](../contracts/durable-task-v5.md) 和
-[Camp Message Send v27](../contracts/camp-message-send-v27.md)、
+[Durable Task v6](../contracts/durable-task-v6.md) 和
+[Camp Message Send v28](../contracts/camp-message-send-v28.md)、
 [Current User Attention v7](../contracts/current-user-attention-v7.md)与
 [Missing-Send Recovery Publication v3](../contracts/missing-send-recovery-publication-v3.md) 为准；v19 及更早 Transport 只保留
 historical 语义。决策理由见
@@ -60,6 +60,18 @@ Memory 单命令的局部 Transport 决策见
 [Built-in 运输不变量](foundational-invariants.md#skills-builtin-transport)，独立 Hearth Review 与 actor-bounded mutation
 组合见 [Online Memory Capture](online-memory-capture.md)。Complete exact-Scope View 与 copyable target
 合同见 [Memory 读取与投影不变量](foundational-invariants.md#memory-read-projection)。
+
+## Run 中的 CLI 解析
+
+Core 将本次绑定的 CLI 目录放在 Runtime 的 PATH 首位，并注入 `ROVAI_AGENT_CLI` 供诊断。
+Codex 带 Built-in Tools 的 Host 使用 `allow_login_shell=false`，使原生命令工具的默认调用沿用
+已准备的环境，避免登录初始化将日常安装的另一版 `rovai` 排到前面。它只作用于该 Host，
+不修改用户 Shell 配置、全局 PATH 或安装版 CLI。显式请求 `login=true` 按 Codex 原生规则拒绝；
+用户显式运行 Shell 子进程仍由其自身初始化决定环境，不作为 CLI 版本绑定保证。
+
+普通命令入口须验证 `rovai --version` 与 Run 绑定版本一致，并实际执行 `rovai send`；
+仅显式调用 `ROVAI_AGENT_CLI` 的成功不能证明 PATH 解析正确。这个修正不改变 Rovai Bootstrap、
+冻结输入、Native Session 兼容键或 Task 开关规则。
 
 ## 总体路径
 
@@ -149,7 +161,7 @@ create/update 的 `avatarFile` 由 CLI 原样传入；Core 在 Run 认证后复�
 用冻结的 `execution_root` 解析相对路径，绝对路径原样保留。路径 helper 与 Agent 附件共用，
 头像继续直接导入 immutable asset，不创建附件记录或新增路径授权机制。
 内置素材与 managed 图片在授权 Run tmp 中物化，复用 lease 清理；每次 get 重验权限和重取文件。
-完整字段、裁切及错误见 [Transport v41](../contracts/builtin-tool-transport-v41.md)。
+完整字段、裁切及错误见 [Transport v42](../contracts/builtin-tool-transport-v42.md)。
 
 Mission read uses a distinct global read seam: every effective authenticated AgentRun may list all Missions or
 read one opaque internal `rvm_...` ID, including saved structured attachment paths. Omitted-ID `get` resolves only the
@@ -199,7 +211,7 @@ Camp History exact help 保持三段职责：目标未知时用 `history.search`
 文件选择在 `--file` 的精确帮助中说明：普通引用优先 Markdown，明确请求的附件或渠道文件交付使用 `--file`。
 Summary 不再说明附件快照、路径优化或纯附件示例；输入 schema、纯附件发送和路径处理均不变。
 精确教学、User 寻址和三渠道 Session 的补充提示由
-[Camp Message Send v27](../contracts/camp-message-send-v27.md) 及其继承链拥有。
+[Camp Message Send v28](../contracts/camp-message-send-v28.md) 及其继承链拥有。
 
 Send `body` exact help 只说明正文 payload；Bootstrap、Send summary/schema/CLI help
 都不公开 inline fallback 机制。`--to` 只接受 canonical ID，并是 Agent 目标 authoring 的唯一推荐入口。Core
@@ -695,7 +707,7 @@ Activity。命令文本、时间、cwd 或输出相似度不能建立关联。Sh
 系统不声称能够证明模型主观意图。
 
 - CLI 从 direct flags、JSON stdin/heredoc 或 `--input-file` 构造一个对象。Send 文件按
-  [Transport v41](../contracts/builtin-tool-transport-v41.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
+  [Transport v42](../contracts/builtin-tool-transport-v42.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
   完整请求文件和其他 operation 保持来源互斥。所有来源共用
   catalog canonical input Schema validator，只有通过后才加载 lease/context 并发送 IPC。`camp.read`
   直接发送 `messageId | thread | before | limit` 的合法组合，不补写模式或方向，也不接受旧字段。

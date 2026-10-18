@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const DURABLE_TASK_CONTRACT_VERSION: u32 = 5;
+pub const DURABLE_TASK_CONTRACT_VERSION: u32 = 6;
 const TRUSTED_MEMBERSHIP_SYSTEM_COMPONENTS: &[&str] = &["channel-membership-sync"];
 
 use crate::{
@@ -323,7 +323,8 @@ pub struct ThreadMemberRemovalPreview {
     pub remaining_member_count: i64,
     pub next_default_lead_agent_id: Option<String>,
     pub non_terminal_agent_run_count: i64,
-    pub open_assigned_task_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_assigned_task_count: Option<i64>,
     pub pending_delivery_count: i64,
     pub running_delivery_count: i64,
     pub removable: bool,
@@ -1737,15 +1738,19 @@ impl CollaborationService {
         )?;
         let non_terminal_agent_run_count =
             legacy_non_terminal_agent_run_count + batch_non_terminal_agent_run_count;
-        let open_assigned_task_count: i64 = connection.query_row(
-            r#"
+        let open_assigned_task_count = crate::task_capability::enabled(connection)?
+            .then(|| {
+                connection.query_row(
+                    r#"
             SELECT COUNT(*) FROM task
             WHERE camp_id = ?1 AND assignee_agent_id = ?2
               AND status IN ('pending', 'in_progress', 'blocked')
             "#,
-            params![camp_id, agent_id],
-            |row| row.get(0),
-        )?;
+                    params![camp_id, agent_id],
+                    |row| row.get::<_, i64>(0),
+                )
+            })
+            .transpose()?;
         let legacy_pending_delivery_count = affected_deliveries
             .iter()
             .filter(|delivery| delivery.status == "pending")
@@ -1994,6 +1999,9 @@ impl CollaborationService {
         envelope: &CommandEnvelope<CreateTaskCommand>,
     ) -> Result<CommandExecution> {
         self.gateway.execute(database, envelope, |transaction| {
+            if !crate::task_capability::enabled(transaction)? {
+                return Ok(rejected(crate::task_capability::DISABLED_CODE, crate::task_capability::DISABLED_MESSAGE));
+            }
             if matches!(envelope.actor, ActorRef::System { .. }) {
                 return Ok(rejected(
                     "task.actor_not_allowed",
@@ -2153,6 +2161,9 @@ impl CollaborationService {
     ) -> Result<CommandExecution> {
         validate_task_update_input(&envelope.payload)?;
         self.gateway.execute(database, envelope, |transaction| {
+            if !crate::task_capability::enabled(transaction)? {
+                return Ok(rejected(crate::task_capability::DISABLED_CODE, crate::task_capability::DISABLED_MESSAGE));
+            }
             let task = load_task_record(transaction, &envelope.payload.task_id)?;
             let Some(mut projected) = task else {
                 return Ok(rejected("task.not_found", "Task does not exist"));
@@ -2409,6 +2420,7 @@ impl CollaborationService {
         actor: &ActorRef,
         execution_epoch: Option<i64>,
     ) -> Result<Vec<TaskRecord>> {
+        crate::task_capability::require_enabled(database.connection())?;
         let scope = task_read_scope(database.connection(), camp_id, actor, execution_epoch)?;
         let mut statement = database.connection().prepare(
             r#"
@@ -2443,6 +2455,7 @@ impl CollaborationService {
         execution_epoch: Option<i64>,
         query: &TaskListQuery,
     ) -> Result<TaskListPage> {
+        crate::task_capability::require_enabled(database.connection())?;
         let can_update_any = matches!(actor, ActorRef::User { .. })
             || actor_is_default_lead(database.connection(), camp_id, actor)?;
         task_read_scope(database.connection(), camp_id, actor, execution_epoch)?;
@@ -2533,6 +2546,7 @@ impl CollaborationService {
         actor: &ActorRef,
         execution_epoch: Option<i64>,
     ) -> Result<Option<TaskQueryItem>> {
+        crate::task_capability::require_enabled(database.connection())?;
         let can_update_any = matches!(actor, ActorRef::User { .. })
             || actor_is_default_lead(database.connection(), camp_id, actor)?;
         let scope = task_read_scope(database.connection(), camp_id, actor, execution_epoch)?;
@@ -3093,31 +3107,6 @@ impl CollaborationService {
                             "camp_message.no_addressable_member",
                             "Execution request requires at least one addressable Agent",
                         ));
-                    }
-                    if let Some(task_id) = command
-                        .execution
-                        .as_ref()
-                        .and_then(|execution| execution.task_id.as_deref())
-                    {
-                        if resolution.targets.len() != 1 {
-                            return Ok(rejected(
-                                "agent_run.task_recipient_mismatch",
-                                "Task-linked execution requires exactly one recipient",
-                            ));
-                        }
-                        if task_link_admission(
-                            transaction,
-                            task_id,
-                            &command.camp_id,
-                            &resolution.targets[0].agent_id,
-                        )? {
-                            // The task link is valid; claim-time configuration is frozen later.
-                        } else {
-                            return Ok(rejected(
-                                "agent_run.task_not_executable",
-                                "Task is not ready for this executable assignee",
-                            ));
-                        }
                     }
                     // Domain and audit timestamps must reflect the user's wall clock. Execution
                     // Budget observation has a separate non-decreasing clock because its elapsed
@@ -4390,7 +4379,6 @@ fn queue_camp_message_and_runs(
             "addressSource": input.resolution.source,
             "addressedAgentIds": addressed_agent_ids,
             "deliveryIds": delivery_ids,
-            "taskId": input.execution.and_then(|execution| execution.task_id.as_deref()),
         }),
     )?;
     crate::message_changes::record(
@@ -4973,39 +4961,6 @@ fn validate_camp_message_input(command: &SendUserThreadDraftCommand) -> Result<(
         }
     }
     Ok(())
-}
-
-pub(crate) fn task_link_admission(
-    transaction: &Transaction<'_>,
-    task_id: &str,
-    camp_id: &str,
-    recipient_agent_id: &str,
-) -> Result<bool> {
-    let task = transaction
-        .query_row(
-            r#"
-            SELECT status, assignee_agent_id
-            FROM task WHERE id = ?1 AND camp_id = ?2
-            "#,
-            params![task_id, camp_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()?;
-    let Some((status, assignee_agent_id)) = task else {
-        return Ok(false);
-    };
-    if !matches!(status.as_str(), "pending" | "in_progress") {
-        return Ok(false);
-    }
-    let Some(assignee_agent_id) = assignee_agent_id else {
-        return Ok(false);
-    };
-    if assignee_agent_id != recipient_agent_id
-        || !is_active_member(transaction, camp_id, recipient_agent_id)?
-    {
-        return Ok(false);
-    }
-    Ok(true)
 }
 
 pub(crate) fn build_effective_config(
@@ -8165,6 +8120,7 @@ mod slow_tests {
     #[test]
     fn removal_cutover_releases_work_persists_reconciliation_and_never_revives_the_old_run() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let service = CollaborationService::default();
         let camp_id =
             create_camp_with_members(&service, &mut database, &directory, &["agent_1", "agent_2"]);
@@ -8237,7 +8193,7 @@ mod slow_tests {
         assert!(!preview.is_default_lead);
         assert!(preview.next_default_lead_agent_id.is_none());
         assert_eq!(preview.non_terminal_agent_run_count, 1);
-        assert_eq!(preview.open_assigned_task_count, 1);
+        assert_eq!(preview.open_assigned_task_count, Some(1));
         let removed = service
             .remove_camp_member(
                 &mut database,
@@ -8900,6 +8856,7 @@ mod slow_tests {
     #[test]
     fn camp_rename_lead_change_and_quiescent_delete_with_cleanup_are_versioned() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let service = CollaborationService::default();
         let camp_id =
             create_camp_with_members(&service, &mut database, &directory, &["agent_1", "agent_2"]);
@@ -10813,26 +10770,88 @@ mod slow_tests {
         let baseline_turns = row_count(&database, "camp_turn");
         let baseline_runs = row_count(&database, "agent_run");
 
-        let created = service
-            .create_task(
-                &mut database,
-                &user_envelope(
-                    "create-lightweight-task",
-                    Some(&camp_id),
-                    CreateTaskCommand {
-                        camp_id: camp_id.clone(),
-                        title: "  实现轻量 Task  ".to_string(),
-                        description: "  不自动唤醒任何队员  ".to_string(),
-                        assignee_agent_id: "agent_2".to_string(),
-                    },
-                ),
-            )
-            .expect("Task creation should succeed");
+        let create = user_envelope(
+            "create-lightweight-task",
+            Some(&camp_id),
+            CreateTaskCommand {
+                camp_id: camp_id.clone(),
+                title: "  实现轻量 Task  ".to_string(),
+                description: "  不自动唤醒任何队员  ".to_string(),
+                assignee_agent_id: "agent_2".to_string(),
+            },
+        );
+        assert!(!crate::task_capability::enabled(database.connection()).unwrap());
+        let refused = service.create_task(&mut database, &create).unwrap();
+        assert_eq!(refused.result.code, "task.feature_disabled");
+        assert_eq!(row_count(&database, "task"), 0);
+        crate::task_capability::set(database.connection(), true).unwrap();
+        // A rejected command is a receipt too; use a new identity for the new operation.
+        let create = user_envelope("create-enabled-task", Some(&camp_id), create.payload);
+        let created = service.create_task(&mut database, &create).unwrap();
         let task_id = created.result.payload["taskId"]
             .as_str()
             .unwrap()
             .to_string();
         assert_eq!(created.result.status, CommandResultStatus::Applied);
+        crate::db::assert_task_capability_upgrade(&mut database);
+        let projection = serde_json::to_value(
+            ReadModelService
+                .camp_open_projection(&mut database, &camp_id)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(projection["tasksEnabled"], false);
+        assert!(projection.get("tasks").is_none());
+        assert!(projection["coverage"].get("tasks").is_none());
+        let snapshot = serde_json::to_value(
+            ReadModelService
+                .camp_snapshot(&mut database, &camp_id)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(snapshot.get("tasks").is_none());
+        let replay = service.create_task(&mut database, &create).unwrap();
+        assert_eq!(replay.result.payload, created.result.payload);
+        assert!(
+            service
+                .get_visible_task(&database, &camp_id, &task_id, &create.actor, None)
+                .unwrap_err()
+                .to_string()
+                .contains("task.feature_disabled")
+        );
+        assert!(
+            service
+                .list_visible_tasks(&database, &camp_id, &create.actor, None)
+                .unwrap_err()
+                .to_string()
+                .contains("task.feature_disabled")
+        );
+        let blocked_update = service
+            .update_task(
+                &mut database,
+                &user_envelope(
+                    "disabled-update",
+                    Some(&camp_id),
+                    UpdateTaskCommand {
+                        task_id: task_id.clone(),
+                        title: Some("must not change".into()),
+                        ..Default::default()
+                    },
+                ),
+            )
+            .unwrap();
+        assert_eq!(blocked_update.result.code, "task.feature_disabled");
+        crate::task_capability::set(database.connection(), true).unwrap();
+        assert_eq!(
+            service
+                .get_visible_task(&database, &camp_id, &task_id, &create.actor, None)
+                .unwrap()
+                .unwrap()
+                .task
+                .title,
+            "实现轻量 Task"
+        );
+
         assert_eq!(row_count(&database, "camp_message"), baseline_messages);
         assert_eq!(row_count(&database, "camp_turn"), baseline_turns);
         assert_eq!(row_count(&database, "agent_run"), baseline_runs);
@@ -11001,6 +11020,7 @@ mod slow_tests {
     #[test]
     fn legacy_task_requirements_are_projected_and_only_cleared_by_a_changed_description() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let service = CollaborationService::default();
         let camp_id = create_camp_with_members(&service, &mut database, &directory, &["agent_2"]);
         let created = service
@@ -11115,6 +11135,7 @@ mod slow_tests {
     #[test]
     fn task_query_filters_before_stable_cursor_pagination_without_writes() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let service = CollaborationService::default();
         let camp_id =
             create_camp_with_members(&service, &mut database, &directory, &["agent_2", "agent_1"]);
@@ -11314,6 +11335,7 @@ mod slow_tests {
     #[test]
     fn agent_task_updates_respect_lead_and_assignee_authority() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let service = CollaborationService::default();
         let camp_id =
             create_camp_with_members(&service, &mut database, &directory, &["agent_2", "agent_1"]);
@@ -11675,6 +11697,7 @@ mod slow_tests {
     #[test]
     fn queued_run_remains_dispatchable_after_task_changes() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let service = CollaborationService::default();
         let camp_id =
             create_camp_with_members(&service, &mut database, &directory, &["agent_2", "agent_1"]);
@@ -11797,6 +11820,7 @@ mod slow_tests {
     #[test]
     fn remove_member_atomically_ends_membership_releases_tasks_and_reconciles_lead() {
         let (mut database, directory) = test_database();
+        crate::task_capability::set(database.connection(), true).unwrap();
         let collaboration = CollaborationService::default();
         let camp_id = create_camp_with_members(
             &collaboration,
@@ -11857,7 +11881,7 @@ mod slow_tests {
         assert!(preview.removable);
         assert_eq!(preview.display_name, "研究员");
         assert_eq!(preview.current_camp_membership_count, 2);
-        assert_eq!(preview.open_assigned_task_count, 1);
+        assert_eq!(preview.open_assigned_task_count, Some(1));
         assert_eq!(preview.default_lead_camp_count, 2);
         assert_eq!(preview.sole_member_camp_count, 1);
         let empty_impact = preview

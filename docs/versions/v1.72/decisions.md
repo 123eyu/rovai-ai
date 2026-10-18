@@ -1075,3 +1075,15 @@ Fleet 和既有 Bootstrap 内容摘要：实际系统提示变化时替换 Host�
 原生不支持 additionalDirectories，不发送该非标准扩展，沿用原生权限和 Core 附件授权。
 不把 highspeed 模型包装成 Fast。仅 macOS arm64 进入实验性 Preview，其他平台保持未准入；
 这是此次实现的开发验收范围，不把脚本模型证据或用户实施授权解释成真实模型 First-Class 资格。
+
+<a id="v1-72-d51"></a>
+
+## V1.72-D51：Task 以实例能力退出默认工作流，执行保持可用
+
+状态：accepted；确认：User 2026-10-17 消息 fd9bee73-2ea8-4798-9d3d-dbb9ca067963，R4。
+
+Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此默认关闭业务能力，保留历史，只在调用时校验；不采用忙时拒绝切换或中止既有执行。Bootstrap、Send、Skill 统一一套教学，Task 只在局部发现与动态 section 受控，避免双套配置漂移。
+
+数字键位按真实入口顺序一次迁移，其他冲突键清空、非冲突偏好保留；迁移失败以内存新映射维持可用，再显式重试落盘。代价是四个旧自定义键位会被覆盖，这是 User 明确选择的升级行为。
+
+当前规范：[Task v6](../../contracts/durable-task-v6.md)、[Transport v42](../../contracts/builtin-tool-transport-v42.md)、[Manifest v40/v41](../../contracts/context-manifest-evidence-v40.md)、[Shortcuts v2](../../contracts/desktop-shortcuts-v2.md)。逐项输入对照与实施状态见 [R4](model-context-change-task-capability.md)。

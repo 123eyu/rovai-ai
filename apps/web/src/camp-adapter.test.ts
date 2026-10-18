@@ -21,7 +21,7 @@ it('loads a command after an initially empty Web Run and refreshes its completio
   let changeSequence = 0
   const operations: string[] = []
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
-    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
     const { operation, params } = JSON.parse(String(options?.body))
     operations.push(operation)
     expect(params.projection).toBe('blocks')
@@ -92,7 +92,7 @@ it('通过 Web 适配器确认 Pending 输入框初始化和草稿 presence，�
   const requests: unknown[] = []
   let rejectPresence = false
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
-    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
     expect(String(url)).toBe('http://127.0.0.1:8767/api/v1/request')
     requests.push(JSON.parse(String(options?.body)))
     return Response.json(rejectPresence
@@ -132,7 +132,7 @@ it('polls changes only while files are open and resumes after reopening', async 
   vi.stubGlobal('matchMedia', () => ({ matches: false }))
   const actions: string[] = []
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
-    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
     const { action } = JSON.parse(String(options?.body)); actions.push(action)
     if (action === 'open' || action === 'restore') return Response.json({ ok: true, value: { kind: 'file_preview', file: { handleId: action === 'restore' ? 'candidate' : 'file', displayPath: 'file.txt' } } })
     return Response.json(action === 'release' ? { released: true } : { ok: true, value: [] })
@@ -176,7 +176,7 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
   const source = { id: attachmentId, sourcePath: '/tmp/upload/source', displayName: 'photo.png', kind: 'file', mediaType: 'image/png', observedByteSize: file.size }
   const actions: string[] = []
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
-    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+    if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
     if (String(url).endsWith('/uploads')) {
       digest = JSON.parse(String((options!.body as FormData).get('intent'))).sha256
       return Response.json({ draft: source })

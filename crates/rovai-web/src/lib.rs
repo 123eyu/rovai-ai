@@ -35,7 +35,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-const HOST_WEB_PROTOCOL_VERSION: u32 = 4;
+const HOST_WEB_PROTOCOL_VERSION: u32 = 5;
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -658,6 +658,7 @@ async fn events(
                     let event = if result.is_err() { "resync" } else { "invalidate" };
                     let mut payload = json!({"epoch":state.epoch,"revision":revision});
                     if let Ok(change) = &result {
+                        if change["method"] == "preferences.tasks_changed" { payload["tasksChanged"] = json!(true); }
                         if change["method"] == "thread.messages.changed" {
                             let params = &change["params"];
                             if let (Some(thread_id), Some(index_changed), Some(through)) = (

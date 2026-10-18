@@ -6,7 +6,7 @@ import { newCommandId } from '../../desktop/src/shared/command-id'
 import { recoverLocalThreadSend } from '../../desktop/src/renderer/src/camp-composer-send-recovery'
 import type { ThreadReadInvalidation, ChannelKind, ChannelSettingsSnapshot, FilePreviewBinaryContent, FilePreviewOperationResult, LocalAttachmentSourceView } from '@contracts'
 
-const HOST_WEB_PROTOCOL_VERSION = 4
+const HOST_WEB_PROTOCOL_VERSION = 5
 
 class HttpRequestError extends Error {
   constructor(readonly status: number, readonly code: string, message?: string) { super(message || `请求未完成（${code}）。`) }
@@ -176,6 +176,8 @@ export const WEB_OPERATIONS = [
   'threads.members.removalPreview',
   'threads.changeDefaultLead',
   'members.create',
+  'preferences.tasks.get',
+  'preferences.tasks.set',
   'preferences.newConversation.get',
   'preferences.newConversation.setDefaults',
   'preferences.newConversation.setOneClick',
@@ -274,7 +276,7 @@ export class InvalidationDecoder {
           const messages = Array.isArray(payload.messages) ? payload.messages.filter(change =>
             typeof change.threadId === 'string' && typeof change.indexChanged === 'boolean'
             && Number.isSafeInteger(change.throughGlobalSequence)) : []
-          this.#changes.push({ messages })
+          this.#changes.push({ messages, ...(payload.tasksChanged === true ? { tasksChanged: true } : {}) })
         }
       }
     }
@@ -941,7 +943,7 @@ export class ConsoleClient {
             if (done) break
             if (frames.push(decoder.decode(value, { stream: true }))) {
               const changes = frames.takeChanges()
-              invalidate({ resync: changes.some(change => change.resync), messages: changes.flatMap(change => change.messages ?? []) })
+              invalidate({ resync: changes.some(change => change.resync), ...(changes.some(change => change.tasksChanged) ? { tasksChanged: true } : {}), messages: changes.flatMap(change => change.messages ?? []) })
               void this.reconcilePending()
             }
           }

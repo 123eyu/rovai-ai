@@ -1294,6 +1294,8 @@ html[data-rovai-platform="win32"] .bootstrap-shell-brand { padding-left: 20px; }
 .topbar-conversation-context .topbar-context-status { min-width: 0; margin-left: auto; -webkit-app-region: no-drag; }
 .topbar-conversation-context .approval-badge { overflow: hidden; text-overflow: ellipsis; }
 .camp-detail-entry-host { display: flex; min-width: 0; flex: 0 0 auto; -webkit-app-region: no-drag; }
+.camp-detail-entry-slot { display: flex; min-width: 0; }
+.camp-detail-entry-slot:empty { display: none; }
 .camp-detail-entries { display: flex; align-items: center; gap: 2px; }
 .camp-detail-entry { display: inline-flex; height: 28px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 7px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }
 .camp-detail-entry > svg { width: 14px; height: 14px; }

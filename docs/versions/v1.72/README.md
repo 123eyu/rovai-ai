@@ -6,10 +6,18 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 会话 Task 能力开关
+
+R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前后对照、兼容和 worktree 记录见
+[独立变更说明](model-context-change-task-capability.md)，界面依据见
+[设计稿](../../research/task-capability-ui.md)。默认关闭实例级 Task 能力；Send 与会话执行解耦，
+界面入口采用执行／队员／单聊／任务，数字快捷键一次性迁移为 1–4。
+功能、隔离 App 验证与回归结果见[实施与验证记录](task-capability-implementation.md)。Task 草稿已补齐提交生命周期，关闭重开保留未决状态，原样重试复用命令身份，成功只清除对应输入版本。上一轮已修正普通 CLI 入口并完成同一真实 Run 中的切换与发送验证；固定候选的完整 Rust 扩展 workspace 为 1064 通过、0 失败、8 项既有原生人工检查忽略。原 campaign 两次尝试均在 Runtime 预检受阻；虽已修正预检误判并恢复 CLI Judge 无工具诊断，正式 Gate 仍为证据不足。
 
 ## MiniMax Code ACP（2026-10-16）
 

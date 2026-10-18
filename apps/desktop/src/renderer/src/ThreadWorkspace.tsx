@@ -1,3 +1,4 @@
+import { useTaskCapability } from './TaskCapabilityProvider'
 import { RunInputRow, RunInputSourceContext } from './RunInputRow'
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
@@ -43,7 +44,7 @@ import { readErrorMessage } from './error-message'
 import { collapsedMessageProjection } from './conversation-message-collapse'
 import { samePublicMessageSegment } from './public-message-grouping'
 import { usePublicMessageLayout } from './usePublicMessageLayout'
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type JSX, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type JSX, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -1055,9 +1056,9 @@ function emptyThreadStarters(): FirstRunThreadStarter[] {
     prompt: uiAttribute('先了解当前项目结构，再告诉我最值得优先处理的三件事。')
   },
   {
-    title: uiAttribute('整理成任务'),
+    title: uiAttribute('梳理步骤'),
     body: uiAttribute('把目标拆分为负责人、顺序和验收点。'),
-    prompt: uiAttribute('把这次改动拆成可执行的任务，并标出需要我决策的部分。')
+    prompt: uiAttribute('把这次改动拆成可执行的步骤，并标出需要我决策的部分。')
   },
   {
     title: uiAttribute('检查工作区'),
@@ -1742,6 +1743,9 @@ export function ThreadWorkspace({
   onNotify?(message: string): void
   onNotifyError?(message: string): void
 }): JSX.Element {
+  const taskCapability = useTaskCapability()
+  const tasksEnabled = taskCapability.enabled && snapshot.tasksEnabled
+  const taskFocusWasRemoved = !tasksEnabled && typeof document !== 'undefined' && !!document.activeElement?.closest('.task-panel-scroll, .camp-detail-entry[data-detail="tasks"], .task-editor-dialog, .task-cancel-dialog')
   const client = useThreadClient()
   const interfaceLanguage = useInterfaceLanguage()
   const { profile: currentUserProfile } = useCurrentUserProfile()
@@ -2078,6 +2082,13 @@ export function ThreadWorkspace({
   }, [mobile, singleChatVisible, inspectorVisible, inspectorSurfaceTab])
   const [taskCreationActive, setTaskCreationActive] = useState(false)
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    if (tasksEnabled) return
+    setFocusedTaskId(null)
+    if (inspectorVisible && inspectorSurfaceTab === 'tasks') onCloseInspector()
+    if (taskFocusWasRemoved) composerHandleRef.current?.focus()
+  }, [tasksEnabled, inspectorVisible, inspectorSurfaceTab, onCloseInspector, taskFocusWasRemoved])
+
   const [taskFocusRequest, setTaskFocusRequest] = useState(0)
   const [earlierMessageStatus, setEarlierMessageStatus] = useState<
     'idle' | 'loading' | 'error'
@@ -2491,7 +2502,7 @@ export function ThreadWorkspace({
       visibleThreadMessages,
       snapshot.turns,
       snapshot.agentRuns,
-      snapshot.tasks,
+      tasksEnabled ? snapshot.tasks ?? [] : [],
       snapshot.agentRunFileChanges,
       snapshot.agentRunImages,
       snapshot.memberCreations
@@ -2499,6 +2510,7 @@ export function ThreadWorkspace({
     [
       snapshot.agentRuns,
       snapshot.tasks,
+      tasksEnabled,
       snapshot.turns,
       snapshot.agentRunFileChanges,
       snapshot.agentRunImages,
@@ -3515,6 +3527,7 @@ export function ThreadWorkspace({
     if (!notificationFocus?.active || ['approval', 'single_chat'].includes(notificationFocus.kind)) return
     setConversationView('conversation')
     if (notificationFocus.kind === 'task' && notificationFocus.subjectId) {
+      if (!tasksEnabled) return
       setFocusedTaskId(notificationFocus.subjectId)
       setTaskFocusRequest(notificationFocus.requestId)
       openInspector('tasks')
@@ -4416,6 +4429,7 @@ export function ThreadWorkspace({
   }
 
   const selectInspectorSurfaceTab = (tab: ThreadInspectorSurfaceTab): void => {
+    if (tab === 'tasks' && !tasksEnabled) return
     if (tab === 'execution') {
       setExecutionInspectorActive(true)
       restoreExecutionReadingPositionAfterLayout(executionReadingPosition.current)
@@ -4443,6 +4457,7 @@ export function ThreadWorkspace({
   }
 
   const openInspector = (tab: ThreadInspectorTab): void => {
+    if (tab === 'tasks' && !tasksEnabled) return
     setExecutionInspectorActive(false)
     selectInspectorTab(tab)
     onOpenInspector?.(tab)
@@ -4843,7 +4858,7 @@ export function ThreadWorkspace({
     }
   })
   useShortcutAction('tasks', () => {
-    if (!workspaceAvailable()) return false
+    if (!tasksEnabled || !workspaceAvailable()) return false
     if (inspectorVisible && inspectorSurfaceTab === 'tasks') onCloseInspector()
     else openInspector('tasks')
   })
@@ -5711,7 +5726,8 @@ export function ThreadWorkspace({
               onToggleMobileExecutionMaximized={mobile ? () => setMobileExecutionMaximized((expanded) => !expanded) : undefined}
               runningMembers={runningMembers}
               executionCount={executionProcesses.length}
-              taskCount={openCoverage?.tasks.totalCount ?? snapshot.tasks.length}
+              tasksEnabled={tasksEnabled}
+              taskCount={openCoverage?.tasks?.totalCount ?? (snapshot.tasks ?? []).length}
               memberCount={campInspectorMembers(snapshot.members).length}
               singleChatVisible={singleChatVisible}
               onOpenSingleChat={onOpenSingleChat}
@@ -5720,6 +5736,7 @@ export function ThreadWorkspace({
                 filePreview.openMissionActivity(snapshot.thread.missionId!)
               } : undefined}
               onOpen={(tab) => {
+                if (tab === 'tasks' && !tasksEnabled) return
                 if (tab === 'execution' && executionPlacement === 'right') {
                   onCloseInspector()
                   if (executionDrawerAgentId === null) openExecutionOverview(null, false)
@@ -5775,7 +5792,7 @@ export function ThreadWorkspace({
                 )}
               </div>
             </section>
-            <section className="camp-detail-content tab-scroll task-panel-scroll" hidden={inspectorSurfaceTab !== 'tasks'}>
+            {tasksEnabled && <section className="camp-detail-content tab-scroll task-panel-scroll" hidden={inspectorSurfaceTab !== 'tasks'}>
               <TaskPanel
                 snapshot={snapshot}
                 coverage={openCoverage?.tasks ?? null}
@@ -5786,7 +5803,7 @@ export function ThreadWorkspace({
                 onOpenAgent={openExecutionProcess}
                 onCreateModeChange={setTaskCreationActive}
               />
-            </section>
+            </section>}
             <section className="camp-detail-content tab-scroll camp-members-panel" hidden={inspectorSurfaceTab !== 'members'}>
               <ThreadMembersPanel key={snapshot.thread.id}
                 addDialogOpen={memberInvitationThreadId === snapshot.thread.id}
@@ -6163,7 +6180,7 @@ export function ThreadWorkspace({
                 ? uiAttribute("输入框暂不可用")
                 : isThreadEmpty
                   ? uiAttribute("集结队伍，写下这次冒险的目标…")
-                  : uiAttribute("和队伍继续前行：补充线索、调整方向或布置新任务…")}
+                  : uiAttribute("和队伍继续前行：补充线索或调整方向…")}
               disabled={composerInteractionDisabled}
               editorRef={composerEditorRef}
               onActivateMemberMention={(member, trigger, focusPanel) =>
@@ -8650,7 +8667,7 @@ function ThreadMembersPanel({
     : 0
   const removalHasActualImpact = Boolean(removalPreview && (
     removalPreview.nonTerminalAgentRunCount > 0
-    || removalPreview.openAssignedTaskCount > 0
+    || (removalPreview.openAssignedTaskCount ?? 0) > 0
     || removalDeliveryCount > 0
     || removalPreview.isDefaultLead
     || removalPreview.remainingMemberCount === 0
@@ -8946,7 +8963,7 @@ function ThreadMembersPanel({
                           <AppDialogImpact tone="warning" icon="bolt" label={uiAttribute("已开始的执行")}>
                             {removalPreview.nonTerminalAgentRunCount}<UiText zh={" 个执行将停止接收新写入，并在后台收拢。"} /></AppDialogImpact>
                         )}
-                        {removalPreview.openAssignedTaskCount > 0 && (
+                        {(removalPreview.openAssignedTaskCount ?? 0) > 0 && (
                           <AppDialogImpact tone="warning" icon="keep" label={uiAttribute("未完成任务")}>
                             {removalPreview.openAssignedTaskCount}<UiText zh={" 个任务将释放负责人，回到待分配状态。"} /></AppDialogImpact>
                         )}
@@ -11047,19 +11064,33 @@ interface TaskEditorValues {
 }
 
 interface TaskEditorDraft extends TaskEditorValues {
+  revision: number
   base?: TaskEditorValues
 }
 
-export function TaskPanel({
-  snapshot,
-  coverage = null,
-  busy,
-  focusTaskId = null,
-  focusRequest = 0,
-  onTasksChanged,
-  onOpenAgent = () => {},
-  onCreateModeChange
-}: {
+interface TaskDraftSubmission {
+  revision: number
+  method: 'tasks.create' | 'tasks.update'
+  params: Record<string, unknown>
+  status: 'pending' | 'unknown' | 'rejected' | 'applied'
+  error: string | null
+}
+
+interface TaskDraftStore {
+  identity: number
+  revision: number
+  edits: Map<string, TaskEditorDraft>
+  cancellations: Map<string, { revision: number; reason: string }>
+  submissions: Map<string, TaskDraftSubmission>
+  listeners: Set<() => void>
+}
+
+// Local input survives the optional panel, but never crosses a Host or Thread.
+// Weak Host ownership also releases drafts when the client is discarded.
+const taskDraftStores = new WeakMap<ThreadClient, Map<string, TaskDraftStore>>()
+let nextTaskDraftIdentity = 0
+
+interface TaskPanelProps {
   snapshot: ThreadSnapshot
   coverage?: ThreadOpenCollectionCoverage | null
   busy: boolean
@@ -11068,14 +11099,40 @@ export function TaskPanel({
   onTasksChanged(): Promise<void>
   onOpenAgent?(agentId: string, trigger?: HTMLButtonElement): void
   onCreateModeChange?(active: boolean): void
-}): JSX.Element {
+}
+
+export function TaskPanel(props: TaskPanelProps): JSX.Element {
+  const client = useThreadClient()
+  let threads = taskDraftStores.get(client)
+  if (!threads) taskDraftStores.set(client, threads = new Map())
+  let drafts = threads.get(props.snapshot.thread.id)
+  if (!drafts) {
+    drafts = {
+      identity: ++nextTaskDraftIdentity, revision: 0,
+      edits: new Map(), cancellations: new Map(), submissions: new Map(), listeners: new Set()
+    }
+    threads.set(props.snapshot.thread.id, drafts)
+  }
+  return <TaskPanelEditor key={drafts.identity} {...props} drafts={drafts} />
+}
+
+function TaskPanelEditor({
+  drafts,
+  snapshot,
+  coverage = null,
+  busy,
+  focusTaskId = null,
+  focusRequest = 0,
+  onTasksChanged,
+  onOpenAgent = () => {},
+  onCreateModeChange
+}: TaskPanelProps & { drafts: TaskDraftStore }): JSX.Element {
   const client = useThreadClient()
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all')
   const [editorOpen, setEditorOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const detailRef = useRef<HTMLElement>(null)
-  const drafts = useRef(new Map<string, TaskEditorDraft>())
   const editBase = useRef<TaskEditorValues | null>(null)
   const [mode, setMode] = useState<'list' | 'create' | 'edit'>('list')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -11086,16 +11143,28 @@ export function TaskPanel({
   const [blockedReason, setBlockedReason] = useState('')
   const [completionSummary, setCompletionSummary] = useState('')
   const [cancelReason, setCancelReason] = useState('')
-  const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const draftKey = selectedTaskId ?? 'new'
+  const submissionKey = cancelOpen ? `cancel:${draftKey}` : draftKey
+  const submission = useSyncExternalStore(
+    useCallback((listener) => {
+      drafts.listeners.add(listener)
+      return () => { drafts.listeners.delete(listener) }
+    }, [drafts]),
+    useCallback(() => drafts.submissions.get(submissionKey) ?? null, [drafts, submissionKey]),
+    () => null
+  )
+  const submitting = submission?.status === 'pending'
+  const currentDraft = (cancelOpen ? drafts.cancellations : drafts.edits).get(draftKey)
+  const errorMessage = formError ?? (currentDraft?.revision === submission?.revision ? submission?.error : null)
   const selectedTask = selectedTaskId
-    ? snapshot.tasks.find((task) => task.taskId === selectedTaskId) ?? null
+    ? (snapshot.tasks ?? []).find((task) => task.taskId === selectedTaskId) ?? null
     : null
   const detailTask = detailTaskId
-    ? snapshot.tasks.find((task) => task.taskId === detailTaskId) ?? null
+    ? (snapshot.tasks ?? []).find((task) => task.taskId === detailTaskId) ?? null
     : null
-  const visibleTasks = snapshot.tasks.filter((task) => statusFilter === 'all' || task.status === statusFilter)
-  const openTaskCount = snapshot.tasks.filter((task) => task.status !== 'completed' && task.status !== 'cancelled').length
+  const visibleTasks = (snapshot.tasks ?? []).filter((task) => statusFilter === 'all' || task.status === statusFilter)
+  const openTaskCount = (snapshot.tasks ?? []).filter((task) => task.status !== 'completed' && task.status !== 'cancelled').length
   const activeMembers = snapshot.members.filter((member) =>
     member.membershipStatus === 'active' && member.leaveRequestedAt === null)
 
@@ -11120,7 +11189,7 @@ export function TaskPanel({
     setFormError(null)
   }
 
-  const applyDraft = (draft: TaskEditorDraft): void => {
+  const applyDraft = (draft: TaskEditorValues & { base?: TaskEditorValues }): void => {
     setTitle(draft.title)
     setDescription(draft.description)
     setAssigneeAgentId(draft.assigneeAgentId)
@@ -11131,19 +11200,40 @@ export function TaskPanel({
     setFormError(null)
   }
 
-  const closeEditor = (): void => {
-    if (submitting) return
-    drafts.current.set(selectedTaskId ?? 'new', {
-      title, description, assigneeAgentId, status,
-      blockedReason, completionSummary,
+  // Capture committed input even if another window turns Task off before close.
+  useLayoutEffect(() => {
+    if (!editorOpen) return
+    const values = {
+      title, description, assigneeAgentId, status, blockedReason, completionSummary,
       ...(editBase.current ? { base: editBase.current } : {})
-    })
-    setEditorOpen(false)
+    }
+    const previous = drafts.edits.get(selectedTaskId ?? 'new')
+    // Reopening the same input is not an edit. A revision changes only with input.
+    if (previous && previous.base === values.base
+      && (['title', 'description', 'assigneeAgentId', 'status', 'blockedReason', 'completionSummary'] as const)
+        .every((field) => previous[field] === values[field])) return
+    drafts.edits.set(selectedTaskId ?? 'new', { ...values, revision: ++drafts.revision })
+  }, [drafts, editorOpen, selectedTaskId, title, description, assigneeAgentId, status, blockedReason, completionSummary])
+
+  useLayoutEffect(() => {
+    if (cancelOpen && selectedTaskId && drafts.cancellations.get(selectedTaskId)?.reason !== cancelReason) {
+      drafts.cancellations.set(selectedTaskId, { reason: cancelReason, revision: ++drafts.revision })
+    }
+  }, [drafts, cancelOpen, selectedTaskId, cancelReason])
+
+  useLayoutEffect(() => {
+    // The request may have started in an editor which has since unmounted.
+    if (submission?.status === 'applied' && (editorOpen || cancelOpen)
+      && !(cancelOpen ? drafts.cancellations : drafts.edits).has(draftKey)) resetForm()
+  }, [drafts, submission, editorOpen, cancelOpen, draftKey])
+
+  const closeEditor = (): void => {
+    if (!submitting) setEditorOpen(false)
   }
 
   const beginCreate = (): void => {
     resetForm()
-    const draft = drafts.current.get('new')
+    const draft = drafts.edits.get('new')
     if (draft) applyDraft(draft)
     setMode('create')
     setEditorOpen(true)
@@ -11159,14 +11249,14 @@ export function TaskPanel({
       blockedReason: task.blockedReason ?? '',
       completionSummary: task.completionSummary ?? ''
     }
-    applyDraft(drafts.current.get(task.taskId) ?? { ...values, base: values })
+    applyDraft(drafts.edits.get(task.taskId) ?? { ...values, base: values })
     setMode('edit')
     setEditorOpen(true)
   }
 
   useEffect(() => {
     if (!focusTaskId || focusRequest === 0) return
-    const task = snapshot.tasks.find((candidate) => candidate.taskId === focusTaskId)
+    const task = (snapshot.tasks ?? []).find((candidate) => candidate.taskId === focusTaskId)
     if (task) {
       setDetailTaskId(task.taskId)
     } else {
@@ -11182,6 +11272,48 @@ export function TaskPanel({
     if (scroll) scroll.scrollTop = 0
   }, [detailTaskId, focusRequest])
 
+  const submitDraft = async (
+    method: TaskDraftSubmission['method'], params: Record<string, unknown>, cancellation = false
+  ): Promise<void> => {
+    const entries = cancellation ? drafts.cancellations : drafts.edits
+    const key = selectedTaskId ?? 'new'
+    const submissionKey = cancellation ? `cancel:${key}` : key
+    const draft = entries.get(key)
+    const previous = drafts.submissions.get(submissionKey)
+    // Guard the store as well as the button, including before React rerenders.
+    if (!draft || previous?.status === 'pending') return
+    const request = previous?.status === 'unknown' && previous.revision === draft.revision
+      ? previous
+      : { revision: draft.revision, method, params: { ...params, commandId: newCommandId() } }
+    const pending: TaskDraftSubmission = { ...request, status: 'pending', error: null }
+    const publish = (next: TaskDraftSubmission): void => {
+      drafts.submissions.set(submissionKey, next)
+      drafts.listeners.forEach((listener) => listener())
+    }
+    setFormError(null)
+    publish(pending)
+    let result: StoredCommandResult
+    try {
+      result = await client.request<StoredCommandResult>(pending.method, pending.params)
+    } catch (error) {
+      // A lost receipt is not a new operation: retain its exact ID and payload.
+      publish({ ...pending, status: 'unknown', error: localizeExecutionEngineTerms(readErrorMessage(error)) })
+      return
+    }
+    if (result.status === 'rejected') {
+      publish({ ...pending, status: 'rejected', error: taskCommandMessage(result) })
+      return
+    }
+    if (entries.get(key)?.revision === pending.revision) entries.delete(key)
+    publish({ ...pending, status: 'applied' })
+    try {
+      await onTasksChanged()
+    } catch (error) {
+      // A refresh failure must not make an acknowledged save retryable.
+      setFormError(localizeExecutionEngineTerms(readErrorMessage(error)))
+    }
+  }
+
   const submitCreate = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     if (!title.trim() || submitting || busy) return
@@ -11189,28 +11321,9 @@ export function TaskPanel({
       setFormError(uiAttribute('请选择负责人。'))
       return
     }
-    setSubmitting(true)
-    setFormError(null)
-    try {
-      const result = await client.request<StoredCommandResult>('tasks.create', {
-        commandId: newCommandId(),
-        threadId: snapshot.thread.id,
-        title: title.trim(),
-        description: description.trim(),
-        assigneeAgentId
-      })
-      if (result.status === 'rejected') {
-        setFormError(taskCommandMessage(result))
-        return
-      }
-      drafts.current.delete(selectedTaskId ?? 'new')
-      resetForm()
-      await onTasksChanged()
-    } catch (error) {
-      setFormError(localizeExecutionEngineTerms(readErrorMessage(error)))
-    } finally {
-      setSubmitting(false)
-    }
+    await submitDraft('tasks.create', {
+      threadId: snapshot.thread.id, title: title.trim(), description: description.trim(), assigneeAgentId
+    })
   }
 
   const submitUpdate = async (event: FormEvent): Promise<void> => {
@@ -11228,12 +11341,9 @@ export function TaskPanel({
       setFormError(uiAttribute('请填写完成摘要。'))
       return
     }
-    setSubmitting(true)
-    setFormError(null)
     const base = editBase.current
     if (!base) {
       setFormError(uiAttribute('编辑草稿已失效，请重新打开任务。'))
-      setSubmitting(false)
       return
     }
     const patch = {
@@ -11252,54 +11362,16 @@ export function TaskPanel({
     }
     if (Object.keys(patch).length === 0) {
       setFormError(uiAttribute('没有需要提交的修改。'))
-      setSubmitting(false)
       return
     }
-    try {
-      const result = await client.request<StoredCommandResult>('tasks.update', {
-        commandId: newCommandId(),
-        threadId: snapshot.thread.id,
-        taskId: selectedTask.taskId,
-        ...patch
-      })
-      if (result.status === 'rejected') {
-        setFormError(taskCommandMessage(result))
-        return
-      }
-      drafts.current.delete(selectedTaskId ?? 'new')
-      resetForm()
-      await onTasksChanged()
-    } catch (error) {
-      setFormError(localizeExecutionEngineTerms(readErrorMessage(error)))
-    } finally {
-      setSubmitting(false)
-    }
+    await submitDraft('tasks.update', { threadId: snapshot.thread.id, taskId: selectedTask.taskId, ...patch })
   }
 
   const submitCancel = async (): Promise<void> => {
     if (!selectedTask || !cancelReason.trim() || submitting || busy) return
-    setSubmitting(true)
-    setFormError(null)
-    try {
-      const result = await client.request<StoredCommandResult>('tasks.update', {
-        commandId: newCommandId(),
-        threadId: snapshot.thread.id,
-        taskId: selectedTask.taskId,
-        status: 'cancelled',
-        cancelReason: cancelReason.trim()
-      })
-      if (result.status === 'rejected') {
-        setFormError(taskCommandMessage(result))
-        return
-      }
-      drafts.current.delete(selectedTaskId ?? 'new')
-      resetForm()
-      await onTasksChanged()
-    } catch (error) {
-      setFormError(localizeExecutionEngineTerms(readErrorMessage(error)))
-    } finally {
-      setSubmitting(false)
-    }
+    await submitDraft('tasks.update', {
+      threadId: snapshot.thread.id, taskId: selectedTask.taskId, status: 'cancelled', cancelReason: cancelReason.trim()
+    }, true)
   }
 
   const terminal = selectedTask
@@ -11312,7 +11384,7 @@ export function TaskPanel({
     <div className="task-panel">
       {!detailTask && <>
         <div className="task-action-row">
-          <span className="task-list-summary">{openTaskCount > 0 ? uiAttribute("{0} 项未完成", String(openTaskCount)) : uiAttribute("{0} 项任务", String(snapshot.tasks.length))}</span>
+          <span className="task-list-summary">{openTaskCount > 0 ? uiAttribute("{0} 项未完成", String(openTaskCount)) : uiAttribute("{0} 项任务", String((snapshot.tasks ?? []).length))}</span>
           <select
             className="task-status-filter"
             aria-label={uiAttribute("筛选任务状态")}
@@ -11329,7 +11401,7 @@ export function TaskPanel({
           <button className="primary-button conversation-primary-button compact task-new-button" type="button" onClick={() => beginCreate()} disabled={busy}>
             <span aria-hidden="true">＋</span><UiText zh={" 新建"} /></button>
         </div>
-        {formError && !editorOpen && !cancelOpen && <p className="task-form-error" role="alert">{formError}</p>}
+        {errorMessage && !editorOpen && !cancelOpen && <p className="task-form-error" role="alert">{errorMessage}</p>}
         {coverage && !coverage.complete && (
           <p className="task-history-note" role="status"><UiText zh={"当前显示 "} />{coverage.loadedCount} / {coverage.totalCount}<UiText zh={" 个任务；更早的已结束任务尚未载入。"} /></p>
         )}
@@ -11348,7 +11420,7 @@ export function TaskPanel({
               <svg className="task-list-chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="m6 4 4 4-4 4" /></svg>
             </button>
           ))}
-          {visibleTasks.length === 0 && <p className="task-empty">{snapshot.tasks.length === 0 ? uiAttribute("暂无任务") : uiAttribute("没有符合筛选条件的任务")}</p>}
+          {visibleTasks.length === 0 && <p className="task-empty">{(snapshot.tasks ?? []).length === 0 ? uiAttribute("暂无任务") : uiAttribute("没有符合筛选条件的任务")}</p>}
         </div>
       </>}
 
@@ -11370,7 +11442,7 @@ export function TaskPanel({
               <button className="quiet-button" type="button" disabled={busy} onClick={() => beginEdit(detailTask)}><UiText zh={"编辑"} /></button>
               <button className="quiet-button task-cancel-action" type="button" disabled={busy} onClick={() => {
                 setSelectedTaskId(detailTask.taskId)
-                setCancelReason('')
+                setCancelReason(drafts.cancellations.get(detailTask.taskId)?.reason ?? '')
                 setFormError(null)
                 setCancelOpen(true)
               }}><UiText zh={"取消任务"} /></button>
@@ -11385,7 +11457,7 @@ export function TaskPanel({
             hideDescription />
             <form className="task-editor" onSubmit={(event) => void (mode === 'create' ? submitCreate(event) : submitUpdate(event))}>
               <AppDialogBody>
-                {formError && <p className="task-form-error" role="alert">{formError}</p>}
+                {errorMessage && <p className="task-form-error" role="alert">{errorMessage}</p>}
                 {mode === 'edit' && terminal && <p className="task-terminal-note" role="status"><UiText zh={"这项任务已结束，不能再修改。你的草稿仍保留。"} /></p>}
                 <TaskFields
                   title={title}
@@ -11395,7 +11467,7 @@ export function TaskPanel({
                   blockedReason={blockedReason}
                   completionSummary={completionSummary}
                   members={activeMembers}
-                  disabled={submitting || busy || (mode === 'edit' && terminal)}
+                  disabled={busy || (mode === 'edit' && terminal)}
                   showStatus={mode === 'edit'}
                   requireAssignee={mode === 'create'}
                   autoFocusTitle
@@ -11426,8 +11498,8 @@ export function TaskPanel({
             <AppDialogHeader icon="warning" title={uiAttribute("取消任务？")} description={selectedTask?.title} />
             <AppDialogBody>
               <p className="task-cancel-description"><UiText zh={"任务将结束，已经接受或正在进行的执行不会停止。"} /></p>
-              <label className="task-field"><span><UiText zh={"取消原因"} /></span><textarea data-dialog-autofocus value={cancelReason} rows={3} maxLength={4000} required disabled={submitting || busy} onChange={(event) => setCancelReason(event.currentTarget.value)} /></label>
-              {formError && <p className="task-form-error" role="alert">{formError}</p>}
+              <label className="task-field"><span><UiText zh={"取消原因"} /></span><textarea data-dialog-autofocus value={cancelReason} rows={3} maxLength={4000} required disabled={busy} onChange={(event) => setCancelReason(event.currentTarget.value)} /></label>
+              {errorMessage && <p className="task-form-error" role="alert">{errorMessage}</p>}
             </AppDialogBody>
             <AppDialogFooter>
               <button className="quiet-button" type="button" disabled={submitting} onClick={() => setCancelOpen(false)}><UiText zh={"取消"} /></button>

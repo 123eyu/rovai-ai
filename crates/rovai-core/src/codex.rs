@@ -404,6 +404,9 @@ impl CodexHost {
         }
         if let Some(config) = &builtin_tools {
             config.configure_command(&mut command)?;
+            // Keep the Host's Run-bound CLI PATH. A second login initialization
+            // can put a different installed rovai ahead of this process's CLI.
+            command.args(["-c", "allow_login_shell=false"]);
         }
         command
             .args([
@@ -2710,7 +2713,7 @@ mod tests {
             make_test_executable(&executable, &r#"#!/usr/bin/python3
 import json, os, sys
 root = os.path.dirname(__file__)
-assert sys.argv[1:] == ['-c', 'features.memories=false', '-c', 'memories.generate_memories=false', '-c', 'memories.use_memories=false', 'app-server', '--listen', 'stdio://']
+assert sys.argv[1:] == ['-c', 'allow_login_shell=false', '-c', 'features.memories=false', '-c', 'memories.generate_memories=false', '-c', 'memories.use_memories=false', 'app-server', '--listen', 'stdio://']
 credential = open(os.path.join(root, 'credentials')).read()
 turn = 0
 for line in sys.stdin:
@@ -3282,7 +3285,7 @@ root = os.path.dirname(__file__)
 scenario = '__SCENARIO__'
 with open(os.path.join(root, 'starts'), 'a') as log: log.write('start\n')
 open(os.path.join(root, 'requests'), 'a').close()
-assert sys.argv[1:] == ['-c', 'features.memories=false', '-c', 'memories.generate_memories=false', '-c', 'memories.use_memories=false', 'app-server', '--listen', 'stdio://']
+assert sys.argv[1:] == ['-c', 'allow_login_shell=false', '-c', 'features.memories=false', '-c', 'memories.generate_memories=false', '-c', 'memories.use_memories=false', 'app-server', '--listen', 'stdio://']
 if scenario == 'memory_rejected':
     print('memory configuration rejected', file=sys.stderr, flush=True)
     sys.exit(2)

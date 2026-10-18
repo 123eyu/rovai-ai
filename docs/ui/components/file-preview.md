@@ -300,9 +300,12 @@ presentation 保留 `camp_workspace` 兼容入口。
 其他 Camp 界面沿用既有视觉，不以本状态为理由重做。
 历史 Attachment 初始 availability 为 unknown；预览、打开或显示所在位置的结果只更新当前卡片为 available、missing、
 unreadable 或 kind_changed，不写回历史，也不启动后台监控。
-外部变化只显示 Tab 的 6px `--file-update-marker` 琥珀金圆点与当前 Viewer 的“有更新 / 重新加载”；圆点不复用
-全局 `--attention` 或品牌 `--ember`，Viewer 操作仍使用既有 attention 语义。主动刷新期间旧内容继续显示；失败显示
+外部变化默认自动刷新当前可见文件，后台文件先标记更新，重新显示时按需刷新。继续使用 Tab 的 6px
+`--file-update-marker` 琥珀金圆点与当前 Viewer 的“有更新 / 重新加载”；圆点不复用
+全局 `--attention` 或品牌 `--ember`，Viewer 操作仍使用既有 attention 语义。刷新期间旧内容继续显示；失败显示
 “重新加载失败 / 重试”且不销毁仍可读的旧内容。句柄、Grant、token、watcher 和 generation 永远不是用户文案。
+失败后重复变化通知不触发重试，明确重试或重新显示才再尝试。分页按可见行号恢复，文件缩短时落到有效位置；
+HTML 沿用整页候选替换与滚动恢复。调度与生命周期见 [File Preview v22](../../contracts/file-preview-v22.md)。
 
 ## 平台
 

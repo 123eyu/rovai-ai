@@ -97,7 +97,8 @@ function FilePathButton({
 }
 
 function SourceViewer({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element {
-  const { resolvedTheme } = useFilePreview()
+  const { resolvedTheme, saveReading } = useFilePreview()
+  const saveLine = useCallback((visibleLine: number) => saveReading(tab.id, { visibleLine }), [tab.id, saveReading])
   // Reading samples are mutable snapshots. They may suppress an old target on a
   // cold mount, but must not remove the current highlight on a theme/parent render.
   const target = useMemo(() => tab.reading ? undefined : tab.file?.target, [tab.file?.target])
@@ -112,6 +113,8 @@ function SourceViewer({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element 
       findScopeLabel={tab.content?.kind === 'page' ? uiAttribute("仅查找当前已加载页") : ''}
       target={target}
       theme={resolvedTheme}
+      readingLine={tab.reading?.visibleLine}
+      onReadingLine={tab.content?.kind === 'page' || tab.reading?.visibleLine !== undefined ? saveLine : undefined}
     />
   )
 }
@@ -484,7 +487,10 @@ function ReadingPanel({ tab, children }: { tab: import('./FilePreviewContext').P
       if (!node?.clientHeight) return
       const code = node.querySelector<HTMLElement>('.cm-scroller')
       if (code && !code.clientHeight) return
-      if (code) { code.scrollTop = reading.codeScrollTop ?? 0; code.scrollLeft = reading.codeScrollLeft ?? 0 }
+      if (code) {
+        if (reading.visibleLine === undefined) code.scrollTop = reading.codeScrollTop ?? 0
+        code.scrollLeft = reading.codeScrollLeft ?? 0
+      }
       const body = node.querySelector<HTMLElement>('.file-preview-markdown, .file-preview-content, .agent-run-file-review-scroll, .mission-activity-document')
       if (body) { body.scrollTop = reading.scrollTop ?? 0; body.scrollLeft = reading.scrollLeft ?? 0 }
       const image = node.querySelector<HTMLElement>('.file-preview-image-stage')

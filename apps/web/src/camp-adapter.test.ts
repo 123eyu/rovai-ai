@@ -131,17 +131,23 @@ it('polls changes only while files are open and resumes after reopening', async 
   vi.stubGlobal('window', { sessionStorage: storage, history: { state: null } })
   vi.stubGlobal('matchMedia', () => ({ matches: false }))
   const actions: string[] = []
+  const changed = { threadId: 'camp', previewKeys: ['file-key'] }
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
     if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
     const { action } = JSON.parse(String(options?.body)); actions.push(action)
     if (action === 'open' || action === 'restore') return Response.json({ ok: true, value: { kind: 'file_preview', file: { handleId: action === 'restore' ? 'candidate' : 'file', displayPath: 'file.txt' } } })
-    return Response.json(action === 'release' ? { released: true } : { ok: true, value: [] })
+    if (action === 'readText') {
+      expect(JSON.parse(String(options?.body)).request).toMatchObject({ handleId: 'candidate', expectedGeneration: 'new' })
+      return Response.json({ ok: true, value: { text: 'updated Host bytes', contentGeneration: 'new', contentVersion: { size: 18, mtimeMs: 2 } } })
+    }
+    return Response.json(action === 'release' ? { released: true } : { ok: true, value: [changed] })
   })
   const transport = new ConsoleClient('http://127.0.0.1:8766', fetcher)
   await transport.login('b'.repeat(64))
   const adapter = createThreadAdapter(transport, async () => null)
   const files = adapter.environment.files
-  const unsubscribe = files.onExternalUpdate(() => undefined)
+  const notified = vi.fn()
+  const unsubscribe = files.onExternalUpdate(notified)
   const open = () => files.open({ kind: 'camp_workspace', threadId: 'camp', rawReference: 'file.txt' })
   try {
     adapter.invalidate()
@@ -149,6 +155,8 @@ it('polls changes only while files are open and resumes after reopening', async 
     expect(actions).toEqual([])
     await open(); await vi.advanceTimersByTimeAsync(4000)
     expect(actions).toEqual(['open', 'updates', 'updates'])
+    expect(notified).toHaveBeenCalledTimes(2)
+    expect(notified).toHaveBeenLastCalledWith(changed)
     await files.release({ handleId: 'file' }); await vi.advanceTimersByTimeAsync(6000)
     expect(actions).toEqual(['open', 'updates', 'updates', 'release'])
     await open(); await vi.advanceTimersByTimeAsync(2000)
@@ -157,6 +165,8 @@ it('polls changes only while files are open and resumes after reopening', async 
     expect(candidate).toMatchObject({ ok: true, value: { handleId: 'candidate' } })
     expect(actions.at(-1)).toBe('restore')
     expect(actions.filter(action => action === 'release')).toHaveLength(1)
+    expect(await files.readText({ handleId: 'candidate', expectedGeneration: 'new' }))
+      .toMatchObject({ ok: true, value: { text: 'updated Host bytes' } })
     await files.release({ handleId: 'candidate' })
     await files.release({ handleId: 'file' })
   } finally { unsubscribe(); transport.clear(); vi.useRealTimers() }

@@ -96,6 +96,26 @@ function request(rawReference: string): OpenFilePreviewRequest {
 }
 
 describe('FilePreviewService', () => {
+  it('publishes a real watcher save and reads fresh bytes through the existing reload candidate', async () => {
+    const { root, authority, native } = await fixture()
+    const service = new FilePreviewService(authority, native)
+    services.push(service)
+    await service.bindThread(1, 'camp-1')
+    await writeFile(join(root, 'live.txt'), 'before')
+    const opened = await service.open(1, request('live.txt'))
+    if (!opened.ok || opened.value.kind !== 'file_preview') throw new Error('Expected a file')
+    const old = opened.value.file
+    await writeFile(join(root, 'live.txt'), 'after saving the actual file')
+    await vi.waitFor(() => expect(native.publishExternalUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'camp-1', previewKeys: [old.previewKey]
+    })))
+    const fresh = await service.reload(1, { handleId: old.handleId, reopenToken: old.reopenToken, expectedGeneration: old.contentGeneration })
+    if (!fresh.ok) throw new Error('Expected a candidate')
+    expect(fresh.value.handleId).not.toBe(old.handleId)
+    expect(await service.readText(1, { handleId: fresh.value.handleId, expectedGeneration: fresh.value.contentGeneration }))
+      .toMatchObject({ ok: true, value: { text: 'after saving the actual file' } })
+  })
+
   it('reclaims background handles by user LRU, protecting visible and busy handles under concurrent allocation', async () => {
     const { root, service, native } = await fixture()
     native.publishResourcesReleased = vi.fn()

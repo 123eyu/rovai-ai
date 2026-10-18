@@ -16,6 +16,8 @@
 - 【修复】**修正部分智能体的执行结束判断。** 本轮已正常发送回复、工具操作也已结束时，不再仅因原生结束文本为空而误报失败；真实错误和取消仍会如实显示。
 - 【优化】**精简单聊中的重复上下文。** 减少每轮重复传入的固定说明，不改写已有会话记录和历史输入。
 
+感谢 [@liangxyz](https://github.com/liangxyz) 在 [#779](https://github.com/murray17/rovai-ai/issues/779) 中持续补充网页版问题的复现信息，也感谢最早反馈 Server 停服后提交卡住问题的用户。
+
 [完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)
 
 ---
@@ -35,5 +37,7 @@ This release adds MiniMax Code, browser file uploads and downloads, automatic fi
 - [Fix] **Recover Web submissions blocked by an unresolved earlier request.** Keep the page and drafts during disconnection and provide a “Reconnect and retry” action. Recovery checks the original result before retrying unfinished work to avoid duplicate submissions.
 - [Fix] **Correct completion handling for some runtimes.** A run that has sent its reply successfully and finished its tool operations is no longer reported as failed solely because its native final text is empty. Actual errors and cancellation remain visible.
 - [Optimization] **Remove redundant Single Chat context.** Send fewer repeated fixed instructions on each turn without rewriting existing conversation records or historical inputs.
+
+Thanks to [@liangxyz](https://github.com/liangxyz) for continuing to provide Web issue reproduction details in [#779](https://github.com/murray17/rovai-ai/issues/779), and to the user who first reported submissions getting stuck after stopping the Server.
 
 [Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)

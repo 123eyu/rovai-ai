@@ -22,6 +22,17 @@ last_updated: 2026-10-18
 本项保持 v1.72 生命周期；Contracts、Architecture、UI、Decisions、用户/部署文档及导航已更新。
 Runtime Activity、Runtime compatibility 与 Root README 无需调整：没有模型输入、运行时资格或产品定位变更。
 
+## 旧概念残留收口（2026-10-18）
+
+按 User“开启 wt 统一修改”的要求，在 `rovai/legacy-concepts` 隔离分支收口当前入口的残留：
+Benchmark 导入读取当前 Thread 结果，CLI 目录帮助与实时目录一致，新错误提示和操作指南使用 Thread/User，
+当前文档修正历史读取、Automation 返回值与评测命令；退役未挂载的 Skill Library 页面，将 Electron 验收迁到
+生产原生 Skills 和工具箱页面。实施范围、兼容边界与验证见[实施记录](implementation-plan.md#旧概念残留收口2026-10-18)。
+
+本项沿用当前命名、History 和 Skills 合同，不新增 Version Decision 或数据库迁移。
+旧输入别名、SQL/路径、`rvcamp_` ID、冻结上下文／Case 证据和历史 Library 恢复保持。
+未改变 Bootstrap/Dynamic Context 模板、选择规则或版本；CLI help 仅纠正已实现的目录语义。
+
 ## 单聊固定事实精简（2026-10-18）
 
 User 已确认 [R1](model-context-change-single-chat-facts.md)，删除新单聊的 `RUN_FACTS.singleChat`。

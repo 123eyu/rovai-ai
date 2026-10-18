@@ -675,7 +675,7 @@ impl MonitoringService {
         database: &Database,
         params: &MonitoringExecutionParams,
     ) -> Result<Value> {
-        validate_key(&params.camp_id, "Camp ID")?;
+        validate_key(&params.camp_id, "Thread ID")?;
         anyhow::ensure!(
             params.agent_run_ids.len() <= 500,
             "too many AgentRuns requested"

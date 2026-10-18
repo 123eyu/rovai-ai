@@ -8075,7 +8075,7 @@ fn session_additional_directories(
     run_tmp: Option<&Path>,
 ) -> Result<Vec<String>> {
     let attachment_root = attachment_access_root.context(
-        "camp_attachment_view_runtime_unsupported: ACP Session has no exact Camp attachment root",
+        "camp_attachment_view_runtime_unsupported: ACP Session has no exact Thread attachment root",
     )?;
     let run_tmp = run_tmp.context("ACP Session has no exact Built-in Tool Run tmp root")?;
     Ok(vec![

@@ -1129,19 +1129,19 @@ pub(crate) fn validate_runtime_safe_leaf(value: &str) -> Result<()> {
 pub(crate) fn validate_runtime_source_tree(path: &Path, depth: usize) -> Result<()> {
     if depth > MAX_DIRECTORY_DEPTH {
         return Err(anyhow::Error::new(LocalAttachmentError::Limit)
-            .context("Camp Attachment Runtime View source exceeds the depth limit"));
+            .context("Thread Attachment Runtime View source exceeds the depth limit"));
     }
     let source = open_source_without_following(path)?;
     let metadata = inspect_open_node(&source)?;
     if metadata.kind == OpenedNodeKind::RegularFile {
         if metadata.link_count != 1 {
-            anyhow::bail!("Camp Attachment Runtime View source contains a hard-linked file");
+            anyhow::bail!("Thread Attachment Runtime View source contains a hard-linked file");
         }
         return Ok(());
     }
     if metadata.kind != OpenedNodeKind::Directory {
         return Err(anyhow::Error::new(LocalAttachmentError::Unsupported)
-            .context("Camp Attachment Runtime View source contains an unsupported node"));
+            .context("Thread Attachment Runtime View source contains an unsupported node"));
     }
     let mut children = fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
     children.sort_by_key(|entry| entry.file_name());

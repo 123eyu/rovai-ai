@@ -132,6 +132,7 @@ function errorFromUnknown(): FilePreviewErrorPayload {
 
 export function filePreviewErrorMessage(error: Pick<FilePreviewErrorPayload, 'code'>): string {
   switch (error.code) {
+    case 'file_changed': return uiAttribute('文件已变化，请刷新预览后重试。')
     case 'preview_timeout': return uiAttribute('未收到预览服务响应，请重试。')
     case 'file_not_found': return uiAttribute('找不到这个文件')
     case 'attachment_missing': return uiAttribute('找不到这个附件')

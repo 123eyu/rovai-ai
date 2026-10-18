@@ -235,6 +235,30 @@ describe('console transport', () => {
     expect(refreshed.uploadProgress).toEqual([])
   })
 
+  it('keeps a healthy page usable when a cancelled upload still has an unknown receipt', async () => {
+    const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+      if (String(url).endsWith('/uploads')) return new Promise((_resolve, reject) => {
+        options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      })
+      if (String(url).endsWith('/uploads/reconcile')) return Response.json({ state: 'unknown' })
+      return Response.json({ result: {} })
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher)
+    await client.login('b'.repeat(64))
+    const uploaded = client.uploadFile('one', 1, new File(['bytes'], 'file.bin'))
+    const cancelled = expect(uploaded).rejects.toThrow('已取消上传')
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/uploads'))).toBe(true))
+    client.cancelUpload(client.uploadProgress[0].id)
+    await cancelled
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/uploads/reconcile'))).toBe(true))
+    expect(client.connectionState).toBe('live')
+    expect(client.pendingCommandCount).toBe(1)
+    expect(client.uploadProgress[0]).toMatchObject({ cancelled: true, phase: 'unknown' })
+    await expect(client.request('app.info')).resolves.toEqual({})
+    client.clear()
+  })
+
   it('cancels an explicitly retried upload with the original operation identity', async () => {
     const intents: string[] = []
     let retrySignal: AbortSignal | null | undefined

@@ -232,3 +232,22 @@ it('confirms uploaded image bindings before reusing local bytes and falls back f
     expect(transport.confirmedUpload('camp', digest, file.size)).toBeNull()
   } finally { transport.clear() }
 })
+
+
+it('preserves changed-file download errors for preview refresh without starting a download', async () => {
+  const storage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined }
+  vi.stubGlobal('sessionStorage', storage); vi.stubGlobal('localStorage', storage)
+  vi.stubGlobal('navigator', { platform: 'MacIntel' })
+  vi.stubGlobal('window', { sessionStorage: storage, history: { state: null } })
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  const fetcher = vi.fn<typeof fetch>(async url => String(url).endsWith('/login')
+    ? Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user', fileTransfers: { nativeDownload: true } })
+    : Response.json({ error: { code: 'file_changed' } }, { status: 409 }))
+  const transport = new ConsoleClient('http://127.0.0.1:8768', fetcher)
+  await transport.login('b'.repeat(64))
+  const { environment } = createThreadAdapter(transport, async () => null)
+  const result = await environment.files.download!({ handleId: 'preview', expectedGeneration: 'seen' })
+  expect(result).toMatchObject({ ok: false, error: { code: 'file_changed', retryable: true } })
+  expect(fetcher.mock.calls.at(-1)?.[0]).toBe('http://127.0.0.1:8768/api/v1/downloads')
+  transport.clear()
+})

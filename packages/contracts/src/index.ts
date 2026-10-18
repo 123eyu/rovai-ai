@@ -1682,6 +1682,7 @@ export type OpenFilePreviewResult =
   | { kind: 'opened_in_system'; fileName: string }
 
 export type FilePreviewErrorCode =
+  | 'file_changed'
   | 'preview_timeout'
   | 'source_not_authorized'
   | 'reference_not_clickable'

@@ -253,6 +253,7 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
   const committedUrl = useRef<string | null>(null)
   const ownedUrls = useRef(new Set<string>())
   const canDownload = source.kind === 'attachment' && client.attachments.kind === 'download'
+  const downloadAvailable = canDownload && ['available', 'unknown'].includes(availability)
 
   const downloadFile = async (): Promise<void> => {
     if (source.kind !== 'attachment' || client.attachments.kind !== 'download' || actionPending.current) return
@@ -260,6 +261,7 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
     setAction('save'); setActionNotice(uiAttribute('准备下载…'))
     try {
       const result = await client.attachments.download(source.locator)
+      setAvailability(result.availability)
       if (result.error) throw new Error(uiAttribute('下载附件失败'))
       setActionNotice(uiAttribute('已交给浏览器下载。'))
     } catch (error) {
@@ -336,7 +338,8 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
     displayName={source.image.displayName} ready={Boolean(url)} busy={action}
     hasPath={Boolean(fileLocation.location?.path)}
     revealLabel={menu && source.kind === 'attachment' && client.attachments.kind === 'native' ? attachmentRevealLabel(client.platform) : undefined}
-    onAction={value => { void runImageAction(value) }} />
+    saveLabel={canDownload ? uiAttribute('下载原图') : undefined} canSave={canDownload ? downloadAvailable : Boolean(url)}
+    onAction={value => { void (value === 'save' && canDownload ? downloadFile() : runImageAction(value)) }} />
 
   const createOwnedUrl = useCallback((blob: Blob): string => {
     const nextUrl = URL.createObjectURL(blob)
@@ -447,39 +450,51 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
         ? uiAttribute('文件类型已变化')
         : canDownload && availability === 'available' ? uiAttribute('暂不支持预览') : uiAttribute('图片已不可用')
   const loading = !url && !failed
+  const canOpen = Boolean(url) || (canDownload && failed)
 
   return (
     <figure className="image-tile" ref={tile} title={fileLocation.label}
       onMouseEnter={fileLocation.inspect} onFocus={fileLocation.inspect}
-      onContextMenu={showMenu}>
+      onContextMenu={event => event.preventDefault()}>
       <button type="button" className="image-tile-preview"
-        aria-disabled={!url}
+        aria-disabled={!canOpen}
         aria-label={uiAttribute("查看大图 {0}", String(source.image.displayName))}
         aria-busy={loading}
-        onClick={() => { if (url) showPreview() }}
-        onKeyDown={showMenu}>
+        onClick={() => { if (canOpen) showPreview() }}>
         {url ? <img src={url} alt={source.image.displayName} />
           : <span className="image-tile-placeholder">
               {failed ? unavailableLabel : uiAttribute("正在读取图片…")}
             </span>}
       </button>
-      {canDownload && <button type="button" className="image-download" disabled={action !== null}
-        aria-label={uiAttribute('下载文件 {0}', source.image.displayName)} onClick={() => { void downloadFile() }}>
-        <UiText zh={action === 'save' ? '准备下载…' : '下载文件'} />
-      </button>}
+
       {notice && <figcaption className="image-tile-notice" role="status">{notice}</figcaption>}
-      {!open && contextMenu}
-      {actionNotice && createPortal(<div className="image-action-notice" role="status" aria-hidden={open || undefined}>{actionNotice}</div>, document.body)}
-      {url && (
-        <Dialog.Root open={open} onOpenChange={setOpen}>
+      {actionNotice && !open && createPortal(<div className="image-action-notice" role="status">{actionNotice}</div>, document.body)}
+      {canOpen && (
+        <Dialog.Root open={open} onOpenChange={value => { setOpen(value); if (!value) setMenu(null) }}>
           <Dialog.Portal>
             <Dialog.Overlay className="attachment-lightbox-overlay" />
             <Dialog.Content className="attachment-lightbox image-gallery-lightbox" aria-describedby={undefined}
               onContextMenu={showMenu} onKeyDown={showMenu}
-              onCloseAutoFocus={(event) => { event.preventDefault() }}>
+              onCloseAutoFocus={event => { event.preventDefault(); tile.current?.querySelector<HTMLButtonElement>('.image-tile-preview')?.focus({ preventScroll: true }) }}>
               <Dialog.Title className="sr-only"><UiText zh={"图片预览"} /></Dialog.Title>
-              <span className="sr-only" role="status">{actionNotice}</span>
-              <img src={url} alt={source.image.displayName} />
+              {url ? <img src={url} alt={source.image.displayName} /> : <div className="image-lightbox-unavailable">
+                <p>{availability === 'available' ? uiAttribute('此图片暂不支持在线预览，可下载到本机查看。') : unavailableLabel}</p>
+              </div>}
+              <div className="image-lightbox-actions">
+                <button type="button" className="file-action-button" title={uiAttribute('复制图片')} aria-label={uiAttribute('复制图片')}
+                  disabled={action !== null || !url} onClick={() => void runImageAction('copy')}>
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M12 7V3H3v9h4"/></svg>
+                </button>
+                {(canDownload ? downloadAvailable : Boolean(url)) && <button type="button" className="file-action-button"
+                  title={action === 'save' ? uiAttribute('准备下载…') : canDownload ? uiAttribute('下载原图') : uiAttribute('保存图片')}
+                  aria-label={canDownload ? uiAttribute('下载原图') : uiAttribute('保存图片')} aria-busy={action === 'save'} disabled={action !== null}
+                  onClick={() => void (canDownload ? downloadFile() : runImageAction('save'))}>
+                  <svg viewBox="0 0 20 20" aria-hidden="true" className={action === 'save' ? 'file-action-spinner' : undefined}>
+                    <path d={action === 'save' ? 'M17 10a7 7 0 1 1-7-7' : 'M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4'} />
+                  </svg>
+                </button>}
+              </div>
+              {actionNotice && <div className="image-lightbox-feedback" role="status">{actionNotice}</div>}
               <Dialog.Close className="attachment-lightbox-close" aria-label={uiAttribute("关闭图片预览")}>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m5 5 8 8M13 5l-8 8" /></svg>
               </Dialog.Close>

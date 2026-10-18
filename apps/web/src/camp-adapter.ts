@@ -3,7 +3,7 @@ import { browserMemberAvatars } from './member-avatars'
 import type { ThreadClient } from '../../desktop/src/renderer/src/camp-client'
 import type { BusinessEnvironment } from '../../desktop/src/renderer/src/business-environment'
 import type { ThreadReadInvalidation, SingleChatSnapshot, CoreMethod, FilePreviewApi, FilePreviewExternalUpdateEvent, FilePreviewOperationResult, OpenFilePreviewResult, RestoreFilePreviewRequest, LocalAttachmentSourceView } from '@contracts'
-import { ConsoleClient, WEB_OPERATIONS, type WebOperation } from './client'
+import { ConsoleClient, HttpRequestError, WEB_OPERATIONS, type WebOperation } from './client'
 import { createBrowserNavigationHistory } from './navigation-history'
 import { browserEditingRecovery } from './editing-recovery'
 import { browserPreferences } from './preferences'
@@ -151,12 +151,12 @@ export function createThreadAdapter(transport: ConsoleClient, selectWorkspaceDir
     release: async request => { names.delete(request.handleId); paths.delete(request.handleId); sources.delete(request.handleId); syncWatch(); return transport.files('release', request) },
     downloadSource: transport.nativeDownload ? async source => {
       try { await transport.download({ kind: 'source', source }); return { ok: true, value: { started: true } } }
-      catch (error) { return { ok: false, error: { code: 'read_failed', message: error instanceof Error ? error.message : '下载申请失败，请重试。', retryable: true } } }
+      catch (error) { return { ok: false, error: { code: error instanceof HttpRequestError && error.code === 'file_changed' ? 'file_changed' : 'read_failed', message: error instanceof Error ? error.message : '下载申请失败，请重试。', retryable: true } } }
     } : undefined,
     download: async request => {
       if (transport.nativeDownload) {
         try { await transport.download({ kind: 'preview', ...request }); return { ok: true, value: { started: true } } }
-        catch (error) { return { ok: false, error: { code: 'read_failed', message: error instanceof Error ? error.message : '下载申请失败，请重试。', retryable: true } } }
+        catch (error) { return { ok: false, error: { code: error instanceof HttpRequestError && error.code === 'file_changed' ? 'file_changed' : 'read_failed', message: error instanceof Error ? error.message : '下载申请失败，请重试。', retryable: true } } }
       }
       // Legacy Hosts retain their bounded preview download only.
       const result = await transport.fileBytes('download', request)

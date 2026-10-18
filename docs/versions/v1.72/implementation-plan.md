@@ -3,10 +3,38 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # v1.72 实施与验收
+
+## 文件查看与下载交互落地（2026-10-18）
+
+沿用 `rovai/web-file-transfers` 工作树；合并主线 `80d11450b` 的断线恢复后，将已确认的 A 方案接入正式组件。
+会话卡片整行打开、Agent 文件列表每行 56px，下载只位于查看界面；Diff/Patch 不提供下载，图片不新增可见标题。
+HTML 预览／源码与下载统一图标，图片灯箱提供复制及浏览器原图下载／本机保存，手机触区为 44×44px。
+文件恢复页和图片解码失败灯箱仍可按有效来源下载；文件已变化保留结构化错误，提供刷新预览入口。
+
+复用既有下载、预览、上传恢复 owner，不新增平台或状态机。与主线合并时保留统一断线恢复入口，上传仍使用
+原 commandId 和 Core 回执；刷新丢失字节先恢复连接再重选，摘要阶段断线释放本地进度记录。
+
+真实 Host 验收发现并修正合并边界：主动取消上传只保留原操作的未知回执，不将健康页面切入全页断线恢复；
+真正断线仍走统一恢复。既有 ConsoleClient owner 增加取消后仍可正常请求、原回执未丢失的用例。
+同步协议测试的 schema 断言到本次合入主线的 155，保留其余指纹及兼容性断言。
+
+验收结果（均在隔离数据及浏览器配置中运行，不使用日常 App 数据）：
+
+- `pnpm typecheck`、`pnpm build:desktop` 通过；最后的取消修复重新执行 `pnpm build:web` 通过。
+- `pnpm test`：Vitest 247 文件、2745 项通过；Node 脚本 355 项通过、2 项既有平台跳过；文档与 Skill 检查通过。
+- `pnpm test:rust:pr`：475 passed、0 failed、1 个既有 ignored；本轮未新增 Rust 测试函数。
+- `pnpm test:file-preview-layout`、`pnpm test:html-preview`（5 项）、`pnpm test:host-web-recovery`、
+  `pnpm test:host-web-recovery-live` 与 `pnpm test:host-web-html` 全部通过。
+  真实 Host 覆盖 HTML 交互／源码、二进制下载、同页重登后下载、图片解码失败仍下载、Diff 无下载、上传超限／取消／重选；
+  HTML、二进制及图片下载逐字节比对，确认新下载未额外创建整文件 Blob。
+- 正式组件视觉夹具验证日夜主题、桌面及 375px 手机视口：文件列表 56px，图标桌面 32px、手机 44px；
+  文件变化提示可刷新，图片灯箱无新增标题，超预览预算仍有下载。未将夹具 HTML 通道用于正式实现。
+
+仅 macOS 隔离环境和浏览器响应式视口，不代替 Linux/Windows 原生或实体手机验收。
 
 ## 文件传输审查收尾（2026-10-17）
 

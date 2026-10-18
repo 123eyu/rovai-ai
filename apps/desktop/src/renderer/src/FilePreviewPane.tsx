@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { usePreviewHost } from './FilePreviewContext'
 import { FilePreviewTabs } from './FilePreviewTabs'
 import { useOptionalFilePreviewLayout } from './FilePreviewLayout'
@@ -340,23 +341,48 @@ function Viewer({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element {
   return <SourceViewer tab={tab} />
 }
 
-function FileDownloadAction({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element | null {
-  const api = useFilePreviewApi()
-  const { download } = useFilePreview()
+function canDownloadFile(tab: FilePreviewTabModel, api: ReturnType<typeof useFilePreviewApi>): boolean {
+  if (tab.file?.kind === 'patch' || tab.content?.kind === 'patch' || /\.(diff|patch)$/i.test(tab.presentation.fileName)) return false
+  return Boolean(api.download && (tab.file || api.downloadSource)
+    && (tab.content || !['source_not_authorized', 'file_not_found', 'attachment_missing'].includes(tab.error?.code ?? '')))
+}
+
+function FileDownloadAction({ tab, full = false }: { tab: FilePreviewTabModel; full?: boolean }): React.JSX.Element {
+  const { download, reload } = useFilePreview()
   const pending = useRef(false)
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  if (!api.download || (!tab.file && !api.downloadSource)) return null
-  return <div className="file-download-action">
-    <span role="status">{notice}</span>
-    <button type="button" className="quiet-button compact" disabled={busy || tab.loadState === 'opening'} onClick={() => {
-      if (pending.current) return
-      pending.current = true; setBusy(true); setNotice(null)
-      void download(tab.id).then(result => setNotice(result.ok ? uiAttribute('已交给浏览器下载。') : result.error.message))
-        .catch(error => setNotice(error instanceof Error ? error.message : uiAttribute('下载申请失败，请重试。')))
-        .finally(() => { pending.current = false; setBusy(false) })
-    }}>{busy ? uiAttribute('准备下载…') : uiAttribute('下载文件')}</button>
-  </div>
+  const [notice, setNotice] = useState<{ text: string; changed?: boolean; failed?: boolean } | null>(null)
+  useEffect(() => {
+    if (!notice || notice.failed) return
+    const timer = setTimeout(() => setNotice(null), 3200)
+    return () => clearTimeout(timer)
+  }, [notice])
+  const label = busy ? uiAttribute('准备下载…') : uiAttribute('下载文件')
+  return <>
+    <button type="button" className={`file-action-button file-download-action${full ? ' file-download-recovery' : ''}`}
+      aria-label={label} title={label} aria-busy={busy} disabled={busy || tab.isRefreshing || tab.loadState === 'opening'} onClick={() => {
+        if (pending.current) return
+        pending.current = true; setBusy(true); setNotice(null)
+        void download(tab.id).then(result => setNotice(result.ok ? { text: uiAttribute('已交给浏览器下载。') }
+          : { text: result.error.message, changed: result.error.code === 'file_changed', failed: true }))
+          .catch(error => setNotice({ text: error instanceof Error ? error.message : uiAttribute('下载申请失败，请重试。'), failed: true }))
+          .finally(() => { pending.current = false; setBusy(false) })
+      }}>
+      <svg viewBox="0 0 20 20" aria-hidden="true" className={busy ? 'file-action-spinner' : undefined}>
+        <path d={busy ? 'M17 10a7 7 0 1 1-7-7' : 'M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4'} />
+      </svg>
+    </button>
+    {notice && createPortal(<div className="image-action-notice file-download-notice" role={notice.failed ? 'alert' : 'status'}>
+      <span>{notice.text}</span>
+      {notice.changed && <button type="button" className="file-action-button" title={uiAttribute('刷新预览')} aria-label={uiAttribute('刷新预览')}
+        onClick={() => { setNotice(null); void reload(tab.id) }}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 7V3l-2 2a7 7 0 1 0 2.5 8M12 7h4" /></svg>
+      </button>}
+      {notice.failed && <button type="button" className="file-action-button" title={uiAttribute('关闭提示')} aria-label={uiAttribute('关闭提示')} onClick={() => setNotice(null)}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+      </button>}
+    </div>, document.body)}
+  </>
 }
 
 function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.Element {
@@ -366,6 +392,8 @@ function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.E
   useEffect(() => setPathActionError(null), [tab.file?.handleId, tab.id])
   useEffect(() => { if (tab.file && tab.content && tab.content.kind !== 'html') displayed(tab.id, tab.file.handleId) }, [tab.file?.handleId, tab.content, tab.id, displayed])
   const page = tab.content?.kind === 'page' ? tab.content.page : null
+  const downloadAvailable = canDownloadFile(tab, api)
+  const downloadAction = downloadAvailable ? <FileDownloadAction key={tab.id} tab={tab} /> : null
   const showPath = tab.loadState === 'ready' && previewPathIsVisible(tab.presentation)
   const showUpdate = tab.loadState === 'ready' && Boolean(tab.file)
     && (tab.hasExternalUpdate || tab.isRefreshing)
@@ -398,16 +426,15 @@ function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.E
     </span>}
   </> : null
   if (tab.content?.kind === 'html') {
-    return <><FileDownloadAction key={tab.id} tab={tab} /><HtmlViewer tab={tab} pathControl={pathControl} updateAction={tab.isRefreshing ? null : updateAction} /></>
+    return <HtmlViewer tab={tab} downloadAction={downloadAction} pathControl={pathControl} updateAction={tab.isRefreshing ? null : updateAction} />
   }
   return (
     <>
-      <FileDownloadAction key={tab.id} tab={tab} />
-      {showPath && <div className="file-preview-path-row">
+      {(showPath || updateAction || (tab.content && downloadAvailable)) && <div className={showPath || downloadAvailable ? "file-preview-path-row" : "file-preview-update-row"}>
         {pathControl}
         {updateAction}
+        {downloadAction}
       </div>}
-      {!showPath && updateAction && <div className="file-preview-update-row">{updateAction}</div>}
       <div className="file-preview-content">
         {tab.loadState === 'opening' && !tab.content && (
           <OpeningIndicator />
@@ -416,8 +443,10 @@ function FilePreviewDocument({ tab }: { tab: FilePreviewTabModel }): React.JSX.E
           <div className="file-preview-recovery-stage">
             <div className="file-preview-recovery" role="status" aria-live="polite">
               <ResourceReferenceIcon kind="file" className="file-preview-recovery-icon" />
+              {downloadAvailable && <strong className="file-preview-unavailable-name">{tab.presentation.fileName}</strong>}
               <p>{api.downloadSource && ['decode_failed', 'file_too_large'].includes(tab.error?.code ?? '')
                 ? uiAttribute('此文件暂不支持在线预览，可下载到本机查看。') : tab.error?.message ?? uiAttribute("暂时无法读取文件")}</p>
+              {downloadAvailable && <FileDownloadAction key={tab.id} tab={tab} full />}
               {tab.file?.kind === 'html' && <button type="button" onClick={() => void retry(tab.id)}><UiText zh={"重试"} /></button>}
             </div>
           </div>

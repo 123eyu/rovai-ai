@@ -273,7 +273,7 @@ export function AttachmentCard({
   const detailLabel = availabilityLabel ?? (agentPresentation
     ? attachment.kind === 'directory'
       ? `${attachment.fileCount === null ? uiAttribute('文件数未知') : uiAttribute("{0} 个文件", String(attachment.fileCount))} · ${attachment.byteSize === null ? uiAttribute('大小未知') : formatByteSize(attachment.byteSize)}`
-      : `${attachmentTypeLabel(attachment.mediaType)} · ${attachment.byteSize === null ? uiAttribute('大小未知') : formatByteSize(attachment.byteSize)}`
+      : `${formatLabel} · ${attachment.byteSize === null ? uiAttribute('大小未知') : formatByteSize(attachment.byteSize)}`
     : null)
 
   const content = composerImage
@@ -299,19 +299,11 @@ export function AttachmentCard({
           <span className="attachment-copy">
             <span className="attachment-title-line">
               <strong title={fileLocation.label ?? attachment.displayName}>{baseName}</strong>
-              <FileExtensionLabel>{formatLabel}</FileExtensionLabel>
+              {!agentPresentation && <FileExtensionLabel>{formatLabel}</FileExtensionLabel>}
             </span>
             {detailLabel && <small>{detailLabel}</small>}
           </span>
-          {agentPresentation && (
-            <span className="agent-file-open-cue" aria-hidden="true">
-              <svg viewBox="0 0 18 18">
-                <path d="M10.3 3.3h4.4v4.4M14.5 3.5 8.6 9.4" />
-                <path d="M13.5 9.5v4.3H3.8v-9.7h4.3" />
-              </svg>
-              <span><UiText zh={"打开"} /></span>
-            </span>
-          )}
+
         </>
       )
 
@@ -393,14 +385,14 @@ export function AttachmentCard({
                         <small>{attachment.kind === 'directory' ? uiAttribute("文件夹") : attachmentTypeLabel(attachment.mediaType)}</small>
                       </DropdownMenu.Label>
                       <AttachmentLocationItems path={fileLocation.location?.path} label={fileLocation.label} onNotify={onNotify} />
-                      <DropdownMenu.Item
+                      {client.attachments.kind === 'native' && <DropdownMenu.Item
                         className="attachment-context-menu-item"
                         disabled={disabled || attachmentAction !== null}
                         onSelect={() => void runAttachmentAction('open', true)}
                       >
                         <AttachmentOpenGlyph kind={attachment.kind} />
                         <span>{systemOpenLabel}</span>
-                      </DropdownMenu.Item>
+                      </DropdownMenu.Item>}
                       {client.attachments.kind === 'native' && <>
                       <DropdownMenu.Separator className="attachment-context-menu-separator" />
                       <DropdownMenu.Item
@@ -435,12 +427,7 @@ export function AttachmentCard({
               </button>
             )
           : <div className="attachment-open">{content}</div>}
-      {client.attachments.kind === 'download' && attachment.kind === 'file' && <button
-        className="attachment-download" type="button" disabled={disabled || attachmentAction !== null}
-        aria-label={uiAttribute('下载文件 {0}', attachment.displayName)}
-        title={attachmentAction ? uiAttribute('准备下载…') : uiAttribute('下载文件')}
-        onClick={() => void runAttachmentAction('open', true)}
-      ><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg></button>}
+
       {!previewOpen && imageContextMenu}
       {imageNotice && createPortal(<div className="image-action-notice" role="status" aria-hidden={previewOpen || undefined}>{imageNotice}</div>, document.body)}
       {hasImagePreview && (

@@ -947,7 +947,7 @@
   "操作未完成": "Operation not completed",
   "重新载入": "Reload",
   "保留草稿并重试": "Keep draft and retry",
-  "关闭提示": "Close prompt",
+  "关闭提示": "Dismiss message",
   "定时任务列表": "Scheduled task list",
   "安排一次，按时执行。": "Schedule once and execute on time.",
   "新建": "New",
@@ -2476,7 +2476,7 @@
   "关闭 {0}": "Close {0}",
   "{0} 操作": "{0} operation",
   "复制文件名": "Copy filename",
-  "查看源码": "View source code",
+  "查看源码": "View source",
   "简体中文": "Simplified Chinese",
   "复制{0}": "Copy {0}",
   "{0}二维码": "{0} QR code",
@@ -3926,5 +3926,11 @@
   "取消上传": "Cancel upload",
   "暂不支持预览": "Preview unavailable",
   "此文件暂不支持在线预览，可下载到本机查看。": "This file cannot be previewed online. Download it to view on your device.",
-  "可重新选择原文件，继续核对或重试原上传。": "Select the original file again to check or retry the same upload."
+  "可重新选择原文件，继续核对或重试原上传。": "Select the original file again to check or retry the same upload.",
+  "HTML 视图": "HTML view",
+  "下载原图": "Download original image",
+  "此图片暂不支持在线预览，可下载到本机查看。": "This image cannot be previewed online. Download it to view on your device.",
+  "刷新预览": "Refresh preview",
+  "保存图片": "Save image",
+  "文件已变化，请刷新预览后重试。": "The file has changed. Refresh the preview and try again."
 }

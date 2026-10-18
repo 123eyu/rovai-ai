@@ -29,7 +29,7 @@ const transferErrors: Record<string, string> = {
   download_unavailable: '文件暂不可读，请稍后重试。'
 }
 
-class HttpRequestError extends Error {
+export class HttpRequestError extends Error {
   constructor(readonly status: number, readonly code: string, message?: string) { super(message || transferErrors[code] || `请求未完成（${code}）。`) }
 }
 
@@ -829,7 +829,13 @@ export class ConsoleClient {
         if (error instanceof HttpRequestError && error.code === 'draft_changed'
           || !preserveUnknown && (error instanceof SessionRequired || error instanceof ConnectionUnavailable || (error instanceof HttpRequestError && [ 'invalid_upload', 'upload_too_large', 'upload_envelope_too_large', 'upload_changed_or_session_expired', 'upload_conflict', 'upload_capacity'].includes(error.code)))) {
           if (this.#pendingUploads.get(commandId) === entry) { this.#pendingUploads.delete(commandId); this.#uploadControllers.delete(commandId); this.dismissUpload(commandId); this.#notifyPending(); entry.reject(error) }
-        } else { this.#uploadPhase(commandId, 'unknown'); this.#requireRecovery(); await this.reconcilePending() }
+        } else {
+          this.#uploadPhase(commandId, 'unknown')
+          // An explicit cancellation keeps its uncertain receipt, but does not
+          // mean that the healthy connection or the rest of the page is blocked.
+          if (!entry.cancelled) this.#requireRecovery()
+          await this.reconcilePending()
+        }
       })
   }
 

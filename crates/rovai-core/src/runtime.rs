@@ -3629,6 +3629,15 @@ impl ExecutionRuntimeService {
         })
     }
 
+    pub fn has_current_run_public_send(
+        &self,
+        database: &Database,
+        agent_run_id: &str,
+        execution_epoch: i64,
+    ) -> Result<bool> {
+        has_current_run_public_send(database.connection(), agent_run_id, execution_epoch)
+    }
+
     pub fn succeed_agent_run(
         &self,
         database: &mut Database,
@@ -3691,9 +3700,7 @@ impl ExecutionRuntimeService {
         if envelope.payload.native_turn_id.trim().is_empty() {
             anyhow::bail!("nativeTurnId must not be empty");
         }
-        if envelope.payload.final_output.trim().is_empty() {
-            anyhow::bail!("successful AgentRun finalOutput must not be empty");
-        }
+        let has_final_output = !envelope.payload.final_output.trim().is_empty();
         let execution = self.gateway.execute(database, envelope, |transaction| {
             if !is_runtime_adapter(&envelope.actor) {
                 return Ok(rejected(
@@ -3714,6 +3721,15 @@ impl ExecutionRuntimeService {
             )? {
                 return Ok(rejection);
             }
+            if !has_final_output
+                && (target.invocation_kind == "single_chat"
+                    || !has_current_run_public_send(transaction, &target.agent_run_id, target.execution_epoch)?)
+            {
+                return Ok(rejected(
+                    "agent_run.missing_final_output",
+                    "Empty final output requires a committed public send from this Run and execution epoch",
+                ));
+            }
             if target.invocation_kind == "single_chat" {
                 return persist_single_chat_success(
                     transaction,
@@ -3731,13 +3747,14 @@ impl ExecutionRuntimeService {
                 .map(AdapterKind::public_output_mode)
                 .unwrap_or(PublicOutputMode::ExplicitSendOnly);
             let publication_allowed = terminal_publication_allowed(transaction, &target)?;
-            let final_output_digest =
+            let final_output_digest = has_final_output.then(||
                 canonical_content_digest(&[StructuredThreadMessageSegment::Text {
                     text: envelope.payload.final_output.clone(),
-                }])?;
+                }])).transpose()?;
             let (ordinary_final_camp_message_id, automatic_public_output_suppressed) =
                 if public_output_mode == PublicOutputMode::AssistantFinalVisible
                     && publication_allowed
+                    && has_final_output
                 {
                     // A Runtime may have already made the exact final answer public through
                     // `camp.message.send`. Suppress only that same Run + canonical body digest;
@@ -3771,7 +3788,7 @@ impl ExecutionRuntimeService {
                             transaction,
                             &target,
                             &envelope.payload.final_output,
-                            &final_output_digest,
+                            final_output_digest.as_deref().expect("nonempty final has a digest"),
                             &envelope.actor,
                             envelope.payload.execution_epoch,
                             "assistant_final_visible",
@@ -5378,6 +5395,41 @@ struct MissingSendRecoveryOutcome {
     candidate_boundary: Option<&'static str>,
     candidate_digest: Option<String>,
     message_id: Option<String>,
+}
+
+/// The successful send receipt, message, Run and execution epoch must agree.
+/// A prior epoch, rejected command, recalled message or another Run cannot
+/// substitute for this turn's output. Missing-send recovery has its separate,
+/// broader suppression rule because even withdrawn sends are side effects.
+fn has_current_run_public_send(connection: &Connection, run_id: &str, epoch: i64) -> Result<bool> {
+    Ok(connection.query_row(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM camp_message AS message
+            JOIN agent_run AS run ON run.id = message.source_agent_run_id
+            JOIN conversation ON conversation.id = run.conversation_id
+            LEFT JOIN camp_turn ON camp_turn.id = run.camp_turn_id
+            JOIN event_log AS outcome ON outcome.command_id = message.source_operation_id
+            WHERE run.id = ?1 AND run.execution_epoch = ?2
+              AND run.invocation_kind <> 'single_chat'
+              AND message.author_type = 'agent' AND message.author_id = conversation.agent_id
+              AND message.camp_id = COALESCE(run.camp_id, camp_turn.camp_id) AND message.tombstoned_at IS NULL
+              AND message.recall_state NOT IN ('recallable', 'withdrawn')
+              AND outcome.event_type = 'command.result'
+              AND outcome.command_type = 'thread.message.send'
+              AND outcome.result_status = 'accepted'
+              AND outcome.result_code = 'camp_message.send_accepted'
+              AND outcome.result_entity_type = 'camp_message'
+              AND outcome.result_entity_id = message.id
+              AND outcome.camp_id = message.camp_id
+              AND outcome.actor_type = 'agent' AND outcome.actor_id = conversation.agent_id
+              AND outcome.source_agent_run_id = run.id AND outcome.execution_epoch = ?2
+              AND json_extract(outcome.result_payload_json, '$.messageId') = message.id
+        )
+        "#,
+        params![run_id, epoch],
+        |row| row.get(0),
+    )?)
 }
 
 fn decide_missing_send_recovery(

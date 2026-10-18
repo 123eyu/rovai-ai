@@ -381,7 +381,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 // Only synthetic fixtures downgrade. Product migrations never change historical versions or bytes.
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
-    task_capability::downgrade_for_test(c);
+    super::minimax::downgrade_for_test(c);
     if !schema_matches(c) {
         return;
     }
@@ -508,6 +508,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
         .execute_batch("DROP TRIGGER reject_steer_migration;")
         .unwrap();
     migrate(database).unwrap();
+    database.migrate(false).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(database.connection()).unwrap()
@@ -523,7 +524,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
 pub(crate) fn assert_legacy_upgrade(database: &mut Database) {
     // Recreate the deployed branch 203 layout with populated input/receipt rows.
     // Only the fixture removes the compact columns; production converges forward.
-    task_capability::downgrade_for_test(database.connection());
+    super::minimax::downgrade_for_test(database.connection());
     let branch_rows = |c: &Connection| -> Vec<Vec<Vec<rusqlite::types::Value>>> {
         [
             "context_manifest",
@@ -578,7 +579,7 @@ pub(crate) fn assert_legacy_upgrade(database: &mut Database) {
     );
     database.migrate(false).unwrap();
     assert_eq!(branch_rows(database.connection()), branch_before);
-    task_capability::downgrade_for_test(database.connection());
+    super::minimax::downgrade_for_test(database.connection());
 
     // Build the source schema with the actual old migration, not by assuming
     // that a marker number or a handful of columns implies the old contract.
@@ -725,6 +726,7 @@ mod tests {
             let directory = std::env::temp_dir()
                 .join(format!("rovai-steer-migration-{source}-{}", Uuid::new_v4()));
             let mut database = crate::test_support::fresh_schema_database_fast_at(&directory);
+            super::minimax::downgrade_for_test(database.connection());
             match source {
                 148 => message_senders::downgrade_for_test(database.connection()),
                 149 => execution_storage::downgrade_for_test(database.connection()),
@@ -732,7 +734,7 @@ mod tests {
                 151 => unified_activity::downgrade_for_test(database.connection()),
                 152 => compact_execution::downgrade_for_test(database.connection()),
                 153 => downgrade_for_test(database.connection()),
-                154 => task_capability::downgrade_for_test(database.connection()),
+                154 => super::minimax::downgrade_for_test(database.connection()),
                 _ => {}
             }
             assert_eq!(
@@ -780,7 +782,7 @@ mod tests {
         let mut database = crate::test_support::fresh_schema_database_fast_at(&directory);
         // These faults own the deployed Steer shape. Current Task-capability
         // admission reuses the same retained identity checks.
-        task_capability::downgrade_for_test(database.connection());
+        super::minimax::downgrade_for_test(database.connection());
         for fault in [
             "compact_view",
             "compact_guard",

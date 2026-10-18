@@ -18,6 +18,8 @@ mod member_routing;
 mod message_mentions;
 #[path = "db_message_senders.rs"]
 mod message_senders;
+#[path = "db_minimax.rs"]
+mod minimax;
 #[path = "db_mission_context.rs"]
 mod mission_context;
 #[path = "db_mission_description.rs"]
@@ -456,7 +458,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 156;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 157;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -937,6 +939,7 @@ struct CurrentMigrationState {
     v204: bool,
     v205: bool,
     v206: bool,
+    v207: bool,
 }
 
 impl CurrentMigrationState {
@@ -958,6 +961,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v207 {
+            let mut previous = *self;
+            previous.v207 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 157
+                && self.v206
+                && previous.admits("v1.72", 156, classifier);
+        }
         if self.v206 {
             let mut previous = *self;
             previous.v206 = false;
@@ -3152,7 +3163,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
             contract == CURRENT_DATA_CONTRACT_VERSION
                 && matches!(
                     schema,
-                    145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156
+                    145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156 | 157
                 )
         })
     {
@@ -3562,7 +3573,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156
+            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156 | 157
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3572,6 +3583,7 @@ pub(crate) fn classify_database_contract(
             |row| row.get(0),
         )?;
         let valid = completed
+            && (marker.projection_schema_version < 155 || minimax::schema_matches(connection)?)
             && marker.classifier_version == V147_CLASSIFIER_VERSION
             && simplification::current_structure_matches(connection)?
             && (marker.projection_schema_version < 146
@@ -3582,11 +3594,11 @@ pub(crate) fn classify_database_contract(
                 } else if marker.projection_schema_version == 148 {
                     claim_context::schema_matches(connection)
                 } else {
-                    if marker.projection_schema_version == 156 {
+                    if marker.projection_schema_version == 157 {
                         task_capability::schema_matches(connection)?
-                    } else if marker.projection_schema_version == 155 {
+                    } else if marker.projection_schema_version == 156 {
                         task_capability::legacy_schema_matches(connection)?
-                    } else if marker.projection_schema_version == 154 {
+                    } else if marker.projection_schema_version >= 154 {
                         steer::schema_matches(connection)
                     } else {
                         steer::pre_steer_schema_matches(connection)
@@ -5851,7 +5863,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 203),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 204),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=205),
-            EXISTS(SELECT 1 FROM schema_migration WHERE version=206)
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=206),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=207)
         "#,
         [],
         |row| {
@@ -5993,6 +6006,7 @@ fn load_current_migration_state(
                 v204: row.get(134)?,
                 v205: row.get(135)?,
                 v206: row.get(136)?,
+                v207: row.get(137)?,
             })
         },
     )
@@ -9259,11 +9273,14 @@ impl Database {
                 migration_step!("migration_204", steer::migrate(self));
             }
             if !self.schema_migration_applied(205)? {
-                migration_step!("migration_205", task_capability::migrate(self));
+                migration_step!("migration_205", minimax::migrate(self));
             }
             if !self.schema_migration_applied(206)? {
+                migration_step!("migration_206", task_capability::migrate(self));
+            }
+            if !self.schema_migration_applied(207)? {
                 migration_step!(
-                    "migration_206",
+                    "migration_207",
                     task_capability::migrate_notification_boundary(self)
                 );
             }
@@ -10099,11 +10116,14 @@ impl Database {
             migration_step!("migration_204", steer::migrate(self));
         }
         if !self.schema_migration_applied(205)? {
-            migration_step!("migration_205", task_capability::migrate(self));
+            migration_step!("migration_205", minimax::migrate(self));
         }
         if !self.schema_migration_applied(206)? {
+            migration_step!("migration_206", task_capability::migrate(self));
+        }
+        if !self.schema_migration_applied(207)? {
             migration_step!(
-                "migration_206",
+                "migration_207",
                 task_capability::migrate_notification_boundary(self)
             );
         }
@@ -41592,9 +41612,21 @@ mod tests {
                 command_code_runtime_v185_schema_matches as Matches,
                 run_continuation::migrate as Migrate,
             ),
+            (
+                205,
+                154,
+                false,
+                minimax::rewrite as Rewrite,
+                minimax::schema_matches as Matches,
+                minimax::migrate as Migrate,
+            ),
         ] {
             let (mut database, directory) = crate::test_support::seeded_runtime_database();
-            user_anchors::downgrade_for_test(database.connection());
+            if version == 205 {
+                task_capability::downgrade_for_test(database.connection());
+            } else {
+                user_anchors::downgrade_for_test(database.connection());
+            }
             let native_description = if version == 186 {
                 let created = crate::mission::MissionService::default().create(&mut database, &crate::command::CommandEnvelope {
                     command_id: "main-185-migration".into(), actor: crate::command::ActorRef::User{user_id:"local_user".into()}, camp_id:None, expected_versions:vec![],execution_epoch:None,
@@ -41618,10 +41650,12 @@ mod tests {
                     .unwrap();
                 Some((id, content))
             } else {
-                mission_description::downgrade_for_test(database.connection());
+                if version != 205 {
+                    mission_description::downgrade_for_test(database.connection());
+                }
                 None
             };
-            if !main_continuation {
+            if !main_continuation && version != 205 {
                 run_continuation::downgrade_for_test(database.connection());
             }
             if version == 184 {
@@ -41884,6 +41918,7 @@ mod tests {
             v204: version >= 204,
             v205: version >= 205,
             v206: version >= 206,
+            v207: version >= 207,
         }
     }
 
@@ -41986,10 +42021,10 @@ mod tests {
     fn current_migration_state_admission_matrix() {
         let supported = [
             (
-                "v1.72/schema 155 before fixed Task notification boundary",
+                "v1.72/schema 156 before fixed Task notification boundary",
                 "v1.72",
-                155,
-                205,
+                156,
+                206,
             ),
             ("v1.59/schema 106 before DSH", "v1.59", 106, 156),
             ("v1.59/schema 107 before Mission context", "v1.59", 107, 157),
@@ -42084,7 +42119,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                206,
+                207,
             ),
             (
                 "v1.72/schema 152 before compact operations",
@@ -42660,7 +42695,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(206);
+        let current = migration_state_through(207);
         assert!(current.admits(
             CURRENT_DATA_CONTRACT_VERSION,
             CURRENT_PROJECTION_SCHEMA_VERSION,
@@ -43312,7 +43347,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(206));
+        assert_eq!(state, migration_state_through(207));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43369,7 +43404,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=206", [])
+                        .execute("DELETE FROM schema_migration WHERE version=207", [])
                         .unwrap();
                 }
                 "steer_identity" => {
@@ -43434,7 +43469,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<206;
+                "DELETE FROM schema_migration WHERE version<207;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();
@@ -55839,7 +55874,7 @@ mod tests {
             connection,
             &[
                 58, 59, 60, 61, 62, 67, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
-                102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205, 206,
+                102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205, 206, 207,
             ],
         );
         for table in [

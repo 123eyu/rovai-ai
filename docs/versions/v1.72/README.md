@@ -19,6 +19,29 @@ R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前�
 界面入口采用执行／队员／单聊／任务，数字快捷键一次性迁移为 1–4。
 功能、隔离 App 验证与回归结果见[实施与验证记录](task-capability-implementation.md)。Task 草稿已补齐提交生命周期，关闭重开保留未决状态，原样重试复用命令身份，成功只清除对应输入版本。上一轮已修正普通 CLI 入口并完成同一真实 Run 中的切换与发送验证；固定候选的完整 Rust 扩展 workspace 为 1064 通过、0 失败、8 项既有原生人工检查忽略。原 campaign 两次尝试均在 Runtime 预检受阻；虽已修正预检误判并恢复 CLI Judge 无工具诊断，正式 Gate 仍为证据不足。
 
+## MiniMax Code ACP（2026-10-16）
+
+新增 `minimax-code-cli`，复用 ACP Host/Fleet、精确 Session、现有 Bootstrap、Steer、权限、
+Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview，其余平台 NotQualified；无 Fast。
+Migration 205 从 schema 154 升至 **155**，保留业务行、索引、触发器和既有 migration receipts。
+当前行为由[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)拥有；
+[接入矩阵](../../research/minimax-code-runtime/README.md)分别记录脚本模型、真实模型与未验范围，
+实现交付不等同 Checklist 的 First-Class 资格。没有更换 current_version 或宣布本版本完成。
+
+User seq35/37 确认问卷采用取消、不代答。沿用现有原生 dismiss 与审批防代答，新增准确的
+`runtime_questionnaire_unsupported` 公开提示，非空结束文字或已发送消息不掩盖未承接问卷。
+不改原生配置、Host/Session 身份或模型上下文；后继新指令按原路径继续。
+
+## Web 断线统一恢复（2026-10-17）
+
+按 User 确认的中性主题全屏遮罩实现 Web 断线恢复：页面与草稿保持挂载，统一暂停操作，
+单一按钮核对并使用原 ID／原 payload 重试未知提交，明确失败结算原 Promise。
+规则见 [Host Web v4](../../contracts/host-web-v4.md#web-断线恢复)与
+[连接恢复 UI](../../ui/host-web-connection-recovery.md)，验证范围见[实施记录](implementation-plan.md#web-断线统一恢复2026-10-17)。
+本项保持 v1.72，无新 Version Decision；Architecture、Contract、UI 与文档路由同步，
+补齐 Core 核对入口的 Thread/Camp 名称兼容及刷新后公共草稿结算；无 wire shape、Runtime、模型上下文、
+迁移或 Root README 变更。
+
 ## Send 文件引用与三渠道提示（2026-10-16）
 
 按 User 消息 19 确认的 [R3](model-context-change-send-file-guidance.md)实施：普通引用优先 Markdown，
@@ -809,7 +832,7 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 正文定稿和 Usage 不再作为业务命令或 Run 终态的同步前置。Migration 194 发布 schema 144，保留
 终态后的短期 Usage checkpoint。停止／继续复用既有授权与清理流程，不增加强制放行或自动重试。
 范围、测试归属与验收状态见[实施记录](async-run-finalization.md)；当前统计合同为
-[Usage v9](../../contracts/runtime-usage-monitoring-v9.md)。
+[Usage v10](../../contracts/runtime-usage-monitoring-v10.md)。
 
 ## 同类 CLI 优先恢复原生会话（2026-10-12）
 
@@ -838,3 +861,12 @@ User 于 2026-10-09 确认[完整方案及补充边界 r1](model-context-change-
 
 2026-10-15 继续精简新操作内部重复 diff、限定预览总量，并将进度摘要从结果正文中分离；旧格式原样兼容。
 定向回归和同负载测量见[后续实施记录](implementation-plan.md#执行记录存储精简新操作正文与进度写入2026-10-15)。
+
+## 2026-10-17 MiniMax 批复修复
+
+共享 ACP 区分原生正常结束、有效公开发送和非空 final；问卷 permission fallback 在执行审批前取消。
+MiniMax Usage 增加本轮消息身份限定的后台尾读，仍保持部分观测。字段与失败边界见
+[Missing-Send v3](../../contracts/missing-send-recovery-publication-v3.md)和
+[Usage v10](../../contracts/runtime-usage-monitoring-v10.md)。
+0.6.12 官方 ACP 局部关闭 ask_user 的入口仍缺，未修改原生全局配置，不声称默认隐藏已交付。
+Preview 的平台、CLI 子集、Skills/MCP 和并发资格边界不变。

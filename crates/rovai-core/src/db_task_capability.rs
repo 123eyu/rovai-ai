@@ -54,8 +54,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         anyhow::ensure!(
             matches!(classify_database_contract(&tx)?,
-            DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 154),
-            "Task capability requires schema 154"
+            DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 155),
+            "Task capability requires schema 155"
         );
         let old = schema(&tx, "table", "context_manifest")?;
         let base = clause(
@@ -150,8 +150,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         tx.execute_batch(&attachment)?;
         tx.execute_batch("CREATE TRIGGER agent_run_input_v40_only_insert BEFORE INSERT ON agent_run_input WHEN NEW.context_manifest_version IS NOT 40 BEGIN SELECT RAISE(ABORT,'new public Thread AgentRunInput must use ContextManifest v40'); END;
             CREATE TABLE task_preference(singleton INTEGER PRIMARY KEY CHECK(singleton=1),enabled INTEGER NOT NULL CHECK(enabled IN (0,1)));
-            INSERT INTO schema_migration VALUES(205,datetime('now'));
-            UPDATE rovai_data_contract SET projection_schema_version=155,updated_at=datetime('now') WHERE singleton=1;")?;
+            INSERT INTO schema_migration VALUES(206,datetime('now'));
+            UPDATE rovai_data_contract SET projection_schema_version=156,updated_at=datetime('now') WHERE singleton=1;")?;
         validate_migration_foreign_keys(
             &tx,
             &[
@@ -163,7 +163,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
-                DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 155
+                DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 156
             ),
             "Task capability admission failed"
         );
@@ -183,13 +183,13 @@ pub(super) fn migrate_notification_boundary(database: &mut Database) -> Result<(
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     anyhow::ensure!(
         matches!(classify_database_contract(&tx)?,
-        DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 155),
-        "Task notification boundary requires schema 155"
+        DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 156),
+        "Task notification boundary requires schema 156"
     );
     tx.execute_batch("ALTER TABLE task_preference ADD COLUMN heads_up_after_sequence INTEGER NOT NULL DEFAULT 0 CHECK(heads_up_after_sequence>=0);
         UPDATE task_preference SET heads_up_after_sequence=(SELECT current_sequence FROM notification_change_clock WHERE singleton=1);
-        INSERT INTO schema_migration VALUES(206,datetime('now'));
-        UPDATE rovai_data_contract SET projection_schema_version=156,updated_at=datetime('now') WHERE singleton=1;")?;
+        INSERT INTO schema_migration VALUES(207,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=157,updated_at=datetime('now') WHERE singleton=1;")?;
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
@@ -209,8 +209,8 @@ pub(super) fn downgrade_for_test(c: &Connection) {
     }
     c.execute_batch(
         "ALTER TABLE task_preference DROP COLUMN heads_up_after_sequence;
-        DELETE FROM schema_migration WHERE version=206;
-        UPDATE rovai_data_contract SET projection_schema_version=155 WHERE singleton=1;",
+        DELETE FROM schema_migration WHERE version=207;
+        UPDATE rovai_data_contract SET projection_schema_version=156 WHERE singleton=1;",
     )
     .unwrap();
     c.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
@@ -287,7 +287,7 @@ pub(super) fn downgrade_for_test(c: &Connection) {
         .unwrap();
     tx.execute_batch(&attachment).unwrap();
     tx.execute_batch("CREATE TRIGGER agent_run_input_v39_only_insert BEFORE INSERT ON agent_run_input WHEN NEW.context_manifest_version IS NOT 39 BEGIN SELECT RAISE(ABORT,'new public Thread AgentRunInput must use ContextManifest v39'); END;
-    DROP TABLE task_preference; DELETE FROM schema_migration WHERE version=205; UPDATE rovai_data_contract SET projection_schema_version=154 WHERE singleton=1;").unwrap();
+    DROP TABLE task_preference; DELETE FROM schema_migration WHERE version=206; UPDATE rovai_data_contract SET projection_schema_version=155 WHERE singleton=1;").unwrap();
     tx.commit().unwrap();
     c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
 }
@@ -296,7 +296,7 @@ pub(super) fn downgrade_for_test(c: &Connection) {
 pub(super) fn assert_upgrade(db: &mut Database) {
     downgrade_for_test(db.connection());
     let evidence = public_history_claim_preserved_evidence_digest(db.connection()).unwrap();
-    db.connection().execute_batch("CREATE TEMP TRIGGER reject_task_capability_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=205 BEGIN SELECT RAISE(ABORT,'task capability rollback'); END;").unwrap();
+    db.connection().execute_batch("CREATE TEMP TRIGGER reject_task_capability_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=206 BEGIN SELECT RAISE(ABORT,'task capability rollback'); END;").unwrap();
     let error = migrate(db).unwrap_err();
     assert!(
         error.to_string().contains("task capability rollback"),
@@ -312,7 +312,7 @@ pub(super) fn assert_upgrade(db: &mut Database) {
         .unwrap();
     migrate(db).unwrap();
     // The additive migration must preserve data and roll back its column and receipt together.
-    db.connection().execute_batch("CREATE TEMP TRIGGER reject_task_boundary_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=206 BEGIN SELECT RAISE(ABORT,'task boundary rollback'); END;").unwrap();
+    db.connection().execute_batch("CREATE TEMP TRIGGER reject_task_boundary_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=207 BEGIN SELECT RAISE(ABORT,'task boundary rollback'); END;").unwrap();
     assert!(
         migrate_notification_boundary(db)
             .unwrap_err()

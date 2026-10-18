@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: unified-rust-host
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # 统一 Rust Host
@@ -31,7 +31,7 @@ HTTP 并发不改变领域调度，SSE 不占命令队列，取消与审批不�
 业务事务提交成功后，正文定稿只向既有文本维护任务发出唤醒；命令及回执 replay 不同步读 Run、
 保存正文 Blob 或更新正文 revision。运行期首次定稿及失败重试均由该后台任务拥有，沿用有界退避并发布
 正文更新。正常退出另由[关闭监督器](planned-shutdown.md#6-deadline-与-runtime-reap)提供有界末次落盘机会。正文暂未完成不改变已提交命令或 Run 的结果；执行结束也不等待 Usage 刷盘，详见
-[Usage v9](../contracts/runtime-usage-monitoring-v9.md)与[V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。
+[Usage v10](../contracts/runtime-usage-monitoring-v10.md)与[V1.72-D36](../versions/v1.72/decisions.md#v1-72-d36)。
 默认新对话队伍、队长和一键创建开关由 Core 在当前数据根统一保存；Desktop 的旧值只导入一次，
 两端经共享偏好适配读取，窗口、外观与导航展示偏好继续各端保存。细节见 [Host Web v2](../contracts/host-web-v2.md#shared-creation-preferences)。
 Desktop-only 窗口、原生交互与更新保留 Electron；基础 Server 不要求 Electron 或 Node。
@@ -92,6 +92,8 @@ Public Composer 内容由 [Draft v16](../contracts/camp-composer-draft-v16.md) �
 不恢复 Core Draft revision 或消费；私聊保留自己的 revision、原子消费与队列规则。
 客户端提交 ID 不是授权；命令幂等与 Core FIFO 不变，不做跨端同步、实时合并或多人共编。
 可续期认证 Session 与标签页编辑身份分离；同页面同 Owner 重登保留编辑、原命令及 Core 验证的恢复证明。
+Web 断线在公共传输层阻止新业务请求，页面级遮罩保留挂载状态；显式恢复复用原提交，
+自动重连只查询回执，见 [Host Web v4](../contracts/host-web-v4.md#web-断线恢复)。
 普通刷新沿用原编辑身份，浏览器标签页占用记录仅存随机文档标识；复制标签页由已认证 Host 分配独立编辑身份和 Session，不复制草稿或原命令。浏览器重开只有认证材料时同样新建编辑身份，不借用其他标签页草稿；细节见[Draft v13](../contracts/camp-composer-draft-v13.md)。
 
 Web 上传写 Host 临时文件后绑定已验证编辑身份，复用现行 source reference。

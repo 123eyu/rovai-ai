@@ -807,4 +807,4 @@ User 于 2026-10-17 在完成 R4 交付后明确要求“开启 wt 开始执行�
 
 验证矩阵由前文第 10 节及后续实施记录拥有。目前实施中，不将编译、Fixture 或未完成的真实 Gate 认作最终通过。
 
-文档九范围复核：Version lifecycle 保持 v1.72；新增 D50；Contracts、Architecture、Documentation routing、UI 同步本变更；Runtime compatibility 保留原绑定；Runtime Activity 与 Root README 无需改变。
+文档九范围复核：Version lifecycle 保持 v1.72；新增 D51（合入时避开主线 MiniMax D50）；Contracts、Architecture、Documentation routing、UI 同步本变更；Runtime compatibility 保留原绑定；Runtime Activity 与 Root README 无需改变。

@@ -57,8 +57,9 @@ Task 历史消息、审计、旧关联、已提交回执仍可按原有历史/�
 
 ## 合同与迁移
 
-Migration 205 将 schema 从 154 升到 155，只新增设置及新输入格式准入，不重写旧任务或冻结输入。
-后续 Migration 206 将 schema 升到 156，仅为设置增加固定通知边界，兼容已安装的 schema 155。
+合入主线时保留 MiniMax 的 Migration 205 / schema 155，Task 两步顺延为 Migration 206 / schema 156
+与 Migration 207 / schema 157。前者新增设置及新输入格式准入，后者增加固定通知边界；不重写旧任务或冻结输入。
+下文旧候选验收保留当时的 205/206、155/156 编号，只对应所注明候选；未把隔离候选库声明为日常已发布升级源。
 新公开输入使用 ContextManifest 40 / Profile 15 / Facts 11；非批量输入使用 41 / 16 / 12。
 旧 Steer 输入唯一性、来源关联和不可变约束继续参与数据库准入；迁移故障回滚后可重试。
 
@@ -412,3 +413,15 @@ Electron owner，实际复现：恢复后 `pending=false`，原请求成功后�
 本轮原始日志和截图保存在 `.local/task-capability-review/draft-submission-20261018/`，不进入 Git。
 正式 Context Gate 仍为 `insufficient`；固定快照 Judge 与正式续跑预算尚未补齐，本轮没有重新运行
 真实模型、扩展 Rust 或重置原 campaign 的两次尝试。当前修复不替代这项独立质量验收。
+
+
+## 主线集成（2026-10-18）
+
+User 明确要求 PR 到 main、合并并安装本机 App。集成基线为 `80d11450b`，保留主线 MiniMax
+与 Web 断线恢复。主线已占用 Migration 205 与 D50，Task 迁移顺延为 206/207（最终 schema 157），
+Task 决定改为 D51；开关、通知与草稿的产品行为不变。
+
+迁移沿用既有 owner：`current_migration_state_admission_matrix`、
+`runtime_catalog_migrations_preserve_rows_and_roll_back_with_their_receipts`、
+`migration_sources_converge_without_reinterpreting_migration_199` 与原 Task 升级/回滚 owner。
+不新增并行测试或迁移兼容平台。正式 Context Gate 保持 `insufficient`，本机安装不等于正式发布验收。

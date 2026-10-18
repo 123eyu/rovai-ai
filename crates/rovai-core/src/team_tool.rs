@@ -5370,6 +5370,82 @@ mod tests {
 
     #[cfg(feature = "slow-tests")]
     fn accepted_recipient_free_send_suppresses_missing_send_recovery() {
+        // A send receipt can satisfy output only for its exact Run/epoch. This
+        // is a terminal admission rule, separate from recovery suppression.
+        {
+            let mut fixture = Fixture::new();
+            let runtime = ExecutionRuntimeService::default();
+            let id = fixture.source_run_id.clone();
+            let epoch = fixture.source_epoch;
+            assert!(
+                !runtime
+                    .has_current_run_public_send(&fixture.database, &id, epoch)
+                    .unwrap()
+            );
+            let execution = runtime
+                .load_agent_run_execution(&fixture.database, &id, epoch)
+                .unwrap()
+                .unwrap();
+            let rejected = runtime
+                .succeed_agent_run(
+                    &mut fixture.database,
+                    &CommandEnvelope {
+                        command_id: "empty-without-send".into(),
+                        actor: ActorRef::System {
+                            component_id: "runtime-adapter:codex-cli".into(),
+                        },
+                        camp_id: Some(fixture.camp_id.clone()),
+                        expected_versions: Vec::new(),
+                        execution_epoch: None,
+                        payload: SucceedAgentRunCommand {
+                            agent_run_id: id.clone(),
+                            expected_version: execution.version,
+                            execution_epoch: epoch,
+                            native_turn_id: "native-empty".into(),
+                            final_output: String::new(),
+                            missing_send_recovery_candidate: None,
+                            ending_git_observation: None,
+                        },
+                    },
+                )
+                .unwrap();
+            assert_eq!(rejected.result.code, "agent_run.missing_final_output");
+            let invocation =
+                fixture.public_send_invocation("empty-final-send", "Published once", &[]);
+            TeamToolService::default()
+                .send_public_message(&mut fixture.database, &invocation)
+                .unwrap();
+            assert!(
+                runtime
+                    .has_current_run_public_send(&fixture.database, &id, epoch)
+                    .unwrap()
+            );
+            assert!(
+                !runtime
+                    .has_current_run_public_send(&fixture.database, &id, epoch + 1)
+                    .unwrap()
+            );
+            assert!(
+                !runtime
+                    .has_current_run_public_send(&fixture.database, "different-run", epoch)
+                    .unwrap()
+            );
+            let completed = fixture.succeed_run_with_candidate(&id, epoch, "", None);
+            assert!(completed.result.payload["finalOutputDigest"].is_null());
+            let count: i64 = fixture
+                .database
+                .connection()
+                .query_row(
+                    "SELECT COUNT(*) FROM camp_message WHERE source_agent_run_id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                count, 1,
+                "empty final does not publish or recover a duplicate"
+            );
+        }
         let mut fixture = Fixture::new();
         let service = TeamToolService::default();
         let body = "The exact answer is already public.";

@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:6699643c0e4e78af3cb121c495cf4cbdaa1b6ce379f3a9c4652594f66bc24db7";
+    "sha256:84f3def0bf6ef3625c4e406a6b3f98b0de09fa6e94df02e464e8eb7bc4da8a76";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -333,7 +333,8 @@ mod tests {
                         }
                         AdapterKind::CursorAgent
                         | AdapterKind::ClineCli
-                        | AdapterKind::CommandCodeCli => {
+                        | AdapterKind::CommandCodeCli
+                        | AdapterKind::MinimaxCodeCli => {
                             assert_eq!(
                                 admission.status(),
                                 RuntimePlatformAdmissionStatus::NotQualified
@@ -416,6 +417,7 @@ mod tests {
                 AdapterKind::CursorAgent
                     | AdapterKind::ClineCli
                     | AdapterKind::CommandCodeCli
+                    | AdapterKind::MinimaxCodeCli
                     | AdapterKind::ZcodeApp
                     | AdapterKind::DeepseekHarness
             ) {
@@ -472,12 +474,25 @@ mod tests {
                 .status(),
             RuntimePlatformAdmissionStatus::Preview
         );
+        for platform in HostPlatformKey::ALL {
+            let mini = registry.platform_admission(AdapterKind::MinimaxCodeCli, platform);
+            assert_eq!(
+                mini.status(),
+                if platform == HostPlatformKey::MacosArm64 {
+                    RuntimePlatformAdmissionStatus::Preview
+                } else {
+                    RuntimePlatformAdmissionStatus::NotQualified
+                }
+            );
+            assert!(mini.evidence_revision().is_none());
+        }
         for runtime_kind in AdapterKind::ALL.into_iter().filter(|kind| {
             !matches!(
                 kind,
                 AdapterKind::CursorAgent
                     | AdapterKind::ClineCli
                     | AdapterKind::CommandCodeCli
+                    | AdapterKind::MinimaxCodeCli
                     | AdapterKind::Pi
                     | AdapterKind::GrokBuild
                     | AdapterKind::ZcodeApp

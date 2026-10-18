@@ -1,4 +1,13 @@
 {
+  "服务连接已断开": "Connection lost",
+  "正在恢复连接…": "Restoring connection…",
+  "仍无法连接服务": "Still unable to connect",
+  "页面和草稿已保留。恢复连接后，将重试未完成的操作。": "Your page and drafts are preserved. Unfinished operations will be retried after reconnecting.",
+  "正在恢复未完成的操作，请稍候。": "Recovering unfinished operations. Please wait.",
+  "请确认服务已启动后重试，页面和草稿会继续保留。": "Make sure the service is running, then try again. Your page and drafts are preserved.",
+  "恢复连接并重试": "Reconnect and retry",
+  "正在恢复…": "Recovering…",
+  "连接已恢复。未完成的上传需要重新选择原文件。": "Connection restored. Select the original files again to finish pending uploads.",
   "已保存": "Saved",
   "启动设置已保存，连接更改尚未保存。": "Startup settings saved; connection changes are still unsaved.",
   "待邀请": "Pending invitation",

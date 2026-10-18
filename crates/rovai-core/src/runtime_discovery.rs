@@ -1725,6 +1725,7 @@ fn known_runtime_directories() -> Vec<PathBuf> {
     };
     for relative in [
         ".local/bin",
+        ".minimax-code/bin",
         ".npm-global/bin",
         ".volta/bin",
         ".cargo/bin",

@@ -49,6 +49,7 @@ pub enum AdapterKind {
     TraeCnCli,
     CursorAgent,
     KimiCodeCli,
+    MinimaxCodeCli,
     GrokBuild,
     DeepseekHarness,
     ZcodeApp,
@@ -99,7 +100,7 @@ impl MissingSendRecoveryMode {
 }
 
 impl AdapterKind {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::CodexCli,
         Self::Pi,
         Self::OpencodeCli,
@@ -115,6 +116,7 @@ impl AdapterKind {
         Self::TraeCnCli,
         Self::CursorAgent,
         Self::KimiCodeCli,
+        Self::MinimaxCodeCli,
         Self::GrokBuild,
         Self::DeepseekHarness,
         Self::ZcodeApp,
@@ -136,6 +138,7 @@ impl AdapterKind {
             Self::TraeCnCli => "trae-cn-cli",
             Self::CursorAgent => "cursor-agent",
             Self::KimiCodeCli => "kimi-code-cli",
+            Self::MinimaxCodeCli => "minimax-code-cli",
             Self::GrokBuild => "grok-build",
             Self::DeepseekHarness => "deepseek-harness",
             Self::ZcodeApp => "zcode-app",
@@ -159,6 +162,7 @@ impl AdapterKind {
             Self::TraeCnCli => "traecli",
             Self::CursorAgent => "cursor-agent",
             Self::KimiCodeCli => "kimi",
+            Self::MinimaxCodeCli => "mcode",
             Self::GrokBuild => "grok",
             Self::DeepseekHarness => "dsh",
             Self::ZcodeApp => "ZCode",
@@ -176,6 +180,7 @@ impl AdapterKind {
             Self::CursorAgent => &["cursor-agent", "agent"],
             Self::Pi => &["pi"],
             Self::KimiCodeCli => &["kimi"],
+            Self::MinimaxCodeCli => &["mcode"],
             Self::GrokBuild => &["grok"],
             Self::DeepseekHarness => &["dsh"],
             Self::ZcodeApp => &["ZCode"],
@@ -210,6 +215,7 @@ impl AdapterKind {
             Self::TraeCnCli => "TRAE CLI",
             Self::CursorAgent => "Cursor Agent",
             Self::KimiCodeCli => "Kimi Code",
+            Self::MinimaxCodeCli => "MiniMax Code",
             Self::GrokBuild => "Grok Build",
             Self::DeepseekHarness => "DeepSeek Harness",
             Self::ZcodeApp => "ZCode",
@@ -231,6 +237,7 @@ impl AdapterKind {
                 | Self::TraeCnCli
                 | Self::CursorAgent
                 | Self::KimiCodeCli
+                | Self::MinimaxCodeCli
                 | Self::GrokBuild
                 | Self::DeepseekHarness
                 | Self::ZcodeApp
@@ -253,6 +260,7 @@ impl AdapterKind {
             Self::TraeCnCli => "ROVAI_TRAE_CN_BIN",
             Self::CursorAgent => "ROVAI_CURSOR_BIN",
             Self::KimiCodeCli => "ROVAI_KIMI_BIN",
+            Self::MinimaxCodeCli => "ROVAI_MINIMAX_CODE_BIN",
             Self::GrokBuild => "ROVAI_GROK_BIN",
             Self::DeepseekHarness => "ROVAI_DEEPSEEK_HARNESS_BIN",
             Self::ZcodeApp => "ROVAI_ZCODE_BIN",
@@ -281,6 +289,7 @@ impl AdapterKind {
             | Self::TraeCnCli
             | Self::CursorAgent
             | Self::KimiCodeCli
+            | Self::MinimaxCodeCli
             | Self::GrokBuild
             | Self::DeepseekHarness
             | Self::ZcodeApp
@@ -306,6 +315,7 @@ impl AdapterKind {
             | Self::QwenCode
             | Self::TraeCnCli
             | Self::KimiCodeCli
+            | Self::MinimaxCodeCli
             | Self::GrokBuild
             | Self::DeepseekHarness
             | Self::ZcodeApp
@@ -334,6 +344,7 @@ impl FromStr for AdapterKind {
             "trae-cn-cli" => Ok(Self::TraeCnCli),
             "cursor-agent" => Ok(Self::CursorAgent),
             "kimi-code-cli" => Ok(Self::KimiCodeCli),
+            "minimax-code-cli" => Ok(Self::MinimaxCodeCli),
             "grok-build" => Ok(Self::GrokBuild),
             "deepseek-harness" => Ok(Self::DeepseekHarness),
             "zcode-app" => Ok(Self::ZcodeApp),
@@ -4275,6 +4286,7 @@ fn provisional_runtime_protocol(adapter_kind: AdapterKind) -> &'static str {
         | AdapterKind::TraeCnCli
         | AdapterKind::CursorAgent
         | AdapterKind::KimiCodeCli
+        | AdapterKind::MinimaxCodeCli
         | AdapterKind::GrokBuild
         | AdapterKind::DeepseekHarness
         | AdapterKind::CommandCodeCli => "acp-v1",
@@ -5911,6 +5923,7 @@ mod slow_tests {
                 AdapterKind::TraeCnCli,
                 AdapterKind::CursorAgent,
                 AdapterKind::KimiCodeCli,
+                AdapterKind::MinimaxCodeCli,
                 AdapterKind::GrokBuild,
                 AdapterKind::DeepseekHarness,
                 AdapterKind::ZcodeApp,

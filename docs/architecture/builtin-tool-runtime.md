@@ -17,7 +17,7 @@ last_updated: 2026-10-16
 [Durable Task v6](../contracts/durable-task-v6.md) 和
 [Camp Message Send v28](../contracts/camp-message-send-v28.md)、
 [Current User Attention v7](../contracts/current-user-attention-v7.md)与
-[Missing-Send Recovery Publication v2](../contracts/missing-send-recovery-publication-v2.md) 为准；v19 及更早 Transport 只保留
+[Missing-Send Recovery Publication v3](../contracts/missing-send-recovery-publication-v3.md) 为准；v19 及更早 Transport 只保留
 historical 语义。决策理由见
 [Built-in 运输不变量](foundational-invariants.md#skills-builtin-transport)、
 [Built-in 运输不变量](foundational-invariants.md#skills-builtin-transport)、
@@ -439,10 +439,10 @@ Host 在 response 前丢失时继续进入既有 runtime-loss / `delivery_unknow
 
 ### Successful Run 的 Missing-Send Recovery
 
-Runtime final 继续首先服务 AgentRun 成功/失败结算；Adapter 另外形成 optional typed recovery candidate。
+原生成功完成、已提交公开发送和 Runtime final 分别记录；共享 ACP 的空 final 准入见
+[Missing-Send v3](../contracts/missing-send-recovery-publication-v3.md)。Adapter 另外形成 optional typed recovery candidate。
 Codex 只使用 completed-turn items，Claude 只使用 matched success result，Antigravity 只使用验证且未截断
-的 print stdout。ACP 保留全量 assistant aggregate 作为 Run success final，同时独立收集最后一次 tool
-activity 后的 assistant suffix；只有匹配 prompt 的 `end_turn` 暴露 candidate，optional `messageId`
+的 print stdout。ACP 收集最后一次 tool activity 后的完整 assistant suffix 作为 final；只有匹配 prompt 的 `end_turn` 暴露 candidate，optional `messageId`
 身份混乱时 fail closed。
 
 Core 在 successful terminal transaction 检查该 Run 的任意 accepted `camp.message.send`。有 send 则不

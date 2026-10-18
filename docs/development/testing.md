@@ -20,7 +20,7 @@ last_updated: 2026-10-17
 node scripts/smoke-steer.mjs /absolute/empty-fixture /absolute/bin/rovai-core qwen-code
 ```
 
-第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 、`zcode-app` 或 `trae-cn-cli`。
+第三参数为 `codex-cli`（默认）、`claude-code-cli`、`pi`、`codebuddy-cli`、`qwen-code`、`grok-build`、`kiro-cli` 、`zcode-app`、`trae-cn-cli` 或 `minimax-code-cli`。
 可选第四参数 `steer-only` 仅验同轮文字与纯附件，`mixed-only` 仅验多队员混合投递，`cancel-only`
 仅验取消后的副作用与后继 Run；默认顺序验证同轮输入、普通后继和多队员混合。混合场景额外调用
 OpenCode 作为忙碌且不支持 Steer 的接收者。Claude 使用本机显式配置的 API，报告记录其 endpoint
@@ -59,6 +59,62 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 有限次数通过只覆盖已执行的场景，不证明所有结束竞态或所有历史版本；边界未覆盖时使用“最早已测通过”，
 不用“最低兼容”。合并后产品证据见[Steer 收口报告](../research/runtime-monitoring/steer-hardening-2026-10-15.md)，
 此前低版本边界见[低版本验证报告](../research/runtime-monitoring/steer-low-versions-2026-10-15.md)。
+
+## MiniMax Code 控制服务验收
+
+先构建配套 Core/CLI，再用实际安装入口运行：
+
+```sh
+cargo build -p rovai-core --bins
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --files-only
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --completion-only --fixture-root /absolute/empty-fixture
+node scripts/smoke-minimax-runtime.mjs /absolute/path/to/mcode --questionnaires-only --fixture-root /absolute/empty-fixture
+```
+
+脚本在新建隔离目录启动真实 mcode、生产 Core、确定性 loopback Provider 与 MCP fixture。
+合成 API key 仅用于本地服务，不使用日常账户。覆盖普通 Host 复用、Core 重启同 Session、精确
+缺失 Session 替换、系统层 Bootstrap、图片 Steer 到模型请求、MCP 调用/移除、allow/deny、
+六类命令输出、零发送恢复和取消子进程。脚本模型不能替代真实账户、视觉理解或完整 First-Class
+Golden Flows；短 Run 的异步 journal Usage 可能为空。结果留在打印的临时目录，原始 report
+是私有诊断，只导出白名单摘要；本次数据目录及派生 Runtime Files Root 都不属于日常实例。
+真实模型流程另用 `smoke-acp-runtime.mjs` / `smoke-steer.mjs` 的 `minimax-code-cli` 入口。
+当前证据见[MiniMax 接入报告](../research/minimax-code-runtime/README.md)。
+
+`--completion-only` 通过真实 mcode 和确定性本地 Provider 验证发送后空 final、后继 Host 复用、
+未发送且空 final、发送后原生错误的不同结算。它不调用真实 LLM，不证明问卷已从模型工具清单移除。
+终态修改扩展既有 `accepted_send_suppresses_missing_send_recovery_for_recipient_matrix`（slow-tests）、
+ACP suffix、审批 option、失败重试和 native cursor owners；Usage 生命周期扩展原有 flush partition owner。
+
+`--questionnaires-only` 保持原生问卷工具启用，验证单选、多选、发送后问卷、default 权限模式、
+取消后新指令、Core 重启精确恢复，以及后继普通命令 allow/deny。断言原生问卷为 dismissed、
+答案与注入字段为空、`runtime_questionnaire_unsupported` 及可操作公开提示、失败 Run 不可自动重放；
+已经发送的消息保留。Host 观察使用 Core 直属子进程
+PID 集合，不能替代跨 Session 或并发 Fleet 资格。该矩阵不假造问卷 permission 请求；
+`questionnaire:` option 的防代答反例由既有 extended owner
+`approval_selects_the_exact_native_option_id` 负责。三种 focused 参数互斥。
+
+`--files-only` 验证原生 Read/Write/Edit、绝对/相对及中文空格路径、新建/覆盖/空文件、成功/失败编辑、
+原生 patch 与持久化 Files Changed，并重启 Core 核对卡片。它不启动 Renderer，不能代替点击展开验收。
+真实 CLI 的首轮调查发现显示预览被误记 full_before_after；修复使用原生 details.patch 和 created。
+文件校正扩展既有 `paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt`、
+`opencode_write_uses_terminal_metadata_exists_only_with_a_corroborated_path`、
+`pi_edit_patch_is_path_bound_normalized_and_counted_inside_hunks`、
+`acp_tool_events_expose_only_the_public_command_and_payload_digests` owners；不新增 Rust 测试函数。
+
+Rust 不增加平行 owner：模型与 per-model effort 扩展 `grouped_acp_models_keep_opaque_provider_routes_and_reject_empty_catalogs`；
+审批 ID 配对扩展 `paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt`；
+私有输出字段反例扩展 `acp_command_output_uses_standard_content_and_allowlisted_raw_fallbacks`；
+精确 Session 错误/Steer 归属复用既有 RPC/active-input owners；Usage baseline/重放/身份不符
+扩展 `native_usage` 既有 cursor owners；schema 155 扩展 catalog migration 回滚和历史源收敛 owners。
+修复前真实 0.6.12 审批终态无法关联、输出正文被丢弃；新输入矩阵保留跨 Session/Prompt 和私有字段负例。
+
+```sh
+cargo test -p rovai-core --lib --features extended-tests paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt
+cargo test -p rovai-core --lib --features extended-tests acp_command_output_uses_standard_content_and_allowlisted_raw_fallbacks
+cargo test -p rovai-core --lib --features extended-tests native_
+cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrations_preserve_rows_and_roll_back_with_their_receipts
+```
 
 ## Rust 测试准入与退役门槛
 

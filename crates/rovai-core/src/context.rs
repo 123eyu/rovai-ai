@@ -79,6 +79,8 @@ fn run_facts_schema_version(manifest_version: i64, invocation_kind: &str) -> i64
             31 => 8,
             _ => 7,
         }
+    } else if manifest_version == 42 {
+        13
     } else if manifest_version == 41 {
         12
     } else if matches!(manifest_version, 28 | 35 | 37) {
@@ -3954,28 +3956,12 @@ struct DelegationFact {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ConversationModeFact {
-    kind: &'static str,
-    visibility: &'static str,
-    response_delivery: &'static str,
-    operation_policy: &'static str,
-    #[serde(rename = "threadPublicationAllowed")]
-    camp_publication_allowed: bool,
-    member_dispatch_allowed: bool,
-    memory_mutation_allowed: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct RunFacts {
     attachment_output_root: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     history_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mission: Option<crate::mission::MissionFacts>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "singleChat")]
-    conversation_mode: Option<ConversationModeFact>,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_context: Option<TaskContextFact>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4056,17 +4042,6 @@ fn build_run_facts<R: ContextReadConnection>(
             &snapshot.camp_id,
         )?,
         history_hint: None,
-        conversation_mode: (snapshot.invocation_kind == "single_chat").then_some(
-            ConversationModeFact {
-                kind: "single_chat",
-                visibility: "principal_only",
-                response_delivery: "single_chat_message",
-                operation_policy: "single_chat_v1",
-                camp_publication_allowed: false,
-                member_dispatch_allowed: false,
-                memory_mutation_allowed: false,
-            },
-        ),
         task_context: None,
         session_continuity: None,
         external_effect: None,
@@ -8947,7 +8922,6 @@ mod slow_tests {
             attachment_output_root: "/tmp/attachments/rvcamp_01h47kvsy5fk1shh6w1g60eecf"
                 .to_string(),
             history_hint: None,
-            conversation_mode: None,
             task_context: None,
             session_continuity: None,
             external_effect: None,
@@ -9162,18 +9136,7 @@ mod slow_tests {
             omitted_messages: None,
             omission_entries: Vec::new(),
         };
-        let facts = RunFacts {
-            conversation_mode: Some(ConversationModeFact {
-                kind: "single_chat",
-                visibility: "principal_only",
-                response_delivery: "single_chat_message",
-                operation_policy: "single_chat_v1",
-                camp_publication_allowed: false,
-                member_dispatch_allowed: false,
-                memory_mutation_allowed: false,
-            }),
-            ..test_run_facts()
-        };
+        let facts = test_run_facts();
         let run_facts = render_run_facts(&facts).unwrap();
         let payload = render_payload(RenderPayloadInput {
             collaboration_state: None,
@@ -9194,7 +9157,25 @@ mod slow_tests {
         .unwrap();
         assert!(!payload.contains("[SELF_ACTIVE_TASKS]"));
         assert!(!payload.contains("[A2A_GUIDANCE]"));
-        assert!(payload.contains("\"responseDelivery\":\"single_chat_message\""));
+        assert!(!payload.contains("\"singleChat\""));
+        assert!(!payload.contains("\"responseDelivery\""));
+        assert_eq!(
+            serde_json::from_str::<Value>(&run_facts.payload_json).unwrap(),
+            json!({"attachmentOutputRoot": facts.attachment_output_root})
+        );
+        let with_effect = RunFacts {
+            external_effect: Some(ExternalEffectFact {
+                state: "unsettled",
+                required_action: "reconcile_before_repeat",
+            }),
+            ..test_run_facts()
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(&render_run_facts(&with_effect).unwrap().payload_json)
+                .unwrap(),
+            json!({"attachmentOutputRoot": with_effect.attachment_output_root,
+                "externalEffect": {"state":"unsettled","requiredAction":"reconcile_before_repeat"}})
+        );
         assert!(
             payload.find("[RUN_FACTS]").unwrap() < payload.find("[SINGLE_CHAT_GUIDANCE]").unwrap()
         );
@@ -14003,6 +13984,12 @@ mod slow_tests {
         else {
             panic!("Single Chat context should be ready")
         };
+        assert!(!prepared.rendered_payload.contains("\"singleChat\""));
+        let versions: (i64, i64, i64, i64) = fixture.database.connection().query_row(
+            "SELECT context_manifest_version,formatter_version,run_facts_schema_version,context_delivery_profile_version FROM context_manifest WHERE id=?1",
+            [&prepared.manifest_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+        ).unwrap();
+        assert_eq!(versions, (42, 42, 13, 16));
         let shared: Value = serde_json::from_str(
             prepared
                 .rendered_payload
@@ -14089,6 +14076,69 @@ mod slow_tests {
             )
             .unwrap();
         assert_eq!(memory_access_count, 0);
+
+        // An actual legacy field must survive both migration and the frozen read path.
+        let facts = prepared
+            .rendered_payload
+            .split_once("[RUN_FACTS]\n")
+            .unwrap()
+            .1
+            .split_once("\n[/RUN_FACTS]")
+            .unwrap()
+            .0;
+        let mut legacy_facts: Value = serde_json::from_str(facts).unwrap();
+        legacy_facts["singleChat"] = json!({
+            "kind":"single_chat", "visibility":"principal_only", "responseDelivery":"single_chat_message",
+            "operationPolicy":"single_chat_v1", "threadPublicationAllowed":false,
+            "memberDispatchAllowed":false, "memoryMutationAllowed":false
+        });
+        let legacy_payload = prepared.rendered_payload.replacen(
+            facts,
+            &serde_json::to_string(&legacy_facts).unwrap(),
+            1,
+        );
+        assert_eq!(legacy_payload.len() - prepared.rendered_payload.len(), 235);
+        let legacy_blob = store
+            .put_bytes(
+                &mut fixture.database,
+                legacy_payload.as_bytes(),
+                "text/plain; charset=utf-8",
+                "sensitive",
+            )
+            .unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE context_manifest SET rendered_payload_blob_id=?1 WHERE id=?2",
+                params![legacy_blob.id, prepared.manifest_id],
+            )
+            .unwrap();
+        crate::db::assert_single_chat_facts_upgrade(&mut fixture.database);
+        let ContextMaterialization::Ready(legacy) = ContextService
+            .materialize(
+                &mut fixture.database,
+                &store,
+                &MaterializeContextRequest {
+                    agent_run_id: &run_id,
+                    execution_epoch,
+                    charter_delivery_mode: CharterDeliveryMode::FirstPayload,
+                    max_payload_bytes: DEFAULT_MAX_CONTEXT_PAYLOAD_BYTES,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("legacy Single Chat context must remain readable")
+        };
+        assert_eq!(legacy.rendered_payload, legacy_payload);
+        assert_eq!(legacy.rendered_payload_digest, sha256_text(&legacy_payload));
+        assert_eq!(fixture.database.connection().query_row("SELECT context_manifest_version,run_facts_schema_version FROM context_manifest WHERE id=?1", [&prepared.manifest_id], |r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?))).unwrap(), (41,12));
+        let reopened = Database::open(&fixture.directory).unwrap();
+        assert_eq!(
+            store.read_text(&reopened, &legacy_blob.id).unwrap(),
+            legacy_payload
+        );
+        drop(reopened);
         fixture.cleanup();
     }
 
@@ -15231,7 +15281,6 @@ mod slow_tests {
             mission: None,
             attachment_output_root: test_run_facts().attachment_output_root,
             history_hint: None,
-            conversation_mode: None,
             task_context: Some(TaskContextFact {
                 task_id: "task-1".to_string(),
                 reference_mode: "frozen",

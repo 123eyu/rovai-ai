@@ -1189,7 +1189,7 @@ not fit. A message may also appear in RUN_INPUT; only RUN_INPUT creates processi
 _Avoid_: summary, private Conversation, unread receipt, current-input replacement, Native Session-local watermark
 
 **Run Fact**:
-A typed, compact model-facing fact already determined by authoritative Core state and directly relevant to the current AgentRun. Public Run Facts schema v5 provides `attachmentOutputRoot` plus optional Mission, Task, Session continuity and real external-effect facts. Gather, delegation budget and conversationMode are absent; Single Chat retains its v4 shape. Optional facts are omitted when absent, but the section itself is mandatory. A fact guides current decisions but is not an authorization token, mutable source snapshot or prose warning.
+A typed, compact model-facing fact already determined by authoritative Core state and directly relevant to the current AgentRun. Public Run Facts schema 11 provides `attachmentOutputRoot` and `historyHint` plus optional Mission, Session continuity and real external-effect facts. Single Chat schema 13 provides the attachment output root and optional unsettled external effect, without the former fixed `singleChat` object. Stable Single Chat rules remain in its Charter and Guidance. Optional facts are omitted when absent, but the section itself is mandatory. A fact guides current decisions but is not an authorization token, mutable source snapshot or prose warning.
 _Avoid_: Run Notice, Control Signal, Work Brief, inferred warning, operation authorization, Task snapshot
 
 **Current Input**:

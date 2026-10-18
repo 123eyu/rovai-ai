@@ -193,7 +193,7 @@ pub(super) fn migrate_notification_boundary(database: &mut Database) -> Result<(
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
-            DatabaseContractClassification::Current(_)
+            DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 157
         ),
         "Task notification boundary admission failed"
     );
@@ -204,6 +204,7 @@ pub(super) fn migrate_notification_boundary(database: &mut Database) -> Result<(
 // Synthetic upgrade fixtures only. Product code never rewrites frozen input.
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
+    super::single_chat_facts::downgrade_for_test(c);
     if !schema_matches(c).unwrap() {
         return;
     }
@@ -328,6 +329,7 @@ pub(super) fn assert_upgrade(db: &mut Database) {
         .execute_batch("DROP TRIGGER reject_task_boundary_receipt;")
         .unwrap();
     migrate_notification_boundary(db).unwrap();
+    super::single_chat_facts::migrate(db).unwrap();
     assert!(!crate::task_capability::enabled(db.connection()).unwrap());
     assert_eq!(
         evidence,

@@ -3370,7 +3370,10 @@ mod tests {
                 let error = deletion
                     .commit_business_delete(&mut database, &views, &candidate, &cleanup)
                     .unwrap_err();
-                assert!(format!("{error:#}").contains("injected Thread deletion failure"));
+                assert!(
+                    format!("{error:#}").contains("injected Thread deletion failure"),
+                    "unexpected deletion error: {error:#}"
+                );
                 assert_eq!(
                     deletion
                         .record_camp_failure(&database, &candidate, "database_delete_failed",)
@@ -3468,6 +3471,13 @@ mod tests {
                 })
                 .unwrap();
             assert_eq!(violations, 0);
+            // The View owner seals the shared camps directory after cleanup.
+            // Restore only this fixture's parent before removing the fixture.
+            crate::platform::private_storage::prepare_private_directory(
+                &views.root().join("camps"),
+            )
+            .unwrap();
+            drop(views);
             remove_test_database(database, directory);
         }
     }

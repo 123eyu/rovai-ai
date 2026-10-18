@@ -680,7 +680,12 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(await within(interrupted), true)
     assert.ok(partialLength < changingGrant.byteSize)
     // Logout blocks new admissions but does not revoke an already admitted stream.
-    const revokedSession = await login()
+    // Fork an authenticated Session: including the Windows failed-persistence
+    // admission, this fixture already uses all twelve logins in a 60-second window.
+    // Closed-tab forks do not require another administrator login or alter throttling.
+    const revokedFork = await authorized(first, 'session', { method: 'POST', body: JSON.stringify({ fork: true }) })
+    assert.equal(revokedFork.status, 200)
+    const revokedSession = await revokedFork.json()
     const reset = await openFile(transferPath, 'w'); await reset.truncate(sizeForSlow); await reset.close()
     const revokedGrant = await grant(transferSource, revokedSession)
     const revokedStream = await fetch(origin + revokedGrant.url)

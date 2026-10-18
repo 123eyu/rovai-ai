@@ -5,7 +5,7 @@ import type {
   AdapterInstallation,
   AdapterKind,
   AppearanceSnapshot,
-  HealthStatus,
+  RuntimeStatus,
   HostPlatformKey,
   InterfaceLanguage,
   OnboardingRuntimeSelection,
@@ -148,7 +148,7 @@ export function OnboardingFlow({
 }: {
   snapshot: InProgressOnboarding
   appearance: AppearanceSnapshot
-  health: HealthStatus | null
+  health: RuntimeStatus | null
   installations: AdapterInstallation[]
   runtimePhase: OnboardingRuntimePhase
   busy: boolean
@@ -378,7 +378,7 @@ function RuntimeStep({
 }: {
   member: BuiltinMemberPreset
   selection: OnboardingRuntimeSelection | null
-  health: HealthStatus | null
+  health: RuntimeStatus | null
   installations: AdapterInstallation[]
   phase: OnboardingRuntimePhase
   provisioning: boolean
@@ -753,7 +753,7 @@ export function onboardingRuntimeCanContinue(
 
 export function onboardingHasUsableRuntime(
   phase: OnboardingRuntimePhase,
-  health: HealthStatus | null,
+  health: RuntimeStatus | null,
   installations: AdapterInstallation[]
 ): boolean {
   if (phase !== 'ready' || !health) return false

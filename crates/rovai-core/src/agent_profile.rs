@@ -1098,6 +1098,59 @@ impl VerifiedDiscoveredRuntimeEntry {
     pub fn executable_file_identity(&self) -> &ExecutableFileIdentity {
         &self.identity
     }
+
+    pub fn entry(&self) -> &DiscoveredRuntimeEntry {
+        &self.entry
+    }
+
+    /// Static discovery performs one stable read, or reuses the identity already
+    /// persisted for this exact path. No health evidence is produced.
+    pub fn discover(
+        adapter_kind: AdapterKind,
+        executable_path: String,
+        source: InstallationSource,
+        entrypoint_locator_identity: Option<RuntimeEntrypointLocatorIdentity>,
+        previous: Option<(&str, &ExecutableFileIdentity)>,
+    ) -> Result<Self> {
+        use crate::agent_runtime_adapter::{
+            executable_fingerprint, observe_executable_file_identity,
+        };
+        let path = Path::new(&executable_path);
+        let before = observe_executable_file_identity(path)?;
+        // Windows command shims retain their full dependency verification.
+        let reusable = !path.extension().is_some_and(|extension| {
+            cfg!(windows)
+                && matches!(
+                    extension.to_str().map(str::to_ascii_lowercase).as_deref(),
+                    Some("cmd" | "bat")
+                )
+        });
+        let fingerprint = match previous.filter(|(_, identity)| reusable && *identity == &before) {
+            Some((fingerprint, _)) => fingerprint.to_owned(),
+            None => executable_fingerprint(path)?,
+        };
+        let after = observe_executable_file_identity(path)?;
+        anyhow::ensure!(
+            before == after,
+            "Runtime entry changed during installation discovery"
+        );
+        anyhow::ensure!(
+            crate::runtime_discovery::entrypoint_locator_identity_is_current(
+                entrypoint_locator_identity.as_ref()
+            ),
+            "Runtime entrypoint locator changed during installation discovery"
+        );
+        Ok(Self {
+            entry: DiscoveredRuntimeEntry {
+                adapter_kind,
+                executable_path,
+                source,
+                executable_fingerprint: fingerprint,
+                entrypoint_locator_identity,
+            },
+            identity: after,
+        })
+    }
 }
 
 impl DiscoveredRuntimeEntry {
@@ -1432,7 +1485,7 @@ impl AgentProfileService {
         Ok(database.connection_mut().execute(
             r#"
             UPDATE adapter_installation
-            SET path_state = 'path_missing', updated_at = ?6
+            SET path_state = 'path_missing', version = version + 1, updated_at = ?6
             WHERE id = ?1
               AND adapter_kind = ?2
               AND auth_scope = ?3
@@ -1463,34 +1516,48 @@ impl AgentProfileService {
         executable_path: &str,
         executable_fingerprint: &str,
     ) -> Result<Option<ExecutableFileIdentity>> {
+        Ok(self
+            .recorded_executable_identity(database, installation_id, executable_path)?
+            .filter(|(fingerprint, _)| fingerprint == executable_fingerprint)
+            .map(|(_, identity)| identity))
+    }
+
+    pub fn recorded_executable_identity(
+        &self,
+        database: &Database,
+        installation_id: &str,
+        executable_path: &str,
+    ) -> Result<Option<(String, ExecutableFileIdentity)>> {
         database
             .connection()
             .query_row(
                 r#"
                 SELECT identity.byte_size, identity.modified_at_unix_nanos,
-                       identity.file_id
+                       identity.file_id, identity.executable_fingerprint
                 FROM runtime_executable_identity AS identity
                 JOIN adapter_installation AS installation
                   ON installation.id = identity.installation_id
                 WHERE identity.installation_id = ?1
                   AND identity.executable_path = ?2
-                  AND identity.executable_fingerprint = ?3
                   AND installation.executable_path = ?2
                 "#,
-                params![installation_id, executable_path, executable_fingerprint],
+                params![installation_id, executable_path],
                 |row| {
                     let byte_size = row.get::<_, i64>(0)?;
-                    Ok(ExecutableFileIdentity {
-                        byte_size: u64::try_from(byte_size).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                0,
-                                rusqlite::types::Type::Integer,
-                                Box::new(error),
-                            )
-                        })?,
-                        modified_at_unix_nanos: row.get(1)?,
-                        file_id: row.get(2)?,
-                    })
+                    Ok((
+                        row.get(3)?,
+                        ExecutableFileIdentity {
+                            byte_size: u64::try_from(byte_size).map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    0,
+                                    rusqlite::types::Type::Integer,
+                                    Box::new(error),
+                                )
+                            })?,
+                            modified_at_unix_nanos: row.get(1)?,
+                            file_id: row.get(2)?,
+                        },
+                    ))
                 },
             )
             .optional()
@@ -1779,14 +1846,19 @@ impl AgentProfileService {
         }
 
         let transaction = database.connection_mut().transaction()?;
+        // Static discovery may already have recorded an upgrade while the old
+        // health snapshot remains stale. Only the current installation advances.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
                        installation.generation, installation.version,
-                       snapshot.executable_fingerprint,
+                       COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint),
                        locator.compatibility_fingerprint
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN runtime_entrypoint_locator_identity AS locator
@@ -1839,7 +1911,9 @@ impl AgentProfileService {
                     transaction.execute(
                         r#"
                         UPDATE adapter_installation
-                        SET enabled = 1, path_state = 'valid', updated_at = ?2
+                        SET enabled = 1, path_state = 'valid',
+                            version = version + CASE WHEN path_state <> 'valid' THEN 1 ELSE 0 END,
+                            updated_at = ?2
                         WHERE id = ?1
                         "#,
                         params![id, now],
@@ -2127,7 +2201,9 @@ impl AgentProfileService {
                         .map(|value| value.compatibility_fingerprint.as_str());
             transaction.execute(
                 "UPDATE adapter_installation SET executable_path = ?2, path_state = 'valid',
-                    generation = generation + ?3, version = version + ?3, updated_at = ?4 WHERE id = ?1",
+                    generation = generation + ?3,
+                    version = version + CASE WHEN path_state <> 'valid' OR ?3 = 1 THEN 1 ELSE 0 END,
+                    updated_at = ?4 WHERE id = ?1",
                 params![id, entry.executable_path, i64::from(changed), now],
             )?;
             if changed {
@@ -2211,19 +2287,25 @@ impl AgentProfileService {
             observe_executable_file_identity(Path::new(&discovered.executable_path)).ok();
 
         let transaction = database.connection_mut().transaction()?;
+        // Installation changes and preservation of health evidence have separate
+        // fingerprints: static discovery can advance only the former.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
-                       snapshot.executable_fingerprint, snapshot.probe_status,
+                       COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint), snapshot.probe_status,
                        snapshot.permission_schema_version,
                        snapshot.permission_schema_digest,
                        snapshot.permission_options_json,
                        snapshot.model_catalog_json,
                        snapshot.last_successful_probe_at,
                        locator.compatibility_fingerprint,
-                       COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at)
+                       COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at),
+                       snapshot.executable_fingerprint
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN runtime_entrypoint_locator_identity AS locator
@@ -2246,6 +2328,7 @@ impl AgentProfileService {
                         row.get::<_, Option<String>>(8)?,
                         row.get::<_, Option<String>>(9)?,
                         row.get::<_, Option<String>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
                     ))
                 },
             )
@@ -2272,12 +2355,15 @@ impl AgentProfileService {
             last_successful_probe_at,
             locator_fingerprint,
             catalog_succeeded_at,
+            snapshot_fingerprint,
         )) = existing
         {
             let identity_changed =
                 path != discovered.executable_path || fingerprint.as_deref() != next_fingerprint;
             let compatibility_changed =
                 identity_changed || locator_fingerprint.as_deref() != next_locator_fingerprint;
+            let snapshot_compatibility_changed =
+                compatibility_changed || snapshot_fingerprint.as_deref() != next_fingerprint;
             transaction.execute(
                 if compatibility_changed {
                     r#"
@@ -2292,7 +2378,9 @@ impl AgentProfileService {
                     r#"
                     UPDATE adapter_installation
                     SET command_name = ?3, source = ?4, enabled = 1,
-                        path_state = 'valid', updated_at = ?5
+                        path_state = 'valid',
+                        version = version + CASE WHEN path_state <> 'valid' THEN 1 ELSE 0 END,
+                        updated_at = ?5
                     WHERE id = ?1
                     "#
                 },
@@ -2324,13 +2412,13 @@ impl AgentProfileService {
                     }
                     _ => false,
                 };
-            let preserve_existing = !compatibility_changed
+            let preserve_existing = !snapshot_compatibility_changed
                 && (schema_matches || normalize_legacy_trae_schema)
                 && (probe_status.as_deref() == Some("ready")
                     || (probe_status.as_deref() == Some("light_ready")
                         && discovered.snapshot.probe_status == "light_failed"
                         && executable_is_usable));
-            let retained_lkg = compatibility_changed
+            let retained_lkg = snapshot_compatibility_changed
                 .then(|| {
                     let models_json = model_catalog_json?;
                     let last_successful_probe_at = last_successful_probe_at?;
@@ -2541,7 +2629,9 @@ impl AgentProfileService {
             transaction.execute(
                 r#"
                 UPDATE adapter_installation
-                SET path_state = 'path_missing', updated_at = ?2
+                SET path_state = 'path_missing',
+                    version = version + CASE WHEN path_state <> 'path_missing' THEN 1 ELSE 0 END,
+                    updated_at = ?2
                 WHERE id = ?1
                 "#,
                 params![installation_id, attempted_at],

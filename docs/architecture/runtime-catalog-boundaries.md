@@ -186,7 +186,9 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 [OpenCode V1/V2 实施记录](../versions/v1.72/opencode-v1-v2-implementation.md)。
 
 启动与 rescan 只解析入口、检查平台与执行条件、保存同次稳定的 fingerprint/file identity；
-不执行 `--version` 或协议深检。发现安装即可保存配置并尝试运行，版本未知不影响普通运行准入。
+不执行 `--version` 或协议深检。未变的原生文件复用既有身份和指纹；首次或升级在同项工作内完成
+前身份／哈希／后身份，再直接短提交。提交沿用搜索代次和 Installation version，避免同代次旧结果覆盖。
+发现安装即可保存配置并尝试运行，版本未知不影响普通运行准入。
 安装记录不伪造 Ready、认证或能力；旧健康证据只供主动诊断和模型 Picker 参考，已知版本的展示复用单独判断。
 
 已知程序版本复用现有快照保存，独立于健康状态：本次静态发现未读取版本或版本读取失败时，Core
@@ -201,6 +203,8 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 运行中的初始化/错误属于当前 Run；修复环境后的新任务重新尝试，不必手动解除历史健康状态。
 
 主动诊断沿用有界 Runtime Check Manager 和进程清理，Probe 前后仍校验目标身份；其结果不授权运行。
+单项诊断复用当前搜索环境，只有有效输入或配置变化才推进代次；不以另一项诊断的开始使当前结果失效。
+设置页只读 Runtime 聚合及安装列表，不等待 Git、导航或记忆；已有请求期间的事件只标记一次必要补刷。
 Antigravity 的正文只能进入 argv，因此保留有界 help/models 无正文预检；Fast 可选偏好直接进入真实 Host，不再进行资格预检。
 特例和字段由 [Runtime Launch v49](../contracts/runtime-launch-and-verification-v49.md)拥有，不扩展为统一健康门禁。
 

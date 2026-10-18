@@ -3920,5 +3920,12 @@
   "查看本次执行的 {0} 条原消息": "View the {0} original messages for this run",
   "{0} 条原消息": "{0} original messages",
   "本次执行的原消息": "Original messages for this run",
-  "返回执行位置": "Return to execution"
+  "返回执行位置": "Return to execution",
+  "诊断未完成，程序或启动设置已变化，请重试。": "Diagnosis incomplete: the program or startup settings changed. Please retry.",
+  "本次诊断未通过，请查看具体原因。": "Diagnosis failed. Review the details.",
+  "已安装": "Installed",
+  "正在诊断…": "Diagnosing…",
+  "诊断": "Diagnose",
+  "不可诊断": "Diagnosis unavailable",
+  "我已登录，诊断": "I'm logged in, diagnose"
 }

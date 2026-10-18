@@ -157,6 +157,196 @@ describe('console transport', () => {
     expect(fetcher.mock.calls.filter(([, init]) => init?.body && JSON.parse(String(init.body)).operation === 'thread.messages.send')).toHaveLength(1)
   })
 
+  it('hands native downloads only to the current trusted Host and fences late grants', async () => {
+    let reply: (value: Response) => void = () => undefined
+    let native = true
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => String(url).endsWith('/login')
+      ? Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user', fileTransfers: { nativeDownload: native, uploadMaxBytes: 30 * 1024 * 1024 } })
+      : new Promise(resolve => { reply = resolve }))
+    const link = { href: '', download: '', rel: '', referrerPolicy: '', click: vi.fn(), remove: vi.fn() }
+    vi.stubGlobal('document', { createElement: () => link, body: { append: vi.fn() } })
+    try {
+      const client = new ConsoleClient('http://localhost:4317', fetcher)
+      await client.login('b'.repeat(64))
+      const source = { kind: 'attachment', threadId: 'one', locator: { owner: 'composer', threadId: 'one', attachmentRefId: 'file' } }
+      const request = { kind: 'source' as const, source }
+      const success = client.download(request)
+      reply(Response.json({ url: '/api/v1/downloads/' + 'f'.repeat(64), name: '结果.bin' }))
+      await success
+      expect(link.click).toHaveBeenCalledOnce()
+      expect(link.href).toBe('http://localhost:4317/api/v1/downloads/' + 'f'.repeat(64))
+      expect(link.download).toBe('结果.bin')
+      expect(new Headers(fetcher.mock.calls.at(-1)![1]?.headers).get('Authorization')).toBe('Bearer ' + 'a'.repeat(64))
+      for (const url of ['https://outside.invalid/file', '//outside.invalid/file', '/api/v1/downloads/' + 'f'.repeat(64) + '?token=secret', '/api/v1/request']) {
+        const bad = client.download(request); reply(Response.json({ url, name: 'unsafe' }))
+        await expect(bad).rejects.toThrow('下载地址无效')
+      }
+      const late = client.download(request)
+      client.clear()
+      reply(Response.json({ url: '/api/v1/downloads/' + 'f'.repeat(64), name: 'late' }))
+      await expect(late).rejects.toMatchObject({ name: 'AbortError' })
+      expect(link.click).toHaveBeenCalledOnce()
+      native = false; await client.login('b'.repeat(64))
+      await expect(client.download(request)).rejects.toThrow('尚不支持独立下载')
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('uses the advertised per-file upload limit and does not clear existing editing data', async () => {
+    let modern = true
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+      if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user', ...(modern ? { fileTransfers: { uploadMaxBytes: 30 * 1024 * 1024 } } : {}) })
+      const intent = JSON.parse(String((options?.body as FormData).get('intent')))
+      return Response.json({ draft: { id: intent.commandId, kind: 'file', observedByteSize: intent.byteSize } })
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher)
+    await client.login('b'.repeat(64))
+    const tooLarge = { size: 30 * 1024 * 1024 + 1 } as File
+    await expect(client.uploadFile('one', 1, tooLarge)).rejects.toThrow('30 MiB')
+    expect(fetcher).toHaveBeenCalledOnce()
+    await expect(client.uploadFile('one', 1, new File([new Uint8Array(30 * 1024 * 1024)], 'exact.bin'))).resolves.toMatchObject({ byteSize: 30 * 1024 * 1024 })
+    expect(client.uploadProgress).toEqual([])
+    modern = false; await client.login('b'.repeat(64))
+    await expect(client.uploadFile('one', 1, { size: 21 * 1024 * 1024 } as File)).rejects.toThrow('20 MiB')
+  })
+
+  it('cancels an uncertain upload without deleting, redispatching, or attaching its late receipt', async () => {
+    let bound = false
+    const values = new Map<string, string>()
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } }
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+      if (String(url).endsWith('/login') || String(url).endsWith('/session')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+      if (String(url).endsWith('/uploads')) throw new TypeError('lost response')
+      return Response.json(bound ? { draft: { id: 'received' } } : { state: 'unknown' })
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher, storage)
+    await client.login('b'.repeat(64))
+    const uploaded = client.uploadFile('one', 1, new File(['bytes'], 'file.bin'))
+    const cancelled = expect(uploaded).rejects.toThrow('已取消上传')
+    await vi.waitFor(() => expect(client.uploadProgress[0]?.phase).toBe('unknown'))
+    const id = client.uploadProgress[0].id
+    client.cancelUpload(id); await cancelled
+    await client.retryUpload(id)
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+    bound = true; await client.reconcilePending()
+    expect(client.pendingCommandCount).toBe(0)
+    expect(client.uploadProgress).toMatchObject([{ id, phase: 'received', cancelled: true }])
+    const refreshed = new ConsoleClient('http://localhost:4317', fetcher, storage)
+    expect(await refreshed.restore()).toBe(true)
+    expect(refreshed.uploadProgress).toMatchObject([{ id, phase: 'received' }])
+    await expect(refreshed.uploadFile('one', 2, new File(['bytes'], 'file.bin'))).resolves.toMatchObject({ id: 'received' })
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+    expect(refreshed.uploadProgress).toEqual([])
+  })
+
+  it.each(['request', 'body', 'error body'])('keeps a healthy page usable when cancelling the upload %s with an unknown receipt', async phase => {
+    const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+      if (String(url).endsWith('/uploads')) {
+        if (phase === 'request') return new Promise((_resolve, reject) => {
+          options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        })
+        return new Response(new ReadableStream({ start(controller) {
+          options!.signal!.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true })
+        } }), { status: phase === 'error body' ? 503 : 200 })
+      }
+      if (String(url).endsWith('/uploads/reconcile')) return Response.json({ state: 'unknown' })
+      return Response.json({ result: {} })
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher)
+    await client.login('b'.repeat(64))
+    const uploaded = client.uploadFile('one', 1, new File(['bytes'], 'file.bin'))
+    const cancelled = expect(uploaded).rejects.toThrow('已取消上传')
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/uploads'))).toBe(true))
+    client.cancelUpload(client.uploadProgress[0].id)
+    await cancelled
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/uploads/reconcile'))).toBe(true))
+    expect(client.connectionState).toBe('live')
+    expect(client.pendingCommandCount).toBe(1)
+    expect(client.uploadProgress[0]).toMatchObject({ cancelled: true, phase: 'unknown' })
+    await expect(client.request('app.info')).resolves.toEqual({})
+    client.clear()
+  })
+
+  it.each(['cancel', 'timeout', 'network', 'replaced'])('classifies %s during receipt body reading without losing the original upload', async cause => {
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+    let holdReceipt = false
+    let receiptBody: ReadableStreamDefaultController | undefined
+    const intents: string[] = []
+    const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+      if (String(url).endsWith('/uploads')) return new Promise((_resolve, reject) => {
+        options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      })
+      if (String(url).endsWith('/uploads/reconcile')) {
+        intents.push(String(options!.body))
+        if (!holdReceipt) return Response.json({ state: 'unknown' })
+        return new Response(new ReadableStream({ start(controller) {
+          receiptBody = controller
+          options!.signal!.addEventListener('abort', () => controller.error(options!.signal!.reason), { once: true })
+        } }))
+      }
+      return Response.json({ result: {} })
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher)
+    try {
+      await client.login('b'.repeat(64))
+      const file = new File(['bytes'], 'original.bin')
+      const uploaded = client.uploadFile('one', 1, file)
+      const cancelled = expect(uploaded).rejects.toThrow('已取消上传')
+      await vi.waitFor(() => expect(client.uploadProgress[0]?.phase).toBe('transferring'))
+      const originalId = client.uploadProgress[0].id
+      client.cancelUpload(originalId)
+      await cancelled
+      await client.reconcilePending()
+      holdReceipt = true
+      const reselected = client.uploadFile('one', 1, file)
+      const interrupted = expect(reselected).rejects.toBeInstanceOf(Error)
+      await vi.waitFor(() => expect(receiptBody).toBeDefined())
+      if (cause === 'cancel') client.cancelUpload(client.uploadProgress.find(entry => entry.id !== originalId)!.id)
+      else if (cause === 'timeout') deadline.abort(new DOMException('Deadline elapsed', 'TimeoutError'))
+      else if (cause === 'replaced') await client.login('b'.repeat(64))
+      else receiptBody!.error(new DOMException('Connection lost', 'AbortError'))
+      await interrupted
+      expect(client.connectionState).toBe(cause === 'timeout' || cause === 'network' ? 'offline' : 'live')
+      expect(client.authenticated).toBe(true)
+      expect(intents.every(intent => JSON.parse(intent).commandId === originalId)).toBe(true)
+      expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+      expect(client.uploadProgress.filter(entry => entry.id !== originalId)).toEqual([])
+      if (cause === 'cancel') {
+        expect(client.pendingCommandCount).toBe(1)
+        await expect(client.request('app.info')).resolves.toEqual({})
+      }
+    } finally { client.clear(); timeout.mockRestore() }
+  })
+
+  it('cancels an explicitly retried upload with the original operation identity', async () => {
+    const intents: string[] = []
+    let retrySignal: AbortSignal | null | undefined
+    const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 5, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+      if (String(url).endsWith('/uploads/reconcile')) return Response.json({ state: 'unknown' })
+      intents.push(String((options!.body as FormData).get('intent')))
+      if (intents.length === 1) throw new TypeError('connection lost')
+      retrySignal = options!.signal
+      return new Promise<Response>((_, reject) => retrySignal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }))
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher)
+    await client.login('b'.repeat(64))
+    const uploaded = client.uploadFile('one', 1, new File(['bytes'], 'file.bin'))
+    const cancelled = expect(uploaded).rejects.toThrow('已取消上传')
+    await vi.waitFor(() => expect(client.uploadProgress[0]?.phase).toBe('unknown'))
+    const id = client.uploadProgress[0].id
+    const retry = client.retryUpload(id)
+    await vi.waitFor(() => expect(retrySignal).toBeDefined())
+    client.cancelUpload(id)
+    await cancelled; await retry
+    expect(retrySignal!.aborted).toBe(true)
+    expect(intents).toHaveLength(2)
+    expect(intents[1]).toBe(intents[0])
+    expect(client.uploadProgress[0]).toMatchObject({ id, cancelled: true, phase: 'unknown' })
+  })
+
   it('resumes an unknown source binding without uploading another file', async () => {
     let bound = false
     let intent: unknown
@@ -254,6 +444,31 @@ describe('tab session recovery', () => {
     return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } }
   }
   const identity = { protocolVersion: 5, token: 'a'.repeat(64), clientId: 'b'.repeat(64), editorProof: 'c'.repeat(64), ownerId: 'local_user', channels: 'desktop' }
+  it('reselects lost bytes after refresh using the original unresolved upload intent', async () => {
+    const storage = memory()
+    const intents: string[] = []
+    const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).endsWith('/login') || String(url).endsWith('/session')) return Response.json(identity)
+      if (String(url).endsWith('/request')) return Response.json({ result: {} })
+      if (String(url).endsWith('/uploads/reconcile')) return Response.json({ state: 'unknown' })
+      intents.push(String((options!.body as FormData).get('intent')))
+      if (intents.length === 1) throw new TypeError('lost response')
+      return Response.json({ draft: { id: JSON.parse(intents[0]).commandId, kind: 'file', observedByteSize: 5 } })
+    })
+    const first = new ConsoleClient('http://localhost:4317', fetcher, storage)
+    await first.login('d'.repeat(64))
+    const pending = first.uploadFile('camp', 1, new File(['input'], 'input.txt'))
+    const cancelled = expect(pending).rejects.toThrow('已取消上传')
+    await vi.waitFor(() => expect(first.uploadProgress[0]?.phase).toBe('unknown'))
+    first.cancelUpload(first.uploadProgress[0].id); await cancelled
+    const refreshed = new ConsoleClient('http://localhost:4317', fetcher, storage)
+    expect(await refreshed.restore()).toBe(true)
+    expect(await refreshed.retryPending()).toBe(true)
+    await expect(refreshed.uploadFile('camp', 9, new File(['input'], 'input.txt'))).resolves.toMatchObject({ id: JSON.parse(intents[0]).commandId })
+    expect(intents).toHaveLength(2)
+    expect(intents[1]).toBe(intents[0])
+    expect(refreshed.pendingCommandCount).toBe(0)
+  })
   it('exchanges a scan ticket only in POST and retains this tab editor but never a copied editor', async () => {
     const storage = memory()
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(identity))

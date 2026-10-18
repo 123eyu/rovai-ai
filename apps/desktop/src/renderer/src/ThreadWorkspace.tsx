@@ -4243,7 +4243,7 @@ export function ThreadWorkspace({
                 id: item.id,
                 name: item.file.name,
                 kind: item.kind,
-                error: attachmentErrorMessage(error)
+                error: client.attachments.kind === 'download' ? readErrorMessage(error) : attachmentErrorMessage(error)
               }
             ])
           }

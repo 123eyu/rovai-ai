@@ -9,6 +9,7 @@ import type { ActionApprovalView, AgentRunFileChangesDetailView, AgentRunFileCha
 import { AppHeader } from '../../../apps/desktop/src/renderer/src/App'
 import { AgentRunFileChangesTimelineCard, ApprovalDock, RuntimeRecoveryDock, TaskTimelineCard, ThreadWorkspace } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { FilePreviewProvider, useFilePreview, type FilePreviewContextValue } from '../../../apps/desktop/src/renderer/src/FilePreviewContext'
+import { filePreviewSessionStore } from '../../../apps/desktop/src/renderer/src/file-preview-session'
 import { FilePreviewResizeHandle, FilePreviewWorkspace } from '../../../apps/desktop/src/renderer/src/FilePreviewLayout'
 import { FilePreviewPane } from '../../../apps/desktop/src/renderer/src/FilePreviewPane'
 import { FileReferenceLink } from '../../../apps/desktop/src/renderer/src/FileReferenceLink'
@@ -102,6 +103,7 @@ const readSteps = [readReferences, [toolPreviewReference, toolPreviewReference]]
 const unsupported = async (): Promise<never> => { throw new Error('Unexpected fixture API operation') }
 const fileOpens: OpenFilePreviewRequest[] = []
 const fileRestores: OpenFilePreviewRequest[] = []
+const sourceDownloads: OpenFilePreviewRequest[] = []
 const campBindings: Array<string | null> = []
 const releases: string[] = []
 const revealCalls: string[] = []
@@ -154,6 +156,7 @@ async function resolvePreview(request: OpenFilePreviewRequest) {
   return { ok: true as const, value: { kind: 'file_preview' as const, file: { ...target, handleId } } }
 }
 const api: FilePreviewApi = {
+  downloadSource: async request => { sourceDownloads.push(request); return { ok: true, value: { started: true } } },
   bindThread: async (threadId) => { campBindings.push(threadId) },
   open: async (request) => {
     fileOpens.push(request)
@@ -404,6 +407,7 @@ function Workspace(): React.JSX.Element {
 }
 
 let switchCamp: () => void
+let prepareColdDownload: () => void
 let setFixtureTheme: (theme: ResolvedTheme) => void
 let showToolRows: () => void
 function ToolRows(): React.JSX.Element {
@@ -455,12 +459,25 @@ function Fixture(): React.JSX.Element {
   const [toolRowsVisible, setToolRowsVisible] = useState(false)
   showToolRows = () => { setCamp('camp-1'); setToolRowsVisible(true) }
   switchCamp = () => setCamp((previous) => previous === 'camp-1' ? 'camp-2' : 'camp-1')
+  prepareColdDownload = () => {
+    filePreviewSessionStore.set('cold-download', {
+      tabs: [
+        { kind: 'execution', id: 'cold-download-current' },
+        { kind: 'file', id: 'cold-download-file',
+          sourceRequest: { kind: 'message_reference', threadId: 'cold-download', messageId: 'message-1', rawReference: file.displayPath },
+          presentation: { fileName: file.fileName, displayPath: file.displayPath, pathPresentation: file.pathPresentation } }
+      ],
+      activeTabId: 'cold-download-current', paneVisible: true
+    })
+    setToolRowsVisible(false)
+    setCamp('cold-download')
+  }
   setFixtureTheme = (theme) => {
     document.documentElement.dataset.theme = theme
     document.documentElement.style.colorScheme = theme === 'night' ? 'dark' : 'light'
     setResolvedTheme(theme)
   }
-  return <FilePreviewProvider threadId={camp} resolvedTheme={resolvedTheme}>
+  return <FilePreviewProvider threadId={camp} resolvedTheme={resolvedTheme} api={camp === 'cold-download' ? api : undefined}>
     <div className="app-shell app-shell-camp">
       <aside style={{ gridRow: '1 / -1', padding: '48px 24px', background: 'var(--rail)' }}>Rovai AI</aside>
       <AppHeader threadTitle="文件预览验收" contextLabel="Rovai AI" thread={null} onFocusApprovals={() => {}} />
@@ -499,6 +516,9 @@ async function settle(): Promise<void> {
 
 Object.assign(window, { previewTest: {
   settle,
+  async prepareColdDownload() { prepareColdDownload(); await settle() },
+  downloadState: () => ({ requests: [...sourceDownloads], restores: fileRestores.length, reads: fileReads,
+    activeTabId: previewController.activeTabId, tab: previewController.tabs.find(tab => tab.id === 'cold-download-file') }),
   claimFirstRun: () => claimFirstRun(),
   executionPhase: () => executionPhase,
   activeTabKind: () => previewController.activeTab?.kind,

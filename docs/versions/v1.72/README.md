@@ -11,6 +11,17 @@ last_updated: 2026-10-18
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 浏览器文件传输（2026-10-17）
+
+按 User 确认方案实施单文件 30 MiB 上传、进度/取消与原结果核对，及独立授权的原生流式下载。
+预览预算与下载分离，下载保留申请来源授权、准入 Session 校验和资源约束，不增加附件资产或保存期限。
+2026-10-18 按 User seq27 收敛为准入后直接流式发送，取消持续重验及下载所见版本/尾块检查；不新增严格模式。
+当前规范为 [Host Web v7](../../contracts/host-web-v7.md)，取舍见 [D52](decisions.md#v1-72-d52)。
+实施及验收状态见[下载链路收尾记录](implementation-plan.md#文件下载准入后直接传输2026-10-18)。
+
+本项保持 v1.72 生命周期；Contracts、Architecture、UI、Decisions、用户/部署文档及导航已更新。
+Runtime Activity、Runtime compatibility 与 Root README 无需调整：没有模型输入、运行时资格或产品定位变更。
+
 ## 旧概念残留收口（2026-10-18）
 
 按 User“开启 wt 统一修改”的要求，在 `rovai/legacy-concepts` 隔离分支收口当前入口的残留：

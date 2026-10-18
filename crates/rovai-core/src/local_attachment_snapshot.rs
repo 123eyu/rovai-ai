@@ -1,5 +1,5 @@
 //! Shared local file snapshots. Neither this module nor the CLI owns Camp authorization.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::{
@@ -243,6 +243,26 @@ struct OpenedNodeMetadata {
     kind: OpenedNodeKind,
     fingerprint: MetadataFingerprint,
     link_count: u64,
+}
+
+/// Identity and mutation evidence for an already-open regular file. This is an
+/// observation, not a snapshot or a promise that concurrent writes are atomic.
+#[cfg(any(unix, windows))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct FileObservation(OpenedNodeMetadata);
+
+#[cfg(any(unix, windows))]
+impl FileObservation {
+    pub fn byte_size(&self) -> u64 {
+        fingerprint_size(&self.0.fingerprint)
+    }
+}
+
+#[cfg(any(unix, windows))]
+pub fn observe_open_file(file: &File) -> Result<FileObservation> {
+    let node = inspect_open_node(file)?;
+    ensure!(node.kind == OpenedNodeKind::RegularFile, "not_regular_file");
+    Ok(FileObservation(node))
 }
 
 #[cfg(any(unix, windows))]

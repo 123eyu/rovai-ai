@@ -3,7 +3,7 @@ import type { FilePreviewApi, ResolvedFilePreview, OpenFilePreviewRequest, FileP
 import { FilePreviewResources } from './file-preview-resources'
 import { filePreviewSessionStore } from './file-preview-session'
 import { filePreviewRetentionLimits } from '../../file-preview-retention'
-import type { FilePreviewSession, FilePreviewTabModel } from './file-preview-controller'
+import { canDownloadFile, type FilePreviewSession, type FilePreviewTabModel } from './file-preview-controller'
 
 const resources: FilePreviewResources[] = []
 beforeEach(() => { filePreviewSessionStore.clear(); vi.stubGlobal('document', { activeElement: null }) })
@@ -70,6 +70,119 @@ function deferred<T>() {
 }
 
 describe('window-owned preview resources', () => {
+  it('downloads a cold background tab from its source without activating or restoring its preview', async () => {
+    const { owner, api } = fixture()
+    const result = { ok: true as const, value: { started: true as const } }
+    api.downloadSource = vi.fn(async () => result)
+    const session = await open(owner, 'downloads', 'cold.txt')
+    const cold = active(session)
+    await open(owner, 'downloads', 'current.txt')
+    const current = active(session)
+    session.evict(cold.id)
+    const reads = vi.mocked(api.readText).mock.calls.length
+
+    expect(session.getSnapshot().tabs.find(tab => tab.id === cold.id)).toMatchObject({ loadState: 'cold', file: null })
+    expect(await session.actions.download(cold.id)).toEqual(result)
+    expect(api.downloadSource).toHaveBeenCalledExactlyOnceWith(cold.sourceRequest)
+    expect(api.restore).not.toHaveBeenCalled()
+    expect(api.readText).toHaveBeenCalledTimes(reads)
+    expect(active(session).id).toBe(current.id)
+    expect(session.getSnapshot().tabs.find(tab => tab.id === cold.id)).toMatchObject({ loadState: 'cold', downloadState: result })
+  })
+
+  it.each(['text handle', 'HTML source bytes'] as const)('allows another download after evicting %s during preparation', async kind => {
+    const { owner, api } = fixture()
+    const previous = deferred<Awaited<ReturnType<NonNullable<FilePreviewApi['download']>>>>()
+    const next = deferred<Awaited<ReturnType<NonNullable<FilePreviewApi['download']>>>>()
+    api.download = vi.fn().mockReturnValueOnce(previous.promise).mockReturnValueOnce(next.promise)
+    api.downloadSource = vi.fn(() => next.promise)
+    const session = await open(owner, 'downloads', kind === 'text handle' ? 'retained.txt' : 'retained.html')
+    if (kind === 'HTML source bytes') await session.actions.loadHtmlSource(active(session).id)
+    const before = active(session)
+    before.file!.capabilities.push('download')
+    const pending = session.actions.download(before.id)
+    expect(active(session).downloadState).toBe('preparing')
+
+    if (kind === 'text handle') session.evict(before.id, true)
+    else session.evictBytes(before.id)
+    expect(active(session)).toMatchObject({ loadState: 'ready', requestGeneration: before.requestGeneration + 1 })
+    expect(active(session).content).toBe(before.content)
+    expect(active(session).downloadState).toBeUndefined()
+    if (kind === 'text handle') expect(active(session).file).toBeNull()
+    else {
+      expect(before.htmlSource).toBeDefined()
+      expect(active(session).htmlSource).toBeUndefined()
+    }
+    session.actions.activate(before.id)
+    const retry = session.actions.download(before.id)
+    expect(active(session).downloadState).toBe('preparing')
+    // The discarded request must neither leave the button busy nor overwrite its successor.
+    previous.resolve({ ok: false, error: { code: 'file_changed', message: 'old preview', retryable: true } })
+    await pending
+    expect(active(session).downloadState).toBe('preparing')
+    const started = { ok: true as const, value: { started: true as const } }
+    next.resolve(started)
+    expect(await retry).toEqual(started)
+    expect(active(session).downloadState).toEqual(started)
+    expect(api.restore).not.toHaveBeenCalled()
+    expect(vi.mocked(api.download).mock.calls.length + vi.mocked(api.downloadSource).mock.calls.length).toBe(2)
+  })
+
+  it('shares source download eligibility without confusing patch files with comparison views', async () => {
+    const { owner, api } = fixture()
+    api.download = vi.fn(async () => ({ ok: true as const, value: { started: true as const } }))
+    api.downloadSource = vi.fn(async () => ({ ok: true as const, value: { started: true as const } }))
+    const session = await open(owner, 'downloads', 'changes.patch')
+    const patch = active(session)
+    patch.file = { ...patch.file!, kind: 'patch', extension: '.patch', capabilities: ['read', 'download'] }
+    patch.content = { kind: 'patch', text: '--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after' }
+    expect(canDownloadFile(patch, api)).toBe(true)
+    await session.actions.download(patch.id)
+    expect(api.download).toHaveBeenCalledWith({ handleId: patch.file.handleId, expectedGeneration: patch.file.contentGeneration })
+    expect(canDownloadFile({ ...patch, file: { ...patch.file, capabilities: ['read'] } }, api)).toBe(false)
+    const review = { kind: 'file_change' as const, id: 'comparison', threadId: 'downloads', selectedEvidenceFileId: null,
+      changes: { schemaVersion: 2 as const, agentRunId: 'run', executionEpoch: 1, fileCount: 0, operationCount: 0, files: [], completedAt: '2026-10-18T00:00:00Z' } }
+    expect(canDownloadFile(review, api)).toBe(false)
+    const unavailable = { ...patch, file: null, content: null, error: { code: 'file_too_large' as const, message: 'Preview budget', retryable: false } }
+    expect(canDownloadFile(unavailable, api)).toBe(true)
+    expect(canDownloadFile({ ...unavailable, error: { ...unavailable.error, code: 'source_not_authorized' } }, api)).toBe(false)
+    expect(canDownloadFile(unavailable, { ...api, download: undefined, downloadSource: undefined })).toBe(false)
+  })
+
+  it('keeps delayed download feedback with its file and never reopens or activates a hidden panel', async () => {
+    const { owner, api } = fixture()
+    const pending = deferred<{ ok: false; error: { code: 'file_changed'; message: string; retryable: true } }>()
+    api.download = vi.fn(() => pending.promise)
+    const session = await open(owner, 'downloads', 'a.txt')
+    active(session).file!.capabilities.push('download')
+    const a = active(session).id
+    const downloading = session.actions.download(a)
+    await session.actions.download(a)
+    expect(api.download).toHaveBeenCalledTimes(1)
+    await open(owner, 'downloads', 'b.txt')
+    const b = active(session).id
+    session.actions.hidePane()
+    owner.activate('another-thread')
+    pending.resolve({ ok: false, error: { code: 'file_changed', message: 'a changed', retryable: true } })
+    await downloading
+    expect(owner.isCurrent('another-thread')).toBe(true)
+    expect(session.getSnapshot()).toMatchObject({ activeTabId: b, paneVisible: false })
+    expect(active(session).downloadState).toBeUndefined()
+    const aTab = session.getSnapshot().tabs.find(tab => tab.id === a) as FilePreviewTabModel
+    expect(aTab.downloadState).toMatchObject({ ok: false, error: { code: 'file_changed' } })
+    session.actions.clearDownloadFeedback(a)
+    expect((session.getSnapshot().tabs.find(tab => tab.id === a) as FilePreviewTabModel).downloadState).toBeUndefined()
+
+    const late = deferred<{ ok: true; value: { started: true } }>()
+    vi.mocked(api.download).mockReturnValueOnce(late.promise)
+    const removed = session.actions.download(a)
+    session.actions.close(a)
+    late.resolve({ ok: true, value: { started: true } })
+    await removed
+    expect(session.getSnapshot()).toMatchObject({ activeTabId: b, paneVisible: false })
+    expect(session.getSnapshot().tabs.some(tab => tab.id === a)).toBe(false)
+  })
+
   it('keeps mission activity in the shared tab lifecycle without acquiring a file handle', async () => {
     const { owner, api } = fixture()
     owner.activate('mission-camp')

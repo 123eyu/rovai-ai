@@ -31,6 +31,7 @@ export interface FilePreviewTabModel {
   externalUpdateVersion: number
   isRefreshing: boolean
   refreshError: string | null
+  downloadState?: 'preparing' | FilePreviewOperationResult<{ started: true }>
   pageOffsets: number[]
   pageIndex: number
   htmlSourceMode?: boolean
@@ -56,6 +57,14 @@ export interface FileChangesPreviewTabModel {
 export type MissionActivityTabModel = import('./file-preview-session').MissionActivityTabSnapshot
 export type ExecutionTabModel = import('./file-preview-session').ExecutionTabSnapshot
 export type PreviewTabModel = FilePreviewTabModel | FileChangesPreviewTabModel | MissionActivityTabModel | ExecutionTabModel
+
+export function canDownloadFile(tab: PreviewTabModel, api: FilePreviewApi): boolean {
+  if (tab.kind !== 'file') return false
+  if (!tab.content && ['source_not_authorized', 'file_not_found', 'attachment_missing'].includes(tab.error?.code ?? '')) return false
+  const downloadCapability = (tab.file?.capabilities ?? tab.retainedCapabilities)?.includes('download')
+  if (tab.file) return Boolean(api.download && downloadCapability)
+  return Boolean(tab.sourceRequest && (api.downloadSource || api.download && downloadCapability))
+}
 
 export type FilePreviewOpenOutcome =
   | { kind: 'preview'; tabId: string }
@@ -107,6 +116,7 @@ export interface FilePreviewContextValue {
   close(tabId: string): void
   closeMany(tabIds: string[]): void
   download(tabId: string): Promise<FilePreviewOperationResult<{ started: true }>>
+  clearDownloadFeedback(tabId: string): void
   openInSystem(tabId: string): Promise<FilePreviewOperationResult<{ opened: true }>>
   revealInFolder(tabId: string): Promise<FilePreviewOperationResult<{ revealed: true }>>
   copyPath(tabId: string): Promise<FilePreviewOperationResult<{ copied: true }>>
@@ -132,6 +142,7 @@ function errorFromUnknown(): FilePreviewErrorPayload {
 
 export function filePreviewErrorMessage(error: Pick<FilePreviewErrorPayload, 'code'>): string {
   switch (error.code) {
+    case 'file_changed': return uiAttribute('文件已变化，请刷新预览后重试。')
     case 'preview_timeout': return uiAttribute('未收到预览服务响应，请重试。')
     case 'file_not_found': return uiAttribute('找不到这个文件')
     case 'attachment_missing': return uiAttribute('找不到这个附件')
@@ -611,6 +622,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
         ...entry,
         sourceRequest: request,
         loadState: 'opening',
+        downloadState: undefined,
         error: null,
         requestGeneration,
         isRefreshing: false,
@@ -1015,9 +1027,30 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
     try { return await action(file) }
     finally { if (!tab.file) void api.release({ handleId: file.handleId }) }
   }
-  const download = (tabId: string) => withActionFile<{ started: true }>(tabId, file => api.download
-    ? api.download({ handleId: file.handleId, expectedGeneration: file.contentGeneration })
-    : Promise.resolve({ ok: false, error: unavailableSourceError() }))
+  const download = async (tabId: string): Promise<FilePreviewOperationResult<{ started: true }>> => {
+    const tab = tabsRef.current.find(entry => entry.id === tabId)
+    if (tab?.kind !== 'file' || !canDownloadFile(tab, api) || tab.downloadState === 'preparing'
+      || tab.loadState === 'opening' || tab.isRefreshing) return { ok: false, error: unavailableSourceError() }
+    setTabs(tabs => tabs.map(entry => entry.id === tabId ? { ...entry, downloadState: 'preparing' as const } : entry))
+    let result: FilePreviewOperationResult<{ started: true }>
+    try {
+      if (!tab.file && tab.sourceRequest && api.downloadSource) {
+        await owner.sync()
+        result = await api.downloadSource(tab.sourceRequest)
+      } else {
+        result = await withActionFile(tabId, file => api.download!({ handleId: file.handleId, expectedGeneration: file.contentGeneration }))
+      }
+    } catch (error) {
+      result = { ok: false, error: { code: 'read_failed', message: error instanceof Error ? error.message : uiAttribute('下载申请失败，请重试。'), retryable: true } }
+    }
+    // Feedback stays with the requesting file, even when its retained panel is hidden.
+    // A replaced preview or a closed tab must not receive the old result.
+    setTabs(tabs => tabs.map(entry => entry.kind === 'file' && entry.id === tabId && entry.requestGeneration === tab.requestGeneration
+      ? { ...entry, downloadState: result } : entry))
+    return result
+  }
+  const clearDownloadFeedback = (tabId: string): void => setTabs(tabs => tabs.map(entry => entry.kind === 'file'
+    && entry.id === tabId && entry.downloadState !== 'preparing' ? { ...entry, downloadState: undefined } : entry))
   const openInSystem = (tabId: string) => withActionFile(tabId, file => api.openInSystem({ handleId: file.handleId }))
   const revealInFolder = (tabId: string) => withActionFile(tabId, file => api.revealInFolder({ handleId: file.handleId }))
   const copyPath = (tabId: string) => withActionFile(tabId, file => api.copyPath({
@@ -1075,7 +1108,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
     const scope = scopeGenerationRef.current
     const requestGeneration = tab.requestGeneration + 1
     refreshVersions.set(tabId, tab.externalUpdateVersion)
-    setTabs(tabs => tabs.map(entry => entry.id !== tabId ? entry : { ...tab, requestGeneration, isRefreshing: true, refreshError: null }))
+    setTabs(tabs => tabs.map(entry => entry.id !== tabId ? entry : { ...tab, requestGeneration, isRefreshing: true, refreshError: null, downloadState: undefined }))
     let candidate: ResolvedFilePreview | null = null
     let loaded: LoadedFilePreviewContent | null = null
     let reservation: (() => void) | null = null
@@ -1264,7 +1297,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
     retired,
     cool: () => { scopeGenerationRef.current += 1; committedLoads.clear(); for (const tab of tabsRef.current) session.evict(tab.id); session.id = newCommandId(); bindingPromiseRef.current = owner.sync() },
     setBinding: (binding: Promise<void>) => { bindingPromiseRef.current = binding },
-    actions: { open, openFileChanges, syncFileChanges, openMissionActivity, openExecution, loadChanges, selectChangedFile, showPane, hidePane, activate, move, close, closeMany, download, openInSystem, revealInFolder, copyPath, toggleHtmlSource, reload, reopen, retry, changePage, saveReading, loadHtmlSource, saveHtmlSource, completeHtmlRefresh, displayed },
+    actions: { open, openFileChanges, syncFileChanges, openMissionActivity, openExecution, loadChanges, selectChangedFile, showPane, hidePane, activate, move, close, closeMany, download, clearDownloadFeedback, openInSystem, revealInFolder, copyPath, toggleHtmlSource, reload, reopen, retry, changePage, saveReading, loadHtmlSource, saveHtmlSource, completeHtmlRefresh, displayed },
     ensureActive: () => { if (paneVisibleRef.current && activeTabIdRef.current) restoreTab(activeTabIdRef.current, true) },
     externalUpdate: (previewKeys: string[]) => {
       const changed = new Set(previewKeys)
@@ -1280,6 +1313,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
       setTabs(tabs => tabs.map(entry => entry.id === tabId ? {
         ...tab, content: keepPage ? tab.content : null,
         pages: undefined, htmlSource: undefined, requestGeneration: tab.requestGeneration + 1,
+        downloadState: undefined,
         loadState: keepPage ? 'ready' : 'cold'
       } : entry))
     },
@@ -1301,6 +1335,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
         ...tab, file: htmlOnly ? tab.file : null,
         cachedVersion: tab.file?.contentVersion ?? tab.cachedVersion, retainedCapabilities: tab.file?.capabilities ?? tab.retainedCapabilities,
         content: independent ? tab.content : null, requestGeneration: tab.requestGeneration + 1,
+        downloadState: undefined,
         loadState: independent ? 'ready' : tab.sourceRequest ? 'cold' : 'unavailable',
         candidate: undefined, pages: handleOnly ? tab.pages : undefined, htmlSource: handleOnly || htmlOnly ? tab.htmlSource : undefined,
         isRefreshing: false, refreshError: null

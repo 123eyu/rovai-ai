@@ -8,6 +8,185 @@ last_updated: 2026-10-18
 
 # v1.72 实施与验收
 
+## 文件传输主线集成（2026-10-18）
+
+按 User seq29 创建 PR 并合入 main，先整合 `25c49c6b3`，再整合期间新进入主线的 `dba014d0c` 和 `1dc593088`。
+保留主线 Task 能力、MiniMax Runtime 更新和 Web 登录协议 5；文件传输合同改为继承主线 v6 的
+Host Web v7，决策使用 V1.72-D52，避免覆盖主线已占用的合同和决策编号。相关登录夹具同步协议 5，
+旧协议拒绝断言仍保留。未增加传输机制或调整已确认布局。
+
+首次主线集成后 `pnpm typecheck`、Host/Web 构建、Rust 格式检查、完整 `pnpm test` 通过：
+247 个 Vitest 文件、2764 项；Node 脚本 356 项通过、2 项平台跳过。真实 Host 文件传输、托管渠道、
+Chrome HTML/图片原生下载及上传取消 owner 通过。Rust 默认工作区 474 项通过、1 项既有 ignored；
+整合 MiniMax 更新后的 native usage owner 另行通过。最终合并检查及完整结果登记在 PR #800。
+
+整合术语清理后再次通过 TypeScript、完整 `pnpm test`（246 个文件、2750 项；Node 357 项通过、2 项平台跳过）、
+Host 构建和真实文件传输 HTTP owner。该 HTTP 测试首次停在旧 `Camp` 错误文案断言，更新为主线已采用的
+`Thread` 后通过；只调整测试预期，未修改生产错误路径。以最终主线 `1dc593088` 为基线的文档门禁通过。
+
+完整移动端 owner 为 1 通过、4 失败，未记为全绿。隔离构建 `25c49c6b3` 的 Web 界面后，使用同一 Host
+和登录协议 5 重跑，在相同位置复现导航 CSS、已变更导航选择器、横屏执行区高度和设置页选择器四处失败。
+这些检查发生在文件传输之外；保留原断言，不扩展本轮布局修改。对照使用临时源码和独立浏览器数据，
+完成后清理临时源码；此前的多标签草稿与跨平台未验证范围仍按原记录保留。
+
+## 文件下载准入后直接传输（2026-10-18）
+
+按 User seq27 从 `ce11c2c4f` 继续，保留该提交的冷标签与回收边界修复。此次明确调整旧行为合同，
+不把前端三行修复当作下载链路简化完成：
+
+- `downloads.rs` 删除两秒授权轮询、Core 业务事件订阅/缺口恢复、Session/Core 活动流撤销监听、
+  `Flow::Checking/Ready` 暂停协调，以及下载摘要、尾块留存、最终重开/状态/来源校验。
+- 申请只验证来源并打开检查元数据；GET/HEAD 校验短期票据、Session、安全打开和独立大小额度后直接传输。
+  `resources.rs` 删除下载专用来源重验对象与预览摘要扫描；可选旧 expectedGeneration 字段只作 wire 兼容，
+  不提供严格模式，不改变预览读取自身的版本约束。
+- 保留安全无跟随打开、64 KiB 块、单槽背压、并发与空闲额度、取消/断开释放和安全中断日志。
+  下载当前内容，不保证旧预览或快照；Session 撤销阻止新准入，业务来源失效阻止新申请，已准入流不主动撤销。
+- 不修改 Renderer 布局、下载入口或上传恢复，不新增管理模块、UI 步骤、状态机或存储。
+  同步 Host Web v7、统一 Host 架构、D52、UI 与用户指南，历史验收记录保留为当时行为的证据。
+
+测试退役说明：删除 `downloads::tests::event_gaps_revalidate_before_releasing_bytes_and_keep_explicit_revocations`，
+其事件暂停/持续撤销合同与生产路径在同一补丁退出。`rovai-web --lib` 可执行测试由 12 项变为 11 项，其他 owner 保留。
+继任边界由既有 `scripts/lib/host-web.test.mjs` HTTP owner 扩展，不新建 Rust/进程 fixture：验证来源准入、
+当前文件/长度、超预览预算、链接替换拒绝、独立额度、取消释放、短读中断，以及退出/删除后的准入与传输边界。
+既有 `host-web-html.test.mjs` 浏览器 owner 改验旧预览下载当前 HTML 且保留预览，局部失败通过原按钮重试恢复。
+最小命令为 `cargo test -p rovai-web --lib`、`pnpm test:host-web`、`pnpm test:host-web-html`；
+全量使用 `pnpm test:rust:pr`、`VITEST_MAX_WORKERS=2 pnpm test`，文档门禁以 `ce11c2c4f` 为基线。
+
+验收：`cargo test -p rovai-web --lib` 11 项通过，Host 构建与 `pnpm typecheck` 通过。
+`pnpm test:rust:pr` 为 474 项通过、0 失败、1 项既有 ignored；相对基线只退役上述已退出合同的一项测试。
+`VITEST_MAX_WORKERS=2 pnpm test` 通过：247 个 Vitest 文件、2756 项；Node 脚本 355 项通过、2 项既有平台跳过，
+文档和 Skill 检查及以 `ce11c2c4f` 为基线的通用文档门禁通过。
+真实 Host HTTP owner 与时钟 owner 独立复跑 2 项通过；最终 HTTP owner 再验传输中追加只发送
+原声明长度、截断报短读失败、退出/删除不中断已准入流，来源、Session、链接替换和下载额度仍在准入边界生效。
+`pnpm test:host-web-html` 通过，含当前 HTML 原字节下载且不刷新旧预览、文件暂缺后的原按钮重试、
+移动视口反馈归属、图片和普通 patch 下载及上传取消。浏览器首轮因测试预期的缺失文件文案不匹配失败，
+按现有客户端文案修正断言后通过，未改生产文案或界面。
+
+`pnpm test:host-web` 不记为全绿：多标签 owner 及其独立复跑均在新标签等待 `.camp-nav-open` 时失败，
+发生在下载操作之前，与下述已登记的默认视口/导航选择器问题一致；本轮未改该测试或扩展界面范围。
+最初整套运行的时钟用例被提前终止，上述独立完整复跑确认其通过。自动验收均使用 macOS 的隔离数据、
+Skill Library、MCP 与 Chrome profile，不使用日常 App 或真实模型；Linux/Windows 原生及实体手机仍未验证。
+
+## 文件下载冷标签与回收边界（2026-10-18）
+
+按 User seq25 独立核对 `26564a2fa`，继续在 `rovai/web-file-transfers` 做局部修复：
+
+- 菜单下载移除前置标签激活，直接调用既有 `download`；冷标签按已有来源申请，不启动预览恢复或切走当前文件。
+  保留原能力判断和请求代次，不交换调用顺序、不新增等待、重试或下载状态。
+- `evict` 与 `evictBytes` 更换预览代次时同步清除临时下载状态；保留文本正文、保留 HTML 页面两条路径均可再次下载。
+  旧申请结果仍由原代次校验丢弃，不覆盖后续申请，也不阻止预览资源回收。
+
+生产修改仅菜单删一行、两处回收各补一行；布局、Host 协议、来源授权、版本校验与流式传输均沿用现有实现。
+原资源测试覆盖冷标签按来源下载、两种回收及旧结果迟到；原 Renderer 自动验收增加真实右键菜单首次点击。
+修复前，两种回收用例均因残留 `preparing` 失败，真实菜单点击用例因下载申请为零失败；修复后上述用例通过。
+相关资源与标签测试共 42 项通过，`pnpm typecheck` 和 `pnpm test:file-preview-layout` 通过。
+Renderer 自动验收运行于 macOS 的隔离 Electron 夹具，下载 API 使用受控替身，不将其视为新的 Host 端到端或跨平台传输验收。
+`pnpm build:desktop` 通过。首次全量测试与构建并行时，既有 `evaluation-host.test.ts` 两项等待后台任务结束超时；
+构建结束后该文件 5 项独立复核通过，未修改相关代码、断言或超时。随后 `VITEST_MAX_WORKERS=2 pnpm test`
+通过：247 个 Vitest 文件、2756 项，以及 355 项 Node 测试、2 项既有平台跳过；文档及 Skill 检查通过。
+`pnpm test:rust:pr` 为 475 项通过、1 项既有 ignored；以 `26564a2fa` 为基线的通用文档门禁通过。
+
+## 文件下载可用性收尾（2026-10-18）
+
+按 User seq23 从 `rovai/web-file-transfers` 的 `787ea974a` 继续，保持 56px 文件行、图标、日夜主题与现有传输链路。
+本轮修改限于 Renderer 反馈、下载入口能力及 Web 正文读取错误分类：
+
+- 下载按钮的忙碌状态与结果归入既有文件标签，替换原按钮局部状态和菜单独立反馈；工具栏、菜单、恢复页
+  共用 `canDownloadFile` 和 `download`。错误放回所属面板，隐藏、切换或关闭后不覆盖其他页面；迟到结果不激活标签。
+  刷新／重新打开用既有请求代次排除旧反馈。成功只有无障碍状态；图片反馈同样留在灯箱内。
+- `#readResponse` 接收原调用方的取消信号，成功及错误响应的正文读取使用与发送阶段一致的分类。
+  主动取消不报离线；内部恢复超时、真实读流故障仍报连接不可用，旧连接结果受原 generation 约束。
+  取消重选核对时清理本次进度，原 commandId、未知绑定及 Core 回执不丢失。
+- 差异比较态不提供下载；磁盘上的 `.diff`／`.patch` 是有真实来源的普通文件，按来源及服务端能力下载原字节。
+  不增加前端权限系统、下载管理器、轮询或协议；Host、数据库及文件生命周期保持原实现。
+
+验证：`pnpm typecheck`、`pnpm build:desktop` 通过。`pnpm test` 为 247 个 Vitest 文件、2753 项通过，
+Node 脚本 355 项通过、2 项既有平台跳过；文档及 Skill 检查通过。扩展原 ConsoleClient owner 覆盖
+上传请求／成功正文／错误正文取消，以及核对正文时主动取消、超时、无主动取消的 AbortError 和连接替换；
+原预览资源 owner 覆盖同一申请防重复、迟到反馈、跨会话及已关闭标签。
+`test:file-preview-layout`、`test:host-web-recovery`、`test:host-web-recovery-live` 和 `test:host-web-html` 通过；
+真实 Host 的手机视口验证错误归属、切换隐藏、收起与刷新、不支持预览时菜单下载、普通 patch 下载及图片无成功浮层，
+下载保留逐字节比对和不创建整文件 Blob 的断言。Rust 本轮无改动，未重复执行其测试。
+自动验收使用隔离数据、Skill Library、MCP 与 Chrome profile；Linux/Windows 原生及实体手机仍未实测。
+
+## 文件查看与下载交互落地（2026-10-18）
+
+沿用 `rovai/web-file-transfers` 工作树；合并主线 `80d11450b` 的断线恢复后，将已确认的 A 方案接入正式组件。
+会话卡片整行打开、Agent 文件列表每行 56px，下载只位于查看界面；Diff/Patch 不提供下载，图片不新增可见标题。
+HTML 预览／源码与下载统一图标，图片灯箱提供复制及浏览器原图下载／本机保存，手机触区为 44×44px。
+文件恢复页和图片解码失败灯箱仍可按有效来源下载；文件已变化保留结构化错误，提供刷新预览入口。
+
+复用既有下载、预览、上传恢复 owner，不新增平台或状态机。与主线合并时保留统一断线恢复入口，上传仍使用
+原 commandId 和 Core 回执；刷新丢失字节先恢复连接再重选，摘要阶段断线释放本地进度记录。
+
+真实 Host 验收发现并修正合并边界：主动取消上传只保留原操作的未知回执，不将健康页面切入全页断线恢复；
+真正断线仍走统一恢复。既有 ConsoleClient owner 增加取消后仍可正常请求、原回执未丢失的用例。
+同步协议测试的 schema 断言到本次合入主线的 155，保留其余指纹及兼容性断言。
+
+验收结果（均在隔离数据及浏览器配置中运行，不使用日常 App 数据）：
+
+- `pnpm typecheck`、`pnpm build:desktop` 通过；最后的取消修复重新执行 `pnpm build:web` 通过。
+- `pnpm test`：Vitest 247 文件、2745 项通过；Node 脚本 355 项通过、2 项既有平台跳过；文档与 Skill 检查通过。
+- `pnpm test:rust:pr`：475 passed、0 failed、1 个既有 ignored；本轮未新增 Rust 测试函数。
+- `pnpm test:file-preview-layout`、`pnpm test:html-preview`（5 项）、`pnpm test:host-web-recovery`、
+  `pnpm test:host-web-recovery-live` 与 `pnpm test:host-web-html` 全部通过。
+  真实 Host 覆盖 HTML 交互／源码、二进制下载、同页重登后下载、图片解码失败仍下载、Diff 无下载、上传超限／取消／重选；
+  HTML、二进制及图片下载逐字节比对，确认新下载未额外创建整文件 Blob。
+- 正式组件视觉夹具验证日夜主题、桌面及 375px 手机视口：文件列表 56px，图标桌面 32px、手机 44px；
+  文件变化提示可刷新，图片灯箱无新增标题，超预览预算仍有下载。未将夹具 HTML 通道用于正式实现。
+
+仅 macOS 隔离环境和浏览器响应式视口，不代替 Linux/Windows 原生或实体手机验收。
+
+## 文件传输审查收尾（2026-10-17）
+
+针对 `208343138` 的固定提交审查，继续在 `rovai/web-file-transfers` 实施。独立核对后的处理：
+
+- 确认重登回归：下载句柄改用已有的已证明编辑身份边界，再由 Core 重验来源；新票据只绑定新 Session，
+  保留所见版本校验，另一个编辑身份仍被拒绝。没有增加前端句柄恢复机制。
+- 确认阻塞扫描许可缺口：准备摘要和安全打开把许可交给实际阻塞操作，取消 HTTP 不提前释放；
+  最终打开也保留活动许可，Body 取消与 worker 并发退出按已取消处理。
+- 调整 Lagged 策略：暂停正文放行，建立新订阅窗口并核对当前来源；新缺口再核对，明确撤销仍终止。
+  来源重验合并为一个循环；两秒兜底仍覆盖 Core 之外的路径变化和既有非统一撤销路径，不直接删除。
+- 完成票据在缓存紧张时先回收，保留空闲重试；单独表达不可回收的票据容量，避免暗含小文件下载次数限制。
+- 中断记录非凭证操作标识、阶段、安全错误码和交给 HTTP 的字节数，不记录 URL、票据、来源或路径。
+- 上传多 Map 的维护风险成立，但没有发现本轮必须修复的新状态错误；本轮不重写原 commandId/回执恢复。
+
+测试归属：扩展既有 content scan owner，以受控阻塞操作证明取消后许可仍被占用；既有 HTTP owner 覆盖
+同编辑身份重登/跨身份拒绝/旧票据撤销/所见版本、20 次顺序下载及日志字段。新增一个低成本内存 owner
+`event_gaps_revalidate_before_releasing_bytes_and_keep_explicit_revocations`，负责广播缺口、重验中的再次缺口、
+字节门及明确撤销；这些时序不是原解析/分页测试的职责，不引入 SQLite/Core fixture。
+最小命令：`cargo test -p rovai-web --lib`（12 项通过），Host HTTP owner 与
+`pnpm test:host-web-html`（含设置退出、同页重登、原预览下载）通过；Web client/adapter 32 项及 TypeScript 通过。
+最终 `pnpm test:rust:staged` 路由至完整 `cargo test --workspace` 并通过；Host/Web 构建、
+`pnpm docs:test` 及以 `c69a97fbf` 为基线的 `pnpm docs:check:ci` 通过。工具链的 rust-objcopy
+缺少 libLLVM 警告未阻断构建和测试；既有多标签草稿基线问题仍按下述记录处理。
+
+交互稿由真实 ThreadNavigation、AppHeader、ThreadWorkspace、AttachmentCard、ImageGallery、FilePreviewProvider/Pane
+和生产 CSS 编译成独立 HTML，模拟下载结果，不连接 Host、不传真实文件。保留 Porcelain Day / Steel Night，覆盖
+桌面、手机、准备中、交给浏览器、文件变化、来源失效、不能预览及图片附件下载。原型源码按本地规则放在忽略目录，
+交付 HTML 与截图独立提供；它是交互评审材料，不能替代上述真实 Host 验收。
+本轮仍在 macOS arm64 隔离环境验证；Linux/Windows 原生与实体手机资格没有因此增加。
+
+## 浏览器文件传输（2026-10-17）
+
+独立分支实现 [Host Web v7](../../contracts/host-web-v7.md)：上传 30 MiB 与独立预览预算，
+下载专用短期能力、背压、最终块校验、权限撤销和浏览器原生下载；恢复沿用 Core command receipt。
+没有新 Rust 测试 fixture；扩展既有 HTTP Host owner 验证传输 seam，前端 transport owner 验证地址/代次/取消。
+
+验证基线 `c69a97fbf`，工作分支 `rovai/web-file-transfers`。本机 macOS arm64：
+
+- TypeScript、`pnpm test`（246 个 Vitest 文件／2,730 项，脚本 355 通过／2 项平台跳过）、
+  Rust 默认工作区（473 通过／1 项既有忽略）、收尾 `rovai-web` 11 项、Desktop/Web 构建通过。
+- 既有 Host HTTP owner 扩展并通过：30 MiB 精确边界及附加信息、取消后未绑定清理、私有来源拒绝、
+  33 MiB 文件、64 MiB 背压／中途变化、空文件、独立额度、HEAD／Range、所见版本、退出及 Desktop 删除 Camp 撤销。
+- 隔离 Chrome 使用生产界面验证原生 HTML／二进制下载、零下载 Blob、390px 直接入口、超限保留正文与附件、
+  上传进度／取消／重选。未知上传重选和刷新恢复在 transport owner 中核对原 intent，避免第二个来源。
+- Host 渠道和定时任务回归通过。`test:host-web` 的多标签用例未通过：新 CDP 标签默认 756px，桌面导航选择器失效；
+  统一测试视口后进一步发现新标签复用了旧正文。独立构建基线 Web 也复现后者，当前本地 Composer store 仍按 Camp
+  使用共享 localStorage。本次保留原测试判据，不把该套件记为全绿；跨标签草稿隔离需另行修复。
+
+文档按通用治理门禁验证。本次没有真实模型调用、Linux/Windows 原生运行或实体手机验收，不推断这些平台已实测。
+
 ## 旧概念残留收口（2026-10-18）
 
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-legacy-concepts`；分支 `rovai/legacy-concepts`；

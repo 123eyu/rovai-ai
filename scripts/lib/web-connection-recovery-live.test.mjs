@@ -39,6 +39,7 @@ test('production Web retains its mounted Composer and authentication across a re
     await browser.send('Input.insertText', { text: service.administratorToken })
     await browser.click(`document.querySelector('.web-login button[type=submit]')`)
     await browser.wait(`document.querySelector('.web-login-overlay') === null`)
+    await browser.wait(`[...document.querySelectorAll('button')].some(e => e.textContent.includes('停服恢复验收'))`)
     await browser.click(`[...document.querySelectorAll('button')].find(e => e.textContent.includes('停服恢复验收'))`)
     const editor = `.camp-workspace form.composer:not(.single-chat-composer) [contenteditable="true"]`
     await browser.wait(`document.querySelector(${JSON.stringify(editor)}) !== null`)

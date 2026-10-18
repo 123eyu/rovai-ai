@@ -2,7 +2,7 @@
 document_type: research-report
 authority: task-capability-implementation-evidence
 status: implemented-gate-insufficient
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # 会话 Task 开关实施与验证
@@ -16,18 +16,21 @@ last_updated: 2026-10-17
 
 ## 最新验收摘要
 
-本轮实现冻结于 `bc53fa77f69bd816ac80170d9c22eb480d41f198`，后续提交只补充验收记录。
+本轮草稿提交修复冻结于 `7f8741494f998b464116248e87a48c686c45e1c1`，后续提交只补充验收记录。
+普通 CLI 与完整扩展 Rust 证据仍对应上一轮 `bc53fa77f69bd816ac80170d9c22eb480d41f198`；
+本轮未改 Rust、通知、开关、CLI 或模型输入，未将历史执行改写成本轮实测。
 
-| 检查 | 2026-10-17 最新结果 |
+| 检查 | 截至 2026-10-18 的结果 |
 | --- | --- |
-| Task 编辑输入 | 生产 TaskPanel 的 Electron owner 通过：关闭重开恢复、Host／Thread／Task 隔离、失败／迟到／成功保存及编辑基线；仅当前窗口内存保留 |
+| Task 编辑输入 | 补齐提交生命周期：未决保存重开不能重复提交、未修改的恢复草稿成功后清除、后来输入保留、未知回执重试复用精确命令；仍仅当前窗口内存保留 |
 | 普通 CLI 与运行中切换 | 真实 Codex Run 通过：普通 `rovai --version`、普通 `rovai send`，五阶段 Task 可用性与帮助显隐；同一 Run／epoch／process／lease |
 | 前端与构建 | `pnpm typecheck`、完整 `pnpm test`、`pnpm build:desktop` 通过；Darwin／Win32 fixture 分支在 macOS Electron 执行 |
-| 完整 Rust 扩展 workspace | 固定候选单次完整命令 exit 0：1064 通过、0 失败、8 项既有原生 Runtime 人工检查忽略；其中 Core lib 1018 通过 |
+| 默认 Rust workspace | 本轮 `pnpm test:rust:pr` 完整通过：473 通过、0 失败、1 项既有人工检查忽略 |
+| 完整 Rust 扩展 workspace | 上一轮固定候选单次完整命令 exit 0：1064 通过、0 失败、8 项既有原生 Runtime 人工检查忽略；其中 Core lib 1018 通过；本轮未重跑扩展组 |
 | 验收前置 | 相同 Core 二进制的 Runtime 冻结配置差异为 `[]`；CLI Judge 传输探针为一次请求、`tools=[]`，仅诊断资格 |
 | 正式 Context Gate | 仍为 `insufficient`。原 campaign 两次尝试保留；尚缺固定模型快照 Judge 配置及后续正式运行预算 |
 
-首轮完整扩展运行的两项 ACP 失败和更早的清理超时均保留在后文；本轮完整复验没有再现它们，
+首轮完整扩展运行的两项 ACP 失败和更早的清理超时均保留在后文；上一轮完整复验没有再现它们，
 但不将未稳定复现解释为已经定位并修复了这些进程时序问题的根因。
 
 ## 已实现行为
@@ -291,7 +294,8 @@ ThreadClient（Host／Owner）、Thread、Task／新建标识持有，表单每�
 面板仍按原规则完全卸载。重新开启并打开编辑器后恢复标题、说明、负责人、状态说明和取消原因。
 只重建 Task 编辑器以隔离 Host／Thread，不重建整个会话工作区，也不写数据库或自动提交任务。
 
-保存失败保留输入；成功只清除对应的已提交草稿，旧请求完成不能清除重开后继续编辑的新输入。
+当轮覆盖了保存失败保留输入、普通成功清除草稿，以及旧请求完成不能清除重开后继续编辑的新输入。
+未覆盖“不修改地恢复”的提交状态及成功清理，后续复查确认的缺口与修复见末节。
 编辑基线随草稿保留，因此未改动字段不会用旧值覆盖远端更新。草稿仅在当前窗口内存保留，窗口
 关闭／重载不承诺恢复。沿用原 Dialog 和文案，没有增加切换确认或阻止全局关闭。
 
@@ -367,3 +371,44 @@ cargo test --workspace --features extended-tests -- --test-threads=4
 也不替代正式 Context Gate。八项既有忽略项需要相应原生安装、配置或单独授权的 Provider。
 报告与脱敏 JSON、Darwin／Win32 fixture 截图一并交付；JSON 保留真实 Run、精确普通命令、
 各阶段退出码和测试日志摘要，process／lease 只导出摘要以证明连续性。私有原始数据留在本地，不进入 Git。
+
+## 草稿提交生命周期收尾（2026-10-18）
+
+回应 User 消息 `1a6166a4-a3d2-4968-a608-9021ab5620d7`。在 `833aad039` 上扩展既有生产组件
+Electron owner，实际复现：恢复后 `pending=false`，原请求成功后编辑器仍打开、旧标题仍保留。
+这确认了提交状态与输入生命周期脱节；没有重新打开已收敛的开关或通知问题。
+
+| 场景 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 保存未决，关闭重开、不改输入 | 按钮可再创建新命令 | 同一草稿仍显示正在保存；按钮和提交入口均阻止第二次请求 |
+| 同上，随后原请求成功 | 恢复产生新对象，旧草稿残留 | 恢复不增加输入版本；清除该版本，当前编辑器同步收起 |
+| 未决期间继续修改输入 | 只在重新挂载后偶然可编辑 | 输入可以继续改，原回执只结算已提交版本，不自动发送新输入 |
+| 断连后结果未知，原样重试 | 再生成 commandId | 沿用该版本的精确 commandId 与请求参数，由现有 Core 幂等回执恢复 |
+| 实际修改后提交，或明确拒绝后再试 | 每次调用都生成新命令 | 使用新命令，与未改动输入的未知结果重试区分 |
+
+仅在现有 `TaskDraftStore` 保留输入版本、最近一次提交及其状态，并用 React 原生订阅让恢复后的
+编辑器收到回执。创建、更新和取消共用这个局部保存入口；Host／Thread／Task 隔离和窗口内存边界
+不变。没有数据库迁移、跨窗口草稿同步、自动重试队列、切换确认或新增提示词。
+
+### 本轮验证与边界
+
+生产 TaskPanel 的同一 Electron owner 在 Darwin、Win32 分支通过，覆盖上述时序、Host／Thread／Task
+隔离、明确拒绝后的重试、卸载期间成功／失败回执、更新及取消；检查实际发送次数与精确请求参数。
+这是 macOS 上带受控 transport 的生产组件验收，不是 Windows 真机或真实 Core 的重复创建实验。
+隐藏验收窗口的 Win32 恢复态截图未完整绘制，原图保留但不作视觉通过证据。随后使用同一构建和
+生产组件、独立 userData 的可见 Electron 窗口，只重跑 Win32 草稿 owner；断言通过且恢复态完整显示。
+交付 Darwin 原图和 Win32 可见窗口复核图，后者仍是 macOS 上的分支验证，不是 Windows 真机。
+
+`pnpm typecheck`、完整 `pnpm test`（246 文件／2729 Vitest 项，主 Node 组 356 通过、2 个既有平台
+跳过）及 `pnpm build:desktop`（含 Web）通过。首轮完整前端回归发现 React 静态渲染缺少
+`getServerSnapshot`，8 项失败；补上空的服务端快照后重新完整运行全绿，原日志保留。
+
+默认 `pnpm test:rust:pr` 完整 workspace exit 0：Core 427、CLI 31、Host 4、Web 11，共 473 通过、
+0 失败、1 项既有原生人工检查忽略。首次 Rust 命令因当前 Shell 未包含 Cargo 而没有启动测试，
+随后使用本机既有 1.98.0 工具链重新执行，没有改系统配置。
+通用文档门禁 `docs:test`（10 项）、`docs:check` 和 `docs:check:ci` 通过，CI 比较基线为
+`833aad039f61934e298a296073a04922866f4e32`。
+
+本轮原始日志和截图保存在 `.local/task-capability-review/draft-submission-20261018/`，不进入 Git。
+正式 Context Gate 仍为 `insufficient`；固定快照 Judge 与正式续跑预算尚未补齐，本轮没有重新运行
+真实模型、扩展 Rust 或重置原 campaign 的两次尝试。当前修复不替代这项独立质量验收。

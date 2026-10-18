@@ -3,7 +3,7 @@ import type { FilePreviewApi, ResolvedFilePreview, OpenFilePreviewRequest, FileP
 import { FilePreviewResources } from './file-preview-resources'
 import { filePreviewSessionStore } from './file-preview-session'
 import { filePreviewRetentionLimits } from '../../file-preview-retention'
-import type { FilePreviewSession, FilePreviewTabModel } from './file-preview-controller'
+import { canDownloadFile, type FilePreviewSession, type FilePreviewTabModel } from './file-preview-controller'
 
 const resources: FilePreviewResources[] = []
 beforeEach(() => { filePreviewSessionStore.clear(); vi.stubGlobal('document', { activeElement: null }) })
@@ -70,6 +70,61 @@ function deferred<T>() {
 }
 
 describe('window-owned preview resources', () => {
+  it('shares source download eligibility without confusing patch files with comparison views', async () => {
+    const { owner, api } = fixture()
+    api.download = vi.fn(async () => ({ ok: true as const, value: { started: true as const } }))
+    api.downloadSource = vi.fn(async () => ({ ok: true as const, value: { started: true as const } }))
+    const session = await open(owner, 'downloads', 'changes.patch')
+    const patch = active(session)
+    patch.file = { ...patch.file!, kind: 'patch', extension: '.patch', capabilities: ['read', 'download'] }
+    patch.content = { kind: 'patch', text: '--- a/file\n+++ b/file\n@@ -1 +1 @@\n-before\n+after' }
+    expect(canDownloadFile(patch, api)).toBe(true)
+    await session.actions.download(patch.id)
+    expect(api.download).toHaveBeenCalledWith({ handleId: patch.file.handleId, expectedGeneration: patch.file.contentGeneration })
+    expect(canDownloadFile({ ...patch, file: { ...patch.file, capabilities: ['read'] } }, api)).toBe(false)
+    const review = { kind: 'file_change' as const, id: 'comparison', threadId: 'downloads', selectedEvidenceFileId: null,
+      changes: { schemaVersion: 2 as const, agentRunId: 'run', executionEpoch: 1, fileCount: 0, operationCount: 0, files: [], completedAt: '2026-10-18T00:00:00Z' } }
+    expect(canDownloadFile(review, api)).toBe(false)
+    const unavailable = { ...patch, file: null, content: null, error: { code: 'file_too_large' as const, message: 'Preview budget', retryable: false } }
+    expect(canDownloadFile(unavailable, api)).toBe(true)
+    expect(canDownloadFile({ ...unavailable, error: { ...unavailable.error, code: 'source_not_authorized' } }, api)).toBe(false)
+    expect(canDownloadFile(unavailable, { ...api, download: undefined, downloadSource: undefined })).toBe(false)
+  })
+
+  it('keeps delayed download feedback with its file and never reopens or activates a hidden panel', async () => {
+    const { owner, api } = fixture()
+    const pending = deferred<{ ok: false; error: { code: 'file_changed'; message: string; retryable: true } }>()
+    api.download = vi.fn(() => pending.promise)
+    const session = await open(owner, 'downloads', 'a.txt')
+    active(session).file!.capabilities.push('download')
+    const a = active(session).id
+    const downloading = session.actions.download(a)
+    await session.actions.download(a)
+    expect(api.download).toHaveBeenCalledTimes(1)
+    await open(owner, 'downloads', 'b.txt')
+    const b = active(session).id
+    session.actions.hidePane()
+    owner.activate('another-thread')
+    pending.resolve({ ok: false, error: { code: 'file_changed', message: 'a changed', retryable: true } })
+    await downloading
+    expect(owner.isCurrent('another-thread')).toBe(true)
+    expect(session.getSnapshot()).toMatchObject({ activeTabId: b, paneVisible: false })
+    expect(active(session).downloadState).toBeUndefined()
+    const aTab = session.getSnapshot().tabs.find(tab => tab.id === a) as FilePreviewTabModel
+    expect(aTab.downloadState).toMatchObject({ ok: false, error: { code: 'file_changed' } })
+    session.actions.clearDownloadFeedback(a)
+    expect((session.getSnapshot().tabs.find(tab => tab.id === a) as FilePreviewTabModel).downloadState).toBeUndefined()
+
+    const late = deferred<{ ok: true; value: { started: true } }>()
+    vi.mocked(api.download).mockReturnValueOnce(late.promise)
+    const removed = session.actions.download(a)
+    session.actions.close(a)
+    late.resolve({ ok: true, value: { started: true } })
+    await removed
+    expect(session.getSnapshot()).toMatchObject({ activeTabId: b, paneVisible: false })
+    expect(session.getSnapshot().tabs.some(tab => tab.id === a)).toBe(false)
+  })
+
   it('keeps mission activity in the shared tab lifecycle without acquiring a file handle', async () => {
     const { owner, api } = fixture()
     owner.activate('mission-camp')

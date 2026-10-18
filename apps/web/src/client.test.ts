@@ -235,12 +235,17 @@ describe('console transport', () => {
     expect(refreshed.uploadProgress).toEqual([])
   })
 
-  it('keeps a healthy page usable when a cancelled upload still has an unknown receipt', async () => {
+  it.each(['request', 'body', 'error body'])('keeps a healthy page usable when cancelling the upload %s with an unknown receipt', async phase => {
     const fetcher = vi.fn<typeof fetch>(async (url, options) => {
       if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
-      if (String(url).endsWith('/uploads')) return new Promise((_resolve, reject) => {
-        options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
-      })
+      if (String(url).endsWith('/uploads')) {
+        if (phase === 'request') return new Promise((_resolve, reject) => {
+          options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        })
+        return new Response(new ReadableStream({ start(controller) {
+          options!.signal!.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true })
+        } }), { status: phase === 'error body' ? 503 : 200 })
+      }
       if (String(url).endsWith('/uploads/reconcile')) return Response.json({ state: 'unknown' })
       return Response.json({ result: {} })
     })
@@ -257,6 +262,59 @@ describe('console transport', () => {
     expect(client.uploadProgress[0]).toMatchObject({ cancelled: true, phase: 'unknown' })
     await expect(client.request('app.info')).resolves.toEqual({})
     client.clear()
+  })
+
+  it.each(['cancel', 'timeout', 'network', 'replaced'])('classifies %s during receipt body reading without losing the original upload', async cause => {
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+    let holdReceipt = false
+    let receiptBody: ReadableStreamDefaultController | undefined
+    const intents: string[] = []
+    const fetcher = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
+      if (String(url).endsWith('/uploads')) return new Promise((_resolve, reject) => {
+        options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      })
+      if (String(url).endsWith('/uploads/reconcile')) {
+        intents.push(String(options!.body))
+        if (!holdReceipt) return Response.json({ state: 'unknown' })
+        return new Response(new ReadableStream({ start(controller) {
+          receiptBody = controller
+          options!.signal!.addEventListener('abort', () => controller.error(options!.signal!.reason), { once: true })
+        } }))
+      }
+      return Response.json({ result: {} })
+    })
+    const client = new ConsoleClient('http://localhost:4317', fetcher)
+    try {
+      await client.login('b'.repeat(64))
+      const file = new File(['bytes'], 'original.bin')
+      const uploaded = client.uploadFile('one', 1, file)
+      const cancelled = expect(uploaded).rejects.toThrow('已取消上传')
+      await vi.waitFor(() => expect(client.uploadProgress[0]?.phase).toBe('transferring'))
+      const originalId = client.uploadProgress[0].id
+      client.cancelUpload(originalId)
+      await cancelled
+      await client.reconcilePending()
+      holdReceipt = true
+      const reselected = client.uploadFile('one', 1, file)
+      const interrupted = expect(reselected).rejects.toBeInstanceOf(Error)
+      await vi.waitFor(() => expect(receiptBody).toBeDefined())
+      if (cause === 'cancel') client.cancelUpload(client.uploadProgress.find(entry => entry.id !== originalId)!.id)
+      else if (cause === 'timeout') deadline.abort(new DOMException('Deadline elapsed', 'TimeoutError'))
+      else if (cause === 'replaced') await client.login('b'.repeat(64))
+      else receiptBody!.error(new DOMException('Connection lost', 'AbortError'))
+      await interrupted
+      expect(client.connectionState).toBe(cause === 'timeout' || cause === 'network' ? 'offline' : 'live')
+      expect(client.authenticated).toBe(true)
+      expect(intents.every(intent => JSON.parse(intent).commandId === originalId)).toBe(true)
+      expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+      expect(client.uploadProgress.filter(entry => entry.id !== originalId)).toEqual([])
+      if (cause === 'cancel') {
+        expect(client.pendingCommandCount).toBe(1)
+        await expect(client.request('app.info')).resolves.toEqual({})
+      }
+    } finally { client.clear(); timeout.mockRestore() }
   })
 
   it('cancels an explicitly retried upload with the original operation identity', async () => {

@@ -8,6 +8,29 @@ last_updated: 2026-10-18
 
 # v1.72 实施与验收
 
+## 文件下载可用性收尾（2026-10-18）
+
+按 User seq23 从 `rovai/web-file-transfers` 的 `787ea974a` 继续，保持 56px 文件行、图标、日夜主题与现有传输链路。
+本轮修改限于 Renderer 反馈、下载入口能力及 Web 正文读取错误分类：
+
+- 下载按钮的忙碌状态与结果归入既有文件标签，替换原按钮局部状态和菜单独立反馈；工具栏、菜单、恢复页
+  共用 `canDownloadFile` 和 `download`。错误放回所属面板，隐藏、切换或关闭后不覆盖其他页面；迟到结果不激活标签。
+  刷新／重新打开用既有请求代次排除旧反馈。成功只有无障碍状态；图片反馈同样留在灯箱内。
+- `#readResponse` 接收原调用方的取消信号，成功及错误响应的正文读取使用与发送阶段一致的分类。
+  主动取消不报离线；内部恢复超时、真实读流故障仍报连接不可用，旧连接结果受原 generation 约束。
+  取消重选核对时清理本次进度，原 commandId、未知绑定及 Core 回执不丢失。
+- 差异比较态不提供下载；磁盘上的 `.diff`／`.patch` 是有真实来源的普通文件，按来源及服务端能力下载原字节。
+  不增加前端权限系统、下载管理器、轮询或协议；Host、数据库及文件生命周期保持原实现。
+
+验证：`pnpm typecheck`、`pnpm build:desktop` 通过。`pnpm test` 为 247 个 Vitest 文件、2753 项通过，
+Node 脚本 355 项通过、2 项既有平台跳过；文档及 Skill 检查通过。扩展原 ConsoleClient owner 覆盖
+上传请求／成功正文／错误正文取消，以及核对正文时主动取消、超时、无主动取消的 AbortError 和连接替换；
+原预览资源 owner 覆盖同一申请防重复、迟到反馈、跨会话及已关闭标签。
+`test:file-preview-layout`、`test:host-web-recovery`、`test:host-web-recovery-live` 和 `test:host-web-html` 通过；
+真实 Host 的手机视口验证错误归属、切换隐藏、收起与刷新、不支持预览时菜单下载、普通 patch 下载及图片无成功浮层，
+下载保留逐字节比对和不创建整文件 Blob 的断言。Rust 本轮无改动，未重复执行其测试。
+自动验收使用隔离数据、Skill Library、MCP 与 Chrome profile；Linux/Windows 原生及实体手机仍未实测。
+
 ## 文件查看与下载交互落地（2026-10-18）
 
 沿用 `rovai/web-file-transfers` 工作树；合并主线 `80d11450b` 的断线恢复后，将已确认的 A 方案接入正式组件。

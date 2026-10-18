@@ -861,7 +861,7 @@ export class ConsoleClient {
     }
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     if (response.status === 401) { await this.#forgetAuthentication(); throw new SessionRequired() }
-    const body = await this.#readResponse(() => response.json(), generation)
+    const body = await this.#readResponse(() => response.json(), generation, signal)
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     if (!response.ok) {
       const code = body.error?.code ?? 'connection_unavailable'
@@ -1028,7 +1028,7 @@ export class ConsoleClient {
   async #json<T>(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'downloads' | 'avatars', options: RequestInit = {}, recovery = false): Promise<T> {
     const generation = this.#generation
     const response = await this.#authorized(path, options, recovery)
-    const result = await this.#readResponse(() => response.json(), generation) as T
+    const result = await this.#readResponse(() => response.json(), generation, options.signal, path !== 'session/renew') as T
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     return result
   }
@@ -1037,9 +1037,14 @@ export class ConsoleClient {
     if (this.#connection === 'offline' || !allowPending && this.#needsRecovery) throw new ConnectionUnavailable()
   }
 
-  async #readResponse<T>(read: () => Promise<T>, generation: number): Promise<T> {
+  async #readResponse<T>(read: () => Promise<T>, generation: number, signal?: AbortSignal | null, reportFailure = true): Promise<T> {
     try { return await read() }
-    catch (error) { if (generation === this.#generation) this.#setConnection('offline'); throw error }
+    catch (error) {
+      // Use the caller's cancellation signal, not the combined request signal:
+      // the internal recovery deadline still represents an unavailable connection.
+      if (generation === this.#generation && !signal?.aborted && reportFailure) this.#setConnection('offline')
+      throw error
+    }
   }
 
   async #authorized(path: 'session' | 'session/renew' | 'channels' | 'updates' | 'request' | 'events' | 'logout' | 'workspaces' | 'uploads' | 'uploads/reconcile' | 'files' | 'files/bytes' | 'attachments' | 'downloads' | 'avatars', options: RequestInit = {}, recovery = false): Promise<Response> {
@@ -1072,7 +1077,10 @@ export class ConsoleClient {
     if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
     if (response.status === 401) { await this.#forgetAuthentication(); throw new SessionRequired() }
     if (!response.ok) {
-      const error = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } }
+      const error = await this.#readResponse(() => response.json().catch(error => {
+        if (error instanceof SyntaxError) return {}
+        throw error
+      }), generation, options.signal, path !== 'session/renew') as { error?: { code?: string; message?: string } }
       if (generation !== this.#generation) throw new DOMException('Connection replaced', 'AbortError')
       const code = error.error?.code ?? 'connection_unavailable'
       if (['connection_unavailable', 'core_unavailable', 'result_unavailable', 'upload_binding_unknown'].includes(code)) this.#setConnection('offline')

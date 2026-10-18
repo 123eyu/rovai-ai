@@ -1,6 +1,5 @@
 import { useAttachmentLocation } from './attachment-location'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent, type MouseEvent } from 'react'
-import { createPortal } from 'react-dom'
 import * as Dialog from '@radix-ui/react-dialog'
 import { attachmentRevealLabel } from './AttachmentCard'
 import { ImageContextMenu, type ImageAction, type ImageMenuPosition } from './ImageContextMenu'
@@ -243,7 +242,7 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [menu, setMenu] = useState<ImageMenuPosition | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const [actionNotice, setActionNotice] = useState<{ text: string; silent?: boolean; failed?: boolean } | null>(null)
   const [action, setAction] = useState<ImageAction | null>(null)
   const actionPending = useRef(false)
   const [refreshRevision, setRefreshRevision] = useState(0)
@@ -258,19 +257,19 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
   const downloadFile = async (): Promise<void> => {
     if (source.kind !== 'attachment' || client.attachments.kind !== 'download' || actionPending.current) return
     actionPending.current = true
-    setAction('save'); setActionNotice(uiAttribute('准备下载…'))
+    setAction('save'); setActionNotice(null)
     try {
       const result = await client.attachments.download(source.locator)
       setAvailability(result.availability)
       if (result.error) throw new Error(uiAttribute('下载附件失败'))
-      setActionNotice(uiAttribute('已交给浏览器下载。'))
+      setActionNotice({ text: uiAttribute('已交给浏览器下载。'), silent: true })
     } catch (error) {
-      setActionNotice(error instanceof Error ? error.message : uiAttribute('下载附件失败'))
+      setActionNotice({ text: error instanceof Error ? error.message : uiAttribute('下载附件失败'), failed: true })
     } finally { actionPending.current = false; setAction(null) }
   }
 
   useEffect(() => {
-    if (!actionNotice || action) return
+    if (!actionNotice || actionNotice.failed || action) return
     const timer = window.setTimeout(() => setActionNotice(null), 5000)
     return () => window.clearTimeout(timer)
   }, [actionNotice, action])
@@ -279,13 +278,13 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
     if (actionPending.current) return
     actionPending.current = true
     setAction(nextAction)
-    setActionNotice(nextAction === 'copy' ? uiAttribute('正在复制图片…') : null)
+    setActionNotice(nextAction === 'copy' ? { text: uiAttribute('正在复制图片…') } : null)
     try {
       if (nextAction === 'copy') {
         const image = tile.current?.querySelector('img')
         if (!image) throw new Error('image_unavailable')
         await writeClipboardImage(image)
-        setActionNotice(uiAttribute('已复制图片'))
+        setActionNotice({ text: uiAttribute('已复制图片') })
       } else if (nextAction === 'save') {
         if (!url) throw new Error('image_unavailable')
         const link = document.createElement('a')
@@ -299,17 +298,17 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
         link.remove()
       } else if (nextAction === 'path') {
         if (!fileLocation.location?.path || !await writeClipboardText(fileLocation.location.path)) throw new Error('copy_failed')
-        setActionNotice(uiAttribute('已复制完整路径'))
+        setActionNotice({ text: uiAttribute('已复制完整路径') })
       } else if (source.kind === 'attachment' && client.attachments.kind === 'native') {
         const result = await client.attachments.reveal(source.locator)
         setAvailability(result.availability)
         if (result.error) throw new Error('reveal_failed')
       }
     } catch {
-      setActionNotice(nextAction === 'copy' ? uiAttribute('未能复制图片，请重试或保存图片。')
+      setActionNotice({ text: nextAction === 'copy' ? uiAttribute('未能复制图片，请重试或保存图片。')
         : nextAction === 'save' ? uiAttribute('未能保存图片，请重试。')
           : nextAction === 'path' ? uiAttribute('未能复制路径，请重试。')
-            : uiAttribute('无法显示此附件所在位置。'))
+            : uiAttribute('无法显示此附件所在位置。') })
     } finally {
       actionPending.current = false
       setAction(null)
@@ -468,7 +467,6 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
       </button>
 
       {notice && <figcaption className="image-tile-notice" role="status">{notice}</figcaption>}
-      {actionNotice && !open && createPortal(<div className="image-action-notice" role="status">{actionNotice}</div>, document.body)}
       {canOpen && (
         <Dialog.Root open={open} onOpenChange={value => { setOpen(value); if (!value) setMenu(null) }}>
           <Dialog.Portal>
@@ -494,7 +492,7 @@ function ImageTile({ source }: { source: GalleryImage }): JSX.Element {
                   </svg>
                 </button>}
               </div>
-              {actionNotice && <div className="image-lightbox-feedback" role="status">{actionNotice}</div>}
+              {actionNotice && <div className={actionNotice.silent ? 'sr-only' : 'image-lightbox-feedback'} role={actionNotice.failed ? 'alert' : 'status'}>{actionNotice.text}</div>}
               <Dialog.Close className="attachment-lightbox-close" aria-label={uiAttribute("关闭图片预览")}>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m5 5 8 8M13 5l-8 8" /></svg>
               </Dialog.Close>

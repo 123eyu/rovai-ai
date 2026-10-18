@@ -6,6 +6,17 @@ last_updated: 2026-10-18
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-18 MiniMax Code Windows x64 完整资格
+
+官方 mcode 0.6.12 在 Windows 10 Pro x64 / NTFS 完成十四轴和九个 Golden Flows，Windows 行提升
+为 Qualified，绑定[独立冻结记录](../qualification/runtime-platform/windows-x64-minimax-code-v1.json)。
+真实模型使用用户授权的原生 BYOK sub2api；确定性边界另用真实 CLI 与受控 Provider 验证。
+本轮发现并修复私有 Bootstrap DACL、Usage cwd 等价和模型可见 Skill verbatim 路径三个 Windows 问题。
+真实 30 分钟 idle、并发/冷恢复、压缩后能力/取消、29 项内置 CLI、图片 Steer 与打包 App 均通过。
+问卷取消、部分 Usage、无 Fast/额外目录沙箱和原生直接 compact 取消限制继续保留；
+完整结果和原失败批次见[Windows 报告](research/minimax-code-runtime/windows-qualification-2026-10-18.md)。
+macOS arm64 仍为 Preview，macOS Intel 的维护者确认不变，Linux 仍未准入。以下日期段保留当时范围。
+
 ## 2026-10-18 MiniMax Code macOS Intel 验收确认
 
 User seq43 明确要求「macOS intel也标记验收通过」。`minimax-code-cli × macos-x64` 据此提升为

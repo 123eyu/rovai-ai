@@ -562,8 +562,16 @@ fn minimax_session_path(root: &Path, workspace: &str, session_id: &str) -> Resul
         "SELECT workspace_dir,parent_session_id,history_relative_dir FROM local_runtime_sessions WHERE session_id=?1",
         [session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
+    // ACP uses Win32 paths while the Core freezes canonical verbatim paths.
+    // Compare their equivalent lexical representations without admitting a
+    // different workspace or weakening the exact root-Session identity check.
+    #[cfg(windows)]
+    let same_workspace =
+        dunce::simplified(Path::new(&cwd)) == dunce::simplified(Path::new(workspace));
+    #[cfg(not(windows))]
+    let same_workspace = cwd == workspace;
     anyhow::ensure!(
-        cwd == workspace && parent.is_none(),
+        same_workspace && parent.is_none(),
         "MiniMax root Session does not match"
     );
     anyhow::ensure!(
@@ -2213,6 +2221,33 @@ mod tests {
                 assert!(minimax_session_path(&root, "/workspace", "other-session").is_err());
                 let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))
                     .unwrap();
+                #[cfg(windows)]
+                {
+                    let workspace = root.join("workspace");
+                    fs::create_dir(&workspace).unwrap();
+                    let canonical = workspace.canonicalize().unwrap();
+                    let native_path = dunce::simplified(&canonical).to_str().unwrap();
+                    c.execute(
+                        "UPDATE local_runtime_sessions SET workspace_dir=?1",
+                        [native_path],
+                    )
+                    .unwrap();
+                    assert!(
+                        NativeUsageReader::for_minimax_prompt(&root, &canonical, "session-1")
+                            .is_some(),
+                        "Windows ACP native paths and Core verbatim paths identify the same workspace"
+                    );
+                    assert!(
+                        minimax_session_path(&root, &format!("{native_path}-other"), "session-1")
+                            .is_err(),
+                        "path normalization must not admit another workspace"
+                    );
+                    c.execute(
+                        "UPDATE local_runtime_sessions SET workspace_dir='/workspace'",
+                        [],
+                    )
+                    .unwrap();
+                }
                 c.execute(
                     "UPDATE local_runtime_sessions SET parent_session_id='parent'",
                     [],

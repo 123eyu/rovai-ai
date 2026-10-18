@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { configureProductRuntime } from './configure-product-runtime.mjs'
 import {
@@ -28,15 +28,17 @@ if (!builtinCliContractVersion || !builtinCliIpcVersion || !builtinCliCapability
   throw new Error('Current Built-in CLI transport constants were not found')
 }
 const coreExecutable = resolve(
-  process.env.ROVAI_BUILTIN_CLI_CORE_EXECUTABLE ?? join(root, 'target', 'debug', 'rovai-core')
+  process.env.ROVAI_BUILTIN_CLI_CORE_EXECUTABLE ?? join(root, 'target', 'debug', process.platform === 'win32' ? 'rovai-core.exe' : 'rovai-core')
 )
 const cliExecutable = resolve(
-  process.env.ROVAI_BUILTIN_CLI_EXECUTABLE ?? join(root, 'target', 'debug', 'rovai')
+  process.env.ROVAI_BUILTIN_CLI_EXECUTABLE ?? join(root, 'target', 'debug', process.platform === 'win32' ? 'rovai.exe' : 'rovai')
 )
 const fixtureRoot = await realpath(await mkdtemp(join(tmpdir(), 'rovai-builtin-cli-smoke-')))
 const projectRoot = join(fixtureRoot, 'project')
-const dataDir = join(fixtureRoot, 'data')
-const skillLibraryRoot = join(fixtureRoot, 'skill-library')
+const dataDir = process.platform === 'win32'
+  ? JSON.parse(execFileSync(coreExecutable, ['--prepare-windows-data-root', join(fixtureRoot, 'formal')], { encoding: 'utf8', windowsHide: true })).core
+  : join(fixtureRoot, 'data')
+const skillLibraryRoot = join(dataDir, 'managed-skill-library')
 const bashExecutable = process.platform === 'win32'
   ? (process.env.ROVAI_BASH_BIN ?? 'C:\\Program Files\\Git\\bin\\bash.exe')
   : '/bin/bash'
@@ -44,7 +46,7 @@ const historyMarker = 'ROVAI_BUILTIN_HISTORY_V1'
 const historyPublicA2aMarker = 'ROVAI_BUILTIN_HISTORY_PUBLIC_A2A_V1'
 const historyAttachmentMarker = 'ROVAI_BUILTIN_HISTORY_ATTACHMENT_V1'
 const historySeedCompletionMarker = 'ROVAI_BUILTIN_HISTORY_SEED_OK'
-// Stable regression subset; newer member/mission operations are outside this harness.
+// Current public operation catalog, including member updates and Mission scope.
 const expectedOperations = [
   'automation.close',
   'automation.create',
@@ -57,8 +59,16 @@ const expectedOperations = [
   'thread.message.send',
   'thread.read',
   'thread.search',
+  'thread.runs',
   'history.search',
   'member.create',
+  'member.list',
+  'member.get',
+  'member.update',
+  'mission.list',
+  'mission.get',
+  'mission.update',
+  'mission.status',
   'memory.read',
   'memory.search',
   'memory.view',
@@ -121,6 +131,13 @@ try {
 
   core = startCore(dataDir)
   await core.request('health.check')
+  await core.request('preferences.tasks.set', { enabled: true })
+  if (selectedAdapters.has('minimax-code-cli') && process.env.ROVAI_MINIMAX_CODE_BIN) {
+    const startup = await core.request('runtime.startup.get', { runtimeKind: 'minimax-code-cli' })
+    await core.request('runtime.startup.save', { runtimeKind: 'minimax-code-cli', expectedRevision: startup.revision,
+      configuration: { programPath: process.env.ROVAI_MINIMAX_CODE_BIN, environment: [] } })
+    await core.request('runtime.modelCatalog.open', { runtimeKind: 'minimax-code-cli', waitForRefresh: true })
+  }
   const workspace = await core.request('workspaces.inspect', { path: projectRoot })
 
   for (const specification of runtimeSpecifications) {
@@ -228,12 +245,18 @@ try {
     specification.diagnosticPath = join(projectRoot, `.diagnostic-${specification.slug}`)
     specification.memberCreationKey = crypto.randomUUID()
     specification.memberDisplayName = `${specification.label} Created Member`
-    specification.threadId = await createThread(core.request, {
-      name: `${specification.label} Built-in CLI`,
+    const mission = await core.request('missions.create', { commandId: crypto.randomUUID(), command: {
+      title: `${specification.label} Built-in CLI`,
+      description: 'Isolated qualification of the complete public CLI operation catalog.',
       projectPath: workspace.projectPath,
+      projectBindingKind: 'directory',
       memberAgentIds: [specification.agentId, specification.recipientProfileId],
-      defaultLeadAgentId: specification.agentId
-    })
+      defaultLeadAgentId: specification.agentId,
+      tags: ['qualification']
+    } })
+    if (mission.status !== 'applied') throw new Error(`Mission fixture creation failed: ${JSON.stringify(mission)}`)
+    specification.threadId = mission.payload.threadId
+    specification.missionId = mission.payload.missionId
     await sendThreadMessage(core.request, {
       threadId: specification.threadId,
       body: `${specification.currentMarker}: current-Camp evidence for ${specification.adapterKind}.`,
@@ -267,7 +290,7 @@ try {
 
   const results = []
   for (const specification of runtimeSpecifications) {
-    process.stderr.write(`\n[builtin-cli] ${specification.adapterKind}: ${expectedOperations.length}-operation regression subset\n`)
+    process.stderr.write(`\n[builtin-cli] ${specification.adapterKind}: ${expectedOperations.length}-operation catalog\n`)
     const source = await startVerificationRun(core, specification, false)
     const sourceSnapshot = await waitForRun(core, specification.threadId, source.agentRunId, {
       marker: specification.successMarker,
@@ -693,7 +716,8 @@ async function startVerificationRun(coreClient, specification, resumed) {
         'Personality traits: Precise',
         'Working principles: Use the exact confirmed card and stable creation key.',
         'Growth topic: Practice concise handoffs.',
-        'Avatar: none (use the product default).'
+        'Avatar: none (use the product default).',
+        'I also authorize the fixture to update that newly created member role to Runtime-updated verifier, update this synthetic Mission title, and set this synthetic Mission status to needs_you.'
       ]
   const body = ['kimi-code-cli', 'grok-build', 'deepseek-harness'].includes(specification.adapterKind)
     ? [
@@ -1036,10 +1060,10 @@ printf '%s\n' "$send_help" | grep -Fq -- 'Guarantee that this public message wak
 printf '%s\n' "$send_help" | grep -Fq -- 'Agent addressing schedules concrete continuing work, not CC.'
 printf '%s\n' "$send_help" | grep -Fq -- 'Always inspect agentAddressingMode, effectiveRecipients, and deliveryIds.'
 printf '%s\n' "$send_help" | grep -Fq -- 'User attention is message-local and is never inherited'
-printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('Use --body for simple single-line text; \\n remains literal.')}
-printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('For multiline, Markdown, or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.')}
+printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('Use --body for simple single-line text, including Markdown; \\n remains literal.')}
+printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('For multiline or complex text, use a file-write tool to write the reply text itself, with real newlines, to a UTF-8 file.')}
 printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('Input: direct flags, or --input-file <path> with send flags except --body.')}
-printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('  Write reply.md:')}
+printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('  Write a temporary body file (e.g. reply.md):')}
 printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('  After the write succeeds:')}
 printf '%s\n' "$send_help" | grep -Fq -- ${shellQuote('    rovai send --public-only --input-file reply.md')}
 printf '%s\n' "$send_help" | grep -Fq -- "rovai send --to agent_5 --body 'Please reproduce on the previous client build and return the version and result.'"
@@ -1112,6 +1136,34 @@ printf '%s\n' "$member_create" | "$JQ" -e '
   and .avatarStatus == "not_requested"
 ' >/dev/null
 created_agent_id="$(printf '%s\n' "$member_create" | "$JQ" -er '.agentId')"
+
+STEP=member_list
+member_list="$("$CLI" member list)"
+assert_success "$member_list" 'member.list'
+STEP=member_get
+member_get="$("$CLI" member get --agent-id "$created_agent_id")"
+assert_success "$member_get" 'member.get'
+member_version="$(printf '%s\n' "$member_get" | "$JQ" -er '.version')"
+STEP=member_update
+member_update="$("$CLI" member update --agent-id "$created_agent_id" --expected-version "$member_version" --request-id ${shellQuote(crypto.randomUUID())} --team-role 'Runtime-updated verifier')"
+assert_success "$member_update" 'member.update'
+
+STEP=thread_runs
+thread_runs="$("$CLI" thread runs --active)"
+assert_success "$thread_runs" 'thread.runs'
+STEP=mission_list
+mission_list="$("$CLI" mission list)"
+assert_success "$mission_list" 'mission.list'
+STEP=mission_get
+mission_get="$("$CLI" mission get)"
+assert_success "$mission_get" 'mission.get'
+printf '%s\n' "$mission_get" | "$JQ" -e --arg id ${shellQuote(input.missionId)} '.missionId == $id' >/dev/null
+STEP=mission_update
+mission_update="$("$CLI" mission update --title ${shellQuote(`Updated CLI Mission ${input.slug}`)})"
+assert_success "$mission_update" 'mission.update'
+STEP=mission_status
+mission_status="$("$CLI" mission status --status needs_you)"
+assert_success "$mission_status" 'mission.status'
 
 STEP=automation_create
 automation_create="$("$CLI" automation create \

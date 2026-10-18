@@ -2809,10 +2809,31 @@ Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer �
 保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
 中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。
 
+## 执行行原消息引用（2026-10-18）
+
+按确认的交互稿在生产 `ConversationRunPresence` 接入原消息引用，沿用现有消息引用、批量输入列表、
+Footer 与消息动作。来源严格使用 Run 的输入 ID，与时间线定位锚点和流式进展分离；支持首条摘要、
+去重后的批量来源、用户／队员消息和纯附件，旧记录与撤回／缺失来源明确回退。
+
+`useRunSourceNavigation` 只在用户定位时读取既有 `thread.messages.around`，保留一个有界消息窗口，
+按版本合入时间线。新定位、其他会话导航与发送使旧请求失效，原消息聚焦、高亮和返回均不改草稿。
+返回时先取消平滑滚动，再恢复原 Run 位置，避免浏览器已排队的滚动帧覆盖返回结果。
+规范见 [Run Process Detail Surface v55](../../contracts/run-process-detail-surface-v55.md)。
+
+扩展现有生产组件浏览器 owner，直接断言来源 ID、作者、数量、精确定位、可见焦点、草稿及迟到响应，
+同时继续执行原有 Run 位置、身份／模型、执行详情、停止／重试、日夜主题和窄宽度场景。
+本次默认测试发现主线 Product Contract Fingerprint 仍期待 schema 157；主线代码早已为 158，
+仅将该旧断言同步到 158，不更改 Core schema 或迁移。
+
+验证结果：类型检查、完整 `pnpm test`（247 个 Vitest 文件／2742 项；Node owner 356 passed、2 个平台 skip）、
+默认 Rust workspace（474 passed、1 个既有 ignored）和 Web 构建通过。生产组件浏览器 owner 通过，
+覆盖 38 个既有状态、6 组主题／窗口组合及新增来源交互；可见焦点、快速返回和粗指针目标均通过。
+`pnpm docs:test`、`pnpm docs:check` 与以 `102b24f12a66af8151cb5b43cc4bb8e5feaafa69` 为基线的
+`pnpm docs:check:ci` 通过。
 
 ## 智能体检测简化（2026-10-18）
 
-- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-simplify-runtime-detection`；分支 `rovai/simplify-runtime-detection`；base `92736d707c9162133a93b7720ae826e7dad90e8a`。原 checkout 保持 `main`；分支未合并，worktree 保留。
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-simplify-runtime-detection`；分支 `rovai/simplify-runtime-detection`；base `92736d707c9162133a93b7720ae826e7dad90e8a`。实施期间原 checkout 保持 `main`；合入后按仓库生命周期清理任务 worktree。
 - 生产范围：复用已有文件身份/指纹、Installation version 条件提交、Check Manager、Runtime 聚合；以薄只读 `runtime.status.get` 转发现有聚合（同步 Desktop/Web 既有白名单），删除普通发现的二次哈希、静态版本整文件读取、重复 Shell 捕获及检测后的 Overview/Git 等待。没有新表、迁移、服务、第二套代次或用户配置。
 - 新增 Rust owner `independent_diagnostics_reuse_environment_and_same_target_check` 覆盖 A 诊断未结束时 B 诊断及相同目标合并。旧实现的 B 会刷新全局代次使 A 失效；既有 owner 只覆盖真实配置/PATH 变化，不能证明不变环境的并发行为。复用同一隔离数据库/程序夹具；必须经过真实 Check Manager 才能验证合并和公开终态。最小命令：`cargo test -p rovai-core --lib --features slow-tests independent_diagnostics_reuse_environment_and_same_target_check`。
 - 原计数 owner 扩展静态首次、未变、升级；原提交 owner 扩展同 generation 迟到结果；原程序替换和配置变更 owner 保留。没有新性能测试平台。

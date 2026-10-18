@@ -4,8 +4,8 @@ pub const NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION: &str = "native_session_boot
 pub const BOOTSTRAP_FORMATTER_VERSION: i64 = 5;
 pub const SESSION_CHARTER_REVISION: i64 = 24;
 const NATIVE_BINDING_CHARTER_COMPATIBILITY_REVISION: i64 = 16;
-pub const AGENT_RUN_CONTEXT_FORMATTER_VERSION: i64 = 41;
-pub const CONTEXT_MANIFEST_VERSION: i64 = 41;
+pub const AGENT_RUN_CONTEXT_FORMATTER_VERSION: i64 = 42;
+pub const CONTEXT_MANIFEST_VERSION: i64 = 42;
 pub const PUBLIC_CAMP_BATCH_CONTEXT_FORMATTER_VERSION: i64 = 40;
 pub const PUBLIC_CAMP_BATCH_CONTEXT_MANIFEST_VERSION: i64 = 40;
 
@@ -65,8 +65,8 @@ mod tests {
                 "nativeSessionBootstrap": "native_session_bootstrap_v5",
                 "bootstrapFormatterVersion": 5,
                 "sessionCharterRevision": SESSION_CHARTER_REVISION,
-                "agentRunContextFormatterVersion": 41,
-                "contextManifestVersion": 41,
+                "agentRunContextFormatterVersion": 42,
+                "contextManifestVersion": 42,
             })
         );
         assert_eq!(

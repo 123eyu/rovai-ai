@@ -34,6 +34,8 @@ mod pending_draft;
 mod run_continuation;
 #[path = "db_simplification.rs"]
 mod simplification;
+#[path = "db_single_chat_facts.rs"]
+mod single_chat_facts;
 #[path = "db_steer.rs"]
 mod steer;
 #[path = "db_task_capability.rs"]
@@ -41,6 +43,10 @@ mod task_capability;
 #[cfg(test)]
 pub(crate) fn assert_task_capability_upgrade(database: &mut Database) {
     task_capability::assert_upgrade(database);
+}
+#[cfg(test)]
+pub(crate) fn assert_single_chat_facts_upgrade(database: &mut Database) {
+    single_chat_facts::assert_upgrade(database);
 }
 
 #[cfg(test)]
@@ -458,7 +464,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 157;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 158;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -940,6 +946,7 @@ struct CurrentMigrationState {
     v205: bool,
     v206: bool,
     v207: bool,
+    v208: bool,
 }
 
 impl CurrentMigrationState {
@@ -961,6 +968,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v208 {
+            let mut previous = *self;
+            previous.v208 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 158
+                && self.v207
+                && previous.admits("v1.72", 157, classifier);
+        }
         if self.v207 {
             let mut previous = *self;
             previous.v207 = false;
@@ -3163,7 +3178,19 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
             contract == CURRENT_DATA_CONTRACT_VERSION
                 && matches!(
                     schema,
-                    145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156 | 157
+                    145 | 146
+                        | 147
+                        | 148
+                        | 149
+                        | 150
+                        | 151
+                        | 152
+                        | 153
+                        | 154
+                        | 155
+                        | 156
+                        | 157
+                        | 158
                 )
         })
     {
@@ -3573,7 +3600,7 @@ pub(crate) fn classify_database_contract(
     if marker.contract_version == CURRENT_DATA_CONTRACT_VERSION
         && matches!(
             marker.projection_schema_version,
-            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156 | 157
+            145 | 146 | 147 | 148 | 149 | 150 | 151 | 152 | 153 | 154 | 155 | 156 | 157 | 158
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3594,7 +3621,9 @@ pub(crate) fn classify_database_contract(
                 } else if marker.projection_schema_version == 148 {
                     claim_context::schema_matches(connection)
                 } else {
-                    if marker.projection_schema_version == 157 {
+                    if marker.projection_schema_version == 158 {
+                        single_chat_facts::schema_matches(connection)?
+                    } else if marker.projection_schema_version == 157 {
                         task_capability::schema_matches(connection)?
                     } else if marker.projection_schema_version == 156 {
                         task_capability::legacy_schema_matches(connection)?
@@ -5864,7 +5893,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 204),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=205),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=206),
-            EXISTS(SELECT 1 FROM schema_migration WHERE version=207)
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=207),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=208)
         "#,
         [],
         |row| {
@@ -6007,6 +6037,7 @@ fn load_current_migration_state(
                 v205: row.get(135)?,
                 v206: row.get(136)?,
                 v207: row.get(137)?,
+                v208: row.get(138)?,
             })
         },
     )
@@ -9284,6 +9315,9 @@ impl Database {
                     task_capability::migrate_notification_boundary(self)
                 );
             }
+            if !self.schema_migration_applied(208)? {
+                migration_step!("migration_208", single_chat_facts::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -10126,6 +10160,9 @@ impl Database {
                 "migration_207",
                 task_capability::migrate_notification_boundary(self)
             );
+        }
+        if !self.schema_migration_applied(208)? {
+            migration_step!("migration_208", single_chat_facts::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41919,6 +41956,7 @@ mod tests {
             v205: version >= 205,
             v206: version >= 206,
             v207: version >= 207,
+            v208: version >= 208,
         }
     }
 
@@ -42021,6 +42059,12 @@ mod tests {
     fn current_migration_state_admission_matrix() {
         let supported = [
             (
+                "v1.72/schema 157 before compact Single Chat facts",
+                "v1.72",
+                157,
+                207,
+            ),
+            (
                 "v1.72/schema 156 before fixed Task notification boundary",
                 "v1.72",
                 156,
@@ -42119,7 +42163,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                207,
+                208,
             ),
             (
                 "v1.72/schema 152 before compact operations",
@@ -42695,7 +42739,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(207);
+        let current = migration_state_through(208);
         assert!(current.admits(
             CURRENT_DATA_CONTRACT_VERSION,
             CURRENT_PROJECTION_SCHEMA_VERSION,
@@ -42758,7 +42802,16 @@ mod tests {
         missing_pending_draft.v183 = false;
         let mut missing_convergence = current;
         missing_convergence.v186 = false;
+        let mut missing_single_chat_facts = current;
+        missing_single_chat_facts.v208 = false;
         let rejected = [
+            (
+                "current marker without compact Single Chat facts",
+                missing_single_chat_facts,
+                CURRENT_DATA_CONTRACT_VERSION,
+                CURRENT_PROJECTION_SCHEMA_VERSION,
+                V147_CLASSIFIER_VERSION,
+            ),
             (
                 "current marker without catalog/continuation convergence",
                 missing_convergence,
@@ -43347,7 +43400,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(207));
+        assert_eq!(state, migration_state_through(208));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43404,7 +43457,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=207", [])
+                        .execute("DELETE FROM schema_migration WHERE version=208", [])
                         .unwrap();
                 }
                 "steer_identity" => {
@@ -43469,7 +43522,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<207;
+                "DELETE FROM schema_migration WHERE version<208;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();
@@ -45075,7 +45128,7 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42))"
         ));
         let conversation: (Option<String>, Option<String>, i64, i64) = reopened
             .connection()
@@ -45409,7 +45462,7 @@ mod tests {
             )
             .unwrap();
         assert!(manifest_schema.contains(
-            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41))"
+            "CHECK(formatter_version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42))"
         ));
         assert!(manifest_schema.contains(
             "CHECK(context_delivery_profile_version IN (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))"
@@ -55874,7 +55927,7 @@ mod tests {
             connection,
             &[
                 58, 59, 60, 61, 62, 67, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
-                102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205, 206, 207,
+                102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205, 206, 207, 208,
             ],
         );
         for table in [

@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -14,9 +14,10 @@ last_updated: 2026-10-17
 ## 浏览器文件传输（2026-10-17）
 
 按 User 确认方案实施单文件 30 MiB 上传、进度/取消与原结果核对，及独立授权的原生流式下载。
-预览预算与下载分离，下载保留来源权限、所见版本、撤销和资源约束，不增加附件资产或保存期限。
+预览预算与下载分离，下载保留申请来源授权、准入 Session 校验和资源约束，不增加附件资产或保存期限。
+2026-10-18 按 User seq27 收敛为准入后直接流式发送，取消持续重验及下载所见版本/尾块检查；不新增严格模式。
 当前规范为 [Host Web v6](../../contracts/host-web-v6.md)，取舍见 [D51](decisions.md#v1-72-d51)。
-实施及验收状态见[文件传输记录](implementation-plan.md#浏览器文件传输2026-10-17)。
+实施及验收状态见[下载链路收尾记录](implementation-plan.md#文件下载准入后直接传输2026-10-18)。
 
 本项保持 v1.72 生命周期；Contracts、Architecture、UI、Decisions、用户/部署文档及导航已更新。
 Runtime Activity、Runtime compatibility 与 Root README 无需调整：没有模型输入、运行时资格或产品定位变更。

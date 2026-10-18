@@ -8,6 +8,44 @@ last_updated: 2026-10-18
 
 # v1.72 实施与验收
 
+## 文件下载准入后直接传输（2026-10-18）
+
+按 User seq27 从 `ce11c2c4f` 继续，保留该提交的冷标签与回收边界修复。此次明确调整旧行为合同，
+不把前端三行修复当作下载链路简化完成：
+
+- `downloads.rs` 删除两秒授权轮询、Core 业务事件订阅/缺口恢复、Session/Core 活动流撤销监听、
+  `Flow::Checking/Ready` 暂停协调，以及下载摘要、尾块留存、最终重开/状态/来源校验。
+- 申请只验证来源并打开检查元数据；GET/HEAD 校验短期票据、Session、安全打开和独立大小额度后直接传输。
+  `resources.rs` 删除下载专用来源重验对象与预览摘要扫描；可选旧 expectedGeneration 字段只作 wire 兼容，
+  不提供严格模式，不改变预览读取自身的版本约束。
+- 保留安全无跟随打开、64 KiB 块、单槽背压、并发与空闲额度、取消/断开释放和安全中断日志。
+  下载当前内容，不保证旧预览或快照；Session 撤销阻止新准入，业务来源失效阻止新申请，已准入流不主动撤销。
+- 不修改 Renderer 布局、下载入口或上传恢复，不新增管理模块、UI 步骤、状态机或存储。
+  同步 Host Web v6、统一 Host 架构、D51、UI 与用户指南，历史验收记录保留为当时行为的证据。
+
+测试退役说明：删除 `downloads::tests::event_gaps_revalidate_before_releasing_bytes_and_keep_explicit_revocations`，
+其事件暂停/持续撤销合同与生产路径在同一补丁退出。`rovai-web --lib` 可执行测试由 12 项变为 11 项，其他 owner 保留。
+继任边界由既有 `scripts/lib/host-web.test.mjs` HTTP owner 扩展，不新建 Rust/进程 fixture：验证来源准入、
+当前文件/长度、超预览预算、链接替换拒绝、独立额度、取消释放、短读中断，以及退出/删除后的准入与传输边界。
+既有 `host-web-html.test.mjs` 浏览器 owner 改验旧预览下载当前 HTML 且保留预览，局部失败通过原按钮重试恢复。
+最小命令为 `cargo test -p rovai-web --lib`、`pnpm test:host-web`、`pnpm test:host-web-html`；
+全量使用 `pnpm test:rust:pr`、`VITEST_MAX_WORKERS=2 pnpm test`，文档门禁以 `ce11c2c4f` 为基线。
+
+验收：`cargo test -p rovai-web --lib` 11 项通过，Host 构建与 `pnpm typecheck` 通过。
+`pnpm test:rust:pr` 为 474 项通过、0 失败、1 项既有 ignored；相对基线只退役上述已退出合同的一项测试。
+`VITEST_MAX_WORKERS=2 pnpm test` 通过：247 个 Vitest 文件、2756 项；Node 脚本 355 项通过、2 项既有平台跳过，
+文档和 Skill 检查及以 `ce11c2c4f` 为基线的通用文档门禁通过。
+真实 Host HTTP owner 与时钟 owner 独立复跑 2 项通过；最终 HTTP owner 再验传输中追加只发送
+原声明长度、截断报短读失败、退出/删除不中断已准入流，来源、Session、链接替换和下载额度仍在准入边界生效。
+`pnpm test:host-web-html` 通过，含当前 HTML 原字节下载且不刷新旧预览、文件暂缺后的原按钮重试、
+移动视口反馈归属、图片和普通 patch 下载及上传取消。浏览器首轮因测试预期的缺失文件文案不匹配失败，
+按现有客户端文案修正断言后通过，未改生产文案或界面。
+
+`pnpm test:host-web` 不记为全绿：多标签 owner 及其独立复跑均在新标签等待 `.camp-nav-open` 时失败，
+发生在下载操作之前，与下述已登记的默认视口/导航选择器问题一致；本轮未改该测试或扩展界面范围。
+最初整套运行的时钟用例被提前终止，上述独立完整复跑确认其通过。自动验收均使用 macOS 的隔离数据、
+Skill Library、MCP 与 Chrome profile，不使用日常 App 或真实模型；Linux/Windows 原生及实体手机仍未验证。
+
 ## 文件下载冷标签与回收边界（2026-10-18）
 
 按 User seq25 独立核对 `26564a2fa`，继续在 `rovai/web-file-transfers` 做局部修复：

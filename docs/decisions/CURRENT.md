@@ -1,7 +1,7 @@
 ---
 document_type: current-decision-navigation
 authority: current-authority-and-rationale-routing
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # 当前规范与决定理由导航
@@ -256,7 +256,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 ## 统一 Host 与 Web
 
 - 当前规范：[统一 Rust Host](../architecture/unified-rust-host.md)、[原生 Server 数据与分发](../architecture/unified-rust-host.md#原生-server-数据与分发)、[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)、[Host Web v6](../contracts/host-web-v6.md)与[Server 开发预览](../development/server-preview.md)。Task 旧 payload reconciliation clean break 理由见 [V1.63-D02](../versions/v1.63/decisions.md#v1-63-d02)。
-- 浏览器文件传输：[Host Web v6](../contracts/host-web-v6.md)、[统一 Host 用户文件](../architecture/unified-rust-host.md#草稿与用户文件)；采用独立短期能力与浏览器下载管理器的取舍见 [V1.72-D51](../versions/v1.72/decisions.md#v1-72-d51)。
+- 浏览器文件传输：[Host Web v6](../contracts/host-web-v6.md)、[统一 Host 用户文件](../architecture/unified-rust-host.md#草稿与用户文件)；采用独立短期能力、准入后直接流式发送与浏览器下载管理器的取舍见 [V1.72-D51](../versions/v1.72/decisions.md#v1-72-d51)。
 - 理由来源：[V1.59-D01](../versions/v1.59/decisions.md#v1-59-d01)、[V1.59-D02](../versions/v1.59/decisions.md#v1-59-d02)。
 
 - 新对话默认队伍归属：[Host Web v2](../contracts/host-web-v2.md#shared-creation-preferences)、[Camp Activation](../architecture/camp-activation-lifecycle.md#component-authority)；理由见 [V1.59-D03](../versions/v1.59/decisions.md#v1-59-d03)。

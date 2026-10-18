@@ -100,35 +100,10 @@ struct ResolvedSource {
     allow_children: bool,
 }
 
-/// A download keeps the exact Core source and optional seen generation, never a
-/// preview parser or arbitrary client path. Closing a preview does not release a
-/// separately admitted download; source/session invalidation still does.
-#[derive(Clone)]
+/// A path capability resolved from an authorized source, never a client path.
 pub(super) struct DownloadTarget {
     pub path: PathBuf,
     pub name: String,
-    pub source: Value,
-    pub expected_generation: Option<String>,
-    root: PathBuf,
-    anchor: PathBuf,
-}
-
-impl DownloadTarget {
-    pub async fn reauthorize(&self, state: &WebState, client: &DraftClient) -> Result<()> {
-        let resolved = resolve(state, client, &self.source).await?;
-        ensure!(
-            resolved.path == self.anchor && resolved.root == self.root,
-            "source_not_authorized"
-        );
-        let current = tokio::fs::canonicalize(&self.path)
-            .await
-            .context("file_not_found")?;
-        ensure!(
-            current == self.path && current.starts_with(&self.root),
-            "source_not_authorized"
-        );
-        Ok(())
-    }
 }
 
 pub(super) async fn download_source(
@@ -171,23 +146,12 @@ pub(super) async fn download_source(
             .and_then(|s| s.to_str())
             .context("source_not_authorized")?
             .to_owned();
-        return Ok(DownloadTarget {
-            path,
-            name,
-            source: parent.source,
-            root: parent.root,
-            anchor: parent.anchor_path,
-            expected_generation: None,
-        });
+        return Ok(DownloadTarget { path, name });
     }
     let resolved = resolve(state, &client, &source).await?;
     Ok(DownloadTarget {
-        anchor: resolved.path.clone(),
         path: resolved.path,
-        root: resolved.root,
         name: resolved.name,
-        source,
-        expected_generation: None,
     })
 }
 
@@ -195,8 +159,6 @@ pub(super) async fn download_preview(
     state: &WebState,
     session: &Arc<Session>,
     id: &str,
-    expected: &str,
-    permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Result<DownloadTarget> {
     let client = DraftClient::verified_web(&session.client_id)?;
     let handle = state
@@ -210,33 +172,10 @@ pub(super) async fn download_preview(
         .filter(|handle| handle.client == client.id())
         .cloned()
         .context("source_not_authorized")?;
-    ensure!(
-        handle
-            .analysis
-            .as_ref()
-            .is_some_and(|analysis| analysis.generation == expected),
-        "file_changed"
-    );
     reauthorize(state, &client, &handle).await?;
-    // This bounded preview-generation check reports changes before handing off
-    // to the browser. The transfer hashes the actual bytes again before its tail.
-    let current = content::read(&handle.path, Selection::Digest, Some(permit))
-        .await
-        .map_err(|error| {
-            if error.to_string() == "file_too_large" {
-                anyhow::anyhow!("file_changed")
-            } else {
-                error
-            }
-        })?;
-    ensure!(current.generation == expected, "file_changed");
     Ok(DownloadTarget {
         path: handle.path,
         name: handle.name,
-        source: handle.source,
-        root: handle.root,
-        anchor: handle.anchor_path,
-        expected_generation: Some(expected.to_owned()),
     })
 }
 

@@ -182,15 +182,25 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
     assert.equal(await browser.evaluate('window.downloadBlobCount ?? 0'), 0)
     await browser.capture('/tmp/rovai-web-file-download-mobile.png')
 
-    // A changed file has one local error. Switching tabs or folding the viewer
-    // hides it; refreshing from that error updates only its owning preview.
+    // Downloads use current bytes without refreshing the open preview. A missing
+    // file still has one local error, hidden when its owning viewer is hidden.
     await browser.click(`document.querySelector('.mobile-icon-button[aria-label="返回对话"]')`)
     await browser.wait(`document.querySelector('.file-preview-retained-host:not([hidden])')===null`)
     await browser.click(`document.querySelector('[aria-label="打开文件预览 interactive.html"]')`)
     await browser.wait(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-preview-html-stage')?.dataset.documentState==='loaded'`)
-    await writeFile(join(uploadScratch, uploads[0], 'source'), html + '<!-- changed after preview -->')
+    const uploadedHtml = join(uploadScratch, uploads[0], 'source')
+    const currentHtml = html + '<!-- changed after preview -->'
+    await writeFile(uploadedHtml, currentHtml)
+    await rm(join(downloadDirectory, 'interactive.html'))
     await browser.click(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-action')`)
-    await browser.wait(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice')?.textContent.includes('文件已变化')`)
+    await waitDownload('interactive.html', Buffer.byteLength(currentHtml))
+    assert.equal(await readFile(join(downloadDirectory, 'interactive.html'), 'utf8'), currentHtml)
+    assert.equal(await browser.evaluate(`document.querySelector('.file-preview-html').contentDocument.documentElement.outerHTML.includes('changed after preview')`), false, 'download does not replace the visible preview')
+    assert.equal(await browser.evaluate(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice')===null`), true)
+    assert.equal(await browser.evaluate('window.downloadBlobCount ?? 0'), 0)
+    await rename(uploadedHtml, uploadedHtml + '.held')
+    await browser.click(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-action:not(:disabled)')`)
+    await browser.wait(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice')?.textContent.includes('源文件已不存在')`)
     const visibleDownloadErrors = `[...document.querySelectorAll('.file-download-notice')].filter(e=>e.getClientRects().length).length`
     assert.equal(await browser.evaluate(visibleDownloadErrors), 1)
     await browser.capture('/tmp/rovai-web-file-download-local-error.png')
@@ -201,9 +211,13 @@ test('trusted Web HTML uses native storage, forms, popups and modals while prese
     await browser.wait(`document.querySelector('.file-preview-retained-host:not([hidden])')===null`)
     assert.equal(await browser.evaluate(visibleDownloadErrors), 0, 'folding the viewer must hide its feedback')
     await browser.click(`document.querySelector('[aria-label="打开文件预览 interactive.html"]')`)
-    await browser.wait(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice [aria-label="刷新预览"]')!==null`)
-    await browser.click(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice [aria-label="刷新预览"]')`)
-    await browser.wait(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice')===null && document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-action:not(:disabled)')!==null`)
+    await browser.wait(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice')!==null`)
+    await rename(uploadedHtml + '.held', uploadedHtml)
+    await rm(join(downloadDirectory, 'interactive.html'))
+    await browser.click(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-action:not(:disabled)')`)
+    await waitDownload('interactive.html', Buffer.byteLength(currentHtml))
+    assert.equal(await readFile(join(downloadDirectory, 'interactive.html'), 'utf8'), currentHtml)
+    assert.equal(await browser.evaluate(`document.querySelector('.file-preview-tab-panel:not([hidden]) .file-download-notice')===null`), true, 'retry recovers the local failure without refreshing or reopening')
     await browser.click(`document.querySelector('[aria-label="关闭 interactive.html"]')`)
     await browser.click(`document.querySelector('[aria-label="关闭 unsupported.bin"]')`)
     const oversizedPath = join(fixture, 'too-large.bin')

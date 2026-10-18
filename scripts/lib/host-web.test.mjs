@@ -526,7 +526,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       assert.equal(value.expiresInSeconds, 120)
       return value
     }
-    // A reauthenticated tab keeps its preview, proved editor and seen version;
+    // A reauthenticated tab keeps its preview and proved editor;
     // its old Session and old download tickets must still be revoked.
     const previewSession = await login()
     const savedPreview = (await fileCall(previewSession, 'open', { kind: 'camp_workspace', threadId: fileCampId, rawReference: 'large-preview.txt' })).value.file
@@ -545,7 +545,11 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(restoredChild.status, 200, 'same-editor parent capability is reauthorized after login')
     assert.equal((await prepareDownload(second, { kind: 'source', source: childSource })).status, 403)
     await writeFile(largePath, largeText.replace('a', 'b')); await utimes(largePath, fileTime, fileTime)
-    assert.equal((await prepareDownload(sameEditor, savedRequest)).status, 409, 'reauthentication cannot silently replace the seen version')
+    for (const request of [{ kind: 'preview', handleId: savedPreview.handleId }, { ...savedRequest, expectedGeneration: 'stale-legacy-generation' }]) {
+      const current = await prepareDownload(sameEditor, request)
+      assert.equal(current.status, 200, 'download uses current content without requiring a preview refresh or generation')
+      assert.equal(await (await fetch(origin + (await current.json()).url)).text(), largeText.replace('a', 'b'))
+    }
     await writeFile(largePath, largeText); await utimes(largePath, fileTime, fileTime)
     await authorized(sameEditor, 'logout', { method: 'POST' })
 
@@ -593,7 +597,9 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(forgedToken.status, 410); assert.equal(forgedToken.headers.has('content-disposition'), false)
     await writeFile(transferPath, Buffer.from([0xff, 0, 0x7f]))
     const changed = await fetch(origin + largeGrant.url)
-    assert.equal(changed.status, 409); assert.equal(changed.headers.has('content-disposition'), false)
+    assert.equal(changed.status, 200, 'admission opens current content, not preparation-time metadata')
+    assert.equal(changed.headers.get('content-length'), '3')
+    assert.deepEqual(new Uint8Array(await changed.arrayBuffer()), new Uint8Array([0xff, 0, 0x7f]))
     assert.equal((await fileCall(first, 'open', transferSource)).error.code, 'decode_failed')
     const latest = await grant(transferSource)
     assert.deepEqual(new Uint8Array(await (await fetch(origin + latest.url)).arrayBuffer()), new Uint8Array([0xff, 0, 0x7f]))
@@ -608,9 +614,24 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const directoryDownload = await prepareDownload(first, { kind: 'source', source: { ...transferSource, rawReference: '.' } })
     assert.equal(directoryDownload.status, 400)
     assert.equal((await directoryDownload.json()).error.code, 'not_regular_file')
+    // Windows symlink creation needs a separately privileged native fixture.
+    if (process.platform !== 'win32') {
+      const guardedPath = join(workspace, 'guarded-download.txt')
+      const outsidePath = join(fixture, 'outside-download.txt')
+      await writeFile(guardedPath, 'authorized'); await writeFile(outsidePath, 'outside')
+      const guardedGrant = await grant({ ...transferSource, rawReference: 'guarded-download.txt' })
+      await rm(guardedPath); await symlink(outsidePath, guardedPath)
+      const guarded = await fetch(origin + guardedGrant.url)
+      assert.equal(guarded.status, 400, 'a ticket cannot follow a replacement symlink outside the resolved path')
+      assert.equal(guarded.headers.has('content-disposition'), false)
+      await rm(guardedPath)
+    }
     const grow = await openFile(transferPath, 'w'); await grow.truncate(81 * 1024 * 1024); await grow.close()
     const oversized = await prepareDownload(first, { kind: 'source', source: transferSource })
     assert.equal(oversized.status, 413); assert.equal((await oversized.json()).error.code, 'download_too_large')
+    const grownAdmission = await fetch(origin + empty.url)
+    assert.equal(grownAdmission.status, 413, 'current opened size must still fit the independent download budget')
+    assert.equal(grownAdmission.headers.has('content-disposition'), false)
 
     // Hold a socket without consuming it: backpressure must retain the permit,
     // still allow business commands, and release it after client cancellation.
@@ -632,8 +653,20 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
         assert.equal(response.status, 429); await pause(10)
       }
     })())
-    // Mutation while a response is backpressured must produce an incomplete
-    // response, not JSON appended to a successful Content-Length body.
+    // Appending after admission neither extends Content-Length nor triggers a
+    // final version/EOF check. The open response sends its declared byte count.
+    const growingGrant = await grant(transferSource)
+    const growing = await new Promise((resolve, reject) => {
+      const req = httpRequest(origin + growingGrant.url, { agent: false }, response => { response.pause(); resolve(response) })
+      req.on('error', reject); req.end()
+    })
+    const append = await openFile(transferPath, 'a'); await append.write('later bytes'); await append.close()
+    assert.equal(Number(growing.headers['content-length']), sizeForSlow)
+    let originalLength = 0
+    for await (const bytes of growing) originalLength += bytes.length
+    assert.equal(originalLength, sizeForSlow)
+    // Truncation causes a short read and an incomplete response, never JSON
+    // appended to the body. Downloads do not validate a snapshot or digest.
     const changingGrant = await grant(transferSource)
     const changing = await new Promise((resolve, reject) => {
       const req = httpRequest(origin + changingGrant.url, { agent: false }, response => { response.pause(); resolve(response) })
@@ -644,21 +677,22 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const interrupted = new Promise(resolve => { changing.on('data', bytes => { partialLength += bytes.length }); changing.on('error', () => resolve(true)); changing.on('end', () => resolve(false)) })
     changing.resume()
     assert.equal(await within(interrupted), true)
-    assert.ok(partialLength < sizeForSlow)
-    // Revocation also reaches a transfer created through the dedicated token
-    // route, and a new admission cannot revive its ordinary Session.
+    assert.ok(partialLength < changingGrant.byteSize)
+    // Logout blocks new admissions but does not revoke an already admitted stream.
     const revokedSession = await login()
     const reset = await openFile(transferPath, 'w'); await reset.truncate(sizeForSlow); await reset.close()
     const revokedGrant = await grant(transferSource, revokedSession)
     const revokedStream = await fetch(origin + revokedGrant.url)
     await authorized(revokedSession, 'logout', { method: 'POST' })
-    await assert.rejects(async () => { for await (const _ of revokedStream.body) { /* drain already queued bytes */ } })
+    let drainedAfterLogout = 0
+    for await (const bytes of revokedStream.body) drainedAfterLogout += bytes.length
+    assert.equal(drainedAfterLogout, sizeForSlow)
     assert.equal((await fetch(origin + revokedGrant.url)).status, 401)
     const interruptions = host.stderr().split('\n').flatMap(line => {
       try { const value = JSON.parse(line); return value.event === 'web.download.interrupted' ? [value] : [] } catch { return [] }
     })
-    assert.ok(interruptions.some(value => value.code === 'session_required'))
-    assert.ok(interruptions.some(value => value.code === 'read_failed' || value.code === 'file_changed'))
+    assert.ok(interruptions.some(value => value.code === 'read_failed'))
+    assert.ok(interruptions.some(value => value.code === 'client_disconnected'))
     for (const record of interruptions) {
       assert.deepEqual(Object.keys(record).sort(), ['bytesEmitted', 'code', 'event', 'operationId', 'stage'])
       assert.equal(typeof record.operationId, 'number'); assert.equal(typeof record.bytesEmitted, 'number')
@@ -677,7 +711,9 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(line.value.offset, 10)
     await writeFile(largePath, largeText.replace('a', 'b')); await utimes(largePath, fileTime, fileTime)
     assert.equal((await fileCall(first, 'readPage', { handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration, offset: 0 })).ok, false, 'same length and restored mtime cannot hide changed bytes')
-    assert.equal((await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })).status, 409)
+    const changedPreview = await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })
+    assert.equal(changedPreview.status, 200, 'strict preview reads do not impose a download version fence')
+    assert.equal(await (await fetch(origin + (await changedPreview.json()).url)).text(), largeText.replace('a', 'b'))
     await writeFile(largePath, largeText); await utimes(largePath, fileTime, fileTime)
 
     assert.equal((await fileCall(second, 'readPage', { handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration, offset: 0 })).ok, false)
@@ -698,7 +734,12 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const seenGrant = await seen.json()
     assert.equal(await (await fetch(origin + seenGrant.url)).text(), largeText + '\nchanged')
     const grownPreview = await openFile(largePath, 'w'); await grownPreview.truncate(21 * 1024 * 1024); await grownPreview.close()
-    assert.equal((await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId, expectedGeneration: largeFile.contentGeneration })).status, 409, 'a preview that grows beyond its budget is a version conflict')
+    const grownPreviewGrant = await prepareDownload(first, { kind: 'preview', handleId: largeFile.handleId })
+    assert.equal(grownPreviewGrant.status, 200, 'preview growth cannot impose its 20 MiB budget on downloads')
+    const grownPreviewResponse = await fetch(origin + (await grownPreviewGrant.json()).url)
+    let grownPreviewBytes = 0
+    for await (const bytes of grownPreviewResponse.body) grownPreviewBytes += bytes.length
+    assert.equal(grownPreviewBytes, 21 * 1024 * 1024)
     await fileCall(first, 'release', { handleId: largeFile.handleId })
     // HTML classification, original-source reads and editor/generation fences use
     // the real Host API. The separate Chrome case owns rendering and native browser capabilities.
@@ -823,8 +864,12 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const deletingStream = await fetch(origin + deletingGrant.url)
     const deletingVersion = (await call(first, 'camps.open', { threadId: deletingId, traceId: crypto.randomUUID() })).thread.version
     assert.equal((await host.request('camps.delete', { commandId: crypto.randomUUID(), command: { threadId: deletingId, expectedVersion: deletingVersion, force: false } })).status, 'accepted')
-    await assert.rejects(async () => { for await (const _ of deletingStream.body) { /* drain bytes queued before revocation */ } })
-    assert.equal((await fetch(origin + deletingGrant.url)).status, 403)
+    let drainedAfterDeletion = 0
+    for await (const bytes of deletingStream.body) drainedAfterDeletion += bytes.length
+    assert.equal(drainedAfterDeletion, sizeForSlow, 'business deletion does not interrupt an admitted stream')
+    const remainingGrant = await fetch(origin + deletingGrant.url)
+    assert.equal(remainingGrant.status, 200, 'the short-lived path grant remains usable while its Session and file remain valid')
+    await remainingGrant.body.cancel()
     assert.equal((await prepareDownload(first, { kind: 'source', source: deletingSource })).status, 403)
     assert.equal((await readAssetFile(transferPath)).length, sizeForSlow, 'cancelling a download never removes its workspace source')
     const unusedBeforeRotation = await host.request('host.web.loginTicket')

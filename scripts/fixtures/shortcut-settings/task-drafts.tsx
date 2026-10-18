@@ -7,8 +7,8 @@ import { initial } from '../host-web-parity/data'
 
 let switchScope: (scope: { host: number; thread: string }) => void
 let reviseTask: (description: string) => void
-let nextResult: 'applied' | 'rejected' | 'pending' = 'applied'
-let finish: (status: 'applied' | 'rejected') => void
+let nextResult: 'applied' | 'rejected' | 'pending' | 'unknown' = 'applied'
+let finish: (status: 'applied' | 'rejected' | 'unknown') => void
 const calls: Array<{ method: CoreMethod; params: unknown }> = []
 let hosts: ThreadClient[]
 const task: TaskView = {
@@ -30,7 +30,12 @@ export function TaskDraftFixture({ client }: { client: ThreadClient }) {
     if (!method.startsWith('tasks.')) return client.request<T>(method, params)
     calls.push({ method, params })
     const status = nextResult; nextResult = 'applied'
-    if (status === 'pending') return new Promise<T>(resolve => { finish = status => resolve({ status, code: 'fixture', payload: {} } as T) })
+    if (status === 'unknown') throw new Error('保存回执未收到')
+    if (status === 'pending') return new Promise<T>((resolve, reject) => {
+      finish = status => status === 'unknown'
+        ? reject(new Error('保存回执未收到'))
+        : resolve({ status, code: 'fixture', payload: {} } as T)
+    })
     return { status, code: 'fixture', payload: {} } as T
   }) as ThreadClient['request'] })))
   hosts = clients
@@ -41,7 +46,7 @@ Object.assign(window, { taskDraftTest: {
   tasks: (enabled: boolean) => hosts[0].request('preferences.tasks.set', { enabled }),
   description: (value: string) => reviseTask(value),
   result: (status: typeof nextResult) => { nextResult = status },
-  finish: (status: 'applied' | 'rejected') => finish(status),
+  finish: (status: 'applied' | 'rejected' | 'unknown') => finish(status),
   calls: () => calls,
   assignee: initial.members[0].agentId
 } })

@@ -3,7 +3,7 @@ mod steer;
 use execution_drivers::*;
 use rusqlite::OptionalExtension;
 mod config;
-mod conversation_preferences;
+use rovai_core::creation_preferences;
 mod mission;
 mod transport;
 mod web_commands;
@@ -1310,10 +1310,14 @@ struct SelectedWorkspaceParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CreateThreadParams {
+    #[serde(default)]
+    team: Option<rovai_core::teams::TeamSelection>,
     command_id: String,
     name: Option<String>,
     workspace: Option<SelectedWorkspaceParams>,
+    #[serde(default)]
     member_agent_ids: Vec<String>,
+    #[serde(default)]
     default_lead_agent_id: String,
     collaboration_mode: ThreadCollaborationMode,
     #[serde(default)]
@@ -8936,15 +8940,51 @@ impl Core {
                 }
                 Ok(serde_json::to_value(snapshot)?)
             }
+            "teams.list" => {
+                let database = self.database.lock().await;
+                Ok(serde_json::to_value(rovai_core::teams::list(&database)?)?)
+            }
+            "teams.save" => {
+                let params: UserCommandParams<rovai_core::teams::SaveTeamCommand> =
+                    serde_json::from_value(request.params.clone())?;
+                let mut database = self.database.lock().await;
+                let execution = rovai_core::teams::save(
+                    &mut database,
+                    &user_command_envelope(params.command_id, params.command),
+                )?;
+                if execution.result.status == CommandResultStatus::Applied {
+                    emit(&self.output, "teams.changed", json!({}));
+                }
+                Ok(serde_json::to_value(execution.result)?)
+            }
+            "teams.delete" => {
+                let params: UserCommandParams<rovai_core::teams::DeleteTeamCommand> =
+                    serde_json::from_value(request.params.clone())?;
+                let mut database = self.database.lock().await;
+                let execution = rovai_core::teams::delete(
+                    &mut database,
+                    &user_command_envelope(params.command_id, params.command),
+                )?;
+                if execution.result.status == CommandResultStatus::Applied {
+                    emit(&self.output, "teams.changed", json!({}));
+                    emit(
+                        &self.output,
+                        "preferences.new_conversation_changed",
+                        json!({}),
+                    );
+                }
+                Ok(serde_json::to_value(execution.result)?)
+            }
             "preferences.newConversation.get"
             | "preferences.newConversation.initialize"
             | "preferences.newConversation.setDefaults"
+            | "preferences.newConversation.setTeam"
             | "preferences.newConversation.setOneClick"
             | "preferences.newConversation.invalidate" => {
-                let database = self.database.lock().await;
-                let (snapshot, changed) = conversation_preferences::execute(
+                let mut database = self.database.lock().await;
+                let (snapshot, changed) = creation_preferences::execute(
                     &self.data_dir,
-                    &database,
+                    &mut database,
                     &request.method,
                     request.params.clone(),
                 )?;
@@ -10202,6 +10242,7 @@ impl Core {
                     );
                 }
                 let command = CreateThreadCommand {
+                    team: params.team,
                     name: params.name,
                     project_binding_kind,
                     project_path: selection.project_path,
@@ -27891,6 +27932,7 @@ mod tests {
                             &user_command_envelope(
                                 uuid::Uuid::new_v4().to_string(),
                                 CreateThreadCommand {
+                                    team: None,
                                     name: Some("Version-only launch preparation".into()),
                                     project_binding_kind: ProjectBindingKind::Directory,
                                     project_path: root
@@ -29441,6 +29483,7 @@ done
                         expected_versions: Vec::new(),
                         execution_epoch: None,
                         payload: CreateThreadCommand {
+                            team: None,
                             name: Some("Feishu DM".to_string()),
                             project_binding_kind: ProjectBindingKind::QuickChat,
                             project_path: workspace.display().to_string(),
@@ -29523,6 +29566,7 @@ done
                         expected_versions: Vec::new(),
                         execution_epoch: None,
                         payload: CreateThreadCommand {
+                            team: None,
                             name: None,
                             project_binding_kind: ProjectBindingKind::Directory,
                             project_path: workspace.display().to_string(),
@@ -29675,6 +29719,7 @@ done
                         expected_versions: Vec::new(),
                         execution_epoch: None,
                         payload: CreateThreadCommand {
+                            team: None,
                             name: None,
                             project_binding_kind: ProjectBindingKind::Directory,
                             project_path: workspace.display().to_string(),
@@ -32736,6 +32781,7 @@ done
                         expected_versions: Vec::new(),
                         execution_epoch: None,
                         payload: CreateThreadCommand {
+                            team: None,
                             name: Some("Runtime cleanup dispatch".to_string()),
                             project_binding_kind: ProjectBindingKind::Directory,
                             project_path: workspace.display().to_string(),

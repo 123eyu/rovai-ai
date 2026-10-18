@@ -1,3 +1,4 @@
+import { TeamGlyph } from './MissionDefinitionEditor'
 import { useShortcutAction, useShortcutLabel, useShortcuts } from './ShortcutProvider'
 import { useThreadClient } from './camp-client'
 import { useMobileLayout } from './MobileLayout'
@@ -151,6 +152,7 @@ export function ThreadNavigation({
   updateSnapshot = null,
   onNewConversation,
   onMembers,
+  onTeams = () => undefined,
   onAutomations = () => undefined,
   onMissions = () => undefined,
   unreadMissionCount = 0,
@@ -176,7 +178,7 @@ export function ThreadNavigation({
   navigationId?: string
   settingsNavigation?: React.ReactNode
   footer?: React.ReactNode
-  view: 'compose' | 'camp' | 'members' | 'automations' | 'missions' | 'memory' | 'settings'
+  view: 'compose' | 'camp' | 'members' | 'teams' | 'automations' | 'missions' | 'memory' | 'settings'
   state: 'loading' | 'ready' | 'error'
   disabled?: boolean
   navigation: NavigationSnapshot | null
@@ -199,6 +201,7 @@ export function ThreadNavigation({
   updateSnapshot?: AppUpdateSnapshot | null
   onNewConversation(): void
   onMembers(): void
+  onTeams?(): void
   onAutomations?(): void
   onMissions?(): void
   unreadMissionCount?: number
@@ -411,6 +414,7 @@ export function ThreadNavigation({
                 groups={SETTINGS_SIDEBAR_GROUPS.map(group => ({ ...group, items: group.items.filter(item => (item.key !== 'channels' || client.channels) && (item.key !== 'shortcuts' || managed)) }))}
                 section={settingsSection}
                 updateBadge={updateBadge}
+                pendingMemoryCount={pendingMemoryCount}
                 onSectionChange={onSettingsSectionChange}
                 onBack={onSettingsBack}
               />
@@ -418,22 +422,14 @@ export function ThreadNavigation({
           : (
               <>
                 <nav className="unified-primary-nav" aria-label={uiAttribute("主要页面")}>
-                  <button className={`rail-button ${view === 'compose' ? 'active' : ''}`} type="button" aria-label={uiAttribute("新对话")} title={uiAttribute("新对话")} onClick={onNewConversation} disabled={state !== 'ready' || creatingConversation}>
+                  <button className={`rail-button new-conversation-button ${view === 'compose' ? 'active' : ''}`} type="button" aria-label={uiAttribute("新对话")} title={uiAttribute("新对话")} onClick={onNewConversation} disabled={state !== 'ready' || creatingConversation}>
                     <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="square-pen" /></span><span className="rail-label"><UiText zh={"新对话"} /></span>
                   </button>
                   <button className={`rail-button ${view === 'members' ? 'active' : ''}`} type="button" aria-current={view === 'members' ? 'page' : undefined} aria-label={uiAttribute("队员")} title={uiAttribute("队员")} onClick={onMembers}>
                     <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="users" /></span><span className="rail-label"><UiText zh={"队员"} /></span>
                   </button>
-                  <button
-                    className={`rail-button ${view === 'memory' ? 'active' : ''}`}
-                    type="button"
-                    aria-current={view === 'memory' ? 'page' : undefined}
-                    aria-label={pendingMemoryCount > 0 ? uiAttribute("记忆，{0} 条普通提案待确认", String(pendingMemoryCount)) : uiAttribute("记忆")}
-                    title={pendingMemoryCount > 0 ? uiAttribute("记忆 · {0} 条普通提案待确认", String(pendingMemoryCount)) : uiAttribute("记忆")}
-                    onClick={onMemory}
-                  >
-                    <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="brain" /></span><span className="rail-label"><UiText zh={"记忆"} /></span>
-                    {pendingMemoryCount > 0 && <i className="rail-badge-dot" aria-hidden="true" />}
+                  <button className={`rail-button ${view === 'teams' ? 'active' : ''}`} type="button" aria-current={view === 'teams' ? 'page' : undefined} aria-label={uiAttribute('团队')} title={uiAttribute('团队')} onClick={onTeams}>
+                    <span className="rail-glyph" aria-hidden="true"><TeamGlyph/></span><span className="rail-label">{uiAttribute('团队')}</span>
                   </button>
                   <button
                     className={`rail-button ${view === 'missions' ? 'active' : ''}`}
@@ -610,6 +606,7 @@ export function ThreadNavigation({
           >
             <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="settings" /></span><span className="rail-label"><UiText zh={"设置"} /></span>
           </button>
+          {pendingMemoryCount > 0 && <button type="button" className="team-memory-review-shortcut" aria-label={uiAttribute('记忆，{0} 条普通提案待确认', String(pendingMemoryCount))} title={uiAttribute('记忆，{0} 条普通提案待确认', String(pendingMemoryCount))} onClick={onMemory}><NavigationIcon name="brain"/><span>{pendingMemoryCount}</span></button>}
           {updateBadge && (
             <button
               className={`app-update-badge is-${updateBadge.kind}`}
@@ -721,6 +718,7 @@ export const SETTINGS_SIDEBAR_GROUPS: SettingsSidebarGroup[] = [
     label:"应用",
     items: [
       { key: 'general', icon: 'sliders-horizontal', label:"通用" },
+      { key: 'memory', icon: 'brain', label: '记忆' },
       { key: 'appearance', icon: 'sun-moon', label:"外观" },
       { key: 'shortcuts', icon: 'keyboard', label: '快捷键' },
       { key: 'notifications', icon: 'bell-ring', label:"提醒" }
@@ -753,12 +751,14 @@ export function SettingsSidebarNavigation<Section extends string>({
   groups,
   section,
   updateBadge,
+  pendingMemoryCount = 0,
   onSectionChange,
   onBack
 }: {
   groups: SettingsSidebarGroup<Section>[]
   section: Section
   updateBadge: AppUpdateBadgePresentation | null
+  pendingMemoryCount?: number
   onSectionChange(section: Section): void
   onBack(): void
 }): JSX.Element {
@@ -793,6 +793,7 @@ export function SettingsSidebarNavigation<Section extends string>({
                 >
                   <span className="settings-sidebar-icon" aria-hidden="true"><NavigationIcon name={item.icon} /></span>
                   <strong>{uiAttribute(item.label)}</strong>
+                  {item.key === 'memory' && pendingMemoryCount > 0 && <span className="team-memory-count">{pendingMemoryCount}</span>}
                   {item.key === 'about' && updateBadge && (
                     <span
                       className={`app-update-badge settings-app-update-badge is-${updateBadge.kind}`}

@@ -5,6 +5,7 @@ const EXECUTION_CONSOLE_PLACEMENTS = new Set<ExecutionConsolePlacement>(['right'
 const SETTINGS_SECTIONS = new Set<SettingsSection>([
   'remote',
   'general',
+  'memory',
   'skills',
   'toolbox',
   'mcp',
@@ -20,12 +21,13 @@ const SETTINGS_SECTIONS = new Set<SettingsSection>([
 const INTERFACE_LANGUAGES = new Set<InterfaceLanguage>(['zh-CN', 'en'])
 
 export const DEFAULT_GENERAL_PREFERENCES: GeneralPreferencesSnapshot = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   interfaceLanguage: 'zh-CN',
   startupLocationMode: 'last_location',
   lastSettingsSection: 'general',
   executionConsolePlacement: 'inspector',
   newConversationDefaults: null,
+  newConversationTeamId: null,
   newConversationDefaultsRequireConfirmation: false,
   oneClickNewConversationEnabled: false,
   worldMapEnabled: false
@@ -81,31 +83,34 @@ export function parseGeneralPreferences(value: unknown): GeneralPreferencesSnaps
   const v3Keys = [...v2Keys, 'executionConsolePlacement']
   const v4Keys = [...v3Keys, 'worldMapEnabled']
   const v5Keys = [...v4Keys, 'interfaceLanguage']
+  const v6Keys = [...v5Keys, 'newConversationTeamId']
   if (!hasExactKeys(value, v2Keys)
     && !hasExactKeys(value, v3Keys)
     && !hasExactKeys(value, v4Keys)
-    && !hasExactKeys(value, v5Keys)) return null
-  if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5) return null
+    && !hasExactKeys(value, v5Keys)
+    && !hasExactKeys(value, v6Keys)) return null
+  if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6) return null
   if (value.schemaVersion === 2 && !hasExactKeys(value, v2Keys)) return null
   if (value.schemaVersion === 3
     && !hasExactKeys(value, v2Keys)
     && !hasExactKeys(value, v3Keys)) return null
   if (value.schemaVersion === 4 && !hasExactKeys(value, v4Keys)) return null
-  if (value.schemaVersion === 5 && !hasExactKeys(value, v5Keys)) return null
+  if (value.schemaVersion === 5 && !hasExactKeys(value, v5Keys)
+    && !hasExactKeys(value, v6Keys)) return null
   if (!isStartupLocationMode(value.startupLocationMode)) return null
   if (!isSettingsSection(value.lastSettingsSection)) return null
   if (value.newConversationDefaults !== null && !isNewConversationDefaults(value.newConversationDefaults)) return null
   if (typeof value.newConversationDefaultsRequireConfirmation !== 'boolean') return null
   if (typeof value.oneClickNewConversationEnabled !== 'boolean') return null
   if (value.schemaVersion >= 4 && typeof value.worldMapEnabled !== 'boolean') return null
-  if (value.schemaVersion === 5 && !isInterfaceLanguage(value.interfaceLanguage)) return null
-  if (value.newConversationDefaults === null && (
+  if (value.schemaVersion >= 5 && !isInterfaceLanguage(value.interfaceLanguage)) return null
+  if (value.newConversationDefaults === null && !(value.schemaVersion === 6 && value.newConversationTeamId) && (
     value.newConversationDefaultsRequireConfirmation
     || value.oneClickNewConversationEnabled
   )) return null
   return {
-    schemaVersion: 5,
-    interfaceLanguage: value.schemaVersion === 5 ? value.interfaceLanguage as InterfaceLanguage : 'zh-CN',
+    schemaVersion: 6,
+    interfaceLanguage: value.schemaVersion >= 5 ? value.interfaceLanguage as InterfaceLanguage : 'zh-CN',
     startupLocationMode: value.startupLocationMode,
     lastSettingsSection: value.lastSettingsSection,
     executionConsolePlacement: isExecutionConsolePlacement(value.executionConsolePlacement)
@@ -114,6 +119,7 @@ export function parseGeneralPreferences(value: unknown): GeneralPreferencesSnaps
     newConversationDefaults: value.newConversationDefaults
       ? structuredClone(value.newConversationDefaults)
       : null,
+    newConversationTeamId: value.schemaVersion === 6 ? value.newConversationTeamId as string | null : null,
     newConversationDefaultsRequireConfirmation: value.newConversationDefaultsRequireConfirmation,
     oneClickNewConversationEnabled: value.oneClickNewConversationEnabled,
     worldMapEnabled: value.schemaVersion >= 4 && typeof value.worldMapEnabled === 'boolean'

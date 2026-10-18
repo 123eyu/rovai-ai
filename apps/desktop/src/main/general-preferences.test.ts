@@ -82,7 +82,8 @@ describe('general preferences', () => {
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'diagnostics'
     })).toEqual({
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'diagnostics',
@@ -117,7 +118,8 @@ describe('general preferences', () => {
       newConversationDefaultsRequireConfirmation: true,
       oneClickNewConversationEnabled: true
     })).toEqual({
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'diagnostics',
@@ -208,7 +210,8 @@ describe('general preferences', () => {
     ])
 
     expect(store.get()).toEqual({
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'en',
       startupLocationMode: 'last_location',
       lastSettingsSection: 'toolbox',

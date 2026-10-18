@@ -11,6 +11,14 @@ last_updated: 2026-10-18
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Team 管理（2026-10-18）
+
+User 在 Team 设计 Thread sequence 29 确认开启 worktree 实施。当前范围为具名团队、General 的
+Team/Custom 创建默认配置、简洁新对话选择和可选 Bootstrap 指引；旧配置不自动创建团队。
+上下文边界与确认见 [R1](model-context-change-team-guidance.md)，分支、范围和结果见
+[实施记录](team-management-implementation.md)。功能已在独立分支实现，单元测试、构建与五项真实模型
+定向验证通过；通用 Gate 为 `degraded`（共有交付失败、一项耗时退化及语义证据不足），尚未通过正式放行。
+
 ## 文件预览自动刷新（2026-10-18）
 
 当前可见文件默认随保存自动更新；后台文件重新显示时按需更新，分页以可见行号恢复，失败保留旧内容并停止通知重试。

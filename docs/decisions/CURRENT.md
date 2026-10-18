@@ -6,6 +6,8 @@ last_updated: 2026-10-18
 
 # 当前规范与决定理由导航
 
+Team 创建模板与启动指引：[Team Templates v1](../contracts/team-templates-v1.md)、[Bootstrap v6](../contracts/native-session-bootstrap-v6.md)、[架构](../architecture/team-management.md)；理由见 [V1.72-D53](../versions/v1.72/decisions.md#v1-72-d53)。
+
 会话 Task 能力：[Task v6](../contracts/durable-task-v6.md)、[Manifest v40/v42](../contracts/context-manifest-evidence-v42.md)、[Shortcuts v2](../contracts/desktop-shortcuts-v2.md)；理由见 [V1.72-D51](../versions/v1.72/decisions.md#v1-72-d51)。
 
 队员单文件头像当前规范：[Member Avatar v4](../contracts/member-avatar-v4.md)、[队员身份 UI](../ui/components/member-identity.md)；取舍见 [V1.72-D42](../versions/v1.72/decisions.md#v1-72-d42)。

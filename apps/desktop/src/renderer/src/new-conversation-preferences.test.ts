@@ -231,7 +231,8 @@ describe('new conversation preferences', () => {
 
 function configuredPreferences(): GeneralPreferencesSnapshot {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
+      newConversationTeamId: null,
     interfaceLanguage: 'zh-CN',
     startupLocationMode: 'last_location',
     lastSettingsSection: 'general',

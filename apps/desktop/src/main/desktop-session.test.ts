@@ -49,7 +49,8 @@ describe('Main Window Session registry', () => {
     let sequence = 0
     const registry = new DesktopSessionRegistry(() => `session-${++sequence}`)
     const first = registry.create(11, {
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'last_location',
       lastSettingsSection: 'runtime',
@@ -64,7 +65,8 @@ describe('Main Window Session registry', () => {
     })
 
     const second = registry.create(22, {
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'general',
@@ -91,7 +93,8 @@ describe('Main Window Session registry', () => {
   it('forgets a closed window without changing another live session', () => {
     const registry = new DesktopSessionRegistry(() => crypto.randomUUID())
     registry.create(11, {
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'last_location',
       lastSettingsSection: 'general',
@@ -102,7 +105,8 @@ describe('Main Window Session registry', () => {
       worldMapEnabled: true
     }, { status: 'missing', location: null })
     const second = registry.create(22, {
-      schemaVersion: 5,
+      schemaVersion: 6,
+      newConversationTeamId: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'last_location',
       lastSettingsSection: 'skills',

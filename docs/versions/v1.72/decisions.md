@@ -1112,3 +1112,20 @@ Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此
 数字键位按真实入口顺序一次迁移，其他冲突键清空、非冲突偏好保留；迁移失败以内存新映射维持可用，再显式重试落盘。代价是四个旧自定义键位会被覆盖，这是 User 明确选择的升级行为。
 
 当前规范：[Task v6](../../contracts/durable-task-v6.md)、[Transport v42](../../contracts/builtin-tool-transport-v42.md)、[Manifest v40/v41](../../contracts/context-manifest-evidence-v40.md)、[Shortcuts v2](../../contracts/desktop-shortcuts-v2.md)。逐项输入对照与实施状态见 [R4](model-context-change-task-capability.md)。
+
+<a id="v1-72-d53"></a>
+## V1.72-D53：Team 作为创建预设，Custom 独立保留，指引在创建时固定
+
+- 状态：accepted
+- 日期：2026-10-18
+- 确认：User 在 Team 设计 Thread sequence 29 确认 R1 和实施。
+- 当前权威：[Team Templates v1](../../contracts/team-templates-v1.md)、[Bootstrap v6](../../contracts/native-session-bootstrap-v6.md)、[Team 架构](../../architecture/team-management.md)。
+
+User 要求不创建团队也能配置一键新建，且指引只作启动材料，不因编辑重新投递。因此保留独立 Custom
+默认值，Team 仅提供有版本的创建输入；拒绝旧配置自动生成团队与 Thread 实时绑定 Team。
+指引在成功创建事务内固定，后续队员和合法 Bootstrap 补发读同一文本；不提供会话指引编辑器。
+代价是旧会话不跟随模板修订，换用新指引需要创建新会话。
+
+创建偏好从旧 JSON 只导入一次到 SQLite，使默认 Team 删除与回退可在一个事务完成。保留旧文件用于
+恢复，避免跨文件提交失败时出现已删 Team 仍被选中的状态。模型输入仅增加非空 TEAM_GUIDANCE 段，
+版本与确认见 [R1](model-context-change-team-guidance.md)。

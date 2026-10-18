@@ -826,7 +826,24 @@ export interface PendingExecutionIntentView {
 export type ThreadCollaborationMode = 'peer' | 'lead_coordinated'
 export type ThreadActivationState = 'pending' | 'active'
 
+export interface TeamSelection { teamId: string; expectedVersion: number }
+
+export interface Team extends NewConversationDefaults {
+  id: string
+  name: string
+  guidance: string
+  version: number
+}
+
+export interface SaveTeamCommand extends NewConversationDefaults {
+  teamId: string | null
+  expectedVersion: number | null
+  name: string
+  guidance: string
+}
+
 export interface CreateThreadRequest {
+  team?: TeamSelection
   commandId: string
   name: string | null
   workspace: { projectPath: string } | null
@@ -3074,6 +3091,7 @@ export type StartupLocationMode = 'last_location' | 'quick_chat'
 export type ExecutionConsolePlacement = 'right' | 'inspector' | 'bottom'
 
 export type SettingsSection =
+  | 'memory'
   | 'remote'
   | 'general'
   | 'skills'
@@ -3266,6 +3284,7 @@ export type RestorableLocation =
   | { kind: 'camp'; threadId: string }
   | { kind: 'members'; agentId: string | null; tab: MemberWorkspaceLocationTab }
   | { kind: 'memory' }
+  | { kind: 'teams' }
 
 export interface NewConversationDefaults {
   memberAgentIds: string[]
@@ -3275,12 +3294,13 @@ export interface NewConversationDefaults {
 export type InterfaceLanguage = 'zh-CN' | 'en'
 
 export interface GeneralPreferencesSnapshot {
-  schemaVersion: 5
+  schemaVersion: 6
   interfaceLanguage: InterfaceLanguage
   startupLocationMode: StartupLocationMode
   lastSettingsSection: SettingsSection
   executionConsolePlacement: ExecutionConsolePlacement
   newConversationDefaults: NewConversationDefaults | null
+  newConversationTeamId: string | null
   newConversationDefaultsRequireConfirmation: boolean
   oneClickNewConversationEnabled: boolean
   worldMapEnabled: boolean
@@ -3339,6 +3359,7 @@ export interface GeneralPreferencesApi {
   setLastSettingsSection(section: SettingsSection): Promise<GeneralPreferencesSnapshot>
   setExecutionConsolePlacement(placement: ExecutionConsolePlacement): Promise<GeneralPreferencesSnapshot>
   /** Saves the team atomically with enabling one-click when requested; otherwise preserves its current flag. */
+  setNewConversationTeam(teamId: string | null, enableOneClick?: boolean): Promise<GeneralPreferencesSnapshot>
   setNewConversationDefaults(defaults: NewConversationDefaults, enableOneClick?: boolean): Promise<GeneralPreferencesSnapshot>
   setOneClickNewConversationEnabled(enabled: boolean): Promise<GeneralPreferencesSnapshot>
   setWorldMapEnabled(enabled: boolean): Promise<GeneralPreferencesSnapshot>
@@ -4119,6 +4140,10 @@ export interface UpdateAutomationCommand {
 export type CoreMethod =
   | 'preferences.tasks.get'
   | 'preferences.tasks.set'
+  | 'teams.list'
+  | 'teams.save'
+  | 'teams.delete'
+  | 'preferences.newConversation.setTeam'
   | 'preferences.newConversation.get'
   | 'preferences.newConversation.setDefaults'
   | 'preferences.newConversation.setOneClick'

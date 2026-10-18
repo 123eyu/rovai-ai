@@ -1,0 +1,26 @@
+# Team workspace fixture
+
+Run from the repository root after installing dependencies:
+
+```sh
+node scripts/fixtures/team-management/serve.mjs
+```
+
+Open `http://127.0.0.1:57262/`. The fixture imports production Team workspace,
+General settings and New conversation components, with an in-memory Core API.
+It neither starts Electron/Core/Runtime nor reads daily application data.
+
+The default library contains teams of 4, 6 and 12 members. Use `?empty` for the
+empty state, `?lang=en` for English, and `?theme=night` for the night theme;
+query parameters can be combined. Reloading resets all fixture changes.
+
+Review creation, duplication, deletion, unsaved changes, member selection and
+lead changes. In General settings, switch between a team and Custom; in New
+conversation, verify that team members are read-only and a Custom selection
+survives switching away and back. Check keyboard focus, touch actions, a narrow
+viewport, long lists, and the position of the save footer.
+
+The fixture's top navigation buttons are test controls. This is component-level
+visual and interaction evidence; it does not verify native application chrome,
+IPC, persistence, authentication or real Runtime delivery. Core contracts,
+database tests and an isolated Runtime probe cover those separate boundaries.

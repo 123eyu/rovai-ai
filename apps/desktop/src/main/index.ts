@@ -1465,6 +1465,12 @@ ipcMain.handle('rovai:general-preferences-set-execution-placement', (_event, pla
   )
 })
 
+ipcMain.handle('rovai:general-preferences-set-team', (_event, teamId: unknown, enableOneClick: unknown = false) => {
+  if (typeof enableOneClick !== 'boolean') throw new Error('Invalid one-click preference')
+  if (teamId !== null && (typeof teamId !== 'string' || !teamId || teamId.length > 200)) throw new Error('Invalid Team')
+  return hostGeneralPreferences().setNewConversationTeam(teamId as string | null, enableOneClick)
+})
+
 ipcMain.handle('rovai:general-preferences-set-new-conversation-defaults', (_event, defaults: unknown, enableOneClick: unknown = false) => {
   if (!isNewConversationDefaults(defaults)) throw new Error('Invalid default new conversation configuration')
   if (typeof enableOneClick !== 'boolean') throw new Error('Invalid one-click new conversation preference')

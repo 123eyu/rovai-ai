@@ -1,0 +1,31 @@
+---
+document_type: ui-component-contract
+authority: team-workspace-ui
+status: accepted
+last_updated: 2026-10-18
+---
+
+# Team 工作区
+
+沿用 Rovai 的 Porcelain Day / Steel Night、原生队员列表与详情分栏。主侧栏显示“团队 / Team”；
+新增与名册添加统一为“添加 / Add”。团队列表支持收起和调宽；Mobile 列表/详情逐级返回。
+空态沿用 MCP 引导，提供添加空白团队和显式从现有默认配置创建，迁移不自动生成团队。
+
+详情按名称、可选团队指引、队员行列表排列。指引默认两行预览，添加/编辑后展开；计数 1000 字，
+超限保存报错，不静默截断。名册通过多选下拉添加；超过八位候选提供搜索。
+行操作以图标加文字平铺，hover/focus 显示 Make lead 与 Remove，触屏常驻；队长标记留在名字旁。
+不可用成员保持可见，可移除但不可设为新队长。
+
+新建、编辑显式保存；离页、切换团队、复制或开始新对话时保护未保存草稿。
+重复提交使用原命令核对回执；CAS 冲突提供重新载入。复制/删除菜单保持横向紧凑文案；删除先确认。
+六人、十二人列表独立滚动，保存栏可见。UI 不显示 Bootstrap 注入或旧会话更新机制提示。
+
+通用设置的默认配置只选择 Team 或 Custom，无管理团队链接。Custom 可编辑成员与队长；选择 Team
+只展示精简摘要，不覆盖 Custom。团队删除时关闭一键创建并回到保留的 Custom。
+新对话选择器 Custom 在首项：Custom 保留原成员/队长控件，Team 只读显示头像、人数与队长。
+切换两种来源保留本次 Custom 草稿；无另存为团队。沿用可选名称和创建成功后保存一键配置的行为。
+新对话主动作使用日间深色、夜间浅色中性按钮。
+
+记忆入口移入“设置 → 应用”，保留待审核计数；主侧栏设置旁仅在有待审核项时出现记忆快捷入口。
+数据和旧 Memory 深链不迁移。数据与上下文语义由 [Team Templates v1](../../contracts/team-templates-v1.md)
+和 [Bootstrap v6](../../contracts/native-session-bootstrap-v6.md)拥有。

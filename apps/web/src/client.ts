@@ -199,6 +199,10 @@ export const WEB_OPERATIONS = [
   'members.create',
   'preferences.tasks.get',
   'preferences.tasks.set',
+  'teams.list',
+  'teams.save',
+  'teams.delete',
+  'preferences.newConversation.setTeam',
   'preferences.newConversation.get',
   'preferences.newConversation.setDefaults',
   'preferences.newConversation.setOneClick',
@@ -220,6 +224,8 @@ export const WEB_OPERATIONS = [
 export type WebOperation = typeof WEB_OPERATIONS[number]
 
 const RECONCILABLE_COMMANDS = new Set<WebOperation>([
+  'teams.save',
+  'teams.delete',
   'threads.rename',
   'threads.delete',
   'threads.retryDeletion',

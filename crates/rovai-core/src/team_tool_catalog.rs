@@ -1256,7 +1256,7 @@ fn build_builtin_tool_definitions() -> Vec<Value> {
         json!({
             "name": CAMP_LIST_TOOL_NAME,
             "title": "Discover other Threads",
-            "description": "Return a bounded Top-K of other public Threads frozen into this AgentRun. Target-Thread membership is not a read permission. Search only frozen Thread names; omit query for recent Threads. This tool never searches messages and never paginates.",
+            "description": "List a bounded Top-K of other public Threads, using current names and latest visible message activity. Target-Thread membership is not a read permission. Query filters Thread names, not messages; omit it for recent Threads. Older Runs may retain a frozen directory. This tool never paginates, and listing a Thread does not advance the historical message search boundary.",
             "inputSchema": ThreadHistoryService::camp_list_input_schema(),
             "outputSchema": camp_list_success_schema()
         }),

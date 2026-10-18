@@ -121,7 +121,9 @@ fn enqueue_deliveries(
             )
             .optional()?
             .with_context(|| {
-                format!("Message Delivery target {recipient_agent_id} is not an active Camp member")
+                format!(
+                    "Message Delivery target {recipient_agent_id} is not an active Thread member"
+                )
             })?;
         ensure_camp_member_conversation(transaction, camp_id, recipient_agent_id, now)?;
         let delivery_id = Uuid::new_v4().to_string();
@@ -870,7 +872,7 @@ fn select_batch_prefix(
     for count in 1..=waiting.len() {
         if let Some(content_json) = waiting[count - 1].structured_content_json.as_deref() {
             let mut content = serde_json::from_str::<StructuredThreadMessageContent>(content_json)
-                .context("CampMessage Structured Content is invalid during Delivery claim")?;
+                .context("ThreadMessage Structured Content is invalid during Delivery claim")?;
             batch_message_indices.extend(std::iter::repeat_n(count - 1, content.len()));
             batch_content.append(&mut content);
         }

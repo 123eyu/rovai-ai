@@ -100,7 +100,7 @@ No fallback Runtime or synthetic default may be created after failure.
 `qualified / reasonCode=null`，绑定[Windows 0.6.12 记录](../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)
 及其 SHA-256 revision。十四轴、Golden Flows、修复和已接受能力边界见
 [目标机报告](../research/minimax-code-runtime/windows-qualification-2026-10-18.md)。
-macOS arm64 保持 Preview，Linux x64 保持 NotQualified；能力差异仍由
+macOS arm64 保持 Preview；Linux x64 的独立资格见下一节。能力差异仍由
 [MiniMax 接入记录](../research/minimax-code-runtime/README.md)和兼容性清单分别记录。
 
 ## References
@@ -123,3 +123,15 @@ macOS arm64 保持 Preview，Linux x64 保持 NotQualified；能力差异仍由
 Windows 与 Linux 记录各自的独立证据；macOS x64 按仓库既有维护者目标主机验收先例记录明确的实测确认与发布批准，
 不伪称本次提交重跑私密模型会话。普通 Settings/成员选择仍须通过 Machine Installation、认证、版本、模型、Probe 与
 Ready 检查。取舍见 [V1.59-D10](../versions/v1.59/decisions.md#v1-59-d10)。
+
+## 7. MiniMax Code Linux x64 qualification
+
+2026-10-18，按维护者完成准入的要求，在 GNU x86_64 / Ubuntu 24.04.5、官方 mcode 0.6.12 与
+真实 Sub2API Provider 下闭合 14 个能力轴。`minimax-code-cli × linux-x64` 为
+`qualified / reasonCode=null`，绑定[目标主机记录](../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)
+的 immutable SHA-256 revision。实际目标机与三发行版 Server OS/ABI smoke 分开，不能互相代替。
+
+真实模型、官方 CLI + 受控 Provider、真实 Linux 浏览器和 Rust owners 在
+[验收报告](../research/minimax-code-runtime/linux-qualification-2026-10-18.md)分别记录；partial Usage、
+原生权限/plan、取消问卷和原生管理命令的边界保持。其他平台、其他 Runtime、普通动态检查和执行
+fail-closed 门槛不因本项晋升改变；不建立 Renderer allowlist。

@@ -189,7 +189,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Runtime Launch and Verification v31（历史）](runtime-launch-and-verification-v31.md) | v30 的 Pi wire/安全语义不变；三平台改为明确的可运行 experimental preview，仍不宣称 qualified |
 | [Runtime Launch and Verification v30（历史）](runtime-launch-and-verification-v30.md) | v29 保留；增加 Pi JSONL Host、专属 Ready/exact resume、managed receipt、动态 Skills/MCP、Action/Usage 与三平台未准入边界 |
 | [Runtime Launch and Verification v29（历史）](runtime-launch-and-verification-v29.md) | v28 保留；现有 Check Manager 的 Fast metadata 与单执行原生覆盖 |
-| [Runtime Usage Monitoring v10（当前）](runtime-usage-monitoring-v10.md) | 精确消息身份限定的有界后台补采；业务终态不等待统计，journal 仍标部分观测 |
+| [Runtime Usage Monitoring v11（当前）](runtime-usage-monitoring-v11.md) | 本轮工具身份限定补采与原生压缩 snapshot 去重，后台预算和部分统计保持 |
+| [Runtime Usage Monitoring v10（历史）](runtime-usage-monitoring-v10.md) | 精确消息身份限定的有界后台补采；业务终态不等待统计，journal 仍标部分观测 |
 | [Runtime Usage Monitoring v9（历史）](runtime-usage-monitoring-v9.md) | Run 终态独立于统计刷盘，后台采样与迟到数据去重 |
 | [Runtime Usage Monitoring v8（历史）](runtime-usage-monitoring-v8.md) | 逐调用归一化、批次无关计数与 Input/Output 部分状态 |
 | [Runtime Usage Monitoring v7（历史）](runtime-usage-monitoring-v7.md) | Antigravity 同调用原生 SQLite 数值补充与完整输入分类 |

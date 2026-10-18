@@ -17,7 +17,9 @@ const native = process.argv[2]
 const filesOnly = process.argv.includes('--files-only')
 const completionOnly = process.argv.includes('--completion-only')
 const questionnairesOnly = process.argv.includes('--questionnaires-only')
-assert.ok([filesOnly, completionOnly, questionnairesOnly].filter(Boolean).length <= 1, 'Choose one focused matrix')
+const fleetOnly = process.argv.includes('--fleet-only')
+const planOnly = process.argv.includes('--plan-only')
+assert.ok([filesOnly, completionOnly, questionnairesOnly, fleetOnly, planOnly].filter(Boolean).length <= 1, 'Choose one focused matrix')
 assert.ok(native?.startsWith('/'), 'Pass the absolute installed mcode path')
 const fixtureArg = process.argv.indexOf('--fixture-root')
 const suppliedRoot = fixtureArg < 0 ? null : process.argv[fixtureArg + 1]
@@ -172,7 +174,66 @@ try {
   const created = await core.request('threads.create', { commandId: randomUUID(), name: 'MiniMax controlled integration', workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
   assert.equal(created.status, 'applied'); threadId = created.payload.threadId
   db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
-  if (questionnairesOnly) {
+  if (fleetOnly) {
+    const threads = [threadId], bindings = new Map(), firstPids = []
+    for (let index = 0; index < 21; index++) {
+      if (index > 0) {
+        const created = await core.request('threads.create', { commandId: randomUUID(), name: `MiniMax Fleet ${index}`,
+          workspace: { projectPath: project }, memberAgentIds: ['agent_2'], defaultLeadAgentId: 'agent_2', collaborationMode: 'peer' })
+        assert.equal(created.status, 'applied'); threads.push(created.payload.threadId)
+      }
+      threadId = threads[index]
+      await turn(`FLEET_${index}`)
+      bindings.set(threadId, db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'))
+      const pids = await hostPids()
+      assert.ok(pids.length <= 20, 'production per-member resident cap')
+      if (index === 0) firstPids.push(...pids)
+    }
+    assert.equal((await hostPids()).length, 20)
+    const resident = new Set(await hostPids())
+    assert.ok(firstPids.every(pid => !resident.has(pid)), 'the least-recently-used native Host must be reaped')
+    threadId = threads[0]
+    await turn('FLEET_RETURN')
+    assert.deepEqual(db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'), bindings.get(threadId))
+    report.cases.push({ name: 'production 20-Host per-member LRU evicts the oldest idle Host and resumes its exact Session', status: 'passed', sessionCount: threads.length, residentCount: (await hostPids()).length })
+    report.idleEviction = { productionTtlMs: 30 * 60_000, startedAt: new Date().toISOString(), pids: await hostPids() }
+    await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2), { mode: 0o600 })
+    console.error(JSON.stringify({ case: 'native production idle TTL', status: 'waiting', root }))
+    const began = Date.now(), deadline = began + 32 * 60_000
+    while ((await hostPids()).length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10_000))
+    assert.deepEqual(await hostPids(), [], 'the unmodified production idle TTL must reap all idle Hosts')
+    report.idleEviction.elapsedMs = Date.now() - began
+    await turn('AFTER_IDLE_TTL')
+    assert.deepEqual(db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'), bindings.get(threadId))
+    report.cases.push({ name: 'production 30-minute idle eviction and exact native Session continuation', status: 'passed', elapsedMs: report.idleEviction.elapsedMs })
+    const crashChildren = await hostPids()
+    process.kill(core.pid, 'SIGKILL')
+    await new Promise(resolve => setTimeout(resolve, 5_000))
+    const surviving = new Set((await processTable()).map(process => process.pid))
+    assert.ok(crashChildren.every(pid => !surviving.has(pid)), 'Core crash must reap its native Hosts')
+    await core.stop(); await start(); await turn('AFTER_CORE_CRASH')
+    assert.deepEqual(db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2'), bindings.get(threadId))
+    report.cases.push({ name: 'Core crash cleanup and exact Session recovery', status: 'passed' })
+    report.status = 'passed'
+  } else if (planOnly) {
+    const member = await core.request('members.get', { agentId: 'agent_2' })
+    const configured = await core.request('members.runtime.set', { commandId: randomUUID(), command: {
+      agentId: 'agent_2', expectedVersion: member.version, adapterKind: 'minimax-code-cli', model: member.runtimeConfiguration.model,
+      permissions: { ...member.runtimeConfiguration.permissions, values: { permission_mode: 'bypassPermissions', mode: 'plan' } }
+    } })
+    assert.equal(configured.status, 'applied')
+    stage = 'PLAN_WRITE'; step = 0
+    await send('Attempt the controlled workspace mutation under native plan mode.')
+    const deadline = Date.now() + 90_000
+    while (!runs().some(run => ['succeeded', 'failed', 'cancelled'].includes(run.status)) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
+    assert.ok(runs().some(run => ['succeeded', 'failed'].includes(run.status)), 'native plan attempt must reach an authoritative terminal')
+    assert.equal(await exists('result-PLAN_WRITE.txt'), false, 'native plan must reject the attempted mutation')
+    const calls = report.requests.filter(request => request.stage === stage)
+    assert.ok(calls.length > 0)
+    report.nativePlan = { requests: calls, actions: events.filter(event => event.params?.agentRunId === runs().at(-1).id).map(event => event.params) }
+    report.cases.push({ name: 'native plan rejects an attempted workspace mutation without a second Core approval authority', status: 'passed', run: runs().at(-1).id })
+    report.status = 'passed'
+  } else if (questionnairesOnly) {
     const binding = () => db.prepare('SELECT native_binding_id,native_session_id FROM conversation WHERE camp_id=? AND agent_id=?').get(threadId, 'agent_2')
     const published = id => db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE source_agent_run_id=? AND author_type='agent'").get(id).n
     const terminal = async (before, onTick = null) => {

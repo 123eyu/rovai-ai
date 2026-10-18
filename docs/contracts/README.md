@@ -25,7 +25,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Camp Open Projection v30](camp-open-projection-v30.md)
 - [Notification Episode v10](notification-episode-v10.md)
 - [Desktop Shortcuts v2](desktop-shortcuts-v2.md)
-- [Host Web v6](host-web-v6.md)
+- [Host Web v8](host-web-v8.md)
 
 上述版本取代同族旧合同的当前入口；旧版本继续解释冻结对象及恢复。
 
@@ -103,7 +103,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Windows Window Close v1（当前）](windows-window-close-v1.md) | Windows 主窗口关闭选择、记忆、本机设置与托盘生命周期；明确退出复用 Planned Shutdown |
 | [Host Lifecycle v2（当前）](host-lifecycle-v2.md) | 统一 Host 的原生 Server 单一数据根与用户入口；Desktop 旧布局兼容、唯一 owner、配套 WebUI 与受控停止 |
 | [Host Lifecycle v1（兼容入口）](host-lifecycle-v1.md) | 旧预览 Host CLI 的显式内部路径和初始化；由 v2 保留兼容，不自动迁移数据 |
-| [Host Web v7（当前）](host-web-v7.md) | 30 MiB 上传、独立下载票据与原生有界流式传输、取消及原结果核对 |
+| [Host Web v8（当前）](host-web-v8.md) | 候选内分页/定位复用 Analysis，以原始大小和修改时间校验；其他读取和传输规则保持 |
+| [Host Web v7（历史）](host-web-v7.md) | 30 MiB 上传、独立下载票据与原生有界流式传输、取消及原结果核对 |
 | [Host Web v5（历史）](host-web-v5.md) | User 继续入口与既有命令回执核对，传输协议仍为 4 |
 | [Host Web v4（历史）](host-web-v4.md) | Task v5 当前输入/投影与 Host protocol 4 clean break |
 | [Host Web v3（历史）](host-web-v3.md) | 继承 v2；Task v4 版本化输入/投影与旧 payload reconciliation clean break |
@@ -276,7 +277,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Open Projection v1（历史）](camp-open-projection-v1.md) | Desktop `camps.enter/open/exists`、有界首屏投影、coverage/high-water、earlier message page 与 data-minimized trace；不含 AgentRun 取消请求字段 |
 | [Skill Content Preview v1（历史）](skill-content-preview-v1.md) | 旧 Library Revision 或导入候选的只读内容合同；当前原生 Skill 原址预览见 Skills Rebuild v1 |
 | [Camp Conversation Find v1（当前）](camp-conversation-find-v1.md) | Desktop 当前 Camp 公开 user/agent 正文的 exact count、单命中 traversal、Unicode scalar offset 与有界 around-window 定位 |
-| [File Preview v22（当前）](file-preview-v22.md) | 当前可见文件自动刷新、后台按需更新、失败阻断与分页行号恢复；复用候选刷新和既有通知 |
+| [File Preview v23（当前）](file-preview-v23.md) | Desktop 最近定位复用、同版本自动刷新跳过内容与 HTML 准备；候选与更新水位保持 |
+| [File Preview v22（历史）](file-preview-v22.md) | 当前可见文件自动刷新、后台按需更新、失败阻断与分页行号恢复；复用候选刷新和既有通知 |
 | [File Preview v21（历史）](file-preview-v21.md) | 精确归因内部诊断 CSP 拒绝，中性降级并停止当前文档无效重试；保留作者策略与真实错误 |
 | [File Preview v20（历史）](file-preview-v20.md) | 无 Diff 的终态 Read/Write 文件操作由精确 Run Evidence 授权预览，保留 Diff、根外绝对路径和 Run 工作目录解析 |
 | [File Preview v19（历史）](file-preview-v19.md) | Run Diff 与 Files Changed 的当前文件预览接受精确证据中的根外绝对路径，保留相对路径的 Run 工作目录解析与来源校验 |

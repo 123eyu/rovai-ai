@@ -3091,3 +3091,42 @@ Footer 与消息动作。来源严格使用 Run 的输入 ID，与时间线定�
 原有检查；默认层没有新增或删除 owner。最低回归为 `pnpm test:rust:pr`、
 `cargo test -p rovai-core --features slow-tests --lib application::runtime_check_environment::tests::`，
 以及恢复后的静态发现与程序替换 owner。TypeScript、Vitest、桌面构建和文档门禁按当前开发规范执行。
+
+
+## 文件预览读取复用（2026-10-18）
+
+按 User seq15 确认的三项范围实施。独立分支 `rovai/preview-read-reuse`，worktree 为
+`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-preview-read-reuse`，基线
+`35cbc308dba33d02031bb21f93fa3b217bbf9b73`；无主线治理先行要求。
+
+- Desktop 在现有 handle 中增加一条最近成功定位记录，只有相同 offset 命中才复用行号；原读取前后校验保持。
+- Web 在现有 Analysis 保存大小和原始修改时间。分页/定位从块行号选定区间读取；属性变化、缺失匹配 Analysis、
+  短读直接失败，不重新分析或全文哈希回退；其他读取继续完整摘要。没有全文字节缓存。
+- 共享 reload 在 HTML 资源预留前确认同一文件及两端既有版本字段；仅健康、有内容和句柄的自动刷新可短路。
+  候选由既有 finally 释放，只消费开始水位，手动/错误/无句柄恢复完整加载。
+
+当前规范由 [File Preview v23](../../contracts/file-preview-v23.md)、[Host Web v8](../../contracts/host-web-v8.md)
+和对应架构拥有。旧已接受合同冻结，新增继承条款并更新现有导航；没有新增公开字段、协议版本、依赖、调度或重试系统。
+
+效果计数都在现有测试夹具中，不建立基准测试框架：
+
+| 场景 | 修改前 | 修改后 |
+| --- | --- | --- |
+| Desktop 第 524289 行，3.5 MiB 前缀 | 定位 3.5 MiB，分页再次读 3.5 MiB 前缀及 256 KiB 正文 | 定位一次，随后只读 256 KiB 正文 |
+| Web 2165539 字节文件，第 250000 行 | 候选、定位、分页三次全文扫描/摘要，共 6496617 字节 | 候选 2165539 字节/1 次摘要，定位 65536 字节/0 次，分页 308200 字节/0 次 |
+| 慢 HTML 的同版本重复通知 | 同一个新版本准备两次 HTML | 准备一次；补刷仅取得并释放同版本候选 |
+
+Desktop 与 HTML 修改前由本 Thread 的临时夹具复现；Web 修改前依据原 scanner 三次完整读取路径，
+修改后均由实际读盘字节和摘要/HTML 准备计数断言。分页读取包含块内前缀和最多三个 UTF-8 边界字节。
+
+Rust 扩展既有 `resources::content::tests` owner 并按当前合同改名，没有新增或删除测试函数；
+只替换已退出的“同候选分页必须拒绝等属性改写”断言。保留并扩展完整读取摘要拒绝、原始时间精度、
+读中变化、UTF-8 跨块、长行、缩短和空文件；Host 集成同步接口约定。
+共享控制器继续保留后台不读、失败不重试与迟到结果释放，并补同版本、水位推进、文件身份、摘要差异和强制恢复。
+
+验证已通过：类型检查，五个相关 TypeScript 文件的 144 项测试，Web 读取 owner 定向测试，
+完整 `pnpm test`（246 个 Vitest 文件／2793 项，脚本 357 passed／2 个既有平台 skip），
+默认 Rust workspace（474 passed／1 个既有 ignored），Desktop/Web 构建，以及
+现有 Host HTTP 集成 `node --test --test-name-pattern='Desktop and Web share' scripts/lib/host-web.test.mjs`。
+Host 验收使用独立临时 data、Skill Library 与 MCP 路径，不启动模型。
+`pnpm docs:test`、`pnpm docs:check`、以上述真实 base 为输入的 `docs:check:ci` 与 `git diff --check` 通过。

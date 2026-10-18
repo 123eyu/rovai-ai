@@ -15,15 +15,23 @@ last_updated: 2026-10-18
 
 当前可见文件默认随保存自动更新；后台文件重新显示时按需更新，分页以可见行号恢复，失败保留旧内容并停止通知重试。
 调度集中在既有共享控制器与资源管理中，沿用候选替换、HTML 就绪条件与 Desktop/Web 通知接线。
-当前合同为 [File Preview v22](../../contracts/file-preview-v22.md)，实现与验证见
+当前合同为 [File Preview v23](../../contracts/file-preview-v23.md)，实现与验证见
 [实施记录](implementation-plan.md#文件预览自动刷新2026-10-18)。无协议、持久化配置、依赖或设置页变化。
+
+## 文件预览读取复用（2026-10-18）
+
+按 User 确认的三项优化，Desktop 只复用句柄内最近一次行号定位；Web 候选完整分析一次，后续分页和定位按需读取；
+自动刷新确认同版本后跳过正文和 HTML 准备。Web 接受同候选等大小、等修改时间改写可能无法识别的取舍，
+其他读取的摘要校验保持。规范为 [File Preview v23](../../contracts/file-preview-v23.md) 与
+[Host Web v8](../../contracts/host-web-v8.md)，计数与验收见[实施记录](implementation-plan.md#文件预览读取复用2026-10-18)。
+更新现有 Contracts、Architecture、UI 和测试约定；局部可逆实现无需新增 Version Decision，其他领域和模型输入不变。
 
 ## 浏览器文件传输（2026-10-17）
 
 按 User 确认方案实施单文件 30 MiB 上传、进度/取消与原结果核对，及独立授权的原生流式下载。
 预览预算与下载分离，下载保留申请来源授权、准入 Session 校验和资源约束，不增加附件资产或保存期限。
 2026-10-18 按 User seq27 收敛为准入后直接流式发送，取消持续重验及下载所见版本/尾块检查；不新增严格模式。
-当前规范为 [Host Web v7](../../contracts/host-web-v7.md)，取舍见 [D52](decisions.md#v1-72-d52)。
+当前规范为 [Host Web v8](../../contracts/host-web-v8.md)，取舍见 [D52](decisions.md#v1-72-d52)。
 实施及验收状态见[下载链路收尾记录](implementation-plan.md#文件下载准入后直接传输2026-10-18)。
 
 本项保持 v1.72 生命周期；Contracts、Architecture、UI、Decisions、用户/部署文档及导航已更新。

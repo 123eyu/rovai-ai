@@ -3,9 +3,10 @@ import type { RefObject } from 'react'
 import { useUiText } from './interface-language'
 import { ResourceReferenceIcon } from './FilePreviewTabIcon'
 
-export function WebLinkActions({ target, anchor, onClose, onOpen, onCopy }: {
+export function WebLinkActions({ target, anchor, portalContainer, onClose, onOpen, onCopy }: {
   target: string | null
   anchor: RefObject<{ getBoundingClientRect(): DOMRect }>
+  portalContainer?: HTMLElement | null
   onClose(): void
   onOpen(): void
   onCopy(): void
@@ -13,10 +14,11 @@ export function WebLinkActions({ target, anchor, onClose, onOpen, onCopy }: {
   const t = useUiText()
   return <Popover.Root open={target !== null} onOpenChange={open => { if (!open) onClose() }} modal={false}>
     <Popover.Anchor virtualRef={anchor} />
-    <Popover.Portal>
+    <Popover.Portal container={portalContainer}>
       <Popover.Content className="composer-web-link-actions" side="top" align="start" sideOffset={6}
         collisionPadding={12} data-quote-exclude
         onOpenAutoFocus={event => event.preventDefault()}
+        onEscapeKeyDown={event => { event.preventDefault(); onClose() }}
         onCloseAutoFocus={event => event.preventDefault()}>
         <div className="composer-web-link-address">
           <ResourceReferenceIcon kind="web" className="resource-reference-icon web-reference-icon" />

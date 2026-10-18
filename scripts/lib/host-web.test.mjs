@@ -279,7 +279,9 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       const reply = await response.json()
       assert.match(reply.error?.message ?? '', /AgentRun does not exist in this Camp/)
     }
-    assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'camps.create', params: createParams })).result, created)
+    for (const operation of ['threads.create', 'camps.create']) {
+      assert.deepEqual((await call(first, 'commands.reconcile', { operation, params: createParams })).result, created)
+    }
     const roots = await (await authorized(first, 'workspaces', { method: 'POST', body: JSON.stringify({ path: fixture }) })).json()
     // Windows Core returns canonical paths with an extended-length prefix.
     const listedPaths = await Promise.all(roots.directories.map(entry => realpath(entry.projectPath)))
@@ -414,7 +416,10 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       sourceAttachments: [bound], quotes: [], replyToThreadMessageId: null, execution: null }
     const sent = await call(first, 'camp.messages.send', sentParams)
     assert.notEqual(sent.commandResult.status, 'rejected', JSON.stringify(sent))
-    assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'camp.messages.send', params: sentParams })).result.commandResult, sent.commandResult)
+    for (const operation of ['thread.messages.send', 'camp.messages.send']) {
+      assert.deepEqual((await call(first, 'commands.reconcile', { operation, params: sentParams })).result.commandResult, sent.commandResult)
+      assert.deepEqual(await call(first, 'commands.reconcile', { operation, params: { ...sentParams, commandId: crypto.randomUUID() } }), { state: 'unknown' })
+    }
     const messageLocator = { owner: 'message', threadId, messageId: sent.commandResult.payload.threadMessageId, attachmentRefId: intent.commandId }
     const historyFile = await authorized(first, 'attachments', { method: 'POST', body: JSON.stringify(messageLocator) })
     assert.equal(historyFile.status, 200)
@@ -790,12 +795,16 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const renamed = await call(first, 'camps.rename', renameParams)
     assert.equal(renamed.status, 'applied')
     assert.equal((await call(second, 'camps.open', { threadId: temporaryId, traceId: crypto.randomUUID() })).thread.title, 'Renamed remotely')
-    assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'camps.rename', params: renameParams })).result, renamed)
+    for (const operation of ['threads.rename', 'camps.rename']) {
+      assert.deepEqual((await call(first, 'commands.reconcile', { operation, params: renameParams })).result, renamed)
+    }
     const deleteParams = { commandId: crypto.randomUUID(), command: { threadId: temporaryId, expectedVersion: (await call(first, 'camps.open', { threadId: temporaryId, traceId: crypto.randomUUID() })).thread.version, force: false } }
     const deleted = await call(first, 'camps.delete', deleteParams)
     assert.equal(deleted.status, 'accepted')
     assert.equal(await call(first, 'camps.exists', { threadId: temporaryId }), false)
-    assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'camps.delete', params: deleteParams })).result, deleted, 'deleted Camp receipts remain queryable')
+    for (const operation of ['threads.delete', 'camps.delete']) {
+      assert.deepEqual((await call(first, 'commands.reconcile', { operation, params: deleteParams })).result, deleted, 'deleted Thread receipts remain queryable')
+    }
     const deletionDatabase = new DatabaseSync(join(dataDir, 'rovai.sqlite'), { readOnly: true })
     try {
       const cleanup = deletionDatabase.prepare("SELECT status, error_code FROM camp_attachment_view_operation WHERE kind = 'camp_delete_cleanup' AND command_id = ?")

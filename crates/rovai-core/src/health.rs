@@ -1577,6 +1577,7 @@ async fn acp_probe_at(
             | AdapterKind::ClineCli
             | AdapterKind::CursorAgent
             | AdapterKind::KimiCodeCli
+            | AdapterKind::MinimaxCodeCli
             | AdapterKind::ZcodeApp
     ) {
         return AcpCapabilityProbe {
@@ -2120,6 +2121,56 @@ async fn run_acp_probe_with_scope(
                 session["_meta"]["rovaiDshOptionsContext"] = json!(context);
                 session["_meta"]["rovaiDshOptionsObservedAt"] =
                     json!(chrono::Utc::now().to_rfc3339());
+            }
+            if kind == AdapterKind::MinimaxCodeCli {
+                // ACP advertises thinking effort only for the selected model. Probe
+                // each native ID in this disposable Session; no inference or global
+                // provider change is involved. Restore its initial selection afterward.
+                let models =
+                    crate::agent_runtime_adapter::acp_model_catalog_for_adapter(kind, &session)?;
+                anyhow::ensure!(
+                    models.len() <= 256,
+                    "MiniMax model catalog exceeds probe bound"
+                );
+                let original =
+                    crate::agent_runtime_adapter::acp_runtime_model_id_from_session(&session)
+                        .context("MiniMax default model missing")?;
+                let mut options = serde_json::Map::new();
+                for (index, model) in models.iter().enumerate() {
+                    let id = 1000 + index as u64;
+                    write_json_line(stdin, &json!({"jsonrpc":"2.0", "id":id, "method":"session/set_config_option",
+                        "params":{"sessionId":session["sessionId"], "configId":"model", "value":model.id}})).await?;
+                    // Native catalogs may include an unconfigured Provider or a
+                    // variant that this release cannot select. Its unavailable
+                    // options must not hide the working native default/catalog.
+                    let Ok(selected) = read_rpc_result(lines, id).await else {
+                        continue;
+                    };
+                    anyhow::ensure!(
+                        crate::agent_runtime_adapter::acp_runtime_model_id_from_session(&selected)
+                            .as_deref()
+                            == Some(model.id.as_str()),
+                        "MiniMax did not confirm model selection"
+                    );
+                    let chosen = crate::agent_runtime_adapter::acp_model_catalog_for_adapter(
+                        kind, &selected,
+                    )?
+                    .into_iter()
+                    .find(|entry| entry.id == model.id)
+                    .context("MiniMax selected model missing")?;
+                    options.insert(model.id.clone(), serde_json::to_value(chosen.options)?);
+                }
+                write_json_line(stdin, &json!({"jsonrpc":"2.0", "id":2000, "method":"session/set_config_option",
+                    "params":{"sessionId":session["sessionId"], "configId":"model", "value":original}})).await?;
+                let restored = read_rpc_result(lines, 2000).await?;
+                anyhow::ensure!(
+                    crate::agent_runtime_adapter::acp_runtime_model_id_from_session(&restored)
+                        .as_deref()
+                        == Some(original.as_str()),
+                    "MiniMax did not restore probe selection"
+                );
+                session["configOptions"] = restored["configOptions"].clone();
+                session["_meta"]["rovaiMinimaxModelOptions"] = Value::Object(options);
             }
             let session_id = session
                 .get("sessionId")
@@ -2723,7 +2774,7 @@ pub fn configure_acp_command(
         AdapterKind::CursorAgent => {
             command.arg("acp");
         }
-        AdapterKind::KimiCodeCli => {
+        AdapterKind::KimiCodeCli | AdapterKind::MinimaxCodeCli => {
             command.arg("acp");
         }
         AdapterKind::CommandCodeCli => {
@@ -2835,7 +2886,7 @@ fn acp_observed_capabilities(
     }
     if matches!(
         kind,
-        AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli
+        AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli | AdapterKind::MinimaxCodeCli
     ) {
         capabilities.retain(|capability| capability != "workspace.additional_roots");
     }
@@ -2850,7 +2901,10 @@ fn acp_observed_capabilities(
 }
 
 fn acp_required_capabilities(kind: AdapterKind) -> Vec<String> {
-    if matches!(kind, AdapterKind::CommandCodeCli) {
+    if matches!(
+        kind,
+        AdapterKind::CommandCodeCli | AdapterKind::MinimaxCodeCli
+    ) {
         return [
             "acp.initialize",
             "session.new",
@@ -2973,6 +3027,7 @@ fn additive_acp_mcp_verified(kind: AdapterKind) -> bool {
             | AdapterKind::DeepseekHarness
             | AdapterKind::CommandCodeCli
             | AdapterKind::ClineCli
+            | AdapterKind::MinimaxCodeCli
     )
 }
 
@@ -3716,6 +3771,7 @@ pub fn find_adapter(kind: AdapterKind) -> Option<PathBuf> {
         ),
         AdapterKind::CursorAgent => (&["ROVAI_CURSOR_BIN"][..], "cursor-agent"),
         AdapterKind::KimiCodeCli => (&["ROVAI_KIMI_BIN"][..], "kimi"),
+        AdapterKind::MinimaxCodeCli => (&["ROVAI_MINIMAX_CODE_BIN"][..], "mcode"),
         AdapterKind::GrokBuild => (&["ROVAI_GROK_BIN"][..], "grok"),
         AdapterKind::DeepseekHarness => (&["ROVAI_DEEPSEEK_HARNESS_BIN"][..], "dsh"),
         AdapterKind::ClineCli => (&["ROVAI_CLINE_BIN"][..], "cline"),

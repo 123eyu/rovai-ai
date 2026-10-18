@@ -121,6 +121,7 @@ pub(super) fn assert_upgrade(database: &mut Database) {
     migrate(database).unwrap();
     super::compact_execution::migrate(database).unwrap();
     super::steer::migrate(database).unwrap();
+    super::minimax::migrate(database).unwrap();
     assert_eq!(snapshot(database.connection()), before);
     let reopened =
         Connection::open_with_flags(&database.path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();

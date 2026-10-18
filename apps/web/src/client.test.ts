@@ -330,6 +330,7 @@ describe('console transport', () => {
       if (String(url).endsWith('/login')) return Response.json({ protocolVersion: 4, token: 'a'.repeat(64), clientId: 'd'.repeat(64), editorProof: 'e'.repeat(64), ownerId: 'local_user' })
       const body = JSON.parse(String(options?.body))
       if (body.operation === 'commands.reconcile') return Response.json({ result: { state: 'unknown' } })
+      if (body.operation === 'app.info') return Response.json({ result: {} })
       expect(body).toEqual({ operation: 'thread.messages.send', params: original })
       sends++
       if (!allowRetry) throw new TypeError('connection lost before dispatch or reply')
@@ -363,6 +364,7 @@ describe('tab session recovery', () => {
     const intents: string[] = []
     const fetcher = vi.fn<typeof fetch>(async (url, options) => {
       if (String(url).endsWith('/login') || String(url).endsWith('/session')) return Response.json(identity)
+      if (String(url).endsWith('/request')) return Response.json({ result: {} })
       if (String(url).endsWith('/uploads/reconcile')) return Response.json({ state: 'unknown' })
       intents.push(String((options!.body as FormData).get('intent')))
       if (intents.length === 1) throw new TypeError('lost response')
@@ -376,6 +378,7 @@ describe('tab session recovery', () => {
     first.cancelUpload(first.uploadProgress[0].id); await cancelled
     const refreshed = new ConsoleClient('http://localhost:4317', fetcher, storage)
     expect(await refreshed.restore()).toBe(true)
+    expect(await refreshed.retryPending()).toBe(true)
     await expect(refreshed.uploadFile('camp', 9, new File(['input'], 'input.txt'))).resolves.toMatchObject({ id: JSON.parse(intents[0]).commandId })
     expect(intents).toHaveLength(2)
     expect(intents[1]).toBe(intents[0])
@@ -455,6 +458,7 @@ describe('tab session recovery', () => {
       if (!String(url).endsWith('/request')) return Response.json(identity)
       const request = JSON.parse(String(options?.body))
       if (request.operation === 'commands.reconcile') return Response.json({ result: recorded ? { state: 'recorded', result: { ok: true } } : { state: 'unknown' } })
+      if (request.operation === 'app.info') return Response.json({ result: {} })
       dispatches.push(request.params)
       throw new TypeError('response lost')
     })
@@ -467,8 +471,9 @@ describe('tab session recovery', () => {
     await next.restore()
     expect(next.pendingCommandCount).toBe(1)
     expect(dispatches).toHaveLength(1)
-    await expect(next.request('thread.messages.send', { ...params, commandId: newCommandId() })).rejects.toThrow('原提交')
-    await next.retryPending()
+    await expect(next.request('thread.messages.send', { ...params, commandId: newCommandId() })).rejects.toThrow('恢复连接')
+    await expect(next.request('app.info')).resolves.toEqual({})
+    await expect(next.retryPending()).rejects.toThrow('恢复连接')
     expect(dispatches).toEqual([params, params])
     recorded = true
     await vi.waitFor(async () => { await next.reconcilePending(); expect(next.pendingCommandCount).toBe(0) })

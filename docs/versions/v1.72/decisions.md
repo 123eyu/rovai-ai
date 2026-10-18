@@ -1057,8 +1057,8 @@ Core 统一提供 UI 与发送前判断；当前成员配置不能替代已有 H
 再构建／投递；失败、停止不自动创建新任务。选择有界读取冻结程序缺失版本，避免旧发现缓存误挡新版本，
 读取失败仍保留普通运行。没有改用 Hook，也不引入独立核对服务、提示词、消息副本或新存储结构。
 
-<a id="v1-72-d50"></a>
-## V1.72-D50：文件下载独立于预览并交给浏览器
+<a id="v1-72-d51"></a>
+## V1.72-D51：文件下载独立于预览并交给浏览器
 
 - 状态：accepted
 - 日期：2026-10-17
@@ -1077,3 +1077,22 @@ Core 统一提供 UI 与发送前判断；当前成员配置不能替代已有 H
 全局事件缺口先暂停并重验，不能以 Lagged 声称来源已撤销；合并来源重验但保留明确生命周期撤销及最终块检查。
 完成票据优先在缓存压力下回收，分开表达缓存与并发错误；阻塞 I/O 持有许可，中断保留安全结构化原因。
 本轮不把上传多 Map 合并与正确性修复捆绑，原 commandId 和 Core 成功回执继续拥有恢复语义。
+
+
+<a id="v1-72-d50"></a>
+## V1.72-D50：MiniMax Code 复用 ACP 生命周期，系统提示只约束 Host
+
+- 状态：accepted
+- 日期：2026-10-16
+- 确认：User 接入讨论 seq4 指定 ACP 优先、简单 Host/resume 与不接 Fast；seq6 授权实施并要求完成后对比
+- 当前权威：[MiniMax Code ACP 边界](../../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)、[Runtime Platform Admission v2](../../contracts/runtime-platform-admission-v2.md)
+
+MiniMax 的 append 文件只在进程启动时读取，原生 Session 又可以跨进程精确恢复。选择沿用共享
+Fleet 和既有 Bootstrap 内容摘要：实际系统提示变化时替换 Host，同时保留原 Session；不建立
+另一套冻结机制，也不把内容摘要变成恢复门禁。相比每轮新建 Session，这保留原生历史；相比
+永不更新 Host，这避免身份与系统规则过期。
+
+原生 ACP Steer 返回同 Turn 的接收结果，图片仍通过授权路径交付；不虚构图片块参数。
+原生不支持 additionalDirectories，不发送该非标准扩展，沿用原生权限和 Core 附件授权。
+不把 highspeed 模型包装成 Fast。仅 macOS arm64 进入实验性 Preview，其他平台保持未准入；
+这是此次实现的开发验收范围，不把脚本模型证据或用户实施授权解释成真实模型 First-Class 资格。

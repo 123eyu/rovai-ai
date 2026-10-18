@@ -6,6 +6,9 @@ import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
 import { ConversationRunPresence } from './ConversationRunPresence'
+import { MessageQuotePreview, ReplyMark } from './MessageQuotePreview'
+import { ConversationRunSource } from './ConversationRunSource'
+import { useRunSourceNavigation } from './useRunSourceNavigation'
 import { conversationRunPresenceTimeline } from './conversation-run-presence'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
@@ -1941,6 +1944,7 @@ export function ThreadWorkspace({
   const attachmentPreparationQueue = useRef<Promise<void>>(Promise.resolve())
   const workspaceShellRef = useRef<HTMLElement>(null)
   const timelineScrollRef = useRef<HTMLDivElement>(null)
+  const runSourceNavigation = useRunSourceNavigation(snapshot.thread.id, snapshot.messages, timelineScrollRef)
   const historyLoaderRef = useRef<HTMLDivElement>(null)
   const earlierMessageLoadInFlightRef = useRef(false)
   const conversationFindSurfaceRef = useRef<HTMLDivElement>(null)
@@ -2477,9 +2481,9 @@ export function ThreadWorkspace({
   const anchorNavigation = useThreadUserAnchors(snapshot.thread.id, client, snapshot.messages, optimisticMessages,
     anchorIdentityKeys, anchorText, userAnchorNavigation, workspaceEntrySnapshotReady)
   const visibleThreadMessages = useMemo(() => mergeNavigationMessages(
-    anchoredMessages, anchorNavigation.navigation.windowMessages(), optimisticMessages, snapshot.messages
+    runSourceNavigation.messages, anchoredMessages, anchorNavigation.navigation.windowMessages(), optimisticMessages, snapshot.messages
   ).filter(message => !message.missionStart),
-  [anchoredMessages, anchorNavigation.window, anchorNavigation.anchors, anchorNavigation.navigation, optimisticMessages, snapshot.messages])
+  [runSourceNavigation.messages, anchoredMessages, anchorNavigation.window, anchorNavigation.anchors, anchorNavigation.navigation, optimisticMessages, snapshot.messages])
   const normalStart = messageHistory?.oldestLoadedSequence ?? snapshot.messages[0]?.sequence ?? null
   const anchorWindowEnd = anchorNavigation.window?.messages.at(-1)?.sequence ?? null
   const hasAnchorGap = normalStart !== null && anchorWindowEnd !== null && anchorWindowEnd < normalStart
@@ -2538,8 +2542,11 @@ export function ThreadWorkspace({
       || timelineReadingPosition.current.position.followingLatest !== false),
   [conversationFind.open, snapshot.thread.id])
   useEffect(() => {
-    if (conversationView !== 'conversation' || notificationFocus?.active) anchorNavigation.navigation.cancelNavigation()
-  }, [conversationView, notificationFocus?.requestId, notificationFocus?.active, anchorNavigation.navigation])
+    if (conversationView !== 'conversation' || notificationFocus?.active) {
+      anchorNavigation.navigation.cancelNavigation()
+      runSourceNavigation.cancel()
+    }
+  }, [conversationView, notificationFocus?.requestId, notificationFocus?.active, anchorNavigation.navigation, runSourceNavigation.cancel])
   const shortPublicMessages = usePublicMessageLayout(
     timelineScrollRef, conversationTimeline, snapshot.thread.id,
     conversationView === 'conversation', groupingFollowsLatest
@@ -2968,6 +2975,7 @@ export function ThreadWorkspace({
   }, [client, focusConversationFindInput, snapshot.thread.id])
 
   const openConversationFind = useCallback((): void => {
+    runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
     if (!conversationFind.open) {
       const timeline = timelineScrollRef.current
@@ -3005,7 +3013,7 @@ export function ThreadWorkspace({
       setConversationView('conversation')
     }
     focusConversationFindInput(true)
-  }, [conversationFind.open, focusConversationFindInput, snapshot.thread.id, anchorNavigation.navigation])
+  }, [conversationFind.open, focusConversationFindInput, snapshot.thread.id, anchorNavigation.navigation, runSourceNavigation.cancel])
 
   const closeConversationFind = useCallback((restore = true): void => {
     conversationFindRequestGeneration.current += 1
@@ -3056,6 +3064,7 @@ export function ThreadWorkspace({
   }, [snapshot.thread.id])
 
   const navigateUserAnchor = useCallback((messageId: string): void => {
+    runSourceNavigation.cancel()
     const threadId = snapshot.thread.id
     if (conversationFind.open) closeConversationFind(false)
     // Stop following before a window mounts; otherwise layout restoration can scroll it away.
@@ -3076,7 +3085,7 @@ export function ThreadWorkspace({
       }))
     }).catch(error => (onNotifyError ?? onNotify)(readErrorMessage(error)))
   }, [snapshot.thread.id, conversationFind.open, closeConversationFind, anchorNavigation.navigation,
-    visibleMessageById, onNotifyError, onNotify])
+    visibleMessageById, onNotifyError, onNotify, runSourceNavigation.cancel])
 
   const navigateConversationFind = (direction: 1 | -1): void => {
     const snapshotResult = conversationFind.snapshot
@@ -3359,6 +3368,7 @@ export function ThreadWorkspace({
   ])
 
   const revealQuote = async (quote: MessageQuoteSnapshot): Promise<void> => {
+    runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
     const threadId = snapshot.thread.id
     if (quote.source.scope !== 'camp' || quote.source.campId !== threadId) throw new Error('quote.owner_mismatch')
@@ -3381,6 +3391,7 @@ export function ThreadWorkspace({
   }
 
   const revealReplyParent = async (messageId: string): Promise<void> => {
+    runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
     setConversationView('conversation')
     const existing = timelineScrollRef.current?.querySelector<HTMLElement>(
@@ -3754,6 +3765,7 @@ export function ThreadWorkspace({
   }, [snapshot.thread.id])
 
   const followTimelineAfterUserSend = useCallback((threadId: string): void => {
+    runSourceNavigation.cancel()
     const scroll = timelineScrollRef.current
     const position = scroll
       ? followLatestThreadTimeline(scroll)
@@ -3774,7 +3786,7 @@ export function ThreadWorkspace({
       timelinePositionSaveTimer.current = null
     }
     rememberThreadTimelineReadingPosition(threadId, position)
-  }, [])
+  }, [runSourceNavigation.cancel])
 
   useLayoutEffect(() => {
     const threadId = snapshot.thread.id
@@ -5110,6 +5122,18 @@ export function ThreadWorkspace({
                     previousMessageAuthorKey = null
                     items.push(<ConversationRunPresence key={timelineItem.id} snapshot={snapshot}
                       slot={timelineItem.slot} profiles={agents} installations={installations}
+                      source={<ConversationRunSource key={`${snapshot.thread.id}:${timelineItem.slot.run.id}`}
+                        run={timelineItem.slot.run} messages={visibleMessageById} members={snapshot.members} text={anchorText}
+                        loading={runSourceNavigation.loading} unavailable={runSourceNavigation.unavailable}
+                        error={runSourceNavigation.error} onReveal={messageId => {
+                          anchorNavigation.navigation.cancelNavigation()
+                          if (conversationFind.open) closeConversationFind(false)
+                          setConversationView('conversation')
+                          const viewport = timelineScrollRef.current
+                          if (viewport) timelineReadingPosition.current = { threadId: snapshot.thread.id,
+                            position: { scrollTop: viewport.scrollTop, followingLatest: false } }
+                          void runSourceNavigation.reveal(timelineItem.slot.run.id, messageId, visibleMessageById)
+                        }} />}
                       onActivateMember={openMemberProfilePopover} eventsByRunId={executionEventsByRunId}
                       windowedEvidence={openCoverage !== null}
                       stopState={run => agentRunStopViewState(run, snapshot.turns.find(turn => turn.id === run.threadTurnId) ?? null, {
@@ -5694,12 +5718,17 @@ export function ThreadWorkspace({
                   {uiAttribute('消息目录暂不可用，重试')}
                 </button>}
             </div>}
+            {conversationView === 'conversation' && runSourceNavigation.returnPoint && <div className="run-source-return-layer">
+              <button type="button" className="run-source-return" onClick={runSourceNavigation.returnToRun}>
+                <ReplyMark />{uiAttribute('返回执行位置')}
+              </button>
+            </div>}
             <ReturnToLatest
               viewportRef={timelineScrollRef}
               ownerKey={snapshot.thread.id}
               contentRevision={publishedMessageSequence}
               scope="camp"
-              enabled={conversationView === 'conversation' && !conversationFind.open}
+              enabled={conversationView === 'conversation' && !conversationFind.open && !runSourceNavigation.returnPoint}
               onLatest={() => followTimelineAfterUserSend(snapshot.thread.id)}
             />
             {worldMapEnabled && (
@@ -9636,46 +9665,6 @@ function ReplyParentQuote({
       body={projectedBody}
       onReveal={onReveal}
     />
-  )
-}
-
-function MessageQuotePreview({
-  authorLabel,
-  body,
-  onReveal
-}: {
-  authorLabel: string
-  body: string
-  onReveal?(): void
-}): JSX.Element {
-  const excerpt = body.split(/\s+/u).filter(Boolean).join(' ')
-  const label = `${authorLabel} · ${excerpt}`
-  const preview = (
-    <>
-      <ReplyMark />
-      <strong>{authorLabel}</strong>
-      <span>{excerpt}</span>
-    </>
-  )
-  if (!onReveal) {
-    return (
-      <span className="reply-parent-quote is-static" title={label}>
-        {preview}
-      </span>
-    )
-  }
-  return (
-    <button className="reply-parent-quote" type="button" title={label} onClick={onReveal}>
-      {preview}
-    </button>
-  )
-}
-
-function ReplyMark(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M6.3 4.1 2.7 7.3l3.6 3.2M3 7.3h5.4c2.7 0 4.2 1.2 4.6 3.6" />
-    </svg>
   )
 }
 

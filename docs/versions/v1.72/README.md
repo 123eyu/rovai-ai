@@ -270,8 +270,11 @@ Memory 入口改用完整 CLI 和按需读取教学。Charter revision 22 保持
 独立执行行补齐头像／姓名卡片入口与可点击模型摘要，复用消息交互。Run 与公开消息共用冻结模型、
 强度投影，不使用队员当前配置替代运行记录；同 Run 连续回复仍省略重复身份。
 同日修正：新执行初始位置使用已冻结的启动公开消息边界；任何执行行都不拆开回复与附属产物组。
-当前边界见 [Run Process Detail Surface v54](../../contracts/run-process-detail-surface-v54.md)，验证与交付见
-[实施记录](implementation-plan.md#会话内队员占位)及[启动状态修正](implementation-plan.md#执行行误回到启动状态2026-10-13)。
+2026-10-18 增补：执行行使用 Run 输入 ID 显示原消息引用与批量来源，支持按需定位较早输入和返回执行位置。
+复用现有引用及 Footer／动作样式，保持草稿、精确 Run 控制和迟到读取隔离；不新增 Core 数据或后台读取。
+当前边界见 [Run Process Detail Surface v55](../../contracts/run-process-detail-surface-v55.md)，验证与交付见
+[实施记录](implementation-plan.md#会话内队员占位)、[启动状态修正](implementation-plan.md#执行行误回到启动状态2026-10-13)
+及[原消息引用](implementation-plan.md#执行行原消息引用2026-10-18)。
 
 ## Windows Web 凭据可用性（2026-10-11）
 

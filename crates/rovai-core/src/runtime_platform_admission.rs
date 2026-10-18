@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:84f3def0bf6ef3625c4e406a6b3f98b0de09fa6e94df02e464e8eb7bc4da8a76";
+    "sha256:1bed4c5cb655096774f6c0b8170dae95108b03ee95218e7f85ca42fa19e7a15c";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -30,6 +30,9 @@ pub const PI_MACOS_X64_EVIDENCE_REVISION: &str =
     "sha256:5dc85386653d2170979d34b6c32bd3df72707b63deff394174775dd2eca64301";
 pub const PI_WINDOWS_X64_EVIDENCE_REVISION: &str =
     "sha256:2dec32c61673793e06c80e9c55fb9631473a418cb773b309f9e075216b3362b8";
+
+pub const MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION: &str =
+    "sha256:906e763f1cace769603565a07a2cef020b3d47a36030312997eec9be7947a703";
 
 pub const DSH_MACOS_ARM64_EVIDENCE_REVISION: &str =
     "sha256:017f63a62ceb33a8c03e881e9ace29b9710cb94006f87a2def529c6a31276394";
@@ -195,6 +198,13 @@ mod tests {
     #[test]
     fn platform_evidence_revisions_bind_their_frozen_source_bytes() {
         for (revision, bytes) in [
+            (
+                MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION,
+                include_bytes!(
+                    "../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json"
+                )
+                .as_slice(),
+            ),
             (
                 DSH_MACOS_ARM64_EVIDENCE_REVISION,
                 include_bytes!(
@@ -478,13 +488,33 @@ mod tests {
             let mini = registry.platform_admission(AdapterKind::MinimaxCodeCli, platform);
             assert_eq!(
                 mini.status(),
-                if platform == HostPlatformKey::MacosArm64 {
-                    RuntimePlatformAdmissionStatus::Preview
-                } else {
-                    RuntimePlatformAdmissionStatus::NotQualified
+                match platform {
+                    HostPlatformKey::MacosArm64 => RuntimePlatformAdmissionStatus::Preview,
+                    HostPlatformKey::MacosX64 => RuntimePlatformAdmissionStatus::Qualified,
+                    HostPlatformKey::WindowsX64 | HostPlatformKey::LinuxX64 => {
+                        RuntimePlatformAdmissionStatus::NotQualified
+                    }
                 }
             );
-            assert!(mini.evidence_revision().is_none());
+            assert_eq!(
+                mini.evidence_revision(),
+                (platform == HostPlatformKey::MacosX64)
+                    .then_some(MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION)
+            );
+            assert_eq!(
+                mini.reason_code(),
+                (platform != HostPlatformKey::MacosX64)
+                    .then_some(RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing)
+            );
+            let admitted = matches!(
+                platform,
+                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64
+            );
+            assert_eq!(mini.allows_runtime_use(), admitted);
+            assert_eq!(
+                mini.blocker_code(),
+                (!admitted).then_some("runtime_platform_not_qualified")
+            );
         }
         for runtime_kind in AdapterKind::ALL.into_iter().filter(|kind| {
             !matches!(

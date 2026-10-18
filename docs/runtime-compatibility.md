@@ -1,10 +1,19 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-18 MiniMax Code macOS Intel 验收确认
+
+User seq43 明确要求「macOS intel也标记验收通过」。`minimax-code-cli × macos-x64` 据此提升为
+Qualified，绑定[独立维护者确认记录](../qualification/runtime-platform/macos-x64-minimax-code-v1.json)
+的 SHA-256；检查、成员选择与执行进入普通准入路径。本次变更未重跑 Intel 真机模型会话，确认没有
+提供目标 OS build、CLI 版本或逐项原始日志，不能将既有 arm64 的 0.6.12 结果写成 Intel 实测。
+macOS arm64 保持 Preview，Windows x64 和 Linux x64 仍未准入。问卷取消、部分 Usage、模型可选参数
+探测等既有能力边界不因本次平台确认改变。以下日期段保留当时验收范围。
 
 ## 2026-10-17 MiniMax 批复修复：保持 Preview
 

@@ -2,7 +2,7 @@
 document_type: research-report
 authority: observed-minimax-code-runtime-integration
 status: in_progress
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # MiniMax Code ACP 接入与对照
@@ -15,6 +15,13 @@ User seq8 后的[全部 19 Runtime 完整对照](full-parity-2026-10-16.md)补�
 Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。原生文件补验发现并修复预览误当完整状态、
 相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
 下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
+
+## 2026-10-18 macOS Intel 平台验收确认
+
+User seq43 确认将 macOS Intel 标记验收通过，Core 的 `minimax-code-cli × macos-x64` 为 Qualified。
+[独立记录](../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)绑定确认消息与摘要；
+本次没有重跑 Intel 模型会话，也未取得其 CLI 版本或逐项日志。macOS arm64 仍为 Preview，
+Windows/Linux 仍为 NotQualified。以下历史批次和能力矩阵继续按各自实际测试平台、版本及范围读取。
 
 ## 2026-10-17 问卷取消的产品修复
 

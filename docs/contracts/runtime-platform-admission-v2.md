@@ -4,7 +4,7 @@ name: Runtime Platform Admission
 version: v2
 status: accepted
 source_version: v1.39
-last_updated: 2026-09-17
+last_updated: 2026-10-18
 ---
 
 # Runtime Platform Admission v2
@@ -88,6 +88,16 @@ artifact and admission decision.
 The v1 byte-preserving rule remains for denied rows. `preview` configurations are mutable and executable like admitted rows, but
 their runtime/model/permission values still pass the same Adapter schema, Installation and Dispatch validation as qualified rows.
 No fallback Runtime or synthetic default may be created after failure.
+
+## 6. MiniMax Code macOS Intel qualification
+
+2026-10-18，User seq43 确认将 MiniMax Code 的 macOS Intel 标记验收通过。
+`minimax-code-cli × macos-x64` 因此为 `qualified / reasonCode=null`，绑定独立的
+[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)及其 SHA-256 revision，
+允许普通 discovery、检查、成员选择和执行。记录保留确认来源，不推断目标主机的 CLI 版本、OS build
+或逐项测试结果；本次没有重跑 Intel 模型会话。普通机器与执行检查继续沿用现有语义。
+macOS arm64 保持 Preview，Windows x64 与 Linux x64 保持 NotQualified；能力差异仍由
+[MiniMax 接入记录](../research/minimax-code-runtime/README.md)和兼容性清单分别记录。
 
 ## References
 

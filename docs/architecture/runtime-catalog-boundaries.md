@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # Runtime Catalog Boundaries
@@ -745,9 +745,12 @@ output 与 reasoning。缺失字段与 cost 保持 unknown，不从占用或模�
 `minimax-code-cli` 对应独立的 `@minimax-ai/code` / `mcode acp`。沿用共享 ACP Host、Fleet、
 精确 Session continuation、Run 冻结、审批、Action、Usage 和 Built-in CLI，不新增进程池或上下文副本。
 Migration 205 将 schema 154 升为 155，只扩展 Runtime 与 Skill group `minimax` 的闭合集合。
-macOS arm64 开放 Preview，保留 `qualification_evidence_missing` 和空 evidence revision；其余平台
-保持 NotQualified。实现和实测边界见[接入对照](../research/minimax-code-runtime/README.md)，
-取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。这不是 First-Class 资格声明。
+macOS arm64 开放 Preview，保留 `qualification_evidence_missing` 和空 evidence revision。
+macOS x64 按 2026-10-18 User seq43 的验收确认标记 Qualified，绑定独立的
+[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)摘要；Windows x64
+和 Linux x64 保持 NotQualified。该确认不增加未记录的目标机测试结果或改变各能力轴的实测范围。
+实现和实测边界见[接入对照](../research/minimax-code-runtime/README.md)，
+初始 Preview 取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。
 
 完整 Bootstrap 通过私有 `--append-system-prompt-file` 追加到原生 System。文件由 Host 持有，
 相同内容继续复用；内容真实变化时替换 Host，并恢复同一 Native Session。Bootstrap digest 只参与
@@ -773,7 +776,7 @@ Write 的 Boolean `created` 与 Write/Edit 的结果 `details.patch`；编号/�
 原生错误与取消仍先按各自终态处理。正常 `end_turn` 下公开失败为
 `runtime_questionnaire_unsupported`，说明问卷不受支持、未提交答案并引导 User 发新消息继续。
 已发消息保留，问卷 Run 不自动重放；后继沿既有 Session/Fleet 路径运行，不额外换 Host。
-这不等于隐藏工具或自动转为 Thread 提问，不修改日常原生配置，Preview 资格边界保持。
+这不等于隐藏工具或自动转为 Thread 提问，不修改日常原生配置，各平台准入分别按上文记录。
 
 运行中输入使用 `mcode/session/steer(text, clientRequestId)`，只在冻结版本已验证且当前 Prompt
 已接受时发送。原生 `steered` ACK 与活跃 Run/epoch 共同确认；歧义结果保持 unknown，不自动重发。

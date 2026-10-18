@@ -49,16 +49,23 @@ pub(crate) enum NativeUsageReader {
 }
 
 impl NativeUsageReader {
-    pub(crate) fn minimax_tail(&self, message_ids: BTreeSet<String>) -> Option<Self> {
+    pub(crate) fn minimax_tail(
+        &self,
+        message_ids: BTreeSet<String>,
+        tool_call_ids: BTreeSet<String>,
+    ) -> Option<Self> {
         let Self::Jsonl(reader) = self else {
             return None;
         };
-        if !matches!(reader.dialect, Dialect::Minimax) || reader.disabled || message_ids.is_empty()
+        if !matches!(reader.dialect, Dialect::Minimax)
+            || reader.disabled
+            || (message_ids.is_empty() && tool_call_ids.is_empty())
         {
             return None;
         }
         let mut reader = reader.clone();
         reader.minimax_messages = Some(message_ids);
+        reader.minimax_tool_calls = tool_call_ids;
         reader.minimax_tail_offset = Some(reader.offset);
         Some(Self::Jsonl(reader))
     }
@@ -116,10 +123,11 @@ pub(crate) struct NativeJsonlUsageReader {
     seen: BTreeSet<String>,
     disabled: bool,
     context_model: Option<NativeContextModel>,
-    // A terminal reader may only collect message identities observed on this
-    // exact ACP prompt. Later Session turns cannot enter this snapshot.
+    // A terminal reader admits only message or tool-call identities observed on
+    // this exact ACP prompt. Tool-only assistant messages have no display ID.
     minimax_messages: Option<BTreeSet<String>>,
     minimax_canonical_messages: BTreeMap<String, String>,
+    minimax_tool_calls: BTreeSet<String>,
     minimax_tail_offset: Option<u64>,
 }
 
@@ -233,6 +241,7 @@ impl NativeJsonlUsageReader {
             context_model: None,
             minimax_messages: None,
             minimax_canonical_messages: BTreeMap::new(),
+            minimax_tool_calls: BTreeSet::new(),
             minimax_tail_offset: None,
         };
         if let Some(mut file) = reader.open()? {
@@ -415,7 +424,16 @@ impl NativeJsonlUsageReader {
                         && !self
                             .minimax_canonical_messages
                             .get(&record.message_id)
-                            .is_some_and(|turn_id| record.turn_id.as_ref() == Some(turn_id))
+                            .map_or_else(
+                                || {
+                                    record.turn_id.as_deref().is_some_and(safe_identity)
+                                        && !record
+                                            .message
+                                            .tool_call_ids
+                                            .is_disjoint(&self.minimax_tool_calls)
+                                },
+                                |turn_id| record.turn_id.as_ref() == Some(turn_id),
+                            )
                     {
                         continue;
                     }
@@ -592,6 +610,41 @@ struct MinimaxMessage {
     stop_reason: Option<String>,
     usage: Option<MinimaxUsage>,
     timestamp: Option<i64>,
+    #[serde(
+        default,
+        rename = "content",
+        deserialize_with = "minimax_content_tool_ids"
+    )]
+    tool_call_ids: BTreeSet<String>,
+}
+
+fn minimax_content_tool_ids<'de, D>(
+    deserializer: D,
+) -> std::result::Result<BTreeSet<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct Part {
+        #[serde(rename = "type")]
+        kind: Option<String>,
+        id: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Content {
+        Parts(Vec<Part>),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Content::deserialize(deserializer)? {
+        Content::Parts(parts) => parts
+            .into_iter()
+            .filter(|part| part.kind.as_deref() == Some("toolCall"))
+            .filter_map(|part| part.id.filter(|id| !id.is_empty() && id.len() <= 256))
+            .take(MAX_IDENTITIES)
+            .collect(),
+        Content::Other(_) => BTreeSet::new(),
+    })
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1570,6 +1623,24 @@ mod tests {
                 .unwrap()
                 .contains("PRIVATE_MINIMAX_CANARY")
         );
+        let mut tool_only = frame.clone();
+        tool_only["message"]["content"] = json!([
+            {"type":"toolCall","id":"call-1|provider-id","arguments":{"secret":"PRIVATE_TOOL_ARGUMENT"}},
+            {"type":"thinking","id":"not-a-tool","text":"PRIVATE_REASONING"}
+        ]);
+        assert_eq!(
+            minimax_record(tool_only.to_string().as_bytes())
+                .unwrap()
+                .message
+                .tool_call_ids,
+            ["call-1|provider-id".to_string()].into()
+        );
+        let usage = parse_minimax(tool_only.to_string().as_bytes(), "root-1").unwrap();
+        assert!(
+            !serde_json::to_string(&usage.usage)
+                .unwrap()
+                .contains("PRIVATE_")
+        );
         for patch in [
             json!({"role":"user"}),
             json!({"stopReason":"error"}),
@@ -2161,7 +2232,11 @@ mod tests {
             drop(file);
             assert!(terminal.poll().is_empty());
             if matches!(dialect, Dialect::Minimax) {
-                assert!(terminal.minimax_tail(BTreeSet::new()).is_none());
+                assert!(
+                    terminal
+                        .minimax_tail(BTreeSet::new(), BTreeSet::new())
+                        .is_none()
+                );
                 let c = rusqlite::Connection::open(root.join("v2/sqlite/runtime-state.sqlite"))
                     .unwrap();
                 c.execute_batch("CREATE TABLE local_runtime_message_rows(session_id TEXT,msg_id TEXT,role TEXT,turn_id TEXT,data_json TEXT);
@@ -2177,6 +2252,7 @@ mod tests {
                             "display-wrong-turn".into(),
                         ]
                         .into(),
+                        ["active-tool|provider-id".into()].into(),
                     )
                     .unwrap();
                 let mut file = OpenOptions::new().append(true).open(&path).unwrap();
@@ -2208,6 +2284,41 @@ mod tests {
                     "minimax-native:session-1:owned-tail"
                 );
                 assert!(tail.poll().is_empty(), "terminal retry cannot double count");
+                let mut tool_only = make("owned-tool-only");
+                tool_only["turn_id"] = json!("active-tool-turn");
+                tool_only["message"]["content"] = json!([{
+                    "type":"toolCall", "id":"active-tool|provider-id", "name":"bash",
+                    "arguments":{"command":"PRIVATE_ARGUMENT_MUST_NOT_ENTER_USAGE"}
+                }]);
+                let mut another_tool = tool_only.clone();
+                another_tool["message_id"] = json!("unobserved-tool");
+                another_tool["message"]["content"][0]["id"] = json!("another-prompt-tool");
+                let mut wrong_type = tool_only.clone();
+                wrong_type["message_id"] = json!("unknown-content-type");
+                wrong_type["message"]["content"][0]["type"] = json!("thinking");
+                let mut conflicting = tool_only.clone();
+                conflicting["message_id"] = json!("wrong-turn");
+                write!(
+                    file,
+                    "{tool_only}\n{another_tool}\n{wrong_type}\n{conflicting}\n"
+                )
+                .unwrap();
+                file.flush().unwrap();
+                let observed = tail.poll();
+                assert_eq!(
+                    observed.len(),
+                    1,
+                    "only the frozen native tool-call ID admits a tool-only assistant"
+                );
+                assert_eq!(
+                    observed[0].source_identity,
+                    "minimax-native:session-1:owned-tool-only"
+                );
+                assert_eq!(observed[0].usage.fields.output_tokens, Some(5));
+                assert!(
+                    tail.poll().is_empty(),
+                    "re-reading the tool-only tail cannot double count"
+                );
                 drop(file);
                 assert!(minimax_session_path(&root, "/another", "session-1").is_err());
                 assert!(minimax_session_path(&root, "/workspace", "other-session").is_err());

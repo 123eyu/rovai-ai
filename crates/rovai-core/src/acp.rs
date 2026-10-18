@@ -681,6 +681,7 @@ struct AcpPromptObservation {
     observed_tools: HashMap<String, ObservedToolMetadata>,
     unsupported_interaction: bool,
     native_usage_message_ids: BTreeSet<String>,
+    native_usage_tool_call_ids: BTreeSet<String>,
     images: AcpImageAccumulator,
 }
 
@@ -693,6 +694,7 @@ impl AcpPromptObservation {
             observed_tools: HashMap::new(),
             unsupported_interaction: false,
             native_usage_message_ids: BTreeSet::new(),
+            native_usage_tool_call_ids: BTreeSet::new(),
             images: AcpImageAccumulator::default(),
         }
     }
@@ -6035,6 +6037,17 @@ impl AcpRuntime {
         }
         if self.host.adapter_kind == AdapterKind::MinimaxCodeCli
             && matches!(session_update, Some("tool_call" | "tool_call_update"))
+            && let Some(id) = update.get("toolCallId").and_then(Value::as_str)
+            && !id.is_empty()
+            && id.len() <= 256
+            && observation.native_usage_tool_call_ids.len() < 8192
+        {
+            observation
+                .native_usage_tool_call_ids
+                .insert(id.to_string());
+        }
+        if self.host.adapter_kind == AdapterKind::MinimaxCodeCli
+            && matches!(session_update, Some("tool_call" | "tool_call_update"))
             && matches!(
                 update.get("name").and_then(Value::as_str),
                 Some("ask_user" | "request_feature_enable")
@@ -6298,17 +6311,19 @@ impl AcpRuntime {
         if self.adapter_kind() != AdapterKind::MinimaxCodeCli {
             return None;
         }
-        let ids = self
-            .active_observation
-            .lock()
-            .await
-            .as_ref()
-            .filter(|observation| observation.prompt_id == prompt_id)?
-            .native_usage_message_ids
-            .clone();
+        let (ids, tool_call_ids) = {
+            let observation = self.active_observation.lock().await;
+            let observation = observation
+                .as_ref()
+                .filter(|observation| observation.prompt_id == prompt_id)?;
+            (
+                observation.native_usage_message_ids.clone(),
+                observation.native_usage_tool_call_ids.clone(),
+            )
+        };
         let reader = self.native_usage.lock().await.clone()?;
         // Never wait for an active disk read or baseline on the terminal route.
-        reader.try_lock().ok()?.minimax_tail(ids)
+        reader.try_lock().ok()?.minimax_tail(ids, tool_call_ids)
     }
 
     pub(crate) async fn poll_native_usage(&self) -> Vec<NativeUsageObservation> {

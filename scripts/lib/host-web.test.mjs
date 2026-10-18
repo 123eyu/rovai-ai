@@ -278,7 +278,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       const response = await authorized(first, 'request', { method: 'POST', body: JSON.stringify({ operation, params: { threadId, agentRunId: 'missing-run', ...cursor, limit: 12 } }) })
       assert.equal(response.status, 200)
       const reply = await response.json()
-      assert.match(reply.error?.message ?? '', /AgentRun does not exist in this Camp/)
+      assert.match(reply.error?.message ?? '', /AgentRun does not exist in this Thread/)
     }
     for (const operation of ['threads.create', 'camps.create']) {
       assert.deepEqual((await call(first, 'commands.reconcile', { operation, params: createParams })).result, created)

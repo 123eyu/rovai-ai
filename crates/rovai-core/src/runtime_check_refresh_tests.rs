@@ -39,6 +39,15 @@ impl Fixture {
         let paths = Arc::new(StdMutex::new(Vec::new()));
         let captures = Arc::new(AtomicUsize::new(0));
         let mut core = crate::application::tests::runtime_resolution_test_core(&root).unwrap();
+        let configurations =
+            rovai_core::runtime_startup::load_all(&*core.database.try_lock().unwrap()).unwrap();
+        *core.runtime_search_environment.get_mut() = Arc::new(
+            core.runtime_search_environment
+                .get_mut()
+                .as_ref()
+                .clone()
+                .with_startup_configurations(configurations),
+        );
         core.runtime_search_capture = capture.or_else(|| {
             Some({
                 let paths = paths.clone();
@@ -212,6 +221,18 @@ async fn fresh_formal_and_draft_checks_preserve_program_selection_and_private_st
     assert_eq!(fixture.check().await, RuntimeCheckOutcome::StableFailure);
     assert_eq!(fixture.health().await["reportedVersion"], "codex-cli 1.0.0");
     *fixture.paths.lock().unwrap() = vec![new.parent().unwrap().into()];
+    assert_eq!(fixture.check().await, RuntimeCheckOutcome::StableFailure);
+    assert_eq!(fixture.health().await["reportedVersion"], "codex-cli 1.0.0");
+    assert_eq!(
+        fixture.captures.load(Ordering::SeqCst),
+        1,
+        "valid entries reuse the search environment"
+    );
+    fixture
+        .core
+        .refresh_runtime_check_environment(true)
+        .await
+        .unwrap();
     assert_eq!(fixture.check().await, RuntimeCheckOutcome::StableFailure);
     assert_eq!(fixture.health().await["reportedVersion"], "codex-cli 2.0.0");
     assert_ne!(
@@ -443,6 +464,97 @@ async fn fresh_formal_and_draft_checks_preserve_program_selection_and_private_st
 
 // Controlled child/file barriers own the interleaving, not scheduler timing.
 #[tokio::test]
+async fn independent_diagnostics_reuse_environment_and_same_target_check() {
+    let fixture = Fixture::new();
+    let first_program = fixture.program("first", "1.0.0", true);
+    let second_program = fixture.program("second", "2.0.0", false);
+    fixture.save(0, &configuration(Some(&first_program))).await;
+    fixture
+        .core
+        .handle_runtime_startup(
+            "runtime.startup.save",
+            json!({
+                "runtimeKind": "qwen-code", "expectedRevision": 0,
+                "configuration": configuration(Some(&second_program)),
+            }),
+        )
+        .await
+        .unwrap();
+    let generation = fixture
+        .core
+        .runtime_search_environment
+        .read()
+        .await
+        .generation();
+    let first = tokio::spawn(check(fixture.core.clone()));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !fixture.root.join("probe-started").exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let duplicate = tokio::spawn(check(fixture.core.clone()));
+    let second = tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.core.await_runtime_check(
+            AdapterKind::QwenCode,
+            RuntimeLaunchPurpose::AvailabilityCheck,
+            RuntimeCheckTrigger::UserCheck,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(second, RuntimeCheckOutcome::StableFailure);
+    assert!(
+        !first.is_finished(),
+        "B must complete while A is still running"
+    );
+    assert!(
+        !duplicate.is_finished(),
+        "same-target requests must await the active diagnostic"
+    );
+    // Even an explicit rescan with the same effective inputs must leave A valid.
+    fixture
+        .core
+        .refresh_runtime_check_environment(true)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .core
+            .runtime_search_environment
+            .read()
+            .await
+            .generation(),
+        generation
+    );
+    assert_eq!(
+        fixture.captures.load(Ordering::SeqCst),
+        1,
+        "only the explicit rescan captures the shell"
+    );
+    std::fs::write(fixture.root.join("probe-release"), b"release").unwrap();
+    assert_eq!(first.await.unwrap(), RuntimeCheckOutcome::StableFailure);
+    assert_eq!(duplicate.await.unwrap(), RuntimeCheckOutcome::StableFailure);
+    let health = fixture.public_state().await;
+    for kind in ["codex-cli", "qwen-code"] {
+        let row = health["runtimeAvailability"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["runtimeKind"] == kind)
+            .unwrap();
+        assert_ne!(row["status"], "checking");
+        assert_eq!(row["discovery"]["discoveryStatus"], "found");
+        assert!(row["diagnosticCode"].is_string());
+    }
+    fixture.close().await;
+}
+
+// Controlled child/file barriers own the interleaving, not scheduler timing.
+#[tokio::test]
 async fn saved_configuration_and_new_check_cannot_join_or_be_overwritten_by_old_probe() {
     for save_configuration in [false, true] {
         let fixture = Fixture::new();
@@ -461,15 +573,17 @@ async fn saved_configuration_and_new_check_cannot_join_or_be_overwritten_by_old_
             fixture.save(0, &configuration(Some(&new))).await;
         } else {
             *fixture.paths.lock().unwrap() = vec![new.parent().unwrap().into()];
+            fixture
+                .core
+                .refresh_runtime_check_environment(true)
+                .await
+                .unwrap();
         }
         let second = tokio::spawn(check(fixture.core.clone()));
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while fixture.captures.load(Ordering::SeqCst) < 2 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        assert_eq!(
+            fixture.captures.load(Ordering::SeqCst),
+            if save_configuration { 1 } else { 2 }
+        );
         assert!(
             !first.is_finished(),
             "save/refresh must not stop the existing probe"
@@ -603,7 +717,11 @@ async fn local_saves_finish_while_environment_capture_is_held_and_never_launch_w
         .generation();
     release.send(()).unwrap();
     let published = refresh.await.unwrap().unwrap();
-    assert!(published.generation() > generation);
+    assert_eq!(
+        published.generation(),
+        generation,
+        "unchanged inputs must not invalidate other checks"
+    );
     for kind in [AdapterKind::ClaudeCodeCli, AdapterKind::CodexCli] {
         assert_eq!(
             published

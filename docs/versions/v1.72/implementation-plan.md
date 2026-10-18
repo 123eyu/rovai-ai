@@ -2808,3 +2808,19 @@ Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer �
 验证结果以 [JSON 索引](steer-verification.json) 为准。完整 12 Case 语义 Gate 缺固定 Judge 未运行，
 保留证据不足。扩展套件中的 macOS provenance / IdentityChanged 失败在实施前 HEAD 的独立源码归档
 中复现，没有修改或跳过该安全检查；不能将整套扩展测试写为全绿。
+
+
+## 智能体检测简化（2026-10-18）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-simplify-runtime-detection`；分支 `rovai/simplify-runtime-detection`；base `92736d707c9162133a93b7720ae826e7dad90e8a`。原 checkout 保持 `main`；分支未合并，worktree 保留。
+- 生产范围：复用已有文件身份/指纹、Installation version 条件提交、Check Manager、Runtime 聚合；以薄只读 `runtime.status.get` 转发现有聚合（同步 Desktop/Web 既有白名单），删除普通发现的二次哈希、静态版本整文件读取、重复 Shell 捕获及检测后的 Overview/Git 等待。没有新表、迁移、服务、第二套代次或用户配置。
+- 新增 Rust owner `independent_diagnostics_reuse_environment_and_same_target_check` 覆盖 A 诊断未结束时 B 诊断及相同目标合并。旧实现的 B 会刷新全局代次使 A 失效；既有 owner 只覆盖真实配置/PATH 变化，不能证明不变环境的并发行为。复用同一隔离数据库/程序夹具；必须经过真实 Check Manager 才能验证合并和公开终态。最小命令：`cargo test -p rovai-core --lib --features slow-tests independent_diagnostics_reuse_environment_and_same_target_check`。
+- 原计数 owner 扩展静态首次、未变、升级；原提交 owner 扩展同 generation 迟到结果；原程序替换和配置变更 owner 保留。没有新性能测试平台。
+- 计数验收（macOS 隔离可执行程序夹具）：原生安装首次/升级完整哈希各 **1 次**、未变刷新 **0 次**；三种静态发现均 **0 个智能体子进程**。计数扩展现有 owner，测试计数器不进入生产构建。Windows shim 与 bundle 继续沿用依赖规则，本轮没有 Windows 真机计数。
+- 竞态验收：A/B 同时诊断及同目标请求合并；不变搜索输入不推进代次；真实配置/PATH 变化拒收旧结果；同 generation 下迟到发现不覆盖新安装；诊断期间替换程序后只发布新指纹结果；初次刷新及补刷期间的新事件最终都能读到终态，均通过。
+- 正常配置回归：既有 \`discovered_entry_configures_and_freezes_without_health_evidence\` 通过，覆盖无健康证据、未知版本、过期/失败诊断后的配置冻结与文件身份边界。Host 初始化、模型/权限和输入防重发未改动。
+- 前端：定向 193 项通过；完整 Vitest **247 文件、2744 项通过**（\`pnpm exec vitest run --maxWorkers=2\`）；\`pnpm test\` 的其余 Node 段 **376 通过、2 项既有跳过**。第一次全量运行发现新文案翻译遗漏，已修复；并行负载下的 3 项 evaluation-host 超时在降低并发的完整重跑中通过。
+- 隔离 Renderer：\`ROVAI_SETTINGS_RUNTIME_DETECTION_ONLY=1 pnpm test:settings-workspace\` 通过。真实生产组件验证行级 pending、A/B 错误隔离、其他行启动设置可用、导航可用、登录诊断不先 rescan、日夜主题及无横向溢出。原完整设置夹具随后仍引用已移除的环境变量编辑控件，与本轮无关；未将其计为整套 UI 通过。Impeccable detector 无发现。
+- TypeScript、桌面构建、文档单测/治理与带 base 的治理检查通过。Rust 定向 10 项通过；默认 workspace **474 通过、1 项既有忽略**。共享 Web 白名单补齐后追加验证：Web Rust **11 项通过**、Web client **23 项通过**，Web 构建通过。
+- 仍有等待：明确重新检测时的一次 Shell 捕获、首次/升级必要文件校验、现有数据库短提交、用户主动诊断中的原生初始化/认证/模型查询及既有超时。Codex 双 app-server 未合并；诊断不是静态发现，替换程序的两种诊断夹具各实测 **3 个智能体子进程**（含两次版本命令），单独记录，不混入静态发现的 0 次计数。未对真实日常安装做前后端到端计时，不将夹具时长（发现日志 2–4 ms）宣传为用户提速比例。
+- 九范围核对：保持 v1.72 lifecycle；无新增 Version Decision；Architecture、Contract、UI 和 surface brief 同步；Runtime Activity、模型上下文、兼容性资格、Root README 不变；文档入口沿用现有路由。

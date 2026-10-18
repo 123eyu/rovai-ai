@@ -1098,6 +1098,59 @@ impl VerifiedDiscoveredRuntimeEntry {
     pub fn executable_file_identity(&self) -> &ExecutableFileIdentity {
         &self.identity
     }
+
+    pub fn entry(&self) -> &DiscoveredRuntimeEntry {
+        &self.entry
+    }
+
+    /// Static discovery performs one stable read, or reuses the identity already
+    /// persisted for this exact path. No health evidence is produced.
+    pub fn discover(
+        adapter_kind: AdapterKind,
+        executable_path: String,
+        source: InstallationSource,
+        entrypoint_locator_identity: Option<RuntimeEntrypointLocatorIdentity>,
+        previous: Option<(&str, &ExecutableFileIdentity)>,
+    ) -> Result<Self> {
+        use crate::agent_runtime_adapter::{
+            executable_fingerprint, observe_executable_file_identity,
+        };
+        let path = Path::new(&executable_path);
+        let before = observe_executable_file_identity(path)?;
+        // Windows command shims retain their full dependency verification.
+        let reusable = !path.extension().is_some_and(|extension| {
+            cfg!(windows)
+                && matches!(
+                    extension.to_str().map(str::to_ascii_lowercase).as_deref(),
+                    Some("cmd" | "bat")
+                )
+        });
+        let fingerprint = match previous.filter(|(_, identity)| reusable && *identity == &before) {
+            Some((fingerprint, _)) => fingerprint.to_owned(),
+            None => executable_fingerprint(path)?,
+        };
+        let after = observe_executable_file_identity(path)?;
+        anyhow::ensure!(
+            before == after,
+            "Runtime entry changed during installation discovery"
+        );
+        anyhow::ensure!(
+            crate::runtime_discovery::entrypoint_locator_identity_is_current(
+                entrypoint_locator_identity.as_ref()
+            ),
+            "Runtime entrypoint locator changed during installation discovery"
+        );
+        Ok(Self {
+            entry: DiscoveredRuntimeEntry {
+                adapter_kind,
+                executable_path,
+                source,
+                executable_fingerprint: fingerprint,
+                entrypoint_locator_identity,
+            },
+            identity: after,
+        })
+    }
 }
 
 impl DiscoveredRuntimeEntry {
@@ -1432,7 +1485,7 @@ impl AgentProfileService {
         Ok(database.connection_mut().execute(
             r#"
             UPDATE adapter_installation
-            SET path_state = 'path_missing', updated_at = ?6
+            SET path_state = 'path_missing', version = version + 1, updated_at = ?6
             WHERE id = ?1
               AND adapter_kind = ?2
               AND auth_scope = ?3
@@ -1463,34 +1516,48 @@ impl AgentProfileService {
         executable_path: &str,
         executable_fingerprint: &str,
     ) -> Result<Option<ExecutableFileIdentity>> {
+        Ok(self
+            .recorded_executable_identity(database, installation_id, executable_path)?
+            .filter(|(fingerprint, _)| fingerprint == executable_fingerprint)
+            .map(|(_, identity)| identity))
+    }
+
+    pub fn recorded_executable_identity(
+        &self,
+        database: &Database,
+        installation_id: &str,
+        executable_path: &str,
+    ) -> Result<Option<(String, ExecutableFileIdentity)>> {
         database
             .connection()
             .query_row(
                 r#"
                 SELECT identity.byte_size, identity.modified_at_unix_nanos,
-                       identity.file_id
+                       identity.file_id, identity.executable_fingerprint
                 FROM runtime_executable_identity AS identity
                 JOIN adapter_installation AS installation
                   ON installation.id = identity.installation_id
                 WHERE identity.installation_id = ?1
                   AND identity.executable_path = ?2
-                  AND identity.executable_fingerprint = ?3
                   AND installation.executable_path = ?2
                 "#,
-                params![installation_id, executable_path, executable_fingerprint],
+                params![installation_id, executable_path],
                 |row| {
                     let byte_size = row.get::<_, i64>(0)?;
-                    Ok(ExecutableFileIdentity {
-                        byte_size: u64::try_from(byte_size).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                0,
-                                rusqlite::types::Type::Integer,
-                                Box::new(error),
-                            )
-                        })?,
-                        modified_at_unix_nanos: row.get(1)?,
-                        file_id: row.get(2)?,
-                    })
+                    Ok((
+                        row.get(3)?,
+                        ExecutableFileIdentity {
+                            byte_size: u64::try_from(byte_size).map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    0,
+                                    rusqlite::types::Type::Integer,
+                                    Box::new(error),
+                                )
+                            })?,
+                            modified_at_unix_nanos: row.get(1)?,
+                            file_id: row.get(2)?,
+                        },
+                    ))
                 },
             )
             .optional()
@@ -2127,7 +2194,9 @@ impl AgentProfileService {
                         .map(|value| value.compatibility_fingerprint.as_str());
             transaction.execute(
                 "UPDATE adapter_installation SET executable_path = ?2, path_state = 'valid',
-                    generation = generation + ?3, version = version + ?3, updated_at = ?4 WHERE id = ?1",
+                    generation = generation + ?3,
+                    version = version + CASE WHEN path_state <> 'valid' OR ?3 = 1 THEN 1 ELSE 0 END,
+                    updated_at = ?4 WHERE id = ?1",
                 params![id, entry.executable_path, i64::from(changed), now],
             )?;
             if changed {

@@ -3914,5 +3914,12 @@
   "未能保存，请重试。": "Could not save. Please retry.",
   "无法读取会话任务设置，请重试。": "Could not load conversation task settings. Please retry.",
   "正在查看的会话保持安静；重新开启提醒时不补弹旧消息。": "The conversation you are viewing stays quiet. Turning reminders back on does not replay old alerts.",
-  "快捷键更新未保存，请重试。": "Shortcut updates were not saved. Please retry."
+  "快捷键更新未保存，请重试。": "Shortcut updates were not saved. Please retry.",
+  "诊断未完成，程序或启动设置已变化，请重试。": "Diagnosis incomplete: the program or startup settings changed. Please retry.",
+  "本次诊断未通过，请查看具体原因。": "Diagnosis failed. Review the details.",
+  "已安装": "Installed",
+  "正在诊断…": "Diagnosing…",
+  "诊断": "Diagnose",
+  "不可诊断": "Diagnosis unavailable",
+  "我已登录，诊断": "I'm logged in, diagnose"
 }

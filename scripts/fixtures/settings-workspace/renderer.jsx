@@ -42,6 +42,7 @@ function aboutSnapshot() {
 const channelListeners = new Set(), webListeners = new Set()
 let pendingChannelAction = null
 let pendingStartupInspection = null
+const pendingRuntimeChecks = new Map()
 const emitChannels = () => channelListeners.forEach(fn => fn(clone(state.channels)))
 async function channelAction(action, kind) {
   await request(`channels.${action}`, { kind })
@@ -145,7 +146,12 @@ Object.assign(window, { rovai: {
         executablePath: params.configuration.programPath ?? '/sample/bin/codex', reportedVersion: state.previewVersion ?? '0.153.4'
       }
     }
-    if (method === 'runtime.product.check') return { ready: false, outcome: state.checkOutcome ?? 'stable_failure' }
+    if (method === 'runtime.product.check') {
+      if (state.holdRuntimeChecks) return new Promise((resolve, reject) => {
+        pendingRuntimeChecks.set(params.runtimeKind, { resolve, reject })
+      })
+      return { ready: false, outcome: state.checkOutcome ?? 'stable_failure' }
+    }
     if (method === 'notifications.preference.get') return clone(state.notifications)
     if (method === 'notifications.preference.update') {
       state.notifications = { ...state.notifications, ...params.command, version: state.notifications.version + 1 }
@@ -226,6 +232,12 @@ window.settingsTest = {
   },
   fail: method => { state.failure = method },
   finishStartupInspection: result => { pendingStartupInspection(result); pendingStartupInspection = null },
+  finishRuntimeCheck: (kind, error) => {
+    const pending = pendingRuntimeChecks.get(kind)
+    pendingRuntimeChecks.delete(kind)
+    if (error) pending.reject(new Error(error))
+    else pending.resolve({ ready: true, outcome: 'ready' })
+  },
   settle: () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 35))))
 }
 createRoot(document.getElementById('root')).render(<Fixture />)

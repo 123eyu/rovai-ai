@@ -22,7 +22,9 @@ R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前�
 ## MiniMax Code ACP（2026-10-16）
 
 新增 `minimax-code-cli`，复用 ACP Host/Fleet、精确 Session、现有 Bootstrap、Steer、权限、
-Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview，其余平台 NotQualified；无 Fast。
+Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview；2026-10-18 按 User seq43 的
+[验收确认](../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)将 macOS Intel 提升为
+Qualified，Windows/Linux 仍为 NotQualified；无 Fast。本次平台确认未重跑 Intel 模型会话。
 Migration 205 从 schema 154 升至 **155**，保留业务行、索引、触发器和既有 migration receipts。
 当前行为由[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)拥有；
 [接入矩阵](../../research/minimax-code-runtime/README.md)分别记录脚本模型、真实模型与未验范围，

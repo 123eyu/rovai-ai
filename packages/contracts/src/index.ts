@@ -514,6 +514,8 @@ export interface ProductRuntimeAvailability {
   lastSuccessfulProbeAt?: string | null
 }
 
+export type RuntimeStatus = Pick<HealthStatus, 'hostPlatform' | 'runtimeCatalog' | 'runtimePlatformAdmission' | 'runtimeAvailability' | 'searchEnvironment'>
+
 export interface HealthStatus {
   core: {
     ok: boolean
@@ -4129,6 +4131,7 @@ export type CoreMethod =
   | 'diagnostics.check'
   | 'monitoring.snapshot'
   | 'monitoring.execution'
+  | 'runtime.status.get'
   | 'runtime.discovery.rescan'
   | 'runtime.networkRecovery.wake'
   | 'runtime.subsystems.get'

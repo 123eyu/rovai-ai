@@ -360,6 +360,12 @@ enum CodexRpcFailure {
     Transport(String),
 }
 
+// Shared by the real Host and its temporary no-input capability check.
+pub(crate) fn authentication_available_from_account(account: &Value) -> bool {
+    account.get("account").is_some_and(Value::is_object)
+        || account.get("requiresOpenaiAuth").and_then(Value::as_bool) == Some(false)
+}
+
 impl CodexHost {
     async fn spawn_uninitialized(
         codex_path: &Path,
@@ -982,8 +988,7 @@ impl CodexRuntime {
         let account = self
             .rpc("account/read", json!({"refreshToken": false}))
             .await?;
-        Ok(account.get("account").is_some_and(Value::is_object)
-            || account.get("requiresOpenaiAuth").and_then(Value::as_bool) == Some(false))
+        Ok(authentication_available_from_account(&account))
     }
 
     pub async fn validate_explicit_model(&self, model_id: &str, options: &Value) -> Result<()> {

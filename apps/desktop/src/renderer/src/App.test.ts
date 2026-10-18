@@ -8180,6 +8180,7 @@ describe('task event projections', () => {
     expect(markup.match(/class="runtime-product-logo"/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
     expect(markup.match(/class="quiet-button runtime-product-check"/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 2)
     expect(markup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 2)
+    expect(markup).not.toContain('runtime-product-check" disabled="">正在检查…')
     expect(markup).toContain('Claude Code 登录指南')
     expect(markup).toContain('Antigravity 安装指南')
     expect(markup).toContain('aria-expanded="false"')

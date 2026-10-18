@@ -9,7 +9,7 @@ const resources: FilePreviewResources[] = []
 beforeEach(() => { filePreviewSessionStore.clear(); vi.stubGlobal('document', { activeElement: null }) })
 afterEach(() => { resources.splice(0).forEach(owner => owner.dispose()); filePreviewSessionStore.clear(); vi.unstubAllGlobals() })
 
-function fixture(limits: Partial<Record<keyof typeof filePreviewRetentionLimits, number>> = {}) {
+function fixture(limits: Partial<Record<keyof typeof filePreviewRetentionLimits, number>> = {}, kind?: ResolvedFilePreview['kind']) {
   let sequence = 0
   const handles = new Map<string, ResolvedFilePreview>()
   const resolve = (request: OpenFilePreviewRequest): ResolvedFilePreview => {
@@ -19,7 +19,7 @@ function fixture(limits: Partial<Record<keyof typeof filePreviewRetentionLimits,
       handleId: id, reopenToken: id, previewKey: `${'threadId' in request ? request.threadId : ''}:${name}`,
       fileName: name, displayPath: name, pathPresentation: 'project_relative', size: 12, mime: name.endsWith('.html') ? 'text/html' : 'text/plain',
       extension: name.endsWith('.html') ? '.html' : '.txt',
-      kind: name.endsWith('.html') ? 'html' : name.endsWith('.png') ? 'image' : name.endsWith('.md') ? 'markdown' : name.endsWith('.ts') ? 'code' : 'text',
+      kind: kind ?? (name.endsWith('.html') ? 'html' : name.endsWith('.png') ? 'image' : name.endsWith('.md') ? 'markdown' : name.endsWith('.ts') ? 'code' : 'text'),
       hasExternalUpdate: false,
       contentGeneration: id, contentVersion: { size: 12, mtimeMs: sequence }, capabilities: ['read']
     }
@@ -548,6 +548,31 @@ describe('automatic file refresh', () => {
   })
 
   describe('visible content follows changes', () => {
+    it.each([false, true])('restores an unscrolled non-first page from its snapshot (preloaded: %s)', async preloaded => {
+      const { owner, api } = fixture({}, 'paged_text')
+      vi.mocked(api.resolveLine).mockImplementation(async ({ line, expectedGeneration }) => ({
+        ok: true, value: { line, offset: line * 10, contentGeneration: expectedGeneration }
+      }))
+      vi.mocked(api.readPage).mockImplementation(async ({ offset, expectedGeneration }) => ({ ok: true, value: {
+        text: 'page body', startOffset: offset, endOffset: offset + 9, startLine: offset ? offset / 10 : 1,
+        hasNext: true, hasPrevious: offset > 0, contentGeneration: expectedGeneration, contentVersion: { size: 10000, mtimeMs: 1 }
+      } }))
+      owner.activate('a'); const a = owner.session('a')
+      await a.actions.open({ kind: 'camp_workspace', threadId: 'a', rawReference: 'large.log#L850' },
+        undefined, undefined, { commitOnSuccess: preloaded })
+      await advance(0)
+      expect(active(a).content).toMatchObject({ kind: 'page', page: { startLine: 850 } })
+      expect(active(a).reading).toBeUndefined()
+      expect(active(a).file?.target).toMatchObject({ line: 850 })
+      const saved = filePreviewSessionStore.get('a')
+      owner.dispose()
+      const restored = new FilePreviewResources(api)
+      resources.push(restored)
+      restored.activate('a'); await advance(0)
+      expect(active(restored.session('a')).content).toMatchObject({ kind: 'page', page: { startLine: 850 } })
+      expect(saved?.tabs[0].reading?.visibleLine).toBe(850)
+    })
+
     it.each(['file.txt', 'note.md', 'code.ts'])('refreshes %s after 300ms without an explicit reload', async name => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a', name)
@@ -619,6 +644,23 @@ describe('automatic file refresh', () => {
   })
 
   describe('hidden files refresh when shown', () => {
+    it('refreshes the previous tab when a provisional file opens in the system', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', 'one.txt'), first = active(a)
+      const systemOpen = deferred<Awaited<ReturnType<FilePreviewApi['open']>>>()
+      vi.mocked(api.open).mockReturnValueOnce(systemOpen.promise)
+      vi.mocked(api.readText).mockResolvedValueOnce(textResult('updated after rollback'))
+      update('a', [first.previewKey!]); await advance(100)
+      const opening = a.actions.open({ kind: 'camp_workspace', threadId: 'a', rawReference: 'external.bin' })
+      await advance(0)
+      expect(active(a).id).not.toBe(first.id)
+      systemOpen.resolve({ ok: true, value: { kind: 'opened_in_system', fileName: 'external.bin' } })
+      await opening; await advance(1000)
+      expect(active(a).id).toBe(first.id)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      expect(active(a).content).toMatchObject({ text: 'updated after rollback' })
+    })
+
     it.each(['tab', 'thread', 'pane', 'open', 'close'] as const)('checks updates on the %s entry', async entry => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a', 'one.txt'), first = active(a)
@@ -688,6 +730,31 @@ describe('automatic file refresh', () => {
   })
 
   describe('bursts and in-flight changes converge', () => {
+    it('waits for the next page before automatically refreshing its new reading position', async () => {
+      const { owner, api, update } = fixture({}, 'paged_text')
+      const page = (startLine: number) => ({ ok: true as const, value: {
+        text: 'page at line ' + startLine, startOffset: startLine === 1 ? 0 : 6, endOffset: startLine === 1 ? 6 : 12,
+        startLine, hasNext: startLine === 1, hasPrevious: startLine > 1,
+        contentGeneration: 'page', contentVersion: { size: 12, mtimeMs: 1 }
+      } })
+      vi.mocked(api.readPage).mockResolvedValueOnce(page(1))
+      vi.mocked(api.resolveLine).mockResolvedValue({ ok: true, value: { offset: 6, line: 101, contentGeneration: 'new' } })
+      const a = await open(owner, 'a', 'large.log'), first = active(a)
+      const nextPage = deferred<Awaited<ReturnType<FilePreviewApi['readPage']>>>()
+      vi.mocked(api.readPage).mockReturnValueOnce(nextPage.promise).mockResolvedValue(page(101))
+      update('a', [first.previewKey!]); await advance(100)
+      const paging = a.actions.changePage(first.id, 1)
+      await advance(1000)
+      expect(api.reload).not.toHaveBeenCalled()
+      expect(active(a).requestGeneration).toBe(first.requestGeneration)
+      nextPage.resolve(page(101)); await paging
+      expect(active(a).content).toMatchObject({ kind: 'page', page: { startLine: 101 } })
+      await advance()
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      expect(api.resolveLine).toHaveBeenLastCalledWith(expect.objectContaining({ line: 101 }))
+      expect(active(a)).toMatchObject({ hasExternalUpdate: false, reading: { visibleLine: 101 }, content: { kind: 'page', page: { startLine: 101 } } })
+    })
+
     it('debounces saves and serializes manual and automatic refreshes', async () => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a'), first = active(a)

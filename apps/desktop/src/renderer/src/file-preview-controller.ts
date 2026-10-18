@@ -282,7 +282,11 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
             ? restorableFilePreviewRequest(tab.sourceRequest)
             : null,
           presentation: tab.presentation,
-          reading: tab.reading || tab.content || tab.pageOffsets.length ? { ...tab.reading, pageOffsets: tab.pageOffsets, pageIndex: tab.pageIndex, htmlSourceMode: tab.htmlSourceMode } : undefined
+          reading: tab.reading || tab.content || tab.pageOffsets.length ? {
+            ...tab.reading,
+            visibleLine: tab.reading?.visibleLine ?? (tab.content?.kind === 'page' ? tab.content.page.startLine : undefined),
+            pageOffsets: tab.pageOffsets, pageIndex: tab.pageIndex, htmlSourceMode: tab.htmlSourceMode
+          } : undefined
         }),
       activeTabId: activeTabIdRef.current,
       paneVisible: paneVisibleRef.current
@@ -667,6 +671,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
       : remaining.at(-1)?.id ?? null
     setActiveTabId(nextActiveTabId)
     if (wasVisible) setPaneVisible(rollback?.paneVisible ?? remaining.length > 0)
+    if (nextActiveTabId) ensureVisibleTab(nextActiveTabId)
   }
 
   const performOpen = async (
@@ -1150,7 +1155,8 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
   }
   const reload = async (tabId: string, visibleOnly = false): Promise<void> => {
     const tab = tabsRef.current.find(entry => entry.id === tabId)
-    if (disposed || tab?.kind !== 'file' || tab.isRefreshing || tab.loadState === 'opening') return
+    if (disposed || tab?.kind !== 'file' || tab.isRefreshing || tab.loadState === 'opening'
+      || visibleOnly && pageRequests.has(tabId)) return
     clearRefreshTimer(tabId)
     if (!tab.file && !tab.content) { await reopen(tabId); return }
     const oldFile = tab.file
@@ -1282,7 +1288,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
           pages: { ...entry.pages, [pageOffset]: result.value }
         }
       }))
-    } finally { pageRequests.delete(tabId) }
+    } finally { pageRequests.delete(tabId); scheduleRefresh(tabId) }
   }
 
   const saveReading = (tabId: string, state: Partial<FilePreviewReadingState>): void => {

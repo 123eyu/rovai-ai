@@ -13,7 +13,7 @@
 | [Codex CLI](https://github.com/openai/codex) | `codex` |
 | [Claude Code](https://code.claude.com/docs/en/setup) | `claude` |
 | [Pi Coding Agent](https://github.com/earendil-works/pi) | `pi` |
-| [MiniMax Code](https://agent.minimax.io/docs/cli/quick-start)（[开发版](#minimax-code)） | `mcode` |
+| [MiniMax Code](https://agent.minimax.io/docs/cli/quick-start)（[v0.4.13 起](#minimax-code)） | `mcode` |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `dsh` |
 | [OpenCode](https://opencode.ai/docs/) | `opencode` |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) | `copilot` |
@@ -111,7 +111,7 @@ Pi 命令以 1.1.0 为例。[Pi 模型配置说明](https://github.com/earendil-
 
 ## MiniMax Code：配置文件与思考强度 {#minimax-code}
 
-本节针对独立的 **MiniMax Code（`@minimax-ai/code` / `mcode`）**，以 **0.6.12** 为例。Rovai 接入目前在开发版提供；官网下载的 **v0.4.12 尚未包含**。原生配置文件的写法可独立使用。
+本节针对独立的 **MiniMax Code（`@minimax-ai/code` / `mcode`）**，以 **0.6.12** 为例。官网下载的 **v0.4.13 已包含 MiniMax Code 接入**。原生配置文件的写法也可独立使用。
 
 ### 为已有自定义模型补充档位
 

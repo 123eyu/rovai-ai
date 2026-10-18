@@ -13,7 +13,7 @@ After configuring the agent’s account and models, find it in Settings → Agen
 | [Codex CLI](https://github.com/openai/codex) | `codex` |
 | [Claude Code](https://code.claude.com/docs/en/setup) | `claude` |
 | [Pi Coding Agent](https://github.com/earendil-works/pi) | `pi` |
-| [MiniMax Code](https://agent.minimax.io/docs/cli/quick-start) ([development builds](#minimax-code)) | `mcode` |
+| [MiniMax Code](https://agent.minimax.io/docs/cli/quick-start) ([v0.4.13+](#minimax-code)) | `mcode` |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `dsh` |
 | [OpenCode](https://opencode.ai/docs/) | `opencode` |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) | `copilot` |
@@ -111,7 +111,7 @@ The Pi commands refer to version 1.1.0. [Pi model configuration](https://github.
 
 ## MiniMax Code: configuration files and thinking levels {#minimax-code}
 
-This section covers the standalone **MiniMax Code (`@minimax-ai/code` / `mcode`)**, using **0.6.12**. The Rovai integration is currently available in development builds; the website's **v0.4.12 download does not include it**. The native configuration instructions can be used independently.
+This section covers the standalone **MiniMax Code (`@minimax-ai/code` / `mcode`)**, using **0.6.12**. The **v0.4.13 download includes MiniMax Code integration**. The native configuration instructions can also be used independently.
 
 ### Add levels to an existing custom model
 

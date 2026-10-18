@@ -19,7 +19,8 @@ Run/epoch 归属与去重规则。本版补齐 MiniMax 的纯工具调用和压�
 Run、epoch 和 delivery 栅栏，每类集合最多 8192 个、每项最多 256 字节，不保留工具参数或正文。
 
 补采仅接纳同一根 Session 的原生 assistant 数值记录：显式消息映射及 turn 相符，或结构化
-`content` 中有类型为 `toolCall`、ID 精确匹配本轮冻结集合的条目。已存在但 turn 冲突的显式映射
+`content` 中有类型为 `toolCall`、ID 精确匹配本轮冻结集合的条目，且其 turn 也属于本轮显示消息
+显式映射已确认的 turn。仅有工具 ID、尚无本轮 turn 证据时保持缺失，避免历史复用 ID 被误计。已存在但 turn 冲突的显式映射
 优先拒绝；不能按相邻时间、同一 turn 的其他消息或 Session 总数推测归属。
 
 ## 压缩历史

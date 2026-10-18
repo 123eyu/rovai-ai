@@ -452,11 +452,14 @@ impl NativeJsonlUsageReader {
                             .get(&record.message_id)
                             .map_or_else(
                                 || {
-                                    record.turn_id.as_deref().is_some_and(safe_identity)
-                                        && !record
-                                            .message
-                                            .tool_call_ids
-                                            .is_disjoint(&self.minimax_tool_calls)
+                                    record.turn_id.as_ref().is_some_and(|turn| {
+                                        self.minimax_canonical_messages
+                                            .values()
+                                            .any(|observed| observed == turn)
+                                    }) && !record
+                                        .message
+                                        .tool_call_ids
+                                        .is_disjoint(&self.minimax_tool_calls)
                                 },
                                 |turn_id| record.turn_id.as_ref() == Some(turn_id),
                             )
@@ -2375,7 +2378,7 @@ mod tests {
                 );
                 assert!(tail.poll().is_empty(), "terminal retry cannot double count");
                 let mut tool_only = make("owned-tool-only");
-                tool_only["turn_id"] = json!("active-tool-turn");
+                tool_only["turn_id"] = json!("turn-1");
                 tool_only["message"]["content"] = json!([{
                     "type":"toolCall", "id":"active-tool|provider-id", "name":"bash",
                     "arguments":{"command":"PRIVATE_ARGUMENT_MUST_NOT_ENTER_USAGE"}
@@ -2388,9 +2391,12 @@ mod tests {
                 wrong_type["message"]["content"][0]["type"] = json!("thinking");
                 let mut conflicting = tool_only.clone();
                 conflicting["message_id"] = json!("wrong-turn");
+                let mut reused_id = tool_only.clone();
+                reused_id["message_id"] = json!("older-turn-reused-tool-id");
+                reused_id["turn_id"] = json!("unobserved-historical-turn");
                 write!(
                     file,
-                    "{tool_only}\n{another_tool}\n{wrong_type}\n{conflicting}\n"
+                    "{tool_only}\n{another_tool}\n{wrong_type}\n{conflicting}\n{reused_id}\n"
                 )
                 .unwrap();
                 file.flush().unwrap();
@@ -2419,7 +2425,9 @@ mod tests {
                 fs::create_dir_all(directory.join("snapshots")).unwrap();
                 fs::write(
                     directory.join("snapshots").join(archive_name),
-                    format!("{archived}\n{tool_only}\n{another_tool}\n{conflicting}\n"),
+                    format!(
+                        "{archived}\n{tool_only}\n{another_tool}\n{conflicting}\n{reused_id}\n"
+                    ),
                 )
                 .unwrap();
                 let catalog_path = directory.join("history-catalog.json");
@@ -2431,7 +2439,7 @@ mod tests {
                 assert!(terminal.poll().is_empty());
                 let mut rotated = tail
                     .minimax_tail(
-                        ["display-wrong-turn".into()].into(),
+                        ["display-owned".into(), "display-wrong-turn".into()].into(),
                         ["active-tool|provider-id".into()].into(),
                     )
                     .unwrap();

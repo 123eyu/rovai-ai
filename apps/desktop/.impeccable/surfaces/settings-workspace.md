@@ -194,19 +194,18 @@ Code, Codex CLI and OpenCode show a primary official installation command, colla
 prerequisites, a launch/login step and a recheck action. Other products and other admitted platforms link
 to official instructions; Antigravity links to its download site. Commands are copied, never executed by
 the Renderer. Admission remains Core-owned; unqualified, unsupported and pending products gain no action.
-The installation guide rechecks static discovery only. Full diagnosis is a secondary explicit action;
-login diagnosis checks only the selected product, reusing its current entry and search environment.
-Failed and deferred responses remain failed/incomplete even when installation information is retained.
-Pending diagnostics and errors are local to each Runtime row. Other rows and navigation stay usable;
-the top-level rescan only prevents a duplicate rescan. Refresh retains existing rows, focus and the open guide.
-Completion reads only Runtime status and installations, never Overview, navigation, memory or Git health. Guide content and download clicks never imply successful installation or readiness.
+List and guide checks share one backend operation that captures fresh discovery inputs before checking
+the selected product. Do not issue a separate frontend rescan first. Failed and deferred responses remain
+failed/incomplete even when historical availability is retained.
+Pending checks preserve focus and the open guide; real status, public failures and retry feedback remain
+in the same row. Guide content and download clicks never imply successful installation or readiness.
 
 The Agent Runtime catalog displays Pi Coding Agent as “PI” immediately after Antigravity, matching the member Runtime chooser.
 
 Runtime settings show the reviewed user-facing Runtime catalog, which may omit a closed internal identity that
-has not completed any product qualification. The primary badge shows installation information and platform admission. An admitted executable that
-has been found reads “已安装” and can be selected and tried, including after a failed diagnostic.
-In-progress diagnostics use a local action indicator; recent failures remain row-level explanations.
+has not completed any product qualification. User-facing states are limited to
+checking, available, needs handling, needs login, not installed, unsupported, unavailable and temporarily
+unknown. An admitted executable that has been found reads “可用” and can be selected and tried.
 Do not append execution-verification explanations or a separate success message after a check; the status
 badge carries the result. Failed or deferred checks keep actionable feedback. Do not expose internal
 “found/not checked”, fingerprint or

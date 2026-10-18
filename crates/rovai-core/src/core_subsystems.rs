@@ -301,6 +301,7 @@ impl super::Core {
             return;
         }
         if self.subsystems.begin("maintenance") {
+            let search_summary = self.runtime_search_environment.read().await.summary();
             let mut database = self.database.lock().await;
             let mut errors = Vec::new();
             macro_rules! maintain {
@@ -335,6 +336,13 @@ impl super::Core {
                     false
                 }
             });
+            maintain!(
+                "runtime_search_generation",
+                database.record_runtime_search_environment_generation(
+                    search_summary.generation,
+                    &search_summary.created_at
+                )
+            );
             if self.subsystems.require("skills").is_ok() {
                 maintain!(
                     "skill_staging_cleanup",

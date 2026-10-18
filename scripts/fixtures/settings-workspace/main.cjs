@@ -90,48 +90,16 @@ app.whenReady().then(async () => {
     window.webContents.setZoomFactor(1); window.setContentSize(1280, 850)
     await navigate('runtime')
     const codexRow = '.runtime-product-row:has(.runtime-product-settings[aria-label="Codex CLI 启动设置"])'
-    const claudeRow = '.runtime-product-row:has(.runtime-product-settings[aria-label="Claude Code 启动设置"])'
-    await run('window.settingsTest.state.holdRuntimeChecks=true')
-    await click(codexRow + ' .runtime-product-check')
-    assert.equal(await run(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-product-check')}).disabled`), true)
-    assert.equal(await run(`document.querySelector(${JSON.stringify(claudeRow + ' .runtime-product-settings')}).disabled`), false)
-    await click(claudeRow + ' .runtime-product-check')
-    await run("window.settingsTest.finishRuntimeCheck('claude-code-cli', 'Claude fixture failure')")
-    await settle()
-    assert.equal(await run(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-product-check')}).disabled`), true)
-    assert.equal(await run(`document.querySelector(${JSON.stringify(claudeRow + ' .runtime-guide-feedback')}).textContent`), 'Claude fixture failure')
-    assert.equal(await run(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-guide-feedback')})`), null)
-    await run("window.settingsTest.finishRuntimeCheck('codex-cli', 'Codex fixture failure')")
-    await settle()
-    assert.equal(await run(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-guide-feedback')}).textContent`), 'Codex fixture failure')
-    assert.equal(await run(`document.querySelector(${JSON.stringify(claudeRow + ' .runtime-guide-feedback')}).textContent`), 'Claude fixture failure')
-    assert.equal(await run("window.settingsTest.requests.some(r => ['health.check','navigation.get','memory.hearthReviewItems.list'].includes(r.method))"), false)
-    await run('window.settingsTest.state.holdRuntimeChecks=false')
-    for (const [outcome, label] of [['stable_failure', '本次诊断未通过'], ['deferred', '诊断未完成']]) {
+    for (const [outcome, label] of [['stable_failure', '本次检查未通过'], ['deferred', '检查未完成']]) {
       await run(`window.settingsTest.state.checkOutcome=${JSON.stringify(outcome)}`)
       await click(`${codexRow} .runtime-product-check`)
       await waitFor(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-guide-feedback')})?.textContent.includes(${JSON.stringify(label)})`)
-      assert.equal(await run(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-product-status')}).textContent`), '已安装')
+      assert.equal(await run(`document.querySelector(${JSON.stringify(codexRow + ' .runtime-product-status')}).textContent`), '可用')
     }
     await click('.runtime-guide-trigger[aria-label="GitHub Copilot 登录指南"]')
     await click('.runtime-install-guide .primary-button')
     assert.equal(await run("window.settingsTest.requests.filter(r=>r.method==='runtime.product.check').at(-1).params.runtimeKind"), 'copilot-cli')
     assert.equal(await run("window.settingsTest.requests.filter(r=>r.method==='runtime.discovery.rescan').length"), 0)
-    if (process.env.ROVAI_SETTINGS_RUNTIME_DETECTION_ONLY === '1') {
-      for (const theme of ['day', 'night']) {
-        await run(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
-        await settle()
-        assert.equal(await run("getComputedStyle(document.documentElement).colorScheme"), theme === 'night' ? 'dark' : 'light')
-        await noOverflow('runtime/' + theme)
-        await capture('runtime-detection-' + theme)
-      }
-      await navigate('general')
-      assert.ok(await run("document.querySelector('.general-settings') !== null || document.querySelector('.settings-panel-general') !== null"))
-      console.log(JSON.stringify({ ok: true, scope: 'runtime-detection', rows: 'independent', errors: 'local' }))
-      window.destroy()
-      app.exit(0)
-      return
-    }
     await click('.runtime-product-settings[aria-label="Codex CLI 启动设置"]')
     await waitFor("document.querySelector('.runtime-startup-form') && !document.querySelector('.runtime-startup-page').getAttribute('aria-busy').includes('true')")
     assert.equal(await run("[...document.querySelectorAll('.runtime-startup-actions button')].filter(b => b.disabled).length"), 2)

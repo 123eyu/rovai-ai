@@ -3043,110 +3043,17 @@ Footer 与消息动作。来源严格使用 Run 的输入 ID，与时间线定�
 `pnpm docs:test`、`pnpm docs:check` 与以 `102b24f12a66af8151cb5b43cc4bb8e5feaafa69` 为基线的
 `pnpm docs:check:ci` 通过。
 
-## 智能体检测简化（2026-10-18）
+## 撤回智能体检测简化（2026-10-18）
 
-- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-simplify-runtime-detection`；分支 `rovai/simplify-runtime-detection`；base `92736d707c9162133a93b7720ae826e7dad90e8a`。实施期间原 checkout 保持 `main`；合入后按仓库生命周期清理任务 worktree。
-- 生产范围：复用已有文件身份/指纹、Installation version 条件提交、Check Manager、Runtime 聚合；以薄只读 `runtime.status.get` 转发现有聚合（同步 Desktop/Web 既有白名单），删除普通发现的二次哈希、静态版本整文件读取、重复 Shell 捕获及检测后的 Overview/Git 等待。没有新表、迁移、服务、第二套代次或用户配置。
-- 新增 Rust owner `independent_diagnostics_reuse_environment_and_same_target_check` 覆盖 A 诊断未结束时 B 诊断及相同目标合并。旧实现的 B 会刷新全局代次使 A 失效；既有 owner 只覆盖真实配置/PATH 变化，不能证明不变环境的并发行为。复用同一隔离数据库/程序夹具；必须经过真实 Check Manager 才能验证合并和公开终态。最小命令：`cargo test -p rovai-core --lib --features slow-tests independent_diagnostics_reuse_environment_and_same_target_check`。
-- 原计数 owner 扩展静态首次、未变、升级；原提交 owner 扩展同 generation 迟到结果；原程序替换和配置变更 owner 保留。没有新性能测试平台。
-- 计数验收（macOS 隔离可执行程序夹具）：原生安装首次/升级完整哈希各 **1 次**、未变刷新 **0 次**；三种静态发现均 **0 个智能体子进程**。计数扩展现有 owner，测试计数器不进入生产构建。Windows shim 与 bundle 继续沿用依赖规则，本轮没有 Windows 真机计数。
-- 首轮已执行的竞态用例（不代表并发边界全部验收）：A/B 同时诊断及同目标请求合并；不变搜索输入不推进代次；真实配置/PATH 变化拒收旧结果；同 generation 下迟到发现不覆盖新安装；诊断期间替换程序后只发布新指纹结果；初次刷新及补刷期间的新事件最终都能读到终态，均通过。
-- 正常配置回归：既有 `discovered_entry_configures_and_freezes_without_health_evidence` 通过，覆盖无健康证据、未知版本、过期/失败诊断后的配置冻结与文件身份边界。Host 初始化、模型/权限和输入防重发未改动。
-- 前端：定向 193 项通过；完整 Vitest **247 文件、2744 项通过**（`pnpm exec vitest run --maxWorkers=2`）；`pnpm test` 的其余 Node 段 **376 通过、2 项既有跳过**。第一次全量运行发现新文案翻译遗漏，已修复；并行负载下的 3 项 evaluation-host 超时在降低并发的完整重跑中通过。
-- 隔离 Renderer 交互验证：`ROVAI_SETTINGS_RUNTIME_DETECTION_ONLY=1 pnpm test:settings-workspace` 通过。真实生产组件验证行级 pending、A/B 错误隔离、其他行启动设置可用、导航可用、登录诊断不先 rescan、日夜主题及无横向溢出。原完整设置夹具随后仍引用已移除的环境变量编辑控件，与本轮无关；未将其计为整套 UI 通过。Impeccable detector 无发现。夹具的 `onReload={async () => {}}` 不执行真实数据读取，因此这项只证明交互行为。生产 `BusinessApp → onReload → loadRuntime` 使用 `runtime.status.get` 与统一安装列表读取，不调用 Overview／导航／记忆／Git 的结论来自生产接线源码核查。
-- TypeScript、桌面构建、文档单测/治理与带 base 的治理检查通过。Rust 定向 10 项通过；默认 workspace **474 通过、1 项既有忽略**。共享 Web 白名单补齐后追加验证：Web Rust **11 项通过**、Web client **23 项通过**，Web 构建通过。
-- 仍有等待：明确重新检测时的一次 Shell 捕获、首次/升级必要文件校验、现有数据库短提交、用户主动诊断中的原生初始化/认证/模型查询及既有超时。Codex 双 app-server 未合并；诊断不是静态发现，替换程序的两种诊断夹具各实测 **3 个智能体子进程**（含两次版本命令），单独记录，不混入静态发现的 0 次计数。未对真实日常安装做前后端到端计时，不将夹具时长（发现日志 2–4 ms）宣传为用户提速比例。
-- 九范围核对：保持 v1.72 lifecycle；无新增 Version Decision；Architecture、Contract、UI 和 surface brief 同步；Runtime Activity、模型上下文、兼容性资格、Root README 不变；文档入口沿用现有路由。
+按 User seq17 要求，完整反向应用 PR #797 的合并提交 `7358905fcedfe52b8e28576c66b52f48e53f9096`，
+恢复合入前的智能体管理界面和检测行为。回退在 `rovai/revert-runtime-detection-simplification` 独立 worktree
+进行，基线为 `dc2863086c7ea397fd980e0c2e7735f80f6d08c2`；后续其他功能和业务数据不回滚。
+31 个原变更文件的反向范围及增删行数逐项吻合；生产 `MemberManagement`、`RuntimeInstallationGuide` 和
+`BusinessApp` 与 PR 合入前版本一致。没有新增表、迁移、缓存或替代实现。
 
-
-### 合并前局部复核修正（2026-10-18）
-
-基于首轮提交 `b262957ad` 修正结果归属与备用候选解析。只改现有 managed 写入、Check Manager
-合并／终结和静态发现执行顺序；前端实现保持。未新增表、迁移、缓存、后台任务、代次或检查管理器。
-
-- 三条 managed 写入在 `path_state` 实际变化时递增现有 version，同状态重复诊断不递增。
-  成功／静态快照写入在尚无健康指纹时复用已有静态文件指纹，避免首次诊断仅因补建快照而推进版本；
-  已有健康指纹仍用于旧能力失效判断，不用新静态指纹替旧程序保留 Ready。
-- attempt 在接收请求时保存当前安装 ID／version，合并核对同一目标；Supervisor 无法确认目标及文件身份时
-  不持久化失败、不写当前 Runtime 的公开诊断，原请求仍收到自己的错误。未知目标后来首次建立安装后，
-  新请求保守排队；已知且未变的目标继续合并，无新重试机制。
-- 正常候选已经发现程序后，跳过保存路径备用候选；确需回退时只解析保存入口，不重复构建整个搜索列表。
-  Windows shim 的正常解析与依赖校验不变；这项控制流修正不等于 Windows 真机读取次数已经实测。
-
-测试准入：扩展原静态发现提交 owner，覆盖路径恢复／消失的迟到结果、三条写入的版本变化及重复写入不变；
-扩展现有 live Check Manager 交错 owner，覆盖同 generation 的原路径升级与新目录请求不误合并。
-新增 `supervisor_failure_belongs_only_to_the_captured_installation` 复用同一隔离数据库／程序夹具，直接执行
-生产 timeout 终结函数，覆盖未变目标可记失败、未重新发现的文件替换、重新发现的新版本及未知目标。
-旧 probe owner 只经过正常结束的文件检查，不拥有 Supervisor 绕过该检查的失败时序；纯比较测试也无法证明
-持久失败记录和公开诊断均不被污染，因此需要这个 SQLite 与终结 seam owner，不依靠等待 90 秒制造时序。
-最小命令：`cargo test -p rovai-core --features slow-tests --lib application::runtime_check_environment::tests::`、
-`cargo test -p rovai-core --features slow-tests --lib discovered_runtime_verification_keeps_database_available_and_identity_after_restart`。
-
-
-本次补验记录（macOS arm64）：
-
-- 最终定向 15 个 owner 通过：环境／检查管理 6 项，静态计数／迟到提交／Pi 目录 3 项，原 Codex 目录及两项
-  替换程序诊断 3 项，默认层合并条件 1 项，既有 managed 安装兼容 2 项。环境 owner 先执行静态发现，
-  断言首次诊断保持安装版本，并由 Manager acknowledgement 明确证明重复请求合并。
-  静态原生安装仍为未变完整哈希 0 次、首次／升级各 1 次，
-  三者智能体子进程均 0 次；完整诊断的替换程序夹具仍各 3 个子进程，单独记账。
-- Supervisor owner 同时核对真实 `adapter_probe_attempt` 条数和公开诊断，而不只看 Installation 投影；
-  没有健康快照时该投影不会展示探针历史。路径恢复／消失的提交 owner 覆盖三条 managed 写入，
-  同状态重复写入不推进版本。正常诊断中的有界程序更新重试沿用原行为，不改造消息投递。
-- Pi 首次目录请求开始时尚无安装身份，期间首次建立安装后再次打开会排队一次，本夹具实际启动两次目录进程；
-  不把未知目标推定为同一目标，也没有为此添加可变 attempt 或缓存例外。已有安装目标的请求仍合并。
-- 复核生产接线确认 `BusinessApp` 仅等待 `runtime.status.get` 和共享 `runtime.installations.list`；
-  既有 Renderer 夹具继续只作为行级交互证据。本次没有再次执行前端全量测试或将空回调当成真实刷新验收。
-- 本机安装测量使用当前 Debug Core、全新临时 data-dir、独立 Skill Library／MCP 配置，发现 **16** 个安装。
-  三次真实 `runtime.discovery.rescan(interactiveShell: true)` 分别 **175 / 150 / 153 ms**，随后并行读取
-  `runtime.status.get` 与安装列表分别 **8 / 9 / 8 ms**；三轮 generation 均为 **1**。
-  首次静态发现日志 **4789 ms**，三轮发现工作日志 **24 / 37 / 30 ms**；全新数据库启动到首次发现完成
-  **17937 ms**。测量只通过 Core JSON-RPC，不是桌面点击到渲染的总时长；没有旧版前后对照或提速比例。
-  正常关闭该 Core 并删除它的隔离数据，没有调用完整诊断、提交任务或改动日常 App。
-- Windows 备用解析只完成共享控制流源码核查：正常发现成功后不调用备用构建；需要回退时显式解析保存路径。
-  没有 Windows 主机，未声称 Windows shim 读取次数或平台端到端行为已实测。首次／升级文件校验、重新检测时
-  的 Shell 捕获、主动诊断初始化与超时仍是等待点；Codex 双 app-server 保留后续独立处理。
-
-- 最终 `pnpm test:rust:pr`：默认 workspace **474 通过、0 失败、1 项既有忽略**；定向 15 项均基于最后的
-  managed 指纹读取修正重跑通过。文档单测 **10 项通过**，普通／带 base 的治理检查、Rust 格式及差异检查通过。
-  本次没有新增默认层 Rust owner，也未关闭、放宽或跳过既有测试。
-
-### 旧健康快照与 Supervisor 锁范围收口（2026-10-18）
-
-基于 `4e2670fe0` 只补两处已有后端分支，前端与发现流程保持；没有新增表、迁移、后台服务、缓存、
-代次、可变 attempt 或检查管理器。
-
-- managed 成功／静态快照写入依据当前 executable identity、路径和 locator 判断安装变化。
-  健康快照指纹另外约束旧 Ready／能力的保留及 LKG 降级。F1 健康快照保留期间已经静态发现 F2，
-  诊断 F2 补写快照不再把安装 version 从 2 推进到 3，也不把 F1 的 Ready 留给 F2。
-  既有相同目标合并、失败归属保护、未知目标保守排队规则不变。
-- Supervisor 在数据库锁内读取原目标与文件身份，释放锁后用既有 blocking worker 检查文件，
-  再拿锁以条件查询复核 ID／version 和原指纹／文件身份后提交，不再为复核读取完整安装列表。
-  Windows shim 的依赖读取退出数据库锁范围；
-  校验期间版本或已记录身份变化时，原请求仍收到错误，当前安装不增加失败记录或公开诊断。
-
-测试继续扩展已有两个 owner，没有新建独立测试、夹具体系或测试平台：
-
-- `independent_diagnostics_reuse_environment_and_same_target_check` 保留无健康快照分支，增加
-  F1 Ready → 静态发现 F2 → 实际 F2 诊断分支；核对版本稳定、旧认证／能力／协议清除、LKG 保留，
-  并以 Manager acknowledgement 验证新目录请求合并，同时保留 A／B 独立操作与搜索代次不变的验收。
-- `supervisor_failure_belongs_only_to_the_captured_installation` 增加 F2 静态／成功写入后合法超时的
-  持久记录与公开诊断验收；以唯一 blocking worker 屏障确认数据库可访问，并分别在文件检查期间改变
-  原版本、原身份，验证提交前再次核对。保留已有文件替换、重扫升级及未知目标的失败归属分支。
-  负向分支比较本次前后的记录与公开诊断，允许此前合法的历史错误继续展示。
-
-最小复现命令：`cargo test -p rovai-core --features slow-tests --lib -- independent_diagnostics_reuse_environment_and_same_target_check supervisor_failure_belongs_only_to_the_captured_installation`。
-
-计时沿用上一轮本机隔离 Debug Core 的测量，本次未重新测量也不宣称新的提速比例：热重新检测
-**175 / 150 / 153 ms**，随后 Runtime 读取 **8 / 9 / 8 ms**；首轮静态发现 **4.789 秒**，
-全新 Debug Core／数据库启动至首轮发现全部完成为 **17.937 秒**，两个阶段分别列出。
-没有旧版对照、首个智能体可用时间或桌面点击至渲染测量，不能据此称 UI 冻结 17.937 秒。
-首次／升级的必要文件校验、显式重新检测的 Shell 捕获、主动诊断初始化及超时、结束后的 Runtime 快照读取
-仍是等待点；Supervisor 仍做文件校验，但不持数据库锁执行这部分 I/O。本次未执行 Windows 真机测试。
-Codex 双 app-server、冷启动编排及性能平台继续不进入本轮。
-
-相关定向回归（macOS arm64）：**17 通过、0 失败**，覆盖上述两个扩展 owner，以及既有路径状态／迟到
-提交、目录合并、运行中替换、健康快照失效与 locator 兼容 owner。普通原生静态发现的计数断言继续通过：
-未变安装完整哈希 **0** 次，首次／升级各 **1** 次，三者智能体子进程均 **0** 次；完整诊断的程序替换
-夹具各 **3** 个子进程，继续与静态发现分开计数。没有将这些结果扩展为 Windows 真机读取计数或桌面交互验收。
-最后收窄 Supervisor 复核查询后，对上述两个受影响 owner 再次运行，**2 通过、0 失败**。
+测试退役依据：`independent_diagnostics_reuse_environment_and_same_target_check` 与
+`supervisor_failure_belongs_only_to_the_captured_installation` 两个 slow owner 随其新增生产路径和合同一起撤回，
+不以忽略或放宽断言保留。其余既有 owner 恢复原用例，保留程序选择、配置变更围栏、文件替换与本地保存等
+原有检查；默认层没有新增或删除 owner。最低回归为 `pnpm test:rust:pr`、
+`cargo test -p rovai-core --features slow-tests --lib application::runtime_check_environment::tests::`，
+以及恢复后的静态发现与程序替换 owner。TypeScript、Vitest、桌面构建和文档门禁按当前开发规范执行。

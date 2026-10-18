@@ -171,7 +171,6 @@ export const WEB_OPERATIONS = [
   'monitoring.snapshot',
   'monitoring.execution',
   'health.check',
-  'runtime.status.get',
   'skills.list',
   'skills.get',
   'toolbox.list',

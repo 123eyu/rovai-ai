@@ -89,10 +89,7 @@ describe('console transport', () => {
     expect(JSON.parse(String(resumed?.[1]?.body)).editor).toEqual({ clientId: 'd'.repeat(64), proof: 'e'.repeat(64) })
     delayed!(new Response('', { status: 401 }))
     await expect(old).rejects.toMatchObject({ name: 'AbortError' })
-    for (const method of ['app.info', 'runtime.status.get'] as const) {
-      await expect(client.request(method)).resolves.toEqual({ name: 'Rovai' })
-      expect(JSON.parse(String(fetcher.mock.calls.at(-1)?.[1]?.body)).operation).toBe(method)
-    }
+    await expect(client.request('app.info')).resolves.toEqual({ name: 'Rovai' })
     const oldLogout = client.logout()
     await client.login('c'.repeat(64))
     delayedLogout!(new Response(null, { status: 204 }))

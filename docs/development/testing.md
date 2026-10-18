@@ -695,14 +695,17 @@ RuntimeDefault 不得作为 `--model` 原生参数，显式模型仍须在 sessi
 
 ### Web 文件资源开销与一致性
 
-`rovai-web::resources::content::tests::bounded_scan_preserves_digest_unicode_and_same_metadata_changes` 拥有分块
-读取的有界保留、UTF-8 跨块、稀疏行号与新鲜摘要校验。修复前每页保留整份文件；原有纯分页 parser owner
-没有文件 I/O 或跨请求摘要事实的 seam，因此该独立 owner 使用单一临时文件与固定修改时间，避免 Core/数据库 fixture。
-最小命令为 `cargo test -p rovai-web resources::content::tests::`。
+`rovai-web::resources::content::tests::candidate_analysis_bounds_paging_and_preserves_other_digest_checks` 拥有候选完整
+分析、分页/定位的读取量与摘要次数、原始修改时间检查、UTF-8 跨块、长行及缩短/空文件的有效位置。
+计数和读取中变化注入只在既有文件夹具中启用。新约定只放宽同候选分页/定位，等大小等修改时间改写
+可以继续读取；新候选、完整正文和父 generation 的摘要验证保留。旧的分页摘要拒绝断言随该合同替换，
+没有删除测试 owner 或其他负向/边界 case。最小命令为 `cargo test -p rovai-web resources::content::tests::`。
 
-既有 `host-web.test.mjs` owner 扩展认证原始字节、相同大小/修改时间下的变化拒绝、上传取消/拒绝/重放清理与
-构建缓存边界。Node SQLite fixture 设置有界 busy timeout，避免与隔离 Host 的正常事务争抢造成偶发失败。
-`camp-adapter.test.ts` 和 `file-digest.test.ts` 分别验证空句柄轮询、Host 确认后的本地图片复用及浏览器摘要缓冲上限。
+既有 `host-web.test.mjs` owner 验证上述属性校验与 generation 接线，并保留认证字节、其他读取的摘要拒绝、
+上传取消/拒绝/重放清理与构建缓存边界。Node SQLite fixture 使用有界 busy timeout。
+`file-preview-service.test.ts` 在真实文件描述符上计数，验证紧接定位的分页只读正文，其他偏移和其他句柄仍定位。
+`file-preview-resources.test.ts` 验证同版本 HTML 只准备一次、摘要不同继续读取、手动/错误/无句柄恢复及新通知水位。
+`camp-adapter.test.ts` 和 `file-digest.test.ts` 继续验证通知接线、Host 确认后的本地图片复用及浏览器摘要缓冲上限。
 手机实际 Host 用例检查上传后无原图回传、刷新后恢复 Host 读取；Run 文案由既有执行组件场景验证。
 `node scripts/measure-host-web-resources.mjs` 对独立 Host 执行 20 MiB / 80 页固定工作量，断言内容与行号一致并记录计时；
 `--legacy-json` 可对旧 Host 记录 Base64 膨胀并核对解码后的原始字节。可用 `ROVAI_HOST_BIN` / `ROVAI_WEB_UI` 选择包内产物。

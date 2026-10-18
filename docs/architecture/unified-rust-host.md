@@ -10,7 +10,7 @@ last_updated: 2026-10-18
 [Runtime 兼容性](../runtime-compatibility.md)，不能由目标结构推断完成。
 现有准入、事务、Runtime 与关闭合同继续有效；新增 wire 合同随对应实现明确发布。
 原生 Server 数据根、初始 CLI 兼容、初始化准入和停止适配由[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)拥有；
-当前受控网络入口由[Host Web v7](../contracts/host-web-v7.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
+当前受控网络入口由[Host Web v8](../contracts/host-web-v8.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
 
 当前已实现父进程匿名管道与进程内请求共用一个 Host/Core、共享生产 Camp 页面、客户端草稿、source 上传及
 逐项准入的 Camp 写入。以下 UDS/Named Pipe 身份握手与完整公共 DTO 生成仍是后续目标，
@@ -108,7 +108,9 @@ Agent Managed 与 legacy 机制不变，不建对象存储、附件目录库或�
 
 资源读取按精确身份、owner locator 与作用域授权；路径规范化、符号链接和读取时变化不能逃逸授权。
 远程 Owner 直接选择 Host 有权访问的工作目录，不需要本机预授权名单；Core 继续拥有原有项目和文件校验。
-文件分页仍逐次完整验证 SHA-256，复用与摘要绑定的 UTF-8 / 稀疏行号信息以减少重复扫描，读取仅保留所需页。
+候选建立时完整分析一次并保存 SHA-256、UTF-8 与块行号；同候选的分页和定位只读取所需范围，
+读取前后校验大小与原始精度修改时间，不重新计算全文摘要，失败不自动重分析或重试。
+这两个接口接受等大小、等修改时间改写可能无法识别的取舍；其他正文与父 generation 读取继续完整摘要校验。
 图片使用认证的有界预览响应；上传按块写入和计算摘要，单文件 30 MiB，预览保留独立 20 MiB 预算。
 下载以独立票据、并发额度、有界通道和背压在 Host 队外运行，默认不设文件大小上限，可独立配置。
 申请时验证来源，GET 校验票据与 Session、无跟随链接地打开当前文件，随后直接流式发送。
@@ -119,7 +121,7 @@ Session 撤销阻止新准入，来源失效阻止新申请；已签发能力在
 预览失败不阻止来源下载，文件内容沿用 source reference 与 legacy 的既有生命周期。草稿缩略图仅在 Host 确认绑定、可用性及摘要一致后
 复用当前客户端的有界 File 缓存；刷新、内容变化或缓存淘汰恢复 Host 读取。空句柄不启动文件更新轮询。
 静态服务只挂应用构建产物。长期缓存只准入构建清单中带内容哈希且字节校验相符的文件，入口及私有响应仍不缓存。
-具体字段和边界由 [Host Web v7](../contracts/host-web-v7.md) 及其继承的预览规则拥有。
+具体字段和边界由 [Host Web v8](../contracts/host-web-v8.md) 及其继承的预览规则拥有。
 HTML/HTM 附件复用共享交互查看器，由认证 POST 读取后交给同来源静态预览壳。Desktop 托管 Web 和独立
 Server Web 共用该 Rust 路径；响应 CSP 与 iframe 均采用
 `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"`，仅预览响应允许 HTTP(S)

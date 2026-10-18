@@ -97,7 +97,7 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## Camp 文件预览
 
-- 当前规范：[File Preview Architecture](../architecture/file-preview.md)、[File Preview v22](../contracts/file-preview-v22.md)、[Camp 文件预览区](../ui/components/file-preview.md)及[Camp 会话工作区](../ui/components/conversation-workspace.md)；版本化 projection 原位刷新与旧响应 fence 理由见 [V1.64-D03](../versions/v1.64/decisions.md#v1-64-d03)。
+- 当前规范：[File Preview Architecture](../architecture/file-preview.md)、[File Preview v23](../contracts/file-preview-v23.md)、[Camp 文件预览区](../ui/components/file-preview.md)及[Camp 会话工作区](../ui/components/conversation-workspace.md)；版本化 projection 原位刷新与旧响应 fence 理由见 [V1.64-D03](../versions/v1.64/decisions.md#v1-64-d03)。
 - 窗口保留与刷新取舍：[V1.59-D07](../versions/v1.59/decisions.md#v1-59-d07)。
 - HTML 运行环境理由：[V1.58-D07](../versions/v1.58/decisions.md#v1-58-d07)。
 - 理由来源：[V1.30-D01–D06](../versions/v1.30/decisions.md#v1-30-d01)、[V1.37-D04](../versions/v1.37/decisions.md#v1-37-d04)、[V1.40-D01](../versions/v1.40/decisions.md#v1-40-d01)、[V1.42-D01](../versions/v1.42/decisions.md#v1-42-d01)、[V1.51-D01](../versions/v1.51/decisions.md#v1-51-d01)、[V1.51-D02](../versions/v1.51/decisions.md#v1-51-d02)、[V1.52-D01](../versions/v1.52/decisions.md#v1-52-d01)及[V1.55-D01](../versions/v1.55/decisions.md#v1-55-d01)；[V1.30-D07](../versions/v1.30/decisions.md#v1-30-d07) 的选区方案与 [V1.39-D05](../versions/v1.39/decisions.md#v1-39-d05) 的 inline-code 存在性探测已被替代。
@@ -257,8 +257,8 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 ## 统一 Host 与 Web
 
-- 当前规范：[统一 Rust Host](../architecture/unified-rust-host.md)、[原生 Server 数据与分发](../architecture/unified-rust-host.md#原生-server-数据与分发)、[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)、[Host Web v7](../contracts/host-web-v7.md)与[Server 开发预览](../development/server-preview.md)。Task 旧 payload reconciliation clean break 理由见 [V1.63-D02](../versions/v1.63/decisions.md#v1-63-d02)。
-- 浏览器文件传输：[Host Web v7](../contracts/host-web-v7.md)、[统一 Host 用户文件](../architecture/unified-rust-host.md#草稿与用户文件)；采用独立短期能力、准入后直接流式发送与浏览器下载管理器的取舍见 [V1.72-D52](../versions/v1.72/decisions.md#v1-72-d52)。
+- 当前规范：[统一 Rust Host](../architecture/unified-rust-host.md)、[原生 Server 数据与分发](../architecture/unified-rust-host.md#原生-server-数据与分发)、[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)、[Host Web v8](../contracts/host-web-v8.md)与[Server 开发预览](../development/server-preview.md)。Task 旧 payload reconciliation clean break 理由见 [V1.63-D02](../versions/v1.63/decisions.md#v1-63-d02)。
+- 浏览器文件传输：[Host Web v8](../contracts/host-web-v8.md)、[统一 Host 用户文件](../architecture/unified-rust-host.md#草稿与用户文件)；采用独立短期能力、准入后直接流式发送与浏览器下载管理器的取舍见 [V1.72-D52](../versions/v1.72/decisions.md#v1-72-d52)。
 - 理由来源：[V1.59-D01](../versions/v1.59/decisions.md#v1-59-d01)、[V1.59-D02](../versions/v1.59/decisions.md#v1-59-d02)。
 
 - 新对话默认队伍归属：[Host Web v2](../contracts/host-web-v2.md#shared-creation-preferences)、[Camp Activation](../architecture/camp-activation-lifecycle.md#component-authority)；理由见 [V1.59-D03](../versions/v1.59/decisions.md#v1-59-d03)。

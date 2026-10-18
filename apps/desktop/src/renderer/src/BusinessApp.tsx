@@ -1176,7 +1176,6 @@ export function BusinessApp({
   const [openedNavigationRow, setOpenedNavigationRow] = useState<NavigationThreadItem | null>(null)
   const pinnedThreadIdsRef = useRef<string[]>([])
   pinnedThreadIdsRef.current = navigationPins.filter(pin => pin.kind === 'camp').map(pin => pin.targetKey)
-  const installationsRequest = useRef<Promise<AdapterInstallation[]> | null>(null)
   const navigationSnapshotRef = useRef<NavigationSnapshot | null>(null)
   const deletingThreadIdsRef = useRef(new Set<string>())
   const shownDeletionIssuesRef = useRef(new Set<string>())
@@ -1595,14 +1594,11 @@ export function BusinessApp({
     }
   }, [uiPreferences, applyNavigationPreferences, legacySelectedProject, notifyError])
 
-  const loadInstallations = useCallback((): Promise<AdapterInstallation[]> => {
-    if (installationsRequest.current) return installationsRequest.current
-    const request = client.request<AdapterInstallation[]>('runtime.installations.list')
-      .then(next => { setInstallations(next); return next })
-      .finally(() => { if (installationsRequest.current === request) installationsRequest.current = null })
-    installationsRequest.current = request
-    return request
-  }, [client])
+  const loadInstallations = useMemo(() => createRuntimeRefresh(async () => {
+    const next = await client.request<AdapterInstallation[]>('runtime.installations.list')
+    setInstallations(next)
+    return next
+  }), [client])
 
   const loadOverview = useCallback((showLoading = false): Promise<boolean> => {
     if (showLoading) setState('loading')

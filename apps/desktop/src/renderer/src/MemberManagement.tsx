@@ -1573,7 +1573,9 @@ export function RuntimeInstallationsPanel({
             const mode = presentation.status === 'not_installed' ? 'install'
               : presentation.status === 'authentication_required' ? 'login' : null
             const isOpen = guide !== null && expanded?.runtimeKind === runtimeKind
-            const checking = checkingKinds.has(runtimeKind) || item?.checking === true
+            // A stale server snapshot must not lock retry after this row's request
+            // settles. The badge still presents server state; Core coalesces checks.
+            const checking = checkingKinds.has(runtimeKind)
             const feedback = checkFeedback[runtimeKind] ? (
               <p className="runtime-guide-feedback is-error" role="alert">
                 {checkFeedback[runtimeKind]}

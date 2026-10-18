@@ -174,7 +174,11 @@ function Fixture() {
   const [roster, setRoster] = useState(fixture.largeRoster)
   const [appearance, setAppearance] = useState(fixture.appearance)
   const [updateError, setUpdateError] = useState(null)
+  const [runtimeHealth, setRuntimeHealth] = useState(fixture.healthSnapshot)
   Object.assign(window.settingsTest, {
+    setRuntimeChecking: (runtimeKind, checking) => setRuntimeHealth(health => ({
+      ...health, runtimeAvailability: health.runtimeAvailability.map(item => item.runtimeKind === runtimeKind ? { ...item, checking, status: checking ? 'checking' : 'ready' } : item)
+    })),
     navigate: (value, scenario = 'normal') => {
       state.scenario = scenario; setPage(value); setGeneration(n => n + 1)
     },
@@ -197,7 +201,7 @@ function Fixture() {
         {page === 'remote' && <HostWebSettings portDraft={remotePort} onPortDraftChange={setRemotePort} api={window.rovai.hostWeb} />}
         {page === 'appearance' && <AppearanceSettings appearance={appearance} disabled={false} onChange={async value => { setAppearance(value); return value }} />}
         {page === 'notifications' && <NotificationSettings />}
-        {page === 'runtime' && <RuntimeInstallationsPanel health={fixture.healthSnapshot()} installations={[]} onReload={async () => {}} />}
+        {page === 'runtime' && <RuntimeInstallationsPanel health={runtimeHealth} installations={[]} onReload={async () => { await request('runtime.reload') }} />}
         {page === 'channels' && <ChannelSettings agents={fixture.agents} />}
         {page === 'monitoring' && <RuntimeMonitoring />}
         {page === 'diagnostics' && <DiagnosticsCenter onNavigate={setPage} />}

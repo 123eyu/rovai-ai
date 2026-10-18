@@ -25,18 +25,21 @@ export function openRuntimeModelCatalog(runtimeKind: AdapterKind, request: Rovai
 
 // One local read in flight, with one trailing read for invalidations received
 // during it. The same rule applies while the trailing read is in progress.
-export function createRuntimeRefresh(read: () => Promise<void>): () => Promise<void> {
-  let pending: Promise<void> | null = null
+export function createRuntimeRefresh<T>(read: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | null = null
   let again = false
   return () => {
     again = true
     if (pending) return pending
     pending = Promise.resolve().then(async () => {
       try {
-        do {
+        while (true) {
           again = false
-          try { await read() } catch (error) { if (!again) throw error }
-        } while (again)
+          try {
+            const result = await read()
+            if (!again) return result
+          } catch (error) { if (!again) throw error }
+        }
       } finally { pending = null }
     })
     return pending

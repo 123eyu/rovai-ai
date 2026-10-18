@@ -9,7 +9,7 @@ confirmed_by: User
 confirmed_at: 2026-10-18
 authority: confirmed-model-input-change-statement
 implementation_baseline: 92736d707c9162133a93b7720ae826e7dad90e8a
-implementation_status: in_progress
+implementation_status: implemented
 last_updated: 2026-10-18
 ---
 
@@ -22,7 +22,7 @@ User 在当前 Thread 的 sequence 3（消息 `7d39d211-c9d3-4b16-9888-a01eca836
 上一轮已展示删除对象、字段用途、每轮 235 字节收益与权限/路由不变的结论；当时尚未提供本文件的
 完整版本、迁移与验证说明。本 R1 依照[模型上下文治理](../../development/model-context-change-governance.md)
 完成确认：User 随后在 sequence 5（消息 `e76e72a0-f68f-4914-ba32-00b0bceaa0fc`）明确回复
-“没问题，先处理这个然后pr到main”，确认实施本 R1；sequence 6 又明确要求“merge”，授权在检查通过后合并。
+“没问题，先处理这个然后pr到main”，确认实施本 R1；sequence 6 又明确要求“merge”，授权合并该变更。
 
 本轮按 R1 实施第 1～6 节；第 7 节是额外调查结果，不进入 R1 的实施范围。
 
@@ -233,7 +233,7 @@ DEMO-101～DEMO-112、scoring-v2.10，基线与候选各一次，`maxParallelCas
 `COLLABORATION_STATE` 还包含默认 Lead 角色；单聊不派发协作，但 peers 的姓名/角色可帮助理解公屏引用。
 而且该段只在需要 Bootstrap 或内容变化时发送，不应把它估算成每轮固定开销；优先级低于前两项。
 
-## 8. 本轮记录
+## 8. 提案阶段记录（实施前）
 
 - 独立分支：`codex/single-chat-context-simplification`。
 - 当前只提交提案与当前版本入口，没有修改实现、Schema、当前合同或启动真实 Runtime。
@@ -241,3 +241,83 @@ DEMO-101～DEMO-112、scoring-v2.10，基线与候选各一次，`maxParallelCas
 - `DOCS_BASE_REF=92736d707c9162133a93b7720ae826e7dad90e8a node scripts/check-doc-decisions.mjs --require-base`：通过，包含文档链接及历史冻结检查。
 - `pnpm docs:check` 与同 base 的 `pnpm docs:check:ci`：在版本检查阶段因本提案尚缺确认状态、确认 revision、确认人和确认日期四项而失败；没有其他版本检查错误。保持 `pending`，不填写虚假确认来满足门禁。
 - `git diff --check`：通过。Rust、真实单聊与语义 Gate 尚未运行。
+
+## 9. 实施与验证记录（2026-10-18）
+
+### 实际实现与兼容
+
+已按 R1 删除完整 `RUN_FACTS.singleChat`，每次新单聊输入减少 **235 个 UTF-8 字节**，不是 Token 数。
+新 non-batch 版本为 Formatter/Manifest **42**、Facts **13**、Profile **16**；public 保持 **40/11/15**。
+Charter **24**、Bootstrap **5** 与 Binding compatibility **16** 保持，未改权限、输出路由或历史选择算法。
+共享 TypeScript `ContextManifestView` 补齐已支持的 Formatter **36～42**、Profile **13～16** 枚举；
+这是读模型类型对齐，不改变 Core 输出或界面行为。
+
+Migration **208** 完成 schema **157 → 158**，保留已有约束分支、索引、业务行、旧输入 Blob 及投递证据。
+既有 Rust owner 增加错误版本配对拒绝、事务回滚后外键恢复、旧 41/12 输入逐字读取及 reopen 检查，
+没有增加平行 Rust 测试函数。当前合同和导航已更新为 [Manifest v42](../../contracts/context-manifest-evidence-v42.md)、
+[Run Facts v10](../../contracts/run-facts-v10.md)、[Single Chat v9](../../contracts/single-chat-v9.md)。
+
+### 确定性检查
+
+- `pnpm test:rust:pr` 复验通过：**474 passed、1 个手工测试 ignored**。首次执行的进程组取消测试失败，
+  单独复验及完整 PR 集复验均通过；保留首次失败观察和两次复验日志。
+- `cargo check --workspace`、`cargo fmt --all --check`、`git diff --check` 通过。
+- `pnpm typecheck` 通过；现有 TypeScript context contract fixture 的 Vitest 定向测试 1 项通过。
+- `cargo test -p rovai-core --features slow-tests --lib single_chat_ -- --nocapture`：8 项通过；
+  `cargo test -p rovai-core --features slow-tests --lib single_chat::tests:: -- --nocapture`：9 项通过。
+  上述是实际执行命令，补齐了提案中个别定向命令遗漏的 `--features slow-tests`，未将零测试执行算作通过。
+- 完整 `context::slow_tests::` 为 **43 passed / 2 failed**。失败的
+  `attachment_only_current_input_is_empty_and_reuses_stable_camp_attachment_paths` 与
+  `claimed_legacy_batch_keeps_its_format_after_context_upgrades` 均在未改基线 `92736d70` 复现：
+  公屏版本期待值已落后于实际 40/11，本次未改这些公屏 fixture。
+- 完整 `db::tests::` 首次为 **88 passed / 6 failed**。其中两个当前 migration receipt fixture 已从 207
+  对齐至 208；`current_migration_state_admission_matrix` 与
+  `database_contract_preflight_admits_current_and_rejects_future_store` 定向复验各 1 项通过。
+  剩余 v103/v104/v105/v107 Runtime catalog 迁移测试的旧 Skill group CHECK 失败均在 `92736d70` 复现。
+  不将这次完整 DB 命令记作通过。
+- `pnpm docs:test` 10 项通过，`pnpm docs:check` 及以 `92736d70` 为 base 的 `pnpm docs:check:ci` 通过。
+
+### 真实私有路径
+
+基线与候选分别使用独立 Core 数据库、Skill Library、MCP 配置与工作目录，均为 Codex CLI、
+`gpt-6.1-sol`、medium；未使用日常数据库或 Electron userData。两侧各四次真实 Turn 完成：
+普通私有回复、禁止公屏发布/派发/Memory 写入、显式 `single_chat.history` 检索、同会话热续接。
+无新增公屏消息、非私有 AgentRun 或 Memory revision。
+
+候选随后直接打开基线验收数据库：schema 157 → 158 成功，四条旧 Manifest 与四份旧输入 Blob 的哈希逐一不变，
+accepted Delivery 状态/ID、原生 Session、Binding ID/generation/compatibility digest 保持。
+升级后的真实私有回复成功，新输入为 42/13/16，旧输入仍保持原字节。
+
+**覆盖限制：**未强制制造原生私有历史缺失，history 是显式请求；未观察到原生 compaction，
+因此压缩后的补投场景未通过真实验收。私有 probe 的整体 `partial` 状态原样保留，不提升成全场景通过。
+
+### 通用 Gate：未通过
+
+冻结 suite **2.12.0**、DEMO-101～112、scoring **2.10.0**，每侧一次、最多并行两项；
+三位 Runtime 队员使用相同显式模型与权限。`judge: null`，不具备语义质量与关键协作项的完整证据。
+
+| 尝试 | 合同检查 | 实际任务结果 | 结论 |
+| --- | --- | --- | --- |
+| 01 | 基线通过；候选因当前 migration receipt fixture 失败 | 基线硬性验收 11/12；候选 12 项未运行 | `degraded`；失败和缺失证据保留 |
+| 02 | 基线、候选均通过 | 基线硬性验收 12/12；候选 10/12 | `degraded`；acceptance failed、regression detected、evaluation incomplete |
+
+第二次候选 DEMO-104 的功能、回归和文件边界检查通过，但协作派发 **7 次超过上限 6**，触发预算失败；
+DEMO-105 的交付产物字段未满足 `REQ-DELIVERY`。报告保留两项 `candidate_hard_failure` 和一项
+`boundary.a2a` regression；没有因公屏模型合同未改而忽略这些失败，也不能凭这份小样本证明因果或非劣性。
+24 个 slot 均完成；67 项规则通过、2 项失败；`evaluationFailures` 为空，语义/质量/协作缺口共 108 条。
+12 对耗时均未触发冻结的退化阈值，统一 Token/费用 receipt 不可用，不据此声明质量或成本提升。
+
+两次尝试达到上限后停止，没有更改标准或删除失败。第二次 Core 二进制摘要与第一次相同：
+`2f950a3dcd208ccff589bc13deefab9956026b7a8a1187836a52a58aa55d5b3a`；两次之间仅修正测试 fixture。
+后续文档收口及 TypeScript 版本枚举不改变已执行的 Core 源码或二进制。PR 的 CI 与通用 Gate 分开报告，
+不能把 CI 通过表述为通用 Gate 通过。
+
+### 证据与交付
+
+PR：[#791](https://github.com/murray17/rovai-ai/pull/791)。完整本地证据归档位置为
+`/Users/murray.xue/.rovai/archives/single-chat-facts-20261018-merge-791`，包含两次 Gate 报告、冻结计划、
+原始确认稿、源码/二进制摘要、真实私有 probe、升级前数据库、实现 diff 和测试日志。
+报告中的原始绝对路径仅说明执行位置，任务目录清理后不再是可执行入口。
+
+已静态核对 campaign `index.html`、两次 `report.html`/JSON、每个 slot 及 regression、gap、failure、resource。
+浏览器策略拒绝本地 `file:` URL，因而使用本地 HTML 文本解析和原 JSON 读取，没有声称浏览器打开成功或绕过策略。

@@ -792,9 +792,12 @@ describe('automatic file refresh', () => {
       expect(active(a).content).toMatchObject({ text: 'latest' })
     })
 
-    it.each(['Desktop', 'Web'] as const)('skips unchanged %s HTML before reserving another page', async platform => {
+    it.each(['Desktop', 'Web'] as const)('skips unchanged %s HTML without discarding an in-flight source read', async platform => {
       const { owner, api, update } = fixture({ htmlInstances: 1 })
       const a = await open(owner, 'a', 'same.html'), first = active(a)
+      const source = deferred<Awaited<ReturnType<FilePreviewApi['readText']>>>()
+      vi.mocked(api.readText).mockReturnValueOnce(source.promise)
+      const reading = a.actions.loadHtmlSource(first.id)
       if (platform === 'Desktop') first.file!.contentVersion.fileId = 'device:file'
       const original = vi.mocked(api.reload).getMockImplementation()!
       let duplicate!: ResolvedFilePreview
@@ -815,6 +818,10 @@ describe('automatic file refresh', () => {
       expect(reserve).not.toHaveBeenCalled()
       expect(api.release).toHaveBeenCalledWith({ handleId: duplicate.handleId })
       expect(api.release).not.toHaveBeenCalledWith({ handleId: first.file!.handleId })
+      source.resolve(textResult('<p>original source</p>')); await reading
+      expect(active(a).htmlSource?.text).toBe('<p>original source</p>')
+      expect(api.readText).toHaveBeenCalledTimes(1)
+      expect(active(a).requestGeneration).toBe(first.requestGeneration)
     })
 
     it.each(['digest', 'file identity', 'preview key'] as const)('loads again when the %s differs despite equal size and mtime', async change => {
@@ -929,9 +936,15 @@ describe('automatic file refresh', () => {
     it('waits for HTML readiness and merges changes while the candidate is loading', async () => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a', 'page.html'), first = active(a)
+      const source = deferred<Awaited<ReturnType<FilePreviewApi['readText']>>>()
+      vi.mocked(api.readText).mockReturnValueOnce(source.promise)
+      const reading = a.actions.loadHtmlSource(first.id)
       update('a', [first.previewKey!]); await advance()
       const candidate = active(a).candidate!
       expect(active(a).content).toBe(first.content)
+      source.resolve(textResult('<p>old source</p>')); await reading
+      expect(active(a).htmlSource).toBeUndefined()
+      expect(active(a).requestGeneration).toBe(first.requestGeneration + 1)
       update('a', [first.previewKey!]); await advance(1000)
       expect(api.reload).toHaveBeenCalledTimes(1)
       a.actions.completeHtmlRefresh(first.id, candidate.file.handleId); await advance(0)
@@ -988,13 +1001,14 @@ describe('automatic file refresh', () => {
       expect(api.reload).not.toHaveBeenCalled()
     })
 
-    it.each(['close', 'cool', 'dispose'] as const)('releases a late candidate after %s', async action => {
+    it.each(['close', 'evict', 'cool', 'dispose'] as const)('releases a late candidate after %s', async action => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a'), first = active(a)
       const candidate = deferred<Awaited<ReturnType<FilePreviewApi['reload']>>>()
       vi.mocked(api.reload).mockReturnValueOnce(candidate.promise)
       update('a', [first.previewKey!]); await advance()
       if (action === 'close') a.actions.close(first.id)
+      else if (action === 'evict') a.evict(first.id)
       else if (action === 'cool') a.cool()
       else owner.dispose()
       candidate.resolve({ ok: true, value: { ...first.file!, handleId: 'late' } })

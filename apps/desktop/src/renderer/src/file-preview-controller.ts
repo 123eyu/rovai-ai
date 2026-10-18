@@ -1161,7 +1161,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
     if (!tab.file && !tab.content) { await reopen(tabId); return }
     const oldFile = tab.file
     const scope = scopeGenerationRef.current
-    const requestGeneration = tab.requestGeneration + 1
+    let requestGeneration = tab.requestGeneration
     refreshVersions.set(tabId, tab.externalUpdateVersion)
     setTabs(tabs => tabs.map(entry => entry.id !== tabId ? entry : { ...tab, requestGeneration, isRefreshing: true, refreshError: null, downloadState: undefined }))
     let candidate: ResolvedFilePreview | null = null
@@ -1204,6 +1204,9 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
         }))
         return
       }
+      // A version-only check must not invalidate reads of the retained content.
+      requestGeneration += 1
+      setTabs(tabs => tabs.map(entry => entry.id !== tabId ? entry : { ...entry, requestGeneration }))
       reservation = candidate.kind === 'html' ? await owner.reserveHtml(session, tabId) : () => undefined
       if (!reservation) throw new Error(uiAttribute('预览资源不足，旧预览已保留。'))
       const reading = current()?.reading ?? tab.reading

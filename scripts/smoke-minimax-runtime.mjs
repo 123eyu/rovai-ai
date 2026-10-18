@@ -5,15 +5,16 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { mkdtemp, mkdir, readFile, writeFile, realpath, access, rm, rename, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
-import { spawn } from 'node:child_process'
+import { isAbsolute, join, relative, resolve } from 'node:path'
+import { execFileSync, spawn } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { parse as parseYaml } from 'yaml'
 import { startQualificationCore, processTable } from './lib/qualification-core.mjs'
 import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 
 const repo = resolve(import.meta.dirname, '..')
-const coreExecutable = resolve(process.env.ROVAI_MINIMAX_CONTROL_CORE_EXECUTABLE ?? join(repo, 'target/debug/rovai-core'))
+const coreExecutable = resolve(process.env.ROVAI_MINIMAX_CONTROL_CORE_EXECUTABLE ?? process.env.ROVAI_QUALIFICATION_CORE_BIN
+  ?? join(repo, 'target', 'debug', process.platform === 'win32' ? 'rovai-core.exe' : 'rovai-core'))
 const native = process.argv[2]
 const filesOnly = process.argv.includes('--files-only')
 const completionOnly = process.argv.includes('--completion-only')
@@ -22,14 +23,19 @@ const fleetOnly = process.argv.includes('--fleet-only')
 const planOnly = process.argv.includes('--plan-only')
 const mcpOnly = process.argv.includes('--mcp-only')
 assert.ok([filesOnly, completionOnly, questionnairesOnly, fleetOnly, planOnly, mcpOnly].filter(Boolean).length <= 1, 'Choose one focused matrix')
-assert.ok(native?.startsWith('/'), 'Pass the absolute installed mcode path')
+assert.ok(native && isAbsolute(native), 'Pass the absolute installed mcode path')
+const nativeScript = process.env.ROVAI_MINIMAX_NATIVE_SCRIPT
+if (nativeScript) assert.ok(isAbsolute(nativeScript), 'Native npm script must be absolute')
 const fixtureArg = process.argv.indexOf('--fixture-root')
 const suppliedRoot = fixtureArg < 0 ? null : process.argv[fixtureArg + 1]
-if (fixtureArg >= 0) assert.ok(suppliedRoot?.startsWith('/'), 'Pass an empty absolute fixture root')
+if (fixtureArg >= 0) assert.ok(suppliedRoot && isAbsolute(suppliedRoot), 'Pass an empty absolute fixture root')
 const root = await realpath(suppliedRoot ?? await mkdtemp(join(tmpdir(), 'rovai-minimax-control-')))
 assert.deepEqual(await readdir(root), [], 'fixture root must be empty')
-const data = join(root, 'core'), project = join(root, 'project'), nativeData = join(root, 'native')
-for (const path of [data, project, nativeData]) await mkdir(path, { mode: 0o700 })
+const data = process.platform === 'win32'
+  ? JSON.parse(execFileSync(coreExecutable, ['--prepare-windows-data-root', join(root, 'formal')], { encoding: 'utf8' })).core
+  : join(root, 'core')
+const project = join(root, 'project'), nativeData = join(root, 'native')
+for (const path of [...(process.platform === 'win32' ? [] : [data]), project, nativeData]) await mkdir(path, { mode: 0o700 })
 console.error(JSON.stringify({ channel: 'automatic acceptance', root, data, skills: join(data, 'managed-skill-library'), mcp: join(data, 'mcp.json'), nativeData }))
 const events = []
 const report = { evidenceKind: 'real-cli-scripted-provider', root, coreExecutable,
@@ -37,7 +43,7 @@ const report = { evidenceKind: 'real-cli-scripted-provider', root, coreExecutabl
 const mcpId = randomUUID(), mcpMarker = join(project, 'mcp-calls.txt')
 let stage = 'setup', step = 0, core, db, threadId
 const filePlans = new Map()
-const quote = value => `'${value.replaceAll("'", "'\\''")}'`
+const quote = value => `'${(process.platform === 'win32' && isAbsolute(value) ? value.replaceAll('\\', '/') : value).replaceAll("'", "'\\''")}'`
 const server = createServer(async (req, res) => {
   try {
     if (req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ object: 'list', data: [{ id: 'rovai-control', object: 'model' }] })); return }
@@ -45,10 +51,13 @@ const server = createServer(async (req, res) => {
     const body = JSON.parse(raw)
     if (!Array.isArray(body.messages)) { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'The fixture implements Chat Completions only' } })); return }
     const system = body.messages.filter(m => ['system', 'developer'].includes(m.role)).map(m => JSON.stringify(m.content)).join('\n')
-    const user = body.messages.filter(m => m.role === 'user').map(m => JSON.stringify(m.content)).join('\n')
+    const user = body.messages.filter(m => m.role === 'user').map(m => typeof m.content === 'string' ? m.content : m.content?.map(c => c.text ?? '').join('\n') ?? '').join('\n')
     const tools = body.tools?.map(t => t.function.name) ?? []
     if (tools.some(name => /^(bash|shell)$/i.test(name))) await new Promise(resolve => setTimeout(resolve, 250))
-    report.requests.push({ stage, step, tools, charterCount: system.split('[SESSION_CHARTER]').length - 1, runInput: user.includes('[RUN_INPUT]'), steerVisible: user.includes('MINIMAX_STEER_TOKEN'), steerImagePath: user.includes(join(project, 'steer.png')), imageBlock: body.messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')), mcpResult: raw.includes('MINIMAX_MCP:verified') })
+    // RUN_INPUT and Steer contain JSON inside the text content. Windows paths
+    // therefore retain JSON escaping after the provider envelope is decoded.
+    const imagePath = join(project, 'steer.png')
+    report.requests.push({ stage, step, tools, charterCount: system.split('[SESSION_CHARTER]').length - 1, runInput: user.includes('[RUN_INPUT]'), steerVisible: user.includes('MINIMAX_STEER_TOKEN'), steerImagePath: user.includes(imagePath) || user.includes(JSON.stringify(imagePath).slice(1, -1)), imageBlock: body.messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')), mcpResult: raw.includes('MINIMAX_MCP:verified') })
     let call = null
     if (stage !== 'setup' && stage !== 'EMPTY_NO_SEND' && tools.some(name => /^(bash|shell)$/i.test(name)) && step++ === 0) {
       const tool = body.tools.find(t => /^(bash|shell)$/i.test(t.function.name))
@@ -59,14 +68,7 @@ const server = createServer(async (req, res) => {
       const output = join(project, `result-${stage}.txt`)
       let command = ['HOLD', 'CANCEL'].includes(stage)
         ? `node ${quote(join(project, 'hold.mjs'))}`
-        : `printf '%s\\n' ${quote(token)} > ${quote(output)}; printf 'CONTROL_STDOUT\\n'; printf 'CONTROL_STDERR\\n' >&2; rovai send --public-only --input-file ${quote(output)}`
-      command = {
-        STDOUT: "printf 'ONLY_STDOUT\\n'",
-        STDERR: "printf 'ONLY_STDERR\\n' >&2",
-        EMPTY: 'true',
-        NONZERO: "printf 'NONZERO_STDOUT\\n'; exit 7",
-        LARGE: `node -e ${quote('process.stdout.write("CONTROL_LARGE_"+"x".repeat(100000))')}`
-      }[stage] ?? command
+        : `node ${quote(join(project, 'output.mjs'))} ${quote(stage)} ${quote(output)} ${quote(token)}`
       call = { id: `call-${stage}`, type: 'function', function: { name: tool.function.name, arguments: JSON.stringify({ [key]: command }) } }
     }
     if (['MCP', 'MCP_CANCEL'].includes(stage) && call) {
@@ -116,9 +118,11 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const env = { ...process.env, MINIMAX_DATA_DIR: nativeData, MAVIS_DATA_DIR: nativeData, ROVAI_MINIMAX_CONTROL_KEY: 'synthetic-local-fixture-key' }
 Object.assign(process.env, env)
 async function command(file, args) {
-  const child = spawn(file, args, { env, cwd: project, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(nativeScript && file === native ? process.execPath : file,
+    nativeScript && file === native ? [nativeScript, ...args] : args,
+    { env, cwd: project, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let output = ''; child.stdout.on('data', b => { output += b }); child.stderr.on('data', b => { output += b })
-  const code = await new Promise(resolve => child.once('close', resolve))
+  const code = await new Promise((resolve, reject) => { child.once('close', resolve); child.once('error', reject) })
   assert.equal(code, 0, output.slice(-2000)); return output
 }
 async function start() {
@@ -158,6 +162,16 @@ try {
   report.version = (await command(native, ['--version'])).trim()
   await command(native, ['provider', 'add', '--name', 'rovai-control', '--base-url', `http://127.0.0.1:${server.address().port}/v1`, '--api-format', 'openai-completions', '--model', 'rovai-control', '--api-key-env', 'ROVAI_MINIMAX_CONTROL_KEY', '--context-limit', '65536', '--output-limit', '4096', '--support-image', '--use'])
   await writeFile(join(project, 'hold.mjs'), "import {access,writeFile} from 'node:fs/promises';await writeFile('hold.ready',String(process.pid));while(true){try{await access('hold.release');break}catch{await new Promise(r=>setTimeout(r,100))}}console.log('HOLD_DONE');\n")
+  // mcode's bash tool uses PowerShell on Windows. Keep the actual output and
+  // publication fixture portable instead of accidentally testing POSIX syntax.
+  await writeFile(join(project, 'output.mjs'), `import {writeFileSync} from 'node:fs';import {spawnSync} from 'node:child_process';
+const [stage,output,token]=process.argv.slice(2);
+if(stage==='STDOUT')console.log('ONLY_STDOUT');
+else if(stage==='STDERR')console.error('ONLY_STDERR');
+else if(stage==='NONZERO'){console.log('NONZERO_STDOUT');process.exitCode=7}
+else if(stage==='LARGE')process.stdout.write('CONTROL_LARGE_'+'x'.repeat(100000));
+else if(stage!=='EMPTY'){writeFileSync(output,token+'\\n');console.log('CONTROL_STDOUT');console.error('CONTROL_STDERR');const result=spawnSync(process.platform==='win32'?'rovai.exe':'rovai',['send','--public-only','--input-file',output],{stdio:'inherit',windowsHide:true});if(result.error)throw result.error;process.exitCode=result.status??1}
+`)
   await writeFile(join(data, 'mcp.json'), JSON.stringify({ mcpServers: { minimax_fixture: { command: process.execPath, args: [join(repo, 'crates/rovai-core/tests/fixtures/mcp-smoke-server.mjs')], env: { ROVAI_MCP_SMOKE_SOURCE: 'MINIMAX_MCP', ROVAI_MCP_SMOKE_CALL_MARKER: mcpMarker,
     ...(mcpOnly ? { ROVAI_MCP_SMOKE_HOLD_READY: join(project, 'mcp-hold.ready'), ROVAI_MCP_SMOKE_HOLD_EFFECT: join(project, 'mcp-late-effect.txt') } : {}) } } }, _rovai: { schemaVersion: 2, servers: { minimax_fixture: { serverId: mcpId, enabled: true, source: 'user', riskLevel: 'standard' } }, assignments: [{ serverId: mcpId, agentId: 'agent_2' }] } }), { mode: 0o600 })
   await start()
@@ -563,7 +577,8 @@ try {
   const history = nativeDb.prepare('SELECT history_relative_dir FROM local_runtime_sessions WHERE session_id=?').get(nativeBinding.native_session_id)
   assert.ok(history?.history_relative_dir)
   const historyRoot = resolve(nativeData, 'v2/sessions', history.history_relative_dir)
-  assert.ok(historyRoot.startsWith(join(nativeData, 'v2/sessions') + '/'))
+  const relativeHistory = relative(resolve(nativeData, 'v2/sessions'), historyRoot)
+  assert.ok(relativeHistory && !relativeHistory.startsWith('..') && !isAbsolute(relativeHistory))
   await rename(historyRoot, join(nativeData, 'removed-fixture-session'))
   assert.equal(nativeDb.prepare('DELETE FROM local_runtime_sessions WHERE session_id=?').run(nativeBinding.native_session_id).changes, 1)
   nativeDb.close()
@@ -586,6 +601,7 @@ finally {
   if (db) { report.runs = runs(); report.usage = db.prepare('SELECT agent_run_id,uncached_input_tokens,cache_read_tokens,cache_write_tokens,output_tokens,usage_quality FROM runtime_usage_run_summary').all(); db.close() }
   if (core) report.exit = await core.stop()
   await new Promise(resolve => server.close(resolve))
+  await writeFile(join(root, 'events.json'), JSON.stringify(events, null, 2))
   await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ root, status: report.status, cases: report.cases, error: report.error }, null, 2))
 }

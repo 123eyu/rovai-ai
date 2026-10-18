@@ -747,9 +747,11 @@ output 与 reasoning。缺失字段与 cost 保持 unknown，不从占用或模�
 Migration 205 将 schema 154 升为 155，只扩展 Runtime 与 Skill group `minimax` 的闭合集合。
 macOS arm64 开放 Preview，保留 `qualification_evidence_missing` 和空 evidence revision。
 macOS x64 按 2026-10-18 User seq43 的验收确认标记 Qualified，绑定独立的
-[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)摘要。Linux x64 按
-[独立目标主机证据](../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)晋升 Qualified；Windows x64
-保持 NotQualified。该确认不增加未记录的目标机测试结果或改变各能力轴的实测范围。
+[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)摘要。Linux x64 与
+Windows x64 分别经独立目标机验证进入 Qualified，各自绑定
+[Linux 证据](../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)和
+[Windows 证据](../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)。
+各平台资格不增加未记录的目标机结果或继承其他平台证据。
 实现和实测边界见[接入对照](../research/minimax-code-runtime/README.md)，
 初始 Preview 取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。
 
@@ -758,6 +760,8 @@ macOS x64 按 2026-10-18 User seq43 的验收确认标记 Qualified，绑定独�
 Host 兼容判断，不成为 Session 恢复资格。Dynamic Context、Steer 与同 Run 恢复继续使用既有准备字节。
 原生系统提示独立于历史，策略为 `native_system_prompt_preserved`；Linux 的手动、自动、checkpoint
 overflow 重试、Core Run 取消及 cold 恢复实测范围由独立准入记录拥有，不外推原生管理命令取消。
+Windows 私有 Bootstrap 目录沿统一 private storage DACL 准备；Skill 的模型可见路径去除无需保留的
+verbatim 前缀，冻结 sourcePath 和 canonical 身份不变。Usage cwd 比较仅规范化等价 Windows 路径。
 
 模型 ID 原样保留 Provider、模型和 variant 的不透明组合，通过 `session/set_config_option` 选择并
 校验 ACK。`thinkingEffort` 只属于原生实际广告的模型；探测某候选失败不抹去可用的目录或原生默认。

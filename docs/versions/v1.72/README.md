@@ -31,7 +31,11 @@ R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前�
 新增 `minimax-code-cli`，复用 ACP Host/Fleet、精确 Session、现有 Bootstrap、Steer、权限、
 Skills/MCP、Built-in CLI 与数值 Usage。macOS arm64 为 Preview；2026-10-18 按 User seq43 的
 [验收确认](../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)将 macOS Intel 提升为
-Qualified，Windows 仍为 NotQualified；Linux x64 按下方目标主机记录晋升 Qualified，无 Fast。本次平台确认未重跑 Intel 模型会话。
+Qualified；本次平台确认未重跑 Intel 模型会话。同日完成 Windows x64 的
+[十四轴/九流程实测](../../research/minimax-code-runtime/windows-qualification-2026-10-18.md)，
+修复私有 Bootstrap ACL、Usage cwd 匹配及 Skill 链接路径，Windows 单独绑定
+[目标机证据](../../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)进入 Qualified。
+Linux x64 按下方独立记录晋升 Qualified；无 Fast。各平台证据不互相外推。
 Migration 205 从 schema 154 升至 **155**，保留业务行、索引、触发器和既有 migration receipts。
 当前行为由[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)拥有；
 [接入矩阵](../../research/minimax-code-runtime/README.md)分别记录脚本模型、真实模型与未验范围，
@@ -45,7 +49,7 @@ Linux 目标主机按维护者要求完成 14 轴验收，见[独立报告](../.
 与[不可变证据](../../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)。覆盖真实 Provider、
 官方 CLI 控制服务、生产 20 Host/30 分钟 TTL、全部 30 个当前 CLI 操作及 Linux 浏览器；各类证据不混算。
 修复纯工具调用和压缩换代的 Usage 漏采，沿用非阻塞、稀疏、部分统计，当前规则为
-[Usage v11](../../contracts/runtime-usage-monitoring-v11.md)。macOS arm64 Preview 与 Windows 未准入保持，
+[Usage v11](../../contracts/runtime-usage-monitoring-v11.md)。macOS arm64 Preview 保持，Windows 的独立资格不由本轮继承，
 Linux Server 三发行版 OS/ABI gate 独立。原生管理命令取消、相同请求重试及 plan/bypass 限制详列报告。
 本项不增加 Migration、模型上下文字节或新的 current_version；当前 Architecture、Contract、兼容性、
 Development Checklist 和文档导航同步，UI/Runtime Activity/Root README 规则不变，无新增高成本取舍决定。

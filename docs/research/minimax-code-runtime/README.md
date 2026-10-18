@@ -24,12 +24,20 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 浏览器分别记账；修复纯工具调用与压缩换代的 Usage 漏采。原生管理命令取消、相同请求重试、部分
 统计与 plan/bypass 的边界均在报告披露，不外推其他平台或所有发行版 Runtime 执行。
 
+## 2026-10-18 Windows x64 完整目标机验证
+
+官方 mcode 0.6.12 在 Windows 10 x64 经真实 sub2api 模型与分开记账的受控 Provider 完成
+十四轴和九个 Golden Flows。修复私有 Bootstrap 目录 ACL、原生 Usage 的 Windows cwd 匹配、
+模型可见 Skill 路径；Windows 行为 Qualified，绑定[独立证据](../../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)。
+30 分钟真实 idle、压缩后能力/取消、当前 29 项 CLI 和打包 App 退出恢复均有记录。
+具体批次、失败纠正和上游限制见[Windows 报告](windows-qualification-2026-10-18.md)，不继承给其他平台。
+
 ## 2026-10-18 macOS Intel 平台验收确认
 
 User seq43 确认将 macOS Intel 标记验收通过，Core 的 `minimax-code-cli × macos-x64` 为 Qualified。
 [独立记录](../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)绑定确认消息与摘要；
 本次没有重跑 Intel 模型会话，也未取得其 CLI 版本或逐项日志。macOS arm64 仍为 Preview，
-当时 Windows/Linux 为 NotQualified；Linux 后续结论见上节。以下历史批次和能力矩阵按各自实际测试范围读取。
+该批次时 Windows/Linux 仍为 NotQualified；两平台后续结论见上方独立记录。以下历史批次和能力矩阵按各自实际测试范围读取。
 
 ## 2026-10-17 问卷取消的产品修复
 

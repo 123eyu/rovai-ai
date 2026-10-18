@@ -7006,13 +7006,13 @@ fn prepare_private_host_config(
         }
         _ => return Ok(None),
     };
-    std::fs::create_dir_all(&root).with_context(|| {
-        format!(
-            "failed to create private ACP Host directory {}",
-            root.display()
-        )
-    })?;
-    restrict_private_directory(&root)?;
+    let root = rovai_core::platform::private_storage::prepare_private_directory(&root)
+        .with_context(|| {
+            format!(
+                "failed to create private ACP Host directory {}",
+                root.display()
+            )
+        })?;
     Ok(Some(PreparedPrivateHostConfig {
         root,
         remove_on_shutdown,
@@ -8123,11 +8123,6 @@ fn restrict_private_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn restrict_private_directory(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
 #[derive(Debug, Clone)]
 pub struct InterceptedAcpActionRequest {
     pub action_id: String,
@@ -9112,6 +9107,59 @@ fn canonicalize_allow_missing(path: &Path) -> Result<PathBuf> {
 #[cfg(all(test, feature = "extended-tests"))]
 mod route_policy_tests {
     use super::*;
+
+    #[test]
+    fn private_host_config_is_scoped_to_profiles_that_require_it() {
+        let root = std::env::temp_dir().join(format!(
+            "rovai-private-host-config-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let kiro_one = prepare_private_host_config(&root, AdapterKind::KiroCli)
+            .unwrap()
+            .unwrap();
+        let kiro_two = prepare_private_host_config(&root, AdapterKind::KiroCli)
+            .unwrap()
+            .unwrap();
+        assert_ne!(kiro_one.root, kiro_two.root);
+        assert!(kiro_one.remove_on_shutdown);
+        assert!(kiro_two.remove_on_shutdown);
+        let cline = prepare_private_host_config(&root, AdapterKind::ClineCli)
+            .unwrap()
+            .unwrap();
+        assert_ne!(cline.root, kiro_one.root);
+        assert!(cline.remove_on_shutdown);
+        let abandoned = cline.root.clone();
+        drop(cline);
+        assert!(!abandoned.exists());
+
+        let minimax = prepare_private_host_config(&root, AdapterKind::MinimaxCodeCli)
+            .unwrap()
+            .unwrap();
+        let prompt = minimax.root.join("system-prompt.txt");
+        write_private_text_file(&prompt, "private bootstrap").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&prompt).unwrap(),
+            "private bootstrap"
+        );
+        assert!(write_private_text_file(&prompt, "unexpected replacement").is_err());
+        let abandoned = minimax.root.clone();
+        drop(minimax);
+        assert!(!abandoned.exists());
+
+        assert!(
+            prepare_private_host_config(&root, AdapterKind::CursorAgent)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            prepare_private_host_config(&root, AdapterKind::KimiCodeCli)
+                .unwrap()
+                .is_none()
+        );
+        assert!(!root.join("home").exists());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn grok_new_and_resume_sessions_use_their_exact_wire_shapes() {
@@ -14895,45 +14943,6 @@ while IFS= read -r ignored; do :; done
                 .to_string()
                 .contains("Built-in Tool Run tmp")
         );
-    }
-
-    #[test]
-    fn private_host_config_is_scoped_to_profiles_that_require_it() {
-        let root = std::env::temp_dir().join(format!(
-            "rovai-private-host-config-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let kiro_one = prepare_private_host_config(&root, AdapterKind::KiroCli)
-            .unwrap()
-            .unwrap();
-        let kiro_two = prepare_private_host_config(&root, AdapterKind::KiroCli)
-            .unwrap()
-            .unwrap();
-        assert_ne!(kiro_one.root, kiro_two.root);
-        assert!(kiro_one.remove_on_shutdown);
-        assert!(kiro_two.remove_on_shutdown);
-        let cline = prepare_private_host_config(&root, AdapterKind::ClineCli)
-            .unwrap()
-            .unwrap();
-        assert_ne!(cline.root, kiro_one.root);
-        assert!(cline.remove_on_shutdown);
-        let abandoned = cline.root.clone();
-        drop(cline);
-        assert!(!abandoned.exists());
-
-        assert!(
-            prepare_private_host_config(&root, AdapterKind::CursorAgent)
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            prepare_private_host_config(&root, AdapterKind::KimiCodeCli)
-                .unwrap()
-                .is_none()
-        );
-        assert!(!root.join("home").exists());
-
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

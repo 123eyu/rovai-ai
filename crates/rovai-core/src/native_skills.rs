@@ -1058,6 +1058,55 @@ mod tests {
         assert_ne!(scan.skills[0].id, scan.skills[1].id);
         assert_eq!(scan.errors.len(), 1);
         assert!(scan.errors[0].contains("broken"));
+
+        // Canonical paths remain identity evidence, while Runtime-facing links
+        // must be usable by native file tools that reject Windows verbatim paths.
+        let selection: crate::current_input_skill::SkillSelectionSnapshot =
+            serde_json::from_value(serde_json::json!({
+                "schemaVersion": 2,
+                "entries": scan.skills.iter().enumerate().map(|(index, skill)| {
+                    serde_json::json!({
+                        "skillId": skill.id, "nameAtSend": skill.name,
+                        "source": "native", "sourcePath": skill.canonical_path,
+                        "firstMessageIndex": 0, "firstSegmentIndex": index,
+                    })
+                }).collect::<Vec<_>>()
+            }))
+            .unwrap();
+        let digest = selection.canonical_digest().unwrap();
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        let claimed = crate::current_input_skill::projected_skill_links_for_claim(
+            &connection,
+            &selection,
+            AdapterKind::MinimaxCodeCli,
+            &project_root,
+        )
+        .unwrap();
+        let resolved = crate::current_input_skill::resolve_current_input_skills(
+            &connection,
+            &selection,
+            &digest,
+            &crate::skill_projection::PreparedSkillExposure {
+                snapshot: crate::skill_projection::SkillExposureSnapshot::default(),
+                digest: String::new(),
+            },
+            AdapterKind::MinimaxCodeCli,
+        )
+        .unwrap();
+        assert_eq!(claimed, resolved.links);
+        assert_eq!(claimed.len(), 2);
+        for (index, skill) in scan.skills.iter().enumerate() {
+            assert_eq!(
+                claimed[index].path,
+                dunce::simplified(Path::new(&skill.canonical_path)).to_string_lossy()
+            );
+            assert_eq!(claimed[index].skill_id.as_deref(), Some(skill.id.as_str()));
+            assert_eq!(
+                resolved.resolution.entries[index].source_path.as_deref(),
+                Some(skill.canonical_path.as_str())
+            );
+        }
+        assert_eq!(selection.canonical_digest().unwrap(), digest);
         fs::remove_dir_all(fixture).unwrap();
     }
 

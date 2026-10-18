@@ -89,14 +89,18 @@ The v1 byte-preserving rule remains for denied rows. `preview` configurations ar
 their runtime/model/permission values still pass the same Adapter schema, Installation and Dispatch validation as qualified rows.
 No fallback Runtime or synthetic default may be created after failure.
 
-## 6. MiniMax Code macOS Intel qualification
+## 6. MiniMax Code qualification
 
 2026-10-18，User seq43 确认将 MiniMax Code 的 macOS Intel 标记验收通过。
 `minimax-code-cli × macos-x64` 因此为 `qualified / reasonCode=null`，绑定独立的
 [维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)及其 SHA-256 revision，
 允许普通 discovery、检查、成员选择和执行。记录保留确认来源，不推断目标主机的 CLI 版本、OS build
 或逐项测试结果；本次没有重跑 Intel 模型会话。普通机器与执行检查继续沿用现有语义。
-macOS arm64 保持 Preview，Windows x64 保持 NotQualified；Linux 后续结论见下一节。能力差异仍由
+同日 Windows x64 经独立目标机验证，`minimax-code-cli × windows-x64` 为
+`qualified / reasonCode=null`，绑定[Windows 0.6.12 记录](../../qualification/runtime-platform/windows-x64-minimax-code-v1.json)
+及其 SHA-256 revision。十四轴、Golden Flows、修复和已接受能力边界见
+[目标机报告](../research/minimax-code-runtime/windows-qualification-2026-10-18.md)。
+macOS arm64 保持 Preview；Linux x64 的独立资格见下一节。能力差异仍由
 [MiniMax 接入记录](../research/minimax-code-runtime/README.md)和兼容性清单分别记录。
 
 ## References

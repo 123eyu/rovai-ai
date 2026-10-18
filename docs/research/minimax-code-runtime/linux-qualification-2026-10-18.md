@@ -14,7 +14,7 @@ last_updated: 2026-10-18
 
 **结论：Linux x64 的 14 个能力轴已按本轮实际边界闭合。** 平台行晋升 Qualified，绑定
 [不可变脱敏记录](../../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)的 SHA-256。
-macOS Intel 的既有确认独立保留，arm64 仍为 Preview，Windows 仍为 NotQualified。
+macOS Intel 的既有确认独立保留，arm64 仍为 Preview；Windows 按同日独立证据 Qualified。
 
 ## 证据边界
 
@@ -45,7 +45,7 @@ Ubuntu 24.04 的 Server smoke 与 Runtime 准入分别记录：本轮 mcode 的�
 | Built-in CLI | 当前 contract v42 / IPC v3 全部 30 个操作、公开与私有上下文、过期及后继 lease | 私有 Run 通过 Single Chat read side 验证，不越过公共 Thread 隐私边界 |
 | Usage / Cache / Cost | first/warm/A-B-A/并发/配置刷新/cold 的 8 个 Run 四桶与原生数值完全一致 | 纯工具调用漏计已修；压缩换代补采修复已通过原生包复测，费用与 reasoning 不补零，短 Run 或取消窗口仍可能缺数 |
 | Retry / Queue / Cancel / Cleanup | 503 原生重试只写一次、拒绝与取消、取消后普通队列只启动一次、Runtime/Core crash、MCP 子进程清理 | 明确的主请求 context rejection 失败退出，不盲目重放已接受输入；协议错误和 Probe timeout 单独记账 |
-| Ready / Version / Platform | 安装入口指纹、真实 ACP、原生默认与动态目录 | 本轮只评估 Linux x64；macOS Intel 既有 Qualified、arm64 Preview、Windows NotQualified 分别保持 |
+| Ready / Version / Platform | 安装入口指纹、真实 ACP、原生默认与动态目录 | 本轮只评估 Linux x64；macOS Intel 既有 Qualified、arm64 Preview 保持，Windows 资格由同日独立记录拥有 |
 
 ## 发现与修复
 

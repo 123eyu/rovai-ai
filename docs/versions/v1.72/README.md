@@ -11,10 +11,11 @@ last_updated: 2026-10-18
 
 # Rovai-ai v1.72：Lark 独立渠道
 
-## 单聊固定事实精简提案（2026-10-18）
+## 单聊固定事实精简（2026-10-18）
 
-按 User 要求调查删除 `RUN_FACTS.singleChat`，完整前后形状、版本兼容和验证计划见
-[R1 提案](model-context-change-single-chat-facts.md)。当前待二次确认，只提交文档，未修改模型输入。
+User 已确认 [R1](model-context-change-single-chat-facts.md)，删除新单聊的 `RUN_FACTS.singleChat`。
+non-batch 使用 Formatter/Manifest 42、Facts 13，Profile 16 保持；Migration 208 / schema 158 保留旧冻结输入。
+当前合同为 [Single Chat v9](../../contracts/single-chat-v9.md)，验证和交付记录追加在 R1。
 同时记录官方 Skill 适用范围、公屏历史按需读取及重复 Guidance 的优化候选；这些候选不进入 R1 实施范围。
 
 ## 会话 Task 能力开关

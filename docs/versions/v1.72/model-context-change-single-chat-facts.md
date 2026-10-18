@@ -3,10 +3,13 @@ document_type: model-context-change
 version: v1.72
 change_id: single-chat-facts
 revision: 1
-confirmation_status: pending
-authority: proposed-model-input-change-statement
+confirmation_status: confirmed
+confirmed_revision: 1
+confirmed_by: User
+confirmed_at: 2026-10-18
+authority: confirmed-model-input-change-statement
 implementation_baseline: 92736d707c9162133a93b7720ae826e7dad90e8a
-implementation_status: not_started
+implementation_status: in_progress
 last_updated: 2026-10-18
 ---
 
@@ -18,9 +21,10 @@ User 在当前 Thread 的 sequence 3（消息 `7d39d211-c9d3-4b16-9888-a01eca836
 “那你删除吧。另外看看单聊那方便还可以优化的”。这授权准备删除方案和继续调查单聊优化。
 上一轮已展示删除对象、字段用途、每轮 235 字节收益与权限/路由不变的结论；当时尚未提供本文件的
 完整版本、迁移与验证说明。本 R1 依照[模型上下文治理](../../development/model-context-change-governance.md)
-等待 User 阅读后的二次确认，不自行填写已确认记录。
+完成确认：User 随后在 sequence 5（消息 `e76e72a0-f68f-4914-ba32-00b0bceaa0fc`）明确回复
+“没问题，先处理这个然后pr到main”，确认实施本 R1；sequence 6 又明确要求“merge”，授权在检查通过后合并。
 
-本轮只修改提案与版本导航。确认 R1 后实施第 1～6 节；第 7 节是额外调查结果，不进入 R1 的实施范围。
+本轮按 R1 实施第 1～6 节；第 7 节是额外调查结果，不进入 R1 的实施范围。
 
 ## 1. 问题与范围
 

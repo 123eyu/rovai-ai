@@ -4849,6 +4849,7 @@ body:has(.composer-image-attachment[data-context-open="true"]) .image-action-not
 .agent-message-outputs { display: grid; width: min(var(--conversation-artifact-width), 100%); gap: 9px; margin-top: 9px; container: agent-outputs / inline-size; }
 .agent-output-images,
 .agent-output-files { display: grid; min-width: 0; }
+.agent-output-files { width: min(620px, 100%); }
 .agent-output-file-grid { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); }
 .agent-output-file-grid .agent-timeline { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .agent-output-file-grid .agent-timeline:last-child { border-bottom: 0; }

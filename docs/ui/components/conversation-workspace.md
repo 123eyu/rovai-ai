@@ -947,7 +947,8 @@ Agent 图片继续共用 `ImageGallery` / `ImageTile` / Lightbox：单张按原�
 普通文件使用集中分类函数，不能在 Composer、用户消息和 Agent 消息分别维护扩展名判断。用户侧只用中性的
 文档、代码、文件夹三类图形，目录与压缩包共用文件夹，未知格式回退文档；文件项高 46px，显示文件名与独立
 格式标签，不显示大小。Agent 文件使用 Web、Code、Notes、PDF、Word、Sheet、Slide、Image、Archive、Generic
-十个主题 token 家族，未知格式回退 Generic；文件列表统一单列，每行 56px，整行点击打开。文件名下显示格式与大小，
+十个主题 token 家族，未知格式回退 Generic；文件列表统一单列，宽度上限与文件变更卡一致为 620px，窄容器内随可用宽度收缩。
+每行 56px，整行点击打开。文件名下显示格式与大小，
 目录仍显示文件数量与大小；卡片不显示独立预览或下载按钮。`previewKind`
 不是图片的 image MIME/扩展名对象进入 Agent 文件区的 Image 家族。
 

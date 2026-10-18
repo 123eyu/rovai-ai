@@ -11,6 +11,12 @@ last_updated: 2026-10-18
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 单聊固定事实精简提案（2026-10-18）
+
+按 User 要求调查删除 `RUN_FACTS.singleChat`，完整前后形状、版本兼容和验证计划见
+[R1 提案](model-context-change-single-chat-facts.md)。当前待二次确认，只提交文档，未修改模型输入。
+同时记录官方 Skill 适用范围、公屏历史按需读取及重复 Guidance 的优化候选；这些候选不进入 R1 实施范围。
+
 ## 会话 Task 能力开关
 
 R4 已按 User 确认在独立 worktree 实施。范围、完整模型输入前后对照、兼容和 worktree 记录见

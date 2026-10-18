@@ -1056,7 +1056,7 @@ impl AgentRuntimeAdapterRegistry {
             ),
             AdapterKind::MinimaxCodeCli => native_skill_discovery(
                 [SkillDeliveryGroupKey::Minimax],
-                SkillDiscoveryVerification::DocumentationOnly,
+                SkillDiscoveryVerification::Verified,
             ),
             AdapterKind::KimiCodeCli => native_skill_discovery(
                 [SkillDeliveryGroupKey::Kimi],
@@ -5418,6 +5418,11 @@ mod tests {
                 SkillDiscoveryVerification::DocumentationOnly,
             ),
             (
+                AdapterKind::MinimaxCodeCli,
+                &[SkillDeliveryGroupKey::Minimax],
+                SkillDiscoveryVerification::Verified,
+            ),
+            (
                 AdapterKind::KimiCodeCli,
                 &[SkillDeliveryGroupKey::Kimi],
                 SkillDiscoveryVerification::Verified,
@@ -5465,6 +5470,7 @@ mod tests {
             AdapterKind::QwenCode,
             AdapterKind::TraeCnCli,
             AdapterKind::KimiCodeCli,
+            AdapterKind::MinimaxCodeCli,
             AdapterKind::GrokBuild,
             AdapterKind::DeepseekHarness,
         ] {

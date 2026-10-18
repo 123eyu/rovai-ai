@@ -40,6 +40,7 @@ const events = [], requests = []
 const ownedServers = [], forbiddenPromptSecrets = [upstreamKey]
 const report = { schemaVersion: 1, evidenceKind: 'real-linux-mcode-real-provider-production-core', phase,
   fixture, coreExecutable, coreSha256: createHash('sha256').update(await readFile(coreExecutable)).digest('hex'),
+  harnessSha256: digestNative(await readFile(new URL(import.meta.url))),
   nativeVersion, nativeExecutable, nativeSha256: digestNative(await readFile(nativeExecutable)),
   provider: 'native mcode custom_provider', model: 'gpt-6.1-sol',
   dataDirectory: data, skillLibraryRoot: join(data, 'managed-skill-library'), mcpConfigPath: join(data, 'mcp.json'),
@@ -71,7 +72,8 @@ const broker = createServer(async (request, response) => {
     const record = { index: requests.length, stage, route, model: body.model, bodyBytes: raw.length,
       highPriorityDigest: digest(system), charterCount: system.split('[SESSION_CHARTER]').length - 1,
       aPresent: raw.includes(Buffer.from(markerA)), bPresent: raw.includes(Buffer.from(markerB)),
-      checkpoint: system.includes('loss-aware checkpoint') || (phase === 'compaction' && (body.tools?.length ?? 0) === 0),
+      checkpoint: system.includes('loss-aware checkpoint') || (phase === 'compaction'
+        && ((body.tools?.length ?? 0) === 0 || ['compact-failed', 'compact-cancelled', 'compact-checkpoint-overflow'].includes(stage))),
       sessionTitle: body.tools?.length === 1 && (body.tools[0].name ?? body.tools[0].function?.name) === 'submit_session_title',
       tools: (body.tools ?? []).map(tool => tool.name ?? tool.function?.name).filter(Boolean), usage: [] }
     requests.push(record)
@@ -483,10 +485,17 @@ function nativeControl(bootstrap) {
     },
     notify(method, params) { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n') },
     async stop() {
+      const descendants = descendantsOf(await processTable(), child.pid)
       child.stdin.end()
       const timer = setTimeout(() => child.kill('SIGKILL'), 5000)
       await closed; clearTimeout(timer)
       for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(new Error('Native control stopped')) }
+      await pause(500)
+      const live = new Set((await processTable()).map(process => process.pid))
+      const remaining = descendants.filter(pid => live.has(pid))
+      report.nativeControlCleanup = { observedDescendants: descendants.length, remaining: remaining.length }
+      for (const pid of remaining) { try { process.kill(pid, 'SIGKILL') } catch { /* Already gone. */ } }
+      assert.deepEqual(remaining, [], 'Native control shutdown must reap its descendants')
       return child.exitCode
     }
   }
@@ -547,9 +556,11 @@ async function qualifyCompaction() {
     stage = 'compact-checkpoint-overflow'; fault = { kind: 'overflow', checkpointOnly: true, remaining: 1 }
     report.manualCompact = await compact(); fault = null
     const recovered = await nativeHistory(sessionId)
-    assert.ok(recovered.generation > generation, 'Compaction must recover from one typed checkpoint overflow')
+    assert.equal(recovered.generation, generation + 1, 'Compaction must recover and commit exactly once')
     const attempts = requests.filter(value => value.stage === stage)
     assert.ok(attempts.some(value => value.injectedFault === 'overflow') && attempts.some(value => value.status === 200))
+    assert.ok(attempts.find(value => value.status === 200).bodyBytes < attempts.find(value => value.injectedFault === 'overflow').bodyBytes,
+      'Native overflow recovery must reduce its checkpoint request')
     await passed('manual compaction retries a smaller checkpoint after a controlled Provider overflow and commits once', { beforeGeneration: generation, afterGeneration: recovered.generation, requestCount: attempts.length })
   } finally { fault = null; await control.stop() }
   stage = 'compact-cold'; await startCore()
@@ -732,8 +743,10 @@ process.on('SIGTERM',()=>{child.kill('SIGTERM');process.exit(0)});
   const beforeProbe = new Set(descendantsOf(await processTable(), core.pid))
   const probe = await request('runtime.product.check', { runtimeKind: 'minimax-code-cli' }, 120_000)
   report.probeTimeout = probe
-  const installation = (await request('runtime.installations.list')).find(value => value.adapterKind === 'minimax-code-cli')
-  assert.notEqual(installation.snapshot.probeStatus, 'ready', 'A hung actual version probe must not advertise Ready')
+  // Retained installations can include an older healthy executable. The check
+  // result owns readiness of the newly selected startup program.
+  assert.equal(probe.completed, true)
+  assert.equal(probe.ready, false, 'A hung actual version probe must not advertise Ready')
   await pause(1000)
   assert.ok(descendantsOf(await processTable(), core.pid).every(pid => beforeProbe.has(pid)), 'The hung probe must leave no new child')
   await writeFile(modeFile, '')

@@ -4,8 +4,9 @@ import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync, spawnSync, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { mkdir, readFile, readdir, realpath, writeFile, cp, lstat, unlink } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, writeFile, cp, rm, chmod } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -31,6 +32,8 @@ const upstreamBase = provider.options.baseURL.replace(/\/$/, '')
 assert.equal(provider.api, 'openai-responses')
 const syntheticKeyA = 'qualification-a-' + randomUUID(), syntheticKeyB = 'qualification-b-' + randomUUID()
 const markerA = 'LINUX_A_' + randomUUID(), markerB = 'LINUX_B_' + randomUUID()
+const compactionSkillMarker = 'COMPACT_SKILL_' + randomUUID()
+const userSkillMarker = 'USER_SKILL_' + randomUUID()
 const nativeExecutable = process.env.ROVAI_MINIMAX_CODE_BIN ?? '/home/rovai-test/.local/bin/mcode'
 const nativeVersion = execFileSync(nativeExecutable, ['--version'], { encoding: 'utf8' }).trim()
 const events = [], requests = []
@@ -55,15 +58,24 @@ const broker = createServer(async (request, response) => {
     assert.ok(forbiddenPromptSecrets.every(secret => !raw.includes(Buffer.from(secret))), 'A provider/MCP credential entered a model request')
     const route = request.url.startsWith('/b/') ? 'b' : 'a'
     assert.equal(request.headers.authorization, 'Bearer ' + (route === 'b' ? syntheticKeyB : syntheticKeyA))
+    const suffix = request.url.replace(/^\/[ab]\/v1/, '')
+    assert.ok(['/responses', '/responses/input_tokens'].includes(suffix))
+    // Native token-count probes are separate from generation and fault injection.
+    if (suffix === '/responses/input_tokens') {
+      const counted = await fetch(upstreamBase + suffix, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + upstreamKey }, body: raw })
+      response.writeHead(counted.status, { 'Content-Type': counted.headers.get('content-type') ?? 'application/json' })
+      response.end(Buffer.from(await counted.arrayBuffer())); return
+    }
     const system = [body.instructions, ...(body.input ?? []).filter(value => ['system', 'developer'].includes(value.role)).map(value => JSON.stringify(value.content))].filter(Boolean).join('\n')
     const record = { index: requests.length, stage, route, model: body.model, bodyBytes: raw.length,
       highPriorityDigest: digest(system), charterCount: system.split('[SESSION_CHARTER]').length - 1,
       aPresent: raw.includes(Buffer.from(markerA)), bPresent: raw.includes(Buffer.from(markerB)),
-      checkpoint: system.includes('loss-aware checkpoint'),
+      checkpoint: system.includes('loss-aware checkpoint') || (phase === 'compaction' && (body.tools?.length ?? 0) === 0),
       sessionTitle: body.tools?.length === 1 && (body.tools[0].name ?? body.tools[0].function?.name) === 'submit_session_title',
       tools: (body.tools ?? []).map(tool => tool.name ?? tool.function?.name).filter(Boolean), usage: [] }
     requests.push(record)
-    if (fault && (!fault.checkpointOnly || record.checkpoint)) {
+    if (fault && !record.sessionTitle && (!fault.checkpointOnly || record.checkpoint)) {
       const activeFault = fault
       if (activeFault.remaining !== Infinity && --activeFault.remaining <= 0) fault = null
       record.injectedFault = activeFault.kind
@@ -80,8 +92,6 @@ const broker = createServer(async (request, response) => {
     }
     controller = new AbortController()
     response.once('close', () => { if (!response.writableEnded) { record.clientDisconnected = true; controller.abort() } })
-    const suffix = request.url.replace(/^\/[ab]\/v1/, '')
-    assert.equal(suffix, '/responses')
     const upstream = await fetch(upstreamBase + suffix, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + upstreamKey }, body: raw,
       signal: controller.signal })
@@ -149,8 +159,12 @@ async function turn(threadId, text, options = {}) {
   let nativeBefore = []
   const previousBinding = binding(threadId, options.agentId ?? 'agent_2')
   if (previousBinding?.native_session_id) nativeBefore = (await nativeHistory(previousBinding.native_session_id)).usage
+  const content = composerDocumentForAddress({ mode: 'explicit', agentIds: [options.agentId ?? 'agent_2'] }, text)
+  content.segments.splice(1, 0, ...(options.skills ?? []).flatMap(skill => [
+    { kind: 'atom', atom: { type: 'skill', skillId: skill.id, nameAtSend: skill.name } }, { kind: 'text', text: ' ' }
+  ]))
   const sent = await request('thread.messages.send', { commandId: randomUUID(), threadId,
-    content: composerDocumentForAddress({ mode: 'explicit', agentIds: [options.agentId ?? 'agent_2'] }, text),
+    content,
     sourceAttachments: [], quotes: [], replyToThreadMessageId: null,
     execution: { taskId: null, purpose: 'Linux MiniMax Code runtime qualification', completionRole: 'required' } })
   assert.equal(sent.commandResult?.status, 'accepted', JSON.stringify(sent))
@@ -240,26 +254,33 @@ console.log('LINUX_CLI_SCRIPT_OK');
   assert.notEqual(expired.status, 0, 'The completed Run lease must reject')
   assert.ok(JSON.parse(expired.stdout).error)
   await passed('29 public-context CLI operations and expired Run lease rejection', { run: publicRun.run.id, invocations: results.length })
+  const privateSeed = 'PRIVATE_HISTORY_SEED_' + randomUUID()
   const privateScript = join(project, 'verify-private-cli.mjs'), privateResult = join(project, 'private-cli-result.json')
-  await writeFile(privateScript, `import {spawnSync} from 'node:child_process';import {writeFileSync} from 'node:fs';import assert from 'node:assert/strict';const r=spawnSync(process.env.ROVAI_AGENT_CLI,['single-chat','history'],{input:'{}',encoding:'utf8',timeout:10000});const value=JSON.parse(r.stdout);writeFileSync(${JSON.stringify(privateResult)},JSON.stringify({status:r.status,value}));assert.equal(r.status,0);assert.ok(!value.error);console.log('PRIVATE_CLI_OK');`, { mode: 0o600 })
+  await writeFile(privateScript, `import {spawnSync} from 'node:child_process';import {writeFileSync} from 'node:fs';import assert from 'node:assert/strict';const r=spawnSync(process.env.ROVAI_AGENT_CLI,['single-chat','history'],{input:'{}',encoding:'utf8',timeout:10000});const value=JSON.parse(r.stdout);writeFileSync(${JSON.stringify(privateResult)},JSON.stringify({status:r.status,value}));assert.equal(r.status,0);assert.ok(!value.error);assert.ok(value.messages.some(message=>message.body?.includes(${JSON.stringify(privateSeed)})));console.log('PRIVATE_CLI_OK');`, { mode: 0o600 })
   const opened = await command('singleChat.open', { threadId, agentId: 'agent_2' })
   const conversationId = opened.payload.conversationId
-  const before = await request('singleChat.get', { conversationId })
-  const ids = new Set(threadRuns(threadId).map(run => run.id))
-  stage = 'cli-single-chat'
-  const sent = await command('singleChat.send', { threadId, conversationId,
-    body: `Execute exactly node ${JSON.stringify(privateScript)}. Do not publish to the public Thread. Finish with PRIVATE_CLI_OK.`, draftRevision: before.draft.revision })
-  assert.ok(['applied', 'accepted'].includes(sent.status))
-  let privateRun
-  const deadline = Date.now() + 240_000
-  while (Date.now() < deadline) {
-    privateRun = threadRuns(threadId).find(run => !ids.has(run.id))
-    if (privateRun && ['succeeded', 'failed', 'cancelled'].includes(privateRun.status)) break
-    await pause(200)
+  const sendPrivate = async body => {
+    const before = await request('singleChat.get', { conversationId })
+    const ids = new Set(before.agentRuns.map(run => run.id))
+    const sent = await command('singleChat.send', { threadId, conversationId, body, draftRevision: before.draft.revision })
+    assert.ok(['applied', 'accepted'].includes(sent.status))
+    const deadline = Date.now() + 240_000
+    let snapshot, run
+    while (Date.now() < deadline) {
+      snapshot = await request('singleChat.get', { conversationId })
+      run = snapshot.agentRuns.find(value => !ids.has(value.id))
+      if (run && ['succeeded', 'failed', 'cancelled'].includes(run.status)) break
+      await pause(200)
+    }
+    assert.equal(run?.status, 'succeeded', JSON.stringify(run))
+    return { run, snapshot }
   }
-  assert.equal(privateRun?.status, 'succeeded', JSON.stringify(privateRun))
+  stage = 'cli-single-chat-seed'
+  await sendPrivate(`Remember ${privateSeed} only in this private conversation. Finish with PRIVATE_SEED_OK. Do not publish to a public Thread.`)
+  stage = 'cli-single-chat'
+  const { run: privateRun, snapshot: privateSnapshot } = await sendPrivate(`Execute exactly node ${JSON.stringify(privateScript)}. Do not publish to the public Thread. Finish with PRIVATE_CLI_OK.`)
   assert.equal(JSON.parse(await readFile(privateResult, 'utf8')).status, 0)
-  const privateEvidence = await request('agentRunEvidence.list', { threadId, agentRunId: privateRun.id, afterSequence: 0, limit: 1000 })
+  const privateEvidence = { evidence: privateSnapshot.executionEvidence.filter(entry => entry.agentRunId === privateRun.id) }
   const catalogSource = await readFile(resolve(import.meta.dirname, '../crates/rovai-core/src/builtin_tool_transport.rs'), 'utf8')
   const identities = catalogSource.match(/pub const BUILTIN_TOOL_CLI_IDENTITIES:[\s\S]*?= \[([\s\S]*?)\n\];/)[1]
   const expected = [...identities.matchAll(/operation: "([^"]+)"/g)].map(value => value[1]).sort()
@@ -318,97 +339,100 @@ async function qualifyCapabilities() {
   const httpServerId = createdHttp.config.servers.find(server => server.name === 'linux_http').serverId
   await mutateMcp('mcp.servers.setEnabled', { serverId: httpServerId, enabled: true })
   await mutateMcp('mcp.assignments.set', { serverId: httpServerId, agentId: 'agent_2', assigned: true })
-  const skillSource = join(fixture, 'linux-managed-qualification'), nativeSkill = join(project, '.agents/skills/linux-native-qualification')
-  await mkdir(skillSource); await mkdir(nativeSkill, { recursive: true })
-  const nativeMarker = 'NATIVE_SKILL_' + randomUUID(), skillV1 = 'MANAGED_V1_' + randomUUID(), skillV2 = 'MANAGED_V2_' + randomUUID()
-  await writeFile(join(nativeSkill, 'SKILL.md'), `---\nname: linux-native-qualification\ndescription: Native project qualification skill.\n---\nWhen invoked, report ${nativeMarker}.\n`)
-  let skill
-  const importSkill = async marker => {
-    await writeFile(join(skillSource, 'SKILL.md'), `---\nname: linux-managed-qualification\ndescription: Managed Linux qualification skill.\n---\nWhen invoked, report ${marker}.\n`)
-    const inspection = await request('skills.import.inspect', { path: skillSource })
-    assert.equal(inspection.candidates.length, 1)
-    const candidate = inspection.candidates[0]
-    await command('skills.import.commit', { stagingToken: inspection.stagingToken, candidateName: candidate.name,
-      expectedDigest: candidate.contentDigest, expectedSkillVersion: candidate.existingSkillVersion, confirmUpdate: !!skill })
-    skill = (await request('skills.list')).find(value => value.name === 'linux-managed-qualification')
-    assert.ok(skill)
-    await command('skills.setGroupAssignments', { skillId: skill.id, expectedVersion: skill.version, groupKeys: ['minimax'] })
-    skill = await request('skills.get', { skillId: skill.id })
-  }
-  await importSkill(skillV1)
+  const nativeSkill = join(project, '.agents/skills/linux-native-qualification')
+  await mkdir(nativeSkill, { recursive: true })
+  const nativeMarker = 'NATIVE_SKILL_' + randomUUID(), updatedMarker = 'UPDATED_SKILL_' + randomUUID()
+  const saveProjectSkill = marker => writeFile(join(nativeSkill, 'SKILL.md'), `---\nname: linux-native-qualification\ndescription: Native project qualification skill.\n---\nWhen invoked, report ${marker}.\n`)
+  await saveProjectSkill(nativeMarker)
   const thread = await createThread('Linux capability lifecycle')
-  const probe = async (name, text) => { stage = name; return turn(thread, text + ' Publish actual results through exactly one bundled public-only send and finish with a nonempty final. Never fabricate tool results.') }
-  const first = await probe('capabilities-first', 'Use native skill discovery to invoke linux-managed-qualification and linux-native-qualification. Actually call the echo tool from linux_qualification, native_unique, and linux_http once each with text fresh_first. Do not substitute shell/file access for MCP.')
+  const probe = async (name, text, options = {}) => { stage = name; return turn(thread, text + ' Publish actual results through exactly one bundled public-only send and finish with a nonempty final. Never fabricate tool results.', options) }
+  const additional = runId => {
+    const row = db.prepare('SELECT blob.sha256,blob.storage_relative_path FROM context_manifest AS context JOIN managed_blob AS blob ON blob.id=context.rendered_payload_blob_id WHERE context.agent_run_id=? ORDER BY context.created_at LIMIT 1').get(runId)
+    assert.ok(row && /^[a-f0-9]{64}$/.test(row.sha256))
+    const path = resolve(data, 'managed-blobs', row.storage_relative_path)
+    assert.ok(path.startsWith(join(data, 'managed-blobs') + '/'))
+    const bytes = readFileSync(path); assert.equal(digest(bytes), row.sha256)
+    const text = bytes.toString('utf8'), start = text.indexOf('[ROVAI_ADDITIONAL_SKILLS]')
+    assert.ok(start >= 0)
+    const section = text.slice(start, text.indexOf('[/ROVAI_ADDITIONAL_SKILLS]', start))
+    const index = JSON.parse(section.split('\n').find(line => line.startsWith('{"root":')))
+    return index.skills.map(skill => skill.name)
+  }
+  const setToolbox = async (name, enabled) => {
+    const row = (await request('toolbox.list')).find(skill => skill.name === name)
+    assert.ok(row)
+    const ids = row.memberIds.filter(id => id !== 'agent_2')
+    if (enabled) ids.push('agent_2')
+    await command('toolbox.setMembers', { skillName: name, memberIds: ids, expectedVersion: row.version })
+  }
+  const candidates = await request('skills.candidates', { threadId: thread, refresh: true })
+  const selectedNative = candidates.skills.find(skill => skill.name === 'linux-native-qualification' && skill.entryPath === join(nativeSkill, 'SKILL.md'))
+  assert.ok(selectedNative?.id.startsWith('native:'))
+  const first = await probe('capabilities-first', 'Invoke linux-native-qualification through native skill discovery. Read cli-operations and memory-stewardship SKILL.md from the platform index root and member-studio SKILL.md from the Additional Skills root; report their YAML names without executing their workflows. Actually call the echo tool from linux_qualification, native_unique, and linux_http once each with text fresh_first. Do not substitute shell/file access for MCP.', { skills: [selectedNative] })
   const firstText = publicText(first)
-  for (const marker of [skillV1, nativeMarker, 'ROVAI_ASSIGNED_V1:fresh_first', 'NATIVE_UNIQUE:fresh_first', 'HTTP_ACTUAL:fresh_first']) assert.ok(firstText.includes(marker), firstText)
+  for (const marker of [nativeMarker, 'ROVAI_ASSIGNED_V1:fresh_first', 'NATIVE_UNIQUE:fresh_first', 'HTTP_ACTUAL:fresh_first']) assert.ok(firstText.includes(marker), firstText)
+  for (const name of ['cli-operations', 'memory-stewardship', 'member-studio']) assert.ok(firstText.includes(name))
   assert.ok(!firstText.includes('NATIVE_CONFLICT:'))
-  const exposure = first.snapshot.contextManifests.find(value => value.agentRunId === first.run.id)?.skillExposure
-  assert.ok(exposure?.skills.some(value => value.skillId === skill.id && value.status === 'ready'))
-  await passed('native Skill invocation and assigned/native MCP append with whole-definition RovaiWins', { run: first.run.id, binding: first.binding, skillExposure: exposure })
-  await importSkill(skillV2)
+  assert.ok(additional(first.run.id).includes('member-studio'))
+  assert.ok(first.events.some(event => event.method === 'runtime.action' && JSON.stringify(event.params.payload?.input).includes('member-studio')))
+  await passed('actual native Skill invocation, platform/toolbox file loading, and assigned/native stdio plus HTTP MCP', { run: first.run.id, binding: first.binding, nativeSkillId: selectedNative.id, additional: additional(first.run.id) })
+  await saveProjectSkill(updatedMarker)
+  await setToolbox('member-studio', false); await setToolbox('review-duo', true)
   await mutateMcp('mcp.servers.update', { serverId, definitionJson: JSON.stringify({ mcpServers: { linux_qualification: definition('ROVAI_ASSIGNED_V2') } }) })
-  const updated = await probe('capabilities-update', 'Invoke linux-managed-qualification afresh and call linux_qualification echo with text fresh_updated. Return current actual results, not earlier memory.')
-  assert.ok(publicText(updated).includes(skillV2)); assert.ok(!publicText(updated).includes(skillV1))
+  const updated = await probe('capabilities-update', 'Invoke linux-native-qualification afresh and read review-duo SKILL.md from the current Additional Skills root, reporting its YAML name without executing its workflow. Call linux_qualification echo with text fresh_updated. Return current actual results, not earlier memory.')
+  assert.ok(publicText(updated).includes(updatedMarker)); assert.ok(!publicText(updated).includes(nativeMarker))
   assert.ok(publicText(updated).includes('ROVAI_ASSIGNED_V2:fresh_updated'))
+  assert.deepEqual(additional(updated.run.id), ['review-duo'])
   assert.deepEqual(updated.binding, first.binding)
-  await passed('managed Skill revision and MCP definition update take effect while exact native Session continues', { run: updated.run.id, binding: updated.binding })
-  skill = await request('skills.get', { skillId: skill.id })
-  await command('skills.setEnabled', { skillId: skill.id, expectedVersion: skill.version, enabled: false })
+  await passed('next Run reads the updated native Skill, current per-member toolbox and updated MCP definition', { run: updated.run.id, binding: updated.binding })
+  await setToolbox('review-duo', false)
   await mutateMcp('mcp.assignments.set', { serverId, agentId: 'agent_2', assigned: false })
-  const absent = await probe('capabilities-disabled', 'Call linux_qualification echo with text fresh_unassigned. Use native skill discovery to check which qualification Skills are currently available; invoke only linux-native-qualification. Do not read previously saved skill paths or claim a disabled Skill was invoked.')
+  const absent = await probe('capabilities-disabled', 'Call linux_qualification echo with text fresh_unassigned and invoke linux-native-qualification. The current Additional Skills index replaces old indexes: report its current names, without reopening disabled toolbox guides.')
   assert.ok(publicText(absent).includes('NATIVE_CONFLICT:fresh_unassigned'))
-  const disabledExposure = absent.snapshot.contextManifests.find(value => value.agentRunId === absent.run.id)?.skillExposure
-  assert.ok(!disabledExposure.skills.some(value => value.skillId === skill.id && value.status === 'ready'))
-  assert.ok(!publicText(absent).includes(skillV1) && !publicText(absent).includes(skillV2))
-  await passed('disabled Skill is absent and unassigned MCP restores its native same-name definition', { run: absent.run.id })
+  assert.deepEqual(additional(absent.run.id), [])
+  await passed('disabled per-member toolbox stays absent and unassigned MCP restores its native same-name definition', { run: absent.run.id })
   const profile = await request('members.get', { agentId: 'agent_1' })
-  const memberTwo = await command('members.runtime.set', { agentId: 'agent_1', expectedVersion: profile.version,
-    adapterKind: 'minimax-code-cli', ...report.installation.defaults })
-  assert.equal(memberTwo.status, 'applied')
+  await command('members.runtime.set', { agentId: 'agent_1', expectedVersion: profile.version, adapterKind: 'minimax-code-cli', ...report.installation.defaults })
   const adjacent = await createThread('Linux capability adjacent', ['agent_1'])
   stage = 'capabilities-adjacent'
   const neighbor = await turn(adjacent, 'Actually call linux_qualification echo with text adjacent. Return its result through one public-only send, then finish normally.', { agentId: 'agent_1' })
-  assert.ok(publicText(neighbor).includes('NATIVE_CONFLICT:adjacent'))
-  assert.ok(!publicText(neighbor).includes('ROVAI_ASSIGNED'))
-  await passed('unassigned adjacent member has only its native MCP definition and no projected tool leak', { run: neighbor.run.id })
+  assert.ok(publicText(neighbor).includes('NATIVE_CONFLICT:adjacent') && !publicText(neighbor).includes('ROVAI_ASSIGNED'))
+  assert.ok(additional(neighbor.run.id).includes('member-studio'))
+  await passed('adjacent member keeps its own toolbox and native MCP instead of another member assignment', { run: neighbor.run.id })
   await mutateMcp('mcp.assignments.set', { serverId, agentId: 'agent_2', assigned: true })
   const reassigned = await probe('capabilities-reassigned', 'Actually call linux_qualification echo with text reassigned and return its current result.')
   assert.ok(publicText(reassigned).includes('ROVAI_ASSIGNED_V2:reassigned'))
-  skill = await request('skills.get', { skillId: skill.id })
-  await command('skills.delete', { skillId: skill.id, expectedVersion: skill.version })
   await mutateMcp('mcp.servers.delete', { serverId })
-  const deleted = await probe('capabilities-deleted', 'Actually call linux_qualification echo with text deleted and return its current result. List current qualification Skills without reading old paths.')
+  const deleted = await probe('capabilities-deleted', 'Actually call linux_qualification echo with text deleted and return its current result.')
   assert.ok(publicText(deleted).includes('NATIVE_CONFLICT:deleted'))
-  assert.ok(!(await request('skills.list')).some(value => value.id === skill.id))
   await passed('MCP reassignment and deletion restore the current native capability without session drift', { run: deleted.run.id })
-  await importSkill(skillV2)
-  const eligible = await probe('skill-collision-baseline', 'Invoke linux-managed-qualification afresh and return its current verification value.')
-  const projected = eligible.snapshot.contextManifests.find(value => value.agentRunId === eligible.run.id).skillExposure.skills.find(value => value.skillId === skill.id && value.status === 'ready')
-  assert.ok(projected?.entryPath && projected.entryPath.startsWith(project + '/'))
-  assert.ok((await lstat(projected.entryPath)).isSymbolicLink())
-  assert.ok((await realpath(projected.entryPath)).startsWith(report.skillLibraryRoot + '/'))
-  await unlink(projected.entryPath); await mkdir(projected.entryPath)
-  const conflictMarker = 'PROJECT_CONFLICT_' + randomUUID()
-  await writeFile(join(projected.entryPath, 'SKILL.md'), `---\nname: linux-managed-qualification\ndescription: Project-owned conflict fixture.\n---\nReport ${conflictMarker}.\n`)
-  await command('skills.reconcile', {})
-  const issues = await request('skills.projections.listIssues')
-  assert.ok(issues.some(issue => issue.skillId === skill.id && issue.entryPath === projected.entryPath && issue.state === 'shadowed'))
-  const conflict = await probe('skill-native-name-conflict', 'Invoke linux-managed-qualification afresh using native discovery. Return its actual current result, never the old cached marker.')
-  assert.ok(publicText(conflict).includes(conflictMarker) && !publicText(conflict).includes(skillV2))
-  skill = await request('skills.get', { skillId: skill.id })
-  await command('skills.setGroupAssignments', { skillId: skill.id, expectedVersion: skill.version, groupKeys: [] })
-  await command('skills.reconcile', {})
-  assert.ok((await readFile(join(projected.entryPath, 'SKILL.md'), 'utf8')).includes(conflictMarker))
-  await passed('same-name project Skill wins, is reported shadowed, and survives managed group removal', { run: conflict.run.id })
+  const duplicate = join(project, '.minimax/skills/linux-native-qualification')
+  await mkdir(duplicate, { recursive: true })
+  const duplicateMarker = 'OTHER_SOURCE_' + randomUUID()
+  await writeFile(join(duplicate, 'SKILL.md'), `---\nname: linux-native-qualification\ndescription: Same-name different-source qualification.\n---\nReport ${duplicateMarker}.\n`)
+  const duplicateCandidates = (await request('skills.candidates', { threadId: thread, refresh: true })).skills.filter(skill => skill.name === selectedNative.name)
+  assert.equal(duplicateCandidates.length, 2); assert.equal(new Set(duplicateCandidates.map(skill => skill.id)).size, 2)
+  const exact = await probe('skill-same-name', 'Read only the exact Skill file linked in this message and publish its verification value. Do not resolve another same-name file by tool name.', { skills: [selectedNative] })
+  assert.ok(publicText(exact).includes(updatedMarker) && !publicText(exact).includes(duplicateMarker))
+  const resolution = runId => JSON.parse(db.prepare('SELECT current_input_skill_resolution_json FROM context_manifest WHERE agent_run_id=?').get(runId).current_input_skill_resolution_json)
+  assert.ok(resolution(exact.run.id).entries.some(entry => entry.skillId === selectedNative.id && entry.outcome === 'available' && entry.sourcePath === join(nativeSkill, 'SKILL.md')))
+  await rm(join(nativeSkill, 'SKILL.md'))
+  const missing = await probe('skill-source-deleted', 'The exact selected native Skill file was removed. Do not use another same-name source, old cached content, shell or file discovery. Publish SKILL_SOURCE_MISSING and finish.', { skills: [selectedNative] })
+  assert.ok(resolution(missing.run.id).entries.some(entry => entry.skillId === selectedNative.id && entry.outcome === 'unavailable' && entry.reason === 'source_missing'))
+  assert.ok(!publicText(missing).includes(duplicateMarker))
+  await passed('same-name native Skills keep distinct identities and a deleted selected source does not rebind', { run: missing.run.id, sources: duplicateCandidates.map(skill => skill.id) })
+  await saveProjectSkill(updatedMarker)
   await core.stop(); core = null; await startCore()
-  const cold = await probe('capabilities-cold', 'Invoke linux-native-qualification and call linux_http echo with text after_cold. Return both actual results.')
-  assert.ok(publicText(cold).includes(nativeMarker) && publicText(cold).includes('HTTP_ACTUAL:after_cold'))
-  assert.deepEqual(cold.binding, first.binding)
+  const cold = await probe('capabilities-cold', 'Read the original .agents/skills/linux-native-qualification/SKILL.md file and call linux_http echo with text after_cold. Return both actual results.')
+  assert.ok(publicText(cold).includes(updatedMarker) && publicText(cold).includes('HTTP_ACTUAL:after_cold'))
+  assert.deepEqual(cold.binding, first.binding); assert.deepEqual(additional(cold.run.id), [])
   assert.ok(!(await readFile(join(native, 'mcp.json'), 'utf8')).includes(httpSecret))
   assert.equal(httpCalls.filter(call => call.text === 'fresh_first').length, 1)
   assert.equal(httpCalls.filter(call => call.text === 'after_cold').length, 1)
   report.httpMcp = { actualCalls: httpCalls, secretInNativeGlobalConfig: false, secretInModelRequests: false }
-  await passed('authenticated HTTP MCP and native project Skill survive exact cold resume without global secret writes', { run: cold.run.id })
+  assert.deepEqual(first.snapshot.contextManifests.find(value => value.agentRunId === first.run.id).skillExposure.skills, [])
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM skill_projection_observation').get().n, 0)
+  await passed('authenticated HTTP MCP, native source and disabled toolbox persist across exact cold resume without legacy project projections', { run: cold.run.id })
   report.mcpCalls = (await readFile(callMarker, 'utf8')).trim().split('\n').length
 }
 async function nativeHistory(sessionId) {
@@ -420,7 +444,15 @@ async function nativeHistory(sessionId) {
   const rows = (await readFile(join(directory, 'messages.jsonl'), 'utf8')).split('\n').filter(Boolean).map(JSON.parse)
   const summaries = rows.filter(row => row.message?.role === 'compactionSummary').map(row => ({ messageId: row.message_id,
     tokensBefore: row.message.tokensBefore, generation: row.history_artifact?.generation }))
-  const usage = rows.filter(row => row.message?.role === 'assistant' && ['stop', 'toolUse', 'length'].includes(row.message.stopReason))
+  const snapshots = join(directory, 'snapshots')
+  let archived = []
+  try {
+    for (const name of (await readdir(snapshots)).filter(name => /^g\d{12}--ctx_[\da-f-]+\.jsonl$/.test(name))) {
+      archived.push(...(await readFile(join(snapshots, name), 'utf8')).split('\n').filter(Boolean).map(JSON.parse))
+    }
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const unique = new Map([...archived, ...rows].map(row => [row.message_id, row]))
+  const usage = [...unique.values()].filter(row => row.message?.role === 'assistant' && row.message.usage && ['stop', 'toolUse', 'length'].includes(row.message.stopReason))
     .map(row => ({ messageId: row.message_id, turnId: row.turn_id, ...row.message.usage }))
   return { sessionId, directory, count: rows.length, generation: Math.max(0, ...rows.map(row => row.history_artifact?.generation ?? 0)), summaries, usage }
 }
@@ -462,7 +494,8 @@ function nativeControl(bootstrap) {
 async function qualifyCompaction() {
   const thread = await createThread('Linux compaction continuity')
   stage = 'compact-baseline'
-  const baseline = await turn(thread, `Remember the private phrase ${markerA} throughout compaction. Publish COMPACT_BASELINE_OK using one public-only bundled send, then finish with a nonempty final.`)
+  const baseline = await turn(thread, `Remember the private phrase ${markerA} throughout compaction. Invoke linux-compact-qualification Skill and call compact_fixture echo with text baseline. Publish their actual results and COMPACT_BASELINE_OK using one public-only bundled send, then finish with a nonempty final.`)
+  assert.ok(publicText(baseline).includes(compactionSkillMarker) && publicText(baseline).includes('COMPACT_MCP:baseline'))
   const sessionId = baseline.binding.native_session_id
   const initial = await nativeHistory(sessionId)
   for (let round = 0; round < 5; round++) {
@@ -477,16 +510,18 @@ async function qualifyCompaction() {
   }
   assert.ok(report.automaticCompaction.current.generation > initial.generation, 'Native threshold compaction must actually commit')
   await passed('real native automatic threshold compaction commits history without changing the Core binding', report.automaticCompaction)
-  const children = await nativeChildren()
-  let bootstrapPath
-  for (const pid of children) {
-    const argv = (await readFile(`/proc/${pid}/cmdline`, 'utf8')).split('\0')
-    const at = argv.indexOf('--append-system-prompt-file')
-    if (at >= 0) bootstrapPath = argv[at + 1]
-  }
-  assert.ok(bootstrapPath)
+  stage = 'compact-after-auto'
+  const afterAuto = await turn(thread, 'Invoke linux-compact-qualification Skill and actually call compact_fixture echo with text after_auto. Publish both actual results and your original private phrase using one public-only send, then finish normally.')
+  assert.ok(publicText(afterAuto).includes(compactionSkillMarker) && publicText(afterAuto).includes('COMPACT_MCP:after_auto') && publicText(afterAuto).includes(markerA))
+  assert.deepEqual(afterAuto.binding, baseline.binding)
+  await passed('automatic compaction preserves actual Skill, assigned MCP, permission configuration and private memory', { run: afterAuto.run.id })
+  // mcode changes its process title, so /proc argv no longer exposes its flags.
+  // Copy the exact Core-written Bootstrap while its sole formal Host is alive.
+  const bootstraps = (await readdir(fixture, { recursive: true }))
+    .filter(path => path.endsWith('/system-prompt.txt')).map(path => join(fixture, path))
+  assert.equal(bootstraps.length, 1)
   const savedBootstrap = join(fixture, 'native-control-bootstrap.md')
-  await cp(bootstrapPath, savedBootstrap)
+  await cp(bootstraps[0], savedBootstrap)
   await core.stop(); core = null
   const control = nativeControl(savedBootstrap)
   try {
@@ -518,8 +553,11 @@ async function qualifyCompaction() {
     await passed('manual compaction retries a smaller checkpoint after a controlled Provider overflow and commits once', { beforeGeneration: generation, afterGeneration: recovered.generation, requestCount: attempts.length })
   } finally { fault = null; await control.stop() }
   stage = 'compact-cold'; await startCore()
-  const cold = await turn(thread, 'Without reading files/history, publish the original private phrase you remember followed by COMPACTION_COLD_OK using one public-only send. Finish normally.')
+  const cold = await turn(thread, 'Without reading history or memory files, recall the original private phrase. Invoke linux-compact-qualification Skill and actually call compact_fixture echo with text after_cold. Publish those actual results, the phrase and COMPACTION_COLD_OK using one public-only send. Finish normally.')
   assert.deepEqual(cold.binding, baseline.binding); assert.ok(publicText(cold).includes(markerA))
+  assert.ok(publicText(cold).includes(compactionSkillMarker) && publicText(cold).includes('COMPACT_MCP:after_cold'))
+  assert.equal(db.prepare('SELECT runtime_permission_config_json FROM agent_run WHERE id=?').get(cold.run.id).runtime_permission_config_json,
+    db.prepare('SELECT runtime_permission_config_json FROM agent_run WHERE id=?').get(baseline.run.id).runtime_permission_config_json)
   const main = requests.filter(value => value.stage !== 'setup' && !value.checkpoint && !value.sessionTitle)
   assert.ok(main.every(value => value.charterCount === 1))
   assert.equal(new Set(main.map(value => value.highPriorityDigest)).size, 1)
@@ -544,8 +582,17 @@ async function qualifyFailures() {
   const invalid = await request('members.runtime.set', { commandId: randomUUID(), command: { agentId: 'agent_2', expectedVersion: beforeInvalid.version,
     adapterKind: 'minimax-code-cli', model: { mode: 'explicit', modelId: nativeModel.id, options: { thinkingEffort: 'definitely-invalid' } },
     permissions: beforeInvalid.runtimeConfiguration.permissions } })
-  assert.equal(invalid.status, 'rejected')
-  await passed('native opaque model selection is acknowledged without Session drift and unsupported model options reject', { run: explicit.run.id, modelId: nativeModel.id })
+  assert.equal(invalid.status, 'applied', 'Saved configuration preserves exact intent; the live Host owns dynamic validation')
+  stage = 'invalid-live-option'
+  const invalidRun = await turn(thread, 'Publish INVALID_MODEL_OPTION_MUST_NOT_APPEAR.', { allowFailure: true })
+  assert.equal(invalidRun.run.status, 'failed')
+  assert.equal(invalidRun.run.last_error_code, 'runtime_model_option_unknown')
+  assert.equal(requests.filter(value => value.stage === stage && !value.sessionTitle).length, 0)
+  const restoreModel = await request('members.get', { agentId: 'agent_2' })
+  await command('members.runtime.set', { agentId: 'agent_2', expectedVersion: restoreModel.version,
+    adapterKind: 'minimax-code-cli', model: { mode: 'explicit', modelId: nativeModel.id, options: {} },
+    permissions: restoreModel.runtimeConfiguration.permissions })
+  await passed('native opaque model selection is acknowledged and the live Host rejects unsupported options before generation', { run: explicit.run.id, rejectedRun: invalidRun.run.id, modelId: nativeModel.id })
   stage = 'transient-retry'; fault = { kind: 'transient', remaining: 1 }
   const retried = await turn(thread, 'Append exactly one line ONCE to retry-effect.txt using a native tool. Publish RETRY_ONCE_OK via one public-only send and finish normally.', { timeout: 360_000 })
   assert.equal(await readFile(join(project, 'retry-effect.txt'), 'utf8'), 'ONCE\n')
@@ -558,7 +605,7 @@ async function qualifyFailures() {
   fault = null
   assert.equal(rejected.run.status, 'failed')
   assert.ok(!publicText(rejected).includes('OVERFLOW_MUST_NOT_APPEAR'))
-  const overflowCalls = requests.filter(value => value.stage === stage)
+  const overflowCalls = requests.filter(value => value.stage === stage && !value.sessionTitle)
   assert.equal(overflowCalls.length, 1, 'A deterministic main request overflow must not blindly replay accepted input')
   await passed('a deterministic main-request context rejection fails closed without input replay', { run: rejected.run.id,
     upstreamDifference: '0.6.12 does not automatically compact and replay a rejected main generation; checkpoint overflow is separately tested' })
@@ -571,15 +618,16 @@ async function qualifyFailures() {
     permissions: { ...profile.runtimeConfiguration.permissions, values: { permission_mode: 'default', mode: 'default' } } })
   let approvalCount = 0
   stage = 'real-approval-deny'
-  const denied = await turn(thread, 'Use native bash once to run: printf FORBIDDEN > native-denied.txt. This is an isolated permission test: if execution is denied, do not retry or use another tool. Report denial through one public-only send and finish normally.', {
+  const denied = await turn(thread, `Use native bash once to run exactly: node -e 'require("node:fs").writeFileSync("native-denied.txt","FORBIDDEN")'. This is an isolated permission test: if execution is denied, do not retry or use another tool. Report denial through one public-only send and finish normally.`, {
     onTick: async () => {
       const snapshot = await request('camps.snapshot', { threadId: thread })
       for (const approval of snapshot.approvals.filter(value => value.status === 'pending')) {
-        const option = approval.options.find(value => value.kind === 'deny')
+        const target = JSON.stringify(approval).includes('native-denied.txt')
+        const option = approval.options.find(value => value.kind === (target ? 'deny' : 'allow_once'))
         assert.ok(option)
         const resolved = await request('action.approvals.resolve', { commandId: randomUUID(), threadId: thread,
           approvalId: approval.id, expectedVersion: approval.version, optionId: option.optionId, reason: 'Isolated native deny qualification' })
-        assert.notEqual(resolved.status, 'rejected'); approvalCount++
+        assert.notEqual(resolved.status, 'rejected'); if (target) approvalCount++
       }
     }
   })
@@ -588,7 +636,7 @@ async function qualifyFailures() {
   await passed('the real model crosses native deny approval and leaves zero requested file effects', { run: denied.run.id, approvalCount })
   let cancelled = false
   stage = 'real-approval-cancel'
-  const cancel = await turn(thread, 'Run native bash: sleep 3; printf FORBIDDEN > approval-cancelled.txt. Do not use an alternative tool or retry if cancelled.', { allowFailure: true,
+  const cancel = await turn(thread, `Run native bash exactly: node -e 'setTimeout(()=>require("node:fs").writeFileSync("approval-cancelled.txt","FORBIDDEN"),3000)'. Do not use an alternative tool or retry if cancelled.`, { allowFailure: true,
     onTick: async run => {
       if (cancelled) return
       const snapshot = await request('camps.snapshot', { threadId: thread })
@@ -605,15 +653,44 @@ async function qualifyFailures() {
   const current = await request('members.get', { agentId: 'agent_2' })
   await command('members.runtime.set', { agentId: 'agent_2', expectedVersion: current.version,
     adapterKind: 'minimax-code-cli', model: current.runtimeConfiguration.model, permissions: report.installation.defaults.permissions })
+  const beforeQueue = new Set(threadRuns(thread).map(run => run.id))
+  let queueReleased = false
+  stage = 'queue-after-cancel'; fault = { kind: 'hold', remaining: 1 }
+  const held = await turn(thread, 'Wait for the held provider response. Do not publish anything yet.', { allowFailure: true,
+    onTick: async run => {
+      if (queueReleased || !requests.some(value => value.stage === stage && value.injectedFault === 'hold')) return
+      const sent = await request('thread.messages.send', { commandId: randomUUID(), threadId: thread,
+        content: composerDocumentForAddress({ mode: 'explicit', agentIds: ['agent_2'] }, 'Publish QUEUE_FOLLOWUP_OK once with the bundled public-only send and finish normally.'),
+        sourceAttachments: [], quotes: [], replyToThreadMessageId: null, deliveryMode: 'start',
+        execution: { taskId: null, purpose: 'Queued follow-up qualification', completionRole: 'required' } })
+      assert.equal(sent.commandResult.status, 'accepted')
+      const version = db.prepare('SELECT version FROM agent_run WHERE id=?').get(run.id).version
+      await command('agentRuns.cancel', { threadId: thread, agentRunId: run.id, expectedVersion: version })
+      queueReleased = true
+    }
+  })
+  assert.equal(held.run.status, 'cancelled'); fault = null
+  const queueDeadline = Date.now() + 240_000
+  let queued
+  while (Date.now() < queueDeadline) {
+    queued = threadRuns(thread).find(run => !beforeQueue.has(run.id) && run.id !== held.run.id)
+    if (queued && ['succeeded', 'failed', 'cancelled'].includes(queued.status)) break
+    await pause(200)
+  }
+  assert.equal(queued?.status, 'succeeded', JSON.stringify(queued))
+  const queueSnapshot = await request('camps.snapshot', { threadId: thread })
+  const queueMessages = queueSnapshot.messages.filter(message => message.sourceAgentRunId === queued.id && message.body.includes('QUEUE_FOLLOWUP_OK'))
+  assert.equal(queueMessages.length, 1)
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM runtime_input_delivery WHERE agent_run_id=? AND status='accepted'").get(queued.id).n, 1)
+  await passed('an ordinary input queued behind a cancelled Run starts once and receives one native accepted delivery', { cancelledRun: held.run.id, queuedRun: queued.id })
   stage = 'runtime-crash'; fault = { kind: 'hold', remaining: 1 }
   let killed = false
   const crashed = await turn(thread, 'Publish CRASH_MUST_NOT_APPEAR using one public-only send.', { allowFailure: true,
     onTick: async () => {
       if (killed || !requests.some(value => value.stage === stage && value.injectedFault === 'hold')) return
-      for (const pid of await nativeChildren()) {
-        const argv = await readFile(`/proc/${pid}/cmdline`, 'utf8')
-        if (argv.includes('mcode') || argv.includes('@minimax-ai/code')) { process.kill(pid, 'SIGKILL'); killed = true }
-      }
+      const pids = await nativeChildren()
+      assert.equal(pids.length, 1, 'The isolated failure phase has one native Host')
+      process.kill(pids[0], 'SIGKILL'); killed = true
     }
   })
   fault = null; assert.ok(killed); assert.equal(crashed.run.status, 'failed')
@@ -623,11 +700,65 @@ async function qualifyFailures() {
   assert.ok(publicText(recovered).includes('AFTER_NATIVE_CRASH_OK'))
   assert.deepEqual(recovered.binding, baseline.binding)
   await passed('a native Host crash fails its accepted Run and the next Run recovers the exact original Session', { failedRun: crashed.run.id, recoveredRun: recovered.run.id, binding: recovered.binding })
+  const wrapper = join(fixture, 'native-fault-wrapper.mjs'), modeFile = join(fixture, 'native-fault-mode')
+  await writeFile(wrapper, `#!/usr/bin/env node
+import {spawn} from 'node:child_process';import {readFileSync,writeFileSync} from 'node:fs';import {createInterface} from 'node:readline';
+const mode=()=>{try{return readFileSync(${JSON.stringify(modeFile)},'utf8')}catch{return ''}};
+const args=process.argv.slice(2),run=args.includes('--append-system-prompt-file');
+const child=spawn(${JSON.stringify(nativeExecutable)},args,{stdio:['pipe','pipe','pipe'],env:process.env});
+process.stdin.pipe(child.stdin);child.stderr.pipe(process.stderr);
+if(args.includes('--version')&&mode()==='probe-hold'){
+ child.stdout.resume();setInterval(()=>{},1000);
+}else{
+ createInterface({input:child.stdout}).on('line',line=>{if(run&&mode()==='malformed'){let value;try{value=JSON.parse(line)}catch{}if(value?.id!=null&&value.result){writeFileSync(${JSON.stringify(modeFile)},'');process.stdout.write('{malformed-native-frame\\n');return}}process.stdout.write(line+'\\n')});
+ child.once('close',code=>process.exit(code??1));
+}
+process.on('SIGTERM',()=>{child.kill('SIGTERM');process.exit(0)});
+`, { mode: 0o700 })
+  await chmod(wrapper, 0o700)
+  let startup = await request('runtime.startup.get', { runtimeKind: 'minimax-code-cli' })
+  await request('runtime.startup.save', { runtimeKind: 'minimax-code-cli', expectedRevision: startup.revision, configuration: { programPath: wrapper, environment: [] } })
+  await request('runtime.modelCatalog.open', { runtimeKind: 'minimax-code-cli', waitForRefresh: true }, 90_000)
+  const protocolThread = await createThread('Linux malformed native protocol')
+  stage = 'protocol-malformed'; await writeFile(modeFile, 'malformed')
+  const malformed = await turn(protocolThread, 'Publish MALFORMED_MUST_NOT_APPEAR using one public-only send.', { allowFailure: true, timeout: 120_000 })
+  assert.equal(malformed.run.status, 'failed'); assert.ok(!publicText(malformed).includes('MALFORMED_MUST_NOT_APPEAR'))
+  assert.equal(requests.filter(value => value.stage === stage && !value.sessionTitle).length, 0)
+  stage = 'after-protocol-error'; await writeFile(modeFile, '')
+  const protocolRecovered = await turn(protocolThread, 'Publish AFTER_PROTOCOL_ERROR_OK with one public-only send and finish normally.')
+  assert.ok(publicText(protocolRecovered).includes('AFTER_PROTOCOL_ERROR_OK'))
+  await passed('a corrupted actual native ACP frame fails before model dispatch and a clean successor recovers', { failedRun: malformed.run.id, errorCode: malformed.run.last_error_code, recoveredRun: protocolRecovered.run.id })
+  stage = 'probe-timeout'; await writeFile(modeFile, 'probe-hold')
+  const beforeProbe = new Set(descendantsOf(await processTable(), core.pid))
+  const probe = await request('runtime.product.check', { runtimeKind: 'minimax-code-cli' }, 120_000)
+  report.probeTimeout = probe
+  const installation = (await request('runtime.installations.list')).find(value => value.adapterKind === 'minimax-code-cli')
+  assert.notEqual(installation.snapshot.probeStatus, 'ready', 'A hung actual version probe must not advertise Ready')
+  await pause(1000)
+  assert.ok(descendantsOf(await processTable(), core.pid).every(pid => beforeProbe.has(pid)), 'The hung probe must leave no new child')
+  await writeFile(modeFile, '')
+  startup = await request('runtime.startup.get', { runtimeKind: 'minimax-code-cli' })
+  await request('runtime.startup.save', { runtimeKind: 'minimax-code-cli', expectedRevision: startup.revision, configuration: { programPath: nativeExecutable, environment: [] } })
+  await passed('a delayed actual CLI version result times out, clears Ready and reaps its probe process')
 }
 try {
   console.error(JSON.stringify({ channel: 'automatic_acceptance', phase, fixture, data, skills: report.skillLibraryRoot, mcp: report.mcpConfigPath, native }))
   await saveNative()
   await writeFile(join(project, 'existing.txt'), 'before\nkeep\n')
+  if (phase === 'basics') {
+    const path = join(native, 'skills/linux-user-qualification')
+    await mkdir(path, { recursive: true })
+    await writeFile(join(path, 'SKILL.md'), `---\nname: linux-user-qualification\ndescription: Isolated native user-source qualification.\n---\nReport ${userSkillMarker}.\n`)
+  }
+  if (phase === 'compaction') {
+    const path = join(project, '.agents/skills/linux-compact-qualification')
+    await mkdir(path, { recursive: true })
+    await writeFile(join(path, 'SKILL.md'), `---\nname: linux-compact-qualification\ndescription: Compaction continuity qualification.\n---\nReport ${compactionSkillMarker}.\n`)
+    const id = randomUUID()
+    await writeFile(join(data, 'mcp.json'), JSON.stringify({ mcpServers: { compact_fixture: {
+      command: process.execPath, args: [resolve(import.meta.dirname, '../crates/rovai-core/tests/fixtures/mcp-smoke-server.mjs')], env: { ROVAI_MCP_SMOKE_SOURCE: 'COMPACT_MCP' }
+    } }, _rovai: { schemaVersion: 2, servers: { compact_fixture: { serverId: id, enabled: true, source: 'user', riskLevel: 'standard' } }, assignments: [{ serverId: id, agentId: 'agent_2' }] } }), { mode: 0o600 })
+  }
   await startCore()
   db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
   const startup = await request('runtime.startup.get', { runtimeKind: 'minimax-code-cli' })
@@ -653,13 +784,18 @@ try {
     await qualifyFailures()
   } else {
   assert.equal(phase, 'basics', 'This phase is not implemented yet')
+  const userSkills = await request('nativeSkills.list', { adapterKind: 'minimax-code-cli', refresh: true })
+  const userSkill = userSkills.skills.find(skill => skill.name === 'linux-user-qualification')
+  assert.equal(userSkill?.entryPath, join(native, 'skills/linux-user-qualification/SKILL.md'))
+  await passed('native user-source discovery respects the executing Host MINIMAX_DATA_DIR', { skillId: userSkill.id })
   const threadA = await createThread('Linux mcode A')
   report.threadA = threadA
   stage = 'first-run'
-  const first = await turn(threadA, `Remember ${markerA} privately for later turns. Use native read on existing.txt, native write to create 新增 文件.txt with one line added-linux followed by a newline, and native edit to replace before with after in existing.txt. Preserve all newlines and keep. Run printf LINUX_COMMAND_OK. Then publish LINUX_FIRST_OK with exactly one bundled rovai send --public-only call. End with a short nonempty final. Do not ask questions.`)
+  const first = await turn(threadA, `Remember ${markerA} privately for later turns. Invoke linux-user-qualification through native skill discovery. Use native read on existing.txt, native write to create 新增 文件.txt with one line added-linux followed by a newline, and native edit to replace before with after in existing.txt. Preserve all newlines and keep. Run printf LINUX_COMMAND_OK. Then publish the actual Skill verification value and LINUX_FIRST_OK with exactly one bundled rovai send --public-only call. End with a short nonempty final. Do not ask questions.`)
   assert.equal(await readFile(join(project, 'existing.txt'), 'utf8'), 'after\nkeep\n')
   assert.equal(await readFile(join(project, '新增 文件.txt'), 'utf8'), 'added-linux\n')
   assert.ok(publicText(first).includes('LINUX_FIRST_OK'))
+  assert.ok(publicText(first).includes(userSkillMarker))
   assert.ok(first.binding?.native_session_id)
   report.firstBinding = first.binding
   report.fileCards = first.snapshot.agentRunFileChanges.filter(card => card.agentRunId === first.run.id)
@@ -734,14 +870,20 @@ try {
       })
       return { runId: turn.runId, stage: turn.stage, comparisons, unreportedCostRemainsUnknown: actual?.cost_amount_decimal == null && actual?.cost_currency == null }
     })
+    if (report.status === 'passed' && ['basics', 'compaction'].includes(phase)
+      && report.usageReconciliation.some(row => !row.unreportedCostRemainsUnknown || row.comparisons.some(value => !value.matches))) {
+      report.status = 'failed'; report.error = 'Native root-agent numeric Usage does not reconcile with Core'
+    }
   }
+  let databaseContainsProviderKey = false
   for (const name of ['rovai.sqlite', 'rovai.sqlite-wal']) {
     try {
       const bytes = await readFile(join(data, name))
-      assert.ok(!bytes.includes(Buffer.from(upstreamKey)) && !bytes.includes(Buffer.from(syntheticKeyA)) && !bytes.includes(Buffer.from(syntheticKeyB)), 'Provider credential entered Core storage')
+      databaseContainsProviderKey ||= [upstreamKey, syntheticKeyA, syntheticKeyB].some(key => bytes.includes(Buffer.from(key)))
     } catch (error) { if (error.code !== 'ENOENT') { report.status = 'failed'; report.error = String(error) } }
   }
-  report.secretScan = { coreDatabaseContainsProviderKey: false, reportContainsUpstreamKey: JSON.stringify(report).includes(upstreamKey) }
+  report.secretScan = { coreDatabaseContainsProviderKey: databaseContainsProviderKey, reportContainsUpstreamKey: JSON.stringify(report).includes(upstreamKey) }
+  if (databaseContainsProviderKey) { report.status = 'failed'; report.error = 'Provider credential entered Core storage' }
   if (report.secretScan.reportContainsUpstreamKey) { report.status = 'failed'; report.error = 'Upstream credential entered private report'; throw new Error(report.error) }
   db?.close()
   for (const server of ownedServers) { server.closeAllConnections(); await new Promise(resolveClose => server.close(resolveClose)) }

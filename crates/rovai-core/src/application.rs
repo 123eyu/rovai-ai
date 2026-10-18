@@ -4086,28 +4086,56 @@ impl Core {
         let Some((expected_id, expected_version)) = expected else {
             return Ok(false);
         };
-        let mut database = self.database.lock().await;
         let service = AgentProfileService::default();
-        let Some(installation) = service.managed_installation(&database, kind, "default")? else {
-            return Ok(false);
-        };
-        if installation.id != *expected_id || installation.version != *expected_version {
-            return Ok(false);
-        }
         // A timed-out worker never reaches its normal post-probe identity check.
         // Without unchanged recorded file evidence, keep the error on its request only.
-        let Some((fingerprint, identity)) = service.recorded_executable_identity(
-            &database,
-            &installation.id,
-            &installation.executable_path,
-        )?
-        else {
-            return Ok(false);
+        let (installation, recorded_identity) = {
+            let database = self.database.lock().await;
+            let Some(installation) = service.managed_installation(&database, kind, "default")?
+            else {
+                return Ok(false);
+            };
+            if installation.id != *expected_id || installation.version != *expected_version {
+                return Ok(false);
+            }
+            let Some(recorded_identity) = service.recorded_executable_identity(
+                &database,
+                &installation.id,
+                &installation.executable_path,
+            )?
+            else {
+                return Ok(false);
+            };
+            (installation, recorded_identity)
         };
-        if observe_executable_file_identity(Path::new(&installation.executable_path))
-            .ok()
-            .as_ref()
-            != Some(&identity)
+        // Windows shim observation also reads and hashes dependencies. Keep this
+        // file work off the async executor and outside the global database lock.
+        let executable_path = installation.executable_path.clone();
+        let observed = tokio::task::spawn_blocking(move || {
+            observe_executable_file_identity(Path::new(&executable_path)).ok()
+        })
+        .await
+        .context("Runtime supervisor file identity worker failed")?;
+        if observed.as_ref() != Some(&recorded_identity.1) {
+            return Ok(false);
+        }
+        let mut database = self.database.lock().await;
+        let target_is_current: bool = database.connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM adapter_installation
+             WHERE id = ?1 AND version = ?2 AND adapter_kind = ?3
+               AND auth_scope = 'default' AND installation_class = 'managed_default')",
+            rusqlite::params![expected_id, expected_version, kind.as_str()],
+            |row| row.get(0),
+        )?;
+        if !target_is_current
+            || service
+                .recorded_executable_identity(
+                    &database,
+                    expected_id,
+                    &installation.executable_path,
+                )?
+                .as_ref()
+                != Some(&recorded_identity)
         {
             return Ok(false);
         }
@@ -4117,7 +4145,7 @@ impl Core {
                 adapter_kind: kind,
                 auth_scope: "default",
                 candidate_path: &installation.executable_path,
-                fingerprint: Some(&fingerprint),
+                fingerprint: Some(&recorded_identity.0),
                 source: Some(installation.source),
                 failure_class: "transient",
                 diagnostic_code,

@@ -1846,14 +1846,14 @@ impl AgentProfileService {
         }
 
         let transaction = database.connection_mut().transaction()?;
-        // Before any health snapshot, reuse static file evidence. An existing
-        // health fingerprint must still fence preservation of its old capabilities.
+        // Static discovery may already have recorded an upgrade while the old
+        // health snapshot remains stale. Only the current installation advances.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
                        installation.generation, installation.version,
-                       COALESCE(snapshot.executable_fingerprint, identity.executable_fingerprint),
+                       COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint),
                        locator.compatibility_fingerprint
                 FROM adapter_installation AS installation
                 LEFT JOIN runtime_executable_identity AS identity
@@ -2287,20 +2287,21 @@ impl AgentProfileService {
             observe_executable_file_identity(Path::new(&discovered.executable_path)).ok();
 
         let transaction = database.connection_mut().transaction()?;
-        // Before any health snapshot, reuse static file evidence. An existing
-        // health fingerprint must still fence preservation of its old capabilities.
+        // Installation changes and preservation of health evidence have separate
+        // fingerprints: static discovery can advance only the former.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
-                       COALESCE(snapshot.executable_fingerprint, identity.executable_fingerprint), snapshot.probe_status,
+                       COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint), snapshot.probe_status,
                        snapshot.permission_schema_version,
                        snapshot.permission_schema_digest,
                        snapshot.permission_options_json,
                        snapshot.model_catalog_json,
                        snapshot.last_successful_probe_at,
                        locator.compatibility_fingerprint,
-                       COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at)
+                       COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at),
+                       snapshot.executable_fingerprint
                 FROM adapter_installation AS installation
                 LEFT JOIN runtime_executable_identity AS identity
                   ON identity.installation_id = installation.id
@@ -2327,6 +2328,7 @@ impl AgentProfileService {
                         row.get::<_, Option<String>>(8)?,
                         row.get::<_, Option<String>>(9)?,
                         row.get::<_, Option<String>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
                     ))
                 },
             )
@@ -2353,12 +2355,15 @@ impl AgentProfileService {
             last_successful_probe_at,
             locator_fingerprint,
             catalog_succeeded_at,
+            snapshot_fingerprint,
         )) = existing
         {
             let identity_changed =
                 path != discovered.executable_path || fingerprint.as_deref() != next_fingerprint;
             let compatibility_changed =
                 identity_changed || locator_fingerprint.as_deref() != next_locator_fingerprint;
+            let snapshot_compatibility_changed =
+                compatibility_changed || snapshot_fingerprint.as_deref() != next_fingerprint;
             transaction.execute(
                 if compatibility_changed {
                     r#"
@@ -2407,13 +2412,13 @@ impl AgentProfileService {
                     }
                     _ => false,
                 };
-            let preserve_existing = !compatibility_changed
+            let preserve_existing = !snapshot_compatibility_changed
                 && (schema_matches || normalize_legacy_trae_schema)
                 && (probe_status.as_deref() == Some("ready")
                     || (probe_status.as_deref() == Some("light_ready")
                         && discovered.snapshot.probe_status == "light_failed"
                         && executable_is_usable));
-            let retained_lkg = compatibility_changed
+            let retained_lkg = snapshot_compatibility_changed
                 .then(|| {
                     let models_json = model_catalog_json?;
                     let last_successful_probe_at = last_successful_probe_at?;

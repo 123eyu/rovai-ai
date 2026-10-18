@@ -2877,3 +2877,43 @@ Codex 子进程错误分类 owner、前端 12 文件 123 项、两项 Composer �
 - 最终 `pnpm test:rust:pr`：默认 workspace **474 通过、0 失败、1 项既有忽略**；定向 15 项均基于最后的
   managed 指纹读取修正重跑通过。文档单测 **10 项通过**，普通／带 base 的治理检查、Rust 格式及差异检查通过。
   本次没有新增默认层 Rust owner，也未关闭、放宽或跳过既有测试。
+
+### 旧健康快照与 Supervisor 锁范围收口（2026-10-18）
+
+基于 `4e2670fe0` 只补两处已有后端分支，前端与发现流程保持；没有新增表、迁移、后台服务、缓存、
+代次、可变 attempt 或检查管理器。
+
+- managed 成功／静态快照写入依据当前 executable identity、路径和 locator 判断安装变化。
+  健康快照指纹另外约束旧 Ready／能力的保留及 LKG 降级。F1 健康快照保留期间已经静态发现 F2，
+  诊断 F2 补写快照不再把安装 version 从 2 推进到 3，也不把 F1 的 Ready 留给 F2。
+  既有相同目标合并、失败归属保护、未知目标保守排队规则不变。
+- Supervisor 在数据库锁内读取原目标与文件身份，释放锁后用既有 blocking worker 检查文件，
+  再拿锁以条件查询复核 ID／version 和原指纹／文件身份后提交，不再为复核读取完整安装列表。
+  Windows shim 的依赖读取退出数据库锁范围；
+  校验期间版本或已记录身份变化时，原请求仍收到错误，当前安装不增加失败记录或公开诊断。
+
+测试继续扩展已有两个 owner，没有新建独立测试、夹具体系或测试平台：
+
+- `independent_diagnostics_reuse_environment_and_same_target_check` 保留无健康快照分支，增加
+  F1 Ready → 静态发现 F2 → 实际 F2 诊断分支；核对版本稳定、旧认证／能力／协议清除、LKG 保留，
+  并以 Manager acknowledgement 验证新目录请求合并，同时保留 A／B 独立操作与搜索代次不变的验收。
+- `supervisor_failure_belongs_only_to_the_captured_installation` 增加 F2 静态／成功写入后合法超时的
+  持久记录与公开诊断验收；以唯一 blocking worker 屏障确认数据库可访问，并分别在文件检查期间改变
+  原版本、原身份，验证提交前再次核对。保留已有文件替换、重扫升级及未知目标的失败归属分支。
+  负向分支比较本次前后的记录与公开诊断，允许此前合法的历史错误继续展示。
+
+最小复现命令：`cargo test -p rovai-core --features slow-tests --lib -- independent_diagnostics_reuse_environment_and_same_target_check supervisor_failure_belongs_only_to_the_captured_installation`。
+
+计时沿用上一轮本机隔离 Debug Core 的测量，本次未重新测量也不宣称新的提速比例：热重新检测
+**175 / 150 / 153 ms**，随后 Runtime 读取 **8 / 9 / 8 ms**；首轮静态发现 **4.789 秒**，
+全新 Debug Core／数据库启动至首轮发现全部完成为 **17.937 秒**，两个阶段分别列出。
+没有旧版对照、首个智能体可用时间或桌面点击至渲染测量，不能据此称 UI 冻结 17.937 秒。
+首次／升级的必要文件校验、显式重新检测的 Shell 捕获、主动诊断初始化及超时、结束后的 Runtime 快照读取
+仍是等待点；Supervisor 仍做文件校验，但不持数据库锁执行这部分 I/O。本次未执行 Windows 真机测试。
+Codex 双 app-server、冷启动编排及性能平台继续不进入本轮。
+
+相关定向回归（macOS arm64）：**17 通过、0 失败**，覆盖上述两个扩展 owner，以及既有路径状态／迟到
+提交、目录合并、运行中替换、健康快照失效与 locator 兼容 owner。普通原生静态发现的计数断言继续通过：
+未变安装完整哈希 **0** 次，首次／升级各 **1** 次，三者智能体子进程均 **0** 次；完整诊断的程序替换
+夹具各 **3** 个子进程，继续与静态发现分开计数。没有将这些结果扩展为 Windows 真机读取计数或桌面交互验收。
+最后收窄 Supervisor 复核查询后，对上述两个受影响 owner 再次运行，**2 通过、0 失败**。

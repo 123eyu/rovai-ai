@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:1bed4c5cb655096774f6c0b8170dae95108b03ee95218e7f85ca42fa19e7a15c";
+    "sha256:50a9dcd3edc50f4c15e7666a65f41d8fb990a390c95415ac012207b3e9016681";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -33,6 +33,8 @@ pub const PI_WINDOWS_X64_EVIDENCE_REVISION: &str =
 
 pub const MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION: &str =
     "sha256:906e763f1cace769603565a07a2cef020b3d47a36030312997eec9be7947a703";
+pub const MINIMAX_CODE_LINUX_X64_EVIDENCE_REVISION: &str =
+    "sha256:f2cb42090a713acf38ca2c98bf374f1c307e0db004a5de2ea6893735075ca06f";
 
 pub const DSH_MACOS_ARM64_EVIDENCE_REVISION: &str =
     "sha256:017f63a62ceb33a8c03e881e9ace29b9710cb94006f87a2def529c6a31276394";
@@ -199,6 +201,13 @@ mod tests {
     fn platform_evidence_revisions_bind_their_frozen_source_bytes() {
         for (revision, bytes) in [
             (
+                MINIMAX_CODE_LINUX_X64_EVIDENCE_REVISION,
+                include_bytes!(
+                    "../../../qualification/runtime-platform/linux-x64-minimax-code-v1.json"
+                )
+                .as_slice(),
+            ),
+            (
                 MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION,
                 include_bytes!(
                     "../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json"
@@ -329,7 +338,7 @@ mod tests {
                 if platform == HostPlatformKey::LinuxX64 {
                     let admission = registry.platform_admission(runtime_kind, platform);
                     match runtime_kind {
-                        AdapterKind::DeepseekHarness => {
+                        AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli => {
                             assert_eq!(
                                 admission.status(),
                                 RuntimePlatformAdmissionStatus::Qualified
@@ -338,7 +347,11 @@ mod tests {
                             assert_eq!(admission.blocker_code(), None);
                             assert_eq!(
                                 admission.evidence_revision(),
-                                Some(DSH_LINUX_X64_EVIDENCE_REVISION)
+                                Some(if runtime_kind == AdapterKind::MinimaxCodeCli {
+                                    MINIMAX_CODE_LINUX_X64_EVIDENCE_REVISION
+                                } else {
+                                    DSH_LINUX_X64_EVIDENCE_REVISION
+                                })
                             );
                         }
                         AdapterKind::CursorAgent
@@ -488,9 +501,9 @@ mod tests {
             assert_eq!(
                 mini.status(),
                 match platform {
-                    HostPlatformKey::MacosArm64 | HostPlatformKey::LinuxX64 =>
-                        RuntimePlatformAdmissionStatus::Preview,
-                    HostPlatformKey::MacosX64 => RuntimePlatformAdmissionStatus::Qualified,
+                    HostPlatformKey::MacosArm64 => RuntimePlatformAdmissionStatus::Preview,
+                    HostPlatformKey::MacosX64 | HostPlatformKey::LinuxX64 =>
+                        RuntimePlatformAdmissionStatus::Qualified,
                     HostPlatformKey::WindowsX64 => {
                         RuntimePlatformAdmissionStatus::NotQualified
                     }
@@ -498,13 +511,19 @@ mod tests {
             );
             assert_eq!(
                 mini.evidence_revision(),
-                (platform == HostPlatformKey::MacosX64)
-                    .then_some(MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION)
+                match platform {
+                    HostPlatformKey::MacosX64 => Some(MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION),
+                    HostPlatformKey::LinuxX64 => Some(MINIMAX_CODE_LINUX_X64_EVIDENCE_REVISION),
+                    _ => None,
+                }
             );
             assert_eq!(
                 mini.reason_code(),
-                (platform != HostPlatformKey::MacosX64)
-                    .then_some(RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing)
+                (!matches!(
+                    platform,
+                    HostPlatformKey::MacosX64 | HostPlatformKey::LinuxX64
+                ))
+                .then_some(RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing)
             );
             let admitted = matches!(
                 platform,

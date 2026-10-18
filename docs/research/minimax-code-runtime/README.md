@@ -16,12 +16,20 @@ Read/Write/Add/Edit/Diff、权限、Skills/MCP、数值与当前产品状态。�
 相对 Read 丢路径与 Write 创建标志遗漏；[新增证据](full-parity-2026-10-16.evidence.json)与下方前轮证据分别记账。
 下面的 Shell 写文件不是原生 Write/Edit 验收；A/B 是同一 Conversation 两轮，不是跨原生 Session A→B→A。
 
+## 2026-10-18 Linux x64 准入
+
+[目标主机完整验收](linux-qualification-2026-10-18.md)闭合 14 个能力轴，Linux x64 晋升 Qualified，
+绑定[独立证据](../../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)摘要。
+官方 0.6.12 / Node 24.21.0 / 真实 Sub2API gpt-6.1-sol、生产容量/TTL、全部 30 个 CLI 操作和 Linux
+浏览器分别记账；修复纯工具调用与压缩换代的 Usage 漏采。原生管理命令取消、相同请求重试、部分
+统计与 plan/bypass 的边界均在报告披露，不外推其他平台或所有发行版 Runtime 执行。
+
 ## 2026-10-18 macOS Intel 平台验收确认
 
 User seq43 确认将 macOS Intel 标记验收通过，Core 的 `minimax-code-cli × macos-x64` 为 Qualified。
 [独立记录](../../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)绑定确认消息与摘要；
 本次没有重跑 Intel 模型会话，也未取得其 CLI 版本或逐项日志。macOS arm64 仍为 Preview，
-Windows/Linux 仍为 NotQualified。以下历史批次和能力矩阵继续按各自实际测试平台、版本及范围读取。
+当时 Windows/Linux 为 NotQualified；Linux 后续结论见上节。以下历史批次和能力矩阵按各自实际测试范围读取。
 
 ## 2026-10-17 问卷取消的产品修复
 
@@ -101,7 +109,9 @@ Native Session 恢复资格。仅原生进程实际读取的启动内容参与�
 - [ACP 与 Steer 扩展](https://github.com/MiniMax-AI/minimax-code/blob/9a935605956c4500e9cb415f29258e2887e97817/packages/tui/src/acp/extensions.ts)
 - [接入 Checklist](../../development/runtime-integration-checklist.md)
 
-## 实施与验收结果
+## 初始实施与验收结果（2026-10-16 快照）
+
+以下保留初始批次及当时未验项；当前 Linux 资格以上方 2026-10-18 独立记录为准。
 
 已接入 `mcode acp`、目录/安装/成员参数、Skill group、MCP、共享 Host/Fleet、精确恢复、
 Bootstrap、Steer、审批/取消、Action 输出及数值 Usage。Migration 205 将 v1.72 schema 154

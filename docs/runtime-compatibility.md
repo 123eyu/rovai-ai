@@ -6,6 +6,25 @@ last_updated: 2026-10-18
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-18 MiniMax Code Linux x64 准入
+
+官方 mcode **0.6.12** 在 GNU x86_64 / Ubuntu 24.04.5、Node 24.21.0 上，以原生 Sub2API
+配置的 `gpt-6.1-sol` 完成真实 first/warm/cold、A→B→A、并发、热刷新、Skills/MCP、全部 30 个
+当前 CLI 操作及故障恢复。生产 20 Host LRU 和真实 30 分钟 idle TTL、文件/六类命令输出、问卷及
+Linux Chromium 的真实新增文件/Diff 分别通过。手动、自动、一次受控 checkpoint overflow 后重试、
+Core 压缩取消及同 Session 恢复闭合；原生管理命令取消不响应与相同请求重试的限制保留在报告中。
+
+纯工具 assistant 缺显示 ID 和压缩替换 journal 的两处 Usage 漏采已修复：仅按本轮冻结的精确身份，
+后台有界读取同根 Session 的原生 active/snapshot 数值并去重。8 个基础 Run、自动压缩前后及手动
+压缩冷恢复的可用四桶对账通过，仍标部分统计，未报 reasoning/费用保持未知。`plan` 加显式 bypass
+可写文件，不宣称 OS 只读沙箱；问卷仍取消、不代答，无 Fast。
+
+`minimax-code-cli × linux-x64` 为 Qualified，绑定[不可变证据](../qualification/runtime-platform/linux-x64-minimax-code-v1.json)
+SHA-256。完整矩阵、保留失败及证据类型见[目标主机报告](research/minimax-code-runtime/linux-qualification-2026-10-18.md)。
+Server 的 Ubuntu 22.04 / Debian 12 VM / Ubuntu 24.04 与 glibc 2.35 成品 gate 全绿，和 Runtime
+资格分别记账；不声称三种发行版均运行了 mcode。macOS Intel 原确认保留，arm64 Preview、Windows
+NotQualified 不变。以下日期段保留当时范围。
+
 ## 2026-10-18 MiniMax Code macOS Intel 验收确认
 
 User seq43 明确要求「macOS intel也标记验收通过」。`minimax-code-cli × macos-x64` 据此提升为

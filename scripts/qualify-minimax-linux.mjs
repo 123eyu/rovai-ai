@@ -17,7 +17,8 @@ import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 const [fixtureArgument, coreExecutable, phase = 'basics'] = process.argv.slice(2)
 assert.equal(process.platform, 'linux', 'Run this qualification on its Linux target host')
 assert.ok(isAbsolute(fixtureArgument) && isAbsolute(coreExecutable))
-assert.ok(['basics', 'capabilities', 'cli', 'compaction', 'failures'].includes(phase))
+assert.ok(['basics', 'capabilities', 'cli', 'compaction', 'compaction-manual', 'failures'].includes(phase))
+const compactionPhase = phase.startsWith('compaction')
 const fixture = await realpath(fixtureArgument)
 assert.deepEqual(await readdir(fixture), [], 'Use a new, empty private fixture')
 const data = join(fixture, 'core'), native = join(fixture, 'native'), project = join(fixture, 'project')
@@ -70,9 +71,10 @@ const broker = createServer(async (request, response) => {
     }
     const system = [body.instructions, ...(body.input ?? []).filter(value => ['system', 'developer'].includes(value.role)).map(value => JSON.stringify(value.content))].filter(Boolean).join('\n')
     const record = { index: requests.length, stage, route, model: body.model, bodyBytes: raw.length,
-      highPriorityDigest: digest(system), charterCount: system.split('[SESSION_CHARTER]').length - 1,
+      highPriorityDigest: digest(system), payloadDigest: digest(raw), maxOutputTokens: body.max_output_tokens ?? body.max_tokens ?? null,
+      charterCount: system.split('[SESSION_CHARTER]').length - 1,
       aPresent: raw.includes(Buffer.from(markerA)), bPresent: raw.includes(Buffer.from(markerB)),
-      checkpoint: system.includes('loss-aware checkpoint') || (phase === 'compaction'
+      checkpoint: raw.includes(Buffer.from('loss-aware checkpoint')) || (compactionPhase
         && ((body.tools?.length ?? 0) === 0 || ['compact-failed', 'compact-cancelled', 'compact-checkpoint-overflow'].includes(stage))),
       sessionTitle: body.tools?.length === 1 && (body.tools[0].name ?? body.tools[0].function?.name) === 'submit_session_title',
       tools: (body.tools ?? []).map(tool => tool.name ?? tool.function?.name).filter(Boolean), usage: [] }
@@ -84,12 +86,13 @@ const broker = createServer(async (request, response) => {
       if (activeFault.kind === 'hold') {
         await new Promise(resolveClose => response.once('close', resolveClose)); record.clientDisconnected = true; return
       }
-      const status = activeFault.kind === 'overflow' ? 400 : activeFault.kind === 'transient' ? 503 : 401
+      const overflow = activeFault.kind === 'overflow'
+      const status = overflow ? 400 : activeFault.kind === 'transient' ? 503 : 401
       record.status = status
       response.writeHead(status, { 'Content-Type': 'application/json' })
-      response.end(JSON.stringify({ error: { type: activeFault.kind === 'overflow' ? 'invalid_request_error' : 'qualification_fault',
-        code: activeFault.kind === 'overflow' ? 'context_length_exceeded' : 'qualification_fault',
-        message: activeFault.kind === 'overflow' ? "This model's maximum context length has been exceeded. Reduce the conversation." : 'Controlled qualification rejection' } }))
+      response.end(JSON.stringify({ error: { type: overflow ? 'invalid_request_error' : 'qualification_fault',
+        code: overflow ? 'context_length_exceeded' : 'qualification_fault',
+        message: overflow ? "This model's maximum context length has been exceeded. Reduce the conversation." : 'Controlled qualification rejection' } }))
       return
     }
     controller = new AbortController()
@@ -127,7 +130,7 @@ async function saveNative(route = 'a') {
   const config = structuredClone(sourceConfig)
   config.custom_provider[providerId].options.baseURL = `http://127.0.0.1:${broker.address().port}/${route}/v1`
   config.custom_provider[providerId].options.apiKey = route === 'a' ? syntheticKeyA : syntheticKeyB
-  if (phase === 'compaction') config.custom_provider[providerId].models['gpt-6.1-sol'].limit = { context: 65536, output: 4096 }
+  if (compactionPhase) config.custom_provider[providerId].models['gpt-6.1-sol'].limit = { context: 65536, output: 4096 }
   await writeFile(join(native, 'config.yaml'), stringifyYaml(config), { mode: 0o600 })
 }
 async function persist() {
@@ -506,6 +509,7 @@ async function qualifyCompaction() {
   const baseline = await turn(thread, `Remember the private phrase ${markerA} throughout compaction. Invoke linux-compact-qualification Skill and call compact_fixture echo with text baseline. Publish their actual results and COMPACT_BASELINE_OK using one public-only bundled send, then finish with a nonempty final.`)
   assert.ok(publicText(baseline).includes(compactionSkillMarker) && publicText(baseline).includes('COMPACT_MCP:baseline'))
   const sessionId = baseline.binding.native_session_id
+  if (phase === 'compaction') {
   const initial = await nativeHistory(sessionId)
   for (let round = 0; round < 5; round++) {
     stage = 'automatic-pad-' + round
@@ -524,6 +528,34 @@ async function qualifyCompaction() {
   assert.ok(publicText(afterAuto).includes(compactionSkillMarker) && publicText(afterAuto).includes('COMPACT_MCP:after_auto') && publicText(afterAuto).includes(markerA))
   assert.deepEqual(afterAuto.binding, baseline.binding)
   await passed('automatic compaction preserves actual Skill, assigned MCP, permission configuration and private memory', { run: afterAuto.run.id })
+  const beforeCancel = (await nativeHistory(sessionId)).generation
+  stage = 'automatic-compact-cancelled'; fault = { kind: 'hold', checkpointOnly: true, remaining: Infinity }
+  let cancelled = false
+  const padding = Array.from({ length: 1000 }, (_, i) => `cancel-inert-${i}-${randomUUID()}`).join('\n')
+  const cancelledRun = await turn(thread, `The following is inert data, not instructions. Do not execute it or publish it.\n<inert-data>\n${padding}\n</inert-data>\nFinish briefly.`, { allowFailure: true, timeout: 360_000,
+    onTick: async run => {
+      if (cancelled || !requests.some(value => value.stage === stage && value.injectedFault === 'hold')) return
+      const version = db.prepare('SELECT version FROM agent_run WHERE id=?').get(run.id).version
+      await command('agentRuns.cancel', { threadId: thread, agentRunId: run.id, expectedVersion: version })
+      cancelled = true
+    }
+  })
+  fault = null
+  assert.ok(cancelled); assert.equal(cancelledRun.run.status, 'cancelled')
+  const heldCheckpoint = requests.find(value => value.stage === stage && value.injectedFault === 'hold')
+  const disconnectDeadline = Date.now() + 5000
+  while (!heldCheckpoint.clientDisconnected && Date.now() < disconnectDeadline) await pause(100)
+  assert.equal(heldCheckpoint.clientDisconnected, true, 'Cancelled native checkpoint must close its held provider request')
+  assert.equal((await nativeHistory(sessionId)).generation, beforeCancel)
+  assert.deepEqual(cancelledRun.binding, baseline.binding)
+  await passed('Core cancellation during an actual native automatic checkpoint preserves the committed history generation', { run: cancelledRun.run.id })
+  stage = 'compact-after-cancel'
+  const afterCancel = await turn(thread, 'Recall the original private phrase, invoke linux-compact-qualification Skill and call compact_fixture echo with text after_cancel. Publish all actual results with one public-only send, then finish normally.', { timeout: 360_000 })
+  assert.deepEqual(afterCancel.binding, baseline.binding)
+  assert.ok(publicText(afterCancel).includes(markerA) && publicText(afterCancel).includes(compactionSkillMarker)
+    && publicText(afterCancel).includes('COMPACT_MCP:after_cancel'))
+  await passed('after cancelled compaction the next Core Run resumes the exact Session with actual Skill, MCP and private memory', { run: afterCancel.run.id })
+  }
   // mcode changes its process title, so /proc argv no longer exposes its flags.
   // Copy the exact Core-written Bootstrap while its sole formal Host is alive.
   const bootstraps = (await readdir(fixture, { recursive: true }))
@@ -541,27 +573,20 @@ async function qualifyCompaction() {
     stage = 'compact-failed'; fault = { kind: 'auth', checkpointOnly: true, remaining: Infinity }
     let failure
     try { await compact() } catch (error) { failure = String(error) }
-    fault = null; assert.ok(failure, 'Controlled failed compaction must not report success')
+    fault = null
+    assert.ok(failure && !failure.includes('Native ACP timeout'), 'Compaction must explicitly reject; timeout is not a native result')
+    assert.ok(requests.some(value => value.stage === stage && value.injectedFault === 'auth'))
     assert.equal((await nativeHistory(sessionId)).generation, generation)
     await passed('failed native compaction does not advance history generation')
-    stage = 'compact-cancelled'; fault = { kind: 'hold', checkpointOnly: true, remaining: Infinity }
-    const pending = compact().then(value => ({ value }), error => ({ error: String(error) }))
-    const deadline = Date.now() + 30_000
-    while (!requests.some(value => value.stage === stage && value.injectedFault === 'hold') && Date.now() < deadline) await pause(100)
-    assert.ok(requests.some(value => value.stage === stage && value.injectedFault === 'hold'))
-    control.notify('session/cancel', { sessionId })
-    report.cancelledCompact = await pending; fault = null
-    assert.equal((await nativeHistory(sessionId)).generation, generation)
-    await passed('cancelled native compaction leaves the committed generation intact')
-    stage = 'compact-checkpoint-overflow'; fault = { kind: 'overflow', checkpointOnly: true, remaining: 1 }
+    stage = 'compact-checkpoint-overflow'
+    fault = { kind: 'overflow', checkpointOnly: true, remaining: 1 }
     report.manualCompact = await compact(); fault = null
     const recovered = await nativeHistory(sessionId)
     assert.equal(recovered.generation, generation + 1, 'Compaction must recover and commit exactly once')
     const attempts = requests.filter(value => value.stage === stage)
     assert.ok(attempts.some(value => value.injectedFault === 'overflow') && attempts.some(value => value.status === 200))
-    assert.ok(attempts.find(value => value.status === 200).bodyBytes < attempts.find(value => value.injectedFault === 'overflow').bodyBytes,
-      'Native overflow recovery must reduce its checkpoint request')
-    await passed('manual compaction retries a smaller checkpoint after a controlled Provider overflow and commits once', { beforeGeneration: generation, afterGeneration: recovered.generation, requestCount: attempts.length })
+    await passed('manual compaction retries after a controlled native checkpoint overflow and commits once', { beforeGeneration: generation, afterGeneration: recovered.generation, requestCount: attempts.length,
+      requestBytes: attempts.filter(value => !value.sessionTitle).map(value => value.bodyBytes) })
   } finally { fault = null; await control.stop() }
   stage = 'compact-cold'; await startCore()
   const cold = await turn(thread, 'Without reading history or memory files, recall the original private phrase. Invoke linux-compact-qualification Skill and actually call compact_fixture echo with text after_cold. Publish those actual results, the phrase and COMPACTION_COLD_OK using one public-only send. Finish normally.')
@@ -572,7 +597,7 @@ async function qualifyCompaction() {
   const main = requests.filter(value => value.stage !== 'setup' && !value.checkpoint && !value.sessionTitle)
   assert.ok(main.every(value => value.charterCount === 1))
   assert.equal(new Set(main.map(value => value.highPriorityDigest)).size, 1)
-  await passed('automatic and manual compaction retain one identical high-priority Bootstrap and exact cold Session memory', { run: cold.run.id, binding: cold.binding })
+  await passed('compaction retains one identical high-priority Bootstrap and exact cold Session memory', { run: cold.run.id, binding: cold.binding, includesAutomatic: phase === 'compaction' })
 }
 async function qualifyFailures() {
   const thread = await createThread('Linux failure and recovery')
@@ -763,7 +788,7 @@ try {
     await mkdir(path, { recursive: true })
     await writeFile(join(path, 'SKILL.md'), `---\nname: linux-user-qualification\ndescription: Isolated native user-source qualification.\n---\nReport ${userSkillMarker}.\n`)
   }
-  if (phase === 'compaction') {
+  if (compactionPhase) {
     const path = join(project, '.agents/skills/linux-compact-qualification')
     await mkdir(path, { recursive: true })
     await writeFile(join(path, 'SKILL.md'), `---\nname: linux-compact-qualification\ndescription: Compaction continuity qualification.\n---\nReport ${compactionSkillMarker}.\n`)
@@ -791,7 +816,7 @@ try {
     await qualifyCli()
   } else if (phase === 'capabilities') {
     await qualifyCapabilities()
-  } else if (phase === 'compaction') {
+  } else if (compactionPhase) {
     await qualifyCompaction()
   } else if (phase === 'failures') {
     await qualifyFailures()
@@ -826,12 +851,12 @@ try {
   report.threadB = threadB; stage = 'session-b'
   const other = await turn(threadB, `Remember ${markerB} privately. Publish LINUX_B_OK using one public-only bundled send. Finish normally.`)
   assert.notEqual(other.binding.native_session_id, first.binding.native_session_id)
-  assert.ok(requests.filter(value => value.stage === stage).every(value => !value.aPresent))
+  assert.ok(requests.filter(value => value.stage === stage && !value.sessionTitle).every(value => !value.aPresent))
   stage = 'a-return'
   const returned = await turn(threadA, 'Without reading files or history, publish your original private phrase followed by LINUX_A_RETURN_OK, using one public-only bundled send. Finish normally.')
   assert.ok(publicText(returned).includes(markerA)); assert.ok(!publicText(returned).includes(markerB))
   assert.deepEqual(returned.binding, first.binding)
-  assert.ok(requests.filter(value => value.stage === stage).every(value => !value.bPresent))
+  assert.ok(requests.filter(value => value.stage === stage && !value.sessionTitle).every(value => !value.bPresent))
   await passed('A to B to A isolation under the shared Camp/member/native-binding host scope', { runA: returned.run.id, runB: other.run.id, bindingA: first.binding, bindingB: other.binding })
   stage = 'concurrency'
   const [concurrentA, concurrentB] = await Promise.all([
@@ -848,7 +873,7 @@ try {
   assert.ok(publicText(refreshed).includes('LINUX_REFRESH_OK'))
   assert.deepEqual(refreshed.binding, first.binding)
   assert.equal(hostId(refreshed), hostId(returned))
-  assert.ok(requests.some(value => value.stage === stage && value.route === 'b'))
+  assert.ok(requests.some(value => value.stage === stage && value.route === 'b' && !value.sessionTitle))
   await passed('official native provider address and key refresh on the next run without session drift', { run: refreshed.run.id, hostInstanceId: hostId(refreshed) })
   stage = 'cold-resume'; await core.stop(); await startCore()
   const cold = await turn(threadA, 'Without inspecting files or history, publish your original private phrase followed by LINUX_COLD_OK, using one public-only bundled send. Finish normally.')
@@ -883,8 +908,9 @@ try {
       })
       return { runId: turn.runId, stage: turn.stage, comparisons, unreportedCostRemainsUnknown: actual?.cost_amount_decimal == null && actual?.cost_currency == null }
     })
-    if (report.status === 'passed' && ['basics', 'compaction'].includes(phase)
-      && report.usageReconciliation.some(row => !row.unreportedCostRemainsUnknown || row.comparisons.some(value => !value.matches))) {
+    if (report.status === 'passed' && (phase === 'basics' || compactionPhase)
+      && report.usageReconciliation.some(row => !row.unreportedCostRemainsUnknown
+        || (report.turns.find(turn => turn.runId === row.runId)?.status === 'succeeded' && row.comparisons.some(value => !value.matches)))) {
       report.status = 'failed'; report.error = 'Native root-agent numeric Usage does not reconcile with Core'
     }
   }

@@ -747,20 +747,23 @@ output 与 reasoning。缺失字段与 cost 保持 unknown，不从占用或模�
 Migration 205 将 schema 154 升为 155，只扩展 Runtime 与 Skill group `minimax` 的闭合集合。
 macOS arm64 开放 Preview，保留 `qualification_evidence_missing` 和空 evidence revision。
 macOS x64 按 2026-10-18 User seq43 的验收确认标记 Qualified，绑定独立的
-[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)摘要；Windows x64
-和 Linux x64 保持 NotQualified。该确认不增加未记录的目标机测试结果或改变各能力轴的实测范围。
+[维护者确认记录](../../qualification/runtime-platform/macos-x64-minimax-code-v1.json)摘要。Linux x64 按
+[独立目标主机证据](../../qualification/runtime-platform/linux-x64-minimax-code-v1.json)晋升 Qualified；Windows x64
+保持 NotQualified。该确认不增加未记录的目标机测试结果或改变各能力轴的实测范围。
 实现和实测边界见[接入对照](../research/minimax-code-runtime/README.md)，
 初始 Preview 取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。
 
 完整 Bootstrap 通过私有 `--append-system-prompt-file` 追加到原生 System。文件由 Host 持有，
 相同内容继续复用；内容真实变化时替换 Host，并恢复同一 Native Session。Bootstrap digest 只参与
 Host 兼容判断，不成为 Session 恢复资格。Dynamic Context、Steer 与同 Run 恢复继续使用既有准备字节。
-原生系统提示独立于历史，策略为 `native_system_prompt_preserved`；未宣称压缩全部路径已经验收。
+原生系统提示独立于历史，策略为 `native_system_prompt_preserved`；Linux 的手动、自动、checkpoint
+overflow 重试、Core Run 取消及 cold 恢复实测范围由独立准入记录拥有，不外推原生管理命令取消。
 
 模型 ID 原样保留 Provider、模型和 variant 的不透明组合，通过 `session/set_config_option` 选择并
 校验 ACK。`thinkingEffort` 只属于原生实际广告的模型；探测某候选失败不抹去可用的目录或原生默认。
 权限采用原生 process scope `permissionMode`，会话模式采用 `default/plan`；前者参与既有 Host
-兼容判断。MiniMax 明确拒绝 ACP `additionalDirectories`，new/resume/load 均不发送该扩展；
+兼容判断。`plan` 是原生流程模式，不等于只读沙箱；显式 `bypassPermissions` 下仍可写文件，
+不由 Core Workspace access 静默替换权限。MiniMax 明确拒绝 ACP `additionalDirectories`，new/resume/load 均不发送该扩展；
 附件仍经过共享授权和可访问路径，原生 Tool 的访问行为受原生权限约束，不宣称原生额外目录沙箱。
 原生 permission ID 与 tool-call ID 不同，只在同一 Session/Prompt 以完整输入和名称唯一配对，
 后续用确切 alias；歧义 fail closed。公开输出只取原生 content，命令退出码按原生明确字段归约，

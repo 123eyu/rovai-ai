@@ -1313,6 +1313,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
       setTabs(tabs => tabs.map(entry => entry.id === tabId ? {
         ...tab, content: keepPage ? tab.content : null,
         pages: undefined, htmlSource: undefined, requestGeneration: tab.requestGeneration + 1,
+        downloadState: undefined,
         loadState: keepPage ? 'ready' : 'cold'
       } : entry))
     },
@@ -1334,6 +1335,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
         ...tab, file: htmlOnly ? tab.file : null,
         cachedVersion: tab.file?.contentVersion ?? tab.cachedVersion, retainedCapabilities: tab.file?.capabilities ?? tab.retainedCapabilities,
         content: independent ? tab.content : null, requestGeneration: tab.requestGeneration + 1,
+        downloadState: undefined,
         loadState: independent ? 'ready' : tab.sourceRequest ? 'cold' : 'unavailable',
         candidate: undefined, pages: handleOnly ? tab.pages : undefined, htmlSource: handleOnly || htmlOnly ? tab.htmlSource : undefined,
         isRefreshing: false, refreshError: null

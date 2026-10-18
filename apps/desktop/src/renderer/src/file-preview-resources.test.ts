@@ -70,6 +70,64 @@ function deferred<T>() {
 }
 
 describe('window-owned preview resources', () => {
+  it('downloads a cold background tab from its source without activating or restoring its preview', async () => {
+    const { owner, api } = fixture()
+    const result = { ok: true as const, value: { started: true as const } }
+    api.downloadSource = vi.fn(async () => result)
+    const session = await open(owner, 'downloads', 'cold.txt')
+    const cold = active(session)
+    await open(owner, 'downloads', 'current.txt')
+    const current = active(session)
+    session.evict(cold.id)
+    const reads = vi.mocked(api.readText).mock.calls.length
+
+    expect(session.getSnapshot().tabs.find(tab => tab.id === cold.id)).toMatchObject({ loadState: 'cold', file: null })
+    expect(await session.actions.download(cold.id)).toEqual(result)
+    expect(api.downloadSource).toHaveBeenCalledExactlyOnceWith(cold.sourceRequest)
+    expect(api.restore).not.toHaveBeenCalled()
+    expect(api.readText).toHaveBeenCalledTimes(reads)
+    expect(active(session).id).toBe(current.id)
+    expect(session.getSnapshot().tabs.find(tab => tab.id === cold.id)).toMatchObject({ loadState: 'cold', downloadState: result })
+  })
+
+  it.each(['text handle', 'HTML source bytes'] as const)('allows another download after evicting %s during preparation', async kind => {
+    const { owner, api } = fixture()
+    const previous = deferred<Awaited<ReturnType<NonNullable<FilePreviewApi['download']>>>>()
+    const next = deferred<Awaited<ReturnType<NonNullable<FilePreviewApi['download']>>>>()
+    api.download = vi.fn().mockReturnValueOnce(previous.promise).mockReturnValueOnce(next.promise)
+    api.downloadSource = vi.fn(() => next.promise)
+    const session = await open(owner, 'downloads', kind === 'text handle' ? 'retained.txt' : 'retained.html')
+    if (kind === 'HTML source bytes') await session.actions.loadHtmlSource(active(session).id)
+    const before = active(session)
+    before.file!.capabilities.push('download')
+    const pending = session.actions.download(before.id)
+    expect(active(session).downloadState).toBe('preparing')
+
+    if (kind === 'text handle') session.evict(before.id, true)
+    else session.evictBytes(before.id)
+    expect(active(session)).toMatchObject({ loadState: 'ready', requestGeneration: before.requestGeneration + 1 })
+    expect(active(session).content).toBe(before.content)
+    expect(active(session).downloadState).toBeUndefined()
+    if (kind === 'text handle') expect(active(session).file).toBeNull()
+    else {
+      expect(before.htmlSource).toBeDefined()
+      expect(active(session).htmlSource).toBeUndefined()
+    }
+    session.actions.activate(before.id)
+    const retry = session.actions.download(before.id)
+    expect(active(session).downloadState).toBe('preparing')
+    // The discarded request must neither leave the button busy nor overwrite its successor.
+    previous.resolve({ ok: false, error: { code: 'file_changed', message: 'old preview', retryable: true } })
+    await pending
+    expect(active(session).downloadState).toBe('preparing')
+    const started = { ok: true as const, value: { started: true as const } }
+    next.resolve(started)
+    expect(await retry).toEqual(started)
+    expect(active(session).downloadState).toEqual(started)
+    expect(api.restore).not.toHaveBeenCalled()
+    expect(vi.mocked(api.download).mock.calls.length + vi.mocked(api.downloadSource).mock.calls.length).toBe(2)
+  })
+
   it('shares source download eligibility without confusing patch files with comparison views', async () => {
     const { owner, api } = fixture()
     api.download = vi.fn(async () => ({ ok: true as const, value: { started: true as const } }))

@@ -390,7 +390,6 @@ export function FilePreviewTabs({ compact = false }: { compact?: boolean } = {})
             {canDownloadFile(tab, api) && <button role="menuitem" type="button"
               disabled={tab.downloadState === 'preparing' || tab.isRefreshing || tab.loadState === 'opening'} onClick={() => {
                 setMenu(null)
-                activate(tab.id)
                 void download(tab.id)
               }}><UiText zh={"下载文件"} /></button>}
             {(tab.file?.capabilities ?? tab.retainedCapabilities)?.includes('open_in_system') && <><button role="menuitem" type="button" disabled={!tab.file && !tab.sourceRequest} onClick={() => void runSystemAction(

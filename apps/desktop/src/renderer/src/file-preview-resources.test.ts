@@ -18,7 +18,9 @@ function fixture(limits: Partial<Record<keyof typeof filePreviewRetentionLimits,
     const file: ResolvedFilePreview = {
       handleId: id, reopenToken: id, previewKey: `${'threadId' in request ? request.threadId : ''}:${name}`,
       fileName: name, displayPath: name, pathPresentation: 'project_relative', size: 12, mime: name.endsWith('.html') ? 'text/html' : 'text/plain',
-      extension: name.endsWith('.html') ? '.html' : '.txt', kind: name.endsWith('.html') ? 'html' : 'text', hasExternalUpdate: false,
+      extension: name.endsWith('.html') ? '.html' : '.txt',
+      kind: name.endsWith('.html') ? 'html' : name.endsWith('.png') ? 'image' : name.endsWith('.md') ? 'markdown' : name.endsWith('.ts') ? 'code' : 'text',
+      hasExternalUpdate: false,
       contentGeneration: id, contentVersion: { size: 12, mtimeMs: sequence }, capabilities: ['read']
     }
     handles.set(id, file)
@@ -36,7 +38,10 @@ function fixture(limits: Partial<Record<keyof typeof filePreviewRetentionLimits,
         contentGeneration: handleId, contentVersion: handles.get(handleId)!.contentVersion
       }
     })),
-    readPage: vi.fn(failure), resolveLine: failure, readBinary: failure,
+    readPage: vi.fn(failure), resolveLine: vi.fn(failure), readBinary: vi.fn(async ({ handleId }) => ({
+      ok: true as const, value: { bytes: new Uint8Array([1, 2, 3]), mime: 'image/png',
+        contentGeneration: handleId, contentVersion: handles.get(handleId)!.contentVersion }
+    })),
     prepareHtmlSite: vi.fn(async ({ handleId }) => ({
       ok: true as const, value: {
         previewId: handleId, generation: handleId,
@@ -113,7 +118,6 @@ describe('window-owned preview resources', () => {
       expect(before.htmlSource).toBeDefined()
       expect(active(session).htmlSource).toBeUndefined()
     }
-    session.actions.activate(before.id)
     const retry = session.actions.download(before.id)
     expect(active(session).downloadState).toBe('preparing')
     // The discarded request must neither leave the button busy nor overwrite its successor.
@@ -253,15 +257,11 @@ describe('window-owned preview resources', () => {
   })
 
   it('switches a hot Thread without opening, reading or replacing its content and reading position', async () => {
-    const { owner, api, update } = fixture()
+    const { owner, api } = fixture()
     const a = await open(owner, 'a')
     const first = active(a)
     a.actions.saveReading(first.id, { scrollTop: 320, codeScrollTop: 640 })
     await open(owner, 'b')
-    const usage = a.lastUsed
-    update('a', [first.previewKey!])
-    expect(a.lastUsed).toBe(usage)
-    expect(active(a).hasExternalUpdate).toBe(true)
     const count = vi.mocked(api.readText).mock.calls.length
     owner.activate('a')
     expect(active(a).file).toBe(first.file)
@@ -537,4 +537,270 @@ it('loads the newly visible cold tab when its active neighbor is closed', async 
   await vi.waitFor(() => expect(active(a).loadState).toBe('ready'))
   expect(active(a).id).toBe(first)
   expect(api.readText).toHaveBeenCalledTimes(before + 1)
+})
+
+describe('automatic file refresh', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+  const advance = (ms = 300) => vi.advanceTimersByTimeAsync(ms)
+  const textResult = (text: string): { ok: true; value: FilePreviewTextContent } => ({
+    ok: true, value: { text, contentGeneration: 'new', contentVersion: { size: text.length, mtimeMs: 2 } }
+  })
+
+  describe('visible content follows changes', () => {
+    it.each(['file.txt', 'note.md', 'code.ts'])('refreshes %s after 300ms without an explicit reload', async name => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', name)
+      const first = active(a), usage = a.lastUsed
+      vi.mocked(api.readText).mockResolvedValueOnce(textResult('latest body'))
+      update('a', [first.previewKey!])
+      await advance(299)
+      expect(api.reload).not.toHaveBeenCalled()
+      await advance(1)
+      expect(active(a).content).toMatchObject({ text: 'latest body' })
+      expect(active(a).hasExternalUpdate).toBe(false)
+      expect(a.lastUsed).toBe(usage)
+    })
+
+    it('replaces image bytes and releases the old URL only after display', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', 'picture.png'), first = active(a)
+      const revoke = vi.spyOn(URL, 'revokeObjectURL')
+      try {
+        vi.mocked(api.readBinary).mockResolvedValueOnce({ ok: true, value: {
+          bytes: new Uint8Array([4, 5, 6, 7]), mime: 'image/png',
+          contentGeneration: 'new', contentVersion: { size: 4, mtimeMs: 2 }
+        } })
+        update('a', [first.previewKey!]); await advance()
+        expect(active(a).content).toMatchObject({ kind: 'image', bytes: 4 })
+        expect(active(a).content).not.toEqual(first.content)
+        expect(revoke).not.toHaveBeenCalled()
+        a.actions.displayed(first.id, active(a).file!.handleId)
+        expect(revoke).toHaveBeenCalledWith(first.content?.kind === 'image' ? first.content.url : '')
+      } finally { revoke.mockRestore() }
+    })
+
+    it('resolves the reading line in new bytes and clamps a shortened file to its final line', async () => {
+      const { owner, api, update } = fixture()
+      vi.mocked(api.open).mockImplementation(async request => {
+        const result = await api.restore(request as import('@contracts').RestoreFilePreviewRequest)
+        if (result.ok && result.value.kind === 'file_preview') result.value.file.kind = 'paged_text'
+        return result
+      })
+      vi.mocked(api.reload).mockImplementation(async () => {
+        const result = await api.open({ kind: 'camp_workspace', threadId: 'a', rawReference: 'large.txt' })
+        if (!result.ok || result.value.kind !== 'file_preview') throw new Error('Expected a file')
+        return { ok: true, value: result.value.file }
+      })
+      vi.mocked(api.readPage).mockImplementation(async ({ offset, handleId }) => ({ ok: true, value: {
+        text: 'new page', startOffset: offset, endOffset: offset + 8, startLine: offset === 77 ? 850 : offset === 9 ? 3 : 1,
+        hasNext: true, hasPrevious: offset > 0, contentGeneration: handleId, contentVersion: { size: 1000, mtimeMs: 2 }
+      } }))
+      const a = await open(owner, 'a', 'large.txt'), first = active(a)
+      a.actions.saveReading(first.id, { visibleLine: 850, pageOffsets: [0, 999], pageIndex: 1, codeScrollTop: 400 })
+      vi.mocked(api.resolveLine).mockResolvedValueOnce({ ok: true, value: { offset: 77, line: 850, contentGeneration: 'new' } })
+      update('a', [first.previewKey!]); await advance()
+      expect(api.resolveLine).toHaveBeenLastCalledWith(expect.objectContaining({ line: 850 }))
+      expect(api.readPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 77 }))
+      expect(active(a)).toMatchObject({ pageOffsets: [77], pageIndex: 0, reading: { visibleLine: 850, codeScrollTop: 0 } })
+      vi.mocked(api.resolveLine).mockResolvedValueOnce({ ok: true, value: { offset: 60, line: 849, contentGeneration: 'new' } })
+      await a.actions.changePage(first.id, -1)
+      expect(api.readPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 60, maxBytes: 17 }))
+      expect(active(a).pageIndex).toBe(0)
+      a.actions.saveReading(first.id, { visibleLine: 850 })
+      vi.mocked(api.resolveLine)
+        .mockResolvedValueOnce({ ok: true, value: { offset: 17, line: 3, contentGeneration: 'short' } })
+        .mockResolvedValueOnce({ ok: true, value: { offset: 9, line: 3, contentGeneration: 'short' } })
+      update('a', [first.previewKey!]); await advance()
+      expect(api.resolveLine).toHaveBeenLastCalledWith(expect.objectContaining({ line: 3 }))
+      expect(api.readPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 9 }))
+      expect(active(a)).toMatchObject({ pageOffsets: [9], pageIndex: 0, reading: { visibleLine: 3 } })
+    })
+  })
+
+  describe('hidden files refresh when shown', () => {
+    it.each(['tab', 'thread', 'pane', 'open', 'close'] as const)('checks updates on the %s entry', async entry => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', 'one.txt'), first = active(a)
+      if (entry === 'thread') await open(owner, 'b')
+      else if (entry === 'pane') a.actions.hidePane()
+      else await open(owner, 'a', 'two.txt')
+      const other = active(a).id
+      update('a', [first.previewKey!]); await advance(1000)
+      expect(api.reload).not.toHaveBeenCalled()
+      if (entry === 'thread') owner.activate('a')
+      else if (entry === 'pane') a.actions.showPane()
+      else if (entry === 'open') await a.actions.open({ kind: 'camp_workspace', threadId: 'a', rawReference: 'one.txt' })
+      else if (entry === 'close') a.actions.close(other)
+      else a.actions.activate(first.id)
+      await advance(0)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      expect(active(a).id).toBe(first.id)
+      expect(active(a).hasExternalUpdate).toBe(false)
+    })
+
+    it('recovers a cached file without a handle even without an update notification', async () => {
+      const { owner, api } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      a.actions.hidePane(); a.evict(first.id, true, true)
+      expect(active(a)).toMatchObject({ file: null, content: first.content, hasExternalUpdate: false })
+      await advance(1000)
+      expect(api.restore).not.toHaveBeenCalled()
+      a.actions.showPane(); await advance(0)
+      expect(api.restore).toHaveBeenCalledTimes(1)
+      expect(active(a).file).not.toBeNull()
+    })
+
+    it.each(['tab', 'thread', 'pane'] as const)('does not read after %s changes during debounce', async entry => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      update('a', [first.previewKey!])
+      if (entry === 'tab') a.actions.openExecution()
+      else if (entry === 'thread') owner.activate('b')
+      else a.actions.hidePane()
+      await advance(1000)
+      expect(api.reload).not.toHaveBeenCalled()
+      expect(a.getSnapshot().tabs.find(tab => tab.id === first.id)).toMatchObject({ hasExternalUpdate: true })
+    })
+
+    it.each(['refresh', 'cold'] as const)('rechecks visibility before %s after waiting for resource admission', async mode => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      if (mode === 'cold') a.evict(first.id)
+      await owner.sync()
+      const admission = deferred<void>()
+      vi.mocked(api.updateRetention!).mockImplementation(() => admission.promise)
+      update('a', [first.previewKey!])
+      if (mode === 'cold') a.actions.showPane()
+      await advance()
+      if (mode === 'refresh') expect(active(a).isRefreshing).toBe(true)
+      else expect(active(a).loadState).toBe('opening')
+      a.actions.hidePane()
+      vi.mocked(api.updateRetention!).mockResolvedValue(undefined)
+      admission.resolve(); await advance(0)
+      expect(api.reload).not.toHaveBeenCalled()
+      expect(api.restore).not.toHaveBeenCalled()
+      expect(active(a)).toMatchObject({ isRefreshing: false, hasExternalUpdate: true, refreshError: null })
+      if (mode === 'cold') expect(active(a).loadState).toBe('cold')
+      a.actions.showPane(); await advance(0)
+      expect(mode === 'refresh' ? api.reload : api.restore).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('bursts and in-flight changes converge', () => {
+    it('debounces saves and serializes manual and automatic refreshes', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      const read = deferred<Awaited<ReturnType<FilePreviewApi['readText']>>>()
+      vi.mocked(api.readText).mockReturnValueOnce(read.promise).mockResolvedValueOnce(textResult('last save'))
+      update('a', [first.previewKey!]); await advance(200)
+      update('a', [first.previewKey!]); await advance(299)
+      expect(api.reload).not.toHaveBeenCalled()
+      await advance(1)
+      update('a', [first.previewKey!]); update('a', [first.previewKey!])
+      await a.actions.reload(first.id); await advance(1000)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      expect(active(a).content).toBe(first.content)
+      read.resolve(textResult('earlier save')); await advance(0)
+      expect(active(a).hasExternalUpdate).toBe(true)
+      await advance()
+      expect(api.reload).toHaveBeenCalledTimes(2)
+      expect(active(a).content).toMatchObject({ text: 'last save' })
+      expect(active(a).hasExternalUpdate).toBe(false)
+      await advance(1000)
+      expect(api.reload).toHaveBeenCalledTimes(2)
+    })
+
+    it('checks changes after the first read completes without starting a concurrent read', async () => {
+      const { owner, api, update } = fixture()
+      owner.activate('a'); const a = owner.session('a')
+      const read = deferred<Awaited<ReturnType<FilePreviewApi['readText']>>>()
+      vi.mocked(api.readText).mockReturnValueOnce(read.promise).mockResolvedValueOnce(textResult('latest'))
+      await a.actions.open({ kind: 'camp_workspace', threadId: 'a', rawReference: 'file.txt' })
+      update('a', [active(a).previewKey!]); await advance(1000)
+      await a.actions.reload(active(a).id)
+      expect(api.reload).not.toHaveBeenCalled()
+      read.resolve(textResult('initial')); await advance()
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      expect(active(a).content).toMatchObject({ text: 'latest' })
+    })
+
+    it('waits for HTML readiness and merges changes while the candidate is loading', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', 'page.html'), first = active(a)
+      update('a', [first.previewKey!]); await advance()
+      const candidate = active(a).candidate!
+      expect(active(a).content).toBe(first.content)
+      update('a', [first.previewKey!]); await advance(1000)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      a.actions.completeHtmlRefresh(first.id, candidate.file.handleId); await advance(0)
+      expect(active(a).file).toBe(candidate.file)
+      expect(api.release).not.toHaveBeenCalledWith({ handleId: first.file!.handleId })
+      a.actions.displayed(first.id, candidate.file.handleId)
+      expect(api.release).toHaveBeenCalledWith({ handleId: first.file!.handleId })
+      await advance()
+      expect(api.reload).toHaveBeenCalledTimes(2)
+      a.actions.completeHtmlRefresh(first.id, active(a).candidate!.file.handleId)
+      await advance(1000)
+      expect(active(a).hasExternalUpdate).toBe(false)
+      expect(api.reload).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('failures and disposal settle', () => {
+    it.each(['retry', 'show'] as const)('keeps old content and waits for explicit %s after failure', async entry => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      vi.mocked(api.readText).mockResolvedValueOnce({ ok: false, error: { code: 'file_not_found', message: 'missing', retryable: true } })
+      update('a', [first.previewKey!]); await advance()
+      expect(active(a).content).toBe(first.content)
+      expect(active(a).refreshError).toBeTruthy()
+      for (let n = 0; n < 3; n++) { update('a', [first.previewKey!]); await advance(2000) }
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      if (entry === 'retry') await a.actions.reload(first.id)
+      else { a.actions.hidePane(); a.actions.showPane() }
+      await advance(0)
+      expect(api.reload).toHaveBeenCalledTimes(2)
+      expect(active(a).refreshError).toBeNull()
+    })
+
+    it('blocks repeated notifications after HTML readiness fails', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', 'page.html'), first = active(a)
+      update('a', [first.previewKey!]); await advance()
+      a.actions.completeHtmlRefresh(first.id, active(a).candidate!.file.handleId, 'failed')
+      await advance(0)
+      update('a', [first.previewKey!]); await advance(5000)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      expect(active(a)).toMatchObject({ content: first.content, isRefreshing: false, refreshError: 'failed' })
+    })
+
+    it.each(['close', 'evict', 'cool', 'dispose'] as const)('clears the timer on %s', async action => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      update('a', [first.previewKey!])
+      if (action === 'close') a.actions.close(first.id)
+      else if (action === 'evict') a.evict(first.id)
+      else if (action === 'cool') a.cool()
+      else owner.dispose()
+      await advance(1000)
+      expect(api.reload).not.toHaveBeenCalled()
+    })
+
+    it.each(['close', 'cool', 'dispose'] as const)('releases a late candidate after %s', async action => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      const candidate = deferred<Awaited<ReturnType<FilePreviewApi['reload']>>>()
+      vi.mocked(api.reload).mockReturnValueOnce(candidate.promise)
+      update('a', [first.previewKey!]); await advance()
+      if (action === 'close') a.actions.close(first.id)
+      else if (action === 'cool') a.cool()
+      else owner.dispose()
+      candidate.resolve({ ok: true, value: { ...first.file!, handleId: 'late' } })
+      await advance(1000)
+      expect(api.release).toHaveBeenCalledWith({ handleId: 'late' })
+      expect(api.readText).toHaveBeenCalledTimes(1)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+    })
+  })
 })

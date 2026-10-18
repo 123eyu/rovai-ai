@@ -771,17 +771,19 @@ impl AgentRuntimeAdapterRegistry {
         };
         if kind == AdapterKind::MinimaxCodeCli {
             return match platform {
-                HostPlatformKey::MacosArm64 => RuntimePlatformAdmission::preview(
-                    kind,
-                    platform,
-                    RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
-                ),
+                HostPlatformKey::MacosArm64 | HostPlatformKey::LinuxX64 => {
+                    RuntimePlatformAdmission::preview(
+                        kind,
+                        platform,
+                        RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
+                    )
+                }
                 HostPlatformKey::MacosX64 => RuntimePlatformAdmission::qualified(
                     kind,
                     platform,
                     MINIMAX_CODE_MACOS_X64_EVIDENCE_REVISION,
                 ),
-                HostPlatformKey::WindowsX64 | HostPlatformKey::LinuxX64 => unqualified(),
+                HostPlatformKey::WindowsX64 => unqualified(),
             };
         }
         if kind == AdapterKind::DeepseekHarness {

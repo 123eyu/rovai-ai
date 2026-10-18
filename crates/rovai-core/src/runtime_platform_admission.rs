@@ -343,8 +343,7 @@ mod tests {
                         }
                         AdapterKind::CursorAgent
                         | AdapterKind::ClineCli
-                        | AdapterKind::CommandCodeCli
-                        | AdapterKind::MinimaxCodeCli => {
+                        | AdapterKind::CommandCodeCli => {
                             assert_eq!(
                                 admission.status(),
                                 RuntimePlatformAdmissionStatus::NotQualified
@@ -489,9 +488,10 @@ mod tests {
             assert_eq!(
                 mini.status(),
                 match platform {
-                    HostPlatformKey::MacosArm64 => RuntimePlatformAdmissionStatus::Preview,
+                    HostPlatformKey::MacosArm64 | HostPlatformKey::LinuxX64 =>
+                        RuntimePlatformAdmissionStatus::Preview,
                     HostPlatformKey::MacosX64 => RuntimePlatformAdmissionStatus::Qualified,
-                    HostPlatformKey::WindowsX64 | HostPlatformKey::LinuxX64 => {
+                    HostPlatformKey::WindowsX64 => {
                         RuntimePlatformAdmissionStatus::NotQualified
                     }
                 }
@@ -508,7 +508,7 @@ mod tests {
             );
             let admitted = matches!(
                 platform,
-                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64
+                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64 | HostPlatformKey::LinuxX64
             );
             assert_eq!(mini.allows_runtime_use(), admitted);
             assert_eq!(

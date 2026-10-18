@@ -3,10 +3,43 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # v1.72 实施与验收
+
+## 旧概念残留收口（2026-10-18）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-legacy-concepts`；分支 `rovai/legacy-concepts`；
+  基线 `dfb96a7ecba17490e5c9637944d8872644ab8da7`，与创建时 `origin/main` 一致。未触碰主工作区改动。
+- Benchmark evidence 导入改用 `threads.create`／`thread.messages.send`／`threads.snapshot`，读取
+  `payload.threadId` 和 `snapshot.thread`。既有报告的 `reviewCampId` 等字段与 legacy Trial 选项保留，
+  避免改写已有报告协议。定向用例使用当前 Core shape，覆盖创建拒绝、发送拒绝和意外执行。
+- `thread.list` help 说明新 Run 使用当前目录、旧 Run 保留冻结目录、目录读取不推进消息搜索边界。
+  新生成的错误说明使用 Thread，机器错误码与持久数据名保持；运行和上下文行为没有改变。
+- 当前操作指南、架构／UI 路由、领域词汇与评测教学对齐 Thread/User、reply-chain、当前历史可见性、
+  Automation result 和原生 Skills／工具箱。DEMO-105 导航说明普通多目标协作，sealed manifest 的历史标题保持。
+- 删除未挂载的 `SkillSettings`、专属单元测试及旧 preview 组件，共享正文去 frontmatter helper 独立保留。
+  现有 Electron fixture 改挂生产 `NativeSkillsSettings`／`ToolboxSettings`，继续覆盖 MCP；
+  历史 Library/Revision/恢复的 Core owner 保持。临时 userData 不启动 Core/Runtime、不接触日常数据。
+- 评测等待脚本以 `--thread-id` 为当前用法，接受旧 `--camp-id`；daily export 使用当前 trace flags，
+  文档配置字段与现有 `DailyScope` 一致。
+- 已通过 `pnpm typecheck`；全量 `pnpm exec vitest run` 为 246 个文件、2,728 项通过。
+- Benchmark、Qualification 与 Context Evaluation 的定向 Node 回归 76 项通过；等待脚本另用临时回执
+  验证 `--thread-id`、旧别名及重复参数拒绝，未连接日常 App。
+- `pnpm test:capability-workspace` 通过；复核原生 Skills／工具箱截图。覆盖 day/night、1040px/2560px、
+  200% zoom、文件导航、失败恢复、迟到响应、过滤后的成员配置及保留的 MCP 交互。
+- `cargo test -p rovai-core --lib`：428 通过、0 失败、1 项既有忽略；完整库回归包含 CLI catalog、
+  历史读取、冻结上下文、成员、附件及 Runtime owner。`cargo check -p rovai-core --all-targets`、
+  `cargo fmt --all -- --check` 和 `git diff --check` 通过；Rust 只改错误／帮助字符串及必要格式，
+  已有 unused/dead-code warning 未作为本次清理范围。
+- `pnpm docs:test` 10 项通过，`pnpm docs:check` 与以基线 SHA 运行的 `pnpm docs:check:ci` 通过。
+  本次不宣称真实模型调用、历史数据迁移或跨平台发布验收。Worktree 状态为 `ready`，保留至后续审阅／合入。
+
+跨版本复核：Version lifecycle 保持 v1.72；Decisions 无新取舍；Contracts 沿用 Thread Naming v1、
+User Naming v1、History v14 与 Skills Rebuild v2；Architecture 更新当前 teaching 和 result shape；
+UI 更新文档路由／测试归属，生产页面行为保持；Runtime Activity 和 Runtime compatibility 无变化；
+Documentation routing 已更新；Root README 无需更新（产品定位和支持范围未改变）。
 
 ## 会话 Task 能力开关
 

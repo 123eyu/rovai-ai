@@ -1331,7 +1331,7 @@ impl AgentProfileService {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to list AgentProfile Camp memberships")
+            .context("failed to list AgentProfile Thread memberships")
     }
 
     pub fn list_installations(&self, database: &Database) -> Result<Vec<AdapterInstallationView>> {

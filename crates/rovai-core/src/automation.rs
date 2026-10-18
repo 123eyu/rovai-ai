@@ -504,11 +504,11 @@ pub fn resolve_tool_project(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
-        .context("Current Camp project is unavailable")?;
+        .context("Current Thread project is unavailable")?;
     match binding.0.as_str() {
         "quick_chat" => Ok(AutomationProjectRef::QuickChat),
         "directory" => Ok(AutomationProjectRef::Directory { path: binding.1 }),
-        _ => anyhow::bail!("Current Camp has no supported project binding"),
+        _ => anyhow::bail!("Current Thread has no supported project binding"),
     }
 }
 
@@ -1664,7 +1664,7 @@ fn settle_delivery_occurrence_in_tx(
     let delivery_id = state
         .trigger_delivery_id
         .as_deref()
-        .context("Automation occurrence has neither a Delivery nor a CampTurn")?;
+        .context("Automation occurrence has neither a Delivery nor a ThreadTurn")?;
     let (delivery_status, claimed_agent_run_id, delivery_failure): (
         String,
         Option<String>,
@@ -1877,7 +1877,7 @@ fn settle_terminal_turn_in_tx(
     let turn_id = state
         .camp_turn_id
         .as_deref()
-        .context("AutomationRun has no CampTurn")?;
+        .context("AutomationRun has no ThreadTurn")?;
     let turn_status: String = transaction.query_row(
         "SELECT status FROM camp_turn WHERE id = ?1",
         [turn_id],

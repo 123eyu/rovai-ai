@@ -1700,7 +1700,7 @@ fn load_recorded_team_command_identity(
         anyhow::bail!("recorded Team Tool command actor is not an Agent");
     }
     Ok(Some(RecordedTeamCommandIdentity {
-        camp_id: camp_id.context("recorded Team Tool command has no Camp")?,
+        camp_id: camp_id.context("recorded Team Tool command has no Thread")?,
         agent_id,
         source_agent_run_id: source_agent_run_id
             .context("recorded Team Tool command has no source AgentRun")?,

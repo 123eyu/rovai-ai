@@ -981,7 +981,7 @@ impl ReadModelService {
                 [camp_id],
                 |row| row.get(0),
             )
-            .context("failed to check Camp existence")
+            .context("failed to check Thread existence")
     }
 
     pub fn camp_is_pending(&self, database: &Database, camp_id: &str) -> Result<bool> {
@@ -994,7 +994,7 @@ impl ReadModelService {
             )
             .optional()
             .map(|pending| pending.unwrap_or(false))
-            .context("failed to check Camp activation state")
+            .context("failed to check Thread activation state")
     }
 
     pub fn list_camps(&self, database: &Database) -> Result<Vec<ThreadListItem>> {
@@ -1033,7 +1033,7 @@ impl ReadModelService {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()
-            .context("failed to list Camp read models")
+            .context("failed to list Thread read models")
     }
 
     pub fn navigation_snapshot(&self, database: &mut Database) -> Result<NavigationSnapshot> {
@@ -1153,7 +1153,7 @@ impl ReadModelService {
                 })
             })
             .optional()
-            .context("failed to find navigation Camp by ID")
+            .context("failed to find navigation Thread by ID")
     }
 
     pub fn acknowledge_camp_viewed(
@@ -1191,7 +1191,7 @@ impl ReadModelService {
             |row| row.get(0),
         )?;
         if !exists {
-            anyhow::bail!("Camp does not exist");
+            anyhow::bail!("Thread does not exist");
         }
         let now = chrono::Utc::now().to_rfc3339();
         let changed = transaction.execute(
@@ -1236,7 +1236,7 @@ impl ReadModelService {
     pub fn camp_snapshot(&self, database: &mut Database, camp_id: &str) -> Result<ThreadSnapshot> {
         let transaction = database.connection_mut().transaction()?;
         let through_global_sequence = current_global_sequence(&transaction)?;
-        let camp = load_camp(&transaction, camp_id)?.context("Camp does not exist")?;
+        let camp = load_camp(&transaction, camp_id)?.context("Thread does not exist")?;
         let members = load_members(&transaction, camp_id, camp.default_lead_agent_id.as_deref())?;
         let membership_reconciliations = load_membership_reconciliations(&transaction, camp_id)?;
         let tasks_enabled = crate::task_capability::enabled(&transaction)?;
@@ -1300,7 +1300,7 @@ impl ReadModelService {
     ) -> Result<ThreadOpenProjection> {
         let transaction = database.connection_mut().transaction()?;
         let through_global_sequence = current_global_sequence(&transaction)?;
-        let camp = load_camp(&transaction, camp_id)?.context("Camp does not exist")?;
+        let camp = load_camp(&transaction, camp_id)?.context("Thread does not exist")?;
         let members = load_members(&transaction, camp_id, camp.default_lead_agent_id.as_deref())?;
         let membership_reconciliations = load_membership_reconciliations(&transaction, camp_id)?;
         let tasks_enabled = crate::task_capability::enabled(&transaction)?;
@@ -1364,18 +1364,18 @@ impl ReadModelService {
         limit: i64,
     ) -> Result<ThreadMessagePage> {
         if before_sequence <= 0 {
-            anyhow::bail!("Camp Message cursor must be positive");
+            anyhow::bail!("Thread Message cursor must be positive");
         }
         if through_global_sequence < 0 {
-            anyhow::bail!("Camp Message high-water must not be negative");
+            anyhow::bail!("Thread Message high-water must not be negative");
         }
         let limit = limit.clamp(1, 100);
         let transaction = database.connection_mut().transaction()?;
         let current_sequence = current_global_sequence(&transaction)?;
         if through_global_sequence > current_sequence {
-            anyhow::bail!("Camp Message high-water is ahead of the current event sequence");
+            anyhow::bail!("Thread Message high-water is ahead of the current event sequence");
         }
-        load_camp(&transaction, camp_id)?.context("Camp does not exist")?;
+        load_camp(&transaction, camp_id)?.context("Thread does not exist")?;
         let mut messages = load_messages_before(&transaction, camp_id, before_sequence, limit + 1)?;
         let has_more = messages.len() > limit as usize;
         if has_more {
@@ -1462,7 +1462,7 @@ impl ReadModelService {
 
         let transaction = database.connection_mut().transaction()?;
         let through_global_sequence = current_global_sequence(&transaction)?;
-        load_camp(&transaction, camp_id)?.context("Camp does not exist")?;
+        load_camp(&transaction, camp_id)?.context("Thread does not exist")?;
         let anchor_sequence = match anchor_message_id {
             Some(message_id) => transaction
                 .query_row(
@@ -1505,7 +1505,7 @@ impl ReadModelService {
             let content =
                 serde_json::from_str::<StructuredThreadMessageContent>(&structured_content_json)
                     .map(normalize_content)
-                    .context("CampMessage Structured Content is invalid")?;
+                    .context("ThreadMessage Structured Content is invalid")?;
             let body = render_structured_message_content(&transaction, &content)?;
             candidates.push(ThreadMessageFindCandidate {
                 message_id,
@@ -1558,7 +1558,7 @@ impl ReadModelService {
             |row| row.get(0),
         )?;
         if !belongs_to_camp {
-            anyhow::bail!("AgentRun does not exist in this Camp");
+            anyhow::bail!("AgentRun does not exist in this Thread");
         }
         let through_sequence: i64 = transaction.query_row(
             r#"
@@ -1968,7 +1968,7 @@ fn load_camp_open_counts(
                 })
             },
         )
-        .context("failed to count Camp open projection coverage")
+        .context("failed to count Thread open projection coverage")
 }
 
 fn collection_coverage(loaded_count: usize, total_count: i64) -> ThreadOpenCollectionCoverage {
@@ -2029,7 +2029,7 @@ fn load_camp(transaction: &Transaction<'_>, camp_id: &str) -> Result<Option<Thre
             },
         )
         .optional()
-        .context("failed to load Camp read model")
+        .context("failed to load Thread read model")
 }
 
 fn load_members(
@@ -2069,7 +2069,7 @@ fn load_members(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .context("failed to load Camp members")?;
+        .context("failed to load Thread members")?;
     for member in &mut members {
         member.fast = crate::camp_fast::view_on_connection(transaction, camp_id, &member.agent_id)?;
     }
@@ -2104,7 +2104,7 @@ fn load_membership_reconciliations(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .context("failed to load Camp membership reconciliations")
+        .context("failed to load Thread membership reconciliations")
 }
 
 fn load_tasks(
@@ -2549,7 +2549,7 @@ fn hydrate_message_views(
             let content =
                 serde_json::from_str::<StructuredThreadMessageContent>(&row.structured_content_json)
                     .map(normalize_content)
-                    .context("CampMessage Structured Content is invalid")?;
+                    .context("ThreadMessage Structured Content is invalid")?;
             let body = render_structured_message_content(transaction, &content)?;
             let attachments = attachments_by_message_id
                 .remove(&row.id)
@@ -2596,7 +2596,7 @@ fn hydrate_message_views(
                     .presentation_json
                     .map(|value| serde_json::from_str(&value))
                     .transpose()
-                    .context("CampMessage presentation is invalid")?,
+                    .context("ThreadMessage presentation is invalid")?,
                 created_at: row.created_at,
                 withdrawn: row.recall_state == "withdrawn",
                 can_withdraw,
@@ -2615,11 +2615,11 @@ fn render_structured_message_content(
 
 fn validate_camp_message_find_query(query: &str) -> Result<()> {
     if query.trim().is_empty() {
-        anyhow::bail!("Camp Message find query must not be blank");
+        anyhow::bail!("Thread Message find query must not be blank");
     }
     if query.chars().count() > CAMP_MESSAGE_FIND_QUERY_MAX_SCALARS {
         anyhow::bail!(
-            "Camp Message find query must not exceed {CAMP_MESSAGE_FIND_QUERY_MAX_SCALARS} Unicode scalars"
+            "Thread Message find query must not exceed {CAMP_MESSAGE_FIND_QUERY_MAX_SCALARS} Unicode scalars"
         );
     }
     Ok(())

@@ -362,7 +362,7 @@ impl ThreadAttachmentReadAdmission {
 
     fn prove(&self, camp_id: &str) -> Result<()> {
         if self.camp_id != camp_id {
-            anyhow::bail!("Camp Attachment read admission does not match the AgentRun Camp");
+            anyhow::bail!("Thread Attachment read admission does not match the AgentRun Thread");
         }
         Ok(())
     }
@@ -1179,7 +1179,7 @@ async fn request_did_invalidate_navigation(core: &Core, request: &Request, resul
         Ok(pending) => pending,
         Err(error) => {
             eprintln!(
-                "failed to scope Navigation invalidation for Camp {camp_id}; invalidating conservatively: {error:#}"
+                "failed to scope Navigation invalidation for Thread {camp_id}; invalidating conservatively: {error:#}"
             );
             true
         }
@@ -1420,7 +1420,7 @@ fn default_camp_message_page_limit() -> i64 {
 fn normalized_camp_open_trace_id(trace_id: &str) -> Result<String> {
     uuid::Uuid::parse_str(trace_id)
         .map(|trace_id| trace_id.to_string())
-        .context("Camp open traceId must be a UUID")
+        .context("Thread open traceId must be a UUID")
 }
 
 struct ThreadOpenLogMetrics {
@@ -2482,7 +2482,9 @@ impl ThreadAttachmentRunAccess<'_> {
     fn prove(&self, execution: &AgentRunExecution) -> Result<()> {
         self.admission.prove(&execution.camp_id)?;
         if self.authorization.camp_id != execution.camp_id {
-            anyhow::bail!("Camp Attachment Runtime authorization does not match the AgentRun Camp");
+            anyhow::bail!(
+                "Thread Attachment Runtime authorization does not match the AgentRun Thread"
+            );
         }
         Ok(())
     }
@@ -2867,7 +2869,7 @@ impl Core {
         }
         let camp_id = execution.result.payload["threadId"]
             .as_str()
-            .context("new Channel Camp result omitted campId")?;
+            .context("new Channel Thread result omitted threadId")?;
         ThreadOutputDirectory::prepare(database, camp_id).map(|_| ())
     }
 
@@ -2979,7 +2981,7 @@ impl Core {
             )
         })
         .await
-        .context("Camp deletion filesystem cleanup task failed")??;
+        .context("Thread deletion filesystem cleanup task failed")??;
         let (workspace_cleanup_was_scheduled, mission_resources) = {
             let database = self.database.lock().await;
             let workspace_cleanup_was_scheduled =
@@ -3127,7 +3129,7 @@ impl Core {
             }
         }
         if !confirmed {
-            anyhow::bail!("Camp execution cleanup is unconfirmed; deletion remains fenced");
+            anyhow::bail!("Thread execution cleanup is unconfirmed; deletion remains fenced");
         }
         Ok(())
     }
@@ -3137,7 +3139,7 @@ impl Core {
             return;
         };
         if let Err(error) = self.process_camp_deletions_locked().await {
-            eprintln!("Camp deletion coordinator scan failed: {error:#}");
+            eprintln!("Thread deletion coordinator scan failed: {error:#}");
         }
     }
 
@@ -3190,7 +3192,7 @@ impl Core {
                             &candidate.camp_id,
                             &candidate.operation_id,
                         )?
-                        .context("Camp deletion cleanup handoff was not prepared")?
+                        .context("Thread deletion cleanup handoff was not prepared")?
                 };
                 let group_key = {
                     let mut database = self.database.lock().await;
@@ -6857,7 +6859,7 @@ impl Core {
                             .ok_or_else(|| {
                                 automation_tool_error(
                                     "mission.current_unavailable",
-                                    "The current Camp has no Mission; provide --mission-id or use mission list",
+                                    "The current Thread has no Mission; provide --mission-id or use mission list",
                                 )
                             })?
                         };
@@ -6870,7 +6872,7 @@ impl Core {
                         .ok_or_else(|| {
                             automation_tool_error(
                                 "mission.current_unavailable",
-                                "The current public Camp has no Mission",
+                                "The current public Thread has no Mission",
                             )
                         })?;
                         let actor = ActorRef::Agent {
@@ -6885,7 +6887,7 @@ impl Core {
                         )? {
                             return Err(automation_tool_error(
                                 "mission.forbidden",
-                                "Current Camp membership is required",
+                                "Current Thread membership is required",
                             ));
                         }
                         let execution = if request.tool_name == "mission.update" {
@@ -9591,7 +9593,7 @@ impl Core {
                     let project_path: String = database.connection().query_row(
                         "SELECT COALESCE((SELECT working_directory FROM mission_workspace WHERE camp_id = camp.id AND state = 'ready' ORDER BY created_at DESC LIMIT 1), project_path) FROM camp WHERE id = ?1",
                         [&params.camp_id], |row| row.get(0)
-                    ).context("Camp does not exist")?;
+                    ).context("Thread does not exist")?;
                     let mut members = database.connection().prepare(
                         "SELECT cm.agent_id, COALESCE(ap.selected_runtime_adapter_kind, ai.adapter_kind) FROM camp_member AS cm JOIN agent_profile AS ap ON ap.id = cm.agent_id LEFT JOIN adapter_installation AS ai ON ai.id = ap.default_runtime_installation_id WHERE cm.camp_id = ?1 AND cm.status = 'active' AND ap.profile_status <> 'removed' ORDER BY ap.member_order, cm.agent_id"
                     )?;
@@ -10196,7 +10198,7 @@ impl Core {
                 {
                     anyhow::ensure!(
                         selection.project_path == requested_path,
-                        "Authorized workspace changed before Camp creation"
+                        "Authorized workspace changed before Thread creation"
                     );
                 }
                 let command = CreateThreadCommand {
@@ -10699,7 +10701,7 @@ impl Core {
                                 .cancel_camp_delete_cleanup(&mut database, cleanup)
                         {
                             return Err(cancel_error.context(format!(
-                                "Pending Camp discard failed ({error:#}) and its attachment cleanup reservation could not be released"
+                                "Pending Thread discard failed ({error:#}) and its attachment cleanup reservation could not be released"
                             )));
                         }
                         return Err(error);
@@ -10819,7 +10821,10 @@ impl Core {
                     rusqlite::params![params.agent_run_id, params.execution_epoch, params.camp_id,],
                     |row| row.get(0),
                 )?;
-                anyhow::ensure!(authorized, "AgentRun does not belong to the requested Camp");
+                anyhow::ensure!(
+                    authorized,
+                    "AgentRun does not belong to the requested Thread"
+                );
                 if let Err(error) = AgentRunFileChangeProjector.project_terminal_run(
                     &mut database,
                     &ManagedBlobStore::new(&self.data_dir),
@@ -11831,7 +11836,7 @@ impl Core {
             .is_err()
         {
             eprintln!(
-                "Camp Attachment projection worker is unavailable; {camp_id} remains recoverable"
+                "Thread Attachment projection worker is unavailable; {camp_id} remains recoverable"
             );
         }
     }
@@ -11876,7 +11881,7 @@ impl Core {
                         )?;
                     }
                     eprintln!(
-                        "Camp Attachment publication {operation_id} terminalized after an invalid Authority source: {error:#}"
+                        "Thread Attachment publication {operation_id} terminalized after an invalid Authority source: {error:#}"
                     );
                     continue;
                 }
@@ -11888,7 +11893,7 @@ impl Core {
                             &operation_id,
                             "camp_attachment_view_copy_task_failed",
                         )?;
-                    return Err(error).context("Camp Attachment View copy task failed");
+                    return Err(error).context("Thread Attachment View copy task failed");
                 }
             };
             let projection = async {
@@ -11937,7 +11942,7 @@ impl Core {
                 };
                 if let Err(recovery_error) = recovery {
                     eprintln!(
-                        "Camp Attachment publication {operation_id} could not persist recovery state: {recovery_error:#}"
+                        "Thread Attachment publication {operation_id} could not persist recovery state: {recovery_error:#}"
                     );
                 }
                 return Err(error);
@@ -13172,7 +13177,7 @@ impl Core {
                 &core.attachment_projection_requests,
             ) {
                 eprintln!(
-                    "Camp Attachment projection worker is unavailable; {} remains recoverable",
+                    "Thread Attachment projection worker is unavailable; {} remains recoverable",
                     execution.camp_id
                 );
             }
@@ -13424,7 +13429,7 @@ impl Core {
         .context("workspace safety worker failed")??;
         if !git::persisted_workspace_path_matches_canonical(&requested_path, &canonical) {
             anyhow::bail!(
-                "Camp project path no longer resolves to its persisted canonical directory"
+                "Thread project path no longer resolves to its persisted canonical directory"
             );
         }
         Ok(canonical)
@@ -18771,7 +18776,7 @@ async fn process_attachment_projection_worker(
                     Some(Ok((camp_id, result))) => {
                         active_camps.remove(&camp_id);
                         if let Err(error) = result {
-                            eprintln!("Camp Attachment projection for {camp_id} requires recovery: {error:#}");
+                            eprintln!("Thread Attachment projection for {camp_id} requires recovery: {error:#}");
                         }
                         if rerun_camps.remove(&camp_id) {
                             active_camps.insert(camp_id.clone());
@@ -18779,7 +18784,7 @@ async fn process_attachment_projection_worker(
                         }
                     }
                     Some(Err(error)) => {
-                        eprintln!("Camp Attachment projection task failed: {error}");
+                        eprintln!("Thread Attachment projection task failed: {error}");
                     }
                     None => {}
                 }
@@ -18789,11 +18794,11 @@ async fn process_attachment_projection_worker(
     while let Some(completed) = tasks.join_next().await {
         match completed {
             Ok((camp_id, Err(error))) => eprintln!(
-                "Camp Attachment projection for {camp_id} requires recovery during shutdown: {error:#}"
+                "Thread Attachment projection for {camp_id} requires recovery during shutdown: {error:#}"
             ),
             Ok((_, Ok(()))) => {}
             Err(error) => {
-                eprintln!("Camp Attachment projection task failed during shutdown: {error}")
+                eprintln!("Thread Attachment projection task failed during shutdown: {error}")
             }
         }
     }
@@ -19129,7 +19134,7 @@ async fn run_core(
     let startup_pending_camp_ids = CollaborationService::default()
         .snapshot_pending_camps_for_startup_cleanup(&database)
         .unwrap_or_else(|error| {
-            eprintln!("Startup pending Camp cleanup skipped: {error:#}");
+            eprintln!("Startup pending Thread cleanup skipped: {error:#}");
             Vec::new()
         });
     let skill_library = SkillLibraryService::deferred(skill_library_root);
@@ -23249,7 +23254,7 @@ async fn process_agent_run_acp_approval_request(
                 execution_epoch,
                 request_id,
                 params,
-                "Git capability is unavailable for the current Camp workspace",
+                "Git capability is unavailable for the current Thread workspace",
             )
             .await?;
             return Ok(());

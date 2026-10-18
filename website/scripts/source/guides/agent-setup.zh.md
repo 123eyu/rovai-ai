@@ -131,7 +131,7 @@ custom_provider:
 ```
 
 - `reasoning: true` 声明支持思考；它本身不会提供强度选项。
-- `thinking.effortOptions` 声明可选档位。示例四档只适用于上游确实支持这些值的模型；按实际能力增删，不能照搬 Pi 的 `thinkingLevelMap`。
+- `thinking.effortOptions`：填写模型支持的思考强度，本例为 `low / medium / high / xhigh`。
 - `thinking.defaultEffort` 是原生配置支持的可选默认字段，示例设为 `medium`。它不是当前会话选项；不要写成 `thinking.effort`。需要固定队员强度时，在 Rovai 中显式选择并保存。
 
 官方 BYOK 指南说明了 `effortOptions`；`defaultEffort` 另见[官方配置类型](https://github.com/MiniMax-AI/minimax-code/blob/main/packages/config/src/config.ts)。此处两个字段已在 mcode 0.6.12 核对。使用 `openai-responses` 的 Sub2API 时，普通强度值由 mcode 传入请求的 `reasoning.effort`；配置列表不会替上游实现新档位，仍应验证实际请求。[MiniMax 自定义模型配置指南](https://agent.minimax.io/docs/code/account/byok-agent-setup)

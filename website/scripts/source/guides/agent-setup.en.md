@@ -131,7 +131,7 @@ custom_provider:
 ```
 
 - `reasoning: true` declares thinking support; it does not supply a list of levels.
-- `thinking.effortOptions` declares selectable levels. Use these four example values only if the upstream model supports them. Adjust the list to match its capabilities; Pi's `thinkingLevelMap` is a different format.
+- `thinking.effortOptions`: the model's supported thinking levels; this example lists `low / medium / high / xhigh`.
 - `thinking.defaultEffort` is an optional native default, set to `medium` here. It is separate from a conversation selection; do not use `thinking.effort`. To pin a teammate's level, explicitly select and save it in Rovai.
 
 The official BYOK guide documents `effortOptions`; see the [official configuration types](https://github.com/MiniMax-AI/minimax-code/blob/main/packages/config/src/config.ts) for `defaultEffort`. Both fields were checked with mcode 0.6.12. For Sub2API using `openai-responses`, mcode sends ordinary levels in `reasoning.effort`. Declaring a level does not implement it upstream, so verify an actual request. [MiniMax custom model setup guide](https://agent.minimax.io/docs/code/account/byok-agent-setup)

@@ -15,7 +15,7 @@ test('Memory workspace: production components, mutations, notifications and resp
   await promisify(execFile)(process.execPath, [resolve(import.meta.dirname, '../fixtures/memory-workspace/build.mjs'), root])
   const chrome = process.env.ROVAI_TEST_CHROME ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/google-chrome')
   const b = await launchAcceptanceBrowser({ executable: chrome, args: ['--headless=new', `--user-data-dir=${join(root, 'profile')}`, '--no-first-run', '--disable-background-networking', '--remote-debugging-port=0', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank'] })
-  const report = { interactions: [], viewports: [] }
+  const report = { interactions: [], viewports: [], windowsReviewViewports: [] }
   const settle = () => pause(160)
   const click = async selector => { await b.click(`document.querySelector(${JSON.stringify(selector)})`); await settle() }
   const text = selector => b.evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent`)
@@ -139,6 +139,29 @@ test('Memory workspace: production components, mutations, notifications and resp
       await closeEditor()
       report.viewports.push({ width,height,theme,primary:g.primary,aligned:true,noOverflow:true })
     }
+    await b.evaluate('__memoryFixture.setPlatform("win32")')
+    await b.wait('document.documentElement.dataset.rovaiPlatform === "win32" && !!document.querySelector(".windows-application-menu")')
+    for (const [width,height] of [[1440,920],[1040,700],[720,460]]) for (const theme of ['day','night']) {
+      await viewport(width,height); await b.evaluate(`__memoryFixture.setTheme('${theme}')`); await navigate({ scope: 'all' })
+      await click('.memory-review-entry'); await b.wait('!!document.querySelector(".memory-review-drawer")')
+      const layout = await b.evaluate(`(() => {
+        const titlebar = document.querySelector('.windows-application-menu').getBoundingClientRect();
+        const drawer = document.querySelector('.memory-review-drawer').getBoundingClientRect();
+        const close = document.querySelector('.memory-review-drawer button[aria-label="关闭共同记忆审核"]');
+        const r = close.getBoundingClientRect();
+        return { titlebarBottom: titlebar.bottom, drawerTop:drawer.top, drawerBottom:drawer.bottom,
+          closeTop:r.top, closeBottom:r.bottom, viewportHeight:innerHeight,
+          hit:close.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)) };
+      })()`)
+      assert.ok(layout.titlebarBottom > 0 && layout.drawerTop >= layout.titlebarBottom && layout.closeTop >= layout.titlebarBottom,
+        `Windows review controls must clear the native title bar: ${JSON.stringify(layout)}`)
+      assert.ok(layout.drawerBottom <= height && layout.closeBottom <= height && layout.hit)
+      await b.capture(join(output, `review-windows-${theme}-${width}.png`))
+      await click('.memory-review-drawer button[aria-label="关闭共同记忆审核"]'); await b.wait('!document.querySelector(".memory-review-drawer")')
+      assert.equal(await b.evaluate('__memoryFixture.get().reviews[0].status'),'pending')
+      report.windowsReviewViewports.push({ width,height,theme,...layout,nativeWindowsVerified:false })
+    }
+    await b.evaluate('__memoryFixture.setPlatform("darwin")')
     await viewport(1440,920); await b.evaluate('__memoryFixture.setTheme("day")'); await navigate({ scope: 'all', memoryId: 'shared-1' })
     await click('[data-memory-revise]'); await fill('textarea', '未提交的修订草稿。'); await closeEditor(); await click('[data-memory-revise]')
     assert.equal(await b.evaluate('document.querySelector("textarea").value'), '未提交的修订草稿。')

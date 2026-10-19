@@ -41,6 +41,8 @@ survives a late lookup. View selects the actual changed memory. Pending review r
 header/rail entry; after resolution the header exposes Review history.
 
 Candidate content is not active memory. The dedicated drawer shows content, source, requested action and target/base.
+On Windows, the portal drawer starts below the native WCO title-bar height and fits the remaining viewport; its close
+control must clear native caption buttons as well as the page's drag strip.
 Fresh items support accept, edit then accept, or reject. Stale revise items support reject only and explain the changed
 target. Dismissing changes no domain state. Accepted, rejected and invalidated items are body-free history; never
 reconstruct cleared content or describe invalidation as a user rejection.

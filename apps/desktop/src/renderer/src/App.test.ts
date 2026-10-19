@@ -6099,7 +6099,7 @@ describe('task event projections', () => {
     })
     expect(activityStatusForAgentRun('running', 'cancelled')).toBe('stopped')
     expect(activityStatusForAgentRun('completed', 'cancelled')).toBe('completed')
-    expect(activityStatusForAgentRun('running', 'failed')).toBe('running')
+    expect(activityStatusForAgentRun('running', 'failed')).toBe('recorded')
   })
 
   it('projects an interrupted terminal as stopped without claiming cancellation', () => {

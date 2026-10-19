@@ -8,6 +8,39 @@ last_updated: 2026-10-19
 
 # v1.72 实施与验收
 
+## Antigravity 长任务与工具收尾（2026-10-19）
+
+User 批准独立 worktree 实施、创建 PR 并合入 main。分支 `rovai/fix-antigravity-turn-timeout`，
+worktree 为同级 `rovai-ai-antigravity-timeout`，基线 `90b4f46b458943170a1f1541cb2928f320db311c`。
+真实 agy 1.4.2 复现中，短请求与多工具请求完成；长请求在第六轮工具未收口时结束，Run 总计 311.7 秒、
+输入准备后 300.7 秒，后端错误地呈现成功。该五分钟复现没有直接出现空正文，不能与原用户反馈混为同一次证据。
+[上游 1.1.28](https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md#1128) 明确
+超时返回部分结果并成功退出；[1.2.6](https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md#126)
+已默认不限时，但旧适配器的显式 `5m` 覆盖了该值。
+
+生产改动为 `--print-timeout 0`、精确原生 stderr 超时识别及共享终态工具投影。没有数据库迁移、
+模型输入或原生配置更改；没有取消初始化、停止与清理期限。缺失工具结果显示未知，底层 Evidence
+和迟到结果保持。保持 v1.72；局部可逆修复不新增 Version Decision，当前合同、架构和 UI 同步；
+Runtime Activity 映射、准入资格、根 README 和文档路由保持。
+
+Rust 扩展既有 `structured_runtime_failure_preserves_sanitized_provider_detail` 进程 owner，覆盖零退出
+部分文本／空白文本超时及原有配额失败脱敏；现有工具生命周期 owner 同时验证无限时参数与非致命警告。
+没有新增或退役独立 Rust 测试。最小回归为 `cargo test -p rovai-core --lib antigravity::tests::`。
+原有人工 smoke 新增显式 `ROVAI_ANTIGRAVITY_LONG_TURN_SMOKE=1` 入口，以真实适配器顺序执行八次 40 秒只读命令，
+不进入普通测试。UI 在既有分组 owner 和生产 ThreadWorkspace 浏览器 fixture 中验证三种终态与展开状态。
+
+真实适配器长任务使用 agy 1.4.2、原生默认模型，在独立临时 workspace 和日志目录执行，367.81 秒后
+返回 `AGY_LONG_TURN_OK`；跨过旧期限并保留正常最终结果。未启动第二个 Core 或修改日常 App 数据。
+第一次人工验收沿用了旧 CoreEnforcedV1/read_only 配置，会强制 plan 模式，在 63.94 秒返回空正文；
+它不是长任务通过证据，也说明空正文不能一概归因于五分钟时限。本次只对有明确超时证据的结果重新分类，
+其他空正文仍诚实失败；长任务 fixture 已使用当前 RuntimeManagedV2 权限语义。
+
+提交前定向 Antigravity 回归 16 passed、1 项人工 smoke 默认 ignored；默认 Rust workspace、
+`pnpm typecheck`、`pnpm test`（2798 项 Vitest、后续 Node 357 passed／2 个平台 skip）、
+`pnpm build:desktop`、真实 base SHA 的 `docs:check:ci`、Rust 格式与差异空白检查均通过。
+生产 ThreadWorkspace 浏览器验收覆盖日夜主题 × 底部／Inspector／Mobile，三种 Run 终态均无悬挂
+工具转圈，成功结果与展开状态保持；两轮截图检查确认结果未知图标可见。Impeccable 本次目标静态检查无发现。
+
 ## Composer 链接高亮稳定性（2026-10-19）
 
 按 User 确认在独立 worktree 的 `rovai/composer-link-stability` 分支实施，基线为 `4ccfd8270`。

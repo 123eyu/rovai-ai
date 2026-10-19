@@ -273,7 +273,7 @@ describe('member runtime parameters', () => {
     const canFilter = modelCatalogCanValidateOptions(installation.modelCatalog, null)
     expect(canFilter).toBe(false)
     expect(explicitSelection({ ...installation.snapshot!.models[0], id: saved.modelId, options: [] },
-      saved, canFilter).options).toEqual(saved.options)
+      saved, canFilter)).toMatchObject({ mode: 'explicit', options: saved.options })
     expect(runtimeModelSelectionAvailable(installation, draft.model)).toBe(true)
     expect(runtimeModelSelectionAvailable(installation, { mode: 'runtime_default' })).toBe(true)
     const markup = renderToStaticMarkup(createElement(MemberRuntimeParameters, {

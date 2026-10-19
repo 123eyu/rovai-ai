@@ -1,5 +1,5 @@
 ---
-version: 4
+version: 5
 slug: "memory-workspace"
 primary_target: "apps/desktop/src/renderer/src/MemoryLibrary.tsx"
 related_targets:
@@ -49,6 +49,9 @@ reconstruct cleared content or describe invalidation as a user rejection.
 
 Creation chooses scope/type/participants; revision shows immutable identity as quiet context. Body and key chips are
 editable, with byte limits and validation retained. Show counters near their limit and errors where the edit happens.
+Use aligned, regular-weight 12px labels and a shared platform font across choices, body and keys. Creation choices use
+equal-height neutral menu triggers, a checked selected option and keyboard navigation. Keep participant and direction
+constraints intact, including the responsible member for one-way relationships. Menus remain inside the viewport.
 Cancel/reopen retains an unsubmitted draft for that identity; success clears only that draft. Commands keep expected
 versions and exact base Revision. On conflict, retain draft, refresh authority and require explicit retry; never silently
 merge. Review scheduling retains its authority-unknown and applied-but-refresh-failed recovery. Forget requires explicit

@@ -29,6 +29,7 @@ try {
   await openMemory(first.cdp)
   dayHeaderGeometry = await assertMemoryPageHeaderGeometry(first.cdp, '1440×920 Memory')
   await assertReviewDrawerClose(first.cdp, 'day')
+  await assertMemoryCreateForm(first.cdp, 'day')
 
   await createHearthMemory(first.cdp, initialBody)
   await chooseMemoryTab(first.cdp, '共同')
@@ -44,6 +45,8 @@ try {
   const revisedRecord = await request(first.cdp, 'memory.list')
   const durable = revisedRecord.memories.find((memory) => memory.currentBody === revisedBody)
   assert(durable?.revisions.length === 2, 'UI revision did not preserve two authoritative Revisions')
+  assert(durable.scope === 'hearth' && durable.companionAgentId === null,
+    'Shared creation must persist as Hearth memory, without a Companion owner')
 
   await openReviewSchedule(first.cdp, revisedBody)
   await assertReviewScheduleDialogContract(first.cdp, { hasReminder: false })
@@ -139,6 +142,7 @@ try {
   await pressKey(first.cdp, 'Escape', 'Escape')
   await waitForExpression(first.cdp, `!document.querySelector('.memory-review-schedule-dialog')`)
   await assertReviewDrawerClose(first.cdp, 'zoom-200')
+  await assertMemoryCreateForm(first.cdp, 'zoom-200')
   await setPageZoom(first.cdp, 100)
 
   const dayCapture = join(outputDir, 'memory-day.png')
@@ -194,6 +198,7 @@ try {
   await openMemory(second.cdp)
   compactHeaderGeometry = await assertMemoryPageHeaderGeometry(second.cdp, '1040×700 Memory')
   await assertReviewDrawerClose(second.cdp, 'night-compact')
+  await assertMemoryCreateForm(second.cdp, 'night-compact')
   const restartedLibrary = await request(second.cdp, 'memory.list')
   const restartedMemory = restartedLibrary.memories.find((memory) => memory.currentBody === revisedBody)
   assert(restartedMemory?.lifecycle === 'active' && restartedMemory.reviewDue === true,
@@ -287,6 +292,38 @@ async function assertReviewDrawerClose(cdp, label) {
   await waitForSelector(cdp, '.memory-review-drawer')
   await pressKey(cdp, 'Escape', 'Escape')
   await waitForExpression(cdp, `!document.querySelector('.memory-review-drawer')`)
+}
+
+async function assertMemoryCreateForm(cdp, label) {
+  await clickButton(cdp, '.memory-library-header button', '新增')
+  await waitForSelector(cdp, '.memory-choice-trigger')
+  const form = await evaluate(cdp, `(() => {
+    const labels = [...document.querySelectorAll('.memory-choice-field > label,.memory-body-field > label,.memory-body-field > span')];
+    const controls = [...document.querySelectorAll('.memory-choice-trigger')];
+    const r = controls[0].getBoundingClientRect();
+    return { labels: labels.map(e => { const s = getComputedStyle(e); return [s.fontSize,s.fontWeight,s.lineHeight].join('/'); }),
+      heights: controls.map(e => e.getBoundingClientRect().height),
+      aligned: Math.abs(r.y-controls[1].getBoundingClientRect().y) < 1,
+      x: r.x+r.width/2, y: r.y+r.height/2 };
+  })()`)
+  assert(form.labels.length === 4 && form.labels.every(value => value === '12px/400/20px')
+    && form.heights.every(height => Math.abs(height-40) < 0.5) && form.aligned,
+  `${label}: create form labels or controls are misaligned: ${JSON.stringify(form)}`)
+  await capture(cdp, join(outputDir, `memory-create-form-${label}.png`))
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: form.x, y: form.y, button: 'left', clickCount: 1 })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: form.x, y: form.y, button: 'left', clickCount: 1 })
+  await waitForSelector(cdp, '.memory-choice-menu')
+  const menuVisible = await evaluate(cdp, `(() => {
+    const menu = document.querySelector('.memory-choice-menu'), r = menu.getBoundingClientRect();
+    return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
+      && menu.querySelector('[aria-checked="true"]')?.textContent === '共同记忆';
+  })()`)
+  assert(menuVisible, `${label}: scope menu is clipped or lost its selected value`)
+  await capture(cdp, join(outputDir, `memory-create-menu-${label}.png`))
+  await pressKey(cdp, 'Escape', 'Escape')
+  await waitForExpression(cdp, `!document.querySelector('.memory-choice-menu') && Boolean(document.querySelector('.memory-editor-dialog'))`)
+  await clickButton(cdp, '.memory-editor-dialog button', '取消')
+  await waitForExpression(cdp, `!document.querySelector('.memory-editor-dialog')`)
 }
 
 async function openReviewSchedule(cdp, body) {

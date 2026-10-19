@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { launchAcceptanceBrowser, pause } from './host-web-browser.mjs'
 
-test('Memory workspace R4: production components, mutations, notifications and responsive layout', { timeout: 180_000 }, async () => {
+test('Memory workspace: production components, mutations, notifications and responsive layout', { timeout: 180_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rovai-memory-ui-'))
   const output = process.env.ROVAI_MEMORY_UI_OUTPUT ?? join(root, 'screenshots')
   await mkdir(output, { recursive: true })
@@ -25,6 +25,16 @@ test('Memory workspace R4: production components, mutations, notifications and r
   const fill = async (selector, value) => { await b.evaluate(`(() => {const e = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(e.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(e, ${JSON.stringify(value)}); e.dispatchEvent(new Event('input', { bubbles: true }));})()`); await settle() }
   const navigate = async target => { await b.evaluate(`__memoryFixture.navigate(${JSON.stringify({ kind: 'memory', memoryId: null, ...target })})`); await settle() }
   const closeEditor = () => button('取消', 'document.querySelector(".memory-editor-dialog")')
+  const choiceTrigger = label => `[...document.querySelectorAll('.memory-choice-field')].find(e => e.querySelector('label').textContent === ${JSON.stringify(label)}).querySelector('button')`
+  const choiceKey = async (key, windowsVirtualKeyCode) => {
+    await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode })
+    await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode })
+  }
+  const choose = async (label, value) => {
+    await b.click(choiceTrigger(label)); await b.wait('!!document.querySelector(".memory-choice-menu")')
+    await b.click(`[...document.querySelectorAll('.memory-choice-option')].find(e => e.textContent === ${JSON.stringify(value)})`)
+    await b.wait('!document.querySelector(".memory-choice-menu")'); await settle()
+  }
   const viewport = async (width, height) => { await b.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }); await settle() }
   const geometry = () => b.evaluate(`(() => {
     const rect = e => { const r = e.getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom } };
@@ -98,6 +108,35 @@ test('Memory workspace R4: production components, mutations, notifications and r
       await click('.memory-review-drawer button[aria-label="关闭共同记忆审核"]')
       await b.wait('!document.querySelector(".memory-review-drawer")')
       assert.equal(await b.evaluate('__memoryFixture.get().reviews[0].status'), 'pending', 'closing does not resolve the review')
+      await button('新增')
+      const form = await b.evaluate(`(() => {
+        const controls = [...document.querySelectorAll('.memory-choice-trigger')];
+        const labels = [...document.querySelectorAll('.memory-choice-field > label,.memory-body-field > label,.memory-body-field > span')];
+        const textarea = document.querySelector('textarea'), keys = document.querySelector('#memory-key-input');
+        return { labels: labels.map(e => { const s = getComputedStyle(e); return [s.fontSize,s.fontWeight,s.lineHeight]; }),
+          heights: controls.map(e => e.getBoundingClientRect().height),
+          rowDelta: Math.abs(controls[0].getBoundingClientRect().y-controls[1].getBoundingClientRect().y),
+          fieldGap: document.querySelector('.memory-body-field').getBoundingClientRect().y-document.querySelector('.memory-editor-grid').getBoundingClientRect().bottom,
+          fonts: [controls[0],textarea,keys].map(e => getComputedStyle(e).fontFamily),
+          overflow: document.querySelector('.app-dialog-body').scrollWidth > document.querySelector('.app-dialog-body').clientWidth + 1 };
+      })()`)
+      assert.deepEqual(form.labels, Array(4).fill(['12px','400','20px']), 'all form labels share a baseline and typography')
+      assert.ok(form.heights.every(height => Math.abs(height - (width < 768 ? 44 : 40)) < 0.5), 'choice controls have equal desktop/touch heights')
+      if (width > 360) assert.ok(form.rowDelta < 1, 'scope and kind controls align')
+      assert.ok(Math.abs(form.fieldGap-20)<0.5, 'form sections retain the approved spacing')
+      assert.equal(new Set(form.fonts).size, 1, 'body, keys and choices use the same platform font')
+      assert.equal(form.overflow, false)
+      await b.capture(join(output, `create-${theme}-${width}.png`))
+      await b.click(choiceTrigger('范围')); await b.wait('!!document.querySelector(".memory-choice-menu")')
+      const menu = await b.evaluate(`(() => { const e = document.querySelector('.memory-choice-menu'), r = e.getBoundingClientRect(); return { inside:r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight, color:getComputedStyle(e).backgroundColor, selected:e.querySelector('[aria-checked="true"]')?.textContent }; })()`)
+      assert.ok(menu.inside, 'choice menu stays inside the viewport')
+      assert.equal(menu.selected, '共同记忆')
+      const channels = menu.color.match(/\d+/g).map(Number)
+      assert.equal(Math.max(...channels)-Math.min(...channels),0, 'choice menu uses neutral surfaces')
+      await b.capture(join(output, `create-menu-${theme}-${width}.png`))
+      await b.key('Escape'); await b.wait('!document.querySelector(".memory-choice-menu")')
+      assert.ok(await b.evaluate('!!document.querySelector(".memory-editor-dialog")'), 'Escape closes the menu before the form')
+      await closeEditor()
       report.viewports.push({ width,height,theme,primary:g.primary,aligned:true,noOverflow:true })
     }
     await viewport(1440,920); await b.evaluate('__memoryFixture.setTheme("day")'); await navigate({ scope: 'all', memoryId: 'shared-1' })
@@ -115,11 +154,13 @@ test('Memory workspace R4: production components, mutations, notifications and r
     report.interactions.push('draft survives close; byte limit; inline transport failure; version conflict refresh preserves draft; explicit retry with new authority succeeds')
 
     await click('[data-memory-scope="all"]'); await button('新增')
-    assert.equal(await b.evaluate('document.querySelector(".memory-editor-grid select").value'),'hearth')
+    assert.equal(await b.evaluate(`${choiceTrigger('范围')}.textContent`),'共同记忆')
     await fill('textarea','从全部新增的记忆。'); await fill('#memory-key-input','新建验证')
     await button('保存记忆'); await b.wait('!document.querySelector(".memory-editor-dialog")')
     assert.equal(await text('.memory-detail-body'),'从全部新增的记忆。')
     assert.deepEqual(await b.evaluate('__memoryFixture.get().calls.at(-1).command.retrievalKeys'),['新建验证'])
+    assert.equal(await b.evaluate('__memoryFixture.get().calls.at(-1).command.scope'),'hearth')
+    assert.equal(await b.evaluate('__memoryFixture.get().calls.at(-1).command.companionAgentId'),null)
     await click('.memory-more-button'); await b.key('Escape'); await settle()
     assert.equal(await b.evaluate('document.activeElement.matches(".memory-more-button")'),true)
     await click('.memory-more-button'); await button('停止沿用')
@@ -135,6 +176,33 @@ test('Memory workspace R4: production components, mutations, notifications and r
     assert.match(await text('.memory-review-entry'),/审核记录/)
     assert.equal(await b.evaluate('__memoryFixture.get().reviews[0].candidateBody'),null)
     report.interactions.push('create from all targets new identity and submits typed keys; retire/reactivate; schedule; forget cancel; review acceptance and body-free history')
+    await click('.memory-review-drawer button[aria-label="关闭共同记忆审核"]')
+    await click('[data-memory-scope="all"]'); await button('新增')
+    await fill('textarea','成员范围验证。'); await fill('#memory-key-input','范围验证')
+    await b.click(choiceTrigger('范围')); await b.wait('!!document.querySelector(".memory-choice-menu")')
+    await choiceKey('Home',36); await choiceKey('ArrowDown',40); await choiceKey('Enter',13); await settle()
+    assert.equal(await b.evaluate(`${choiceTrigger('范围')}.textContent`),'队员记忆', 'scope can be selected using the keyboard')
+    assert.equal(await b.evaluate('document.querySelector("textarea").value'),'成员范围验证。', 'scope changes preserve the draft')
+    await choose('队员','舟'); await choose('类型','经验'); await button('保存记忆')
+    await b.wait('!document.querySelector(".memory-editor-dialog")')
+    const companion = await b.evaluate('__memoryFixture.get().calls.at(-1).command')
+    assert.equal(companion.scope,'companion'); assert.equal(companion.companionAgentId,'member-b'); assert.equal(companion.kind,'lesson')
+    assert.deepEqual(companion.relationshipAgentIds,[])
+    await click('[data-memory-scope="all"]'); await button('新增'); await choose('范围','队员间记忆')
+    assert.equal(await b.evaluate(`${choiceTrigger('类型')}.textContent`),'约定')
+    await b.click(choiceTrigger('类型')); await settle()
+    assert.equal(await b.evaluate('[...document.querySelectorAll(".memory-choice-option")].some(e => e.textContent === "偏好")'),false)
+    await b.key('Escape'); await settle(); await choose('方向','单向'); await choose('责任方','舟')
+    await fill('textarea','队员间单向约定。'); await fill('#memory-key-input','单向约定')
+    await choose('队员 A','舟')
+    assert.equal(await b.evaluate('document.querySelector(".memory-editor-dialog button[type=submit]").disabled'),true, 'two distinct members remain required')
+    await choose('队员 B','林'); await button('保存记忆'); await b.wait('!document.querySelector(".memory-editor-dialog")')
+    const relationship = await b.evaluate('__memoryFixture.get().calls.at(-1).command')
+    assert.equal(relationship.scope,'relationship'); assert.equal(relationship.companionAgentId,null)
+    assert.deepEqual([...relationship.relationshipAgentIds].sort(),['member-a','member-b'])
+    assert.equal(relationship.direction,'directed'); assert.equal(relationship.directedActorAgentId,'member-b')
+    report.interactions.push('aligned neutral create form; pointer/keyboard menus; scope changes retain drafts; exact shared/member/relationship commands and participant constraints')
+    await click('.memory-review-entry'); await b.wait('!!document.querySelector(".memory-review-drawer")')
     await b.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]})
     await b.capture(join(output,'review-history-reduced-motion.png'))
     assert.deepEqual(b.errors,[])

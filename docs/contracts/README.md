@@ -16,7 +16,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 ## 会话 Task 能力（当前）
 
 - [Durable Task v6](durable-task-v6.md)
-- [Built-in Tool Transport v42](builtin-tool-transport-v42.md)
+- [Built-in Tool Transport v43](builtin-tool-transport-v43.md)：成功 Send 输入来源与文件卡片排除；[v42（历史）](builtin-tool-transport-v42.md) 保留原 Task 发现边界。
 - [ContextManifest Evidence v40 / v42](context-manifest-evidence-v42.md)
 - [Context Delivery Profile v15 / v16](context-delivery-profile-v15.md)
 - [Run Facts v10](run-facts-v10.md)
@@ -304,7 +304,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Permanent Deletion v3（历史）](camp-permanent-deletion-v3.md) | 原删除权限/journal 不变；先定向业务终态，再有界 Runtime 清理和物理删除 |
 | [Camp Permanent Deletion v2（历史）](camp-permanent-deletion-v2.md) | v1 删除合同不变；增加 Camp Published Attachment View journal cleanup，并规定先 fence Runtime、再取得 View write gate |
 | [Camp Permanent Deletion v1（历史）](camp-permanent-deletion-v1.md) | `camps.delete` force 字段、兼容 blocker、单事务物理删除、Runtime cleanup 与 Renderer 确认边界；不含 Published View cleanup |
-| [Runtime File Change Observation v8（当前）](runtime-file-change-observation-v8.md) | MiniMax 原生 patch、创建标志与相对路径；排除预览伪完整状态，继承共享文件投影 |
+| [Runtime File Change Observation v9（当前）](runtime-file-change-observation-v9.md) | 成功 Send 输入路径按 Run/epoch 排除；复用现有 Evidence 与投影失效 |
+| [Runtime File Change Observation v8（历史）](runtime-file-change-observation-v8.md) | MiniMax 原生 patch、创建标志与相对路径；排除预览伪完整状态，继承共享文件投影 |
 | [Runtime File Change Observation v7（历史）](runtime-file-change-observation-v7.md) | 已成功的原生补丁片段、来源标签、按序统计与共享 Command/Files Changed 投影 |
 | [Runtime File Change Observation v6（历史）](runtime-file-change-observation-v6.md) | exact-epoch 文件事实水位、stale/no_changes 重算、稳定文件 ID 与原子 projection 发布 |
 | [Runtime File Change Observation v5（历史）](runtime-file-change-observation-v5.md) | 官方 ZCode Runtime 与原生证据边界；继承上一版合同 |

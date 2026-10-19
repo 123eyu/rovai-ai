@@ -6265,9 +6265,36 @@ impl Core {
                 request_id,
                 operation,
                 input,
+                send_input_file_path,
             } => {
                 let operation =
                     rovai_core::thread_compat::canonical_operation(&operation).to_string();
+                let send_input_file_path = match send_input_file_path {
+                    Some(path) if operation == CAMP_MESSAGE_SEND_TOOL_NAME => {
+                        match rovai_core::builtin_tool_transport::normalize_send_input_file_path(
+                            Path::new(&path),
+                        ) {
+                            Some(path) => Some(path),
+                            None => {
+                                return builtin_tool_rejection(
+                                    &operation,
+                                    &request_id,
+                                    "builtin_tool.invalid_input",
+                                    "Send input source must be an absolute file path.",
+                                );
+                            }
+                        }
+                    }
+                    Some(_) => {
+                        return builtin_tool_rejection(
+                            &operation,
+                            &request_id,
+                            "builtin_tool.invalid_input",
+                            "Input source metadata is only supported for Send.",
+                        );
+                    }
+                    None => None,
+                };
                 let input =
                     match rovai_core::thread_compat::normalize_builtin_input(&operation, input) {
                         Ok(input) => input,
@@ -6369,16 +6396,17 @@ impl Core {
                         return builtin_tool_rejection(&operation, &request_id, &code, &message);
                     }
                 }
-                let digest = match request_digest(&operation, &input) {
-                    Ok(digest) => digest,
-                    Err(error) => {
-                        eprintln!("failed to digest Built-in Tool request: {error:#}");
-                        return BuiltinToolIpcResponse::ipc_error(
-                            "builtin_tool.invalid_input",
-                            "Operation input could not be normalized",
-                        );
-                    }
-                };
+                let digest =
+                    match request_digest(&operation, &input, send_input_file_path.as_deref()) {
+                        Ok(digest) => digest,
+                        Err(error) => {
+                            eprintln!("failed to digest Built-in Tool request: {error:#}");
+                            return BuiltinToolIpcResponse::ipc_error(
+                                "builtin_tool.invalid_input",
+                                "Operation input could not be normalized",
+                            );
+                        }
+                    };
                 match self
                     .builtin_tool_leases
                     .replay(&auth, &request_id, &digest)
@@ -6507,6 +6535,7 @@ impl Core {
                         Some((authorized.agent_run_id, authorized.execution_epoch)),
                         Some(request_id.clone()),
                         source_files,
+                        send_input_file_path,
                         &authorized.run_tmp,
                     )
                     .await;
@@ -6814,6 +6843,7 @@ impl Core {
         attested_run: Option<(String, i64)>,
         evidence_request_id: Option<String>,
         source_files: Vec<rovai_core::local_attachment_source::LocalAttachmentSourceRef>,
+        send_input_file_path: Option<String>,
         run_tmp: &Path,
     ) -> TeamToolIpcResponse {
         let evidence_tool_name = request.tool_name.clone();
@@ -6913,6 +6943,7 @@ impl Core {
                 "idempotentReplay": false,
                 "receiptId": null,
                 "operationProjection": operation_projection,
+                "sendInputFilePath": send_input_file_path,
             });
             ExecutionEvidenceService
                 .record_builtin_tool_started(
@@ -7734,6 +7765,7 @@ impl Core {
                 "receiptId": evidence_receipt_id,
                 "operationProjection": operation_projection,
                 "coreEnvelope": core_envelope,
+                "sendInputFilePath": send_input_file_path,
             });
             let evidence_result = {
                 let mut database = self.database.lock().await;

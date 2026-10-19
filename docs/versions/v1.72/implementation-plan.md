@@ -13,7 +13,7 @@ last_updated: 2026-10-19
 **已撤回。** 原功能通过 [PR #821](https://github.com/murray17/rovai-ai/pull/821) 合入并安装后，
 User 反馈问题，要求先撤回，并确认将回退 PR 合入 main 后安装到本机 App。
 
-回退分支 `rovai/revert-manual-stop-unread`，基线 `4a0a112d6d8db4956c9315b25dfcb3d8fd5b184a`，
+回退分支 `rovai/revert-manual-stop-unread`，基线 `7dbc9ed24170dac6032582285995da7af36702cd`，
 使用现有 checkout。移除 `BusinessApp` 中停止成功写入 `manualUnread` 的逻辑及丢失回执的提醒核对集合；
 恢复停止动作与回复未读的原有边界。现有停止、终态核对、回复未读和显式标记未读不变；
 不批量清理已有本机提醒，继续由显式打开或标记已读清除。

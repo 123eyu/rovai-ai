@@ -3497,3 +3497,24 @@ Codex 与 Kiro 连续 RPC 的差值基本对应移除的末尾完整哈希；Min
 原检查转入后台；没有继续删除 MiniMax／Kiro 会话步骤或增加预热。Windows 真机、打包 Release、首次安装／
 升级耗时与真实任务未在本次复测；替换归属与 Fast 下发语义使用原定向测试。验收 App 已受控退出，日常 App
 及数据未操作。完整原始计时、分段日志、无效窗口样本与安装身份清单随 Thread 附件交付。
+
+## Send 输入文件退出文件变化卡片（2026-10-19）
+
+User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree、PR 与 main 合入。
+来源通过内部 IPC 绑定到已认证 Run/epoch，写入现有 Evidence JSON；无 SQL migration。过滤发生在原有终态
+归约后，覆盖 snapshot/fallback、项目内外路径、多个 Send、统计与空卡片；成功来源推进原有失效水位。
+
+新增纯归约 owner `successful_send_sources_filter_snapshot_and_operation_files_with_exact_paths`：原实现不能
+消费成功 Send 来源；既有 managed-output owner 只处理 ingress unavailable，不能拥有“已准入文件被成功
+业务来源排除”的不同语义。最小命令为 `cargo test -p rovai-core --lib --features extended-tests successful_send_sources`。
+持久化／迟到／重启扩展现有 `terminal_runs_in_a_non_git_directory_project_independent_replayable_cards`，
+复用其 SQLite fixture，因为纯归约不能证明 JSON 保存和水位恢复。CLI 来源扩展既有 `send_file_` 和
+`send-file-input.test.mjs` owner；replay 来源绑定扩展既有 Built-in lease owner。
+
+验证通过：`cargo check --workspace`、`cargo fmt --all --check`、
+`cargo test -p rovai-core --lib --features extended-tests agent_run_file_change::`（22 passed）、
+`cargo test -p rovai-core --bin rovai send_file_`（2 passed）、`pnpm test:send-input-file`（1 passed）、
+`pnpm test:rust:pr`（474 passed，1 项既有手动 Runtime smoke ignored）、`pnpm typecheck`、
+`pnpm test`（Vitest 2,798 passed；组合脚本 357 passed、2 项平台相关 skip）及文档治理门禁。
+新增断言在首次验证时修正了 snapshot／operation 输出顺序假设及 macOS 临时目录 cwd 别名，未改变生产
+路径身份规则。未启动真实 Runtime、模型或 Renderer；本项不宣称真实 Session 或 UI 点击验收。

@@ -787,7 +787,7 @@ standalone raw Evidence、Envelope JSON 或独立
 
 ### Runtime 终态文件变更与 AgentRun 文件变化
 
-只有 [Runtime File Change Observation v7](../../contracts/runtime-file-change-observation-v7.md)准入的可靠
+只有 [Runtime File Change Observation v9](../../contracts/runtime-file-change-observation-v9.md)准入的可靠
 Evidence 才进入文件操作呈现。成功 read 的可靠单路径显示为不可展开的 `阅读 <basename>`；成功 write 的可靠
 单路径显示 `编辑 <basename>`。有完整 before/after、unified snapshot、exact mutation 或已准入 reported mutation 时，每个文件作为同一
 Canonical Activity 的 presentation row，明确 add 显示“新增”，其他显示“编辑”；没有可靠内容时不显示
@@ -796,6 +796,10 @@ Canonical Activity 的 presentation row，明确 add 显示“新增”，其他
 当前 Runtime Host 的精确 `ROVAI_RUN_TMP` 是 Rovai 可重置的临时交付区，不是用户文件面。其目录内的 HTML、
 图片或其他中间产物不显示为 `修改 <basename>`，也不进入 `Files Changed`；mixed 事件只展示其余普通文件。
 已经持久化的历史卡片不重算。临时文件经 `rovai send --file` 发布后，附件由独立的 Camp Attachment UI 呈现。
+
+同 Run/epoch 成功 Send 的 `--input-file` 来源由 Core 在生成 Files Changed 时精确排除，卡片与详情统计保持
+一致；全部过滤后不显示卡片。来源可位于任意目录，`--file` 附件不因交付被过滤；原始执行文件行和 Command Diff
+保持。界面直接消费已过滤的投影，旧无来源记录不回填。字段与恢复规则见上述 v9 合同。
 
 文件操作使用阅读文件或笔形 16px 图标。动作词和文件名始终横向单行排列，之间固定保留 5px 间距；空间不足时仅文件名显示省略号，动作词与状态保持完整，完整路径保留在 title 与可访问名称中。执行抽屉与其他执行面使用同一布局。文件名以虚线底线按钮展示。canonical diff 修改文件行优先用 exact Run Activity Evidence 授权，并以来源 AgentRun
 的 `executionRoot` 解析；无 Diff 的终态 Read/Write 行使用同一 Run Activity 来源，以该 Evidence 已准入的

@@ -946,3 +946,11 @@ MiniMax Usage 增加本轮消息身份限定的后台尾读，仍保持部分观
 [Usage v10](../../contracts/runtime-usage-monitoring-v10.md)。
 0.6.12 官方 ACP 局部关闭 ask_user 的入口仍缺，未修改原生全局配置，不声称默认隐藏已交付。
 Preview 的平台、CLI 子集、Skills/MCP 和并发资格边界不变。
+
+## Send 输入文件退出文件变化卡片（2026-10-19）
+
+按 User 确认方案，CLI 记录实际 `--input-file` 来源，复用本次 Send 执行记录；Core 在终态文件归约中排除
+成功来源并重算统计，任意目录、多个来源与重启恢复共用现有机制。附件和原始操作保持，无表／列迁移或
+模型上下文变更。当前规范为 [Transport v43](../../contracts/builtin-tool-transport-v43.md)与
+[File Change v9](../../contracts/runtime-file-change-observation-v9.md)，验证见[实施计划](implementation-plan.md#send-输入文件退出文件变化卡片2026-10-19)。
+本项为可逆的局部投影规则，不新增 Version Decision；同步当前合同、架构、UI 与导航，Runtime 原生映射和根 README 无需变化。

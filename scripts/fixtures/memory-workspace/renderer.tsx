@@ -6,6 +6,7 @@ import { MemoryChangeNotice } from '../../../apps/desktop/src/renderer/src/Memor
 import { collectMemoryChanges, memoryChangeText } from '../../../apps/desktop/src/renderer/src/memory-change-notice'
 import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { NavigationShell } from '../../../apps/desktop/src/renderer/src/NavigationShell'
+import { WindowDragStrip } from '../../../apps/desktop/src/renderer/src/BusinessApp'
 import { ThreadNavigation } from '../../../apps/desktop/src/renderer/src/ThreadNavigation'
 import { MobileLayoutProvider, useMobileViewport } from '../../../apps/desktop/src/renderer/src/MobileLayout'
 import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
@@ -74,6 +75,7 @@ function Fixture() {
   const changes = collectMemoryChanges([], [{ eventType: 'memory.agent_revised', globalSequence: 1, entityType: 'memory', entityId: 'member-1', actorType: 'agent', actorId: 'member-a', payload: { scope: 'companion' } } as any])
   return <ThreadClientProvider client={client}><MobileLayoutProvider value={mobile}><NavigationShell platform="darwin" browser={mobile} className="app-shell-memory">
     {!mobile && <ThreadNavigation view="memory" state="ready" navigation={null} activeThreadId={null} pendingMemoryCount={pending} onNewConversation={noop} onMembers={noop} onMemory={noop} onSettings={noop} onOpenProject={noop} onThread={noop} onRemoveProject={asyncNoop} onRename={asyncNoop} onDelete={asyncNoop} onError={noop} />}
+    {!mobile && <WindowDragStrip page="memory" />}
     <main className="content memory-content"><MemoryLibrary agents={agents} navigationTarget={target} onNavigate={setTarget} onPendingCountChange={setPending} refreshSignal={refresh} topNotices={notice && <MemoryChangeNotice onClose={() => setNotice(false)} onOpen={() => { setTarget({ kind: 'memory', memoryId: 'member-1' }); setNotice(false) }}>{memoryChangeText(changes, '林')}</MemoryChangeNotice>} /></main>
   </NavigationShell></MobileLayoutProvider></ThreadClientProvider>
 }

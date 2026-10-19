@@ -28,6 +28,7 @@ try {
   await assertNoMemoryOnboarding(first.cdp, 'Fresh database')
   await openMemory(first.cdp)
   dayHeaderGeometry = await assertMemoryPageHeaderGeometry(first.cdp, '1440×920 Memory')
+  await assertReviewDrawerClose(first.cdp, 'day')
 
   await createHearthMemory(first.cdp, initialBody)
   await chooseMemoryTab(first.cdp, '共同')
@@ -137,6 +138,7 @@ try {
   await capture(first.cdp, reviewDialogZoomCapture)
   await pressKey(first.cdp, 'Escape', 'Escape')
   await waitForExpression(first.cdp, `!document.querySelector('.memory-review-schedule-dialog')`)
+  await assertReviewDrawerClose(first.cdp, 'zoom-200')
   await setPageZoom(first.cdp, 100)
 
   const dayCapture = join(outputDir, 'memory-day.png')
@@ -191,6 +193,7 @@ try {
   await setTheme(second.cdp, 'night')
   await openMemory(second.cdp)
   compactHeaderGeometry = await assertMemoryPageHeaderGeometry(second.cdp, '1040×700 Memory')
+  await assertReviewDrawerClose(second.cdp, 'night-compact')
   const restartedLibrary = await request(second.cdp, 'memory.list')
   const restartedMemory = restartedLibrary.memories.find((memory) => memory.currentBody === revisedBody)
   assert(restartedMemory?.lifecycle === 'active' && restartedMemory.reviewDue === true,
@@ -258,6 +261,32 @@ try {
 } finally {
   if (first) await closeApp(first)
   if (second) await closeApp(second)
+}
+
+async function assertReviewDrawerClose(cdp, label) {
+  await evaluate(cdp, `document.querySelector('.memory-review-entry').click()`)
+  await waitForSelector(cdp, '.memory-review-drawer')
+  const state = await evaluate(cdp, `(() => {
+    const drawer = document.querySelector('.memory-review-drawer');
+    const overlay = document.querySelector('.memory-drawer-overlay');
+    const close = drawer.querySelector('button[aria-label="关闭共同记忆审核"]');
+    const r = close.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2,
+      inViewport: r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+      hit: close.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)),
+      drawerRegion: getComputedStyle(drawer).getPropertyValue('-webkit-app-region'),
+      overlayRegion: getComputedStyle(overlay).getPropertyValue('-webkit-app-region') };
+  })()`)
+  assert(state.inViewport && state.hit && state.drawerRegion === 'no-drag' && state.overlayRegion === 'no-drag',
+    `${label}: review close is obscured or overlaps a native drag region: ${JSON.stringify(state)}`)
+  await capture(cdp, join(outputDir, `memory-review-close-${label}.png`))
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: state.x, y: state.y, button: 'left', clickCount: 1 })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: state.x, y: state.y, button: 'left', clickCount: 1 })
+  await waitForExpression(cdp, `!document.querySelector('.memory-review-drawer')`)
+  await evaluate(cdp, `document.querySelector('.memory-review-entry').click()`)
+  await waitForSelector(cdp, '.memory-review-drawer')
+  await pressKey(cdp, 'Escape', 'Escape')
+  await waitForExpression(cdp, `!document.querySelector('.memory-review-drawer')`)
 }
 
 async function openReviewSchedule(cdp, body) {

@@ -78,6 +78,26 @@ test('Memory workspace R4: production components, mutations, notifications and r
       assert.equal(e.overflow,false); assert.equal(e.detailOverflow,false)
       assert.ok(e.dialog.x >= 0 && e.dialog.right <= width && e.dialog.y >= 0 && e.dialog.bottom <= height)
       await b.capture(join(output, `memory-${theme}-${width}-editor.png`)); await closeEditor()
+      if (width < 768) await click('.mobile-memory-back button')
+      await click('.memory-review-entry'); await b.wait('!!document.querySelector(".memory-review-drawer")')
+      const close = await b.evaluate(`(() => {
+        const drawer = document.querySelector('.memory-review-drawer');
+        const overlay = document.querySelector('.memory-drawer-overlay');
+        const button = drawer.querySelector('button[aria-label="关闭共同记忆审核"]');
+        const r = button.getBoundingClientRect();
+        const points = [[r.x+6,r.y+6],[r.right-6,r.y+6],[r.x+6,r.bottom-6],[r.right-6,r.bottom-6],[r.x+r.width/2,r.y+r.height/2]];
+        return { inViewport: r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+          unobscured: points.every(([x,y]) => button.contains(document.elementFromPoint(x,y))),
+          drawerRegion: getComputedStyle(drawer).getPropertyValue('-webkit-app-region'),
+          overlayRegion: getComputedStyle(overlay).getPropertyValue('-webkit-app-region') };
+      })()`)
+      assert.ok(close.inViewport && close.unobscured, 'review close button is fully visible and hit-testable')
+      assert.equal(close.drawerRegion, 'no-drag', 'review drawer excludes the native titlebar drag region')
+      assert.equal(close.overlayRegion, 'no-drag', 'modal backdrop blocks window dragging')
+      await b.capture(join(output, `review-${theme}-${width}.png`))
+      await click('.memory-review-drawer button[aria-label="关闭共同记忆审核"]')
+      await b.wait('!document.querySelector(".memory-review-drawer")')
+      assert.equal(await b.evaluate('__memoryFixture.get().reviews[0].status'), 'pending', 'closing does not resolve the review')
       report.viewports.push({ width,height,theme,primary:g.primary,aligned:true,noOverflow:true })
     }
     await viewport(1440,920); await b.evaluate('__memoryFixture.setTheme("day")'); await navigate({ scope: 'all', memoryId: 'shared-1' })

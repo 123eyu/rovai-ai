@@ -8508,7 +8508,8 @@ html[lang="en"] .runtime-parameter-picker-menu:has(.permission-menu-guidance) { 
 .automation-workspace.editor-closed .automation-split { grid-template-columns: minmax(0, 1fr) 7px 0; }
 .automation-editor { container-type: inline-size; container-name: scheduled-editor; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--home-surface); }
 .automation-editor[hidden] { display: none; }
-.window-drag-strip-automations { display: none; }
+/* Preserve native dragging without intercepting clicks on the controls below. */
+.window-drag-strip-automations { pointer-events: none; }
 .automation-editor-toolbar { -webkit-app-region: drag; display: flex; min-height: 38px; flex: 0 0 auto; align-items: center; gap: 8px; padding: 7px 14px 2px 16px; color: var(--muted); font-size: 11px; }
 .automation-editor-toolbar small { flex: 1; color: var(--muted); font-size: 10.5px; text-align: right; }
 .automation-editor-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0 16px 32px; }

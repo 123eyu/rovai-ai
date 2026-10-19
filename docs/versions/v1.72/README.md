@@ -17,6 +17,13 @@ last_updated: 2026-10-19
 失败与未知结果不提前提醒；回执丢失可从权威终态补齐。行为见[侧栏规范](../../ui/components/app-shell-navigation.md)，
 验证见[实施记录](implementation-plan.md#主动停止后的会话蓝点2026-10-19)。不改变 Core 回复水位、排序或通知来源。
 
+## 记忆工作区 R4（2026-10-19）
+
+按 User 确认稿实现无蓝色的记忆工作区、压缩通知和编辑界面。保留副标题、三项摘要、审核入口和新增通知，
+增加“全部”范围，移除容量展示与治理筛选，详情/版本逐级展开；新增与修订使用中性主按钮。
+修复修订通知误报新建/共同范围，边界与验证见[实施记录](implementation-plan.md#记忆工作区-r42026-10-19)，
+布局规范见[Memory surface brief](../../../apps/desktop/.impeccable/surfaces/memory-workspace.md)。
+
 ## Antigravity 长任务与工具收尾（2026-10-19）
 
 取消早期适配器遗留的五分钟 print 总时限，识别原生“超时但返回部分成功”警告；父 Run 结束后缺少

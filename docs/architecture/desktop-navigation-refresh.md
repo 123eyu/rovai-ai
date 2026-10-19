@@ -3,7 +3,7 @@ document_type: architecture
 architecture: desktop-navigation-refresh
 authority: desktop-navigation-invalidation-and-refresh-boundaries
 status: accepted
-last_updated: 2026-10-12
+last_updated: 2026-10-19
 ---
 
 # Desktop Navigation Refresh 架构
@@ -152,6 +152,11 @@ Renderer 独立计算运行与未读：Run 的 loading 与 `latestCompletionGlob
 分别显示，manualUnread 可以强制保留蓝点。显式标记已读把本机 read-through 推进到当前已知回复水位，后续回复不被遮蔽。
 显式打开只有在完整投影成功展示后才清除手动提醒；取消离开、失败、缓存预览、自动恢复与聚焦均不清除。
 真实查看仍由既有 `navigation.campViewed` 确认，手动操作不伪造查看或回退 Core 水位。
+
+公屏的用户停止动作在 Core 确认本次取消后，复用 `manualUnread` 保存原 Thread 的提醒；当前会话的
+自动查看不清除它。拒绝、等待回执或已经终态不新增提醒，运输结果未知则等待精确 Run 投影确认
+`cancelled / user_requested_agent_run_stop`。临时待核对集合只记录本窗口发出的停止动作，确认后移除；
+没有历史扫描、后台补发或新的持久存储。既有回复摘要和 Notification Episode 仍保持各自语义。
 
 Desktop 的 `revealProjectDirectory` 由 Main 验证绝对目录仍存在，然后调用系统文件管理器定位目录本身；
 此能力不暴露给远程 Web。复制项目路径沿用 Renderer 的剪贴板能力，失败反馈保持可恢复。

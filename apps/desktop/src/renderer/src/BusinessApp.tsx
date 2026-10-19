@@ -1087,6 +1087,7 @@ export function BusinessApp({
   const [cancellingTurnIds, setCancellingTurnIds] = useState<Set<string>>(() => new Set())
   const [cancellingRunIds, setCancellingRunIds] = useState<Set<string>>(() => new Set())
   const [confirmingRunIds, setConfirmingRunIds] = useState<Set<string>>(() => new Set())
+  const unconfirmedStopReminders = useRef(new Map<string, string>())
   const [state, setState] = useState<LoadState>('loading')
   const [shuttingDown, setShuttingDown] = useState(false)
   const shuttingDownRef = useRef(false)
@@ -1236,6 +1237,31 @@ export function BusinessApp({
     const snapshot = await uiPreferences.navigationPreferences.setThreadReadState(threadId, state)
     if (generation === threadReadGeneration.current) acceptThreadReadStates(snapshot)
   }, [uiPreferences, acceptThreadReadStates])
+
+  const remindStoppedThread = useCallback(async (threadId: string): Promise<void> => {
+    try {
+      // A deliberate stop is a local reminder, independent of reply publication
+      // and automatic acknowledgement of the currently visible Thread.
+      await saveThreadReadState(threadId, {
+        manualUnread: true,
+        readThroughGlobalSequence: threadReadStatesRef.current[threadId]?.readThroughGlobalSequence ?? 0
+      })
+    } catch (nextError) {
+      notifyError(errorMessage(nextError))
+    }
+  }, [saveThreadReadState, notifyError])
+
+  const reconcileStopReminders = useCallback((snapshot: ThreadSnapshot): void => {
+    if (unconfirmedStopReminders.current.size === 0) return
+    let stopped = false
+    for (const run of snapshot.agentRuns) {
+      if (unconfirmedStopReminders.current.get(run.id) !== snapshot.thread.id
+        || CANCELLABLE_RUN_STATUSES.has(run.status)) continue
+      unconfirmedStopReminders.current.delete(run.id)
+      stopped ||= run.status === 'cancelled' && run.cancelReasonCode === 'user_requested_agent_run_stop'
+    }
+    if (stopped) void remindStoppedThread(snapshot.thread.id)
+  }, [remindStoppedThread])
 
   const clearThreadUnreadReminder = useCallback(async (threadId: string, generation: number): Promise<void> => {
     const current = threadReadStatesRef.current[threadId]
@@ -2632,7 +2658,8 @@ export function BusinessApp({
     }
     setCancellingRunIds((current) => reconcileRunCancellationIds(current, campSnapshot))
     setConfirmingRunIds((current) => reconcileRunCancellationIds(current, campSnapshot))
-  }, [campSnapshot])
+    reconcileStopReminders(campSnapshot)
+  }, [campSnapshot, reconcileStopReminders])
 
   const displayNavigation = navigationWithProjectNames(navigationIncludingCurrentWorkspace(
     navigationWithMemberCreationDrafts(visibleNavigation, memberCreationDrafts),
@@ -3459,6 +3486,7 @@ export function BusinessApp({
         }
       })
     } catch {
+      unconfirmedStopReminders.current.set(run.id, threadId)
       setCancellingRunIds((current) => {
         const next = new Set(current)
         next.delete(run.id)
@@ -3467,6 +3495,7 @@ export function BusinessApp({
       setConfirmingRunIds((current) => new Set(current).add(run.id))
       try {
         const { snapshot } = await requestThreadProjection(threadId, 'open')
+        reconcileStopReminders(snapshot)
         if (activeThreadIdRef.current === threadId) {
           campEventSequenceMarker.current = Math.max(
             campEventSequenceMarker.current,
@@ -3506,6 +3535,11 @@ export function BusinessApp({
     }
     setCancellingRunIds((current) => new Set([...current].filter((id) => id !== run.id)))
     setConfirmingRunIds((current) => new Set([...current].filter((id) => id !== run.id)))
+    unconfirmedStopReminders.current.delete(run.id)
+    if (result.status === 'applied' && result.code === 'agent_run.cancelled'
+      && result.payload.agentRunId === run.id && result.payload.status === 'cancelled') {
+      await remindStoppedThread(threadId)
+    }
     try {
       await refreshActiveThreadSnapshot(threadId)
     } catch {

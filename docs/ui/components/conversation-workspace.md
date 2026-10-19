@@ -1038,7 +1038,9 @@ public Composer 不提供 CampTurn 或整轮停止。执行台保留既有 Agent
 既有 cancel_requested_at 或 Runtime 清理未完成不产生停止 spinner；取消 Run 显示已取消并清除旧外部效果提示，
 底层发送与 Action 证据不因此删除。
 Run 卡片与步骤组均以权威终态优先：即使取消标记尚存，终态也不得被“正在停止 · 等待执行结束”覆盖；
-已完成步骤保持完成，取消 Run 中未结束的工具按既有终态投影显示已停止。
+已完成步骤保持完成；取消 Run 中仍为 running/waiting 的工具显示已停止，成功或失败 Run 中这些未收齐
+结果的工具显示中性的“结果未知”，不再转圈或等待审批。该规则只收口本轮展示，不修改底层 Evidence、
+伪造工具成功／失败或断言原生后台进程已退出；迟到的明确结果仍在原行更新，保留展开状态。
 消息区占位按下节提供确认停止，Header、Task 卡和 Composer 不增加 Run-local 入口。accepted/unknown 只显示普通红色失败，
 不与普通 Stop 同时出现。Run-local 请求不创建 Camp 时间线消息；新 public Camp 不再生成 Turn-level 停止消息，
 历史停止占位只按已有记录只读展示。精确资格、required/optional 后果与不确定态见

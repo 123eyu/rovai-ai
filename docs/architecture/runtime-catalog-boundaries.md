@@ -17,6 +17,12 @@ last_updated: 2026-10-19
 [Runtime Launch and Verification v64](../contracts/runtime-launch-and-verification-v64.md)。实测版本和能力只由
 [Runtime 兼容性清单](../runtime-compatibility.md)记录。
 
+## Antigravity 执行边界
+
+Antigravity 适配器通过 `--print-timeout 0` 等待原生整轮结束，保留独立的初始化与清理期限。
+原生超时返回的部分文本不能凭零退出码成为完整成功；精确失败证据与错误合同见
+[Runtime Launch v64](../contracts/runtime-launch-and-verification-v64.md#antigravity-整轮执行时限)。
+
 ## 四层权威
 
 | 层 | 真源 | 可以驱动 | 不能驱动 |

@@ -11,6 +11,13 @@ last_updated: 2026-10-19
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Antigravity 长任务与工具收尾（2026-10-19）
+
+取消早期适配器遗留的五分钟 print 总时限，识别原生“超时但返回部分成功”警告；父 Run 结束后缺少
+回执的工具停止活动展示并保持结果未知。当前规则见 [Runtime Launch v64](../../contracts/runtime-launch-and-verification-v64.md#antigravity-整轮执行时限)
+与[过程展示 v54](../../contracts/run-process-detail-surface-v54.md)，复现与验证见
+[实施记录](implementation-plan.md#antigravity-长任务与工具收尾2026-10-19)。
+
 ## Composer 链接高亮稳定性（2026-10-19）
 
 普通输入后立即维护已有链接的显示范围；位置仅存在编辑器内存中，完整 Markdown 识别仍合并到停顿后。

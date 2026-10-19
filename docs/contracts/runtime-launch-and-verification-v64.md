@@ -13,6 +13,15 @@ last_updated: 2026-10-19
 本版替换继承自 [v41](runtime-launch-and-verification-v41.md#返回值与诚实展示) 的正式页面版本取值规则；
 草稿检查、失败反馈、检查结果的代次围栏与执行准入保持。
 
+## Antigravity 整轮执行时限
+
+正式 Antigravity print 启动显式传入 `--print-timeout 0`，等待本轮完成，不附加固定五分钟总时限。
+初始化、停止与子进程清理仍使用各自有界等待；取消授权和适用的显式执行预算不变。
+原生 CLI 在 stderr 明确报告 `[agy] print timeout after … with turn in progress; returning partial output`
+时，即使退出码为零且 final result 为 `SUCCESS`，仍报告 `runtime_execution_timeout`，说明本轮未完成。
+此识别只消费原生 stderr 的精确警告形状，沿用 Session 身份校验与公开错误脱敏；普通 stderr 警告、
+工具输出及模型正文不构成整轮超时证据。缺少该证据的空结果继续保持原有缺失结果失败。
+
 ## 已知版本的保存与展示
 
 `reportedVersion` 仍为可空字符串，沿用现有快照字段，不新增版本缓存、数据库迁移或轮询。

@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # v1.72 实施与验收
@@ -3283,3 +3283,95 @@ Codex 为 `0.162.1`；不向模型提交 Prompt。以下为 RPC 发出至回复�
 各次检查 RPC 结束到该行恢复期间只发起 Runtime 状态和安装列表读取，没有等待 Overview、记忆或 Git 探针。全 App 在第三次检查期间另有既有导航、使命与通知轮询，与检查完成回调分开；最初把整个 App 期间都断言为“没有导航请求”过宽，因此按真实完成区间核对，未为此修改生产逻辑。
 
 以上为开发版 App 的实际操作样本，没有旧版桌面点击到渲染对照，不能据此证明单项检查稳定提速，也不替代 Windows 或打包 Release 验收。主要等待仍在约 1.9–2.2 秒的完整检查 RPC；本次不继续扩展后端验证或增加性能平台。
+
+## 单项检查必要工作减重（2026-10-19）
+
+基于主线 `7000026f3ed148233591c00dcc44784525c0835e`，在独立 worktree 的
+`rovai/runtime-check-simplify` 分支实施。没有恢复此前撤回的界面改动；“重新检测”“检查状态”、
+页面布局／文案／状态映射、安装登录引导与平台准入保持。PR #807 的行级等待和 Runtime 刷新不重做。
+当前边界同步到 [Runtime Launch v64](../../contracts/runtime-launch-and-verification-v64.md)。
+
+### 删除与复用的实际工作
+
+- MiniMax 普通检查保留 initialize、认证、一次必要 session/new、当前模型及目录一致性，删除逐模型
+  set_config_option 和最后恢复；仅原 CatalogOpen 请求保留完整参数遍历。同一 Check Manager 的
+  pending/active 用既有 trigger 区分 MiniMax 意图，同意图／同目标继续合并；首次目录回退仍传递目录意图。
+- 健康成功与完整目录成功使用既有字段分别写入。普通检查保留同一有效身份／配置的完整目录和原时间；
+  无完整目录只保存已读信息，不以健康成功时间回填 MiniMax 目录时间。现有 unavailable/invalidated
+  使部分结果不参与已保存参数过滤，没有新增目录状态或持久字段。复用成功写入 helper 删除原重复 SQL。
+- Pi 删除 new_session/get_state/switch_session/get_state 四次演练 RPC 及专用 locator 记录；
+  Grok 删除 resume 与重复 set_model，Kiro 删除重复 set_model；同步收窄普通 Ready 要求，不伪造实测标志。
+  ZCode 由明确 probe 入口跳过 subscribe/setMode；正式 new/resume 保持，未以有无 Prompt 判断。
+- 将既有可信版本传给现有检查函数；成功、同身份、未失效能力快照可复用 Claude/Antigravity help 与
+  Codex 普通 Schema 证据。动态认证、模型读取、最低版本/启动代际门槛仍保留。OpenCode 版本为空时沿
+  既有代际门槛失败，不再运行第二遍版本命令。Codex 仍一个 app-server 完成通知、认证及模型分页，
+  可选 Fast 缺证据时仍可单独导出 experimental Schema，失败不降级普通能力。
+- 安装 ID/version、locator、文件身份与锁外复核沿已合入流程；正式运行、恢复、权限及模型应用未删改。
+  没有新表、迁移、缓存体系、后台服务、检查模式、第二套代次、管理器或性能平台。
+
+### 定向验收与计数
+
+新增一个 MiniMax 集成 owner，使用现有 Core/DB/Check Manager 与临时协议进程；准入原因及旧测试要求
+退役记录见 [Rust 测试准入](../../development/testing.md#单项-runtime-检查减重)。其他情况扩展原测试。
+
+| 验收项 | 结果 |
+| --- | --- |
+| MiniMax 2/8 模型、检查先到/目录先到 | 普通检查模型设置 0、恢复 0；目录请求为 N+1；各 probe 仅一次 session/new、Prompt 0；pending/active 同类合并、异类不冒充完成 |
+| 首次目录及参数保留 | 无健康快照时完整检查回退取得全部参数；部分结果 unavailable；完整目录内容/时间保留；失效后部分结果不复活旧目录；前端保存参数不被过滤 |
+| Pi/Grok/Kiro/ZCode | 既有协议夹具计数分别删除 4/2/1/2 次 RPC，必要初始化成功；Grok/Kiro 当前模型缺失仍失败；Pi/ZCode 正式会话与 ACP 恢复测试保持 |
+| 静态证据与版本 | 可信版本不运行版本命令，未知值仅一次；Claude 4→2、Antigravity 3→1 个直接进程；Codex 可信版本/普通 Schema 证据时 1 个 app-server，可选缺证据分支另加 1 个进程；动态认证/模型失败仍失败 |
+| 安装变更/并发 | 既有环境、版本命令期间替换、Supervisor 旧失败归属、同 generation 安装变更用例通过；原安装 ID/version 与身份保护未绕开 |
+
+进程/RPC 精确计数来自受控协议进程夹具与生产调用路径，不称为对真实 CLI 后代进程的采样计数。
+
+已通过：默认 Rust workspace 474 passed、1 ignored；health 24 passed、3 ignored；OpenCode 空版本
+定向用例；ACP 正式协议 67 passed、2 ignored；Pi Host 15 passed、1 ignored；ZCode transport 5 passed；
+Adapter 25 passed；环境/管理器 8 passed；安装/快照 32 passed；最终 MiniMax 集成 owner；Renderer 参数
+36 passed；类型检查、Debug App 构建、cargo fmt、差异空白检查，以及 docs:test/docs:check/docs:check:ci。
+各集合有交叉，不将重复执行累加成总覆盖数。
+
+### 同机真实 App 前后对比
+
+使用同一 macOS arm64 与原生程序/账号配置，前后各运行隔离 `pnpm dev` Electron + Debug Core，
+等待静态发现完成，再对每款依次执行首次检查和三次重复检查。Core RPC 包围真实 runtime.product.check；
+UI 时间从真实鼠标点击事件到本行按钮恢复后的第二个 animation frame。前后安装列表的路径、指纹、
+版本逐项相同；所有检查 Prompt 为 0。不是夹具耗时，也不是打包 Release 测试。
+
+原生版本：MiniMax 0.6.12、Pi 1.1.0、Grok 1.0.50、Kiro 2.21.1、ZCode 0.16.9、Claude 2.1.287、
+Antigravity 1.4.2、Codex 0.162.1。每格「UI / RPC」，单位 ms；超时样本保留：
+
+| 智能体 | 阶段 | 首轮 | 重复 1 | 重复 2 | 重复 3 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| MiniMax | 改前 | 1666 / 1619 | 1549 / 1510 | 1549 / 1509 | 1516 / 1481 |
+| MiniMax | 改后 | 1649 / 1615 | 1433 / 1392 | 1416 / 1377 | 1400 / 1360 |
+| Pi | 改前 | 766 / 720 | 501 / 482 | 516 / 487 | 616 / 589 |
+| Pi | 改后 | 515 / 481 | 332 / 307 | 315 / 301 | 332 / 308 |
+| Grok | 改前 | 749 / 716 | 766 / 739 | 749 / 715 | 749 / 716 |
+| Grok | 改后 | 815 / 781 | 699 / 661 | 683 / 652 | 682 / 646 |
+| Kiro | 改前 | 4285 / 4252 | 2017 / 1988 | 2050 / 2009 | 2050 / 2017 |
+| Kiro | 改后 | 2334 / 2297 | 2067 / 2037 | 2084 / 2050 | 2117 / 2081 |
+| ZCode | 改前 | 4469 / 4428 | 1400 / 1360 | 1400 / 1358 | 1400 / 1367 |
+| ZCode | 改后 | 1400 / 1367 | 1067 / 1028 | 883 / 853 | 866 / 839 |
+| Claude | 改前 | 1166 / 1134 | 933 / 892 | 932 / 902 | 916 / 890 |
+| Claude | 改后 | 1149 / 1114 | 883 / 847 | 883 / 849 | 850 / 825 |
+| Antigravity | 改前 | 9856 / 9813 | 31658 / 31616（超时） | 9939 / 9885 | 7145 / 7104 |
+| Antigravity | 改后 | 5169 / 5133 | 6687 / 6658 | 6071 / 6041 | 5487 / 5456 |
+| Codex | 改前 | 3301 / 3263 | 1867 / 1829 | 1834 / 1798 | 4853 / 4830 |
+| Codex | 改后 | 2250 / 2219 | 1717 / 1682 | 1728 / 1684 | 2451 / 2416 |
+
+三次重复 UI 中位数：MiniMax 1549→1416、Pi 516→332、Grok 749→683、Kiro 2050→2084、
+ZCode 1400→883、Claude 932→883、Antigravity 9939→6071、Codex 1867→1728 ms。
+MiniMax 确实取消了本机 7 模型原来的 8 次设置，但只减少约 0.13 秒；Kiro 没有观察到提速。
+Antigravity 改前包含一次超时，Codex 也有波动，不能用三次样本宣称稳定网络性能收益。
+
+本机额外验证 MiniMax：四次普通检查后目录仍 unavailable，目录首次请求用约 1410 ms 补全参数并成为
+fresh；随后普通检查保留完整内容和目录成功时间、更新健康成功时间，按钮与启动设置可操作。额外操作的
+animation-frame 监听在 App 后台时超时，后续直接读取真实 RPC 完成和按钮状态确认功能；这次补验没有
+混入上述计时样本。既有 TTL 后目录自然 stale，没有用健康检查刷新时间。参数保存和请求竞态使用上述
+定向夹具验证，不将后台帧监听超时误记为 Core 超时。
+
+首次指隔离数据库的首次健康检查，不代表 OS 冷启动或原生首次安装；前后顺序测试仍受原生缓存/网络影响。
+本轮没有单独测程序升级耗时、Windows、打包 Release 或真实用户任务恢复，升级身份由已有定向测试覆盖。
+认证/初始化/当前模型读取、进程回收、完整检查结束前文件复核及最终 Runtime 数据读取仍需等待；MiniMax
+完整目录打开仍执行全参数读取。未压缩超时、提前结束等待或在后台继续原普通检查。验收 App 已受控退出，
+独立 userData/Skill Library/MCP 未触及日常 App。完整计时 JSON、身份清单与截图随本次 Thread 附件交付。

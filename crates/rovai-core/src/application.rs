@@ -2287,8 +2287,11 @@ impl RuntimeCheckAttempt {
             && self.startup_preview.is_none()
             && self.model_target == request.model_target
             && self.runtime_kind == request.runtime_kind
-            && (self.runtime_kind != AdapterKind::Pi
-                || self.catalog_only == (request.trigger == RuntimeCheckTrigger::CatalogOpen))
+            && (!matches!(
+                self.runtime_kind,
+                AdapterKind::Pi | AdapterKind::MinimaxCodeCli
+            ) || (self.trigger == RuntimeCheckTrigger::CatalogOpen)
+                == (request.trigger == RuntimeCheckTrigger::CatalogOpen))
             && self.search.generation() == request.search.generation()
     }
 }
@@ -4197,6 +4200,7 @@ impl Core {
                 RuntimeLaunchPurpose::AvailabilityCheck,
                 tokio::time::Instant::now() + RUNTIME_CHECK_TOTAL_DEADLINE,
                 search.clone(),
+                true,
             )
             .await?;
         if outcome != RuntimeCheckOutcome::Ready {
@@ -5135,7 +5139,7 @@ impl Core {
         deadline: tokio::time::Instant,
     ) -> Result<RuntimeCheckOutcome> {
         let search = self.runtime_search_environment.read().await.clone();
-        self.run_product_runtime_resolution_in_environment(kind, purpose, deadline, search)
+        self.run_product_runtime_resolution_in_environment(kind, purpose, deadline, search, false)
             .await
     }
 
@@ -5145,6 +5149,7 @@ impl Core {
         purpose: RuntimeLaunchPurpose,
         deadline: tokio::time::Instant,
         search: Arc<RuntimeSearchEnvironment>,
+        catalog_requested: bool,
     ) -> Result<RuntimeCheckOutcome> {
         let (existing, existing_entrypoint_locator, existing_identity) = {
             let Some(_update) = self.runtime_check_update_guard(&search).await else {
@@ -5452,9 +5457,8 @@ impl Core {
                                     snapshot.executable_fingerprint.as_deref()
                                         == Some(&candidate_fingerprint)
                                 })
-                                .and_then(|snapshot| snapshot.reported_version.as_deref())
-                                .map(str::trim)
-                                .filter(|version| !version.is_empty()),
+                                .filter(|_| !locator_identity_changed),
+                            catalog_requested,
                         ),
                     ),
                 )
@@ -5728,6 +5732,7 @@ impl Core {
                 AgentProfileService::default().commit_verified_managed_installation(
                     &mut database,
                     VerifiedManagedInstallation {
+                        model_catalog_complete: catalog_requested,
                         executable_file_identity: Some(
                             final_entry.executable_file_identity().clone(),
                         ),
@@ -12288,7 +12293,8 @@ impl Core {
         executable_path: &Path,
         purpose: RuntimeLaunchPurpose,
         fingerprint: Option<&str>,
-        known_version: Option<&str>,
+        known_snapshot: Option<&AdapterCapabilitySnapshot>,
+        catalog_requested: bool,
     ) -> Result<RuntimeDeepProbeResult> {
         eprintln!(
             "[model-catalog] probe runtime={} mode=full full_probe_count=1",
@@ -12300,13 +12306,32 @@ impl Core {
         if !runtime_launch_allowed(adapter_kind, purpose) {
             anyhow::bail!("runtime_launch_disallowed_for_{purpose:?}");
         }
+        let known_snapshot = known_snapshot.filter(|snapshot| {
+            fingerprint.is_some() && snapshot.executable_fingerprint.as_deref() == fingerprint
+        });
+        let known_version = known_snapshot
+            .and_then(|snapshot| snapshot.reported_version.as_deref())
+            .map(str::trim)
+            .filter(|version| !version.is_empty());
+        let static_capabilities = known_snapshot
+            .filter(|snapshot| {
+                snapshot.probe_status == "ready"
+                    && snapshot.stale_at.is_none()
+                    && snapshot.last_successful_probe_at.is_some()
+            })
+            .map(|snapshot| snapshot.capabilities.as_slice())
+            .unwrap_or_default();
         let attempted_at = chrono::Utc::now().to_rfc3339();
         let registry = AgentRuntimeAdapterRegistry::default();
         let (snapshot, failure) = match adapter_kind {
             rovai_core::agent_profile::AdapterKind::CodexCli => {
-                let checked =
-                    health::codex_capability_probe_at(executable_path, fingerprint, known_version)
-                        .await;
+                let checked = health::codex_capability_probe_at(
+                    executable_path,
+                    fingerprint,
+                    known_version,
+                    static_capabilities,
+                )
+                .await;
                 let probe = checked.result;
                 let authentication_status = probe_authentication_status(probe.status).to_string();
                 let status = probe_status_name(probe.status).to_string();
@@ -12327,7 +12352,9 @@ impl Core {
                 )
             }
             rovai_core::agent_profile::AdapterKind::Pi => {
-                let probe = health::pi_capability_probe_at(executable_path, fingerprint).await;
+                let probe =
+                    health::pi_capability_probe_at(executable_path, fingerprint, known_version)
+                        .await;
                 let last_error = (probe.result.status != health::AgentRuntimeProbeStatus::Ready)
                     .then(|| probe.result.detail.clone())
                     .flatten();
@@ -12366,6 +12393,8 @@ impl Core {
                     kind,
                     purpose,
                     fingerprint,
+                    known_version,
+                    catalog_requested,
                 )
                 .await;
                 (
@@ -12400,8 +12429,13 @@ impl Core {
                 )
             }
             rovai_core::agent_profile::AdapterKind::ClaudeCodeCli => {
-                let probe =
-                    health::claude_code_capability_probe_at(executable_path, fingerprint).await;
+                let probe = health::claude_code_capability_probe_at(
+                    executable_path,
+                    fingerprint,
+                    known_version,
+                    static_capabilities,
+                )
+                .await;
                 let failure = probe.result.failure.clone();
                 let snapshot =
                     registry.claude_code_capability_snapshot(ClaudeCodeProbeObservation {
@@ -12418,8 +12452,13 @@ impl Core {
                 (snapshot, failure)
             }
             rovai_core::agent_profile::AdapterKind::AntigravityApp => {
-                let probe =
-                    health::antigravity_capability_probe_at(executable_path, fingerprint).await;
+                let probe = health::antigravity_capability_probe_at(
+                    executable_path,
+                    fingerprint,
+                    known_version,
+                    static_capabilities,
+                )
+                .await;
                 let failure = probe.result.failure.clone();
                 let builtin_cli_ready = bundled_cli_executable().is_ok_and(|path| path.is_file());
                 let snapshot =
@@ -12488,6 +12527,7 @@ impl Core {
                 RuntimeLaunchPurpose::InstallationRefresh,
                 None,
                 None,
+                false,
             ),
         )
         .await?;
@@ -26276,6 +26316,7 @@ async fn process_runtime_check_manager(
                                 worker_purpose,
                                 worker_deadline,
                                 worker_search,
+                                worker_catalog_only,
                             )
                             .await
                     }
@@ -27694,7 +27735,11 @@ mod tests {
 
     #[test]
     fn runtime_check_activity_has_two_slots_and_one_terminal_owner() {
-        for kind in [AdapterKind::Pi, AdapterKind::CodexCli] {
+        for kind in [
+            AdapterKind::Pi,
+            AdapterKind::MinimaxCodeCli,
+            AdapterKind::CodexCli,
+        ] {
             for catalog_only in [false, true] {
                 for trigger in [
                     RuntimeCheckTrigger::CatalogOpen,
@@ -27716,7 +27761,11 @@ mod tests {
                         attempt_id: "fixture".into(),
                         runtime_kind: kind,
                         purpose: RuntimeLaunchPurpose::AvailabilityCheck,
-                        trigger,
+                        trigger: if catalog_only {
+                            RuntimeCheckTrigger::CatalogOpen
+                        } else {
+                            RuntimeCheckTrigger::UserCheck
+                        },
                         catalog_only,
                         started_at: tokio::time::Instant::now(),
                         deadline: tokio::time::Instant::now(),
@@ -27735,7 +27784,7 @@ mod tests {
                     };
                     assert_eq!(
                         attempt.accepts(&request, &target),
-                        kind != AdapterKind::Pi
+                        !matches!(kind, AdapterKind::Pi | AdapterKind::MinimaxCodeCli)
                             || catalog_only == (trigger == RuntimeCheckTrigger::CatalogOpen)
                     );
                     let mut changed = target.clone();
@@ -29046,6 +29095,7 @@ done
                 .commit_verified_managed_installation(
                     &mut database,
                     VerifiedManagedInstallation {
+                        model_catalog_complete: true,
                         executable_file_identity:
                             rovai_core::agent_runtime_adapter::observe_executable_file_identity(
                                 std::path::Path::new(&(executable.to_string_lossy().into_owned())),
@@ -29513,6 +29563,7 @@ done
                             hidden: false, deprecated: false, options: Vec::new(),
                         });
                         service.commit_verified_managed_installation(database, VerifiedManagedInstallation {
+                            model_catalog_complete: true,
                             executable_file_identity: observe_executable_file_identity(&executable).ok(),
                             adapter_kind: kind, executable_path: executable.to_string_lossy().into_owned(),
                             command_name: "codex".into(), source: InstallationSource::Manual,

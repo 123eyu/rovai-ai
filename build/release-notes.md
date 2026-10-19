@@ -1,43 +1,55 @@
-# Rovai AI v0.4.13
+# Rovai AI v0.4.14
 
 <!-- lang:zh-CN -->
 
-本次更新新增 MiniMax Code 接入，支持网页版文件上传与下载、文件预览自动刷新和执行来源定位，并修复网页断线后无法继续发送的问题。
+本次更新优化智能体检测、文件预览和记忆工作区，补齐命令行中的 MiniMax Code、Pi 支持，并修复定时任务会话删除、Antigravity 长任务和超长输入的错误提示问题。
 
-- 【功能】**新增 MiniMax Code 接入。** 支持使用本机官方 `mcode`，读取原生模型与思考档位配置，接入 Skills、MCP、图片与文件工具，并支持插话和会话恢复。
-- 【功能】**网页版单文件上传上限提高至 30 MiB。** 增加上传进度和取消操作；上传失败或取消时，保留正文和其他附件。
-- 【功能】**网页版支持直接下载文件。** 可在文件查看区下载到本机，无法在线预览的文件也可下载。采用流式传输，进度与取消由浏览器管理，不再受在线预览大小限制。
-- 【功能】**文件保存后，预览自动更新。** 支持文本、Markdown、代码、图片和 HTML；后台标签在重新打开时更新。大文本刷新后尽量保留原阅读行号，读取失败时保留旧内容。
-- 【功能】**执行记录支持定位原消息。** 可查看触发本次执行的消息，多条输入可展开来源列表；定位后可返回原执行位置，不影响正在编辑的草稿。
-- 【功能】**会话任务改为按需开启。** 默认关闭，可在“通用设置”中开启。关闭后隐藏任务面板、提醒和队员任务工具，已有任务记录保留，不中断当前执行。
-- 【界面】**调整会话中的文件列表。** 队员发送的文件改为紧凑单列，宽度与差异卡片对齐，点击整行即可打开；窄窗口下保持自适应。
-- 【交互】**统一网页链接的显示和操作。** 消息、输入框、单聊和使命描述中的网页链接使用统一图标；编辑使命时可直接打开或复制链接，不打断当前编辑。
-- 【修复】**修复网页断线后一直提示“原提交仍待核对”的问题。** 服务断开时保留页面和草稿，提供“恢复连接并重试”入口；恢复时先核对原提交结果，再重试未完成的操作，避免重复提交。
-- 【修复】**修正部分智能体的执行结束判断。** 本轮已正常发送回复、工具操作也已结束时，不再仅因原生结束文本为空而误报失败；真实错误和取消仍会如实显示。
-- 【优化】**精简单聊中的重复上下文。** 减少每轮重复传入的固定说明，不改写已有会话记录和历史输入。
+- 【性能】**减少智能体检测中的重复工作。** 重新检测和状态检查减少重复扫描、程序启动及多余的模型探测；不同智能体可独立检查，并修复检查结束后无法再次操作的问题。
+- 【界面】**调整记忆工作区和编辑表单。** 使用更紧凑的列表，支持按“全部、共同、队员、队员间”查看，详情和版本历史按需展开。统一表单标签、字体和下拉菜单；在记忆页暂时关闭编辑窗口后，重新打开可继续未提交的内容。
+- 【修复】**修正自动记忆提示的内容与数量。** 正确区分新增和修订，显示对应的记忆范围；同一条记忆的多次修订不再重复计数。
+- 【修复】**修复记忆审核面板关闭按钮无法点击的问题。** 避免窗口拖拽区域拦截点击，并调整 Windows 下的顶部位置，防止与系统窗口按钮重叠。
+- 【性能】**减少文件预览的重复读取。** 优化大文本分页和行号定位，同一版本的 HTML 不再因重复通知反复加载；修复自动刷新期间 HTML 源码视图一直停在加载中的问题。
+- 【功能】**命令行支持检查和配置 MiniMax Code、Pi。** 可通过 `rovai app` 执行状态检查、查询模型目录和设置队员运行配置，修复此前误报“不支持该智能体”的问题。
+- 【修复】**修复定时任务生成的会话无法彻底删除的问题。** 删除后不再反复出现“删除未完成”的重试提醒；保留定时任务本身、后续计划及其他历史会话。
+- 【修复】**修复 Antigravity 长任务在五分钟后提前结束的问题。** 移除 Rovai 设置的固定五分钟限制，避免任务尚未完成却被显示为成功，或因返回空结果而报错。
+- 【修复】**执行结束后，工具状态不再一直转圈。** 取消执行后，未结束的工具显示为已停止；执行成功或失败但缺少工具结果时，显示“结果未知”，不误报工具成功。
+- 【修复】**输入内容过大时明确显示失败原因。** 原消息旁显示“输入内容过大 · 查看详情”，提供改用附件或拆分发送的建议；保留完整原文，刷新或重新进入后仍可查看原因。
+- 【优化】**文件变化列表排除用于发送回复的输入文件。** 通过 `rovai send --input-file` 成功发送的正文或请求文件，不再列入本轮 Files Changed；附件和其他文件变化不受影响。
+- 【修复】**修复输入时网页链接高亮闪烁的问题。** 在链接前后连续输入或使用输入法时，未修改的链接保持高亮，打开和复制仍使用最新地址。
+- 【修复】**修复侧栏菜单关闭后的键盘焦点丢失。** 使用 `Shift+F10` 打开会话或项目菜单后，按 `Esc` 返回原行，可继续使用键盘操作。
+- 【修复】**恢复定时任务页顶部的窗口拖动。** 总览和详情页的顶部留白可正常拖动窗口，不影响按钮、输入框和分隔条操作。
+- 【界面】**调整上下文用量圆环配色。** 改用与旁边百分比一致的中性色，统一浅色和深色模式下的显示。
 
-感谢 [@liangxyz](https://github.com/liangxyz) 在 [#779](https://github.com/murray17/rovai-ai/issues/779) 中持续补充网页版问题的复现信息，也感谢最早反馈 Server 停服后提交卡住问题的用户。
+感谢 [@liangxyz](https://github.com/liangxyz) 在 [#786](https://github.com/murray17/rovai-ai/pull/786) 中贡献定时任务会话删除修复，感谢 [@arschlochnop](https://github.com/arschlochnop) 在 [#810](https://github.com/murray17/rovai-ai/issues/810) 中反馈超大输入缺少错误提示的问题。
 
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)
+也感谢 **@小柒** 反馈 Antigravity 长任务问题，以及 [@liuqiong0319](https://github.com/liuqiong0319) 反馈记忆页 UI 问题。
+
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.13...v0.4.14)
 
 ---
 
 <!-- lang:en -->
 
-This release adds MiniMax Code, browser file uploads and downloads, automatic file preview refresh, and links from executions to their source messages. It also fixes Web submissions that remained blocked after a service disconnect.
+This release improves agent checks, file previews, and the Memory workspace, adds MiniMax Code and Pi support to the app CLI, and fixes scheduled-conversation deletion, long Antigravity runs, and feedback for oversized inputs.
 
-- [Feature] **Add MiniMax Code.** Connect the official local `mcode` CLI, read its native models and thinking levels, and use Skills, MCP, image and file tools, steering, and session recovery.
-- [Feature] **Increase the Web upload limit to 30 MiB per file.** Uploads now show progress and can be cancelled. Failed or cancelled uploads preserve the message text and other attachments.
-- [Feature] **Download files directly from the Web app.** Download from the file viewer even when online preview is unavailable. Files stream to the browser, which manages progress and cancellation, independently of the preview size limit.
-- [Feature] **Refresh file previews after saving.** Text, Markdown, code, images, and HTML update automatically. Background tabs refresh when shown again. Large text previews try to retain the visible line, and failed reads keep the previous content.
-- [Feature] **Navigate from an execution to its source messages.** See the messages that triggered a run, expand the source list for multiple inputs, and return to the execution after navigating without changing the current draft.
-- [Feature] **Make conversation Tasks optional.** Tasks are off by default and can be enabled in General settings. Turning them off hides the task panel, notifications, and teammate task tools while preserving existing records and running executions.
-- [UI] **Adjust conversation file lists.** Teammate files use a compact single-column list aligned with diff cards. The entire row opens the file, and the list adapts to narrow windows.
-- [Interaction] **Use consistent web-link icons and actions.** Messages, composers, Single Chat, and Mission descriptions share the same link icon. Open or copy links while editing a Mission without interrupting the edit.
-- [Fix] **Recover Web submissions blocked by an unresolved earlier request.** Keep the page and drafts during disconnection and provide a “Reconnect and retry” action. Recovery checks the original result before retrying unfinished work to avoid duplicate submissions.
-- [Fix] **Correct completion handling for some runtimes.** A run that has sent its reply successfully and finished its tool operations is no longer reported as failed solely because its native final text is empty. Actual errors and cancellation remain visible.
-- [Optimization] **Remove redundant Single Chat context.** Send fewer repeated fixed instructions on each turn without rewriting existing conversation records or historical inputs.
+- [Performance] **Reduce repeated work in agent checks.** Rescanning and status checks perform fewer repeated scans, process launches, and unnecessary model probes. Different agents can be checked independently, and controls recover correctly when a check finishes.
+- [UI] **Update the Memory workspace and editor.** Use a compact list with All, Shared, Member, and Between scopes, with details and version history expanded on demand. Form labels, fonts, and choice menus are consistent. Closing and reopening an editor on the Memory page preserves its unsubmitted draft.
+- [Fix] **Correct automatic memory notices and counts.** Distinguish creation from revision and show the correct scope. Repeated revisions of one memory no longer count as separate memories.
+- [Fix] **Restore the Memory review panel's close button.** Prevent the window drag region from intercepting clicks and position the panel below Windows caption controls to avoid overlap.
+- [Performance] **Reduce repeated file-preview reads.** Reuse work when paging or locating lines in large text files, and avoid reloading the same HTML version for repeated notifications. Fix HTML source views that could remain stuck loading during automatic refresh.
+- [Feature] **Check and configure MiniMax Code and Pi from the CLI.** Use `rovai app` to check availability, query models, and configure teammate runtimes without the previous unsupported-agent error.
+- [Fix] **Allow scheduled-task conversations to be deleted completely.** Stop repeated deletion-incomplete retry notices while preserving the scheduled task, its future schedule, and other conversation history.
+- [Fix] **Prevent Antigravity long runs from ending after five minutes.** Remove Rovai's fixed five-minute cutoff so unfinished work is not reported as successful or rejected for an empty final response.
+- [Fix] **Stop active tool indicators when an execution ends.** Unfinished tools show as stopped after cancellation. When a successful or failed execution has no recorded tool result, show Unknown result instead of implying success.
+- [Fix] **Explain oversized-input failures.** Show “Input too large · View details” beside the original message, with suggestions to attach a file or split the input. Keep the full original text and retain the explanation after refresh or re-entry.
+- [Optimization] **Exclude reply input files from Files Changed.** Body or request files successfully sent with `rovai send --input-file` no longer appear in that run's file-change summary. Attachments and other file changes are unaffected.
+- [Fix] **Keep link highlights stable while typing.** Unmodified links retain their highlight while typing around them or using an input method. Open and copy actions still use the current address.
+- [Fix] **Restore keyboard focus after closing a sidebar menu.** After opening a conversation or project menu with `Shift+F10`, pressing `Esc` returns focus to its original row.
+- [Fix] **Restore window dragging at the top of Scheduled Tasks.** Drag from the top blank area in both overview and detail views without affecting buttons, inputs, or splitters.
+- [UI] **Use a neutral color for the context-usage ring.** Match the adjacent percentage in both light and dark themes.
 
-Thanks to [@liangxyz](https://github.com/liangxyz) for continuing to provide Web issue reproduction details in [#779](https://github.com/murray17/rovai-ai/issues/779), and to the user who first reported submissions getting stuck after stopping the Server.
+Thanks to [@liangxyz](https://github.com/liangxyz) for contributing the scheduled-conversation deletion fix in [#786](https://github.com/murray17/rovai-ai/pull/786), and to [@arschlochnop](https://github.com/arschlochnop) for reporting missing oversized-input feedback in [#810](https://github.com/murray17/rovai-ai/issues/810).
 
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)
+Also thanks to **@小柒** for reporting the Antigravity long-run issue, and [@liuqiong0319](https://github.com/liuqiong0319) for reporting Memory UI issues.
+
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.13...v0.4.14)

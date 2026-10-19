@@ -10,26 +10,24 @@ last_updated: 2026-10-19
 
 ## 主动停止后的会话蓝点（2026-10-19）
 
-User 确认主动终止也应显示侧栏会话旁的蓝点。原实现只从回复发布和显式标记未读显示蓝点，
-停止回执没有写本机提醒。`BusinessApp.cancelAgentRun` 现在确认本次取消后复用现有 `manualUnread`，
-保持 read-through 水位；结果未知则等待精确 Run 终态再补齐，拒绝与已经结束不新增提醒。
-停止期间切换会话仍写原 Thread，当前会话自动刷新／聚焦不清除，重新显式打开沿用原清除路径。
+**已撤回。** 原功能通过 [PR #821](https://github.com/murray17/rovai-ai/pull/821) 合入并安装后，
+User 反馈问题，要求先撤回，并确认将回退 PR 合入 main 后安装到本机 App。
 
-分支 `rovai/manual-stop-unread`，基线 `8df743a674aeb654ce737013d01c24ff3520ba3a`，使用现有 checkout。
-扩展既有生产 App Electron fixture，验证真实停止按钮、待回执、成功、拒绝、已经结束、切换会话、
-当前页自动刷新、丢失回执后迟到确认与重复刷新。夹具对齐现行 `runtime.status.get` 与同 tick 合并，
-保留 Runtime 事件刷新范围断言；打开投影对齐 schema 9，并验证 Task 关闭时的现行顶栏。
-没有新增 Rust 测试、存储迁移或模型上下文变化。
+回退分支 `rovai/revert-manual-stop-unread`，基线 `7dbc9ed24170dac6032582285995da7af36702cd`，
+使用现有 checkout。移除 `BusinessApp` 中停止成功写入 `manualUnread` 的逻辑及丢失回执的提醒核对集合；
+恢复停止动作与回复未读的原有边界。现有停止、终态核对、回复未读和显式标记未读不变；
+不批量清理已有本机提醒，继续由显式打开或标记已读清除。
 
-当前 UI 和 Architecture 已更新；现有 Navigation Read v1 的本机提醒字段与 Core 读取语义不变，
-无需新 Contract 或 Version Decision。
+既有生产 App Electron 夹具改为验证成功停止、切换会话、聚焦／自动刷新、丢失回执和迟到终态均不新增蓝点，
+日夜截图覆盖停止后的原会话。保留 #821 中与该功能独立的 Runtime 状态查询、同 tick 合并、schema 9 和 Task 顶栏夹具修正。
 
-验证通过：`pnpm typecheck`；`pnpm exec vitest run apps/desktop/src/renderer/src/navigation-unread.test.ts apps/desktop/src/renderer/src/App.test.ts`
-（188 项）；`pnpm build:desktop`（含 Web、执行页、Main 和 Renderer）；`pnpm test:startup-presentation`
-（隔离 Electron，生产 App 停止路径与日夜主题蓝点截图）；Impeccable detector 无发现。
-`pnpm docs:test` 的 10 项通过。原 checkout 的完整文档扫描受到 Git 忽略的旧原型失效链接影响；
-同一改动在仅含受版本管理文件的临时 clone 中通过 `pnpm docs:check` 与基于上述基线的 `pnpm docs:check:ci`，
-未更改原型或增加门禁例外。没有启动 Core／真实 Runtime，也没有安装或重启日常 App。
+保持 v1.72；UI 和 Architecture 已同步撤回后的规则，Navigation Read v1 的本机偏好字段与 Core 水位不变。
+没有新增 Rust 测试、存储迁移、模型上下文、Runtime、Contract 或 Version Decision 变更。
+
+回退验证：`pnpm typecheck`、相关 Vitest 188 项、`pnpm test:startup-presentation` 和 `pnpm docs:test` 10 项通过；
+日夜截图确认停止后的会话没有新增蓝点。生产 `BusinessApp.tsx` 与 #821 合入前的 `f6f359f2c` 完全一致。
+文档在只含受版本管理文件的临时 clone 中直接运行 package scripts 对应的版本检查、决定治理和
+`--require-base` 门禁，均通过；base 为上述回退基线，未扫描本机忽略的旧原型或增加门禁例外。
 
 ## 记忆工作区 R4（2026-10-19）
 

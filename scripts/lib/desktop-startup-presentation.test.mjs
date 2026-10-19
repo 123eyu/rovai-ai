@@ -57,7 +57,7 @@ test('the production App presents the full-window brand loader without weakening
     if (process.env.ROVAI_PROJECT_DIRECTORIES_ONLY === '1') { assert.equal(report.cases.length, 4); return }
     assert.ok(report.cases.length >= 8)
     assert.ok(report.cases.includes('Ordinary Camp switching reads only the target row without unrelated queries'))
-    assert.ok(report.cases.includes('User stops retain a blue Thread reminder only after confirmed cancellation, including lost receipts and navigation races'))
+    assert.ok(report.cases.includes('User stops do not create a Thread unread reminder, including lost receipts and navigation races'))
     assert.ok(report.cases.includes('Accepted deletion discards in-flight Web refresh failures and queued reads'))
     assert.ok(report.cases.includes('Web refresh confirms external deletion before removing the current Thread'))
     assert.ok(report.cases.includes('Web refresh retains real errors when the Thread still exists'))

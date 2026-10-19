@@ -51,6 +51,8 @@ Desktop IPC 和已认证 Web User 操作使用同一 Core 事务与命令回执�
 `invalidate { expectedTeamId, expectedDefaults }` 同时比较两个字段，拒绝旧客户端失效通知覆盖新选择。
 调用方必须从判断失效的同一份偏好快照取得两者；Desktop IPC、Web 与 Host 包装层原样传递，
 不得从后来观察到的状态补齐其中一个字段。
+来源仍相同时，Core 在同一事务内复验当前所选名册是否不可用；已恢复可用则忽略失效通知，
+不覆盖 User 对同一 Team 修复后的重新确认。该复验也适用于独立 Custom 名册。
 删除当前默认 Team 同事务清空 Team ID、关闭一键创建、保留 Custom；已有 Thread 不变。
 
 Main 本机展示偏好 schema 升为 6；旧 schema 1–5 的默认配置迁移为 Custom，不自动创建 Team。

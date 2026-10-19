@@ -76,6 +76,17 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
     if (!guardPromise.current) { guardPromise.current = new Promise(resolve => { decision.current = resolve }); setConfirm('leave') }
     void guardPromise.current.then(allowed => { if (allowed) action() })
   }
+  const guardTeamAction = (action: (team: Team) => void): void => {
+    const targetId = base?.id
+    guardAction(() => {
+      const team = baseRef.current
+      if (!team || team.id !== targetId) {
+        setError(uiAttribute('团队已更改或不可用，请重新选择。'))
+        return
+      }
+      action(team)
+    })
+  }
   const mutate = async (method: 'teams.save' | 'teams.delete', command: unknown): Promise<StoredCommandResult | null> => {
     if (busy) return null
     pending.current ??= { method, command, commandId: newCommandId() }
@@ -115,10 +126,7 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
     const result = await mutate('teams.delete', { teamId: base.id, expectedVersion: base.version })
     if (result) { select(teams.find(team => team.id !== base.id) ?? null); setConfirm(null) }
   }
-  const duplicate = async (): Promise<void> => {
-    // A leave confirmation may have saved a newer draft before this action resumes.
-    const source = baseRef.current
-    if (!source) return
+  const duplicate = async (source: Team): Promise<void> => {
     const name = uiAttribute('{0} 副本', Array.from(source.name).slice(0, 65).join(''))
     const result = await mutate('teams.save', { ...draftOf(source), teamId: null, expectedVersion: null, name })
     if (result) select(result.payload.team as unknown as Team)
@@ -135,6 +143,7 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
 
   if (loading) return <div className="team-first-workspace" role="status">{uiAttribute('正在载入团队…')}</div>
   if (!teams.length && !draft) return <div className="team-first-workspace"><section className="mcp-first-connection team-first-connection"><TeamGlyph/><h2>{uiAttribute('创建第一个团队')}</h2><p>{uiAttribute('保存常用队员和协作方式，新对话时直接选用。')}</p>
+    {error && <p role="alert">{error}</p>}
     {loadError && <p role="alert">{loadError}<button type="button" onClick={() => void refresh().catch(() => undefined)}>{uiAttribute('重试')}</button></p>}
     <div className="mcp-first-connection-actions"><button type="button" onClick={() => create()}><DialogControlIcon name="plus"/><span><strong>{uiAttribute('添加团队')}</strong><small>{uiAttribute('从空白团队开始')}</small></span><DialogControlIcon name="chevron"/></button>
       {customDefaults && <button type="button" onClick={() => create(customDefaults)}><TeamGlyph/><span><strong>{uiAttribute('从默认配置创建')}</strong><small>{uiAttribute('使用已保存的队员与队长')}</small></span><DialogControlIcon name="chevron"/></button>}
@@ -145,9 +154,9 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
       {mobile && detail && <div className="mobile-member-back"><MobileBack label={uiAttribute('返回团队列表')} onClick={() => guardAction(() => setDetail(false))}/><span>{uiAttribute('团队')}</span></div>}
       {draft && <form className="team-editor-form" onSubmit={event => { event.preventDefault(); void save() }}><div className="member-detail-scroll"><div className="member-detail-page">
         <header className="team-detail-header"><div className="team-heading-identity"><TeamPortrait ids={draft.memberAgentIds} agents={agents} large/><div><h1>{base?.name ?? uiAttribute('新团队')}</h1><span>{uiAttribute('{0} 位队员', String(draft.memberAgentIds.length))}{base?.id === defaultTeamId ? ` · ${uiAttribute('默认团队')}` : ''}</span></div></div>
-          {base && <div className="team-header-actions"><button type="button" className="team-start-button" disabled={frozen} onClick={() => guardAction(() => { if (baseRef.current) onNewConversation(baseRef.current) })}><DialogControlIcon name="plus"/>{uiAttribute('新对话')}</button>
+          {base && <div className="team-header-actions"><button type="button" className="team-start-button" disabled={frozen} onClick={() => guardTeamAction(onNewConversation)}><DialogControlIcon name="plus"/>{uiAttribute('新对话')}</button>
             <Menu.Root><Menu.Trigger asChild><button type="button" className="team-overflow" disabled={frozen} aria-label={uiAttribute('团队操作')}><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button></Menu.Trigger><Menu.Portal><Menu.Content className="member-editor-menu team-crud-menu" align="end" sideOffset={6} collisionPadding={12}>
-              <Menu.Item className="member-editor-menu-item" onSelect={() => guardAction(() => { void duplicate() })}>{uiAttribute('复制团队')}</Menu.Item><Menu.Separator className="member-editor-menu-separator"/><Menu.Item className="member-editor-menu-item member-editor-menu-danger" onSelect={() => setConfirm('delete')}>{uiAttribute('删除团队')}</Menu.Item>
+              <Menu.Item className="member-editor-menu-item" onSelect={() => guardTeamAction(team => { void duplicate(team) })}>{uiAttribute('复制团队')}</Menu.Item><Menu.Separator className="member-editor-menu-separator"/><Menu.Item className="member-editor-menu-item member-editor-menu-danger" onSelect={() => setConfirm('delete')}>{uiAttribute('删除团队')}</Menu.Item>
             </Menu.Content></Menu.Portal></Menu.Root>
           </div>}
         </header>

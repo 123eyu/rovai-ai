@@ -134,8 +134,31 @@ fn templates_preserve_custom_defaults_and_freeze_thread_guidance() {
             .is_err()
     );
 
+    // A delayed invalidation must not undo reconfirmation of a repaired Team
+    // with the same ID and unchanged independent Custom defaults.
+    db.connection()
+        .execute(
+            "UPDATE agent_profile SET profile_status='away' WHERE id='agent_1'",
+            [],
+        )
+        .unwrap();
+    let stale_invalidation = json!({
+        "expectedTeamId": selected["newConversationTeamId"],
+        "expectedDefaults": selected["newConversationDefaults"]
+    });
+    let (invalid, changed) = creation_preferences::execute(
+        &directory,
+        &mut db,
+        "preferences.newConversation.invalidate",
+        stale_invalidation.clone(),
+    )
+    .unwrap();
+    assert!(changed);
+    assert_eq!(invalid["newConversationDefaultsRequireConfirmation"], true);
+
     draft.team_id = Some(team.id.clone());
     draft.expected_version = Some(1);
+    draft.member_agent_ids = vec!["agent_3".into()];
     draft.guidance = "New guidance".into();
     assert_eq!(
         save(&mut db, &envelope("team-update", draft.clone()))
@@ -144,6 +167,42 @@ fn templates_preserve_custom_defaults_and_freeze_thread_guidance() {
             .code,
         "team.saved"
     );
+    assert_eq!(list(&db).unwrap()[0].version, 2);
+    let (confirmed, _) = creation_preferences::execute(
+        &directory,
+        &mut db,
+        "preferences.newConversation.setTeam",
+        json!({"teamId":team.id}),
+    )
+    .unwrap();
+    assert_eq!(
+        confirmed["newConversationDefaultsRequireConfirmation"],
+        false
+    );
+    let (after_stale, changed) = creation_preferences::execute(
+        &directory,
+        &mut db,
+        "preferences.newConversation.invalidate",
+        stale_invalidation,
+    )
+    .unwrap();
+    assert!(!changed, "a repaired Team must ignore the old invalidation");
+    assert_eq!(after_stale, confirmed);
+    assert_eq!(after_stale["oneClickNewConversationEnabled"], true);
+    // This checks the same persisted admission used to enable one-click creation.
+    creation_preferences::execute(
+        &directory,
+        &mut db,
+        "preferences.newConversation.setOneClick",
+        json!({"enabled":true}),
+    )
+    .unwrap();
+    db.connection()
+        .execute(
+            "UPDATE agent_profile SET profile_status='present' WHERE id='agent_1'",
+            [],
+        )
+        .unwrap();
     assert_eq!(
         save(&mut db, &envelope("team-stale-save", draft.clone()))
             .unwrap()

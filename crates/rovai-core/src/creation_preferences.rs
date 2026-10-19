@@ -201,6 +201,7 @@ pub fn execute(
                 && next.new_conversation_team_id == input.expected_team_id
                 && (next.new_conversation_defaults.is_some()
                     || next.new_conversation_team_id.is_some())
+                && !next.selected_available(&tx)?
             {
                 next.new_conversation_defaults_require_confirmation = true;
             }

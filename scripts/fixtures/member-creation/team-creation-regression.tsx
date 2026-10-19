@@ -3,6 +3,7 @@ import type { Root } from 'react-dom/client'
 import type { AgentProfile, Team } from '@contracts'
 import { NewConversationDialog } from '../../../apps/desktop/src/renderer/src/NewConversationDialog'
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
+import { TeamWorkspace } from '../../../apps/desktop/src/renderer/src/TeamWorkspace'
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void
@@ -33,10 +34,11 @@ export async function runTeamCreationRegression(root: Root, app: ReactNode, clie
   const save = deferred<any>(), list = deferred<Team[]>()
   let holdList = false, refreshes = 0
   const creations: any[] = []
+  const teamWrites: any[] = []
   const request = client.request
   client.request = async (method: string, params: any) => {
     if (method === 'teams.list') { if (holdList) { refreshes++; return list.promise }; return [team] }
-    if (method === 'teams.save') return save.promise
+    if (method === 'teams.save') { teamWrites.push(params); return save.promise }
     if (method === 'threads.create') {
       creations.push(params)
       // Retain the dialog so the same draft can be submitted after list refresh.
@@ -93,6 +95,30 @@ export async function runTeamCreationRegression(root: Root, app: ReactNode, clie
   check(submitted.length, 3, 'Custom selection can submit after the late list')
   check(submitted.at(-1)?.team, undefined, 'late team does not replace an explicit Custom selection')
   check(submitted.at(-1)?.memberAgentIds, [agents[0].agentId], 'Custom roster is retained')
+
+  // Discard may change the selected row, but must not retarget a pending action.
+  const fallback = { ...team, id: 'team-B', name: 'Team B' }
+  for (const action of ['conversation', 'duplicate']) for (const remaining of [[fallback], []]) {
+    const opened: Team[] = []
+    const writesBefore = teamWrites.length
+    const renderWorkspace = (teams: Team[]) => <ThreadClientProvider client={client}><TeamWorkspace
+      key={`${action}-${remaining.length}`} teams={teams} agents={agents} loading={false} loadError={null}
+      defaultTeamId={null} customDefaults={null} refresh={async () => teams}
+      onNewConversation={team => { opened.push(team) }} onLeaveGuardChange={() => {}}/></ThreadClientProvider>
+    await act(async () => { root.render(renderWorkspace([team, fallback])) })
+    await type('.team-editor-form input', 'Unsaved A')
+    await act(async () => { root.render(renderWorkspace(remaining)) })
+    if (action === 'conversation') await click('.team-start-button')
+    else {
+      await act(async () => { find('.team-overflow').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+      await click('.team-crud-menu [role="menuitem"]')
+    }
+    await click('[role="dialog"] .quiet-button:nth-child(2)')
+    check(opened.length, 0, 'deleted source does not start a conversation with a fallback team')
+    check(teamWrites.length, writesBefore, 'deleted source does not duplicate a fallback team')
+    check(find('[role="alert"]').textContent?.includes('重新选择'), true, 'cancelled action explains that the team must be selected again')
+    if (remaining.length) check(find('.team-detail-header h1').textContent, fallback.name, 'list selection may still fall back to Team B')
+  }
   await act(async () => { root.unmount() })
-  return { ok: true, cases: ['save receipt before teams.list', 'retry after list refresh', 'late initial team preserves draft', 'external edits preserve selected version', 'late list preserves Custom'] }
+  return { ok: true, cases: ['save receipt before teams.list', 'retry after list refresh', 'late initial team preserves draft', 'external edits preserve selected version', 'late list preserves Custom', 'deleted source cancels conversation and duplication with a fallback or empty library'] }
 }

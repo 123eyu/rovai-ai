@@ -138,3 +138,24 @@ Host 回归覆盖 Custom 为 null 和未变化名册两种来源：保存 A 的�
 扩展回归先发现旧夹具使用投影 schema 8、遗漏 `teams.list` 和引用已删除的运行配置 class；
 更新为当前协议和可访问名称后通过，初次失败日志保留，没有改动对应产品行为。
 通用上下文 Gate 保持上节的 `degraded`，本次状态一致性测试不替代语义门禁。
+
+## 2026-10-19 创建目标与恢复有效性边界
+
+Thread sequence 37 的两个边界均确认存在，基线为 `accf81846cf8be5c2318eb0952277935b5ebba99`：
+
+- 新对话与复制共用一个确认后的 Team ID 检查。保存可以更新同一 ID 的版本；放弃草稿导致列表回退到其他团队或空态时，取消原动作并提示重新选择。
+- Core 的默认配置失效事务在比较预期来源后复用 `selected_available`；所选名册已恢复有效时忽略迟到通知，不增加客户端同步字段，不改变 Team 模型或 Bootstrap。
+
+测试继续扩展现有 owner：生产 TeamWorkspace 的 Electron 用例覆盖 A 删除后回退 B/空列表，
+断言新对话和复制都没有发出，同时保留上一轮的保存回执/列表晚到控制场景。
+`teams::tests::templates_preserve_custom_defaults_and_freeze_thread_guidance` 在现有数据库中验证真实失效、
+同 ID Team v2 修复、重新确认、旧失效通知以及一键准入；不新增 Rust 测试或平行数据库夹具。
+旧失败输入是同一 Team ID、同一 Custom 配置在修复并重新确认后的迟到失效请求。
+最小 Rust 命令为 `cargo test -p rovai-core --features extended-tests --lib teams::tests::templates_preserve_custom_defaults_and_freeze_thread_guidance`。
+同时将该 owner 所用的 `fresh_schema_database_fast_owned` helper 开放在 `extended-tests`，
+修正原先只在 `slow-tests` 提供导致上述命令不能编译的夹具配置；测试层级和业务断言不降级。
+
+验证记录使用附件 `team-management-validation/identity-recovery-*` 前缀。新增断言在产品修复前
+分别复现误开其他团队和重新失效；修复后 SQLite 事务 owner、生产组件的四个删除回退组合与
+上一轮五个控制场景、230 项定向 Vitest、类型检查、Desktop/Web 构建和 Rust 格式检查通过。
+此轮没有改动或重跑模型上下文；完整 Gate 仍为 `degraded`，不以这些定向回归作为放行证据。

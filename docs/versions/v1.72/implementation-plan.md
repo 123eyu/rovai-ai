@@ -8,6 +8,39 @@ last_updated: 2026-10-19
 
 # v1.72 实施与验收
 
+## 记忆工作区 R4（2026-10-19）
+
+User 批准独立 worktree 实施、PR 合入 main，并从最新 main 构建安装本机 App。
+分支 `rovai/memory-r4-ui`，worktree 为同级 `rovai-ai-memory-r4`，基线
+`0fc75fda45ad7765c2ee22440464da767e718bd3`。最终 R4 HTML 的 SHA-256 为
+`29cb2e955daa7eae9f5c5bbed533ccff134d89875fa3a21866c8bfe55e54a62f`。
+
+实现采用生产 MemoryLibrary 和共享 Dialog/Menu 组件；统一灰阶 token，保留原 App shell，移除容量和
+治理筛选，增加 All 范围并兼容旧导航状态。列表只压缩预览，正文和版本仍可完整展开。
+编辑保留字节校验、草稿和冲突后显式重试；领域容量、持久化和权限约束不改变。
+自动通知按 Memory ID 合并事件，区分创建/修订；scope 缺失时通过已有 `memory.get` 补足，查询失败显示
+通用“记忆”而不猜测共同范围。迟到读取不能恢复已关闭通知。
+
+保持 v1.72；这是局部可逆的 Renderer 调整，不新增 Version Decision、协议或数据库迁移。
+同步 DESIGN、主题和 Memory surface brief、开发验收命令；Architecture、Contracts、Runtime Activity、
+模型输入、Runtime compatibility 与根 README 无变化。退役已移除容量组件的 TypeScript 展示测试，
+用通知归属/去重测试及生产组件交互验收覆盖新行为；没有新增、合并或退役 Rust 测试。
+
+验证：`pnpm typecheck`、`pnpm test`（246 个 Vitest 文件 / 2,800 项，Node 357 通过、2 项平台跳过）、
+`pnpm test:rust:pr`（474 通过、1 项既有忽略）与真实 base 的 `docs:check:ci` 通过。
+`test:memory-workspace-ui` 覆盖 10 组双主题/尺寸，完整正文、折叠版本、全部范围、通知查看/关闭、草稿、
+校验、失败与冲突显式重试、操作对齐与黄点居中；`test:memory-web-ui` 通过真实 Host 的手机新增、修订、
+返回及重入。`test:navigation-shell` 通过。隔离 `accept:memory-ui` 通过实际 Core IPC、复核设置/并发冲突、
+停止/恢复、永久遗忘、SQLite 重开以及日夜/200% 缩放。
+
+补充边界：`test:startup-presentation` 的 `runtime.availability.updated: refresh health once` 断言在本分支和
+原始基线 `0fc75fda` 均失败，不由本次 Memory 改动引入。既有 `test:host-web-mobile` 在进入 Memory 前的
+导航槽位/旧 CSS 断言失败，另有横屏执行台及缺少 debug Server 产物的问题；本次不修改这些无关行为，
+以独立生产 Web/Host Memory 验收证明本次路径。
+初次打包在前置构建完成后遇到 GitHub DNS 失败；按 packaging 文档校验 Electron 缓存 SHA-256 后，
+继续相同 daily ad-hoc 打包参数并通过 App/Core/CLI/Host 架构与签名门。日常安装使用非终止交接，
+最终 main 提交与安装位置记录在 Thread 交付中。
+
 ## Antigravity 长任务与工具收尾（2026-10-19）
 
 User 批准独立 worktree 实施、创建 PR 并合入 main。分支 `rovai/fix-antigravity-turn-timeout`，

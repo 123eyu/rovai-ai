@@ -9,12 +9,12 @@ import { useMobileLayout } from './MobileLayout'
 import { uiAttribute } from './interface-language'
 import './Teams.css'
 
-export function TeamPicker({ teams, agents, value, onChange, busy = false }: {
-  teams: Team[]; agents: AgentProfile[]; value: string | null; onChange(id: string | null): void; busy?: boolean
+export function TeamPicker({ teams, selectedTeam, agents, value, onChange, busy = false }: {
+  teams: Team[]; selectedTeam?: Team | null; agents: AgentProfile[]; value: string | null; onChange(id: string | null): void; busy?: boolean
 }): React.JSX.Element {
   const mobile = useMobileLayout()
   const [open, setOpen] = useState(false)
-  const chosen = teams.find(team => team.id === value)
+  const chosen = selectedTeam?.id === value ? selectedTeam : teams.find(team => team.id === value)
   const rows = [{ id: '', name: uiAttribute('自定义'), team: null }, ...teams.map(team => ({ id: team.id, name: team.name, team }))]
   const choose = (id: string): void => { onChange(id || null); setOpen(false) }
   const content = (row: typeof rows[number]): React.JSX.Element => <><TeamGlyph/><span>{row.name}{row.team && <small>{uiAttribute('{0} 位队员 · 队长 {1}', String(row.team.memberAgentIds.length), agents.find(agent => agent.agentId === row.team?.defaultLeadAgentId)?.displayName ?? uiAttribute('不可用'))}</small>}</span></>

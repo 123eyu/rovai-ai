@@ -1143,6 +1143,7 @@ export function BusinessApp({
   const teamLeaveGuard = useRef<TeamLeaveGuard | null>(null)
   const registerTeamLeaveGuard = useCallback((guard: TeamLeaveGuard | null): void => { teamLeaveGuard.current = guard }, [])
   const [newConversationInitialTeamId, setNewConversationInitialTeamId] = useState<string | null>(null)
+  const [newConversationInitialTeam, setNewConversationInitialTeam] = useState<Team | null>(null)
   const missionList = useMissions(client, startupStatus === 'resolved')
   const [missionPresentation, setMissionPresentation] = useState<'drawer' | 'full'>('full')
   const [missionOpenRequest, setMissionOpenRequest] = useState(0)
@@ -2133,7 +2134,10 @@ export function BusinessApp({
       || invalidatingNewConversationDefaults.current
     ) return
     invalidatingNewConversationDefaults.current = true
-    void uiPreferences.generalPreferences.invalidateNewConversationDefaults(generalPreferences?.newConversationDefaults ?? null)
+    void uiPreferences.generalPreferences.invalidateNewConversationDefaults({
+      expectedTeamId: generalPreferences?.newConversationTeamId ?? null,
+      expectedDefaults: generalPreferences?.newConversationDefaults ?? null
+    })
       .then(setGeneralPreferences)
       .catch((nextError) => setError(errorMessage(nextError)))
       .finally(() => { invalidatingNewConversationDefaults.current = false })
@@ -2831,10 +2835,12 @@ export function BusinessApp({
   const openNewConversation = (
     workspace: WorkspaceSelection | null,
     attentionMessage: string | null = null,
-    preferences = generalPreferences
+    preferences = generalPreferences,
+    team: Team | null = null
   ): void => {
     setNewConversationInitialWorkspace(workspace)
-    setNewConversationInitialTeamId(preferences?.newConversationTeamId ?? null)
+    setNewConversationInitialTeamId(team?.id ?? preferences?.newConversationTeamId ?? null)
+    setNewConversationInitialTeam(team)
     setNewConversationInitialSelection(preferences?.newConversationDefaults ?? null)
     setNewConversationAttention(attentionMessage)
     setNewConversationOpen(true)
@@ -4603,8 +4609,7 @@ export function BusinessApp({
         {!startupGateVisible && view === 'teams' && <TeamWorkspace teams={teamLibrary.teams} agents={agents} loading={teamLibrary.loading} loadError={teamLibrary.error}
           defaultTeamId={generalPreferences?.newConversationTeamId ?? null} customDefaults={generalPreferences?.newConversationDefaults ?? null}
           refresh={teamLibrary.refresh} onLeaveGuardChange={registerTeamLeaveGuard} onNewConversation={team => {
-            openNewConversation(currentProjectWorkspace(displayNavigation, currentProject))
-            setNewConversationInitialTeamId(team.id)
+            openNewConversation(currentProjectWorkspace(displayNavigation, currentProject), null, generalPreferences, team)
           }}/>}
         {!startupGateVisible && view === 'members' && (
           startupRoutePending?.kind === 'members'
@@ -4691,6 +4696,7 @@ export function BusinessApp({
         initialSelection={newConversationInitialSelection}
         teams={teamLibrary.teams}
         initialTeamId={newConversationInitialTeamId}
+        initialTeam={newConversationInitialTeam}
         attentionMessage={newConversationAttention}
         projects={displayNavigation?.projects ?? []}
         preflight={campCreationPreflight}

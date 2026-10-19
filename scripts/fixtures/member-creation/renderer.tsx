@@ -9,6 +9,7 @@ import { DEFAULT_GENERAL_PREFERENCES } from '../../../apps/desktop/src/shared/ge
 import { DEFAULT_APPEARANCE } from '../../../apps/desktop/src/shared/appearance'
 import { applyAppearanceSnapshot } from '../../../apps/desktop/src/renderer/src/theme'
 import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
+import { runTeamCreationRegression } from './team-creation-regression'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 import '../../../apps/desktop/src/renderer/src/member-editor.css'
 import '../../../apps/web/src/mobile.css'
@@ -36,7 +37,7 @@ const nav = () => {
 const invalidate = (threadId: string) => events.forEach((fn) => fn({ method: 'thread.memberCreated', params: { threadId } }))
 const projection = (thread: any) => {
   const coverage = (count: number) => ({ totalCount: count, loadedCount: count, omittedCount: 0, complete: true })
-  return { ...structuredClone(thread), schemaVersion: 8, throughGlobalSequence: sequence,
+  return { ...structuredClone(thread), schemaVersion: 9, throughGlobalSequence: sequence,
     coverage: { tasks: coverage(0), messages: { ...coverage(thread.messages.length), hasEarlier: false,
       oldestLoadedSequence: thread.messages[0]?.sequence ?? null, newestLoadedSequence: thread.messages.at(-1)?.sequence ?? null },
     messageDeliveries: coverage(0), turns: coverage(0), agentRuns: coverage(thread.agentRuns.length), approvals: coverage(0) } }
@@ -51,7 +52,7 @@ const client = { ...model.client, onInvalidated: undefined,
     if (method === 'members.get') return structuredClone(profiles.find((member) => member.agentId === command.agentId))
     if (method === 'runtime.installations.list') return installations
     if (method === 'health.check') return { runtimeAvailability: availability, hostPlatform: 'darwin', runtimePlatformAdmission: [] }
-    if (['memory.hearthReviewItems.list', 'missions.list', 'missions.cleanup.list'].includes(method)) return []
+    if (['memory.hearthReviewItems.list', 'missions.list', 'missions.cleanup.list', 'teams.list'].includes(method)) return []
     if (method === 'navigation.snapshot') return nav()
     if (method === 'navigation.threads') return { throughGlobalSequence: sequence, groupKeys: ['quick-chat'], threads: nav().quickChat.recentThreads }
     if (method === 'navigation.findThread') return thread && (thread.thread.activationState === 'active' || pendingPresence.has(thread.thread.id)) ? navigation(thread).quickChat.recentThreads[0] : null
@@ -99,7 +100,7 @@ const client = { ...model.client, onInvalidated: undefined,
 }
 const preferences: any = { appearance: { get: async () => appearance, onChanged: () => () => {} },
   generalPreferences: new Proxy({}, { get: (_, key) => async (...args: any[]) => { if (key === 'setInterfaceLanguage') prefs.interfaceLanguage = args[0]; return prefs } }),
-  navigationPreferences: new Proxy({}, { get: () => async () => navPrefs }) }
+  navigationPreferences: new Proxy({}, { get: (_, key) => key === 'onChanged' ? () => () => {} : async () => navPrefs }) }
 const environment: any = { client, files: { ...model.fileApi, bindThread: async () => {} }, preferences,
   navigationHistory: { initial: { entries: [pendingMode ? { kind: 'quick_chat' } : { kind: 'members', agentId: profiles[0].agentId, tab: 'identity' }], index: 0 }, write: (state: any) => state, go: async () => false, listen: () => () => {} } }
 ;(window as any).memberCreationQA = { calls, threads, profiles, pendingPresence, errors: [],
@@ -137,4 +138,9 @@ const environment: any = { client, files: { ...model.fileApi, bindThread: async 
 }
 window.addEventListener('error', (event) => (window as any).memberCreationQA.errors.push(String(event.error?.stack ?? event.message)))
 window.addEventListener('unhandledrejection', (event) => (window as any).memberCreationQA.errors.push(String(event.reason)))
-createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={client as any}><CurrentUserProfileContext.Provider value={{ profile: { displayName: '', avatarDataUrl: null }, update: async () => {} } as any}><BusinessApp environment={environment} /></CurrentUserProfileContext.Provider></ThreadClientProvider>)
+const root = createRoot(document.getElementById('root')!)
+const app = <ThreadClientProvider client={client as any}><CurrentUserProfileContext.Provider value={{ profile: { displayName: '', avatarDataUrl: null }, update: async () => {} } as any}><BusinessApp environment={environment} /></CurrentUserProfileContext.Provider></ThreadClientProvider>
+if (new URLSearchParams(location.search).get('flow') === 'teams') {
+  environment.navigationHistory.initial = { entries: [{ kind: 'teams' }], index: 0 }
+  ;(window as any).teamCreationResult = runTeamCreationRegression(root, app, client, profiles)
+} else root.render(app)

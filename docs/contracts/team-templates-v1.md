@@ -4,7 +4,7 @@ contract: team-templates-v1
 status: accepted
 version: 1
 source_version: v1.72
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Team Templates v1
@@ -48,7 +48,9 @@ Desktop IPC 和已认证 Web User 操作使用同一 Core 事务与命令回执�
 `newConversationDefaults` 可为 `null`，始终代表独立的 Custom 配置。非空 Team ID 只选择创建来源，
 不覆盖 Custom。`preferences.newConversation.setTeam {teamId, enableOneClick?}` 原子选择 Team 或 Custom；
 可选 `enableOneClick: true` 只在所选来源可用时开启。`setDefaults` 保存并选中 Custom，保留原开启行为。
-`invalidate` 同时比较 `expectedDefaults` 与 `expectedTeamId`，拒绝旧客户端失效通知覆盖新选择。
+`invalidate { expectedTeamId, expectedDefaults }` 同时比较两个字段，拒绝旧客户端失效通知覆盖新选择。
+调用方必须从判断失效的同一份偏好快照取得两者；Desktop IPC、Web 与 Host 包装层原样传递，
+不得从后来观察到的状态补齐其中一个字段。
 删除当前默认 Team 同事务清空 Team ID、关闭一键创建、保留 Custom；已有 Thread 不变。
 
 Main 本机展示偏好 schema 升为 6；旧 schema 1–5 的默认配置迁移为 Custom，不自动创建 Team。

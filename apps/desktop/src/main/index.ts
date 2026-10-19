@@ -1487,9 +1487,12 @@ ipcMain.handle('rovai:general-preferences-set-world-map', (_event, enabled: unkn
   return hostGeneralPreferences().setWorldMapEnabled(enabled)
 })
 
-ipcMain.handle('rovai:general-preferences-invalidate-new-conversation-defaults', (_event, expectedDefaults: unknown) => {
-  if (expectedDefaults !== undefined && expectedDefaults !== null && !isNewConversationDefaults(expectedDefaults)) throw new Error('Invalid expected default team')
-  return hostGeneralPreferences().invalidateNewConversationDefaults(expectedDefaults)
+ipcMain.handle('rovai:general-preferences-invalidate-new-conversation-defaults', (_event, expected: unknown) => {
+  if (!expected || typeof expected !== 'object' || !('expectedTeamId' in expected) || !('expectedDefaults' in expected)) throw new Error('Invalid expected conversation defaults')
+  const { expectedTeamId, expectedDefaults } = expected
+  if (expectedTeamId !== null && (typeof expectedTeamId !== 'string' || !expectedTeamId || expectedTeamId.length > 200)) throw new Error('Invalid expected Team')
+  if (expectedDefaults !== null && !isNewConversationDefaults(expectedDefaults)) throw new Error('Invalid expected conversation defaults')
+  return hostGeneralPreferences().invalidateNewConversationDefaults({ expectedTeamId, expectedDefaults })
 })
 
 ipcMain.handle('rovai:channels-get', (event) => {

@@ -3363,7 +3363,8 @@ export interface GeneralPreferencesApi {
   setNewConversationDefaults(defaults: NewConversationDefaults, enableOneClick?: boolean): Promise<GeneralPreferencesSnapshot>
   setOneClickNewConversationEnabled(enabled: boolean): Promise<GeneralPreferencesSnapshot>
   setWorldMapEnabled(enabled: boolean): Promise<GeneralPreferencesSnapshot>
-  invalidateNewConversationDefaults(expectedDefaults?: NewConversationDefaults | null): Promise<GeneralPreferencesSnapshot>
+  /** Both fields must come from the snapshot that was judged invalid. */
+  invalidateNewConversationDefaults(expected: { expectedTeamId: string | null; expectedDefaults: NewConversationDefaults | null }): Promise<GeneralPreferencesSnapshot>
 }
 
 export type OnboardingStep = 'welcome' | 'member' | 'runtime'

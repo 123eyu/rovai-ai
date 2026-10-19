@@ -24,3 +24,9 @@ The fixture's top navigation buttons are test controls. This is component-level
 visual and interaction evidence; it does not verify native application chrome,
 IPC, persistence, authentication or real Runtime delivery. Core contracts,
 database tests and an isolated Runtime probe cover those separate boundaries.
+
+Run the deterministic save/create regression with
+`node --test --test-name-pattern='Team creation' scripts/lib/member-creation.test.mjs`.
+It mounts the production BusinessApp in isolated Electron and completes save/list
+Promises explicitly, covering the saved version, late initial selection and draft
+preservation. It uses no Core or Runtime and does not use sleeps to order the race.

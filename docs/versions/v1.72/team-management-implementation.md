@@ -119,3 +119,22 @@ General 保留一键创建配置：Team 或 Custom；原偏好保留为 Custom�
 `regressions`、`evidenceGaps`、`evaluationFailures` 和 `resourceChanges`。浏览器策略拒绝 `file:` URL；
 因此报告核对使用本地只读解析，没有绕过策略或宣称完成报告的浏览器渲染验收。产品界面截图来自前述独立 UI fixture。
 完整报告、首次失败和原始证据均保留在附件；实现 worktree 与只读基线 worktree 保留供复查，日常 App 未启动或替换。
+
+## 2026-10-19 状态一致性修复
+
+Thread sequence 34 的两项 P2 均确认存在。本次只修复前端状态传递，不变更 Core、迁移或 Bootstrap：
+
+- TeamWorkspace 在未保存确认之后读取当前保存回执，BusinessApp 将完整 Team 传入新对话；名称、名册和提交版本取自同一快照。列表晚到时只补齐缺失的初始选择，保留名称、工作区及主动选择的 Custom；已有 Team 快照不随外部刷新替换。
+- 默认配置失效接口改为必填 `{ expectedTeamId, expectedDefaults }`，由判断失效的界面快照提供两者。Desktop/Web 原样传递，Host 不再从可变的最近观察值补 Team ID；Core 现有比较条件不变。
+
+回归复用现有 Electron 夹具，实际挂载 BusinessApp、TeamWorkspace 与 NewConversationDialog；手动完成
+save/list Promise，不用 sleep 控制竞态。旧代码在保存 v2、list 尚未完成时实际提交 v1；修复后提交 v2，
+并覆盖刷新后重试、晚到列表保留草稿、外部修改保留选定版本及 Custom 选择。
+Host 回归覆盖 Custom 为 null 和未变化名册两种来源：保存 A 的旧观察，确认 B 后再请求失效 A，B 仍被选择且保持已确认。
+
+本轮验证日志使用附件 `team-management-validation/state-consistency-*` 前缀。230 项定向 Vitest、
+`pnpm typecheck`、`pnpm build:desktop`（含 Web）及文档治理通过。隔离 Electron 的 Team 创建、
+一键草稿、AI 队员创建和真实 preload 桥接四项分次全部通过。
+扩展回归先发现旧夹具使用投影 schema 8、遗漏 `teams.list` 和引用已删除的运行配置 class；
+更新为当前协议和可访问名称后通过，初次失败日志保留，没有改动对应产品行为。
+通用上下文 Gate 保持上节的 `degraded`，本次状态一致性测试不替代语义门禁。

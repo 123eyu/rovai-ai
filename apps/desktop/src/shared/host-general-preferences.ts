@@ -42,9 +42,6 @@ export function withHostConversationPreferences(local: Omit<GeneralPreferencesAp
     setNewConversationTeam: async (teamId, enableOneClick = false) => merge(await request('preferences.newConversation.setTeam', { teamId, enableOneClick })),
     setNewConversationDefaults: async (defaults, enableOneClick = false) => merge(await request('preferences.newConversation.setDefaults', { defaults, enableOneClick })),
     setOneClickNewConversationEnabled: async enabled => merge(await request('preferences.newConversation.setOneClick', { enabled })),
-    invalidateNewConversationDefaults: async expectedDefaults => {
-      if (expectedDefaults === undefined && !observed) await get()
-      return merge(await request('preferences.newConversation.invalidate', { expectedDefaults: expectedDefaults === undefined ? observed!.newConversationDefaults : expectedDefaults, expectedTeamId: observed?.newConversationTeamId ?? null }))
-    }
+    invalidateNewConversationDefaults: async expected => merge(await request('preferences.newConversation.invalidate', expected))
   }
 }

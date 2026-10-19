@@ -54,6 +54,7 @@ export function NewConversationDialog({
   initialWorkspace,
   initialSelection,
   initialTeamId = null,
+  initialTeam = null,
   teams = [],
   attentionMessage,
   projects,
@@ -75,6 +76,7 @@ export function NewConversationDialog({
   initialWorkspace: WorkspaceSelection | null
   initialSelection?: NewConversationDefaults | null
   initialTeamId?: string | null
+  initialTeam?: Team | null
   teams?: Team[]
   attentionMessage?: string | null
   projects: ProjectNavigationGroup[]
@@ -166,7 +168,17 @@ export function NewConversationDialog({
       if (!isMission) draftInitializedRef.current = false
       return
     }
-    if (draftInitializedRef.current) return
+    if (draftInitializedRef.current) {
+      // A late library may complete the initial selection, but never replace
+      // a selected snapshot or reset the user's name, workspace or Custom draft.
+      const loaded = !isMission && teamId && !selectedTeam ? teams.find(team => team.id === teamId) : null
+      if (loaded) {
+        setSelectedTeam(loaded)
+        setSelectedMemberIds(loaded.memberAgentIds)
+        setLeadId(loaded.defaultLeadAgentId)
+      }
+      return
+    }
     draftInitializedRef.current = true
     const { memberIds, leadId: recommendedLead } = initialSelectionPlan
     setWorkspace(initialWorkspace)
@@ -175,8 +187,8 @@ export function NewConversationDialog({
     setMemberMenuOpen(false)
     setLeadMenuOpen(false)
     customSelection.current = { memberIds, leadId: recommendedLead }
-    const team = !isMission && initialTeamId ? teams.find(team => team.id === initialTeamId) : null
-    setTeamId(isMission ? null : initialTeamId)
+    const team = isMission ? null : initialTeam ?? teams.find(team => team.id === initialTeamId)
+    setTeamId(isMission ? null : team?.id ?? initialTeamId)
     setSelectedTeam(team ?? null)
     setSelectedMemberIds(team?.memberAgentIds ?? memberIds)
     setLeadId(team?.defaultLeadAgentId ?? recommendedLead)
@@ -191,7 +203,7 @@ export function NewConversationDialog({
     setQuickHelpOpen(false)
     setMemberError(null)
     setSubmitError(null)
-  }, [initialSelectionPlan, initialWorkspace, initialTeamId, teams, isMission, open, recovery])
+  }, [initialSelectionPlan, initialWorkspace, initialTeamId, initialTeam, teams, teamId, selectedTeam, isMission, open, recovery])
 
   const pendingGitInspectionPath = workspace && !hasGitObservation(workspace)
     ? workspace.projectPath
@@ -384,7 +396,7 @@ export function NewConversationDialog({
               </div>}
               {!isMission && <>{workspace && <div className="compact-row-detail"><span title={projectDetail}>{projectDetail}</span>{gitPresentation.kind === 'metadata' && <span className="compact-git">{gitPresentation.label}</span>}{gitPresentation.kind === 'loading' && <span role="status">{gitPresentation.label}</span>}</div>}
               {gitPresentation.kind === 'warning' && <div className="new-camp-workspace-warning" role="alert"><div><strong>{gitPresentation.label}</strong><span>{gitPresentation.detail}</span></div></div>}
-              <div className="compact-row"><span>{uiAttribute('团队与队员')}</span><TeamPicker teams={teams} agents={agents} value={teamId} busy={busy} onChange={id => {
+              <div className="compact-row"><span>{uiAttribute('团队与队员')}</span><TeamPicker teams={teams} selectedTeam={selectedTeam} agents={agents} value={teamId} busy={busy} onChange={id => {
                 if (!teamId) customSelection.current = { memberIds: selectedMemberIds, leadId }
                 const team = teams.find(team => team.id === id) ?? null
                 setTeamId(id); setSelectedTeam(team); setMemberError(null); setSubmitError(null)

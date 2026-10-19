@@ -1208,6 +1208,8 @@ export function BusinessApp({
   const startupResolvedSessionId = useRef<string | null>(null)
   const pendingRestorableLocation = useRef<RestorableLocation | null>(null)
   const invalidatingNewConversationDefaults = useRef(false)
+  const newConversationDefaultsRecheckPending = useRef(false)
+  const [newConversationDefaultsRecheck, setNewConversationDefaultsRecheck] = useState(0)
   const campCreationPreflight = useMemo(
     () => campCreationPreflightFromAgents(agents),
     [agents]
@@ -2130,10 +2132,11 @@ export function BusinessApp({
   }, [onboardingRuntimePhase, onboardingSnapshot, refreshOnboardingRuntime])
 
   useEffect(() => {
-    if (
-      !shouldInvalidateNewConversationDefaults(generalPreferences, agents, state === 'ready' && !teamLibrary.loading && !teamLibrary.error, teamLibrary.teams)
-      || invalidatingNewConversationDefaults.current
-    ) return
+    if (invalidatingNewConversationDefaults.current) {
+      newConversationDefaultsRecheckPending.current = true
+      return
+    }
+    if (!shouldInvalidateNewConversationDefaults(generalPreferences, agents, state === 'ready' && !teamLibrary.loading && !teamLibrary.error, teamLibrary.teams)) return
     invalidatingNewConversationDefaults.current = true
     void uiPreferences.generalPreferences.invalidateNewConversationDefaults({
       expectedTeamId: generalPreferences?.newConversationTeamId ?? null,
@@ -2141,8 +2144,15 @@ export function BusinessApp({
     })
       .then(setGeneralPreferences)
       .catch((nextError) => setError(errorMessage(nextError)))
-      .finally(() => { invalidatingNewConversationDefaults.current = false })
-  }, [agents, generalPreferences, state, teamLibrary.loading, teamLibrary.error, teamLibrary.teams])
+      .finally(() => {
+        invalidatingNewConversationDefaults.current = false
+        // Coalesce observations received in flight; an unchanged receipt alone never retries.
+        if (newConversationDefaultsRecheckPending.current) {
+          newConversationDefaultsRecheckPending.current = false
+          setNewConversationDefaultsRecheck(current => current + 1)
+        }
+      })
+  }, [agents, generalPreferences, state, teamLibrary.loading, teamLibrary.error, teamLibrary.teams, newConversationDefaultsRecheck])
 
   const currentProjectPath = currentProject.kind === 'directory'
     ? currentProject.projectPath

@@ -181,3 +181,32 @@ Desktop/Web 构建、文档治理（含真实 base 的 CI 检查）通过。默�
 截图夹具初次因临时脚本错误引用 Electron 模块而未启动成功，修正脚本后完成；没有据此更改产品代码。
 
 Team 模型、Core 和 Bootstrap 本轮未改；没有重跑模型或追加协作场景，完整上下文 Gate 仍为 `degraded`。
+
+## 2026-10-19 后台刷新与请求期间的新观察
+
+基线 `ca5f238ae98b5a29d8f16b3df0ae721f01cc7aa4`，处理 Thread sequence 45 的两个剩余边界，
+保留 Custom 独立创建、同内容偏好保留引用和每次刷新标记 loading 的修复。
+
+现有 Electron owner 挂载生产 BusinessApp、TeamWorkspace、useTeams 和 Host 偏好包装层，
+修复前用可控 Promise 复现：后台列表未完成时请求离页，确认框不存在；已打开的删除确认框也被隐藏；
+空团队库中的新草稿同样被加载态隐藏。失效回归先让 O2 名册完成并渲染，再完成 R1 的同内容回执，
+实际得到 `expected 2, got 1`，确认遗漏发生于生产组件，不再只有隔离逻辑模型的证据。
+
+- TeamWorkspace 仅在没有团队和草稿时显示整页加载态；其余刷新保留原编辑 DOM、草稿与确认框，在保存栏显示加载状态。
+- BusinessApp 只记录请求期间是否有新观察。当前请求完成后触发一次 React 重查，读取最新偏好与名册；多个观察合并，没有新观察时不重试，最新名册恢复有效时不发请求。没有新增同步协议或 Core 字段。
+
+最终 Team 生产组件回归有 20 组场景，包含取消/放弃离页可用、刷新完成不替换草稿、删除确认框、
+首次加载与空库新草稿，以及 O2 先到/R1 后到、更新为有效 O3 后不重放 O2、第二次同内容回执不重复。
+原保存回执、迟到列表、Custom、删除后动作身份和请求结束后新观察的回归全部保留。
+最小复核命令：`node --test --test-name-pattern='Team creation' scripts/lib/member-creation.test.mjs`。
+这些 Promise 的完成顺序由测试显式控制，没有使用 sleep。
+
+原始失败、最终三项 Electron 创建流程以及其他验证日志使用附件
+`team-management-validation/refresh-observation-*` 前缀。中文日/夜主题、390×844 窄屏的刷新中编辑页和
+离页确认框已核对，草稿、提示与操作均可见；临时截图脚本初次因插入检查点缺少分号而超时，
+修正脚本后完成截图，产品代码未为截图调整。
+
+类型检查、Desktop/Web 构建与文档治理通过；`pnpm test` 中 Vitest 2784 项、主 Node 集合 357 项通过，
+2 项按原配置跳过；三项 Electron 创建流程全部通过；默认 Rust workspace 474 项通过、1 项忽略。
+
+本轮没有修改 Team 模型、Core 或 Bootstrap，也没有重跑真实模型；完整上下文 Gate 保持 `degraded`。

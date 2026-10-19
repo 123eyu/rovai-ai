@@ -141,7 +141,7 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
     </AppDialogFooter>
   </AppDialogContent></Dialog.Portal></Dialog.Root>
 
-  if (loading) return <div className="team-first-workspace" role="status">{uiAttribute('正在载入团队…')}</div>
+  if (loading && !teams.length && !draft) return <div className="team-first-workspace" role="status">{uiAttribute('正在载入团队…')}</div>
   if (!teams.length && !draft) return <div className="team-first-workspace"><section className="mcp-first-connection team-first-connection"><TeamGlyph/><h2>{uiAttribute('创建第一个团队')}</h2><p>{uiAttribute('保存常用队员和协作方式，新对话时直接选用。')}</p>
     {error && <p role="alert">{error}</p>}
     {loadError && <p role="alert">{loadError}<button type="button" onClick={() => void refresh().catch(() => undefined)}>{uiAttribute('重试')}</button></p>}
@@ -177,7 +177,7 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
             })}</ul> : <div className="team-roster-empty">{uiAttribute('添加队员，组建你的团队。')}</div>}
           </section>
         </div>
-      </div></div><footer className="team-save-bar"><div className="team-save-bar-inner">{(error || loadError) && <p className="compact-inline-error" role="alert">{error || loadError}</p>}<div className="member-editor-save-row"><span className="member-editor-save-status" role="status">{dirty ? uiAttribute('有未保存更改') : saved ? uiAttribute('已保存') : ''}</span><div><button type="button" className="member-editor-cancel" disabled={frozen} onClick={discard}>{base ? uiAttribute('放弃更改') : uiAttribute('取消')}</button><button type="submit" className="member-editor-primary member-editor-save" disabled={busy || (!dirty && !pending.current)}>{pending.current ? uiAttribute('重试') : uiAttribute('保存')}</button></div></div></div></footer></form>}
+      </div></div><footer className="team-save-bar"><div className="team-save-bar-inner">{(error || loadError) && <p className="compact-inline-error" role="alert">{error || loadError}</p>}<div className="member-editor-save-row"><span className="member-editor-save-status" role="status">{dirty ? uiAttribute('有未保存更改') : saved ? uiAttribute('已保存') : ''}{loading && <>{dirty || saved ? ' · ' : ''}{uiAttribute('正在载入团队…')}</>}</span><div><button type="button" className="member-editor-cancel" disabled={frozen} onClick={discard}>{base ? uiAttribute('放弃更改') : uiAttribute('取消')}</button><button type="submit" className="member-editor-primary member-editor-save" disabled={busy || (!dirty && !pending.current)}>{pending.current ? uiAttribute('重试') : uiAttribute('保存')}</button></div></div></div></footer></form>}
     </section>{dialogs}
   </div>
 }

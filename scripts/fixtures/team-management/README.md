@@ -33,3 +33,7 @@ preservation. It uses no Core or Runtime and does not use sleeps to order the ra
 The same fixture covers Custom creation with rejected/pending team reads, explicit
 recovery from a failed selected Team, retry with a fresh version, and convergence
 of unchanged invalidation receipts through the production Host preference wrapper.
+It also holds background list reads pending while editing and leaving the Team
+workspace, verifies that leave/delete confirmations stay usable, and delivers new
+rosters before an old invalidation receipt to check that only the latest observation
+is rechecked once. Initial loading and a new draft with an empty library are covered.

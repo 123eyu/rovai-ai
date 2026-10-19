@@ -213,6 +213,59 @@ async function runCreationAvailabilityRegression(root: Root, app: ReactNode, cli
       await click('.new-camp-dialog .compact-primary')
       check(creations[0]?.team, { teamId: team.id, expectedVersion: 2 }, 'retry selects the returned version')
     })
+    await run('background refresh keeps the editor and leave confirmation usable', async () => {
+      const pending = deferred<Team[]>()
+      let refresh = false
+      await mount(false, null, async () => refresh ? pending.promise : [team])
+      await click('.rail-button[aria-label="团队"]')
+      await type('.team-editor-form input', 'Unsaved team')
+      const input = find('.team-editor-form input')
+      refresh = true
+      await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+      await click('.rail-button[aria-label="队员"]')
+      check(!!document.querySelector('[role="dialog"]'), true, 'leave confirmation opens during pending background refresh')
+      check(find('.team-editor-form input') === input, true, 'background refresh keeps the same editor mounted')
+      check((input as HTMLInputElement).value, 'Unsaved team', 'background refresh preserves the draft')
+      check(find('.team-save-bar [role="status"]').textContent?.includes('正在载入团队'), true, 'refresh status is non-blocking')
+      await click('[role="dialog"] .quiet-button')
+      await type('.team-editor-form input', 'Still editable')
+      await click('.rail-button[aria-label="队员"]')
+      const dialog = find('[role="dialog"]')
+      await act(async () => { pending.resolve([{ ...team, version: 3 }]) })
+      check(find('[role="dialog"]') === dialog, true, 'completed refresh keeps the pending leave confirmation mounted')
+      check((find('.team-editor-form input') as HTMLInputElement).value, 'Still editable', 'late list does not replace the draft')
+      await click('[role="dialog"] .quiet-button:nth-child(2)')
+      check(find('.rail-button[aria-label="队员"]').getAttribute('aria-current'), 'page', 'discard resolves the pending navigation')
+    })
+    await run('background refresh preserves an open delete confirmation', async () => {
+      const pending = deferred<Team[]>()
+      let refresh = false
+      await mount(false, null, async () => refresh ? pending.promise : [team])
+      await click('.rail-button[aria-label="团队"]')
+      await act(async () => { find('.team-overflow').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+      await click('.team-crud-menu [role="menuitem"]:last-child')
+      const dialog = find('[role="dialog"]')
+      refresh = true
+      await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+      check(document.querySelector('[role="dialog"]') === dialog, true, 'delete confirmation stays mounted during refresh')
+      await click('[role="dialog"] .quiet-button')
+      check(!!document.querySelector('[role="dialog"]'), false, 'delete can be cancelled before refresh completes')
+      await act(async () => { pending.resolve([team]) })
+    })
+    await run('initial loading and a new unsaved team have distinct refresh states', async () => {
+      const initialList = deferred<Team[]>(), refresh = deferred<Team[]>()
+      let list = initialList.promise
+      await mount(false, null, () => list)
+      await click('.rail-button[aria-label="团队"]')
+      check(!!document.querySelector('.team-first-workspace[role="status"]'), true, 'first load can use the full-page status')
+      await act(async () => { initialList.resolve([]) })
+      await click('.mcp-first-connection-actions button')
+      await type('.team-editor-form input', 'First unsaved team')
+      list = refresh.promise
+      await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+      check((find('.team-editor-form input') as HTMLInputElement).value, 'First unsaved team', 'empty library refresh preserves a new draft')
+      await act(async () => { refresh.resolve([]) })
+    })
     await run('unchanged invalidation receipt settles with a stale roster', async () => {
       const invalidations: ReturnType<typeof deferred<any>>[] = []
       const pending = deferred<Team[]>()
@@ -235,6 +288,30 @@ async function runCreationAvailabilityRegression(root: Root, app: ReactNode, cli
       await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
       check(invalidations.length, 2, 'a changed confirmation receipt is applied')
     })
+    for (const repaired of [false, true]) {
+      await run(`in-flight invalidation rechecks only the latest ${repaired ? 'repaired' : 'unavailable'} observation`, async () => {
+        const invalidations: ReturnType<typeof deferred<any>>[] = []
+        const pending = deferred<Team[]>()
+        const stale = { ...team, memberAgentIds: [...custom.memberAgentIds, 'missing-member'] }
+        let list = Promise.resolve([stale])
+        const { preferences } = await mount(true, team.id, () => list, invalidations)
+        check(invalidations.length, 1, 'first invalidation is in flight')
+        list = pending.promise
+        await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+        await act(async () => { pending.resolve([{ ...stale, version: 3 }]) })
+        check(invalidations.length, 1, 'new unavailable observation arrives before the first receipt')
+        if (repaired) {
+          list = Promise.resolve([{ ...team, version: 4 }])
+          await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+        }
+        await act(async () => { invalidations[0].resolve(creationPreferences(preferences)) })
+        check(invalidations.length, repaired ? 1 : 2, 'only the latest still-invalid observation is processed after the no-op receipt')
+        if (!repaired) {
+          await act(async () => { invalidations[1].resolve(creationPreferences(preferences)) })
+          check(invalidations.length, 2, 'second no-op receipt does not retry the same observation')
+        }
+      })
+    }
   } finally {
     environment.preferences.generalPreferences = general
     environment.navigationHistory.initial = initial

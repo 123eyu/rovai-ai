@@ -13,7 +13,7 @@ app.setPath('sessionData', join(userData, 'session'))
 // Runtime, network content, or daily App is started or accessed by this fixture.
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
-    show: process.platform === 'linux',
+    show: process.platform === 'linux' || process.platform === 'win32',
     width: 1040,
     height: 700,
     useContentSize: true,

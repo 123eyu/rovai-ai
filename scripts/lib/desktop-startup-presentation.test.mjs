@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
@@ -30,7 +30,9 @@ test('the production App presents the full-window brand loader without weakening
     })
     const environment = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
     delete environment.ELECTRON_RUN_AS_NODE
-    process.stdout.write(`Automatic acceptance userData: ${join(fixture, 'user-data')}; no Core/SQLite/Skill Library/Runtime\n`)
+    const skillLibraryRoot = join(fixture, 'user-data', 'managed-skill-library')
+    await mkdir(skillLibraryRoot, { recursive: true })
+    process.stdout.write(`Automatic acceptance userData: ${join(fixture, 'user-data')}; Skill Library: ${skillLibraryRoot}; no Core/SQLite/Runtime\n`)
     child = spawn(electron, [
       join(fixtureSource, 'main.cjs'),
       join(fixture, 'renderer/index.html'),

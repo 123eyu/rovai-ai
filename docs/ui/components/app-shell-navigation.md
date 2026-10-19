@@ -59,7 +59,8 @@ Camp（包括快速对话）按最近一条已发布用户消息排序，桌面�
 Camp 行显示稳定标题和必要状态。右键、三点按钮、Shift+F10 / ContextMenu 键及触屏长按打开同一份菜单，
 提供置顶/取消置顶、标记未读/已读、重命名、复制会话 ID 和删除；复制只写稳定 Camp ID 原文。
 右键不打开 Camp 或折叠 Project。鼠标菜单靠点击位置，三点和键盘菜单靠行末入口，均限制在窗口内；
-Escape、点击外部、滚动或窗口失焦关闭。Camp 顶栏不得重复这些操作。
+Escape、点击外部、滚动或窗口失焦关闭。Escape 关闭时，在菜单释放焦点约束后恢复原 Project/Camp 行的 DOM focus，
+以便继续键盘操作；点击外部、选择命令、滚动或失焦关闭不执行该恢复。Camp 顶栏不得重复这些操作。
 Project 菜单提供 New Chat、置顶、重命名、Reveal in Finder（Windows 使用文件管理器文案）、复制项目路径、移除项目。
 Finder 定位真实目录，由 Desktop Main 校验存在后调用原生系统；目录失效提示重新选择。远程 Web 不提供原生定位项。
 Desktop 与宽屏 WebUI 的置顶 Camp 在标题左侧显示 17px 对话图标；置顶项目标题、置顶项目内 Camp、
@@ -346,7 +347,7 @@ App Shell 在不抢夺焦点的全局浮层中短暂显示实际缩放比例，�
 
 ## Jump search and overlay closure
 
-⌘K / Ctrl+K opens the title/project search or exact lookup by a complete Camp ID, with a small “跳转到对话” title, neutral selected result and “↑ ↓ 选择　↵ 打开　Esc 关闭” footer. Search input has no focus underline or frame; arrows and Enter retain their behavior and respect IME composition. Closing sidebar menus, rename/delete/removal dialogs or settings does not force focus back to the entry button, including after pin mutations. Shared DOM focus for keyboard input and menu navigation remains available.
+⌘K / Ctrl+K opens the title/project search or exact lookup by a complete Camp ID, with a small “跳转到对话” title, neutral selected result and “↑ ↓ 选择　↵ 打开　Esc 关闭” footer. Search input has no focus underline or frame; arrows and Enter retain their behavior and respect IME composition. Closing sidebar menus, rename/delete/removal dialogs or settings does not force focus back to the entry button, including after pin mutations; Escape in Project/Camp menus follows the return-to-row rule above. Shared DOM focus for keyboard input and menu navigation remains available.
 
 ## Web 导航适配
 

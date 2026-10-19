@@ -3413,7 +3413,7 @@ async fn probe_schema_capabilities(
     let reuse_schema = required
         .iter()
         .all(|capability| known_capabilities.iter().any(|known| known == capability));
-    let (mut capabilities, missing, mut supports_fast_turn) = if reuse_schema {
+    let (mut capabilities, missing, supports_fast_turn) = if reuse_schema {
         (
             required
                 .iter()
@@ -3458,25 +3458,13 @@ async fn probe_schema_capabilities(
             schema_supports_codex_fast_turn(&schema_dir),
         )
     };
-    if !supports_fast_turn {
-        // Some versions export optional turn fields only with --experimental. A failed
-        // optional export must not downgrade the existing Product Runtime capabilities.
-        let experimental_dir = schema_dir.join("experimental");
-        let mut command = runtime_command(path, Some(AdapterKind::CodexCli));
-        command
-            .args([
-                "app-server",
-                "generate-json-schema",
-                "--experimental",
-                "--out",
-            ])
-            .arg(&experimental_dir);
-        if let Ok(output) = bounded_output(&mut command, Duration::from_secs(5)).await {
-            supports_fast_turn =
-                output.status.success() && schema_supports_codex_fast_turn(&experimental_dir);
-        }
-    }
-    if supports_fast_turn {
+    // Fast preferences are applied by the real Host. Record evidence already
+    // available for this program without launching a Fast-only schema export.
+    if supports_fast_turn
+        || known_capabilities
+            .iter()
+            .any(|capability| capability == rovai_core::camp_fast::CODEX_FAST_TURN_CAPABILITY)
+    {
         capabilities.push(rovai_core::camp_fast::CODEX_FAST_TURN_CAPABILITY.into());
     }
     Ok((capabilities, missing))
@@ -3865,7 +3853,7 @@ mod tests {
                 AgentRuntimeProbeStatus::ProbeFailed,
             ),
         ] {
-            for experimental in [false, true] {
+            for schema_has_fast in [false, true] {
                 let root =
                     env::temp_dir().join(format!("rovai-codex-auth-{}", uuid::Uuid::new_v4()));
                 let _cleanup = ProbeRootCleanup(root.clone());
@@ -3879,7 +3867,7 @@ mod tests {
                 }
                 fs::write(
                     root.join("case.json"),
-                    json!({"account":account,"schemas":schemas,"experimental":experimental})
+                    json!({"account":account,"schemas":schemas,"schema_has_fast":schema_has_fast})
                         .to_string(),
                 )
                 .unwrap();
@@ -3893,13 +3881,13 @@ if sys.argv[1:] == ['--version']:
     print('codex-cli fixture'); sys.exit(0)
 assert sys.argv[1] == 'app-server', 'no standalone login status'
 if 'generate-json-schema' in sys.argv:
-    if '--experimental' in sys.argv: sys.exit(1) # Optional failure cannot downgrade Ready.
+    assert '--experimental' not in sys.argv, 'Fast must not trigger a dedicated schema export'
     out = pathlib.Path(sys.argv[sys.argv.index('--out') + 1]); out.mkdir(parents=True, exist_ok=True)
     for name, tokens in case['schemas'].items(): (out / name).write_text(json.dumps(tokens))
     (out / 'v2').mkdir()
     for name in ['ThreadStartResponse.json', 'TurnStartResponse.json', 'ItemStartedNotification.json']:
         (out / 'v2' / name).write_text('{}')
-    if not case['experimental']:
+    if case['schema_has_fast']:
         (out / 'v2' / 'TurnStartParams.json').write_text('{"properties":{"serviceTierForTurn":{}}}')
     sys.exit(0)
 (root / 'server-pid').write_text(str(os.getpid()))
@@ -3953,10 +3941,17 @@ for line in sys.stdin:
                 assert_eq!(
                     launches.lines().count(),
                     if expected == AgentRuntimeProbeStatus::Ready {
-                        3 + usize::from(experimental)
+                        3
                     } else {
                         2
                     }
+                );
+                assert!(!launches.contains("--experimental"));
+                assert_eq!(
+                    checked.result.capabilities.iter().any(|capability| {
+                        capability == rovai_core::camp_fast::CODEX_FAST_TURN_CAPABILITY
+                    }),
+                    expected == AgentRuntimeProbeStatus::Ready && schema_has_fast
                 );
                 let pid: i32 = fs::read_to_string(root.join("server-pid"))
                     .unwrap()
@@ -3969,29 +3964,32 @@ for line in sys.stdin:
                 );
                 // A trustworthy version belongs to this stable selected program.
                 fs::write(root.join("launches"), "").unwrap();
-                let _ = codex_capability_probe_at(
+                let repeated = codex_capability_probe_at(
                     &binary,
                     None,
                     Some("codex-cli fixture"),
                     &checked.result.capabilities,
                 )
                 .await;
-                assert!(
-                    !fs::read_to_string(root.join("launches"))
-                        .unwrap()
-                        .contains("--version")
-                );
-                assert_eq!(
-                    fs::read_to_string(root.join("launches"))
-                        .unwrap()
-                        .lines()
-                        .count(),
-                    if expected == AgentRuntimeProbeStatus::Ready {
-                        1 + usize::from(experimental)
-                    } else {
-                        1
-                    }
-                );
+                assert_eq!(repeated.result.status, expected);
+                let launches = fs::read_to_string(root.join("launches")).unwrap();
+                assert!(!launches.contains("--version"));
+                assert!(!launches.contains("generate-json-schema"));
+                assert_eq!(launches.lines().count(), 1);
+                assert_eq!(repeated.result.capabilities, checked.result.capabilities);
+                if expected == AgentRuntimeProbeStatus::Ready && !schema_has_fast {
+                    // Existing positive evidence remains valid for the same program,
+                    // even when required ordinary schema evidence needs replenishing.
+                    fs::write(root.join("launches"), "").unwrap();
+                    let known = vec![rovai_core::camp_fast::CODEX_FAST_TURN_CAPABILITY.into()];
+                    let (capabilities, missing) =
+                        probe_schema_capabilities(&binary, &known).await.unwrap();
+                    assert!(missing.is_empty());
+                    assert!(capabilities.contains(&known[0]));
+                    let launches = fs::read_to_string(root.join("launches")).unwrap();
+                    assert_eq!(launches.lines().count(), 1);
+                    assert!(!launches.contains("--experimental"));
+                }
             }
         }
     }

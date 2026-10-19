@@ -146,6 +146,12 @@ owner，而不是继续增加平行 fixture 和断言。
 静态证据复用扩展原 Codex、Claude、Antigravity 进程 fixture，仍验证动态认证失败和模型失败，不能用缓存
 伪造成功。真实安装、账号和点击耗时另记在当前版本实施记录，不混入确定性测试。
 
+末尾文件复核继续扩展 `installed_catalog_discovery_runs_only_bounded_identity_commands` 的既有哈希计数：
+首次／升级的发现加末尾复核共一次，未变的重复发现加末尾复核零次，检查期间替换则拒收旧结果。
+Codex 原认证 fixture 同时拥有普通 Schema 有／无 Fast 字段时的进程计数：可信版本与普通静态证据有效时
+仅一个 app-server，Fast 专用 experimental 导出为零；普通导出顺带取得或同程序已有的正向证据保留。
+安装变化、超时归属、进程清理与 Fast 保存／实际参数映射继续运行原 owner，不另建计数或性能测试框架。
+
 ### 新增独立测试
 
 新增一个 Rust `#[test]` 前必须同时满足以下条件：

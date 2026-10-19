@@ -3824,6 +3824,7 @@ impl Core {
     async fn verify_runtime_entry(
         &self,
         observation: &RuntimeDiscoveryObservation,
+        verified_identity: Option<&rovai_core::agent_runtime_adapter::ExecutableFileIdentity>,
     ) -> Result<rovai_core::agent_profile::VerifiedDiscoveredRuntimeEntry> {
         let entry = rovai_core::agent_profile::DiscoveredRuntimeEntry {
             adapter_kind: observation.runtime_kind,
@@ -3840,7 +3841,8 @@ impl Core {
                 .context("light Runtime discovery did not include executableFingerprint")?,
             entrypoint_locator_identity: observation.entrypoint_locator_identity.clone(),
         };
-        tokio::task::spawn_blocking(move || entry.verify())
+        let verified_identity = verified_identity.cloned();
+        tokio::task::spawn_blocking(move || entry.verify(verified_identity.as_ref()))
             .await
             .context("Runtime entry verification worker failed")?
     }
@@ -4861,7 +4863,7 @@ impl Core {
         if observation.discovery_status != RuntimeDiscoveryStatus::Found {
             return Ok(RuntimeCheckOutcome::StableFailure);
         }
-        let verified = self.verify_runtime_entry(&observation).await?;
+        let verified = self.verify_runtime_entry(&observation, None).await?;
         let path = PathBuf::from(
             observation
                 .executable_path
@@ -5435,6 +5437,7 @@ impl Core {
                 identity_changed = false;
             }
             let mut probe_execution_count = 0;
+            let probe_started = std::time::Instant::now();
             let deep_probe = loop {
                 probe_execution_count += 1;
                 let checked = run_identity_checked_probe(
@@ -5681,18 +5684,29 @@ impl Core {
                 mut snapshot,
                 failure,
             } = deep_probe;
+            let probe_ms = probe_started.elapsed().as_secs_f64() * 1000.0;
+            let verification_started = std::time::Instant::now();
             let final_entry = self
-                .verify_runtime_entry(&runtime_check_environment::candidate_observation(
-                    kind,
-                    &search,
-                    &candidate,
-                    &canonical,
-                    &candidate_fingerprint,
-                ))
+                .verify_runtime_entry(
+                    &runtime_check_environment::candidate_observation(
+                        kind,
+                        &search,
+                        &candidate,
+                        &canonical,
+                        &candidate_fingerprint,
+                    ),
+                    Some(verified_candidate.executable_file_identity()),
+                )
                 .await;
+            eprintln!(
+                "[runtime-check-timing] runtime={} probe_ms={probe_ms:.3} final_verify_ms={:.3}",
+                kind.as_str(),
+                verification_started.elapsed().as_secs_f64() * 1000.0,
+            );
             let Ok(final_entry) = final_entry else {
                 return Ok(RuntimeCheckOutcome::Superseded);
             };
+            let commit_started = std::time::Instant::now();
             let Some(_update) = self.runtime_check_update_guard(&search).await else {
                 return Ok(RuntimeCheckOutcome::Superseded);
             };
@@ -5765,6 +5779,11 @@ impl Core {
                 })
                 .await;
                 self.runtime_product_diagnostics.write().await.remove(&kind);
+                eprintln!(
+                    "[runtime-check-timing] runtime={} commit_publish_ms={:.3}",
+                    kind.as_str(),
+                    commit_started.elapsed().as_secs_f64() * 1000.0,
+                );
                 return Ok(RuntimeCheckOutcome::Ready);
             }
             let (failure_class, diagnostic_code) = match snapshot.probe_status.as_str() {
@@ -15665,7 +15684,7 @@ impl Core {
                 .await
                 .context("Runtime entry resolution worker failed")?;
                 if observation.discovery_status == RuntimeDiscoveryStatus::Found {
-                    let verified = self.verify_runtime_entry(&observation).await?;
+                    let verified = self.verify_runtime_entry(&observation, None).await?;
                     let _update = self.runtime_search_update.lock().await;
                     anyhow::ensure!(
                         self.runtime_search_environment.read().await.generation()
@@ -28607,7 +28626,9 @@ mod tests {
         let snapshot = AgentRuntimeAdapterRegistry::default()
             .light_ready_snapshot(
                 AdapterKind::TraeCnCli,
-                Some("trae-cli version obsolete".to_string()),
+                // These fixtures replace the program from --version. A trusted
+                // seeded version would correctly skip that trigger entirely.
+                None,
                 fingerprint.clone(),
                 chrono::Utc::now().to_rfc3339(),
             )
@@ -29354,7 +29375,7 @@ done
             )
             .unwrap()
             .map(|installation| (installation.id, installation.version));
-        let verified = core.verify_runtime_entry(&observation).await.unwrap();
+        let verified = core.verify_runtime_entry(&observation, None).await.unwrap();
         core.publish_runtime_discovery(observation, Some(verified), current)
             .await;
     }
@@ -29506,7 +29527,7 @@ done
                     )
                     .unwrap()
                     .unwrap();
-                let stale = core.verify_runtime_entry(&observation).await.unwrap();
+                let stale = core.verify_runtime_entry(&observation, None).await.unwrap();
                 write_runtime_resolution_executable(&executable, "#!/bin/sh\n# upgraded\nexit 1\n");
                 let search = core.runtime_search_environment.read().await.clone();
                 let (upgraded, verified) =
@@ -29581,7 +29602,7 @@ done
                 restore(&mut *core.database.lock().await, false);
                 for verified in [false, true] {
                     let found_target = core.runtime_check_installation_target(kind).await.unwrap().map(|target| (target.id, target.version));
-                    let found_entry = core.verify_runtime_entry(&upgraded).await.unwrap();
+                    let found_entry = core.verify_runtime_entry(&upgraded, None).await.unwrap();
                     std::fs::rename(&executable, root.join("temporarily-absent")).unwrap();
                     let (missing, _) = rovai_core::runtime_discovery::discover_runtime_entry_from_candidates(
                         kind, &search, search.candidates(kind, std::iter::empty()), None,

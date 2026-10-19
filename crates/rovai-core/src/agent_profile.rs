@@ -1170,15 +1170,22 @@ impl VerifiedDiscoveredRuntimeEntry {
 }
 
 impl DiscoveredRuntimeEntry {
-    /// Reads the executable and entrypoint dependencies. Async callers must run
-    /// this in a blocking worker before acquiring the database lock.
-    pub fn verify(self) -> Result<VerifiedDiscoveredRuntimeEntry> {
+    /// Rechecks the executable and entrypoint dependencies. The supplied identity
+    /// must have been verified together with this entry's fingerprint. Async callers
+    /// must run this in a blocking worker before acquiring the database lock.
+    pub fn verify(
+        self,
+        verified_identity: Option<&ExecutableFileIdentity>,
+    ) -> Result<VerifiedDiscoveredRuntimeEntry> {
         validate_installation(&self.executable_path, "default")?;
         let identity = match crate::agent_runtime_adapter::verify_executable_integrity(
             Path::new(&self.executable_path),
-            None,
+            verified_identity,
             &self.executable_fingerprint,
         )? {
+            crate::agent_runtime_adapter::ExecutableIntegrityStatus::Unchanged => verified_identity
+                .context("unchanged Runtime entry requires its verified identity")?
+                .clone(),
             crate::agent_runtime_adapter::ExecutableIntegrityStatus::Reverified(identity) => {
                 identity
             }
@@ -8134,7 +8141,7 @@ mod slow_tests {
                     source: InstallationSource::InheritedPath,
                     entrypoint_locator_identity: None,
                 }
-                .verify()
+                .verify(None)
                 .is_err(),
                 "a newer file identity cannot certify an older content fingerprint"
             );
@@ -8149,7 +8156,7 @@ mod slow_tests {
                         source: InstallationSource::InheritedPath,
                         entrypoint_locator_identity: None,
                     }
-                    .verify()
+                    .verify(None)
                     .unwrap(),
                     None,
                 )
@@ -8581,7 +8588,7 @@ mod slow_tests {
                             source: InstallationSource::InheritedPath,
                             entrypoint_locator_identity: None,
                         }
-                        .verify()
+                        .verify(None)
                         .unwrap(),
                         Some(&frozen.installation_id),
                     )

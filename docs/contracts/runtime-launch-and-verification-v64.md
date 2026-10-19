@@ -77,8 +77,14 @@ ZCode 只有明确的 probe 入口从 `session/create` snapshot 形成结果，�
 
 所有检查函数可复用绑定当前 Installation／路径／文件身份的可信版本。成功且未失效的同程序能力快照
 已含当前适配器所需静态证据时，Claude／Antigravity 跳过 help，Codex 跳过普通 Schema 导出；
-缺证据仍走现有有界探测。Codex 的可选 Fast 证据缺失时可保留一次 experimental Schema 读取，失败不
-降级普通能力。认证、动态模型信息和结束前文件身份复核不被静态证据替代，不新增缓存或补证任务。
+缺证据仍走现有有界探测。Codex 只顺带记录普通 Schema 中的 Fast 字段，或保留同程序已有的正向证据；
+不为补 Fast 证据执行 experimental Schema 导出。Fast 保存与实际参数下发遵循
+[Fast v3](camp-member-fast-v3.md)，不依赖该能力标志。
+认证、动态模型信息和结束前文件身份复核不被静态证据替代，不新增缓存或补证任务。
+
+检查末尾把本轮已成对验证的文件身份和指纹交给现有完整性校验，普通原生入口身份未变时不再完整哈希。
+身份变化或无法确认时仍沿用完整复核与旧结果拒收；locator、安装 ID/version 和配置代次保护不变。
+Windows 命令包装入口继续执行既有依赖校验，不套用普通单文件的免哈希规则；文件 I/O 保持在数据库锁外。
 
 ## MiniMax 健康结果与完整参数目录
 

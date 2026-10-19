@@ -668,10 +668,10 @@ Object.assign(window, { startupTest: {
     check(!manualUnread('A'), 'A pending stop must not create a reminder')
     await clickNavigation('导航会话 B', '.camp-nav-open')
     settleStop(); stopReply.resolve(cancelResult()); await flush(); await flush()
-    check(manualUnread('A') && document.querySelector('[data-thread-id="A"] .camp-unread-dot') && !manualUnread('B'),
-      'A successful stop marks its original Thread unread even after navigation')
+    check(!manualUnread('A') && !document.querySelector('[data-thread-id="A"] .camp-unread-dot') && !manualUnread('B'),
+      'A successful stop must not mark either Thread unread after navigation')
     await clickNavigation('导航会话 A', '.camp-nav-open')
-    check(!manualUnread('A'), 'Reopening the stopped Thread clears its reminder')
+    check(!manualUnread('A'), 'Reopening a stopped Thread preserves its normal read state')
 
     await reopenRunningThread()
     requestHandlers.set('agentRuns.cancel', () => { settleStop(); return cancelResult() })
@@ -679,8 +679,8 @@ Object.assign(window, { startupTest: {
     window.dispatchEvent(new Event('focus'))
     for (const listener of coreListeners) listener({ method: 'navigation.invalidated', params: {} } as CoreEvent)
     await advance(500); await flush()
-    check(manualUnread('A') && document.querySelector('[data-thread-id="A"] .camp-unread-dot'),
-      'A successful stop stays blue while the current Thread is focused and refreshed')
+    check(!manualUnread('A') && !document.querySelector('[data-thread-id="A"] .camp-unread-dot'),
+      'A successful stop must not create a blue dot while the current Thread is focused and refreshed')
 
     for (const result of [
       { status: 'rejected', code: 'command.version_conflict', payload: {} },
@@ -703,16 +703,16 @@ Object.assign(window, { startupTest: {
     stopReadUnavailable = false
     for (const listener of coreListeners) listener({ method: 'agent_run.terminal', params: { threadId: 'A' } } as CoreEvent)
     await flush(); await flush()
-    check(manualUnread('A') && document.querySelector('[data-thread-id="A"] .camp-unread-dot'),
-      'A later authoritative cancelled Run recovers the lost-receipt reminder')
+    check(!manualUnread('A') && !document.querySelector('[data-thread-id="A"] .camp-unread-dot'),
+      'A later authoritative cancelled Run must not create a lost-receipt reminder')
     for (const listener of coreListeners) listener({ method: 'agent_run.terminal', params: { threadId: 'A' } } as CoreEvent)
     await flush(); await flush()
-    check(calls.filter(call => call === 'navigationPreferences.setThreadReadState').length === reminderWrites + 1,
-      'Repeated terminal refreshes must not save the same stop reminder again')
+    check(calls.filter(call => call === 'navigationPreferences.setThreadReadState').length === reminderWrites,
+      'Terminal refreshes must not save a stop reminder')
     requestHandlers.delete('agentRuns.cancel')
     campRequest = id => campProjection(id)
     await clickNavigation('导航会话 A', '.camp-nav-open')
-    cases.push('User stops retain a blue Thread reminder only after confirmed cancellation, including lost receipts and navigation races')
+    cases.push('User stops do not create a Thread unread reminder, including lost receipts and navigation races')
     await markUnread('A')
     cases.push('Manual unread survives automatic observation and clears only after an explicit successful open')
     const switchCallStart = calls.length
@@ -823,8 +823,7 @@ Object.assign(window, { startupTest: {
       await reopenRunningThread()
       await stopRun()
       const dot = document.querySelector<HTMLElement>('[data-thread-id="A"] .camp-unread-dot')
-      check(dot && dot.getBoundingClientRect().width > 0 && getComputedStyle(dot).backgroundColor !== 'rgba(0, 0, 0, 0)',
-        'The stopped Thread reminder must render a visible dot in ' + theme)
+      check(!dot, 'The stopped Thread must not acquire an unread dot in ' + theme)
       await flush()
     }
 

@@ -6,10 +6,17 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## Composer 链接高亮稳定性（2026-10-19）
+
+普通输入后立即维护已有链接的显示范围；位置仅存在编辑器内存中，完整 Markdown 识别仍合并到停顿后。
+修改 URL 本身或无法可靠映射时只撤下受影响范围，操作前重新校验目标。
+稳定语义见[会话工作区](../../ui/components/conversation-workspace.md)，
+复现、性能样本和回归见[实施记录](implementation-plan.md#composer-链接高亮稳定性2026-10-19)。
 
 ## 文件预览自动刷新（2026-10-18）
 

@@ -8,6 +8,29 @@ last_updated: 2026-10-19
 
 # v1.72 实施与验收
 
+## 主动停止后的会话蓝点（2026-10-19）
+
+User 确认主动终止也应显示侧栏会话旁的蓝点。原实现只从回复发布和显式标记未读显示蓝点，
+停止回执没有写本机提醒。`BusinessApp.cancelAgentRun` 现在确认本次取消后复用现有 `manualUnread`，
+保持 read-through 水位；结果未知则等待精确 Run 终态再补齐，拒绝与已经结束不新增提醒。
+停止期间切换会话仍写原 Thread，当前会话自动刷新／聚焦不清除，重新显式打开沿用原清除路径。
+
+分支 `rovai/manual-stop-unread`，基线 `8df743a674aeb654ce737013d01c24ff3520ba3a`，使用现有 checkout。
+扩展既有生产 App Electron fixture，验证真实停止按钮、待回执、成功、拒绝、已经结束、切换会话、
+当前页自动刷新、丢失回执后迟到确认与重复刷新。夹具对齐现行 `runtime.status.get` 与同 tick 合并，
+保留 Runtime 事件刷新范围断言；打开投影对齐 schema 9，并验证 Task 关闭时的现行顶栏。
+没有新增 Rust 测试、存储迁移或模型上下文变化。
+
+当前 UI 和 Architecture 已更新；现有 Navigation Read v1 的本机提醒字段与 Core 读取语义不变，
+无需新 Contract 或 Version Decision。
+
+验证通过：`pnpm typecheck`；`pnpm exec vitest run apps/desktop/src/renderer/src/navigation-unread.test.ts apps/desktop/src/renderer/src/App.test.ts`
+（188 项）；`pnpm build:desktop`（含 Web、执行页、Main 和 Renderer）；`pnpm test:startup-presentation`
+（隔离 Electron，生产 App 停止路径与日夜主题蓝点截图）；Impeccable detector 无发现。
+`pnpm docs:test` 的 10 项通过。原 checkout 的完整文档扫描受到 Git 忽略的旧原型失效链接影响；
+同一改动在仅含受版本管理文件的临时 clone 中通过 `pnpm docs:check` 与基于上述基线的 `pnpm docs:check:ci`，
+未更改原型或增加门禁例外。没有启动 Core／真实 Runtime，也没有安装或重启日常 App。
+
 ## 记忆工作区 R4（2026-10-19）
 
 User 批准独立 worktree 实施、PR 合入 main，并从最新 main 构建安装本机 App。

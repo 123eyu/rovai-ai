@@ -55,6 +55,7 @@ test('the production App presents the full-window brand loader without weakening
     if (process.env.ROVAI_PROJECT_DIRECTORIES_ONLY === '1') { assert.equal(report.cases.length, 4); return }
     assert.ok(report.cases.length >= 8)
     assert.ok(report.cases.includes('Ordinary Camp switching reads only the target row without unrelated queries'))
+    assert.ok(report.cases.includes('User stops retain a blue Thread reminder only after confirmed cancellation, including lost receipts and navigation races'))
     assert.ok(report.cases.includes('Accepted deletion discards in-flight Web refresh failures and queued reads'))
     assert.ok(report.cases.includes('Web refresh confirms external deletion before removing the current Thread'))
     assert.ok(report.cases.includes('Web refresh retains real errors when the Thread still exists'))
@@ -63,7 +64,7 @@ test('the production App presents the full-window brand loader without weakening
     assert.ok(report.cases.includes('One-click creation success and failure respect newer navigation intent'))
     assert.ok(report.cases.includes('Member history replay selects the requested editor while retaining new-member drafts'))
     assert.ok(report.cases.includes('Runtime availability refreshes health and installations without reloading members'))
-    assert.ok(report.cases.includes('Runtime discovery retains full refresh across mixed debounce events'))
+    assert.ok(report.cases.includes('Runtime discovery coalesces same-tick events without reloading members'))
     assert.ok(report.cases.includes('New Conversation preserves edited drafts across candidate refresh and creation failure'))
     assert.ok(report.cases.includes('New Conversation gates selection, Lead and submit by saved usable runtimes and keeps help independent'))
     assert.ok(report.cases.includes('New Conversation handles an all-unconfigured roster'))

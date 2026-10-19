@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-app-shell-navigation
 status: accepted
-last_updated: 2026-10-15
+last_updated: 2026-10-19
 ---
 
 # App Shell 与统一侧栏
@@ -76,6 +76,11 @@ Desktop 与宽屏 WebUI 的置顶 Camp 在标题左侧显示 17px 对话图标�
 显式成功打开完整会话或选择“标记已读”才清除提醒；打开失败或只显示缓存预览必须保留。
 标记已读只覆盖操作时已知的新回复，之后到达的回复仍产生蓝点；不得倒退或伪造 Core 的真实查看水位。
 提醒随导航偏好持久化，Desktop 同步到其他窗口，Web 限定于当前主机与浏览器展示偏好。
+
+公屏中主动停止某次 Run 成功后，原会话也保存同一未读提醒，显示侧栏蓝点；仍停留在该会话时保留，
+重新显式打开完整会话或标记已读后清除。等待停止回执、请求拒绝或已经结束均不新增提醒。
+回执丢失时先核对该 Run 的权威终态，确认是用户停止后再提醒；提交期间切换会话不会把蓝点记到新会话。
+此提醒是本机操作意图，不推进回复发布水位、会话排序或 Notification Episode，也不把普通 Run 终态变成新回复。
 
 自动生成的 Camp 标题不把开头连续的真实队员 Mention / 所有队员 Mention 当作标题内容；只保留
 首段正文开始后的文字，正文中后部的 Mention 和手写 `@文字` 继续作为普通标题文字。Camp 行不把

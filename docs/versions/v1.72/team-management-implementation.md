@@ -159,3 +159,25 @@ Thread sequence 37 的两个边界均确认存在，基线为 `accf81846cf8be5c2
 分别复现误开其他团队和重新失效；修复后 SQLite 事务 owner、生产组件的四个删除回退组合与
 上一轮五个控制场景、230 项定向 Vitest、类型检查、Desktop/Web 构建和 Rust 格式检查通过。
 此轮没有改动或重跑模型上下文；完整 Gate 仍为 `degraded`，不以这些定向回归作为放行证据。
+
+## 2026-10-19 Custom 可用性与失效通知收敛
+
+基线 `24bc9508982a8a1e45d58b1368cc8c313781f7cd`，处理 Thread sequence 43 的两项反馈。
+复用原 Electron owner，挂载生产 BusinessApp、NewConversationDialog、useTeams 与 Host 偏好包装层；
+修复前四组 Custom 输入（开/关一键 × 列表拒绝/未完成）均被阻断，同内容失效回执也实际触发第二个请求。
+这确认了生产 React 中的重复触发，不以受控夹具推断真实 App 的请求频率或无限循环。
+
+- 先读取偏好，只有 Team 一键创建等待新列表；Custom 可直接创建，普通弹窗独立打开。列表加载/失败与重试在团队选择处呈现，不阻止显式选择 Custom。Team 读取失败不自动使用 Custom，旧列表也不冒充刚取得的快照。
+- 偏好内容未变时保留原 state 对象；useTeams 每次刷新标记 loading，刷新期间不依据旧名册请求失效。Core 的事务内可用性复验保持，不增加同步字段或请求状态。
+
+最终生产组件回归通过，覆盖上述四组 Custom、Team 失败后显式选择、Team 一键等待新版本、
+失败后重试的 loading/版本，以及同内容回执只发送一次、列表恢复停止、新失效观察仍能提交。
+原保存回执/迟到列表/Custom 草稿/删除后动作身份用例全部保留。Promise 显式完成，无 sleep 排竞态。
+日志以附件 `team-management-validation/custom-availability-*` 命名，保留修复前失败和最终成功记录。
+
+`pnpm test` 通过：Vitest 2784 项，主 Node 集合 357 项通过、2 项按原配置跳过；类型检查、
+Desktop/Web 构建、文档治理（含真实 base 的 CI 检查）通过。默认 Rust workspace 474 项通过、1 项忽略。
+错误态在隔离 Electron 中核对中文日/夜主题和 390×844 窄屏，重试与 Custom 创建按钮均可见，创建可用。
+截图夹具初次因临时脚本错误引用 Electron 模块而未启动成功，修正脚本后完成；没有据此更改产品代码。
+
+Team 模型、Core 和 Bootstrap 本轮未改；没有重跑模型或追加协作场景，完整上下文 Gate 仍为 `degraded`。

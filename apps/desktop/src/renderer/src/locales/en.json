@@ -3963,6 +3963,7 @@
   "团队与队员": "Team & teammates",
   "团队共同遵循的协作方式、工作原则…": "Shared ways of working and principles…",
   "团队列表": "Team list",
+  "团队列表读取失败：{0}": "Could not load teams: {0}",
   "团队名称": "Team name",
   "团队已在其他地方更改，请重新载入。": "This team changed elsewhere. Reload it before continuing.",
   "团队指引": "Team guidelines",

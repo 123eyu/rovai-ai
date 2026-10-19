@@ -11,6 +11,7 @@ export function useTeams(client: ThreadClient, enabled: boolean) {
   const generation = useRef(0)
   const refresh = useCallback(async (): Promise<Team[]> => {
     const request = ++generation.current
+    setLoading(true)
     try {
       const next = await client.request<Team[]>('teams.list')
       if (request === generation.current) { setTeams(next); setError(null); setLoading(false) }

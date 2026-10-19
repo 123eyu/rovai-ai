@@ -142,5 +142,5 @@ const root = createRoot(document.getElementById('root')!)
 const app = <ThreadClientProvider client={client as any}><CurrentUserProfileContext.Provider value={{ profile: { displayName: '', avatarDataUrl: null }, update: async () => {} } as any}><BusinessApp environment={environment} /></CurrentUserProfileContext.Provider></ThreadClientProvider>
 if (new URLSearchParams(location.search).get('flow') === 'teams') {
   environment.navigationHistory.initial = { entries: [{ kind: 'teams' }], index: 0 }
-  ;(window as any).teamCreationResult = runTeamCreationRegression(root, app, client, profiles)
+  ;(window as any).teamCreationResult = runTeamCreationRegression(root, app, client, profiles, environment, events)
 } else root.render(app)

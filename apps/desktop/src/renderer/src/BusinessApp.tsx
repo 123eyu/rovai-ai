@@ -1122,7 +1122,8 @@ export function BusinessApp({
   const [generalPreferences, setGeneralPreferencesState] = useState<GeneralPreferencesSnapshot | null>(null)
   const setGeneralPreferences = useCallback((snapshot: GeneralPreferencesSnapshot): void => {
     initializeInterfaceLanguage(snapshot)
-    setGeneralPreferencesState(snapshot)
+    // Host reads return fresh objects, including when an invalidation was ignored.
+    setGeneralPreferencesState(current => JSON.stringify(current) === JSON.stringify(snapshot) ? current : snapshot)
   }, [])
   const [currentProject, setCurrentProject] = useState<CurrentProject>(() => readCurrentProject())
   const [currentWorkspaceHint, setCurrentWorkspaceHint] = useState<WorkspaceSelection | null>(null)
@@ -2853,11 +2854,16 @@ export function BusinessApp({
     newConversationRequestBusy.current = true
     const intent = desktopNavigation.beginIntent()
     try {
-      // Another device may have changed the team since this page mounted.
-      const [preferences, teams] = await Promise.all([uiPreferences.generalPreferences.get(), teamLibrary.refresh()])
+      const preferences = await uiPreferences.generalPreferences.get()
       if (!intent.isCurrent()) return 'ignored'
       setGeneralPreferences(preferences)
-      const defaults = resolveAvailableNewConversationDefaults(preferences, agents, teams)
+      // Only a Team-backed one-click creation needs the latest library first.
+      const requiresTeam = preferences.oneClickNewConversationEnabled
+        && !preferences.newConversationDefaultsRequireConfirmation && Boolean(preferences.newConversationTeamId)
+      const teams = requiresTeam ? await teamLibrary.refresh().catch(() => null) : []
+      if (!intent.isCurrent()) return 'ignored'
+      const defaults = teams && resolveAvailableNewConversationDefaults(preferences, agents, teams)
+      let attentionMessage: string | null = null
       if (preferences.oneClickNewConversationEnabled && defaults) {
         try {
           await createThread({
@@ -2872,11 +2878,11 @@ export function BusinessApp({
           return 'created'
         } catch (nextError) {
           if (!intent.isCurrent()) return 'ignored'
-          openNewConversation(workspace, uiAttribute("一键创建未完成：{0} 请重新确认项目、队员与默认负责人。", String(errorMessage(nextError))), preferences)
-          return 'dialog'
+          attentionMessage = uiAttribute("一键创建未完成：{0} 请重新确认项目、队员与默认负责人。", String(errorMessage(nextError)))
         }
       }
-      openNewConversation(workspace, null, preferences)
+      if (!requiresTeam) void teamLibrary.refresh().catch(() => undefined)
+      openNewConversation(workspace, attentionMessage, preferences, teams?.find(team => team.id === preferences.newConversationTeamId) ?? null)
       return 'dialog'
     } catch (nextError) {
       if (!intent.isCurrent()) return 'ignored'
@@ -4695,6 +4701,9 @@ export function BusinessApp({
         initialWorkspace={newConversationInitialWorkspace}
         initialSelection={newConversationInitialSelection}
         teams={teamLibrary.teams}
+        teamsLoading={teamLibrary.loading}
+        teamsError={teamLibrary.error}
+        onRetryTeams={() => { void teamLibrary.refresh().catch(() => undefined) }}
         initialTeamId={newConversationInitialTeamId}
         initialTeam={newConversationInitialTeam}
         attentionMessage={newConversationAttention}

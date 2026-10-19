@@ -30,3 +30,6 @@ Run the deterministic save/create regression with
 It mounts the production BusinessApp in isolated Electron and completes save/list
 Promises explicitly, covering the saved version, late initial selection and draft
 preservation. It uses no Core or Runtime and does not use sleeps to order the race.
+The same fixture covers Custom creation with rejected/pending team reads, explicit
+recovery from a failed selected Team, retry with a fresh version, and convergence
+of unchanged invalidation receipts through the production Host preference wrapper.

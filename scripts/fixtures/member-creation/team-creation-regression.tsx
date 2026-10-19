@@ -4,6 +4,8 @@ import type { AgentProfile, Team } from '@contracts'
 import { NewConversationDialog } from '../../../apps/desktop/src/renderer/src/NewConversationDialog'
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { TeamWorkspace } from '../../../apps/desktop/src/renderer/src/TeamWorkspace'
+import { DEFAULT_GENERAL_PREFERENCES } from '../../../apps/desktop/src/shared/general-preferences-model'
+import { creationPreferences, withHostConversationPreferences } from '../../../apps/desktop/src/shared/host-general-preferences'
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void
@@ -27,7 +29,7 @@ const type = (selector: string, value: string) => act(async () => {
 
 // Real React effects and production BusinessApp handoff. Promise resolution,
 // not elapsed time, determines when save and teams.list reach the UI.
-export async function runTeamCreationRegression(root: Root, app: ReactNode, client: any, agents: AgentProfile[]) {
+export async function runTeamCreationRegression(root: Root, app: ReactNode, client: any, agents: AgentProfile[], environment: any, events: Set<(event: any) => void>) {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   const team: Team = { id: 'team-fixture', name: 'Team v1', memberAgentIds: agents.map(a => a.agentId), defaultLeadAgentId: agents[0].agentId, guidance: '', version: 1 }
   const saved = { ...team, name: 'Team v2', version: 2 }
@@ -119,6 +121,124 @@ export async function runTeamCreationRegression(root: Root, app: ReactNode, clie
     check(find('[role="alert"]').textContent?.includes('重新选择'), true, 'cancelled action explains that the team must be selected again')
     if (remaining.length) check(find('.team-detail-header h1').textContent, fallback.name, 'list selection may still fall back to Team B')
   }
+  await act(async () => { root.render(null) })
+  client.request = request
+  const availability = await runCreationAvailabilityRegression(root, app, client, agents, environment, events)
   await act(async () => { root.unmount() })
-  return { ok: true, cases: ['save receipt before teams.list', 'retry after list refresh', 'late initial team preserves draft', 'external edits preserve selected version', 'late list preserves Custom', 'deleted source cancels conversation and duplication with a fallback or empty library'] }
+  return { ok: true, cases: ['save receipt before teams.list', 'retry after list refresh', 'late initial team preserves draft', 'external edits preserve selected version', 'late list preserves Custom', 'deleted source cancels conversation and duplication with a fallback or empty library', ...availability] }
+}
+
+async function runCreationAvailabilityRegression(root: Root, app: ReactNode, client: any, agents: AgentProfile[], environment: any, events: Set<(event: any) => void>) {
+  const request = client.request, general = environment.preferences.generalPreferences
+  const initial = environment.navigationHistory.initial
+  const cases: string[] = [], failures: string[] = []
+  const custom = { memberAgentIds: [agents[0].agentId], defaultLeadAgentId: agents[0].agentId }
+  const team: Team = { id: 'team-available', name: 'Available Team', ...custom, guidance: '', version: 2 }
+  const run = async (label: string, body: () => Promise<void>) => {
+    try { await body(); cases.push(label) }
+    catch (error) { failures.push(`${label}: ${String(error)}`) }
+    finally { await act(async () => { root.render(null) }); client.request = request }
+  }
+  const mount = async (oneClick: boolean, teamId: string | null, list: () => Promise<Team[]>, invalidations: ReturnType<typeof deferred<any>>[] = []) => {
+    const preferences = { ...DEFAULT_GENERAL_PREFERENCES, newConversationDefaults: custom, newConversationTeamId: teamId, oneClickNewConversationEnabled: oneClick }
+    const creations: any[] = []
+    const local = new Proxy({}, { get: () => async () => preferences })
+    environment.preferences.generalPreferences = withHostConversationPreferences(local as any, (method, params) => client.request(method, params))
+    environment.navigationHistory.initial = { entries: [{ kind: 'quick_chat' }], index: 0 }
+    client.request = async (method: string, params: any) => {
+      if (method === 'teams.list') return list()
+      if (method === 'preferences.newConversation.get') return creationPreferences(preferences)
+      if (method === 'preferences.newConversation.invalidate') {
+        const response = deferred<any>(); invalidations.push(response); return response.promise
+      }
+      if (method === 'threads.create') creations.push(params)
+      return request(method, params)
+    }
+    await act(async () => { root.render(app) })
+    return { creations, preferences }
+  }
+  try {
+    for (const oneClick of [false, true]) for (const outcome of ['rejected', 'pending']) {
+      await run(`Custom ${oneClick ? 'one-click' : 'dialog'} with ${outcome} teams.list`, async () => {
+        const pending = deferred<Team[]>()
+        const { creations } = await mount(oneClick, null, () => outcome === 'pending' ? pending.promise : Promise.reject(new Error('Team list unavailable')))
+        await click('.rail-button[aria-label="新对话"]')
+        if (!oneClick) {
+          check(!!document.querySelector('.new-camp-dialog'), true, 'Custom dialog opens without waiting for teams.list')
+          check(find(`.new-camp-dialog [role="${outcome === 'pending' ? 'status' : 'alert'}"]`).textContent?.includes(outcome === 'pending' ? '正在载入团队' : 'Team list unavailable'), true, 'optional list has its own loading or error feedback')
+          await click('.new-camp-dialog .compact-primary')
+        }
+        check(creations.length, 1, 'Custom creation proceeds without teams.list')
+        check(creations[0].team, undefined, 'Custom has no Team dependency')
+        check(creations[0].memberAgentIds, custom.memberAgentIds, 'saved Custom roster is used')
+      })
+    }
+    for (const oneClick of [false, true]) {
+      await run(`selected Team ${oneClick ? 'one-click' : 'dialog'} failure requires explicit Custom`, async () => {
+        const { creations } = await mount(oneClick, team.id, async () => { throw new Error('Team list unavailable') })
+        await click('.rail-button[aria-label="新对话"]')
+        check(creations.length, 0, 'Team failure never auto-creates Custom')
+        check(!!document.querySelector('.new-camp-dialog'), true, 'failed Team can be changed explicitly')
+        check((find('.new-camp-dialog .compact-primary') as HTMLButtonElement).disabled, true, 'missing selected Team cannot submit')
+        check(find('.new-camp-dialog [role="alert"]').textContent?.includes('Team list unavailable'), true, 'list failure is shown in the dialog')
+        await act(async () => { find('.team-picker-trigger').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+        await click('[role="menuitemradio"]')
+        await click('.new-camp-dialog .compact-primary')
+        check(creations.length, 1, 'explicit Custom can create after Team failure')
+        check(creations[0].team, undefined, 'only explicit Custom omits the Team')
+      })
+    }
+    await run('Team one-click waits for the fresh snapshot', async () => {
+      const pending = deferred<Team[]>()
+      let refresh = false
+      const { creations } = await mount(true, team.id, async () => refresh ? pending.promise : [{ ...team, version: 1 }])
+      refresh = true
+      await click('.rail-button[aria-label="新对话"]')
+      check(creations.length, 0, 'one-click Team waits for authoritative list')
+      await act(async () => { pending.resolve([team]) })
+      check(creations[0]?.team, { teamId: team.id, expectedVersion: 2 }, 'fresh Team version used')
+    })
+    await run('Team retry replaces a failed library without selecting its stale cache', async () => {
+      let list = async () => [{ ...team, version: 1 }]
+      const { creations } = await mount(false, team.id, () => list())
+      list = async () => { throw new Error('Team list unavailable') }
+      await click('.rail-button[aria-label="新对话"]')
+      check((find('.new-camp-dialog .compact-primary') as HTMLButtonElement).disabled, true, 'failed refresh does not select cached Team v1')
+      const retry = deferred<Team[]>()
+      list = () => retry.promise
+      await click('.new-camp-dialog [role="alert"] button')
+      check(find('.new-camp-dialog [role="status"]').textContent?.includes('正在载入团队'), true, 'retry marks the library loading again')
+      check((find('.new-camp-dialog .compact-primary') as HTMLButtonElement).disabled, true, 'pending retry still needs its selected Team')
+      await act(async () => { retry.resolve([team]) })
+      await click('.new-camp-dialog .compact-primary')
+      check(creations[0]?.team, { teamId: team.id, expectedVersion: 2 }, 'retry selects the returned version')
+    })
+    await run('unchanged invalidation receipt settles with a stale roster', async () => {
+      const invalidations: ReturnType<typeof deferred<any>>[] = []
+      const pending = deferred<Team[]>()
+      let refresh = false
+      const stale = { ...team, memberAgentIds: [...custom.memberAgentIds, 'missing-member'] }
+      const { preferences } = await mount(true, team.id, async () => refresh ? pending.promise : [stale], invalidations)
+      check(invalidations.length, 1, 'stale roster sends its first invalidation')
+      await act(async () => { invalidations[0].resolve(creationPreferences(preferences)) })
+      check(invalidations.length, 1, 'same-content Host receipt does not trigger another invalidation')
+      refresh = true
+      await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+      check(invalidations.length, 1, 'pending refresh does not revalidate the stale roster')
+      await act(async () => { pending.resolve([team]) })
+      check(invalidations.length, 1, 'repaired roster remains valid')
+      refresh = false
+      await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+      check(invalidations.length, 2, 'a new unavailable observation can invalidate again')
+      preferences.newConversationDefaultsRequireConfirmation = true
+      await act(async () => { invalidations[1].resolve(creationPreferences(preferences)) })
+      await act(async () => { events.forEach(fn => fn({ method: 'teams.changed', params: {} })) })
+      check(invalidations.length, 2, 'a changed confirmation receipt is applied')
+    })
+  } finally {
+    environment.preferences.generalPreferences = general
+    environment.navigationHistory.initial = initial
+  }
+  if (failures.length) throw new Error(failures.join('\n'))
+  return cases
 }

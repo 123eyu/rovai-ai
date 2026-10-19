@@ -56,6 +56,9 @@ export function NewConversationDialog({
   initialTeamId = null,
   initialTeam = null,
   teams = [],
+  teamsLoading = false,
+  teamsError = null,
+  onRetryTeams,
   attentionMessage,
   projects,
   missionTagCatalog = [],
@@ -78,6 +81,9 @@ export function NewConversationDialog({
   initialTeamId?: string | null
   initialTeam?: Team | null
   teams?: Team[]
+  teamsLoading?: boolean
+  teamsError?: string | null
+  onRetryTeams?(): void
   attentionMessage?: string | null
   projects: ProjectNavigationGroup[]
   missionTagCatalog?: string[]
@@ -135,6 +141,7 @@ export function NewConversationDialog({
     [agents]
   )
   const preferredInitialSelection = initialSelection ?? null
+  const availableTeams = useMemo(() => teamsLoading || teamsError ? [] : teams, [teams, teamsLoading, teamsError])
   const initialSelectionPlan = useMemo(
     () => planInitialThreadSelection(preflight, preferredInitialSelection),
     [preferredInitialSelection, preflight.presentMembers]
@@ -171,7 +178,7 @@ export function NewConversationDialog({
     if (draftInitializedRef.current) {
       // A late library may complete the initial selection, but never replace
       // a selected snapshot or reset the user's name, workspace or Custom draft.
-      const loaded = !isMission && teamId && !selectedTeam ? teams.find(team => team.id === teamId) : null
+      const loaded = !isMission && teamId && !selectedTeam ? availableTeams.find(team => team.id === teamId) : null
       if (loaded) {
         setSelectedTeam(loaded)
         setSelectedMemberIds(loaded.memberAgentIds)
@@ -187,7 +194,7 @@ export function NewConversationDialog({
     setMemberMenuOpen(false)
     setLeadMenuOpen(false)
     customSelection.current = { memberIds, leadId: recommendedLead }
-    const team = isMission ? null : initialTeam ?? teams.find(team => team.id === initialTeamId)
+    const team = isMission ? null : initialTeam ?? availableTeams.find(team => team.id === initialTeamId)
     setTeamId(isMission ? null : team?.id ?? initialTeamId)
     setSelectedTeam(team ?? null)
     setSelectedMemberIds(team?.memberAgentIds ?? memberIds)
@@ -203,7 +210,7 @@ export function NewConversationDialog({
     setQuickHelpOpen(false)
     setMemberError(null)
     setSubmitError(null)
-  }, [initialSelectionPlan, initialWorkspace, initialTeamId, initialTeam, teams, teamId, selectedTeam, isMission, open, recovery])
+  }, [initialSelectionPlan, initialWorkspace, initialTeamId, initialTeam, availableTeams, teamId, selectedTeam, isMission, open, recovery])
 
   const pendingGitInspectionPath = workspace && !hasGitObservation(workspace)
     ? workspace.projectPath
@@ -396,13 +403,15 @@ export function NewConversationDialog({
               </div>}
               {!isMission && <>{workspace && <div className="compact-row-detail"><span title={projectDetail}>{projectDetail}</span>{gitPresentation.kind === 'metadata' && <span className="compact-git">{gitPresentation.label}</span>}{gitPresentation.kind === 'loading' && <span role="status">{gitPresentation.label}</span>}</div>}
               {gitPresentation.kind === 'warning' && <div className="new-camp-workspace-warning" role="alert"><div><strong>{gitPresentation.label}</strong><span>{gitPresentation.detail}</span></div></div>}
-              <div className="compact-row"><span>{uiAttribute('团队与队员')}</span><TeamPicker teams={teams} selectedTeam={selectedTeam} agents={agents} value={teamId} busy={busy} onChange={id => {
+              <div className="compact-row"><span>{uiAttribute('团队与队员')}</span><TeamPicker teams={availableTeams} selectedTeam={selectedTeam} agents={agents} value={teamId} busy={busy} onChange={id => {
                 if (!teamId) customSelection.current = { memberIds: selectedMemberIds, leadId }
-                const team = teams.find(team => team.id === id) ?? null
+                const team = availableTeams.find(team => team.id === id) ?? null
                 setTeamId(id); setSelectedTeam(team); setMemberError(null); setSubmitError(null)
                 setSelectedMemberIds(team?.memberAgentIds ?? customSelection.current.memberIds)
                 setLeadId(team?.defaultLeadAgentId ?? customSelection.current.leadId)
               }}/></div>
+              {teamsLoading && <p className="compact-row-detail" role="status">{uiAttribute('正在载入团队…')}</p>}
+              {!teamsLoading && teamsError && <div className="compact-inline-error" role="alert">{uiAttribute('团队列表读取失败：{0}', teamsError)}{onRetryTeams && <button type="button" className="compact-text-button" disabled={busy} onClick={onRetryTeams}>{uiAttribute('重试')}</button>}</div>}
               {teamId && <div className="team-conversation-summary"><TeamAvatarSummary ids={selectedTeam?.memberAgentIds ?? []} agents={agents}/><span>{selectedTeam ? uiAttribute('{0} 位队员 · 队长 {1}', String(selectedTeam.memberAgentIds.length), profileById.get(selectedTeam.defaultLeadAgentId)?.displayName ?? uiAttribute('不可用')) : uiAttribute('团队不可用')}</span></div>}
               {!teamId && <div className="compact-row">
                 <span id="new-camp-members-label"><UiText zh={"队员"} /></span>

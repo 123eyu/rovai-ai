@@ -3660,6 +3660,8 @@
   "连接中断 · 查看原因": "Connection interrupted · View details",
   "执行中断 · 查看原因": "Execution interrupted · View details",
   "执行中断，查看原因": "Execution interrupted, view details",
+  "输入内容过大 · 查看详情": "Input too large · View details",
+  "输入内容过大，查看详情": "Input too large, view details",
   "停止请求未成功，请重试。": "Could not stop this run. Try again.",
   "停止{0}的本次执行": "Stop {0}’s current run",
   "正在确认停止结果": "Checking the stop result",

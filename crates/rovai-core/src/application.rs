@@ -26569,14 +26569,11 @@ fn agent_run_public_failure(
     raw_detail: &str,
     sensitive_paths: &[(&Path, &str)],
 ) -> RuntimeFailureView {
+    if error_code == "context_payload_too_large" {
+        return rovai_core::runtime_failure::context_payload_too_large_failure(runtime_kind);
+    }
     let runtime_name = runtime_display_name(runtime_kind);
     let (origin, phase, summary, retryable) = match error_code {
-        "context_payload_too_large" => (
-            RuntimeFailureOrigin::Rovai,
-            RuntimeFailurePhase::Execution,
-            "Rovai 无法安全生成本次 Runtime 输入".to_string(),
-            false,
-        ),
         "workspace_unavailable" => (
             RuntimeFailureOrigin::Environment,
             RuntimeFailurePhase::Spawn,

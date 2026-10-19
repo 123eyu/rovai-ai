@@ -40,6 +40,8 @@ User 批准独立 worktree 实施、PR 合入 main，并从最新 main 构建安
 初次打包在前置构建完成后遇到 GitHub DNS 失败；按 packaging 文档校验 Electron 缓存 SHA-256 后，
 继续相同 daily ad-hoc 打包参数并通过 App/Core/CLI/Host 架构与签名门。日常安装使用非终止交接，
 最终 main 提交与安装位置记录在 Thread 交付中。
+最新 main 安装复验还发现页头几何检查偶尔抢在启动画布退出动画之前；验收入口改为等待画布移除及
+Memory 读取就绪，保留原始命中检测和几何断言，不修改生产交互或放宽结果。
 
 ## Antigravity 长任务与工具收尾（2026-10-19）
 

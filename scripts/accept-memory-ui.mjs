@@ -443,6 +443,9 @@ async function openMemory(cdp) {
   assert(navigation.height <= 40,
     `Memory navigation label wrapped unexpectedly (${navigation.height}px high)`)
   await waitForSelector(cdp, '.memory-library')
+  // The route can be ready while the full-window startup canvas is still exiting.
+  await waitForExpression(cdp, `!document.querySelector('.startup-loading-canvas')
+    && document.querySelector('.memory-library')?.getAttribute('aria-busy') === 'false'`)
   await waitForExpression(cdp, `!document.querySelector('.memory-library .memory-error')`)
 }
 

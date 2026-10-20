@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { AgentProfile, ThreadSnapshot, ThreadComposerDraftView, ThreadMessageView } from '@contracts'
+import type { AgentProfile, ThreadSnapshot, ThreadComposerDraftView, ThreadMessageView, LocalAttachmentSourceView } from '@contracts'
 import { optimisticThreadMessage } from '../../../apps/desktop/src/renderer/src/BusinessApp'
 import { ThreadWorkspace, type ThreadLeaveGuard } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
@@ -14,7 +14,8 @@ import '../../../apps/web/src/mobile.css'
 // Only the real Renderer and local draft store run here. Core transactions have
 // their own SQLite regression owner; this closed transport never starts a Runtime.
 const now = '2026-10-08T10:00:00Z'
-const threadId = 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7g'
+let threadId = 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7g'
+let pasteResetCounter = 0
 const agent: AgentProfile = { agentId: 'lead', displayName: '负责人', avatarRef: null, accent: null,
   teamRole: '架构师', professionalResponsibilities: '', personalityTraits: [], workingPrinciples: '',
   growthTopic: '', defaultCapabilities: [], presence: 'present',
@@ -42,10 +43,31 @@ const initial: ThreadSnapshot = { schemaVersion: 35, throughGlobalSequence: 1,
 const calls: string[] = []
 const submissions: ThreadComposerDraftView[] = []
 const clipboardWrites: Array<{ text: string; html: string | null }> = []
+const preparedFiles: Array<{ name: string; text: string; type: string; size: number }> = []
+let attachmentMode: 'ready' | 'fail' | 'deferred' = 'ready'
+let releaseAttachment: ((fail: boolean) => void) | null = null
+let failPresence = false
+let failStorage = false
+let failCleanup = false
+let failAfterSend = false
+let draftWrites = 0
+const storageSetItem = Storage.prototype.setItem
+const storageRemoveItem = Storage.prototype.removeItem
+Storage.prototype.setItem = function (key, value) {
+  if (failStorage && key.startsWith('rovai.camp-composer-draft.v1:')) throw new Error('Fixture storage full')
+  storageSetItem.call(this, key, value)
+  if (key.startsWith('rovai.camp-composer-draft.v1:')) draftWrites++
+}
+Storage.prototype.removeItem = function (key) {
+  if (failStorage && key.startsWith('rovai.camp-composer-draft.v1:')) throw new Error('Fixture storage full')
+  storageRemoveItem.call(this, key)
+  if (key.startsWith('rovai.camp-composer-draft.v1:')) draftWrites++
+}
 Object.assign(window, { rovai: { clipboard: { write: async (data: { text: string; html: string | null }) => { clipboardWrites.push(data) } } } })
 let rejectSend = true
 let coreActivated = false
 let acceptedSends = 0
+let clearAcceptedMessages: () => void
 let failNextInvite = false
 let conflictNextRemoval = false
 let prepareLeave: ThreadLeaveGuard | null = null
@@ -62,12 +84,44 @@ const client = {
     if (method === 'skills.candidates') return { skills: [], errors: [] }
     if (method === 'thread.messages.anchors') return { schemaVersion: 1, threadId, throughGlobalSequence: 0, totalCount: 0, items: [] }
     if (method === 'threads.pendingDraft.setPresence') {
+      if (failPresence) throw new Error('Fixture presence offline')
       if (coreActivated) throw new Error('camp.pending_draft_unavailable')
       return { changed: true }
     }
     throw new Error(`Unexpected invitation fixture request: ${method}`)
   },
-  composerAttachments: { discard: async () => {} }
+  attachments: { kind: 'local' },
+  composerAttachments: {
+    discard: async (id: string, ids?: string[]) => {
+      calls.push('discard:' + (ids ?? []).join(','))
+      if (loadLocalThreadComposerDraft(id)?.attachments.some(attachment => ids?.includes(attachment.id))) {
+        calls.push('discard-before-save')
+      }
+    },
+    preparePastedText: async (id: string, file: File): Promise<LocalAttachmentSourceView> => ({
+      ...await client.composerAttachments.prepare(id, 0, file), generatedBy: 'long_text_paste'
+    }),
+    removePastedText: async (owner: string, id: string) => {
+      calls.push('cleanup:' + id)
+      if (loadLocalThreadComposerDraft(owner)?.attachments.some(attachment => attachment.id === id)) {
+        calls.push('cleanup-before-save')
+      }
+      if (failCleanup) throw new Error('Fixture cleanup failed')
+      return 'deleted'
+    },
+    preview: async () => ({ preview: null, availability: 'available' }),
+    restore: async (_id: string, attachments: LocalAttachmentSourceView[]) => attachments,
+    prepare: async (_id: string, _revision: number, file: File): Promise<LocalAttachmentSourceView> => {
+      preparedFiles.push({ name: file.name, text: await file.text(), type: file.type, size: file.size })
+      if (attachmentMode === 'deferred') await new Promise<void>((resolve, reject) => {
+        releaseAttachment = fail => { releaseAttachment = null; fail ? reject(new Error('Fixture prepare failed')) : resolve() }
+      })
+      if (attachmentMode === 'fail') throw new Error('Fixture prepare failed')
+      return { id: crypto.randomUUID(), displayName: file.name, kind: 'file', fileCount: 1,
+        mediaType: file.type, byteSize: file.size, previewKind: file.type.startsWith('image/') ? 'image' : 'none',
+        availability: 'available', sourcePath: '/fixture/' + file.name }
+    }
+  }
 } as unknown as ThreadClient
 function Fixture() {
   const [mobile, updateMobile] = useState(false)
@@ -75,6 +129,7 @@ function Fixture() {
   const [snapshot, setSnapshot] = useState(initial)
   const [currentProfiles, updateProfiles] = useState(profiles)
   const [acceptedMessages, setAcceptedMessages] = useState<ThreadMessageView[]>([])
+  clearAcceptedMessages = () => { setAcceptedMessages([]) }
   const [visible, show] = useState(true)
   const [entryHost, setEntryHost] = useState<HTMLElement | null>(null)
   const [inspectorVisible, setInspectorVisible] = useState(false)
@@ -132,6 +187,7 @@ function Fixture() {
         if (rejectSend) throw new Error('Fixture rejects this send')
         coreActivated = true
         acceptedSends += 1
+        if (failAfterSend) failStorage = true
         const message = optimisticThreadMessage(snapshot, `send-${acceptedSends}`, draft, now)
         setAcceptedMessages(current => [...current, { ...message, id: `published-${acceptedSends}`, sequence: acceptedSends }])
         const mentionedIds = draft.content.segments.flatMap(segment => segment.kind === 'atom' && segment.atom.type === 'member' ? [segment.atom.agentId] : [])
@@ -178,4 +234,48 @@ Object.assign(window, { invitationTest: {
   submit: () => document.querySelector<HTMLButtonElement>('form.composer:has(#camp-message) button[type="submit"]')!.click(),
   focus: () => document.querySelector<HTMLElement>('#camp-message[contenteditable="true"]')!.focus(),
   text: () => document.querySelector<HTMLElement>('#camp-message[contenteditable="true"]')!.textContent,
+} })
+
+Object.assign(window, { pasteTest: {
+  draftWrites: () => draftWrites,
+  otherThread: () => setFixture({ ...initial, thread: { ...initial.thread, id: 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7h', activationState: 'active' } }),
+  reset: (pending: boolean) => {
+    failPresence = false; failStorage = false; coreActivated = false; rejectSend = true; failAfterSend = false
+    attachmentMode = 'ready'; releaseAttachment = null; preparedFiles.length = 0; failCleanup = false
+    calls.length = 0; submissions.length = 0; errors.length = 0
+    clipboardWrites.length = 0; acceptedSends = 0; clearAcceptedMessages()
+    localStorage.clear()
+    threadId = `rvcamp_${String(++pasteResetCounter).padStart(26, '0')}`
+    initial.thread.id = threadId
+    setFixture({ ...initial, thread: { ...initial.thread, activationState: pending ? 'pending' : 'active' } })
+  },
+  mode: (mode: typeof attachmentMode) => { attachmentMode = mode },
+  release: (fail: boolean) => releaseAttachment?.(fail),
+  failPresence: (value: boolean) => { failPresence = value },
+  failCleanup: (value: boolean) => { failCleanup = value },
+  failAfterSend: (value: boolean) => { failAfterSend = value },
+  failStorage: (value: boolean) => { failStorage = value },
+  paste: (text: string, structured?: string, html?: string, fileName?: string) => {
+    const data = new DataTransfer()
+    data.setData('text/plain', text)
+    if (structured !== undefined) data.setData('application/x-rovai-composer+json', structured)
+    if (html !== undefined) data.setData('text/html', html)
+    if (fileName) data.items.add(new File(['fixture'], fileName, { type: fileName.endsWith('.png') ? 'image/png' : 'text/plain' }))
+    document.querySelector<HTMLElement>('#camp-message')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  },
+  selectAll: () => {
+    const root = document.getElementById('camp-message')!
+    root.focus()
+    const range = document.createRange(); range.selectNodeContents(root)
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
+  },
+  state: () => ({
+    preparedFiles,
+    preparing: document.querySelectorAll('.composer .attachment-preparing').length,
+    failed: document.querySelectorAll('.composer .attachment-error').length,
+    ready: document.querySelectorAll('.composer .composer-attachment-card').length,
+    toast: document.querySelector('.composer-paste-status')?.textContent ?? null,
+    persistenceError: document.querySelector('.composer-reply-status')?.textContent ?? null,
+    deferred: releaseAttachment !== null
+  })
 } })

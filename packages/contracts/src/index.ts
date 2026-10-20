@@ -1355,7 +1355,10 @@ export type LocalAttachmentAvailability =
   | 'unreadable'
   | 'kind_changed'
 
-export type LocalAttachmentSourceView = ThreadMessageAttachmentView
+export type LocalAttachmentSourceView = ThreadMessageAttachmentView & {
+  /** Main-authored hint for the local removal path; never grants deletion authority. */
+  generatedBy?: 'long_text_paste'
+}
 
 export type LocalAttachmentOwnerLocator =
   | { owner: 'composer'; threadId: string; attachmentRefId: string }
@@ -4439,6 +4442,10 @@ export interface RovaiApi {
   memberAvatars: MemberAvatarsApi
   composerAttachments: {
     prepare(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView>
+    /** Desktop public Composer only; generated in the canonical Thread output directory. */
+    preparePastedText?(threadId: string, file: File): Promise<LocalAttachmentSourceView>
+    /** After saving the draft without this ref. Main decides whether the file is deletable. */
+    removePastedText?(threadId: string, attachmentRefId: string): Promise<'deleted' | 'retained'>
     preview(locator: LocalAttachmentOwnerLocator): Promise<AttachmentPreviewResult>
     /** Desktop-local authority restore; absent on remote/browser adapters. */
     restore?(threadId: string, attachments: LocalAttachmentSourceView[]): Promise<LocalAttachmentSourceView[]>

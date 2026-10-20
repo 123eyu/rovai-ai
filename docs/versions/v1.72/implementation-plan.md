@@ -8,6 +8,47 @@ last_updated: 2026-10-20
 
 # v1.72 实施与验收
 
+## Claude 执行结束后的失败收口（2026-10-20）
+
+User 报告 Claude 子进程已退出、Run 长期运行中且后续消息排队。当前源码核查发现：
+`execution_lease_expires_at` 只在领取时写入，没有周期续租，因此它和 `agent_run.updated_at`
+都不能单独作为执行器失联时间；Claude Adapter 已监听进程退出并限制退出后的输出收集。
+但 stdin writer、退出后输出收集和进程等待的部分普通错误返回后，已绑定的 handoff 会使
+上层提前返回，跳过 Run 失败结算。现场版本与 Core 日志尚未提供，不能认定该报告命中此分支，
+也不能仅凭会话没有 error 或系统没有 crash report 排除原生错误。
+
+分支 `rovai/fix-claude-ended-run`，基线 `1da9da7ccafa8fc896ca82958029c0f48770c41f`。
+复用现有 Adapter result、Runtime loss 和 cleanup worker：内部 `ClaudeCodeRunEnded` 只标记
+已返回结果的 worker，不标记仍可能运行的 caller-abort 或结果通道意外丢失。可信原生终态继续
+走原有结算；没有可信终态且 handoff 已绑定时，按 Run/epoch 收口 unknown input。保留精确
+取消、计划关闭、旧执行隔离与后继 FIFO，不增加租约轮询、运行时长上限、重放或新的持久状态。
+这是实现对齐现有恢复合同的局部修复，不新增 Version Decision、协议、Schema 或模型上下文。
+
+回归 owner：
+
+- 既有 `claude::tests::output_failure_terminates_the_still_running_process_before_cleanup`
+  增加内部结束标记断言，验证真实协议进程的错误保留原公开原因且能传递 worker 结束证据。
+- 新增 slow owner
+  `application::tests::ended_claude_run_fails_unknown_input_before_releasing_queued_delivery`，
+  使用既有隔离 Core/SQLite fixture 验证 bound handoff 下的普通错误不夺取 owner、已结束错误
+  结算为 `accepted_input_outcome_unknown`、输入不重放、cleanup 前不领取、确认后单次领取与迟到
+  结果 fencing。Adapter owner 无法观察持久队列；domain owner 不经过 Core 的错误路由，因此需要此
+  跨模块 owner，不增加平行 Runtime/网络夹具。
+- 最小命令：
+  `cargo test -p rovai-core --lib --features slow-tests ended_claude_run_fails_unknown_input_before_releasing_queued_delivery`。
+
+47 项定向 Rust 回归通过：上述新 owner 1 项、Claude Adapter 34 项、现有 Runtime loss owner
+1 项、Planned Shutdown 11 项。`pnpm typecheck`、`pnpm test`（Vitest 2801 项及 Node suites）、
+`cargo fmt --all --check`、`cargo check --workspace`、`pnpm docs:test`、`pnpm docs:check`
+及使用上述基线的 `docs:check:ci` 均通过。
+
+首次默认 Rust 回归为 427 passed / 1 failed / 1 ignored；失败是兼容性文档摘要常量与当前文件不符。
+在未修改的基线以 `platform_evidence_revisions_bind_their_frozen_source_bytes` 单独复现同一失败。
+主线 `5c70ee814` 更新 Qwen 问卷证据后遗漏了摘要同步，本分支将该常量同步到实际文件 SHA-256，
+不改变准入集合或任何资格测试断言；作为独立修正提交。重跑 `pnpm test:rust:pr` 通过：
+workspace 共 474 passed / 0 failed / 1 ignored；保留原有手动验收跳过项。
+本次不启动真实模型、不修改故障电脑或日常实例数据。
+
 ## 四适配器原生问卷（2026-10-20）
 
 按 User 确认的四适配器范围在独立 worktree 实施。启动参数、接收端问卷分流、Host 兼容、

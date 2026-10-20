@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: steel-night
 mode: dark
-last_updated: 2026-09-20
+last_updated: 2026-10-20
 ---
 
 # Steel Night
@@ -205,9 +205,9 @@ Night 为相同十个格式家族提供独立亮度值；它们只表达文件�
 | Token | Value |
 |---|---:|
 | `--inline-code-canvas` | `#353b3f` |
-| `--conversation-inline-code-canvas` | `#30373b` |
-| `--conversation-code-block-canvas` | `#252c30` |
-| `--conversation-code-line` | `#3e494f` |
+| `--conversation-inline-code-canvas` | `#343536` |
+| `--conversation-code-block-canvas` | `#28292a` |
+| `--conversation-code-line` | `#3d3f41` |
 | `--shell-result-canvas` | `#373f43` |
 | `--code-block-canvas` | `#1d252b` |
 | `--evidence-canvas` | `#12191d` |
@@ -281,6 +281,8 @@ Camp message prose, Runtime process copy in the bottom and Inspector execution s
 Markdown file previews use the dedicated `--conversation-inline-code-canvas`,
 `--conversation-code-block-canvas` and `--conversation-code-line` Mist Gray layer; release notes,
 Tool results and other SafeMarkdown surfaces keep the shared defaults.
+In Night, this layer uses near-neutral gray code canvases and a quieter outline while retaining
+the existing typography and syntax highlighting.
 Public user and Agent message bodies share the Mist Gray
 `--conversation-user-message-surface` / matching `--conversation-user-message-line`, retaining a 1px border allocation.
 Single Chat user bubbles share these tokens; private Agent narrative remains transparent.

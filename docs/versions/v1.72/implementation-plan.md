@@ -14,6 +14,10 @@ last_updated: 2026-10-20
 未承接问卷终态与测试证据统一记录于[原生问卷验证](native-questionnaire-verification.md)。
 不改 MiniMax 用户配置，不扩大到 Codex 或其他适配器。
 
+后续按 User 范围仅补 Qwen `--exclude-tools=ask_user_question` 与 Host compatibility，
+保留既有问卷取消兜底；Kimi 仅核实 Skip/取消不终止原生执行，未改策略。
+增量版本、生产路径与门禁证据见同一验证记录的 [Qwen 增量](native-questionnaire-verification.md#qwen-启动禁用增量2026-10-20)。
+
 ## 主动停止后的会话蓝点（2026-10-19）
 
 **已撤回。** 原功能通过 [PR #821](https://github.com/murray17/rovai-ai/pull/821) 合入并安装后，

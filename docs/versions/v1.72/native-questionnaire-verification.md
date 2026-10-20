@@ -9,11 +9,12 @@ last_updated: 2026-10-20
 
 User 确认仅修改 Claude Code、Copilot、Kimi、Qwen，并明确不再尝试通过修改本机配置关闭 MiniMax。
 基线为 `7a447be53dad78e5dcd0c180b42e23bbfa690a37`，分支 `rovai/native-questionnaire-policy`，
-worktree 为同级 `rovai-ai-native-questionnaire-policy`。当前合同为
-[Runtime Launch v65](../../contracts/runtime-launch-and-verification-v65.md)。
+worktree 为同级 `rovai-ai-native-questionnaire-policy`。首批合同为
+[Runtime Launch v65](../../contracts/runtime-launch-and-verification-v65.md)，后续 Qwen 增量由
+[v66](../../contracts/runtime-launch-and-verification-v66.md) 拥有。
 这是现有问卷/审批分离原则的适配器补齐，未引入新的产品交互、持久状态或决策分歧，故不新增 Version Decision。
 
-## 原生证据
+## 原生证据（PR #829）
 
 | 适配器 | 本机版本 | 处理 | 验证状态 |
 | --- | --- | --- | --- |
@@ -76,3 +77,53 @@ macOS arm64 最终验收目录为 `/private/tmp/rovai-questionnaire-{claude,copi
 及基于实际修改基线的 `pnpm docs:check:ci` 通过；`git diff --check` 和冒烟脚本语法检查通过。
 Rust 测试仅扩展已有 owner，没有新增独立 Rust 测试。
 原生版本/平台的未覆盖项继续记为未验证，不用参数测试替代。
+
+## Qwen 启动禁用增量（2026-10-20）
+
+User 确认保留 PR #829 主流程，本轮不扩展边缘处理。基线为合并提交
+`37613fd4281e7fc3d0aa12280767b391ebe0b714`，分支 `rovai/qwen-questionnaire-disable`，
+worktree 为同级 `rovai-ai-qwen-questionnaire-disable`。生产变更只有 Qwen 正式 ACP 命令的
+`--exclude-tools=ask_user_question` 和 Qwen Host compatibility 的策略项。普通审批、问卷取消、
+Run 终态以及 Claude/Copilot/Kimi/MiniMax 代码保持原状。
+
+上游 v0.25.0 的[参数处理](https://github.com/QwenLM/qwen-code/blob/6788c035698a0ada471c958d1e789e96c6cddd9b/packages/cli/src/config/config.ts#L1968-L2015)、
+[ACP 参数继承](https://github.com/QwenLM/qwen-code/blob/6788c035698a0ada471c958d1e789e96c6cddd9b/packages/cli/src/acp-integration/acpAgent.ts#L15319-L15337)
+和[工具注册拒绝](https://github.com/QwenLM/qwen-code/blob/6788c035698a0ada471c958d1e789e96c6cddd9b/packages/core/src/permissions/permission-manager.ts#L930-L947)
+仅作为调查起点；以下为本机 macOS arm64、Qwen **0.25.0** 的实际运行证据。
+
+| 验证入口 | 实际结果 |
+| --- | --- |
+| 原生 ACP 对照，无排除参数 | 模型请求包含 `ask_user_question`；普通 Shell、同进程后继输入和新进程 `session/load` 均成功 |
+| 原生 ACP 对照，有排除参数 | 10 次模型请求均不含 `ask_user_question`；普通 Shell 写文件成功，同进程后继输入和新进程 `session/load` 均为 `end_turn` |
+| 正式 Core / NORMAL、FOLLOWUP、AFTER_RESTART | 三个 Run 全部成功；12 次模型请求均无问卷工具，三次文件写入和公开发送保留，普通 Approval 为零 |
+| 正式启动与恢复 wire | 三个正式 Host 均带精确排除参数及原 `--approval-mode yolo`；首次 `session/new`、后继与 Core 重启后两次 `session/resume` 保持同一原生 Session |
+
+正式 smoke 使用现有 `scripts/smoke-native-questionnaires.mjs`，Qwen 转入工具已禁用断言，
+仍检查真实模型工具集合、普通工具效果、公开发送、问卷回执为零和原 Session 恢复。
+本次正式后继输入发生原生恢复；同进程复用由上表的直接 ACP 对照验证，不混称为 Core 热 Host 实测。
+原生对照和正式 smoke 均使用真实 CLI 与本地脚本化 Provider，不是外部真实模型资格验证。
+
+隔离目录分别为 `/private/tmp/rovai-native-questionnaire-probe-20261020-b` 与
+`/private/tmp/rovai-qwen-excluded-core-20261020`；正式 Core 二进制 SHA-256 为
+`547b985a0ed91212b0f7427480b1eaaa1dec3c1f333a3a54f2130f9576fcfb06`。
+Qwen Home、Core data、Skill Library、MCP config 均单独隔离，不修改用户本机配置。
+旧版及其他平台不由本次结果推导支持。
+
+扩展既有 `warm_compatibility_matches_process_inputs_across_acp_adapters`，核对旧摘要失效、
+精确新摘要和统一命令构造；既有普通权限/问卷 owner 继续验证取消兜底。没有新增独立 Rust 测试。
+增量通过 `pnpm check:rust`、`pnpm test:rust:pr`（474 passed、1 个既有 ignored），以及
+上述 Host owner 和 `approval_selects_the_exact_native_option_id` 两项 `extended-tests` 定向测试。
+`pnpm docs:check`、`pnpm docs:test`、实际基线的 `pnpm docs:check:ci`、格式与脚本语法检查通过。
+
+## Kimi 拒绝语义核查（2026-10-20）
+
+仅核查 Kimi **2.1.1**，不改变策略。原生 ACP 问卷的 `q0_skip` 是 `reject_once`；
+安装包 `outcomeToQuestionAnswer` 将选中 Skip 与 `outcome=cancelled` 都映射为未回答。
+两组隔离对照各发送问卷，分别回 `selected/q0_skip` 和 `cancelled`，之后由脚本化 Provider
+调用真实 Shell 写入 `continued.txt`，再返回 final；两组均写入成功、原生 `end_turn`、
+进程仍存活，下一条真实协议输入在原 Session 成功。
+
+因此拒绝当前问卷本身不会触发 `session/cancel` 或杀进程；模型可以继续执行其他工作，
+但不保证真实模型一定选择继续。原生生成的 `answers:{}` 加 dismissed note 是其工具结果，
+不是客户端提交空问卷。Rovai 按 v65 在原生结束后把未承接问卷判为
+`runtime_questionnaire_unsupported`，仍保留已发消息、文件和后继用户会话，不增加自动继续机制。

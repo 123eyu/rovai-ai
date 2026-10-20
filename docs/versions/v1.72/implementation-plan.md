@@ -31,6 +31,15 @@ worktree 为同级 `rovai-ai-execution-bar`；没有治理先行要求。
 人工浏览器核对了生产组件在 1440×920 下的日夜主题、28px 无底停止、整行悬浮浅红底及既有停止确认；控制台无错误。
 夹具只替换 transport，不启动 Core 或真实 Runtime，不修改日常 App 数据。
 
+后续 User 要求完全随机：分支 `rovai/execution-copy-random` 从 `9d3a9ed67767b8351142f3b7ef9bd27758b41a22`
+创建同级 worktree `rovai-ai-execution-copy-random`。选句改为每个 Run/阶段独立、等概率随机，允许连续重复，
+不再由 Run ID 哈希决定。Renderer 仅临时保留最近 512 个阶段选项，避免计时、快照更新、重挂载和切换语言
+触发换句；完整页面重载可重新抽取。不新增持久设置，不修改样式、动效或真实进度优先级。
+既有候选测试改用受控随机样本验证三个区间、连续重复、阶段独立性和中英文一致性，避免概率性断言。
+后续验证：12 项定向单测、`pnpm typecheck`、`pnpm test`（2,803 项 Vitest，Node 357 通过／2 项平台跳过）、
+`pnpm build:desktop`、文档门禁及 `pnpm test:rust:pr`（474 通过／1 项既有忽略）均通过。
+独立 Chrome 的 `pnpm test:run-presence-ui` 继续通过 38 个场景状态、37 项交互记录和 6 组桌面尺寸。
+
 ## Claude 执行结束后的失败收口（2026-10-20）
 
 User 报告 Claude 子进程已退出、Run 长期运行中且后续消息排队。当前源码核查发现：

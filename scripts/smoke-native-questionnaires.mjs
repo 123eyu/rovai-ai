@@ -12,7 +12,8 @@ import { composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 
 const [adapter, native, fixture] = process.argv.slice(2)
 const duplicateQuestionnaires = process.argv.includes('--duplicate-questionnaires')
-assert.ok(['claude-code-cli', 'copilot-cli', 'kimi-code-cli', 'qwen-code'].includes(adapter))
+assert.ok(['claude-code-cli', 'copilot-cli', 'kimi-code-cli', 'qwen-code', 'zcode-app', 'opencode-cli'].includes(adapter))
+const zcode = adapter === 'zcode-app', opencode = adapter === 'opencode-cli'
 assert.ok(isAbsolute(native) && isAbsolute(fixture), 'Pass absolute native executable and fresh fixture paths')
 const repo = resolve(import.meta.dirname, '..')
 const data = join(fixture, 'data'), project = join(fixture, 'project'), nativeData = join(fixture, 'native')
@@ -25,7 +26,7 @@ console.error(JSON.stringify({ channel: 'automatic acceptance', data, skills: jo
 let stage = 'setup', step = 0, core, db, threadId
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`
 const nativeQuestion = adapter === 'kimi-code-cli' ? 'AskUserQuestion' : 'ask_user_question'
-const disabled = ['claude-code-cli', 'copilot-cli', 'qwen-code'].includes(adapter)
+const disabled = ['claude-code-cli', 'copilot-cli', 'qwen-code', 'zcode-app', 'opencode-cli'].includes(adapter)
 assert.ok(!duplicateQuestionnaires || !disabled, 'Duplicate injection requires an exposed questionnaire tool')
 const questionInput = { questions: [{ question: 'Which color?', header: 'Color', options: [
   { label: 'Blue', description: 'Blue fixture' }, { label: 'Green', description: 'Green fixture' }
@@ -50,9 +51,11 @@ const server = createServer(async (req, res) => {
     report.requests.push({ stage, path: req.url, tools: names,
       toolResults: body.messages?.filter(message => message.role === 'tool').map(message => message.content) ?? [] })
     let call
-    if (stage !== 'setup') {
+    // Native title/summary requests may have no tools and do not advance the
+    // scripted business turn.
+    if (stage !== 'setup' && tools.length > 0) {
       if (disabled) {
-        assert.ok(!names.some(name => ['AskUserQuestion', 'ask_user', 'ask_user_question'].includes(name)), 'Disabled questionnaire was exposed to the model')
+        assert.ok(!names.some(name => ['AskUserQuestion', 'ask_user', 'ask_user_question', 'question'].includes(name)), 'Disabled questionnaire was exposed to the model')
       }
       const currentStep = step++
       if ((!disabled && stage === 'ASK' && currentStep === 0)
@@ -65,7 +68,8 @@ const server = createServer(async (req, res) => {
         const properties = (shell.input_schema ?? shell.parameters).properties
         const commandKey = Object.keys(properties).find(key => key.toLowerCase() === 'command')
         assert.ok(commandKey, 'Missing native command argument')
-        call = { name: shell.name, input: { [commandKey]: `${quote(process.execPath)} ${quote(join(project, 'publish.mjs'))} ${quote(stage)}` } }
+        call = { name: shell.name, input: { [commandKey]: `${quote(process.execPath)} ${quote(join(project, 'publish.mjs'))} ${quote(stage)}`,
+          ...(properties.description ? { description: 'Publish the isolated acceptance result' } : {}) } }
       }
     }
     const text = 'Controlled native questionnaire acceptance completed.'
@@ -108,7 +112,13 @@ const server = createServer(async (req, res) => {
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const baseUrl = `http://127.0.0.1:${server.address().port}`
-const environment = adapter === 'claude-code-cli'
+const environment = zcode || opencode
+  ? { HOME: nativeData, XDG_CONFIG_HOME: join(nativeData, 'config'), XDG_DATA_HOME: join(nativeData, 'data'),
+    XDG_STATE_HOME: join(nativeData, 'state'), XDG_CACHE_HOME: join(nativeData, 'cache'),
+    ...(zcode ? { ZCODE_DATA_BASE_DIR: nativeData, ZCODE_STORAGE_DIR: join(nativeData, '.zcode') }
+      : { OPENCODE_DISABLE_AUTOUPDATE: 'true', MSGPACKR_NATIVE_ACCELERATION_DISABLED: 'true',
+        OPENCODE_MODELS_PATH: join(nativeData, 'models.json') }) }
+  : adapter === 'claude-code-cli'
   ? { CLAUDE_CONFIG_DIR: nativeData, ANTHROPIC_API_KEY: 'fixture-only', ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_MODEL: 'claude-sonnet-4-6', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' }
   : adapter === 'copilot-cli'
@@ -134,6 +144,25 @@ if (adapter === 'qwen-code') await writeFile(join(nativeData, 'settings.json'), 
   security: { auth: { selectedType: 'openai' } }, model: { name: 'rovai-control' }, telemetry: { enabled: false }
 }))
 if (adapter === 'copilot-cli') await writeFile(join(nativeData, 'settings.json'), '{"autoUpdate":false}')
+if (zcode) {
+  const provider = { providerId: 'custom:fixture', providerName: 'Fixture', enabled: true, config: {
+    group: 'standard-personal', access: { type: 'api-key', apiKey: 'fixture-only' },
+    api: { type: 'openai-chat-completions', baseUrl: `${baseUrl}/v1` }, personalModelIds: ['rovai-control'] } }
+  await mkdir(join(nativeData, '.zcode/v2'), { recursive: true })
+  await writeFile(join(nativeData, '.zcode/v2/provider_config.json'), JSON.stringify({ schemaVersion: 1, config: {
+    providerConfigRules: { providerRules: [provider] },
+    modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] },
+    defaultModelSelection: { providerId: provider.providerId, modelId: 'rovai-control', options: { reasoningLevel: 'disabled' } }
+  } }))
+}
+if (opencode) {
+  await writeFile(join(nativeData, 'models.json'), '{}')
+  environment.OPENCODE_CONFIG_CONTENT = JSON.stringify({ update: 'disable', model: 'fixture/rovai-control',
+    providers: { fixture: { name: 'Fixture', package: 'aisdk:@ai-sdk/openai-compatible',
+      settings: { apiKey: 'fixture-only', baseURL: `${baseUrl}/v1` },
+      models: { 'rovai-control': { name: 'Fixture', capabilities: { tools: true, input: ['text'], output: ['text'] },
+        cost: { input: 0, output: 0 }, limit: { context: 100000, output: 10000 } } } } } })
+}
 await writeFile(join(data, 'mcp.json'), '{"mcpServers":{}}')
 await writeFile(join(project, 'README.md'), '# Isolated questionnaire acceptance\n')
 await writeFile(join(project, 'publish.mjs'), `import {writeFileSync} from 'node:fs';import {spawnSync} from 'node:child_process';
@@ -157,11 +186,28 @@ for(const [source,destination,direction] of [[process.stdin,child.stdin,'in'],[c
 createInterface({input:source}).on('line',line=>{let duplicate=false;try{const value=JSON.parse(line);duplicate=duplicateQuestionnaires&&direction==='out'&&value.method==='session/request_permission';if((value.id!==undefined&&value.method)||value.type==='control_request'||(value.id!==undefined&&value.result?.outcome)){appendFileSync(log,JSON.stringify({direction,value,duplicateInjected:duplicate})+'\\n')}}catch{};destination.write(line+'\\n');if(duplicate)destination.write(line+'\\n')}).on('close',()=>{if(direction==='in')child.stdin.end()})}
 child.on('exit',(code)=>process.exit(code??1));process.on('SIGTERM',()=>child.kill('SIGTERM'));
 `, { mode: 0o700 })
+if (zcode) {
+  // Observe the official kernel without replacing its admitted App identity.
+  // The native parser retains ownership of stdin flow; no responses are injected.
+  const hook = join(fixture, 'trace.cjs')
+  await writeFile(hook, `if(process.argv.some(a=>a.endsWith('/zcode.cjs'))&&process.argv.includes('app-server')){
+const fs=require('node:fs'),file=${JSON.stringify(join(fixture, 'wire.jsonl'))};
+const record=(direction,value)=>fs.appendFileSync(file,JSON.stringify({pid:process.pid,direction,value})+'\\n',{mode:0o600});
+const observe=(direction)=>{let pending='';return chunk=>{pending+=chunk.toString();let n;while((n=pending.indexOf('\\n'))>=0){const line=pending.slice(0,n);pending=pending.slice(n+1);try{const v=JSON.parse(line);if(v.method)record(direction,v);}catch{}}}};
+const incoming=observe('in'),outgoing=observe('out'),emit=process.stdin.emit,write=process.stdout.write;
+process.stdin.emit=function(name,...args){if(name==='data')incoming(args[0]);return Reflect.apply(emit,this,[name,...args])};
+process.stdout.write=function(chunk,...args){outgoing(chunk);return Reflect.apply(write,this,[chunk,...args])};
+}`)
+  environment.NODE_OPTIONS = `--require=${hook}`
+}
 const runs = () => db.prepare('SELECT id,status,last_error_code FROM agent_run WHERE camp_id=? ORDER BY created_at,id').all(threadId)
 const startCore = () => startQualificationCore({
   coreExecutable, dataDirectory: data, workingDirectory: project,
   runtimeCacheDirectory: join(fixture, 'cache'), mcpConfigPath: join(data, 'mcp.json'),
-  environmentOverrides: environment
+  // Native HOME belongs to the Runtime startup scope. Changing the Core's
+  // HOME would invalidate its already prepared attachment root.
+  environmentOverrides: zcode || opencode
+    ? Object.fromEntries(Object.entries(environment).filter(([name]) => name !== 'HOME')) : environment
 })
 async function turn(name, expected) {
   stage = name; step = 0
@@ -190,12 +236,15 @@ async function turn(name, expected) {
   report.cases.push({ name, status: 'passed', run, sessionId: binding.native_session_id })
 }
 try {
-  report.version = execFileSync(native, ['--version'], { env: { ...process.env, ...environment }, encoding: 'utf8', timeout: 15_000 }).trim()
+  report.version = execFileSync(zcode ? process.execPath : native,
+    zcode ? [resolve(native, '../../Resources/glm/zcode.cjs'), '--version'] : ['--version'],
+    { env: { ...process.env, ...environment }, encoding: 'utf8', timeout: 15_000 }).trim()
+  if (opencode) assert.match(report.version, /^(?:opencode )?v?2\./, 'This smoke owns the V2 permission dialect')
   core = startCore()
   await core.request('health.check')
   const startup = await core.request('runtime.startup.get', { runtimeKind: adapter })
   await core.request('runtime.startup.save', { runtimeKind: adapter, expectedRevision: startup.revision,
-    configuration: { programPath: shim, environment: [] } })
+    configuration: { programPath: zcode ? native : shim, environment: [] } })
   report.discovery = await core.request('runtime.product.check', { runtimeKind: adapter }, 90_000)
   const installation = (await core.request('runtime.installations.list')).find(item => item.adapterKind === adapter)
   assert.equal(installation?.pathState, 'valid', JSON.stringify(installation) ?? 'No installation')
@@ -206,10 +255,12 @@ try {
   assert.ok(defaults)
   const values = adapter === 'claude-code-cli' ? { permission_mode: 'bypassPermissions' }
     : adapter === 'copilot-cli' ? { allow_all: 'on' }
-      : adapter === 'kimi-code-cli' ? { permission_mode: 'yolo' } : { approval_mode: 'yolo' }
+      : adapter === 'kimi-code-cli' || zcode ? { permission_mode: 'yolo' }
+        : opencode ? { permission: 'allow' } : { approval_mode: 'yolo' }
   const configured = await core.request('members.runtime.set', { commandId: randomUUID(), command: {
     agentId: 'agent_2', expectedVersion: member.version, adapterKind: adapter, ...defaults,
-    permissions: { ...defaults.permissions, values }
+    permissions: { ...defaults.permissions, values },
+    ...(zcode || opencode ? { environment: { expectedRevision: 0, json: JSON.stringify(environment) } } : {})
   } })
   assert.equal(configured.status, 'applied', JSON.stringify(configured))
   const created = await core.request('threads.create', { commandId: randomUUID(), name: `${adapter} questionnaire`,
@@ -225,7 +276,16 @@ try {
   await turn('AFTER_RESTART', 'succeeded')
   assert.equal(new Set(report.cases.map(item => item.sessionId)).size, 1, 'Genuine later input must continue the same native Session')
   const wire = (await readFile(join(fixture, 'wire.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-  const questions = wire.filter(entry => entry.direction === 'out' && entry.value.method === 'session/request_permission')
+  if (zcode) {
+    const sessions = wire.filter(entry => entry.direction === 'in' && ['session/create', 'session/resume'].includes(entry.value?.method))
+    assert.ok(sessions.some(entry => entry.value.method === 'session/create'))
+    assert.ok(sessions.some(entry => entry.value.method === 'session/resume'))
+    for (const entry of sessions) assert.deepEqual(entry.value.params.toolDenylist, ['AskUserQuestion'])
+    report.sessionRequests = sessions
+  }
+  report.businessToolLists = report.requests.filter(request => request.stage !== 'setup' && request.tools.length > 0).map(request => request.tools)
+  assert.ok(report.businessToolLists.length >= report.cases.length, 'Each Run must reach the actual model tool boundary')
+  const questions = wire.filter(entry => entry.direction === 'out' && ['session/request_permission', 'interaction/requestUserInput'].includes(entry.value?.method))
   if (disabled) {
     assert.equal(questions.length, 0, 'Disabled questionnaire must not reach the permission transport')
   } else {

@@ -149,10 +149,7 @@ export class DraftMutationCoordinator {
           options.onAccepted!()
         } : undefined
       }
-    ), !options?.pastedText).then((draft) => {
-      options?.onAccepted?.()
-      return draft
-    })
+    ), !options?.pastedText)
   }
 
   removeSourceAttachment(attachmentId: string, pastedText = false, onAccepted?: () => void): Promise<ThreadComposerDraftView> {
@@ -235,7 +232,9 @@ export class DraftMutationCoordinator {
       const current = this.currentDraft ?? await this.loadForOperation(epoch, threadId)
       const next = await operation(current)
       this.assertActive(epoch, threadId)
-      return next === current ? current : this.acceptDraft(next, epoch, threadId, kind)
+      // onAccepted can already have published this exact saved snapshot before
+      // an awaited Pending presence result. Do not notify a second time.
+      return next === current || next === this.currentDraft ? next : this.acceptDraft(next, epoch, threadId, kind)
     }).catch(async (error: unknown) => {
       if (error instanceof StaleDraftEpochError) throw error
       if (reloadOnFailure && this.isActive(epoch, threadId)) {

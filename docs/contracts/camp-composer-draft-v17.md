@@ -27,6 +27,7 @@ On macOS/Linux the layout is `~/.rovai/instances/<instanceKey>/attachments/<thre
 at `粘贴内容-1.txt` / `Pasted-text-1.txt` and avoid only this Composer's ready and preparing names. Body, atoms, quotes,
 reply and attachment identities stay in the existing local snapshot; the generated text is not duplicated in it.
 Generated preparation shares the existing serial queue, the ten-attachment draft admission and 25 MiB byte-entry limit.
+Preload rejects a larger `file.size` before reading its array buffer or sending IPC; Main still validates the actual bytes.
 
 Main's existing registry retains `generatedBy: "long_text_paste"`, the existing Thread binding and
 `enteredSendFlow: boolean`. New entries start false. The optional `generatedBy` field in a local attachment view is
@@ -53,8 +54,11 @@ recovery transaction, cross-Thread fallback, automatic retry or indefinitely pen
 
 Before forwarding a potentially publishing `thread.messages.send`, Main durably marks only generated sources in
 that request's final frozen attachment snapshot as `enteredSendFlow: true`. It does not mark every registration owned
-by the Thread: previously removed attachments, including failed-cleanup residues, are excluded. An empty attachment
-snapshot adds no protection and does not remove protection from files used by an earlier request.
+by the Thread: previously removed attachments, including failed-cleanup residues, are excluded unless the same source
+is explicitly included again. ID matching is scoped to the sending Thread; exact `sourcePath` matching also protects
+the original generated registration when another Thread selects that file through its ordinary file entry.
+An empty attachment snapshot returns before registry loading or queueing. It adds no protection and does not remove
+protection from files used by an earlier request.
 A failed protection write prevents forwarding. This mark never resets in this version,
 including after explicit send failure. Protection and file removal serialize on the registry's existing mutation
 queue. No per-attempt associations, polling or reconciliation are introduced.
@@ -81,3 +85,7 @@ Removing all meaningful Pending input keeps the existing hide/leave/guarded-disc
 inferred from sidebar visibility. Successful Pending deletion and the existing startup empty-Pending cleanup also
 remove that Thread's output directory. No timer, directory scan, reference count, deferred cleanup queue or general
 garbage collector is introduced. Files that entered send but were never published may remain until Thread deletion.
+Cross-Thread source reuse does not extend the owning Thread's lifetime: its existing deletion rules, including
+empty-Pending lifecycle cleanup, still remove its output directory.
+Storage consists of the real text files and local metadata; failed residues in a retained Active Thread may remain
+indefinitely. No automatic eventual cleanup is promised.

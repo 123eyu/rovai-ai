@@ -50,15 +50,18 @@ let failPresence = false
 let failStorage = false
 let failCleanup = false
 let failAfterSend = false
+let draftWrites = 0
 const storageSetItem = Storage.prototype.setItem
 const storageRemoveItem = Storage.prototype.removeItem
 Storage.prototype.setItem = function (key, value) {
   if (failStorage && key.startsWith('rovai.camp-composer-draft.v1:')) throw new Error('Fixture storage full')
   storageSetItem.call(this, key, value)
+  if (key.startsWith('rovai.camp-composer-draft.v1:')) draftWrites++
 }
 Storage.prototype.removeItem = function (key) {
   if (failStorage && key.startsWith('rovai.camp-composer-draft.v1:')) throw new Error('Fixture storage full')
   storageRemoveItem.call(this, key)
+  if (key.startsWith('rovai.camp-composer-draft.v1:')) draftWrites++
 }
 Object.assign(window, { rovai: { clipboard: { write: async (data: { text: string; html: string | null }) => { clipboardWrites.push(data) } } } })
 let rejectSend = true
@@ -234,6 +237,7 @@ Object.assign(window, { invitationTest: {
 } })
 
 Object.assign(window, { pasteTest: {
+  draftWrites: () => draftWrites,
   otherThread: () => setFixture({ ...initial, thread: { ...initial.thread, id: 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7h', activationState: 'active' } }),
   reset: (pending: boolean) => {
     failPresence = false; failStorage = false; coreActivated = false; rejectSend = true; failAfterSend = false

@@ -155,10 +155,12 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
   for (const pending of [false, true]) {
     // Attachment-only drafts are meaningful for either creation path.
     await reset(pending)
+    const writesBeforePaste = await evaluate('pasteTest.draftWrites()')
     await paste(long)
     await wait('invitationTest.state().draft?.attachments.length === 1 && pasteTest.state().preparing === 0')
     assert.equal((await state()).text, '')
     assert.equal((await state()).button, false)
+    assert.equal(await evaluate('pasteTest.draftWrites()'), writesBeforePaste + 1, 'An accepted attachment is saved once')
     await evaluate('document.querySelector(".composer .attachment-remove").click()')
     await wait('invitationTest.state().calls.some(call => call.startsWith("cleanup:"))')
     assert.equal((await state()).draft, null)
@@ -192,6 +194,17 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
     await wait('!document.querySelector(".composer-draft-load-error") && document.querySelector("#camp-message[contenteditable=true]")')
     assert.equal((await state()).draft.attachments.length, 1)
   }
+
+  // Keep text so the existing empty-draft reload does not add its own clear.
+  await reset()
+  await type('keep body')
+  await paste(long)
+  await wait('invitationTest.state().draft?.attachments.length === 1 && pasteTest.state().preparing === 0')
+  const writesBeforeRemoval = await evaluate('pasteTest.draftWrites()')
+  await evaluate('document.querySelector(".composer .attachment-remove").click()')
+  await wait('invitationTest.state().calls.some(call => call.startsWith("cleanup:"))')
+  assert.equal((await state()).draft.body, 'keep body')
+  assert.equal(await evaluate('pasteTest.draftWrites()'), writesBeforeRemoval + 1, 'Removal saves its replacement snapshot once')
 
   // Only the current frozen draft reaches publication, even when cleanup failed.
   await reset()

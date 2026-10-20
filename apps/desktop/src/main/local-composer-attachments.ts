@@ -176,15 +176,18 @@ export class LocalComposerAttachmentRegistry {
    * This shares #mutation with physical deletion; no per-send state is required.
    */
   async protectForSend(threadId: string, sources: readonly { id: string; sourcePath: string }[]): Promise<void> {
+    if (sources.length === 0) return
     await this.#ensureLoaded()
     await this.#mutate(() => {
       const ids = new Set(sources.map(source => source.id))
       const paths = new Set(sources.map(source => source.sourcePath))
       let changed = false
       for (const [key, entry] of this.#entries) {
-        if (entry.threadId === threadId && entry.generatedBy === 'long_text_paste'
+        if (entry.generatedBy === 'long_text_paste'
           && entry.enteredSendFlow !== true
-          && (ids.has(entry.attachmentId) || paths.has(entry.sourcePath))) {
+          // The same source can be selected as an external file in another
+          // Thread. IDs are Thread-scoped; exact source paths protect their owner.
+          && ((entry.threadId === threadId && ids.has(entry.attachmentId)) || paths.has(entry.sourcePath))) {
           this.#entries.set(key, { ...entry, enteredSendFlow: true })
           changed = true
         }

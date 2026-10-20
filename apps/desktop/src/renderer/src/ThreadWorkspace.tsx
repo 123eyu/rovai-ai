@@ -1849,6 +1849,9 @@ export function ThreadWorkspace({
   pendingThreadLeaveRef.current = onPendingThreadLeave
   const draftCoordinatorRef = useRef<DraftMutationCoordinator | null>(null)
   if (!draftCoordinatorRef.current) {
+    // Only this exact already-written snapshot can skip the onChange write.
+    // Record it after success so a failed save never suppresses a later retry.
+    let locallySavedDraft: ThreadComposerDraftView | null = null
     draftCoordinatorRef.current = new DraftMutationCoordinator({
       load: async (threadId) => {
         const initial = initialComposerDraftRef.current?.threadId === threadId
@@ -1915,7 +1918,10 @@ export function ThreadWorkspace({
         const next = await mutateComposerDraft(client, draft, mutation, activeSnapshotRef.current)
         const pastedTextMutation = (mutation.kind === 'add_source_attachment'
           || mutation.kind === 'remove_source_attachment') && mutation.pastedText
-        const onSaved = pastedTextMutation ? () => mutation.onAccepted?.(next) : undefined
+        const onSaved = (): void => {
+          locallySavedDraft = next
+          if (pastedTextMutation) mutation.onAccepted?.(next)
+        }
         if (activationStateRef.current === 'pending' && !memberCreationRef.current) {
           await pendingDraftPersistence.current!.persist(next, onSaved)
         } else if (pastedTextMutation || (mutation.kind === 'save_content' && mutation.requireLocalSave)) {
@@ -1924,7 +1930,7 @@ export function ThreadWorkspace({
           const storage = window.localStorage
           if (!storage) throw new Error('Local draft storage is unavailable')
           saveLocalThreadComposerDraft(next, storage)
-          onSaved?.()
+          onSaved()
         }
         return next
       },
@@ -1932,7 +1938,10 @@ export function ThreadWorkspace({
         if (draft && activationStateRef.current === 'pending') pendingDraftChangeRef.current?.(draft)
         if (draft && activationStateRef.current === 'active') {
           try {
-            saveLocalThreadComposerDraft(draft)
+            if (draft !== locallySavedDraft) {
+              saveLocalThreadComposerDraft(draft)
+              locallySavedDraft = draft
+            }
             setComposerPersistenceError(null)
           } catch (error) {
             setComposerPersistenceError(

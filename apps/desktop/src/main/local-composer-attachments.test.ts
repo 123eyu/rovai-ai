@@ -114,6 +114,50 @@ describe('Local Composer attachment authority', () => {
     expect(await readFile(next.sourcePath!, 'utf8')).toBe('next')
   })
 
+  it('does not make an attachment-free send wait for another Thread cleanup', async () => {
+    const { root, registryPath } = await fixture()
+    const registry = new LocalComposerAttachmentRegistry(registryPath)
+    const attachment = await createPastedTextAttachment(registry, 'thread-a', root, 'paste.txt', Buffer.from('text'))
+    let releaseRoot!: (root: string) => void
+    let enteredCleanup!: () => void
+    const entered = new Promise<void>(resolve => { enteredCleanup = resolve })
+    const removal = registry.removePastedText('thread-a', attachment.id, () => {
+      enteredCleanup()
+      return new Promise(resolve => { releaseRoot = resolve })
+    })
+    await entered
+    try {
+      const protectedEmpty = registry.protectForSend('thread-b', []).then(() => true)
+      expect(await Promise.race([
+        protectedEmpty,
+        new Promise<boolean>(resolve => setImmediate(() => resolve(false)))
+      ])).toBe(true)
+    } finally {
+      releaseRoot(root)
+      await removal
+    }
+  })
+
+  it('protects a generated source sent from another Thread, while IDs remain Thread-scoped', async () => {
+    const { root, registryPath } = await fixture()
+    const registry = new LocalComposerAttachmentRegistry(registryPath)
+    const generated = await createPastedTextAttachment(registry, 'thread-a', root, 'paste.txt', Buffer.from('shared text'))
+    const unrelated = await createPastedTextAttachment(registry, 'thread-a', root, 'other.txt', Buffer.from('other'))
+    const external = await registry.prepare({
+      threadId: 'thread-b', sourcePath: generated.sourcePath!, displayName: 'selected.txt', mediaType: 'text/plain'
+    })
+    await registry.protectForSend('thread-b', [
+      { id: external.id, sourcePath: external.sourcePath! },
+      // An ID borrowed from another Thread cannot protect an unrelated path.
+      { id: unrelated.id, sourcePath: join(root, 'different.txt') }
+    ])
+    const restarted = new LocalComposerAttachmentRegistry(registryPath)
+    expect(await restarted.removePastedText('thread-a', generated.id, async () => root)).toBe('retained')
+    expect(await readFile(generated.sourcePath!, 'utf8')).toBe('shared text')
+    expect(await restarted.removePastedText('thread-a', unrelated.id, async () => root)).toBe('deleted')
+    await expect(readFile(unrelated.sourcePath!)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('retains cleanup authority on unlink failure and treats an already missing file as cleaned', async () => {
     const { root, registryPath } = await fixture()
     const registry = new LocalComposerAttachmentRegistry(registryPath)

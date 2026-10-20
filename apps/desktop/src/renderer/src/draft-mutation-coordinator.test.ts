@@ -35,6 +35,31 @@ function message(id: string): ThreadMessageView {
 }
 
 describe('DraftMutationCoordinator', () => {
+  it('publishes each locally accepted attachment mutation and its completion only once', async () => {
+    const changed = vi.fn()
+    const accepted = vi.fn()
+    const coordinator = new DraftMutationCoordinator({
+      load: async () => draft('active', 1),
+      mutate: async (current, mutation) => {
+        const next = { ...current, revision: current.revision + 1 }
+        if (mutation.kind === 'add_source_attachment' || mutation.kind === 'remove_source_attachment') {
+          mutation.onAccepted?.(next)
+        }
+        return next
+      },
+      onChange: changed
+    })
+    coordinator.beginEpoch('active', draft('active', 1))
+    changed.mockClear()
+    await coordinator.addSourceAttachment({ name: 'paste.txt' } as File, { pastedText: true, onAccepted: accepted })
+    expect(accepted).toHaveBeenCalledTimes(1)
+    expect(changed).toHaveBeenCalledTimes(1)
+    await coordinator.removeSourceAttachment('attachment', true, accepted)
+    expect(accepted).toHaveBeenCalledTimes(2)
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(coordinator.getCurrentDraft()?.revision).toBe(3)
+  })
+
   it('retains an accepted attachment when Pending presence fails, including later edits', async () => {
     let saved = draft('pending', 1)
     const persistence = new PendingThreadDraftPersistence({

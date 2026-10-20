@@ -3,6 +3,7 @@ import type {
   ThreadComposerDraftView,
   ThreadComposerReplyRecipient,
   ThreadMessageView,
+  LocalAttachmentSourceView,
   ComposerDocument,
   MessageQuoteAction
 } from '@contracts'
@@ -11,9 +12,16 @@ import { composerDocumentsEqualDirect } from './composer-document'
 export type DraftMutation =
   | { kind: 'return_pending_input'; pendingInputId: string; expectedRevision: number; editToken: string | null; commandId: string }
   | { kind: 'quote'; action: MessageQuoteAction; commandId: string }
-  | { kind: 'save_content'; content: ComposerDocument }
-  | { kind: 'add_source_attachment'; file: File; onAccepted?(draft: ThreadComposerDraftView): void }
-  | { kind: 'remove_source_attachment'; attachmentId: string }
+  | { kind: 'save_content'; content: ComposerDocument; requireLocalSave?: boolean }
+  | {
+      kind: 'add_source_attachment'; file: File; pastedText?: boolean
+      onPrepared?(attachment: LocalAttachmentSourceView): void
+      onAccepted?(draft: ThreadComposerDraftView): void
+    }
+  | {
+      kind: 'remove_source_attachment'; attachmentId: string; pastedText?: boolean
+      onAccepted?(draft: ThreadComposerDraftView): void
+    }
   | { kind: 'start_reply'; message: ThreadMessageView }
   | { kind: 'cancel_reply' }
   | { kind: 'resolve_reply_recipient'; recipient: ThreadComposerReplyRecipient }
@@ -111,14 +119,18 @@ export class DraftMutationCoordinator {
     return this.epoch
   }
 
-  saveContent(content: ComposerDocument): Promise<ThreadComposerDraftView> {
+  saveContent(content: ComposerDocument, requireLocalSave = false): Promise<ThreadComposerDraftView> {
     return this.enqueue('save_content', async (current) => {
-      if (composerDocumentsEqualDirect(current.content, content)) return current
-      return this.bindings.mutate(current, { kind: 'save_content', content })
-    })
+      if (!requireLocalSave && composerDocumentsEqualDirect(current.content, content)) return current
+      return this.bindings.mutate(current, { kind: 'save_content', content, requireLocalSave })
+    }, !requireLocalSave)
   }
 
-  addSourceAttachment(file: File, onAccepted?: () => void): Promise<ThreadComposerDraftView> {
+  addSourceAttachment(file: File, options?: {
+    pastedText?: boolean
+    onAccepted?(): void
+    onPrepared?(attachment: LocalAttachmentSourceView): void
+  }): Promise<ThreadComposerDraftView> {
     const epoch = this.epoch
     const threadId = this.requireThreadId()
     return this.enqueue('add_source_attachment', (current) => this.bindings.mutate(
@@ -126,26 +138,36 @@ export class DraftMutationCoordinator {
       {
         kind: 'add_source_attachment',
         file,
-        onAccepted: onAccepted ? (draft) => {
+        pastedText: options?.pastedText,
+        onPrepared: options?.onPrepared,
+        onAccepted: options?.onAccepted ? (draft) => {
           // Pending persistence may save locally and then fail to acknowledge
           // presence. Keep that accepted draft in this same queue before
           // surfacing the error, so later edits cannot overwrite its attachment.
           this.assertActive(epoch, threadId)
           this.acceptDraft(draft, epoch, threadId, 'add_source_attachment')
-          onAccepted()
+          options.onAccepted!()
         } : undefined
       }
-    )).then((draft) => {
-      onAccepted?.()
+    ), !options?.pastedText).then((draft) => {
+      options?.onAccepted?.()
       return draft
     })
   }
 
-  removeSourceAttachment(attachmentId: string): Promise<ThreadComposerDraftView> {
+  removeSourceAttachment(attachmentId: string, pastedText = false, onAccepted?: () => void): Promise<ThreadComposerDraftView> {
+    const epoch = this.epoch
+    const threadId = this.requireThreadId()
     return this.enqueue('remove_source_attachment', (current) => this.bindings.mutate(
       current,
-      { kind: 'remove_source_attachment', attachmentId }
-    ))
+      {
+        kind: 'remove_source_attachment', attachmentId, pastedText,
+        onAccepted: pastedText ? (draft) => {
+          this.acceptDraft(draft, epoch, threadId, 'remove_source_attachment')
+          onAccepted?.()
+        } : undefined
+      }
+    ), !pastedText)
   }
 
   startReply(message: ThreadMessageView): Promise<ThreadComposerDraftView> {
@@ -203,7 +225,8 @@ export class DraftMutationCoordinator {
 
   private enqueue(
     kind: DraftMutation['kind'],
-    operation: (current: ThreadComposerDraftView) => Promise<ThreadComposerDraftView>
+    operation: (current: ThreadComposerDraftView) => Promise<ThreadComposerDraftView>,
+    reloadOnFailure = true
   ): Promise<ThreadComposerDraftView> {
     const epoch = this.epoch
     const threadId = this.requireThreadId()
@@ -215,7 +238,7 @@ export class DraftMutationCoordinator {
       return next === current ? current : this.acceptDraft(next, epoch, threadId, kind)
     }).catch(async (error: unknown) => {
       if (error instanceof StaleDraftEpochError) throw error
-      if (this.isActive(epoch, threadId)) {
+      if (reloadOnFailure && this.isActive(epoch, threadId)) {
         try {
           const refreshed = await this.bindings.load(threadId)
           if (this.isActive(epoch, threadId)) this.acceptDraft(refreshed, epoch, threadId, 'load')

@@ -34,6 +34,21 @@ ipcMain.handle('rovai:navigation-preferences-set-project-name', (_event, targetK
 ipcMain.handle('rovai:onboarding-prepare-runtime-copies', (_event, targets) => ({ targets }))
 ipcMain.handle('rovai:onboarding-record-runtime-copy', (_event, agentId, commandId, outcome) => ({ agentId, commandId, outcome }))
 
+const pastedText = ' \t\r\n' + '😀'.repeat(10_001) + '\n '
+const pastedId = '11111111-1111-4111-8111-111111111111'
+ipcMain.handle('rovai:composer-attachment-prepare-pasted-text', (_event, threadId, displayName, bytes) => {
+  assert.equal(threadId, 'paste-thread')
+  assert.equal(displayName, '粘贴内容-1.txt')
+  assert.ok(bytes instanceof Uint8Array)
+  assert.equal(Buffer.from(bytes).toString('utf8'), pastedText)
+  return { id: pastedId, generatedBy: 'long_text_paste' }
+})
+ipcMain.handle('rovai:composer-attachment-remove-pasted-text', (_event, threadId, id) => {
+  assert.equal(threadId, 'paste-thread')
+  assert.equal(id, pastedId)
+  return 'retained'
+})
+
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
     show: false,
@@ -53,6 +68,10 @@ app.whenReady().then(async () => {
       const restoredName = await window.rovai.navigationPreferences.setProjectName('directory:/fixture/frontend', null)
       const copyPlan = await window.rovai.onboarding.prepareRuntimeCopies([{ agentId: 'agent-b', expectedVersion: 4 }])
       const copyResults = []
+      const pasted = await window.rovai.composerAttachments.preparePastedText(
+        'paste-thread', new File([${JSON.stringify(pastedText)}], '粘贴内容-1.txt', { type: 'text/plain;charset=utf-8' })
+      )
+      const removedPaste = await window.rovai.composerAttachments.removePastedText('paste-thread', pasted.id)
       for (const outcome of ['applied', 'skipped', 'retry']) {
         copyResults.push(await window.rovai.onboarding.recordRuntimeCopy('agent-b', 'copy-command', outcome))
       }
@@ -70,7 +89,7 @@ app.whenReady().then(async () => {
           ))
         }
       }
-      return { value, failures, savedOnly, enabled, projectName, restoredName, hostWeb, hostWebFailure, copyPlan, copyResults }
+      return { value, failures, savedOnly, enabled, projectName, restoredName, hostWeb, hostWebFailure, copyPlan, copyResults, pasted, removedPaste }
     })()`)
     assert.deepEqual(observations.hostWeb, [
       { operation: 'status', params: undefined },
@@ -79,6 +98,8 @@ app.whenReady().then(async () => {
       { operation: 'stop', params: undefined }
     ])
     assert.deepEqual(observations.value, { unchanged: true, values: [1, null, 'ok'] })
+    assert.deepEqual(observations.pasted, { id: pastedId, generatedBy: 'long_text_paste' })
+    assert.equal(observations.removedPaste, 'retained')
     assert.deepEqual(observations.hostWebFailure, hostWebFailure, 'Host Web failures must cross the bridge without an Electron exception prefix')
     assert.deepEqual(observations.failures, failures, 'Renderer must receive every structured failure field')
     const defaults = { memberAgentIds: ['agent-a'], defaultLeadAgentId: 'agent-a' }

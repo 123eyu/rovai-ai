@@ -59,7 +59,7 @@ describe('DraftMutationCoordinator', () => {
     })
     coordinator.beginEpoch('pending', saved)
     const accepted = vi.fn()
-    await expect(coordinator.addSourceAttachment({ name: attachment.displayName } as File, accepted)).rejects.toThrow('presence offline')
+    await expect(coordinator.addSourceAttachment({ name: attachment.displayName } as File, { pastedText: true, onAccepted: accepted })).rejects.toThrow('presence offline')
     expect(accepted).toHaveBeenCalledOnce()
     expect(coordinator.getCurrentDraft()?.attachments).toEqual([attachment])
     await expect(coordinator.saveContent(document('typed later'))).rejects.toThrow('presence offline')
@@ -78,7 +78,7 @@ describe('DraftMutationCoordinator', () => {
     })
     coordinator.beginEpoch('pending', draft('pending', 1))
     const accepted = vi.fn()
-    await expect(coordinator.addSourceAttachment({ name: 'paste.txt' } as File, accepted)).rejects.toThrow('storage full')
+    await expect(coordinator.addSourceAttachment({ name: 'paste.txt' } as File, { pastedText: true, onAccepted: accepted })).rejects.toThrow('storage full')
     expect(accepted).not.toHaveBeenCalled()
   })
 

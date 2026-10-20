@@ -14,7 +14,8 @@ import '../../../apps/web/src/mobile.css'
 // Only the real Renderer and local draft store run here. Core transactions have
 // their own SQLite regression owner; this closed transport never starts a Runtime.
 const now = '2026-10-08T10:00:00Z'
-const threadId = 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7g'
+let threadId = 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7g'
+let pasteResetCounter = 0
 const agent: AgentProfile = { agentId: 'lead', displayName: '负责人', avatarRef: null, accent: null,
   teamRole: '架构师', professionalResponsibilities: '', personalityTraits: [], workingPrinciples: '',
   growthTopic: '', defaultCapabilities: [], presence: 'present',
@@ -47,15 +48,23 @@ let attachmentMode: 'ready' | 'fail' | 'deferred' = 'ready'
 let releaseAttachment: ((fail: boolean) => void) | null = null
 let failPresence = false
 let failStorage = false
+let failCleanup = false
+let failAfterSend = false
 const storageSetItem = Storage.prototype.setItem
+const storageRemoveItem = Storage.prototype.removeItem
 Storage.prototype.setItem = function (key, value) {
   if (failStorage && key.startsWith('rovai.camp-composer-draft.v1:')) throw new Error('Fixture storage full')
   storageSetItem.call(this, key, value)
+}
+Storage.prototype.removeItem = function (key) {
+  if (failStorage && key.startsWith('rovai.camp-composer-draft.v1:')) throw new Error('Fixture storage full')
+  storageRemoveItem.call(this, key)
 }
 Object.assign(window, { rovai: { clipboard: { write: async (data: { text: string; html: string | null }) => { clipboardWrites.push(data) } } } })
 let rejectSend = true
 let coreActivated = false
 let acceptedSends = 0
+let clearAcceptedMessages: () => void
 let failNextInvite = false
 let conflictNextRemoval = false
 let prepareLeave: ThreadLeaveGuard | null = null
@@ -80,7 +89,23 @@ const client = {
   },
   attachments: { kind: 'local' },
   composerAttachments: {
-    discard: async () => {},
+    discard: async (id: string, ids?: string[]) => {
+      calls.push('discard:' + (ids ?? []).join(','))
+      if (loadLocalThreadComposerDraft(id)?.attachments.some(attachment => ids?.includes(attachment.id))) {
+        calls.push('discard-before-save')
+      }
+    },
+    preparePastedText: async (id: string, file: File): Promise<LocalAttachmentSourceView> => ({
+      ...await client.composerAttachments.prepare(id, 0, file), generatedBy: 'long_text_paste'
+    }),
+    removePastedText: async (owner: string, id: string) => {
+      calls.push('cleanup:' + id)
+      if (loadLocalThreadComposerDraft(owner)?.attachments.some(attachment => attachment.id === id)) {
+        calls.push('cleanup-before-save')
+      }
+      if (failCleanup) throw new Error('Fixture cleanup failed')
+      return 'deleted'
+    },
     preview: async () => ({ preview: null, availability: 'available' }),
     restore: async (_id: string, attachments: LocalAttachmentSourceView[]) => attachments,
     prepare: async (_id: string, _revision: number, file: File): Promise<LocalAttachmentSourceView> => {
@@ -101,6 +126,7 @@ function Fixture() {
   const [snapshot, setSnapshot] = useState(initial)
   const [currentProfiles, updateProfiles] = useState(profiles)
   const [acceptedMessages, setAcceptedMessages] = useState<ThreadMessageView[]>([])
+  clearAcceptedMessages = () => { setAcceptedMessages([]) }
   const [visible, show] = useState(true)
   const [entryHost, setEntryHost] = useState<HTMLElement | null>(null)
   const [inspectorVisible, setInspectorVisible] = useState(false)
@@ -158,6 +184,7 @@ function Fixture() {
         if (rejectSend) throw new Error('Fixture rejects this send')
         coreActivated = true
         acceptedSends += 1
+        if (failAfterSend) failStorage = true
         const message = optimisticThreadMessage(snapshot, `send-${acceptedSends}`, draft, now)
         setAcceptedMessages(current => [...current, { ...message, id: `published-${acceptedSends}`, sequence: acceptedSends }])
         const mentionedIds = draft.content.segments.flatMap(segment => segment.kind === 'atom' && segment.atom.type === 'member' ? [segment.atom.agentId] : [])
@@ -209,15 +236,20 @@ Object.assign(window, { invitationTest: {
 Object.assign(window, { pasteTest: {
   otherThread: () => setFixture({ ...initial, thread: { ...initial.thread, id: 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7h', activationState: 'active' } }),
   reset: (pending: boolean) => {
-    failPresence = false; failStorage = false; coreActivated = false; rejectSend = true
-    attachmentMode = 'ready'; releaseAttachment = null; preparedFiles.length = 0
+    failPresence = false; failStorage = false; coreActivated = false; rejectSend = true; failAfterSend = false
+    attachmentMode = 'ready'; releaseAttachment = null; preparedFiles.length = 0; failCleanup = false
     calls.length = 0; submissions.length = 0; errors.length = 0
+    clipboardWrites.length = 0; acceptedSends = 0; clearAcceptedMessages()
     localStorage.clear()
+    threadId = `rvcamp_${String(++pasteResetCounter).padStart(26, '0')}`
+    initial.thread.id = threadId
     setFixture({ ...initial, thread: { ...initial.thread, activationState: pending ? 'pending' : 'active' } })
   },
   mode: (mode: typeof attachmentMode) => { attachmentMode = mode },
   release: (fail: boolean) => releaseAttachment?.(fail),
   failPresence: (value: boolean) => { failPresence = value },
+  failCleanup: (value: boolean) => { failCleanup = value },
+  failAfterSend: (value: boolean) => { failAfterSend = value },
   failStorage: (value: boolean) => { failStorage = value },
   paste: (text: string, structured?: string, html?: string, fileName?: string) => {
     const data = new DataTransfer()

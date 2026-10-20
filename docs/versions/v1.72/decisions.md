@@ -1112,3 +1112,27 @@ Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此
 数字键位按真实入口顺序一次迁移，其他冲突键清空、非冲突偏好保留；迁移失败以内存新映射维持可用，再显式重试落盘。代价是四个旧自定义键位会被覆盖，这是 User 明确选择的升级行为。
 
 当前规范：[Task v6](../../contracts/durable-task-v6.md)、[Transport v42](../../contracts/builtin-tool-transport-v42.md)、[Manifest v40/v41](../../contracts/context-manifest-evidence-v40.md)、[Shortcuts v2](../../contracts/desktop-shortcuts-v2.md)。逐项输入对照与实施状态见 [R4](model-context-change-task-capability.md)。
+
+
+<a id="v1-72-d53"></a>
+## V1.72-D53：长粘贴文件归属 Thread，以单向发送保护限制删除
+
+- 状态：accepted
+- 日期：2026-10-20
+- 当前权威：[Public Composer](../../architecture/camp-composer-draft.md#长粘贴生成文件)、[Composer Draft v17](../../contracts/camp-composer-draft-v17.md)
+
+### 背景与选择
+
+长粘贴自动生成文件需要跨普通退出恢复，系统临时目录不足以拥有这份内容；同项目可以有多个草稿，
+因此使用既有 Thread 输出目录与 Main 登记。首次发送不搬迁文件，也不把正文存入 Core 或再复制进草稿。
+
+选择仅对最终发送快照中的生成附件持久写入、首版不撤销的保护标记，并在同一登记队列内协调删除。
+已移除附件不受后续发送连带保护，本次无附件也不解除更早保护。用户优先要求可用性和架构简洁：
+接受少量实际未发布的文件保留到 Thread 删除，以避免误删已发布文件。移除引用不以物理清理成功为条件；
+草稿保存失败与清理失败分开处理，发送后先保存新草稿再释放恢复登记。
+
+### 未选择方案与后果
+
+未选择每次发送关联、失败解除保护、结果轮询或后台对账；它们可以精确回收更多文件，但需要新增状态和恢复责任。
+也不建立定时扫描、引用计数或垃圾回收器。必要登记的裁剪豁免和既有 Pending 启动目录清理仍需补齐，否则
+文件在磁盘上存在也不能保证草稿恢复。普通外部文件、消息删除和 Run 取消不在本次变更范围。

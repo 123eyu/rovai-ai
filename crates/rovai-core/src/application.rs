@@ -11668,6 +11668,30 @@ impl Core {
                     None => Value::Null,
                 })
             }
+            "host.camp.attachmentOutputRoot" => {
+                anyhow::ensure!(
+                    request.client.is_desktop(),
+                    "Desktop attachment owner required"
+                );
+                let params: ThreadIdParams = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                anyhow::ensure!(
+                    database.connection().query_row(
+                        "SELECT EXISTS(SELECT 1 FROM camp WHERE id = ?1)",
+                        [params.camp_id.as_str()],
+                        |row| row.get::<_, bool>(0),
+                    )?,
+                    "Thread no longer exists"
+                );
+                // Creation already prepared this directory. A late attachment
+                // request must not recreate it after Thread deletion.
+                Ok(json!(
+                    rovai_core::storage_layout::resolve_attachment_output_root(
+                        database.connection(),
+                        params.camp_id.as_str(),
+                    )?
+                ))
+            }
             "camp.attachments.location" => {
                 let locator: LocalAttachmentOwnerLocator =
                     serde_json::from_value(request.params.clone())?;
@@ -30186,8 +30210,6 @@ done
         let workspace = root.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
         let core = runtime_resolution_test_core(&root).unwrap();
-        let source = root.join("published.txt");
-        fs::write(&source, b"referenced source").unwrap();
 
         let camp_id = {
             let mut database = core.database.lock().await;
@@ -30216,7 +30238,7 @@ done
                             member_agent_ids: vec![agent_id.clone()],
                             default_lead_agent_id: agent_id,
                             collaboration_mode: ThreadCollaborationMode::Peer,
-                            activation_state: ThreadActivationState::Active,
+                            activation_state: ThreadActivationState::Pending,
                         },
                     },
                 )
@@ -30230,6 +30252,15 @@ done
                 .unwrap();
             camp_id
         };
+        let source = {
+            let database = core.database.lock().await;
+            ThreadOutputDirectory::prepare(&database, &camp_id)
+                .unwrap()
+                .output_root
+                .join(format!("{}.txt", uuid::Uuid::new_v4()))
+        };
+        let pasted_text = format!(" \t\r\n{}\n  ", "😀中".repeat(10_001));
+        fs::write(&source, pasted_text.as_bytes()).unwrap();
         let source_attachment =
             observe_source_attachment(&source, "published.txt", Some("text/plain")).unwrap();
         let attachment_id = source_attachment.id.clone();
@@ -30239,7 +30270,7 @@ done
                 steer_targets: None,
                 command_id: uuid::Uuid::new_v4().to_string(),
                 camp_id: ThreadId::parse(&camp_id).unwrap(),
-                content: text_composer_document("Use the published attachment"),
+                content: text_composer_document(""),
                 source_attachments: vec![source_attachment],
                 quotes: Vec::new(),
                 reply_to_camp_message_id: None,
@@ -30287,6 +30318,22 @@ done
                 .unwrap()
         };
         assert_eq!(Path::new(&source_ref.source_path), source);
+        let run_paths = resolve_source_attachments_for_run(&[source_ref.clone()]).unwrap();
+        assert_eq!(run_paths, vec![source.to_string_lossy().to_string()]);
+        assert_eq!(fs::read_to_string(&run_paths[0]).unwrap(), pasted_text);
+        assert_eq!(
+            core.database
+                .lock()
+                .await
+                .connection()
+                .query_row(
+                    "SELECT activation_state FROM camp WHERE id = ?1",
+                    [&camp_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "active"
+        );
         assert_eq!(
             desktop_target_for_source_attachment(&source_ref)
                 .unwrap()

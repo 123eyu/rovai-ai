@@ -525,7 +525,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Published Attachment View v2（历史）](camp-published-attachment-view-v2.md) | v1 root/journal/generation fence 不变；增加稳定 semantic catalog/receipt、可重建物理轴与无全局 DB 锁 copy phase |
 | [Camp Published Attachment View v1（历史）](camp-published-attachment-view-v1.md) | 实例/Camp 隔离 root、publication journal、ready catalog、generation、物理 Manifest receipt、quota、rebuild 与安全清理 |
 | [Camp Attachment v1（历史）](camp-attachment-v1.md) | 普通文件/目录联合、Core-owned 只读快照、限制、Draft 原子消费、Snapshot 29 与旧 Runtime Authority path |
-| [Camp Composer Draft v16（当前）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |
+| [Camp Composer Draft v17（当前）](camp-composer-draft-v17.md) | Desktop 长粘贴生成文件、Thread 归属、单向发送保护与先保存后清理；不改变本机草稿权威 |
+| [Camp Composer Draft v16（历史）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |
 | [Camp Composer Draft v15（历史）](camp-composer-draft-v15.md) | 无 Core Draft/Pending；Desktop 按 Camp 本地恢复完整输入、continuation、anchored reply 与发送前附件预览 |
 | [Camp Composer Draft v14（历史）](camp-composer-draft-v14.md) | public Camp 输入只存在于当前 Renderer；无 Core Draft、Pending、恢复或跨客户端合并 |
 | [Camp Composer Draft v13（历史）](camp-composer-draft-v13.md) | Host 验证编辑归属、Web 单调 revision 与 Pending 原子移回；由 v14 clean break 替代 |

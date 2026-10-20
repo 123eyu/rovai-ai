@@ -6861,6 +6861,13 @@ pub(crate) fn runtime_compatibility_digest(
     if frozen_runtime.adapter_kind == AdapterKind::QwenCode {
         compatibility["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
     }
+    if frozen_runtime.adapter_kind == AdapterKind::OpencodeCli
+        && crate::opencode_compat::Generation::from_version(
+            frozen_runtime.reported_version.as_deref(),
+        ) == Some(crate::opencode_compat::Generation::V2)
+    {
+        compatibility["nativeQuestionnairePolicy"] = json!("deny-question-v1");
+    }
     if is_grok {
         let compatibility = compatibility
             .as_object_mut()
@@ -6888,6 +6895,7 @@ pub(crate) fn runtime_compatibility_digest(
             json!(crate::cline::runtime_configuration_digest()?);
     }
     if frozen_runtime.adapter_kind == AdapterKind::ZcodeApp {
+        compatibility["nativeQuestionnairePolicy"] = json!("deny-ask-user-question-v1");
         compatibility["zcodeNativeConfigurationDigest"] = json!(
             crate::zcode::NativeConfig::load_for_executable(
                 &execution_root,
@@ -9659,11 +9667,16 @@ mod compaction_detector_tests {
                         json!([
                             {"action":"*","resource":"*","effect":mode},
                             {"action":"shell","resource":"*","effect":"allow"},
-                            {"action":"skill","resource":"*","effect":"allow"}
+                            {"action":"skill","resource":"*","effect":"allow"},
+                            {"action":"question","resource":"*","effect":"deny"}
                         ])
                     );
                     assert_eq!(
                         config["agents"]["plan"]["permissions"],
+                        config["permissions"]
+                    );
+                    assert_eq!(
+                        config["agents"]["build"]["permissions"],
                         config["permissions"]
                     );
                 }
@@ -15411,6 +15424,30 @@ while IFS= read -r ignored; do :; done
             );
             assert!(args.iter().any(|arg| *arg == "yolo"));
             assert!(!args.iter().any(|arg| *arg == "--available-tools="));
+        }
+
+        // Only the V2 launch policy changes; V1 and native Session identity
+        // retain their existing compatibility inputs.
+        for (runtime, policy) in [(&v1, None), (&v2, Some("deny-question-v1"))] {
+            let digest = runtime_compatibility_digest(
+                runtime,
+                &workspace,
+                PermissionSemantics::RuntimeManagedV2,
+                &BTreeMap::new(),
+                &attachment_authorization,
+            )
+            .unwrap();
+            old_inputs["adapterKind"] = json!(AdapterKind::OpencodeCli);
+            old_inputs["hostConfigDigest"] = json!(runtime.host_config_digest);
+            old_inputs
+                .as_object_mut()
+                .unwrap()
+                .remove("nativeQuestionnairePolicy");
+            if let Some(policy) = policy {
+                assert_ne!(digest, canonical_json_digest(&old_inputs).unwrap());
+                old_inputs["nativeQuestionnairePolicy"] = json!(policy);
+            }
+            assert_eq!(digest, canonical_json_digest(&old_inputs).unwrap());
         }
 
         let mut upgraded = frozen.clone();

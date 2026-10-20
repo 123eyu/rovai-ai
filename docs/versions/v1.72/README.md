@@ -28,8 +28,12 @@ Claude one-shot worker 返回普通运输错误后，Core 复用 Runtime loss �
 
 Claude Code、Copilot、Qwen 正式启动禁用提问工具；Kimi 与 Qwen 的意外问卷在普通审批与自动允许之前取消，
 沿用当前 Prompt/Run 观察、终态与真实用户后继消息。MiniMax 本机配置不修改。
-合同见 [Runtime Launch v66](../../contracts/runtime-launch-and-verification-v66.md)，
+合同见 [Runtime Launch v67](../../contracts/runtime-launch-and-verification-v67.md)，
 实施范围、测试与原生证据见[验证记录](native-questionnaire-verification.md)。
+
+后续按 User 授权补齐 ZCode `toolDenylist` 与 OpenCode V2 `question` 拒绝规则；
+策略只更新对应 Host 兼容摘要，保留原会话。范围与验收见同一记录的
+[ZCode/OpenCode 增量](native-questionnaire-verification.md#zcodeopencode-v2-禁用增量2026-10-20)。
 
 ## 主动停止后的会话蓝点（2026-10-19）
 

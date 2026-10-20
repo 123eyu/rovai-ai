@@ -108,6 +108,10 @@ Runtime 或 Rust 测试变更。验收扩展既有执行台原生输入夹具，
 保留既有问卷取消兜底；Kimi 仅核实 Skip/取消不终止原生执行，未改策略。
 增量版本、生产路径与门禁证据见同一验证记录的 [Qwen 增量](native-questionnaire-verification.md#qwen-启动禁用增量2026-10-20)。
 
+本轮按 User 授权禁用 ZCode、OpenCode V2 的问卷工具，生产改动限于原生配置和 Host compatibility。
+不增加通用交互取消、Run 终态或重放处理；保持 v1.72，不新增 Version Decision。
+基线、worktree 和验收见 [ZCode/OpenCode 增量](native-questionnaire-verification.md#zcodeopencode-v2-禁用增量2026-10-20)。
+
 ## 主动停止后的会话蓝点（2026-10-19）
 
 **已撤回。** 原功能通过 [PR #821](https://github.com/murray17/rovai-ai/pull/821) 合入并安装后，

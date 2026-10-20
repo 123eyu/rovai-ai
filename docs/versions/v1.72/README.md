@@ -18,6 +18,13 @@ last_updated: 2026-10-20
 其余会话和执行台样式保持不变。边界见[会话工作区](../../ui/components/conversation-workspace.md#会话中的队员占位)，
 实现与验证见[实施记录](implementation-plan.md#会话执行条2026-10-20)。
 
+## Claude 执行结束后的失败收口（2026-10-20）
+
+Claude one-shot worker 返回普通运输错误后，Core 复用 Runtime loss 结算，避免已绑定的 launch handoff
+使 Run 永久停在运行中。原输入不可重放，旧执行清理确认后才领取下一条消息。范围与验证见
+[实施记录](implementation-plan.md#claude-执行结束后的失败收口2026-10-20)，当前恢复边界见
+[AgentRun Recovery](../../architecture/agent-run-recovery.md)。
+
 ## 执行入口与空状态（2026-10-20）
 
 按 User 确认的交互稿移除执行入口的运行名单气泡，浮层标题栏统一承载既有位置菜单。

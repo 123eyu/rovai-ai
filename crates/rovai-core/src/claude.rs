@@ -216,6 +216,19 @@ impl fmt::Display for ClaudeCodeCleanupPending {
 
 impl StdError for ClaudeCodeCleanupPending {}
 
+/// The registered one-shot worker returned its result. This does not prove a
+/// native terminal outcome or process-tree isolation; cleanup may still be pending.
+#[derive(Debug)]
+pub(crate) struct ClaudeCodeRunEnded;
+
+impl fmt::Display for ClaudeCodeRunEnded {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Claude Code managed run has ended")
+    }
+}
+
+impl StdError for ClaudeCodeRunEnded {}
+
 #[derive(Debug, Clone)]
 pub struct ClaudeCodeDeliveredFailure {
     pub native_session_id: String,
@@ -423,6 +436,7 @@ impl ClaudeCodeCliRuntimeAdapter {
         result_receiver
             .await
             .context("Claude Code managed run ended without a result")?
+            .context(ClaudeCodeRunEnded)
     }
 
     pub(crate) fn get_agent_run(&self, run_id: &str, epoch: i64) -> Option<Arc<ClaudeControl>> {
@@ -3302,6 +3316,7 @@ mod tests {
             .expect("stream failure must stop the process before its long sleep")
             .unwrap_err();
         assert!(error.downcast_ref::<RuntimeFailureError>().is_some());
+        assert!(error.downcast_ref::<ClaudeCodeRunEnded>().is_some());
         assert!(claude_launch_files(&root).is_empty());
         assert!(adapter.active.lock().unwrap().is_empty());
         remove_claude_fixture(&root).await;

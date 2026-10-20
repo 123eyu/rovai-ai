@@ -6858,6 +6858,9 @@ pub(crate) fn runtime_compatibility_digest(
     if frozen_runtime.adapter_kind == AdapterKind::CopilotCli {
         compatibility["nativeQuestionnairePolicy"] = json!("no-ask-user-v1");
     }
+    if frozen_runtime.adapter_kind == AdapterKind::QwenCode {
+        compatibility["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
+    }
     if is_grok {
         let compatibility = compatibility
             .as_object_mut()
@@ -7234,6 +7237,7 @@ fn configure_runtime_command(
                     });
                 }
                 AdapterKind::QwenCode => {
+                    command.arg("--exclude-tools=ask_user_question");
                     command.arg("--approval-mode").arg(if legacy_read_only {
                         "plan"
                     } else {
@@ -15360,6 +15364,53 @@ while IFS= read -r ignored; do :; done
                 args.iter().any(|arg| *arg == "--no-custom-instructions"),
                 isolated
             );
+        }
+
+        // Qwen's tool exclusion is also a Host policy, independent of the
+        // Native Session binding and ordinary permission mode.
+        let mut qwen = frozen.clone();
+        qwen.adapter_kind = AdapterKind::QwenCode;
+        qwen.permissions.adapter_kind = AdapterKind::QwenCode;
+        qwen.permissions.values = json!({"approval_mode":"yolo"});
+        let qwen_digest = runtime_compatibility_digest(
+            &qwen,
+            &workspace,
+            PermissionSemantics::RuntimeManagedV2,
+            &BTreeMap::new(),
+            &attachment_authorization,
+        )
+        .unwrap();
+        old_inputs["adapterKind"] = json!(AdapterKind::QwenCode);
+        old_inputs
+            .as_object_mut()
+            .unwrap()
+            .remove("nativeQuestionnairePolicy");
+        assert_ne!(qwen_digest, canonical_json_digest(&old_inputs).unwrap());
+        old_inputs["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
+        assert_eq!(qwen_digest, canonical_json_digest(&old_inputs).unwrap());
+        for isolated in [false, true] {
+            let mut command = Command::new(&executable);
+            configure_runtime_command(
+                &mut command,
+                &workspace,
+                PermissionSemantics::RuntimeManagedV2,
+                &qwen,
+                isolated,
+                &BTreeMap::new(),
+                &root,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            let args = command.as_std().get_args().collect::<Vec<_>>();
+            assert!(args.iter().any(|arg| *arg == "--acp"));
+            assert!(
+                args.iter()
+                    .any(|arg| *arg == "--exclude-tools=ask_user_question")
+            );
+            assert!(args.iter().any(|arg| *arg == "yolo"));
+            assert!(!args.iter().any(|arg| *arg == "--available-tools="));
         }
 
         let mut upgraded = frozen.clone();

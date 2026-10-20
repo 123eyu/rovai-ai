@@ -1,10 +1,18 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-20 Qwen 原生问卷禁用
+
+macOS arm64、Qwen **0.25.0** 的 ACP 实测确认 `--exclude-tools=ask_user_question` 从模型工具集合
+移除问卷，普通 Shell 和原生 Session 恢复保留。正式 Core 的新建、后继原生恢复与 Core 重启恢复均通过；
+Kimi **2.1.1** 的 Skip/取消不终止原生整轮执行，Rovai 的未承接问卷失败规则保持。
+这是本地脚本化 Provider 配合真实 CLI 的协议验证，不扩大外部模型或跨平台资格。
+范围、启动 wire 和证据见[本轮增量记录](versions/v1.72/native-questionnaire-verification.md#qwen-启动禁用增量2026-10-20)。
 
 ## 2026-10-18 MiniMax Code Linux x64 准入
 

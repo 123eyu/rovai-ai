@@ -419,7 +419,7 @@ request_id 用于回复，tool_use_id 关联实际工具结果。普通执行权
 
 正式启动禁用 AskUserQuestion；意外问卷在转换前 deny，拒绝过的问卷 ID 与不支持观察保留到本轮终态，
 用于一次回执和防止非空 final 掩盖未承接提问。普通待审批请求在完成、取消或断线后清理。
-具体问卷边界见 [Runtime Launch v65](../contracts/runtime-launch-and-verification-v65.md)。
+具体问卷边界见 [Runtime Launch v66](../contracts/runtime-launch-and-verification-v66.md)。
 普通工具展示状态仍由输出解析器拥有。
 审批不经过 Built-in 业务 IPC、不按工具输入反查身份，也没有累计工具调用额度；用户原有 Hook
 由 Claude 原生配置处理。业务 `rovai send` 继续由现有 Run lease 认证。

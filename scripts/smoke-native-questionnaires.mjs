@@ -25,7 +25,8 @@ console.error(JSON.stringify({ channel: 'automatic acceptance', data, skills: jo
 let stage = 'setup', step = 0, core, db, threadId
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`
 const nativeQuestion = adapter === 'kimi-code-cli' ? 'AskUserQuestion' : 'ask_user_question'
-const disabled = ['claude-code-cli', 'copilot-cli'].includes(adapter)
+const disabled = ['claude-code-cli', 'copilot-cli', 'qwen-code'].includes(adapter)
+assert.ok(!duplicateQuestionnaires || !disabled, 'Duplicate injection requires an exposed questionnaire tool')
 const questionInput = { questions: [{ question: 'Which color?', header: 'Color', options: [
   { label: 'Blue', description: 'Blue fixture' }, { label: 'Green', description: 'Green fixture' }
 ], multiSelect: false }] }
@@ -51,7 +52,7 @@ const server = createServer(async (req, res) => {
     let call
     if (stage !== 'setup') {
       if (disabled) {
-        assert.ok(!names.some(name => ['AskUserQuestion', 'ask_user'].includes(name)), 'Disabled questionnaire was exposed to the model')
+        assert.ok(!names.some(name => ['AskUserQuestion', 'ask_user', 'ask_user_question'].includes(name)), 'Disabled questionnaire was exposed to the model')
       }
       const currentStep = step++
       if ((!disabled && stage === 'ASK' && currentStep === 0)
@@ -225,7 +226,9 @@ try {
   assert.equal(new Set(report.cases.map(item => item.sessionId)).size, 1, 'Genuine later input must continue the same native Session')
   const wire = (await readFile(join(fixture, 'wire.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const questions = wire.filter(entry => entry.direction === 'out' && entry.value.method === 'session/request_permission')
-  if (!disabled) {
+  if (disabled) {
+    assert.equal(questions.length, 0, 'Disabled questionnaire must not reach the permission transport')
+  } else {
     assert.equal(questions.length, 2, 'Both ask and send-then-ask must reach the real permission transport')
     for (const question of questions) {
       const responses = wire.filter(entry => entry.direction === 'in' && entry.value.id === question.value.id && entry.value.result?.outcome)

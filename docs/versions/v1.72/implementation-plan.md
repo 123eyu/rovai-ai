@@ -14,8 +14,8 @@ User 报告 Claude 子进程已退出、Run 长期运行中且后续消息排队
 `execution_lease_expires_at` 只在领取时写入，没有周期续租，因此它和 `agent_run.updated_at`
 都不能单独作为执行器失联时间；Claude Adapter 已监听进程退出并限制退出后的输出收集。
 但 stdin writer、退出后输出收集和进程等待的部分普通错误返回后，已绑定的 handoff 会使
-上层提前返回，跳过 Run 失败结算。现场版本与 Core 日志尚未提供，不能认定该报告命中此分支，
-也不能仅凭会话没有 error 或系统没有 crash report 排除原生错误。
+上层提前返回，跳过 Run 失败结算。现场尚缺可追溯构建身份、Core 错误链与进程退出码，
+不能认定该报告命中此分支，也不能仅凭会话没有 error 或系统没有 crash report 排除原生错误。
 
 分支 `rovai/fix-claude-ended-run`，基线 `1da9da7ccafa8fc896ca82958029c0f48770c41f`。
 复用现有 Adapter result、Runtime loss 和 cleanup worker：内部 `ClaudeCodeRunEnded` 只标记
@@ -48,6 +48,29 @@ User 报告 Claude 子进程已退出、Run 长期运行中且后续消息排队
 不改变准入集合或任何资格测试断言；作为独立修正提交。重跑 `pnpm test:rust:pr` 通过：
 workspace 共 474 passed / 0 failed / 1 ignored；保留原有手动验收跳过项。
 本次不启动真实模型、不修改故障电脑或日常实例数据。
+
+后续现场报告（2026-10-20，User 转述；未取得原始数据库和日志独立复核）：
+
+- 故障机报告 Rovai App/Host `0.4.14`、实际运行的 Claude Code `2.1.212`；故障窗口为
+  `07:33:30–07:42:07 UTC`。App/Host 版本号尚不能唯一映射构建提交；现场报告 Core/Host
+  在此窗口没有退出、重启或计划关闭迹象。
+- 数据库副本显示旧 Run 为 `running`，输入为 `accepted`，
+  `accepted_at = resolved_at = 07:33:36.916 UTC`，错误字段和取消请求/确认字段均为空。
+  `resolved_at` 在输入接受时写入，不证明模型完成或 Run 已结算；取消字段为空也不支持
+  “已进入 cleanup、只是确认迟到”的判断。
+- 现场未保留 Core stderr，Claude 的实际退出码/信号未知；当前无残留进程不能证明退出时刻
+  没有子进程持有输出管道。会话停在工具成功输出、UI XPC 连接活动均不能唯一定位退出原因。
+  结论保持为“已接受输入的 Run 未写入终态，症状与本次修复路径一致但未确认命中”，不把
+  “跳过失败分支”或“执行器失联”提升为现场已证事实。
+- 修复后的复现不能要求旧 `preserving unresolved accepted input` 日志作为成功判据：
+  已标记的结束错误会在打印该行之前结算。应保留新 Run/epoch、构建身份、
+  `last_error_code`、`last_error_details_ref` 和 `agent_run.failed` 事件的 `errorDetail`；
+  对本次路径预期为 `accepted_input_outcome_unknown`，错误链含
+  `Claude Code managed run has ended` 及底层原因，再核对清理请求、确认和后继领取。
+  这仍不能保证取得每种底层退出的实际退出码。
+- 当前基线已有精确 Stop、Core 重启恢复与 cleanup 路径；本次补的是运行期间特定错误返回后的
+  失败收口，并非新增全部回收能力。现场恢复需等待旧执行清理确认；后续复现须使用新的明确
+  输入，先核对原任务已产生的效果。日志持久化开关未包含在本补丁中。
 
 ## 执行入口与空状态（2026-10-20）
 

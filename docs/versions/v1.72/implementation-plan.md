@@ -49,6 +49,11 @@ User 报告 Claude 子进程已退出、Run 长期运行中且后续消息排队
 workspace 共 474 passed / 0 failed / 1 ignored；保留原有手动验收跳过项。
 本次不启动真实模型、不修改故障电脑或日常实例数据。
 
+User 后续授权 PR 到 main 并合入。交付前同步主线
+`923f9919b669b5d0c5fba8654f852106806deae0`，采用其最新兼容性证据摘要；最终相对 main
+不再修改平台准入常量。仓库规范与需求一致性两路静态审查均为 0 项 findings。
+交付与最终检查状态见 [PR #834](https://github.com/murray17/rovai-ai/pull/834)。
+
 后续现场报告（2026-10-20，User 转述；未取得原始数据库和日志独立复核）：
 
 - 故障机报告 Rovai App/Host `0.4.14`、实际运行的 Claude Code `2.1.212`；故障窗口为

@@ -18,6 +18,12 @@ Claude one-shot worker 返回普通运输错误后，Core 复用 Runtime loss �
 [实施记录](implementation-plan.md#claude-执行结束后的失败收口2026-10-20)，当前恢复边界见
 [AgentRun Recovery](../../architecture/agent-run-recovery.md)。
 
+## 执行入口与空状态（2026-10-20）
+
+按 User 确认的交互稿移除执行入口的运行名单气泡，浮层标题栏统一承载既有位置菜单。
+空记录只显示“暂无执行记录”，三个承载位置均可切回；未激活草稿保持隐藏执行控件。
+范围与验收见[实施记录](implementation-plan.md#执行入口与空状态2026-10-20)。
+
 ## 四适配器原生问卷（2026-10-20）
 
 Claude Code、Copilot、Qwen 正式启动禁用提问工具；Kimi 与 Qwen 的意外问卷在普通审批与自动允许之前取消，

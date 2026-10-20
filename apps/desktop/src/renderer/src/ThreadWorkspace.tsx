@@ -11,6 +11,7 @@ import { ConversationRunSource } from './ConversationRunSource'
 import { useRunSourceNavigation } from './useRunSourceNavigation'
 import { conversationRunPresenceTimeline } from './conversation-run-presence'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
+import { pastedTextFileName } from './long-text-paste'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
 import { MessageAuthorProfileTrigger } from './MessageAuthorProfileTrigger'
 import { memberRuntimeConfigurationPresentation, modelSummary, runtimeAdapterLabel } from './runtime-model-presentation'
@@ -110,6 +111,7 @@ import {
 } from './composer-document'
 import { composerInvitationTargets, isThreadMemberInvitable } from './composer-invitations'
 import {
+  MAX_LOCAL_COMPOSER_ATTACHMENTS,
   composerBodyForContent,
   emptyLocalThreadComposerDraft,
   loadLocalThreadComposerDraft,
@@ -1788,6 +1790,8 @@ export function ThreadWorkspace({
     singleChatLeaveGuardRef.current = guard
   }, [])
   const [preparingAttachments, setPreparingAttachments] = useState<Array<{ id: string; name: string; kind: AttachmentKind }>>([])
+  const preparingAttachmentNames = useRef(new Map<string, string>())
+  const [pasteMessage, setPasteMessage] = useState<string | null>(null)
   const [failedAttachments, setFailedAttachments] = useState<Array<{ id: string; name: string; kind: AttachmentKind; error: string }>>([])
   const [attachmentDragState, setAttachmentDragState] = useState<AttachmentDragKind | null>(null)
   const [composerSubmitting, setComposerSubmitting] = useState(false)
@@ -1911,7 +1915,9 @@ export function ThreadWorkspace({
       mutate: async (draft, mutation) => {
         const next = await mutateComposerDraft(client, draft, mutation, activeSnapshotRef.current)
         if (activationStateRef.current === 'pending' && !memberCreationRef.current) {
-          await pendingDraftPersistence.current!.persist(next)
+          await pendingDraftPersistence.current!.persist(next, mutation.kind === 'add_source_attachment'
+            ? () => mutation.onAccepted?.(next)
+            : undefined)
         }
         return next
       },
@@ -1942,6 +1948,11 @@ export function ThreadWorkspace({
   const dragLeaveTimer = useRef<number | null>(null)
   const dragActivityTimer = useRef<number | null>(null)
   const attachmentPreparationQueue = useRef<Promise<void>>(Promise.resolve())
+  useEffect(() => {
+    if (!pasteMessage) return
+    const timer = window.setTimeout(() => setPasteMessage(null), 5_000)
+    return () => window.clearTimeout(timer)
+  }, [pasteMessage])
   const workspaceShellRef = useRef<HTMLElement>(null)
   const timelineScrollRef = useRef<HTMLDivElement>(null)
   const runSourceNavigation = useRunSourceNavigation(snapshot.thread.id, snapshot.messages, timelineScrollRef)
@@ -3456,6 +3467,8 @@ export function ThreadWorkspace({
     })
     initializedComposerRoute.current = null
     setPreparingAttachments([])
+    preparingAttachmentNames.current.clear()
+    setPasteMessage(null)
     setFailedAttachments([])
     setAttachmentDragState(null)
     setAnchoredMessages([])
@@ -4194,7 +4207,10 @@ export function ThreadWorkspace({
     void submitMessage()
   }
 
-  const prepareFiles = async (inputs: AttachmentPreparationInput[]): Promise<void> => {
+  const prepareFiles = async (
+    inputs: AttachmentPreparationInput[],
+    pastedText?: { text: string; editor: StructuredMentionComposerHandle; epoch: number }
+  ): Promise<void> => {
     if (
       draftLoadState.state !== 'ready'
       || composerSubmittingRef.current
@@ -4208,15 +4224,25 @@ export function ThreadWorkspace({
         ? file
         : new File([file], `粘贴图片-${Date.now()}-${index + 1}.png`, { type: file.type })
     }))
+    for (const item of pending) preparingAttachmentNames.current.set(item.id, item.file.name)
     setPreparingAttachments((current) => [
       ...current,
       ...pending.map(({ id, file, kind }) => ({ id, name: file.name, kind }))
     ])
+    const recoverPastedText = (): boolean => {
+      if (!pastedText || draftThreadId.current !== threadId
+        || draftCoordinator.getEpoch() !== pastedText.epoch) return false
+      pastedText.editor.appendText(pastedText.text)
+      setPasteMessage(uiAttribute('未能创建附件，原文已追加到输入框末尾'))
+      // A recovered paste must not leave an error card blocking the send button.
+      setFailedAttachments((current) => current.filter(({ id }) => !pending.some(item => item.id === id)))
+      return true
+    }
     const preparePending = async (): Promise<void> => {
       try {
-        await composerHandleRef.current?.flush()
+        await (pastedText?.editor ?? composerHandleRef.current)?.flush()
       } catch (error) {
-        if (draftThreadId.current === threadId) {
+        if (!recoverPastedText() && draftThreadId.current === threadId) {
           setFailedAttachments((current) => [
             ...current,
             ...pending.map((item) => ({
@@ -4230,13 +4256,24 @@ export function ThreadWorkspace({
         setPreparingAttachments((current) => current.filter(
           ({ id }) => !pending.some((item) => item.id === id)
         ))
+        for (const item of pending) preparingAttachmentNames.current.delete(item.id)
         return
       }
       for (const item of pending) {
+        let accepted = false
         try {
-          await draftCoordinator.addSourceAttachment(item.file)
+          if (pastedText && (draftThreadId.current !== threadId || draftCoordinator.getEpoch() !== pastedText.epoch)) continue
+          if (pastedText && (draftCoordinator.getCurrentDraft()?.attachments.length ?? 0) >= MAX_LOCAL_COMPOSER_ATTACHMENTS) {
+            throw new Error('Composer attachment limit reached')
+          }
+          await draftCoordinator.addSourceAttachment(item.file, pastedText ? () => { accepted = true } : undefined)
+          if (pastedText && draftThreadId.current === threadId) {
+            setPasteMessage(uiAttribute('长文本已转为附件'))
+          }
         } catch (error) {
-          if (draftThreadId.current === threadId) {
+          if (pastedText && accepted && draftThreadId.current === threadId) {
+            setComposerPersistenceError(error instanceof Error ? error : new Error(readErrorMessage(error)))
+          } else if (!recoverPastedText() && draftThreadId.current === threadId) {
             setFailedAttachments((current) => [
               ...current,
               {
@@ -4248,6 +4285,7 @@ export function ThreadWorkspace({
             ])
           }
         } finally {
+          preparingAttachmentNames.current.delete(item.id)
           setPreparingAttachments((current) => current.filter(({ id }) => id !== item.id))
         }
       }
@@ -4257,6 +4295,24 @@ export function ThreadWorkspace({
       preparePending
     )
     await attachmentPreparationQueue.current
+  }
+
+  const pasteLongText = (text: string): boolean => {
+    const editor = composerHandleRef.current
+    if (!editor || draftLoadState.state !== 'ready' || composerSubmittingRef.current || routingMutatingRef.current) return false
+    let file: File
+    try {
+      const names = [
+        ...(draftCoordinator.getCurrentDraft()?.attachments.map(item => item.displayName) ?? []),
+        ...preparingAttachmentNames.current.values()
+      ]
+      file = new File([text], pastedTextFileName(names), { type: 'text/plain;charset=utf-8' })
+    } catch {
+      // Still inside paste: the ordinary text branch can insert the original.
+      return false
+    }
+    void prepareFiles([{ file, kindHint: 'file' }], { text, editor, epoch: draftCoordinator.getEpoch() })
+    return true
   }
 
   const clearAttachmentDragState = (): void => {
@@ -6194,6 +6250,7 @@ export function ThreadWorkspace({
               onPasteFiles={(files) => void prepareFiles(
                 files.map((file) => ({ file, kindHint: 'file' }))
               )}
+              onPasteLongText={pasteLongText}
               onSubmit={submitMessage}
               members={composerMentionCandidates}
               pendingInviteIds={pendingInviteIds}
@@ -6241,6 +6298,11 @@ export function ThreadWorkspace({
             {composerInviteMessage && (
               <span className="composer-reply-status composer-invite-error" role="alert">
                 {composerInviteMessage}
+              </span>
+            )}
+            {pasteMessage && (
+              <span className="composer-reply-status composer-paste-status" role="status" aria-live="polite">
+                {pasteMessage}
               </span>
             )}
           </div>

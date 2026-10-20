@@ -3,10 +3,34 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # v1.72 实施与验收
+
+## 单次长文本粘贴转附件（2026-10-20）
+
+分支 `rovai/long-text-paste-attachment`，独立 worktree `rovai-ai-long-text-paste`，基线
+`7a447be53dad78e5dcd0c180b42e23bbfa690a37`。按 User 修订限定为公屏已有与新建会话的 paste 入口。
+
+调用方通过可选回调启用普通文本附件化；阈值按码点判断，文件和合法私有 MIME 继续优先。
+生成 `File` 交给原附件准备队列；显示名避开本次已添加和待准备名称，长文本附件轮到准备时再检查数量。
+增加局部接纳回调：Pending 本地存储完成后立即保留已接纳 Draft，后续 presence 失败不会回填或让后续编辑
+覆盖附件。未接纳失败在同一队列内向当前编辑器末尾追加全文，不使用粘贴前快照，不留下阻塞发送的失败卡。
+普通文件、单聊、使命描述、存储与发送协议不变；不增加恢复事务、位置跟踪、自动发送或预算检测。
+
+验证通过：`pnpm typecheck`、`pnpm test`（247 个 Vitest 文件 / 2,805 项，Node 357 通过、
+2 项既有 Windows 跳过）、`pnpm test:rust:pr`、`pnpm build:desktop` 和真实基线的
+`docs:check:ci`。定向 Vitest 30 项覆盖阈值、Unicode、显示名及 Pending 部分成功与本地存储失败。
+原生产 Composer 隔离 Electron 夹具扩展覆盖选区保留、全文与 UTF-8 字节、草稿恢复与发送保留、
+文件/图片/结构化/HTML 优先级、快速连续粘贴、数量准入、延迟失败期间编辑/发送/离开、
+presence 失败与保存失败；原独立 Composer 46 个场景、邀请与 Chrome 链接用例继续通过。
+日夜界面确认附件与原正文同时保留，轻提示位于输入区内，不遮挡发送按钮。
+夹具使用受控 transport，验证发送仍携带原附件引用；未运行真实 Core/Runtime 的队员读取验收，
+也未安装或操作日常 App 数据。
+
+保持 v1.72；本项是局部可逆交互改动，不新增 Version Decision、持久字段、Core 合同或模型上下文。
+UI 与版本记录同步；Architecture、文档路由、Runtime Activity、Runtime compatibility 和 Root README 无需变化。
 
 ## 主动停止后的会话蓝点（2026-10-19）
 

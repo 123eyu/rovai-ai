@@ -12,7 +12,7 @@ export type DraftMutation =
   | { kind: 'return_pending_input'; pendingInputId: string; expectedRevision: number; editToken: string | null; commandId: string }
   | { kind: 'quote'; action: MessageQuoteAction; commandId: string }
   | { kind: 'save_content'; content: ComposerDocument }
-  | { kind: 'add_source_attachment'; file: File }
+  | { kind: 'add_source_attachment'; file: File; onAccepted?(draft: ThreadComposerDraftView): void }
   | { kind: 'remove_source_attachment'; attachmentId: string }
   | { kind: 'start_reply'; message: ThreadMessageView }
   | { kind: 'cancel_reply' }
@@ -118,11 +118,27 @@ export class DraftMutationCoordinator {
     })
   }
 
-  addSourceAttachment(file: File): Promise<ThreadComposerDraftView> {
+  addSourceAttachment(file: File, onAccepted?: () => void): Promise<ThreadComposerDraftView> {
+    const epoch = this.epoch
+    const threadId = this.requireThreadId()
     return this.enqueue('add_source_attachment', (current) => this.bindings.mutate(
       current,
-      { kind: 'add_source_attachment', file }
-    ))
+      {
+        kind: 'add_source_attachment',
+        file,
+        onAccepted: onAccepted ? (draft) => {
+          // Pending persistence may save locally and then fail to acknowledge
+          // presence. Keep that accepted draft in this same queue before
+          // surfacing the error, so later edits cannot overwrite its attachment.
+          this.assertActive(epoch, threadId)
+          this.acceptDraft(draft, epoch, threadId, 'add_source_attachment')
+          onAccepted()
+        } : undefined
+      }
+    )).then((draft) => {
+      onAccepted?.()
+      return draft
+    })
   }
 
   removeSourceAttachment(attachmentId: string): Promise<ThreadComposerDraftView> {

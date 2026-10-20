@@ -6,10 +6,18 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 单次长文本粘贴转附件（2026-10-20）
+
+公屏已有与新建会话中，单次普通文本粘贴超过 10,000 个 Unicode 码点时转为完整 UTF-8 文本附件。
+保留文件与内部结构化粘贴优先级；未被原草稿接纳时在原编辑器末尾回填，Pending 本地保存成功后的
+presence 失败不重复回填。沿用附件等待、错误、存储寿命与发送；使命描述、单聊及普通输入不启用。
+当前规则见 [Clipboard](../../ui/components/structured-mentions.md#clipboard)，验证见
+[实施记录](implementation-plan.md#单次长文本粘贴转附件2026-10-20)。
 
 ## 主动停止后的会话蓝点（2026-10-19）
 

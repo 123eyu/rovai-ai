@@ -2713,6 +2713,7 @@ export type NotificationSemantic =
   | 'turn_completed'
   | 'turn_failed'
   | 'turn_incomplete'
+  | 'run_stopped'
   | 'round_completed'
   | 'single_chat_reply'
   | 'mission_needs_you'
@@ -2816,7 +2817,7 @@ export interface NotificationEpisodeView {
 }
 
 export interface NotificationEpisodeInbox {
-  schemaVersion: 9
+  schemaVersion: 10
   throughChangeSequence: number
   unreadCount: number
   items: NotificationEpisodeView[]
@@ -2838,8 +2839,23 @@ export interface NotificationEpisodeChange {
     | 'retained'
   headsUpSignal: NotificationHeadsUpSignal | null
   headsUpInvalidation: NotificationHeadsUpInvalidation | null
+  interruptionAdmission?: NotificationInterruptionAdmission | null
   changedAt: string
   episode: NotificationEpisodeView | null
+}
+
+export interface NotificationInterruptionAdmission {
+  acknowledgementId: string
+  threadId: string
+  agentRunId: string
+  conversationId: string | null
+  kind: 'user_stop' | 'app_shutdown' | 'execution_lost'
+  admittedChangeSequence: number
+}
+
+export interface NotificationThreadInterruptions {
+  throughChangeSequence: number
+  threads: { threadId: string; hasUnreadInterruption: boolean }[]
 }
 
 export interface NotificationHeadsUpSignal {
@@ -2867,7 +2883,7 @@ export type NotificationHeadsUpInvalidation =
   }
 
 export interface NotificationEpisodeChangeBatch {
-  schemaVersion: 9
+  schemaVersion: 10
   requestedAfterChangeSequence: number
   nextChangeSequence: number
   throughChangeSequence: number
@@ -4382,9 +4398,11 @@ export type CoreMethod =
   | 'userAutomation.thread.send'
   | 'action.approvals.resolve'
   | 'notifications.inbox'
+  | 'notifications.threadInterruptions'
   | 'notifications.changesSince'
   | 'notifications.acknowledge'
   | 'notifications.acknowledgeVisibleSources'
+  | 'notifications.acknowledgeThreadInterruptions'
   | 'notifications.markAllRead'
   | 'notifications.clear'
   | 'notifications.preference.get'

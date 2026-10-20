@@ -22,6 +22,8 @@ Core Notification module
   ├─ changesSince() ─────── journal identities + current Episode + exact signal hydration
   ├─ acknowledge() ──────── one observed occurrence
   ├─ acknowledgeVisibleSources() ─ exact visible sources through observed journal boundary
+  ├─ threadInterruptions() ─ bounded per-Thread interruption projection
+  ├─ acknowledgeThreadInterruptions() ─ observed Thread interruption candidates only
   ├─ clear() ────────────── through attention revision
   └─ markAllRead() ──────── through global change sequence
 
@@ -38,7 +40,7 @@ Electron Main 和 Renderer 不保存副本或聚合状态。`event_log` 可以�
 
 ## 深模块 seam
 
-外部 interface 只暴露六个通知行为和 preference。聚合、原因优先级、逐 Mention 选择、approval generation、
+外部 interface 暴露通知读取、处置与 preference；中断候选和范围确认由同一通知模块拥有。聚合、原因优先级、逐 Mention 选择、approval generation、
 版本/注意力 revision、clear reappearance、Journal floor 和 hydration 全部隐藏在 Core module 内；同一
 interface 也是测试面。SQLite triggers 是该 implementation 的 source adapters，不成为 Renderer interface。
 
@@ -90,7 +92,7 @@ Episode 推荐动作从不参与该来源集合。执行台由稳定 Portal 在�
   运行中只消费之后的 Journal。
 - Task 开关采用设置事务内固定、持久化的通知边界。变化时递增已有通知时钟，空序号不产生通知事实或未读。
   changesSince 同一事务返回增量和有效 Task 快照；Renderer 与设置共用按序号更新的能力投影，隔离迟到响应。
-  不等待设置读取、不另读水位，不回退或直接重置全局消费游标。见 [Notification Episode v10](../contracts/notification-episode-v10.md)。
+  不等待设置读取、不另读水位，不回退或直接重置全局消费游标。见 [Notification Episode v11](../contracts/notification-episode-v11.md)。
 - Renderer 分页使用局部 candidate cursor；所有分页、精确可见性处理、Inbox 接收和 heads-up 入队成功后
   才提交共享 cursor，失败保持原边界重试。
 - Renderer 按 Journal 顺序先归约 exact invalidation、再接收同 change 的新 signal；普通 Inbox hydration
@@ -111,7 +113,7 @@ cascade 和 Journal trigger 收口。
 
 - [通知事实与投影](foundational-invariants.md#core-notifications)
 - [Notification Episode v9](../contracts/notification-episode-v9.md)
-- [Current User Attention v8](../contracts/current-user-attention-v8.md)
+- [Current User Attention v9](../contracts/current-user-attention-v9.md)
 
 
 ## 公屏与单聊注意力
@@ -139,3 +141,20 @@ Mission/Task command 的真实状态变化同事务调用通知 source adapter�
 偏好与状态筛选只控制瞬时呈现；按相同 sourceMessageId、完成状态 actor Run 与已完成图成员关系合并重复卡片。
 当前 Mission/Task 标题在读取时水合，原状态与来源仍是不可变事实。新回复小点另由非撤回 Agent 消息首次发布水位
 决定，与终态成功或精确通知确认独立。
+
+## 中断蓝点与实时反馈
+
+侧栏中断的有界读取使用绑定已准入数据库的只读 WAL 连接与既有独立读队列。
+每次读取独立捕获 Journal 边界和候选；确认仍走原写连接和 Gateway。
+同一事实与 Disposition 不因读连接分离而复制，打开失败仅降级该读取。
+这避免可选启动附件维护占用主连接时拖延侧栏第一份中断投影。
+
+[Notification Episode v11](../contracts/notification-episode-v11.md) 复用既有终态事务和恢复判断，
+将用户停止、退出取消与确认丢失冻结在精确 Occurrence；已读仍只由 Disposition 拥有。
+Thread 批量投影从请求 ID 和中断部分索引读取，不做启动全会话扫描，不水合 Inbox 正文。
+单聊结束由原失效 Journal 触发候选重读；原 Run/Conversation 身份失效退出本轮候选，保留审计。
+
+Renderer 的本机停止意图只驱动约 600ms 展示；精确实时准入描述不依赖 Episode 当前主原因或未读 Boolean。
+可见结果正常确认，展示不形成 ACK 屏障。无可绘制状态槽则跳过，启动/reset 不补播。
+显式标记已读先保存本机状态、再按冻结边界确认该 Thread 的中断；Core 重试不重做本机操作。
+职责和取舍见 [V1.72-D53](../versions/v1.72/decisions.md#v1-72-d53)。

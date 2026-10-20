@@ -9,7 +9,7 @@ import { EMPTY_SNAPSHOT, isProjectPath } from '../../shared/navigation-preferenc
 import { useThreadUserAnchorCache } from './useThreadUserAnchors'
 import { hasPendingThreadDraftInput } from './pending-thread-draft'
 import { memberCreationHelper, memberCreationInitialDraft, navigationWithMemberCreationDrafts, type MemberCreationDraft } from './member-creation-flow'
-import { navigationThreadReadState } from './navigation-unread'
+import { navigationThreadReadState, saveNavigationThreadReadState } from './navigation-unread'
 import { newCommandId } from '../../shared/command-id'
 import type { BusinessEnvironment } from './business-environment'
 import { AppHeader } from './AppHeader'
@@ -119,6 +119,7 @@ import { AboutUpdatesSettings } from './AboutUpdatesSettings'
 import { RemoteAboutSettings } from './RemoteAboutSettings'
 import { AppUpdatePrompt } from './AppUpdatePrompt'
 import { useAppUpdates, type AppUpdatesController } from './useAppUpdates'
+import { ThreadInterruptionAttentionContext, useThreadInterruptionAttention } from './thread-interruption-attention'
 import {
   NotificationAttentionController,
   type NotificationNavigationResult
@@ -1232,8 +1233,9 @@ export function BusinessApp({
     state: NavigationPreferencesSnapshot['threadReadStates'][string] | null
   ): Promise<void> => {
     const generation = ++threadReadGeneration.current
-    const snapshot = await uiPreferences.navigationPreferences.setThreadReadState(threadId, state)
-    if (generation === threadReadGeneration.current) acceptThreadReadStates(snapshot)
+    const { snapshot, confirmed } = await saveNavigationThreadReadState(uiPreferences.navigationPreferences, threadId, state)
+    if (snapshot && generation === threadReadGeneration.current) acceptThreadReadStates(snapshot)
+    if (!confirmed) throw new Error(uiAttribute('本机阅读状态的保存结果尚未确认，请重试。'))
   }, [uiPreferences, acceptThreadReadStates])
 
   const clearThreadUnreadReminder = useCallback(async (threadId: string, generation: number): Promise<void> => {
@@ -2638,6 +2640,15 @@ export function BusinessApp({
     currentProject,
     currentWorkspaceHint
   ), projectNames)
+  const interruptionAttention = useThreadInterruptionAttention(
+    startupStatus === 'resolved',
+    [...(displayNavigation ? allNavigationThreads(displayNavigation).map(thread => thread.id) : []),
+      ...pinnedThreadItems.map(thread => thread.id), ...(activeThreadId ? [activeThreadId] : [])],
+    { threadId: activeThreadId,
+      conversationId: singleChatVisible ? visibleSingleChatSources?.conversationId ?? undefined : null,
+      visible: view === 'camp' && campSnapshot?.thread.id === activeThreadId && !campSnapshotEntryPreviewRef.current
+        && !newConversationOpen && !newMissionOpen && !shuttingDown }
+  )
   const activeThread = navigation
     ? allNavigationThreads(navigation).find((thread) => thread.id === activeThreadId) ?? null
     : null
@@ -3051,7 +3062,9 @@ export function BusinessApp({
   }
 
   const setThreadUnread = async (thread: NavigationThreadItem, unread: boolean): Promise<void> => {
+    const acknowledgement = unread ? null : interruptionAttention.captureRead(thread.id)
     await saveThreadReadState(thread.id, navigationThreadReadState(thread, unread, threadReadStatesRef.current[thread.id]))
+    if (acknowledgement) await interruptionAttention.acknowledge(acknowledgement)
   }
 
   const chooseThread = (thread: NavigationThreadTarget): void => {
@@ -3429,10 +3442,12 @@ export function BusinessApp({
     })
     setCancellingRunIds((current) => new Set(current).add(run.id))
 
+    const stopCommandId = newCommandId()
+    interruptionAttention.beginStop(run.id, { commandId: stopCommandId, threadId, conversationId: null })
     let result: StoredCommandResult
     try {
       result = await client.request<StoredCommandResult>('agentRuns.cancel', {
-        commandId: newCommandId(),
+        commandId: stopCommandId,
         command: {
           threadId,
           agentRunId: run.id,
@@ -3463,6 +3478,7 @@ export function BusinessApp({
     }
 
     if (result.status === 'rejected') {
+      interruptionAttention.rejectStop(run.id)
       setCancellingRunIds((current) => {
         const next = new Set(current)
         next.delete(run.id)
@@ -4308,6 +4324,7 @@ export function BusinessApp({
   />
 
   return (
+    <ThreadInterruptionAttentionContext.Provider value={interruptionAttention}>
     <MobileLayoutProvider value={mobile}>
     <FilePreviewProvider api={environment.files} threadId={view === 'camp' ? activeThreadId : null} resolvedTheme={appearance.resolvedTheme}
       missionActivity={activeMission && view === 'camp' ? <MissionActivityDocument mission={activeMission} agents={agents} onSource={missionSource} onNotify={notify} onWorkspaceCleanupRequested={refreshMissionAfterWorkspaceCleanup}/> : null}>
@@ -4629,6 +4646,7 @@ export function BusinessApp({
         firstRunThreadId={firstRunThreadId}
         activeThreadVisible={view === 'camp'
           && campSnapshot?.thread.id === activeThreadId
+          && !campSnapshotEntryPreviewRef.current
           && !newConversationOpen
           && !newMissionOpen
           && !shuttingDown}
@@ -4658,6 +4676,7 @@ export function BusinessApp({
     </MissionInteractionProvider>
     </FilePreviewProvider>
     </MobileLayoutProvider>
+    </ThreadInterruptionAttentionContext.Provider>
   )
 }
 

@@ -1015,3 +1015,13 @@ Preview 的平台、CLI 子集、Skills/MCP 和并发资格边界不变。
 模型上下文变更。当前规范为 [Transport v43](../../contracts/builtin-tool-transport-v43.md)与
 [File Change v9](../../contracts/runtime-file-change-observation-v9.md)，验证见[实施计划](implementation-plan.md#send-输入文件退出文件变化卡片2026-10-19)。
 本项为可逆的局部投影规则，不新增 Version Decision；同步当前合同、架构、UI 与导航，Runtime 原生映射和根 README 无需变化。
+
+## 中断通知与侧栏短亮（2026-10-21）
+
+实现 [Notification Episode v11](../../contracts/notification-episode-v11.md) 与
+[Current User Attention v9](../../contracts/current-user-attention-v9.md)：Migration 209 / schema 159
+新增真实停止/退出取消的通知准入、已有丢失失败来源分类，以及最多 200 个 Thread 的批量候选读取和
+冻结边界确认。停止不写本机标记未读，不新增启动扫描。精确结果可见立即确认；当前窗口真实停止
+准入在可绘制侧栏槽位短亮约 600ms，重启/reset 不补播。已结束单聊退出候选并保留审计。
+
+实施验证记录见 [中断注意力验收](interruption-attention-validation.md)。

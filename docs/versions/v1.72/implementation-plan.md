@@ -8,6 +8,32 @@ last_updated: 2026-10-20
 
 # v1.72 实施与验收
 
+## 执行入口与空状态（2026-10-20）
+
+User 确认 HTML 交互稿后授权独立 worktree、PR 到 main 并合并。分支 `rovai/execution-entry-cleanup`，
+基线 `1da9da7ccafa8fc896ca82958029c0f48770c41f`，worktree 为同级 `rovai-ai-execution-entry`。
+
+生产变更只涉及 `ThreadDetailPopover.tsx`、`ThreadWorkspace.tsx` 和 `styles.css`：
+移除入口 Hover/Focus 名单气泡，保留可访问人数／姓名、头像、双弧与原尺寸；将原位置菜单提取为同文件控件，
+放到浮层标题栏，删除空状态中的独立“移到底部”。底部／右侧空记录保留位置控件，以便返回；
+未激活草稿在三种已保存位置下都不新增执行控件。有记录时底部／右侧布局及稳定 Drawer host 继续复用。
+
+保持 v1.72，属于局部可逆的 Renderer 调整；同步现有 UI 规范。没有新增协议、存储、Version Decision、
+Runtime 或 Rust 测试变更。验收扩展既有执行台原生输入夹具，覆盖无名单气泡、可访问姓名、
+空状态三位置往返、保存失败与重试、嵌套 Escape，以及未激活草稿；原有执行详情场景继续完整运行。
+
+验证：`pnpm typecheck`、`pnpm test`（246 个 Vitest 文件／2,801 项、Node 357 通过／2 项平台跳过）
+与真实基线的 `docs:check:ci` 通过。生产执行台原生输入夹具和状态切换夹具均通过；覆盖日夜主题、
+1040／1440／2560 宽度、200% 缩放、完整过程阅读、Drawer identity、键盘焦点及空状态。
+首次全量前端回归出现三项超时；对应 37 项单 worker 复核及完整 `pnpm test` 重跑均通过。
+
+额外检查保留两个基线问题：手机执行夹具在 844×390 横屏断言详情高度应大于 40px，原始基线与本次
+均测得 33px；`pnpm test:rust:pr` 的平台证据 owner 因 `docs/runtime-compatibility.md` 哈希不匹配失败
+（Core library 427 通过、1 失败、1 项既有忽略）。直接读取基线 Git 对象得到文档 SHA-256
+`9d3e34b827046ad071c350638c3317182e7061373eaf1a8fb31e89ea90fda6c2`，
+基线常量仍为 `596f26ee3fdf0a6812737967e0e2f97cecb34a70595cf52a58d2309cdd93c3a5`。
+本次不修改这两处既有行为或放宽断言；没有将这些检查声明为通过。
+
 ## 四适配器原生问卷（2026-10-20）
 
 按 User 确认的四适配器范围在独立 worktree 实施。启动参数、接收端问卷分流、Host 兼容、

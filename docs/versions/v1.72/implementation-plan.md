@@ -3,10 +3,16 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # v1.72 实施与验收
+
+## 四适配器原生问卷（2026-10-20）
+
+按 User 确认的四适配器范围在独立 worktree 实施。启动参数、接收端问卷分流、Host 兼容、
+未承接问卷终态与测试证据统一记录于[原生问卷验证](native-questionnaire-verification.md)。
+不改 MiniMax 用户配置，不扩大到 Codex 或其他适配器。
 
 ## 主动停止后的会话蓝点（2026-10-19）
 

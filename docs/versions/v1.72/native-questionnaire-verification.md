@@ -1,0 +1,78 @@
+---
+document_type: implementation-record
+version: v1.72
+status: completed
+last_updated: 2026-10-20
+---
+
+# 四适配器原生问卷验证
+
+User 确认仅修改 Claude Code、Copilot、Kimi、Qwen，并明确不再尝试通过修改本机配置关闭 MiniMax。
+基线为 `7a447be53dad78e5dcd0c180b42e23bbfa690a37`，分支 `rovai/native-questionnaire-policy`，
+worktree 为同级 `rovai-ai-native-questionnaire-policy`。当前合同为
+[Runtime Launch v65](../../contracts/runtime-launch-and-verification-v65.md)。
+这是现有问卷/审批分离原则的适配器补齐，未引入新的产品交互、持久状态或决策分歧，故不新增 Version Decision。
+
+## 原生证据
+
+| 适配器 | 本机版本 | 处理 | 验证状态 |
+| --- | --- | --- | --- |
+| Claude Code | 2.1.287 | 统一禁用 AskUserQuestion；控制请求 deny，普通输入保护不变 | 工具已禁用；正式新建、恢复、Core 重启后恢复均验证 |
+| Copilot | 1.0.91 | 正式 ACP --no-ask-user；Host compatibility 纳入策略 | 工具已禁用；新建、热 Host 复用、Core 重启后恢复均验证 |
+| Kimi | 2.1.1 | AskUserQuestion + q0 选项；ACP cancelled | 请求已取消；yolo、先发送再提问、后继输入、Core 重启后原 Session 恢复均验证 |
+| Qwen | 0.25.0 | ask_user_question + Qwen 专用元数据；ACP cancelled | 请求已取消；yolo、先发送再提问、后继输入、Core 重启后原 Session 恢复均验证 |
+| MiniMax | 本轮不复测 | 保持原有取消、不支持终态及禁止重放 | 用户确认禁用需要改本机配置，本轮不做 |
+
+Kimi 的安装包 `@moonshot-ai/kimi-code/dist/main.mjs` 中，
+`questionItemToPermissionOptions` 生成 `q0_opt_* / q0_skip`，
+`outcomeToQuestionAnswer` 将 cancelled 映射为未回答；ACP fallback 的工具身份是精确 title。
+Qwen 的 `acpAgent` bundle 通过 `interactionMetaFields`、`toPermissionOptions` 和
+`resolvePermissionOutcome` 生成专用元数据与 Submit/Cancel，并接受 cancelled。
+夹具位于 `crates/rovai-core/tests/fixtures/runtime-questionnaire/`，来自真实 CLI 的原生帧，
+使用合成问题，仅替换 Session/toolCall ID；它们本身不宣称真实模型验证。
+
+原生冒烟使用 `scripts/smoke-native-questionnaires.mjs <adapter> <absolute-cli> <fresh-absolute-fixture>`，
+复用生产 Core 与 qualification 启动器，独立 data、Skill Library、MCP、原生配置目录，使用本地脚本化 Provider。
+透明 CLI 包装只记录原生参数与问卷取消线，不生成协议回执；测试配置只写入新建临时目录。
+这证明实际 CLI 协议与生产分派，不是实模型行为评测。
+
+macOS arm64 最终验收目录为 `/private/tmp/rovai-questionnaire-{claude,copilot,kimi,qwen}-20261020-g`。
+四份报告均通过，共 16 个正式 Run；执行的 Core SHA-256 为
+`dfbaa0be2960a368be88a174a16cd0e5fe6832173b8c377323bf564d0509fe13`。
+
+- Claude、Copilot 各 3 轮、6 次模型请求，模型实际工具集合中分别无 AskUserQuestion/ask_user；
+  普通 shell、文件效果与绑定 CLI 发送正常，三轮保持同一 Native Session。
+  Claude 正式启动记录为一次新建、两次 `--resume`，均有禁用参数；Copilot 正式 Host 两次启动，
+  中间复用，重启后重新加载原会话，均有 `--no-ask-user` 且未带空工具限制。
+- Kimi、Qwen 各 5 轮；两次真实问卷都收到唯一 cancelled 回执，没有原生选项选择或 Core answers 提交，
+  数据库未创建普通 Approval。ASK 和 SEND_ASK 均为 `runtime_questionnaire_unsupported`；
+  SEND_ASK 的已发公开消息和文件保留，FOLLOWUP 与 AFTER_RESTART 成功且保持原 Session。
+- Kimi 使用 `multi_select` 工具入参，ACP fallback 仍为 `q0_opt_*`；取消后原生自行生成
+  empty-answer/dismissed 工具结果，不能把它记为 Core 提交空答案或真实用户拒绝。
+- 原生冒烟覆盖上述本机版本及权限绕过模式；其他权限模式、旧只读、损坏/冲突、稀疏元数据、
+  重复与外来 Session 的确定性覆盖由下列 Rust owner 提供，不宣称其他版本或平台已验证。
+
+另用 `--duplicate-questionnaires` 在 Kimi/Qwen 原生问卷输出之后注入一份相同 request ID 的重复帧。
+两组额外的 5 轮验收均通过，每个真实问卷仍只有一次 cancelled 回执，后继消息及 Core 重启后的恢复保持；
+目录为 `/private/tmp/rovai-questionnaire-{kimi,qwen}-20261020-duplicates`。
+这是明确标记的传输故障注入，与上述未修改原生帧的 16 轮证据分开，不生成问卷响应或用户答案。
+
+## 确定性测试 owner
+
+- `approval_selects_the_exact_native_option_id`：新增 Kimi/Qwen 原生形状、损坏与冲突、普通权限和适配器边界；
+  MiniMax 原案例保留，代答会在旧版本直接选择 allow_once。
+- `warm_compatibility_matches_process_inputs_across_acp_adapters`：Copilot 策略变更只影响 Host 摘要，
+  隔离参数用途保持；其余适配器输入摘要保持原断言。
+- Claude 原启动进程矩阵：普通/只读限制合并，权限模式与新建/恢复共用正式构造。
+- `incompatible_initialization_and_missing_tool_identity_never_admit_permission` 与
+  `native_permissions_do_not_block_stdout_or_replace_the_last_result`：拒绝、一次回执、外来 Session、
+  持续 stdout、普通审批、非空 final 后仍失败；原输入精确匹配测试保留。
+- 既有 ACP 终态优先级与 accepted-send owner 回归，不创建平行测试体系。
+
+## 门禁
+
+最终 Rust 代码通过 `pnpm check:rust`、`pnpm test:rust:pr`（474 passed、1 个既有 ignored）、
+10 项 `slow-tests` 定向 owner（含 extended owner）。`pnpm docs:check`、`pnpm docs:test`
+及基于实际修改基线的 `pnpm docs:check:ci` 通过；`git diff --check` 和冒烟脚本语法检查通过。
+Rust 测试仅扩展已有 owner，没有新增独立 Rust 测试。
+原生版本/平台的未覆盖项继续记为未验证，不用参数测试替代。

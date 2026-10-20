@@ -11,6 +11,13 @@ last_updated: 2026-10-20
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 会话执行条（2026-10-20）
+
+按 User 确认的浅灰整行与无底停止图标实现，增加可点击运行时间，以独立转圈替换文字扫光。
+连接和处理反馈分别使用选定的三组中英文候选，同一 Run 的选择保持稳定。执行条不再连接外观动态设置；
+其余会话和执行台样式保持不变。边界见[会话工作区](../../ui/components/conversation-workspace.md#会话中的队员占位)，
+实现与验证见[实施记录](implementation-plan.md#会话执行条2026-10-20)。
+
 ## Claude 执行结束后的失败收口（2026-10-20）
 
 Claude one-shot worker 返回普通运输错误后，Core 复用 Runtime loss 结算，避免已绑定的 launch handoff

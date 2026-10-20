@@ -8,6 +8,29 @@ last_updated: 2026-10-20
 
 # v1.72 实施与验收
 
+## 会话执行条（2026-10-20）
+
+User 确认第七版交互稿的 01 浅灰、C 无底图标和转圈，并授权独立 worktree、PR 到 main 后合并。
+分支 `rovai/conversation-execution-bar`，基线 `923f9919b669b5d0c5fba8654f852106806deae0`，
+worktree 为同级 `rovai-ai-execution-bar`；没有治理先行要求。
+
+实现限于会话执行条及其设置导航接线：42px 浅灰完整单行、28px 常驻中性停止图标、整行悬浮浅红底，
+移除停止区竖线与 RunningText。运行时间由真实 start/end 计算，未知时省略，并与正文共用精确 Run 入口。
+连接候选采用 02／03／05，处理候选采用 02／04／05；Run ID 与阶段决定稳定选项，中英文共用选择，
+真实正文、命令与合法思考标题优先。独立圆环不受系统／应用减少动态设置影响，forced-colors 保留静态图形。
+执行台、设置控件、消息、头像、输入区和其他界面不移植交互稿样式；停止确认、来源定位、重试与执行证据路径保持原有语义。
+
+保持 v1.72；这是局部可逆的 Renderer 变化，没有协议、存储、Runtime 或 Rust 测试变更，不新增 Version Decision。
+扩展现有单元测试与生产 ThreadWorkspace 浏览器夹具，覆盖候选稳定性、中英文切换、时间事实、计时导航及动效独立性。
+删除旧可选 HTML 分隔区对照入口，以当前生产组件的几何、交互与截图验证取代。
+
+验证：`pnpm typecheck`、`pnpm test`（246 个 Vitest 文件／2,803 项；Node 357 通过、2 项平台跳过）、
+`pnpm build:desktop`、`pnpm docs:test` 与基于实际 main 基线的 `docs:check:ci` 通过。
+`pnpm test:run-presence-ui` 在独立 Chrome profile 中通过 38 个场景状态、37 项交互记录及日夜主题的 6 组桌面尺寸；
+另覆盖 200% 等效缩放、粗指针、系统／应用减少动态效果、forced-colors 组合、中英文即时切换、时间精确 Run 导航和终态收口。
+人工浏览器核对了生产组件在 1440×920 下的日夜主题、28px 无底停止、整行悬浮浅红底及既有停止确认；控制台无错误。
+夹具只替换 transport，不启动 Core 或真实 Runtime，不修改日常 App 数据。
+
 ## Claude 执行结束后的失败收口（2026-10-20）
 
 User 报告 Claude 子进程已退出、Run 长期运行中且后续消息排队。当前源码核查发现：

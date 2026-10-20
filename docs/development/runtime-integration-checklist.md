@@ -32,7 +32,7 @@ last_updated: 2026-10-20
 - 验证请求归属、重复/迟到回执、原生错误/取消优先级、已发送消息和文件保留、真实后继输入继续。
 - 状态区分工具已禁用、请求已取消、原生降级已验证、验证范围内未暴露、尚未验证；原生冒烟与确定性测试分开记录。
 
-当前四适配器治理见 [Runtime Launch v66](../contracts/runtime-launch-and-verification-v66.md)，
+当前原生问卷治理见 [Runtime Launch v67](../contracts/runtime-launch-and-verification-v67.md)，
 版本证据见 [v1.72 验证记录](../versions/v1.72/native-questionnaire-verification.md)。
 
 ## 1. 完成定义

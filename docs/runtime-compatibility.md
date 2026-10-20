@@ -6,6 +6,16 @@ last_updated: 2026-10-20
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-20 ZCode 与 OpenCode V2 原生问卷禁用
+
+macOS arm64、ZCode App **3.14.5** / 内核 **0.16.9** 的 create/resume `toolDenylist`，
+以及 OpenCode **2.0.26** 的全局/build/plan `question / * / deny` 已接入正式路径。
+生产 Core 各三轮新建、后继输入、重启恢复中，模型工具集合不含问卷，普通 Shell、文件和公开发送保留，
+每组维持同一原生会话。ZCode 后继输入实际重建 Host，OpenCode 后继输入复用 Host。
+这是实际内核加本地脚本化 Provider 的协议验证，不扩大平台或外部模型资格；
+旧版本及自定义 Agent 未实测，OpenCode V1 保持原状。详见
+[本轮验证记录](versions/v1.72/native-questionnaire-verification.md#zcodeopencode-v2-禁用增量2026-10-20)。
+
 ## 2026-10-20 Qwen 原生问卷禁用
 
 macOS arm64、Qwen **0.25.0** 的 ACP 实测确认 `--exclude-tools=ask_user_question` 从模型工具集合

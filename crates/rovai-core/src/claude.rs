@@ -704,9 +704,13 @@ impl ClaudeCodeCliRuntimeAdapter {
         if permission_mode == "bypassPermissions" {
             command.arg("--dangerously-skip-permissions");
         }
-        if legacy_read_only {
-            command.arg("--disallowedTools=Edit,Write,NotebookEdit");
-        }
+        let mut disallowed_tools = if legacy_read_only {
+            vec!["Edit", "Write", "NotebookEdit"]
+        } else {
+            Vec::new()
+        };
+        disallowed_tools.push("AskUserQuestion");
+        command.arg(format!("--disallowedTools={}", disallowed_tools.join(",")));
         if request.runtime.model.source == "explicit"
             && request.runtime.model.model_id != CLAUDE_CODE_RUNTIME_DEFAULT_MODEL_ID
         {
@@ -1103,6 +1107,7 @@ impl ClaudeCodeCliRuntimeAdapter {
                     output,
                     &native_session_id,
                     &native_turn_id,
+                    false,
                     &claude_sensitive_paths(request, private_runtime_dir),
                 )
             {
@@ -1169,6 +1174,7 @@ impl ClaudeCodeCliRuntimeAdapter {
             &output,
             &native_session_id,
             &native_turn_id,
+            protocol.has_unsupported_questionnaire(),
             &sensitive_paths,
         )?;
         Ok(ClaudeCodeRunResult {
@@ -1260,6 +1266,7 @@ fn validate_claude_terminal_result(
     output: &ClaudeCodeJsonResult,
     native_session_id: &str,
     native_turn_id: &str,
+    unsupported_questionnaire: bool,
     sensitive_paths: &[(&Path, &str)],
 ) -> Result<String> {
     let observed_session_id = match output.session_id.as_deref() {
@@ -1345,6 +1352,25 @@ fn validate_claude_terminal_result(
         );
         return Err(claude_failure_error(
             internal,
+            failure,
+            native_session_id,
+            native_turn_id,
+            true,
+        ));
+    }
+    if unsupported_questionnaire {
+        let failure = public_runtime_failure_from_output(
+            rovai_core::agent_profile::AdapterKind::ClaudeCodeCli,
+            RuntimeFailureOrigin::Compatibility,
+            RuntimeFailurePhase::Terminal,
+            "runtime_questionnaire_unsupported",
+            "原生问卷暂不受支持，未提交答案。请通过 Thread 对话询问用户",
+            None,
+            sensitive_paths,
+            false,
+        );
+        return Err(claude_failure_error(
+            anyhow::anyhow!("Claude Code requested unsupported native user input"),
             failure,
             native_session_id,
             native_turn_id,
@@ -3548,9 +3574,14 @@ mod tests {
             total_cost_usd: None,
             model_calls_observed: false,
         };
-        let error =
-            validate_claude_terminal_result(&terminal_failure, session_id, native_turn_id, &[])
-                .expect_err("a structured non-success result should be terminal failure proof");
+        let error = validate_claude_terminal_result(
+            &terminal_failure,
+            session_id,
+            native_turn_id,
+            true,
+            &[],
+        )
+        .expect_err("a structured non-success result should be terminal failure proof");
         let proof = error
             .downcast_ref::<ClaudeCodeDeliveredFailure>()
             .expect("the reliable failure must retain its typed proof");
@@ -3577,12 +3608,34 @@ mod tests {
             session_id: Some("5ade59ac-f87e-4827-8cf2-0e1f3ba720ea".to_string()),
             ..terminal_failure
         };
-        let error = validate_claude_terminal_result(&mismatched, session_id, native_turn_id, &[])
-            .expect_err("a different Session must be fenced");
+        let error =
+            validate_claude_terminal_result(&mismatched, session_id, native_turn_id, true, &[])
+                .expect_err("a different Session must be fenced");
         let proof = error
             .downcast_ref::<ClaudeCodeDeliveredFailure>()
             .expect("the incompatible terminal still proves the requested one-shot turn ended");
         assert_eq!(proof.failure.origin, RuntimeFailureOrigin::Compatibility);
+        let success = ClaudeCodeJsonResult {
+            session_id: Some(session_id.to_string()),
+            subtype: Some("success".to_string()),
+            is_error: false,
+            result: "already sent a public message".to_string(),
+            ..mismatched
+        };
+        let error =
+            validate_claude_terminal_result(&success, session_id, native_turn_id, true, &[])
+                .expect_err("nonempty final text cannot erase an unsupported questionnaire");
+        assert_eq!(
+            error
+                .downcast_ref::<ClaudeCodeDeliveredFailure>()
+                .unwrap()
+                .error_code,
+            "runtime_questionnaire_unsupported"
+        );
+        assert!(
+            validate_claude_terminal_result(&success, session_id, native_turn_id, false, &[],)
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -3805,6 +3858,20 @@ mod tests {
                 session_id,
             );
             request.runtime.reported_version = None;
+            let configured_permission = match (explicit, fast) {
+                (false, None) => "manual",
+                (false, Some(true)) => "acceptEdits",
+                (false, Some(false)) => "bypassPermissions",
+                (true, None) => "dontAsk",
+                (true, Some(true)) => "plan",
+                (true, Some(false)) => "auto",
+            };
+            let legacy_read_only = explicit && fast.is_none();
+            request.runtime.permissions.values = json!({"permission_mode":configured_permission});
+            if legacy_read_only {
+                request.permission_semantics = PermissionSemantics::CoreEnforcedV1;
+                request.workspace.access = "read_only".into();
+            }
             let member_overlay = explicit && fast == Some(false) && !resume;
             if member_overlay {
                 let overlay = std::collections::BTreeMap::from([
@@ -3893,7 +3960,16 @@ mod tests {
                     .count(),
                 1
             );
-            assert!(argv.contains("--permission-mode\nmanual\n"));
+            let args = argv.lines().collect::<Vec<_>>();
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair == ["--permission-mode", configured_permission])
+            );
+            assert!(args.contains(&if legacy_read_only {
+                "--disallowedTools=Edit,Write,NotebookEdit,AskUserQuestion"
+            } else {
+                "--disallowedTools=AskUserQuestion"
+            }));
             assert!(argv.contains(if resume {
                 "--resume\n"
             } else {
@@ -5456,6 +5532,8 @@ mod tests {
             json!({"type":"system","subtype":"session_state_changed","session_id":session,"state":"running"}),
             json!({"type":"control_request","request_id":"approval","request":{"subtype":"can_use_tool",
                 "tool_use_id":"tool","tool_name":"Bash","input":tool_input}}),
+            json!({"type":"control_request","request_id":"question","request":{"subtype":"can_use_tool",
+                "tool_use_id":"question-tool","tool_name":"AskUserQuestion","input":{"questions":[]}}}),
             json!({"type":"assistant","session_id":session,"message":{"id":"message","content":[{"type":"text","text":"Still reading"}]}}),
             json!({"type":"result","subtype":"success","is_error":false,"result":"early","session_id":session,"usage":{"output_tokens":1}}),
         ];
@@ -5503,6 +5581,39 @@ mod tests {
         let final_result = capture.await.unwrap().unwrap().final_result.unwrap();
         assert_eq!(final_result.result, "last");
         assert_eq!(final_result.usage["output_tokens"], 2);
+        assert!(control.has_unsupported_questionnaire());
+        let error = validate_claude_terminal_result(
+            &final_result,
+            session,
+            "turn",
+            control.has_unsupported_questionnaire(),
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<ClaudeCodeDeliveredFailure>()
+                .unwrap()
+                .error_code,
+            "runtime_questionnaire_unsupported"
+        );
+        let mut responses = String::new();
+        input.read_to_string(&mut responses).await.unwrap();
+        let responses = responses
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(responses.len(), 2);
+        let question = responses
+            .iter()
+            .find(|response| response["response"]["request_id"] == "question")
+            .unwrap();
+        assert_eq!(question["response"]["response"]["behavior"], "deny");
+        assert!(
+            question["response"]["response"]
+                .get("updatedInput")
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -5751,6 +5862,7 @@ mod tests {
                     &output,
                     session_id,
                     "claude-code:run-1:1",
+                    false,
                     &[],
                 )
                 .expect_err("the later error must determine the terminal outcome");

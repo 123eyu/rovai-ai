@@ -6,10 +6,17 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 四适配器原生问卷（2026-10-20）
+
+Claude Code、Copilot 正式启动禁用提问工具；Kimi、Qwen 在普通审批与自动允许之前取消原生问卷，
+沿用当前 Prompt/Run 观察、终态与真实用户后继消息。MiniMax 本机配置不修改。
+合同见 [Runtime Launch v65](../../contracts/runtime-launch-and-verification-v65.md)，
+实施范围、测试与原生证据见[验证记录](native-questionnaire-verification.md)。
 
 ## 主动停止后的会话蓝点（2026-10-19）
 

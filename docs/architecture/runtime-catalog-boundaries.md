@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # Runtime Catalog Boundaries
@@ -14,8 +14,17 @@ last_updated: 2026-10-19
 [Runtime Platform Admission v2](../contracts/runtime-platform-admission-v2.md)拥有；Runtime 启动与延迟验证边界见
 [Runtime 进程与校验不变量](foundational-invariants.md#runtime-process-verification)、
 [Runtime 恢复与关闭不变量](foundational-invariants.md#runtime-recovery-shutdown)及
-[Runtime Launch and Verification v64](../contracts/runtime-launch-and-verification-v64.md)。实测版本和能力只由
+[Runtime Launch and Verification v65](../contracts/runtime-launch-and-verification-v65.md)。实测版本和能力只由
 [Runtime 兼容性清单](../runtime-compatibility.md)记录。
+
+## 原生提问边界
+
+问卷承载用户输入，不能进入执行审批来选择答案。Claude、Copilot 在统一正式启动处关闭已验证的
+提问工具；Copilot 策略属于 Host 兼容输入，不改变原生会话绑定。Kimi、Qwen 复用 ACP 当前请求归属、
+Prompt 观察与终态，先识别并取消，再让普通权限进入现有审批。已识别但损坏的问卷也不能自动允许。
+Claude 控制通道拒绝意外问卷并把观察传到现有整轮结果校验；不新增用户回复或自动重跑机制。
+具体字段与优先级见 [Runtime Launch v65](../contracts/runtime-launch-and-verification-v65.md)。
+MiniMax 保留现有行为，不以修改用户配置关闭问卷；本轮不扩大到其他适配器。
 
 ## Antigravity 执行边界
 

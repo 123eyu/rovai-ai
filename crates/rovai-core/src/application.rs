@@ -14546,7 +14546,11 @@ impl Core {
                     claude_permission::deny_decision("Rovai 用户拒绝了这次 Claude Code 操作")
                 })
             } else if candidate.native_method == "session/request_permission" {
-                acp::legacy_approval_result(&candidate.response_context, approved)
+                acp::legacy_approval_result(
+                    runtime.adapter_kind(),
+                    &candidate.response_context,
+                    approved,
+                )
             } else {
                 codex::approval_result(
                     &candidate.native_method,
@@ -22393,13 +22397,6 @@ async fn process_agent_run_acp_message(
         .to_string();
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     if let Some(id) = message.get("id").cloned() {
-        if method == "session/request_permission"
-            && let Err(error) = runtime
-                .observe_message(native_prompt_id, &method, &params)
-                .await
-        {
-            eprintln!("failed to observe ACP permission request: {error:#}");
-        }
         let result = match method.as_str() {
             "session/request_permission" => {
                 process_agent_run_acp_approval_request(
@@ -23550,14 +23547,24 @@ async fn process_agent_run_acp_approval_request(
         .await?;
         return Ok(());
     };
-    if acp::is_questionnaire_permission_request(params) {
-        // A native answer wrapped as allow_once must never create an execution
-        // Approval or use the ordinary bypass-permissions path.
-        runtime
-            .respond(request_id, json!({"outcome": {"outcome": "cancelled"}}))
-            .await?;
+    if let Err(error) = acp::validate_permission_request_identity(&native_session_id, params) {
+        reject_acp_request(
+            output,
+            runtime,
+            agent_run_id,
+            execution_epoch,
+            request_id,
+            params,
+            &format!("ACP permission request was rejected: {error}"),
+        )
+        .await?;
         return Ok(());
     }
+    // Ownership must be proven before a request can affect this Prompt's
+    // observation or bypass the ordinary Action/Approval conversion.
+    runtime
+        .observe_message(&native_prompt_id, "session/request_permission", params)
+        .await?;
     let observed_tool_context = match params
         .pointer("/toolCall/toolCallId")
         .and_then(Value::as_str)
@@ -23569,6 +23576,19 @@ async fn process_agent_run_acp_approval_request(
         }
         None => None,
     };
+    let request_kind = acp::classify_permission_request_with_context(
+        runtime.adapter_kind(),
+        params,
+        observed_tool_context.as_ref(),
+    );
+    if request_kind != acp::AcpPermissionRequestKind::Execution {
+        // A native answer wrapped as allow_once must never create an execution
+        // Approval or use the ordinary bypass-permissions path.
+        runtime
+            .cancel_questionnaire_request(&native_prompt_id, request_id, request_kind)
+            .await?;
+        return Ok(());
+    }
     let action_request = match acp::intercepted_action_request(
         &acp::InterceptedAcpActionContext {
             adapter_kind: runtime.adapter_kind(),
@@ -23609,7 +23629,7 @@ async fn process_agent_run_acp_approval_request(
             &execution.runtime.permissions.values,
         )
     {
-        match acp::legacy_approval_result(params, true) {
+        match acp::legacy_approval_result(runtime.adapter_kind(), params, true) {
             Ok(response) => runtime.respond(request_id, response).await?,
             Err(error) => {
                 reject_acp_request(
@@ -23761,7 +23781,16 @@ async fn reject_acp_request(
     params: &Value,
     reason: &str,
 ) -> Result<()> {
-    match acp::rejection_result(params) {
+    let rejection = if acp::classify_permission_request(runtime.adapter_kind(), params)
+        != acp::AcpPermissionRequestKind::Execution
+    {
+        // Invalid ownership must not mutate the active Prompt, nor turn a
+        // client-side rejection into a selected questionnaire answer.
+        Ok(json!({"outcome":{"outcome":"cancelled"}}))
+    } else {
+        acp::rejection_result(params)
+    };
+    match rejection {
         Ok(result) => runtime.respond(request_id, result).await?,
         Err(_) => runtime.respond_error(request_id, -32000, reason).await?,
     }

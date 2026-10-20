@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRunView, ThreadMessageView } from '@contracts'
 import { conversationRunPresenceTimeline, formatRunPresenceDuration, runPresenceElapsedSeconds, runPresencePreview } from './conversation-run-presence'
 import type { ThreadConversationTimelineItem } from './ThreadWorkspace'
@@ -203,7 +203,13 @@ describe('conversation Run presence', () => {
 
 
 describe('conversation presence copy and duration', () => {
-  it('varies only within the chosen sets, survives refresh and translates the same choice', async () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('draws independent choices, allows repeats and retains them across snapshots and locales', async () => {
+    const samples = [0, 0, 0, 0, 1 / 3 - Number.EPSILON, 1 / 3,
+      2 / 3 - Number.EPSILON, 2 / 3, 1 - Number.EPSILON, 1 - Number.EPSILON]
+    let draw = 0
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => samples[draw++ % samples.length])
     const connecting = ['正在和爱丽丝接上线…', '正在联系爱丽丝…', '正在与爱丽丝会合…']
     const working = ['爱丽丝正在为你推进…', '爱丽丝正在推进这项任务…', '爱丽丝正与你一起推进…']
     const englishConnecting = ['Connecting with 爱丽丝…', 'Reaching 爱丽丝…', 'Joining up with 爱丽丝…']
@@ -211,9 +217,15 @@ describe('conversation presence copy and duration', () => {
     const runs = Array.from({ length: 30 }, (_, index) => run(`choice-${index}`, 'alice'))
     const preview = (run: AgentRunView, waitReason: string | null) => runPresencePreview({ ...run, waitReason }, [], '爱丽丝').text
     const chinese = runs.map(run => [preview(run, 'runtime_initializing'), preview(run, null)])
+    expect(random).toHaveBeenCalledTimes(runs.length * 2)
+    expect(chinese.slice(0, 5)).toEqual([
+      [connecting[0], working[0]], [connecting[0], working[0]],
+      [connecting[0], working[1]], [connecting[1], working[2]], [connecting[2], working[2]]
+    ])
     expect(new Set(chinese.map(pair => pair[0]))).toEqual(new Set(connecting))
     expect(new Set(chinese.map(pair => pair[1]))).toEqual(new Set(working))
     expect(runs.map(run => [preview(structuredClone(run), 'runtime_initializing'), preview(structuredClone(run), null)])).toEqual(chinese)
+    expect(random).toHaveBeenCalledTimes(runs.length * 2)
     const api = { setInterfaceLanguage: async (interfaceLanguage: string) => ({ interfaceLanguage }) } as GeneralPreferencesApi
     try {
       await changeInterfaceLanguage(api, 'en')
@@ -228,6 +240,7 @@ describe('conversation presence copy and duration', () => {
     }
     expect(runs.map(run => [preview(run, 'runtime_initializing'), preview(run, null)])).toEqual(chinese)
     expect(runPresencePreview(runs[0], [], '另一位队员').text).toContain('另一位队员')
+    expect(random).toHaveBeenCalledTimes(runs.length * 2)
   })
 
   it('uses real start/end facts, clamps clock reversal and omits unknown durations', () => {

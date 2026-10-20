@@ -118,12 +118,19 @@ const fallbackCopy = {
   working: ['{0}正在为你推进…', '{0}正在推进这项任务…', '{0}正与你一起推进…']
 } as const
 
-/** Random Run IDs choose a phrase once, stable across ticks, remounts and locales. */
+// Keep only recent renderer-local choices; a full reload draws again.
+const fallbackChoices = new Map<string, number>()
+const maxFallbackChoices = 512
+
+/** Draw independently per Run/phase, then retain the index across ticks and locales. */
 function fallbackText(runId: string, phase: keyof typeof fallbackCopy, name: string): string {
-  let hash = 2166136261
-  for (const character of `${phase}:${runId}`) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
   const choices = fallbackCopy[phase]
-  return uiAttribute(choices[(hash >>> 0) % choices.length], name)
+  const key = `${phase}:${runId}`
+  const index = fallbackChoices.get(key) ?? Math.floor(Math.random() * choices.length)
+  fallbackChoices.delete(key)
+  fallbackChoices.set(key, index)
+  if (fallbackChoices.size > maxFallbackChoices) fallbackChoices.delete(fallbackChoices.keys().next().value!)
+  return uiAttribute(choices[index], name)
 }
 
 /** Only authoritative start/end timestamps contribute; unknown time stays absent. */

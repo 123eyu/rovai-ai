@@ -15,9 +15,11 @@ import { buildLiveExecutionProgress, liveRuntimeEventFromExecutionEvidence } fro
 import { SingleChatPanel } from '../../../apps/desktop/src/renderer/src/SingleChatPanel'
 import { ThreadClientProvider, type ThreadClient } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
+import { inputHistoryFor } from '../../../apps/desktop/src/renderer/src/input-history'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
 const threadId = 'rvcamp_01m1jkkpkzfvgraw1p4r9zfb7v'
+const inputHistoryMode = new URLSearchParams(location.search).has('inputHistory')
 const copiedLinks: string[] = []
 const recoveredDrafts = new Map<string, unknown>()
 let recoveryWrites = 0
@@ -315,6 +317,12 @@ Object.assign(window, {
       requests.push({ method, params })
       if (method === 'singleChat.list') return [currentSnapshot.conversation]
       if (method === 'singleChat.get') return currentSnapshot
+      if (method === 'singleChat.inputHistory') return {
+        items: inputHistoryMode ? ['private newest', 'private older'].map((text, index) => ({
+          historyId: `history-${index}`, cursor: String(index),
+          content: { version: 2, segments: [{ kind: 'text', text }] }
+        })) : [], nextCursor: inputHistoryMode ? '1' : null, hasMore: false
+      }
       if (method === 'agentRunExecution.page') return { runtimePhase: currentPhase === 'thinking' ? 'thinking' : 'executing', runtimeThinkingTitle: null }
       if (method === 'singleChat.pendingInputs.edit') {
         const { commandId, command } = params as unknown as { commandId: string,
@@ -359,7 +367,7 @@ Object.assign(window, {
         status: 'accepted', code: 'single_chat.reply_queued', payload: {
           conversationId,
           conversationVersion: currentSnapshot.conversation.version + 1,
-          conversationMessageId: 'message-keyboard-fixture',
+          ...(inputHistoryMode ? { pendingInputId: 'pending-history-send' } : { conversationMessageId: 'message-keyboard-fixture' }),
           threadTurnId: 'turn-keyboard-fixture',
           agentRunId: 'run-keyboard-fixture'
         }
@@ -445,6 +453,10 @@ createRoot(document.getElementById('root')!).render(<ThreadClientProvider client
 
 Object.assign(window, {
   singleChatTest: {
+    inputHistoryState: () => ({
+      ids: inputHistoryFor(fixtureClient).peek({ kind: 'single', threadId, conversationId })?.items.map(item => item.historyId) ?? [],
+      reads: requests.filter(request => request.method === 'singleChat.inputHistory').length
+    }),
     restoreDraft: () => restorePanel(),
     showPanel: (visible: boolean) => showPanel(visible),
     showWebLinks: (target: string) => {

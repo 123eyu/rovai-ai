@@ -90,8 +90,11 @@ All Members 候选继续显示广播说明，范围仍是发送时 Camp 中的�
 
 - Enter：Typeahead 先同步决定是否消费；其返回 false 后，非 Shift、非 composition、Composer 非空且允许发送时提交；
 - Shift+Enter：插入 LineBreak，领域文档导出为 Text 中的 `\n`；
-- Escape：先关闭 Typeahead，再关闭 Atom 激活态，始终保留正文；
-- Arrow Up/Down：仅在 Typeahead 打开时改变候选，否则保留正常光标行为；
+- Escape：候选/链接菜单优先；输入历史浏览时恢复原结构化草稿并消费事件，其余沿用 Atom 激活态关闭；
+- Arrow Up/Down：Typeahead 优先；会话输入在文档绝对起点用 Up 回看，浏览中在绝对终点用 Down 前进。
+  回看置于起点，前进置于终点；Down 越过最新项恢复草稿。有选区、修饰键或 IME 时保持原行为，
+  非浏览中的 Down 不接管。见 [Input History v1](../../contracts/input-history-v1.md)；
+  Mission 等非会话编辑器保持原行为；
 - Backspace/Delete：普通文本遵循原生 Lexical 行为，Atom 整体删除；绝对起点保留 `onBackspaceAtStart`；
 - Undo/Redo：覆盖输入、删除、粘贴、换行、Atom 插入/删除和选区替换；Catalog 与保存状态不进入历史。
 

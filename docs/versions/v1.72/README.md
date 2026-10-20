@@ -11,6 +11,11 @@ last_updated: 2026-10-20
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+User 于 2026-10-21 授权公共/单聊输入历史的独立实现，现已完成。范围与测试证据见
+[输入历史实施记录](input-history-implementation.md)，当前协议见
+[Input History v1](../../contracts/input-history-v1.md)。采用现有数据只读查询和内存缓存，
+不改变模型上下文、数据库 schema 或发布版本。
+
 ## 会话执行条（2026-10-20）
 
 按 User 确认的浅灰整行与无底停止图标实现，增加可点击运行时间，以独立转圈替换文字扫光。

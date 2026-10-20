@@ -63,10 +63,21 @@ Thread ID；同一项目可以有多份草稿。Pending presence 的导航、清
 搜索/around 临时载入的消息已经是可见的完整 reply target，Composer 直接冻结其最小本地 snapshot；发送事务再按
 Camp+messageId 验证。附件缩略图、应用内预览、系统打开与 reveal 走 Main authority，不依赖 Core Draft locator。
 
+## User 输入历史
+
+公共 Thread 与 Single Chat 共用 `InputHistoryStore` 和瞬时导航器；Core `input_history` 拥有只读查询，
+协议、缓存和预览规则见 [Input History v1](../contracts/input-history-v1.md)。独立会话分别缓存，
+不从聊天窗口分页或 Agent 执行状态推导输入历史。
+
+Lexical adapter 保留原 EditorState，预览只替换显示与有效输入；`ComposerDraftSync` 保存/重试仍引用
+原稿，编辑或发送才接管。工作区订阅路由需要的 live Atom，不因普通文本逐字输入新增整页重渲染。
+成功回执中的消息 ID 和冻结正文在清理草稿前加入内存历史；单聊 textarea 使用同一导航和缓存。
+
 ## 撤回不是草稿恢复
 
 发送后的本地 Principal 消息在首次目标 claim 前可以撤回。撤回操作针对已发布 CampMessage，原子取消 waiting Delivery
 并擦除受控原文；它不会把内容放回 Composer，也不是 Undo Send/草稿恢复。首次 claim 后撤回资格永久关闭。
+输入历史不监听撤回/跨端新增，已缓存内容仍可能由 User 主动回填，重新发送算新提交。
 
 ## 升级
 

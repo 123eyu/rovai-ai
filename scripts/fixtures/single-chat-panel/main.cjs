@@ -23,7 +23,7 @@ app.whenReady().then(async () => {
   window.webContents.on('console-message', (event) => console.error(event.message))
   const webOpens = []
   window.webContents.setWindowOpenHandler(({ url }) => { webOpens.push(url); return { action: 'deny' } })
-  await window.loadFile(renderer)
+  await window.loadFile(renderer, mode === '--input-history' ? { query: { inputHistory: '1' } } : undefined)
   const run = (code) => window.webContents.executeJavaScript(code, true)
   const settle = async (milliseconds = 40) => {
     await wait(milliseconds)
@@ -99,6 +99,66 @@ app.whenReady().then(async () => {
 
   try {
     await waitFor("Boolean(document.querySelector('.single-chat-final'))")
+    if (mode === '--input-history') {
+      const input = '.single-chat-composer textarea'
+      const webState = () => run('window.singleChatTest.webState()')
+      const boundary = async end => {
+        await run(`(() => {const node=document.querySelector('${input}'); node.focus();
+          node.setSelectionRange(${end ? 'node.value.length' : '0'},${end ? 'node.value.length' : '0'})})()`)
+        await settle()
+      }
+      const historyKey = async (key, extra = {}) => {
+        const consumed = await run(`(() => {
+          const event=new KeyboardEvent('keydown',{key:${JSON.stringify(key)},bubbles:true,cancelable:true,...${JSON.stringify(extra)}});
+          document.querySelector('${input}').dispatchEvent(event); return event.defaultPrevented;
+        })()`)
+        await settle()
+        return consumed
+      }
+      await fillComposer('原单聊草稿')
+      await boundary(false)
+      const writes = (await webState()).recoveryWrites
+      assert.equal(await historyKey('ArrowUp', { isComposing: true }), false)
+      assert.equal(await historyKey('ArrowUp', { shiftKey: true }), false)
+      assert.equal(await historyKey('ArrowUp'), true)
+      assert.equal((await webState()).value, 'private newest')
+      assert.equal((await webState()).recoveryWrites, writes)
+      await historyKey('ArrowUp')
+      assert.equal((await webState()).value, 'private older')
+      await boundary(true)
+      await historyKey('ArrowDown')
+      assert.equal((await webState()).value, 'private newest')
+      assert.equal(await historyKey('Escape'), true)
+      assert.equal((await webState()).value, '原单聊草稿')
+      assert.ok(await run("Boolean(document.querySelector('.single-chat-popover:not([hidden])'))"), 'Esc restores without closing the panel')
+      await boundary(false)
+      await historyKey('ArrowUp')
+      await run('window.singleChatTest.restoreDraft()')
+      await settle()
+      assert.equal((await webState()).value, '原单聊草稿', 'remount recovers the real draft')
+      assert.equal(await run('window.singleChatTest.inputHistoryState().reads'), 1)
+      await run('window.singleChatTest.setMode("running", true)')
+      await fillComposer('')
+      await waitFor("document.querySelector('.single-chat-composer .composer-primary-action')?.getAttribute('aria-label') === '停止当前执行'")
+      await boundary(false)
+      await historyKey('ArrowUp')
+      assert.equal(await run("document.querySelector('.single-chat-composer .composer-primary-action').getAttribute('type')"), 'submit')
+      await dispatchComposerEnter(false)
+      await waitFor('window.singleChatTest.webState().sends.length === 1')
+      assert.equal((await webState()).sends[0].command.body, 'private newest')
+      await waitFor('window.singleChatTest.webState().value === ""')
+      assert.equal(await run('window.singleChatTest.inputHistoryState().ids[0]'), 'pending-history-send')
+      await boundary(false)
+      await historyKey('ArrowUp')
+      assert.equal((await webState()).value, 'private newest')
+      await fillComposer('edited private history')
+      assert.equal(await historyKey('Escape'), true, 'after editing, Escape resumes the ordinary panel-close behavior')
+      assert.ok(await run("Boolean(document.querySelector('.single-chat-popover[hidden]'))"))
+      assert.equal((await webState()).value, 'edited private history')
+      console.log(JSON.stringify({ ok: true, verified: { inputHistory: true, previewSend: true, draftRecovery: true } }))
+      window.destroy(); app.quit()
+      return
+    }
     if (mode === '--web-links') {
       window.webContents.debugger.attach('1.3')
       await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })

@@ -49,6 +49,8 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
   [Camp History v10](../contracts/camp-history-v10.md)；理由：[V1.69-D01](../versions/v1.69/decisions.md#v1-69-d01)、[V1.60-D03](../versions/v1.60/decisions.md#v1-60-d03)、
   [V1.60-D08](../versions/v1.60/decisions.md#v1-60-d08)、
   [V1.60-D10](../versions/v1.60/decisions.md#v1-60-d10)。
+- User 公共/单聊输入历史：[Input History v1](../contracts/input-history-v1.md)；
+  真实 ID 入缓存、预览保留原稿和允许陈旧的实现边界见[本版实施记录](../versions/v1.72/input-history-implementation.md)。
 - 多输入 Context 与完整运输：[ContextManifest v32](../contracts/context-manifest-evidence-v32.md)、
   [Profile 11](../contracts/context-delivery-profile-v11.md)、[Run Facts v7](../contracts/run-facts-v7.md)、
   [Built-in Transport v33](../contracts/builtin-tool-transport-v33.md)；理由：

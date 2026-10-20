@@ -49,6 +49,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 ## Navigation
 
 - [Navigation Read v1（当前）](navigation-read-v1.md)：单会话、单分组、完整摘要快照，观察水位内已读确认与局部失效。
+- [Input History v1（当前）](input-history-v1.md)：公共/单聊输入分页、共享 LRU、真实提交身份与草稿预览。
 
 ## Mission
 

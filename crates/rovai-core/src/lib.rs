@@ -69,6 +69,7 @@ mod execution_wake;
 pub mod execution_window;
 pub mod file_preview_authority;
 pub mod git;
+pub mod input_history;
 pub mod local_attachment_snapshot;
 pub mod local_attachment_source;
 pub mod managed_attachment;

@@ -177,6 +177,8 @@ Each section owns its “放弃更改” and neutral primary save control: a 14p
 both sections' pending drafts for each visited teammate. Saving one section advances its accepted baseline
 without resetting the other. A conflicting external update preserves the local draft and blocks that section's
 save until the user reloads its saved values. Leaving the workspace confirms discarding pending changes.
+The environment editor does not add its own “已保存。” line; saving uses the enclosing Runtime section's
+existing clean state and disabled save/discard controls.
 
 New teammates use the same page. The pending draft has a separate bottom roster row and is excluded from
 saved teammate counts and ordering. Only a name is required. Runtime configuration becomes available after

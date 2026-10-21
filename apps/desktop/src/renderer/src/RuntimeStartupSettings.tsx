@@ -257,10 +257,12 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel,
           <button className="quiet-button runtime-conflict-use-external" type="button" disabled={locked} onClick={() => resolveConflict(conflict, false)}><UiText zh={"采用外部修改"} /></button>
         </div>
       </div>)}
-      <footer className="runtime-startup-actions">
-        {saveCompleted && <span className="runtime-startup-result" role="status"><UiText zh="已保存" /></span>}
-        <button className="quiet-button" type="button" disabled={!dirty || locked} onClick={discard}><UiText zh={"放弃更改"} /></button>
-        <button className="quiet-button member-editor-save" type="submit" disabled={!canSave || locked}><DialogControlIcon name="save" />{busy === 'save' ? uiAttribute("正在保存…") : uiAttribute("保存")}</button>
+      <footer className="runtime-startup-actions member-editor-save-row">
+        <span className="member-editor-save-status" role="status">{saveCompleted && <UiText zh="已保存" />}</span>
+        <div>
+          <button className="quiet-button" type="button" disabled={!dirty || locked} onClick={discard}><UiText zh={"放弃更改"} /></button>
+          <button className="quiet-button member-editor-save" type="submit" disabled={!canSave || locked}><DialogControlIcon name="save" />{busy === 'save' ? uiAttribute("正在保存…") : uiAttribute("保存")}</button>
+        </div>
       </footer>
     </form>
   </section></Activity>

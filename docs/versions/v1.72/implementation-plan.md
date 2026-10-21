@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # v1.72 实施与验收
@@ -21,8 +21,20 @@ last_updated: 2026-10-20
   Core/Agent 观察；`source_path_message_bypasses_managed_attachment_publication` 负责 Desktop 原始
   显示名实际发布、持久化与 Runtime 路径。未新增、删除或禁用 Rust 测试函数。
 - 扩展已有 Desktop registry 恢复测试，确认带冒号显示名在重启恢复后保留 ID 和真实路径。
+- 渠道入站复用原有有界 MIME 探测，直接传递既有展示标签，避免将带 `file-` 前缀的实际文件名
+  当成显示名检查。原渠道原子准入 owner 增加 120 码点标签，确认安全落盘名称和 MIME 识别保持。
 
-验证结果待本轮执行后补齐。
+修复前附件模块的两项新增 case 分别复现“显示名被替换”和原始 normalized 报错；修复后该模块
+5 项测试全部通过。Desktop registry 13 项、`pnpm typecheck`、`pnpm test`（Vitest 2816 项）、
+`pnpm build:desktop` 与使用真实 base 的 `pnpm docs:check:ci` 已通过。
+最终代码的默认 Rust workspace 回归通过：474 项通过、1 项既有 ignored。实际发布
+（`slow-tests`）、渠道原子准入（`extended-tests`）与旧安全文件名清洗三个定向 owner 均通过。
+规范与需求两个独立静态审查均无发现；未启动日常 App 或调用真实模型。
+
+`pnpm test:rust:extended` 暴露主干既有的
+`every_acp_adapter_uses_terminal_runtime_action_output_not_command_delta` 断言失败：实际 ACP 数量为
+15，旧断言为 14。该测试函数与 `agent_profile.rs` 均和基线 `2773f3bc3` 完全一致；定向执行也在
+同一个数量断言处失败。保留该失败记录，扩展层不记为全绿；本次没有改写或跳过无关断言。
 
 ## 单次长文本粘贴转附件（2026-10-20）
 

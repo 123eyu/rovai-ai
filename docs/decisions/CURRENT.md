@@ -1,7 +1,7 @@
 ---
 document_type: current-decision-navigation
 authority: current-authority-and-rationale-routing
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # 当前规范与决定理由导航

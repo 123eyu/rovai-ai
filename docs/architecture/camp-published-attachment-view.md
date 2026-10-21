@@ -3,7 +3,7 @@ document_type: architecture
 architecture: camp-attachments
 authority: live-source-references-and-legacy-attachment-reads
 status: accepted
-last_updated: 2026-09-22
+last_updated: 2026-10-21
 ---
 
 # Camp Attachments：原路径引用、默认输出与历史读取

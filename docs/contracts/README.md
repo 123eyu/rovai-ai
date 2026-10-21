@@ -1,7 +1,7 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # 长期接口合同

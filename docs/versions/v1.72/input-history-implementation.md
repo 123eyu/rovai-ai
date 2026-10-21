@@ -70,3 +70,18 @@ node --test --test-concurrency=1 --test-name-pattern='input history' scripts/lib
 Rust 两个查询测试及前端缓存测试的数量变化来自上述合同退役；未用旧方案的分页/索引测试结果替代当前验收。
 Electron 使用脚本生成的独立绝对 userData；这些输入历史夹具不启动 Core、SQLite、Skill Library 或模型。
 没有启动日常 App、写入日常数据库或执行真实 Runtime。
+
+## 预览中撤销/重做修正
+
+在 `d8a39c3087af40c205f479d08d16824ead61d9fa` 上复现：公共输入从草稿 A 改为 B，进入历史预览、
+仅移动光标后直接 Undo / Redo，Redo 会恢复历史正文；单聊 Esc 恢复未变化的原稿会额外写一次 editing recovery。
+修复前新增的两个生产组件回归场景均失败，分别命中上述结果。
+
+- 公共插件消费预览中的 Undo / Redo，结束本轮并恢复原 EditorState；通过 Lexical `$onUpdate`
+  在恢复提交完成后转交同一命令，沿用已有撤销栈。未浏览时直接放行，不增加历史或恢复状态。
+- 单聊仅在当前草稿正文不同于快照时调用 `setDraft`；选区与预览清理保持原流程。
+- CampOpen fixture 增加预览中直接 Undo / Redo、反向操作及空 Redo 栈覆盖；Single Chat fixture
+  验证 Esc / ↓ 越过最新条目不增加 recovery 写入。
+
+修复后两个输入历史 Electron 场景、18 项历史/保存器 Vitest、`pnpm typecheck` 均通过。
+本次验证沿用隔离 Renderer fixture，不启动 Core 或 Runtime。

@@ -1,9 +1,9 @@
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import {
-  $addUpdateTag, $getRoot, $getSelection, $isElementNode, $isRangeSelection,
+  $addUpdateTag, $getRoot, $getSelection, $isElementNode, $isRangeSelection, $onUpdate,
   COMMAND_PRIORITY_NORMAL, HISTORIC_TAG, HISTORY_MERGE_TAG,
   KEY_ARROW_UP_COMMAND, KEY_ARROW_DOWN_COMMAND, KEY_ESCAPE_COMMAND,
-  mergeRegister, type EditorState
+  UNDO_COMMAND, REDO_COMMAND, mergeRegister, type EditorState, type LexicalCommand
 } from 'lexical'
 import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import type { ComposerDocument } from '@contracts'
@@ -73,10 +73,20 @@ export function ComposerInputHistoryPlugin({ getHistory, syncRef, navigationRef 
       event.preventDefault()
       return true
     }
+    const restoreBeforeHistoryCommand = (command: LexicalCommand<void>): boolean => {
+      if (!navigation.cancel()) return false
+      // Caret-only changes can merge the preview into Lexical's current history
+      // entry. Restore and commit the real draft before forwarding the command;
+      // nested editor.update() calls have not committed when cancel() returns.
+      $onUpdate(() => editor.dispatchCommand(command, undefined))
+      return true
+    }
     const unregister = mergeRegister(
       editor.registerCommand(KEY_ARROW_UP_COMMAND, handle, COMMAND_PRIORITY_NORMAL),
       editor.registerCommand(KEY_ARROW_DOWN_COMMAND, handle, COMMAND_PRIORITY_NORMAL),
-      editor.registerCommand(KEY_ESCAPE_COMMAND, handle, COMMAND_PRIORITY_NORMAL)
+      editor.registerCommand(KEY_ESCAPE_COMMAND, handle, COMMAND_PRIORITY_NORMAL),
+      editor.registerCommand(UNDO_COMMAND, () => restoreBeforeHistoryCommand(UNDO_COMMAND), COMMAND_PRIORITY_NORMAL),
+      editor.registerCommand(REDO_COMMAND, () => restoreBeforeHistoryCommand(REDO_COMMAND), COMMAND_PRIORITY_NORMAL)
     )
     return () => {
       unregister()

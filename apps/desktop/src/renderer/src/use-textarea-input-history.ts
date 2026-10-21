@@ -31,7 +31,7 @@ export function useTextareaInputHistory({
       selection.current = snapshot
       previewRef.current = null
       setPreview(null)
-      current.current.setDraft(snapshot.draft)
+      if (current.current.draft !== snapshot.draft) current.current.setDraft(snapshot.draft)
     }
   }) : null, [target, inputRef])
 

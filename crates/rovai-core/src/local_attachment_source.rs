@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    db::Database,
-    local_attachment_snapshot::{DIRECTORY_MEDIA_TYPE, normalize_display_name},
+    db::Database, local_attachment_snapshot::DIRECTORY_MEDIA_TYPE,
     runtime::resolve_agent_local_path,
 };
 
@@ -350,10 +349,7 @@ fn validate_ref_shape(refs: &[LocalAttachmentSourceRef]) -> Result<()> {
             Path::new(&source_ref.source_path).is_absolute(),
             "Source Attachment path must be absolute"
         );
-        anyhow::ensure!(
-            normalize_display_name(&source_ref.display_name)? == source_ref.display_name,
-            "Source Attachment display name is not normalized"
-        );
+        validate_display_name(&source_ref.display_name)?;
         if source_ref.kind == LocalAttachmentKind::Directory {
             anyhow::ensure!(
                 source_ref.observed_byte_size.is_none(),
@@ -361,6 +357,27 @@ fn validate_ref_shape(refs: &[LocalAttachmentSourceRef]) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+/// Source names are display metadata, never destination path components.
+/// File-creating ingress keeps its own safe-leaf normalization.
+fn validate_display_name(value: &str) -> Result<()> {
+    anyhow::ensure!(
+        !value.trim().is_empty(),
+        "Source Attachment display name is empty"
+    );
+    anyhow::ensure!(
+        value.chars().count() <= 120,
+        "Source Attachment display name exceeds 120 characters"
+    );
+    anyhow::ensure!(
+        !value.chars().any(|character| {
+            character.is_control()
+                || matches!(character, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        }),
+        "Source Attachment display name contains control characters"
+    );
     Ok(())
 }
 
@@ -373,6 +390,7 @@ pub fn observe_source_attachment(
         source_path.is_absolute(),
         "Source Attachment path must be absolute"
     );
+    validate_display_name(display_name)?;
     let metadata = fs::metadata(source_path).context("attachment_unreadable")?;
     let kind = if metadata.is_file() {
         fs::File::open(source_path).context("attachment_unreadable")?;
@@ -393,7 +411,7 @@ pub fn observe_source_attachment(
             .to_str()
             .context("Source Attachment path must be valid UTF-8")?
             .to_string(),
-        display_name: normalize_display_name(display_name)?,
+        display_name: display_name.to_string(),
         kind,
         media_type: (kind == LocalAttachmentKind::File)
             .then_some(media_type)
@@ -415,21 +433,29 @@ pub fn observe_agent_source_attachments(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("Attachment path must name a file or directory")?;
-            let mut source = observe_source_attachment(&path, name, None)?;
-            if source.kind == LocalAttachmentKind::File {
-                let mut prefix = Vec::new();
-                fs::File::open(&path)?.take(4096).read_to_end(&mut prefix)?;
-                source.media_type = Some(
-                    crate::local_attachment_snapshot::inspect_prefix(
-                        &prefix,
-                        source.observed_byte_size.unwrap_or(0),
-                    )
-                    .media_type,
-                );
-            }
-            Ok(source)
+            observe_source_attachment_with_detected_media_type(&path, name)
         })
         .collect()
+}
+
+/// A bounded MIME probe with a display label independent of the physical leaf.
+pub(crate) fn observe_source_attachment_with_detected_media_type(
+    path: &Path,
+    display_name: &str,
+) -> Result<LocalAttachmentSourceRef> {
+    let mut source = observe_source_attachment(path, display_name, None)?;
+    if source.kind == LocalAttachmentKind::File {
+        let mut prefix = Vec::new();
+        fs::File::open(path)?.take(4096).read_to_end(&mut prefix)?;
+        source.media_type = Some(
+            crate::local_attachment_snapshot::inspect_prefix(
+                &prefix,
+                source.observed_byte_size.unwrap_or(0),
+            )
+            .media_type,
+        );
+    }
+    Ok(source)
 }
 
 /// Identity reuse is scoped to records in this Camp, without scanning any files.
@@ -768,6 +794,52 @@ mod tests {
         assert!(view.get("sourcePath").is_none());
         assert_eq!(view["availability"], "unknown");
 
+        // Desktop sends and restored drafts carry the original display label.
+        // It is not a path component, including when it contains a timestamp.
+        for name in [
+            "report_2026-10-19 14:17:26.txt".to_string(),
+            " reports:2026 ".to_string(),
+            ".hidden.".to_string(),
+            "notes/a\\b.txt".to_string(),
+            "报告 🌸.txt".to_string(),
+            "🌸".repeat(120),
+        ] {
+            let mut reference = source_ref.clone();
+            reference.display_name = name.clone();
+            let encoded = serialize_source_attachments(std::slice::from_ref(&reference)).unwrap();
+            let restored = parse_source_attachments(&encoded).unwrap();
+            assert_eq!(restored, [reference]);
+            assert_eq!(
+                restored[0]
+                    .view(LocalAttachmentAvailability::Unknown)
+                    .display_name,
+                name
+            );
+        }
+        let mut invalid_names = vec![
+            String::new(),
+            " \u{00a0} ".to_string(),
+            "🌸".repeat(121),
+            "line\nbreak.txt".to_string(),
+            "null\0.txt".to_string(),
+            "delete\u{007f}.txt".to_string(),
+            "control\u{0085}.txt".to_string(),
+        ];
+        invalid_names.extend(
+            [
+                '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}', '\u{2066}', '\u{2067}',
+                '\u{2068}', '\u{2069}',
+            ]
+            .map(|control| format!("report{control}.txt")),
+        );
+        for name in invalid_names {
+            let mut reference = source_ref.clone();
+            reference.display_name = name;
+            assert!(serialize_source_attachments(std::slice::from_ref(&reference)).is_err());
+            let encoded = serde_json::to_string(&[reference]).unwrap();
+            assert!(parse_source_attachments(&encoded).is_err());
+        }
+
         let mut malformed = serde_json::to_value([source_ref]).unwrap();
         malformed[0]["unexpected"] = serde_json::json!(true);
         assert!(parse_source_attachments(&malformed.to_string()).is_err());
@@ -778,12 +850,21 @@ mod tests {
         let root = std::env::temp_dir().join(format!("rovai-source-resolver-{}", Uuid::new_v4()));
         let directory = root.join("directory");
         fs::create_dir_all(&directory).unwrap();
-        let file = root.join("file.txt");
+        let display_name = "report_2026-10-19 14:17:26.txt";
+        let file_name = if cfg!(windows) {
+            "file.txt"
+        } else {
+            display_name
+        };
+        let file = root.join(file_name);
         fs::write(&file, b"content").unwrap();
         let refs = [
-            observe_source_attachment(&file, "file.txt", Some("text/plain")).unwrap(),
-            observe_source_attachment(&directory, "directory", None).unwrap(),
+            observe_source_attachment(&file, display_name, Some("text/plain")).unwrap(),
+            observe_source_attachment(&directory, "Reports: 2026", None).unwrap(),
         ];
+        assert_eq!(refs[0].display_name, display_name);
+        assert_eq!(refs[1].display_name, "Reports: 2026");
+        let refs = parse_source_attachments(&serialize_source_attachments(&refs).unwrap()).unwrap();
 
         let resolved = resolve_source_attachments_for_run(&refs).unwrap();
         assert_eq!(
@@ -793,14 +874,15 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         let observed = observe_agent_source_attachments(
-            &["./file.txt".into(), directory.to_str().unwrap().into()],
+            &[format!("./{file_name}"), directory.to_str().unwrap().into()],
             &root,
         )
         .unwrap();
         assert_eq!(
             observed[0].source_path,
-            root.join("./file.txt").to_str().unwrap()
+            root.join(format!("./{file_name}")).to_str().unwrap()
         );
+        assert_eq!(observed[0].display_name, file_name);
         assert_eq!(observed[1].source_path, directory.to_str().unwrap());
         let missing = root.join("./missing.txt");
         assert_eq!(

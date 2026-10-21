@@ -8,6 +8,22 @@ last_updated: 2026-10-20
 
 # v1.72 实施与验收
 
+## 原路径附件显示名（2026-10-21）
+
+- 工作目录：同级 worktree `rovai-ai-source-attachment-display-name`，分支
+  `rovai/source-attachment-display-name`，基线 `2773f3bc3`；不要求治理先行提交。
+- Source Ref 读写与观察入口使用展示文本检查，保留通过检查的原名；不再要求显示名等于
+  `normalize_display_name` 的安全落盘名称。路径、身份、owner 授权与文件有效性规则不变。
+- Contract 升为 [v11](../../contracts/camp-attachment-v11.md)，同步当前架构和导航。
+  无字段或模型输入结构变更、数据库迁移或新增版本决定。
+- 扩展已有 Rust owner：`source_ref_json_is_closed_and_pathless_view_is_stable` 负责名称输入矩阵、
+  序列化/恢复与展示；`resolver_returns_exact_stored_paths_for_files_and_directories` 负责原路径与
+  Core/Agent 观察；`source_path_message_bypasses_managed_attachment_publication` 负责 Desktop 原始
+  显示名实际发布、持久化与 Runtime 路径。未新增、删除或禁用 Rust 测试函数。
+- 扩展已有 Desktop registry 恢复测试，确认带冒号显示名在重启恢复后保留 ID 和真实路径。
+
+验证结果待本轮执行后补齐。
+
 ## 单次长文本粘贴转附件（2026-10-20）
 
 复用分支 `rovai/long-text-paste-attachment` 与同级 worktree `rovai-ai-long-text-paste`，本轮合入 main 基线

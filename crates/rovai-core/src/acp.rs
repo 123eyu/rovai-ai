@@ -11937,6 +11937,7 @@ while IFS= read -r ignored; do :; done
                         value: root.join("home").to_string_lossy().into_owned(),
                     }],
                     custom_api_snapshot: None,
+                    common_environment_unavailable: false,
                 },
             );
         crate::runtime_discovery::with_runtime_configuration(

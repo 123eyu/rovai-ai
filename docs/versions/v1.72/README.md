@@ -11,6 +11,13 @@ last_updated: 2026-10-21
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 智能体通用环境配置（2026-10-21）
+
+按 User 确认的第三版交互稿接入 Runtime 通用变量、队员继承与原地只读预览，
+保持已有进程与队员草稿。字段、加密、检查失效及 schema 161 升级由
+[Runtime Launch v68](../../contracts/runtime-launch-and-verification-v68.md)拥有；
+实施与验收见[通用环境配置记录](shared-environment-implementation.md)。不改变模型上下文或发布版本。
+
 ## 操作提示精简（2026-10-21）
 
 按 User 确认移除复制会话 ID／项目路径／附件路径、项目改名与移除、撤回、结束单聊、成员邀请／移出、

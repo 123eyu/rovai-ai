@@ -1,3 +1,4 @@
+import { CommonEnvironmentEditor, useCommonEnvironment } from './CommonEnvironmentEditor'
 import { useThreadClient } from './camp-client'
 import { useEffect, useId, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
@@ -15,10 +16,11 @@ const INSPECTION_LABELS: Record<RuntimeStartupInspection['status'], string> = {
   authentication_required: '已识别程序，需要登录', ready: '检查通过', check_failed: '检查未通过，请确认登录和运行环境'
 }
 
-export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
-  runtimeKind: AdapterKind; health: RuntimeStatus | null; onBack(): void
+export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel }: {
+  runtimeKind: AdapterKind; health: RuntimeStatus | null; onBack(): void; backLabel?: string
 }): React.JSX.Element {
   const client = useThreadClient()
+  const common = useCommonEnvironment(runtimeKind, health?.hostPlatform === 'windows-x64')
   const [saved, setSaved] = useState<StartupSettings | null>(null)
   const [draft, setDraft] = useState<RuntimeStartupConfiguration>(EMPTY)
   const [busy, setBusy] = useState<'load' | 'save' | 'pick' | 'inspect' | 'check' | null>('load')
@@ -33,7 +35,8 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
   const loaded = useRef(false)
   const state = useRef({ draft, busy, dirty: false, saved })
   const id = useId()
-  const dirty = saved !== null && runtimeStartupKey(draft) !== runtimeStartupKey(saved.configuration)
+  const startupDirty = saved !== null && runtimeStartupKey(draft) !== runtimeStartupKey(saved.configuration)
+  const dirty = startupDirty || common.dirty
   const canSave = dirty && conflicts.length === 0
   state.current = { draft, busy, dirty, saved }
   const item = health?.runtimeAvailability.find((candidate) => candidate.runtimeKind === runtimeKind)
@@ -43,6 +46,7 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
   const applySaved = (settings: StartupSettings): void => {
     setSaved(settings)
     setDraft(settings.configuration)
+    common.accept(settings.commonEnvironment ?? { revision: 0, environment: {} })
     setConflicts([])
   }
 
@@ -87,7 +91,8 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
     setInspection(null)
     try {
       const result = await client.request<RuntimeStartupInspection>(deep ? 'runtime.startup.check' : 'runtime.startup.inspect', {
-        runtimeKind, configuration: normalizedStartupConfiguration({ programPath: next.programPath, environment: next.environment })
+        runtimeKind, configuration: normalizedStartupConfiguration({ programPath: next.programPath, environment: next.environment }),
+        commonEnvironment: common.edit()
       })
       if (sequence.current === request) setInspection(result)
     } catch (nextError) {
@@ -114,13 +119,14 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
   const save = async (): Promise<void> => {
     if (!saved || !canSave || busy) return
     const next = normalizedStartupConfiguration(draft)
+    try { common.edit() } catch { return }
     setBusy('save')
     setSaveCompleted(false)
     setError(null)
     try {
       const edits = startupEdits(saved, next)
       const response = await client.request<StartupSettings | { status: 'conflict'; latest: StartupSettings; conflicts: FieldConflict[] }>('runtime.startup.save', {
-        runtimeKind, edits
+        runtimeKind, edits, commonEnvironment: common.dirty ? common.edit() : undefined
       })
       if ('status' in response) {
         let merged = editableSnapshot(response.latest.configuration)
@@ -132,8 +138,13 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
         return
       }
       applySaved(response)
+      if (response.commonEnvironment) common.saved(response.commonEnvironment)
       setSaveCompleted(true)
-    } catch (nextError) { setError(readErrorMessage(nextError)) }
+    } catch (nextError) {
+      const message = readErrorMessage(nextError)
+      if (message.includes('Common environment changed')) common.fail(uiAttribute('通用配置已在其他位置更新，请重新读取。'))
+      else setError(message)
+    }
     finally { setBusy(null) }
   }
 
@@ -166,12 +177,12 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
   const statusLabel = busy === 'inspect' ? uiAttribute('正在验证程序…') : busy === 'check' ? uiAttribute('正在检查状态…') : status ? uiAttribute(INSPECTION_LABELS[status]) : null
   const locked = busy !== null || saved === null || loadError !== null
   const displayedPath = draft.programPath ?? (inspection ? inspection.executablePath :
-    !dirty && !saved?.reconnectRequired && !error && busy !== 'inspect' && busy !== 'check' ? initialPath : null)
+    !startupDirty && !saved?.reconnectRequired && !error && busy !== 'inspect' && busy !== 'check' ? initialPath : null)
   const environmentIncomplete = (inspection?.searchEnvironment?.diagnosticCodes?.length ?? 0) > 0
 
   return <section className="runtime-startup-page" aria-busy={busy === 'load' || busy === 'save'}>
     <button className="quiet-button runtime-startup-back" type="button" disabled={busy !== null}
-      onClick={() => dirty ? setConfirmAction('back') : onBack()}><DialogControlIcon name="back" /><UiText zh={"智能体"} /></button>
+      onClick={() => dirty ? setConfirmAction('back') : onBack()}><DialogControlIcon name="back" />{backLabel ?? uiAttribute('智能体')}</button>
     <header className="runtime-startup-heading">
       <span className="runtime-product-logo" aria-hidden="true"><img src={PRODUCT_RUNTIME_LOGOS[runtimeKind]} alt="" /></span>
       <div><h1>{label}</h1><p><UiText zh={"启动设置"} /></p></div>
@@ -196,6 +207,7 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack }: {
         {environmentIncomplete && <p className="runtime-startup-result is-warning" role="status"><UiText zh={"部分查找来源不可用，本次结果使用已读取的可用环境。"} /></p>}
       </section>
 
+      <CommonEnvironmentEditor environment={common} disabled={locked} onChange={() => { sequence.current++; setInspection(null); setError(null); setSaveCompleted(false) }}/>
       {saved && error && <p className="inline-error" role="alert">{error}</p>}
       {conflicts.map((conflict) => <div className="runtime-save-conflict" role="alert" key={JSON.stringify(conflict.path)}>
         <p>{conflict.label}<UiText zh={"也在外部修改过，请选择保留哪一项。其他编辑已保留。"} /></p>

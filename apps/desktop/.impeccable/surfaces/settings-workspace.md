@@ -370,3 +370,11 @@ a disabled entry or an alternative connection editor. Existing native files rema
 Save ends from its local receipt and shows “已保存”; it does not call parent reloads, native observation or
 runtime checks. Preserve failed drafts and field conflict recovery. Native login/install guides remain in
 the Runtime catalog. Behavior is owned by [Runtime Launch v52](../../../../docs/contracts/runtime-launch-and-verification-v52.md).
+
+## 通用环境变量
+
+智能体的启动设置在程序路径下提供紧凑 JSON 编辑器“通用环境变量”，沿用原保存和放弃操作。
+标题旁的 ? 支持 hover、键盘 focus 和触屏点击，说明为“用于在不同队员之间共享一些配置变量。”；Escape 可收起。
+不增加使用人数入口、继承/覆盖数量、模式选择器或密钥管理弹窗。显示密钥复用队员编辑器的显式查看行为。
+由队员进入时使用具名返回入口，保留其草稿和位置；直接进入保留原返回。精确数据规则见
+[Runtime Launch v68](../../../../docs/contracts/runtime-launch-and-verification-v68.md)。

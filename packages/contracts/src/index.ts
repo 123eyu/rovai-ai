@@ -385,6 +385,7 @@ export interface RuntimeStartupConfiguration {
 }
 
 export interface RuntimeStartupSettings {
+  commonEnvironment?: { revision: number; environment: Record<string, string> }
   runtimeKind: AdapterKind
   revision: number
   configuration: RuntimeStartupConfiguration
@@ -4174,6 +4175,7 @@ export type CoreMethod =
   | 'runtime.product.ensure'
   | 'runtime.product.check'
   | 'runtime.startup.get'
+  | 'runtime.environment.get'
   | 'member.runtimeEnvironment.get'
   | 'runtime.environmentLegacy.list'
   | 'runtime.environmentLegacy.get'

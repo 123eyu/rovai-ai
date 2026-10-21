@@ -100,6 +100,7 @@ export const WEB_OPERATIONS = [
   'mcp.import.scan',
   'mcp.import.commit',
   'runtime.startup.get',
+  'runtime.environment.get',
   'member.runtimeEnvironment.get',
   'conversations.memberSession.get',
   'conversations.restartNativeSession',

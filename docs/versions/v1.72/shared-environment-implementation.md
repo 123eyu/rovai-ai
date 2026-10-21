@@ -1,0 +1,68 @@
+---
+document_type: implementation-plan
+version: v1.72
+lifecycle: current
+authority: implementation-status
+last_updated: 2026-10-21
+---
+
+# 通用环境配置实施与验收
+
+User 于 2026-10-21 确认第三版交互稿并授权独立 worktree 实施。数据合同见
+[Runtime Launch v68](../../contracts/runtime-launch-and-verification-v68.md)，界面合同见
+[队员环境变量](../../ui/components/member-identity.md#队员环境变量)。
+
+## 工作区
+
+- 分支：`rovai/shared-runtime-environment`。
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-shared-runtime-environment`。
+- 基线：`origin/main`，`52758245275b024122e4fd35414362f05298b646`。
+- 无需前置治理提交。状态：active，实施和回归中；原主工作区保持不动。
+
+## 实施范围
+
+Core 新增独立加密通用版本和成员继承偏好，复用原有环境解析、掩码和私有 key。
+路径及通用配置共同提交；正式检测、草稿检查和模型目录消费通用变量；新进程按三层合并。
+保留健康 Warm、新进程读取、归档只读及原生文件不写入边界。
+
+Renderer 共用正式启动设置和队员编辑器，通用非空才显示额外操作；只读预览不改动本地草稿。
+进入对应设置保留成员页面，具名返回恢复滚动；中英文、日夜主题与窄屏使用同一组件。
+Desktop 与 Web 的 Owner 方法白名单同步扩展，不向 Agent 工具开放配置入口。
+
+## 验证归属
+
+优先扩展既有 owner：
+
+- `member_environment::tests::private_versions_preserve_credentials_and_new_launches_read_current_configuration`：
+  三层合并、不同 Runtime、空值、覆盖删除、关闭继承、旧非空默认独立、密文和 revision 冲突；
+  损坏通用记录不阻止 Host 配置加载或独立队员。
+- `runtime_custom_api::tests::startup_saves_preserve_native_files_and_merge_only_local_preferences`：
+  路径/通用保存事务、原生文件保留，以及首次通用保存不改变旧手动入口。
+- `runtime_check_environment::tests::fresh_formal_and_draft_checks_preserve_program_selection_and_private_state`：
+  实际合成子进程收到保存/草稿通用值，正式与草稿状态隔离和检查环境失效。
+- `scripts/fixtures/member-editor`：生产组件的原地只读、格式保留、凭据掩码、草稿检查、失败重试、具名返回、
+  保存不复制通用值、取消继承、放弃通用编辑和清空后恢复紧凑编辑器；保留原队员交互回归。
+
+新增独立 Rust owner 仅为 `db::shared_environment::tests::shared_environment_upgrade_is_atomic_and_does_not_read_legacy_credentials`。
+修复前 schema 160 无通用表，DDL/回执中途失败后需完整回滚；无旧 key、损坏旧 ciphertext 仍必须能升级，且
+不能启用归档。原快照退役 owner 不拥有新增表事务，纯解析不足以证明 SQL 回滚及重开，因此复用最小隔离数据库，
+进入 extended-tests。最小命令：`cargo test -p rovai-core --features extended-tests --lib environment`。
+
+初轮 UI 验收暴露测试夹具没有正式 discovery 子对象，已补全；旧迁移 owner 在旧 schema 上调用新 getter，
+已调整为完成新升级后读回；既有升级 helper 完成最新 migration 后再断言 current。保存成功后的 Profile 刷新
+原先会二次清空环境编辑状态，已让运行配置与环境各自接受本次保存。没有删除或停用测试。
+
+## 本地验证
+
+- `pnpm typecheck`、`pnpm build:desktop`：通过。
+- `pnpm test`：249 个 Vitest 文件、2,832 项测试通过；脚本层 357 项通过、2 项平台限定跳过；文档、Skill 及 sandbox 探针回归通过。
+- `node --test scripts/lib/member-editor.test.mjs`：隔离 Electron 的 25 组场景通过，含并发通用修改拒绝、保留草稿与显式重新读取。
+- `cargo test -p rovai-core --features slow-tests --lib environment`：20 项通过。
+- 同参数 `startup_saves_preserve_native_files_and_merge_only_local_preferences`：1 项通过。
+- `pnpm docs:test`、`pnpm docs:check`、以基线 SHA 为 `DOCS_BASE_REF` 的 `pnpm docs:check:ci`：通过。
+- Rust workspace、最新 schema 准入以及主线集成后的验证仍在进行，收口时补全。
+
+## 未覆盖范围
+
+本地确定性回归使用合成凭据、临时数据库和隔离 Electron，不读取日常用户数据或调用真实中转/模型。
+Windows 大小写语义以纯边界测试覆盖；真实 Windows Runtime 与用户中转账户需要独立环境验收。

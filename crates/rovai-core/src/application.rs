@@ -4815,6 +4815,9 @@ impl Core {
         search: Arc<RuntimeSearchEnvironment>,
     ) -> Result<RuntimeCheckOutcome> {
         let kind = AdapterKind::Pi;
+        search
+            .startup_configuration(kind)
+            .ensure_environment_available()?;
         let service = AgentProfileService::default();
         let (initial, locator) = {
             let database = self.database.lock().await;
@@ -4945,6 +4948,9 @@ impl Core {
         search: Arc<RuntimeSearchEnvironment>,
         target: Option<(&str, Option<crate::agent_profile::DshModelSource>)>,
     ) -> Result<Option<RuntimeCheckOutcome>> {
+        search
+            .startup_configuration(kind)
+            .ensure_environment_available()?;
         let service = AgentProfileService::default();
         let (installation, verified_identity) = {
             let Some(_update) = self.runtime_check_update_guard(&search).await else {
@@ -5202,6 +5208,7 @@ impl Core {
                     kind,
                     rovai_core::runtime_startup::RuntimeStartupConfiguration {
                         custom_api_snapshot: None,
+                        common_environment_unavailable: false,
                         program_path: Some(
                             existing_entrypoint_locator
                                 .as_ref()
@@ -12052,6 +12059,22 @@ impl Core {
                 self.handle_runtime_startup(method, request.params.clone())
                     .await
             }
+            "runtime.environment.get" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Params {
+                    runtime_kind: AdapterKind,
+                    #[serde(default)]
+                    reveal: bool,
+                }
+                let params: Params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                rovai_core::member_environment::common::get(
+                    database.connection(),
+                    params.runtime_kind,
+                    params.reveal,
+                )
+            }
             "member.runtimeEnvironment.get" => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -12404,6 +12427,7 @@ impl Core {
         known_snapshot: Option<&AdapterCapabilitySnapshot>,
         catalog_requested: bool,
     ) -> Result<RuntimeDeepProbeResult> {
+        rovai_core::runtime_discovery::ensure_runtime_environment_available(adapter_kind)?;
         eprintln!(
             "[model-catalog] probe runtime={} mode=full full_probe_count=1",
             adapter_kind.as_str()
@@ -29248,6 +29272,7 @@ done
                 AdapterKind::CodexCli,
                 rovai_core::runtime_startup::RuntimeStartupConfiguration {
                     custom_api_snapshot: None,
+                    common_environment_unavailable: false,
                     program_path: Some(executable.to_string_lossy().into_owned()),
                     environment: vec![rovai_core::runtime_startup::RuntimeEnvironmentVariable {
                         name: "ROVAI_CATALOG_FIXTURE".into(),
@@ -29564,6 +29589,7 @@ done
                         AdapterKind::CodexCli,
                         rovai_core::runtime_startup::RuntimeStartupConfiguration {
                             custom_api_snapshot: None,
+                        common_environment_unavailable: false,
                             program_path: Some(executable.to_string_lossy().into_owned()),
                             environment: Vec::new(),
                         },

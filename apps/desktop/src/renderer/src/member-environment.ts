@@ -3,8 +3,9 @@ import { uiAttribute } from './interface-language'
 
 export const SAVED_ENVIRONMENT_VALUE = '<saved>'
 export const ENVIRONMENT_PLACEHOLDER = '{\n  "ANTHROPIC_BASE_URL": "https://api.anthropic.com",\n  "ANTHROPIC_API_KEY": "sk-ant-..."\n}'
-export type MemberEnvironmentSnapshot = { revision: number; environment: Record<string, string> }
-export type MemberEnvironmentEdit = { expectedRevision: number; json: string }
+export type EnvironmentSnapshot = { revision: number; environment: Record<string, string> }
+export type MemberEnvironmentSnapshot = EnvironmentSnapshot & { inheritCommon?: boolean; common?: EnvironmentSnapshot }
+export type MemberEnvironmentEdit = { expectedRevision: number; json: string; inheritCommon?: boolean }
 export const sensitiveEnvironmentName = (name: string): boolean => /TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(name)
 export const environmentText = (values: Record<string, string>): string => Object.keys(values).length ? JSON.stringify(values, null, 2) : ''
 
@@ -41,4 +42,12 @@ export function parseMemberEnvironment(text: string, windows: boolean, kind: Ada
   if (bytes > 128 * 1024) throw new Error(uiAttribute('环境变量总长度超过限制。'))
   if (kind === 'claude-code-cli' && model?.mode === 'explicit' && entries.some(([name]) => (windows ? name.toUpperCase() : name) === 'ANTHROPIC_MODEL')) throw new Error(uiAttribute('已选择模型。请删除 ANTHROPIC_MODEL，或将模型切回默认。'))
   return windows ? Object.fromEntries(entries.map(([name, value]) => [name.toUpperCase(), value as string])) : values as Record<string, string>
+}
+
+export const COMMON_ENVIRONMENT_CHANGED = 'rovai-common-environment-changed'
+export function mergeEnvironment(common: Record<string, string>, local: Record<string, string>, inherit: boolean): Record<string, string> {
+  return { ...(inherit ? common : {}), ...local }
+}
+export function maskEnvironment(values: Record<string, string>, marker = SAVED_ENVIRONMENT_VALUE): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).map(([name,value]) => [name, sensitiveEnvironmentName(name) && value !== '' ? marker : value]))
 }

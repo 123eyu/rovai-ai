@@ -118,6 +118,10 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
+通用环境配置扩展既有环境合并、启动设置事务、检测环境和 Renderer owner；仅 schema 160→161 的
+新增表事务增加独立 owner，覆盖无 key 升级、失败回滚和旧凭据保留。准入理由、fixture 边界及最小命令见
+[通用配置实施记录](../versions/v1.72/shared-environment-implementation.md#验证归属)。
+
 退出提醒沿用通知事务/Thread 确认及批量查询规模 owner；本次在原 owner 内覆盖 schema 160、
 手动停止退出候选及按 Thread 展示确认，删除随短亮接口退役的描述断言，不增加 Rust 测试函数。
 修复前失败输入、fixture 成本及最小命令见[中断注意力验收](../versions/v1.72/interruption-attention-validation.md#验证边界与-owner)。

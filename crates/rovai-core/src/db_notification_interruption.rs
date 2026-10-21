@@ -135,7 +135,7 @@ pub(super) fn migrate_exit_attention(database: &mut Database) -> Result<()> {
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
-            DatabaseContractClassification::Current(_)
+            DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 160
         ),
         "App-exit attention schema admission failed"
     );
@@ -147,6 +147,7 @@ pub(super) fn migrate_exit_attention(database: &mut Database) -> Result<()> {
 // schema-158 producer definitions once when the process builds its fresh template.
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
+    shared_environment::downgrade_for_test(c);
     if !c
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=209)",
@@ -233,6 +234,7 @@ pub(super) fn assert_upgrade(db: &mut Database) {
         .unwrap();
     migrate(db).unwrap();
     migrate_exit_attention(db).unwrap();
+    shared_environment::migrate(db).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(db.connection()).unwrap()
@@ -245,6 +247,7 @@ pub(super) fn assert_upgrade(db: &mut Database) {
 
 #[cfg(all(test, feature = "slow-tests"))]
 pub(super) fn assert_exit_upgrade(db: &mut Database, run_id: &str) {
+    shared_environment::downgrade_for_test(db.connection());
     let c = db.connection();
     c.execute_batch(
         "DROP TRIGGER notification_agent_run_terminal_insert;
@@ -294,6 +297,7 @@ pub(super) fn assert_exit_upgrade(db: &mut Database, run_id: &str) {
         .execute_batch("DROP TRIGGER fail_exit_attention")
         .unwrap();
     migrate_exit_attention(db).unwrap();
+    shared_environment::migrate(db).unwrap();
     assert!(db.connection().query_row("SELECT acknowledged_at IS NULL FROM notification_occurrence_disposition WHERE occurrence_id=?1", [&occurrence], |r|r.get::<_,bool>(0)).unwrap());
     assert_eq!(
         before,

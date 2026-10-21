@@ -1770,10 +1770,11 @@ export function ThreadWorkspace({
     .map(run => run.anchorMessageId).filter((id): id is string => !!id).sort().join('\n')
   useEffect(() => replyReader.setRunAnchors(replyRunAnchors.split('\n').filter(Boolean)), [replyReader, replyRunAnchors])
   useEffect(() => { setReplyFull(false); setReplyExecutionVisible(false) }, [replyReader])
-  const closeReplyDetails = useCallback((): void => {
+  const closeReplyDetails = useCallback((restoreFocus = true): void => {
     setReplyExecutionVisible(false)
+    setReplyFull(false)
     replyReader.close()
-    requestAnimationFrame(() => replyTrigger.current?.focus({ preventScroll: true }))
+    if (restoreFocus) requestAnimationFrame(() => replyTrigger.current?.focus({ preventScroll: true }))
   }, [replyReader])
   const openReplyDetails = (messageId: string): void => {
     replyTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -2062,6 +2063,8 @@ export function ThreadWorkspace({
     () => new Map<string, ThreadMessageView[] | null>()
   )
   const replyAnchorLoads = useRef(new Map<string, Promise<ThreadMessageView[] | null>>())
+  const replyRevealGeneration = useRef(0)
+  useEffect(() => () => { replyRevealGeneration.current++ }, [snapshot.thread.id])
   const approvalDockRef = useRef<HTMLElement>(null)
   const lastTimelineItem = useRef<{
     threadId: string
@@ -3487,36 +3490,50 @@ export function ThreadWorkspace({
     await revealMessageQuote(quote, target, source.authorType === 'user' ? source.body.replace(/\r\n/gu, '\n') : undefined)
   }
 
-  const revealReplyParent = async (messageId: string): Promise<void> => {
+  const revealReplyParent = async (messageId: string, fromDetails = false): Promise<void> => {
+    const threadId = snapshot.thread.id
+    const generation = ++replyRevealGeneration.current
+    const isCurrent = (): boolean => activeThreadIdRef.current === threadId
+      && replyRevealGeneration.current === generation
     runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
+    // Explicit navigation owns the reading position before closing/resizing the pane
+    // or mounting history. Otherwise ResizeObserver can restore the latest message.
+    const viewport = timelineScrollRef.current
+    timelineReadingPosition.current = { threadId,
+      position: { scrollTop: viewport?.scrollTop ?? 0, followingLatest: false } }
+    if (fromDetails) closeReplyDetails(false)
     setConversationView('conversation')
-    const existing = timelineScrollRef.current?.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(messageId)}"]`
-    )
-    if (existing) {
-      existing.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
-      existing.focus({ preventScroll: true })
-      return
+    setReplyInteractionError(null)
+    if (!visibleMessageById.has(messageId)) {
+      const messages = replyAnchorWindows.get(messageId) ?? await loadReplyAnchorWindow(messageId)
+      if (!isCurrent()) return
+      if (!messages) {
+        setReplyInteractionError(uiAttribute('引用的消息当前不可用。'))
+        return
+      }
+      setAnchoredMessages((current) => {
+        const merged = new Map(current.map((message) => [message.id, message]))
+        for (const message of messages) merged.set(message.id, message)
+        return [...merged.values()]
+      })
     }
-    const messages = replyAnchorWindows.get(messageId) ?? await loadReplyAnchorWindow(messageId)
-    if (!messages) {
+    // Even an already mounted row has new geometry when the detail pane closes.
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    })
+    if (!isCurrent()) return
+    const scroll = timelineScrollRef.current
+    const target = scroll?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`)
+    if (!scroll?.clientHeight || !target) {
       setReplyInteractionError(uiAttribute('引用的消息当前不可用。'))
       return
     }
-    setAnchoredMessages((current) => {
-      const merged = new Map(current.map((message) => [message.id, message]))
-      for (const message of messages) merged.set(message.id, message)
-      return [...merged.values()]
-    })
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const target = timelineScrollRef.current?.querySelector<HTMLElement>(
-          `[data-message-id="${CSS.escape(messageId)}"]`
-        )
-        target?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
-        target?.focus({ preventScroll: true })
-      })
+    target.focus({ preventScroll: true })
+    scroll.scrollTo({
+      top: Math.max(0, scroll.scrollTop + target.getBoundingClientRect().top
+        - scroll.getBoundingClientRect().top - Math.max(18, (scroll.clientHeight - target.clientHeight) / 2)),
+      behavior: prefersReducedMotion() ? 'instant' : 'smooth'
     })
   }
 
@@ -6069,10 +6086,10 @@ export function ThreadWorkspace({
         </section>
 
         {replyDetail.messageId && <ReplyDetails state={replyDetail} reader={replyReader} width={replyWidth} full={replyFull}
-          onWidth={setReplyWidth} onFull={() => setReplyFull(value => !value)} onClose={closeReplyDetails}
+          onWidth={setReplyWidth} onFull={() => setReplyFull(value => !value)} onClose={() => closeReplyDetails()}
           snapshot={snapshot} profiles={agents} eventsByRunId={executionEventsByRunId} windowedEvidence={openCoverage !== null}
           author={message => campMessageAuthorLabel(message, memberById, currentUserName)}
-          onReveal={messageId => { closeReplyDetails(); requestAnimationFrame(() => void revealReplyParent(messageId)) }}
+          onReveal={messageId => void revealReplyParent(messageId, true)}
           onOpenExecution={(agentId, trigger, options) => {
             onCloseInspector()
             onCloseSingleChat()

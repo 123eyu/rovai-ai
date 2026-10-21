@@ -53,6 +53,15 @@ Renderer 请求生命周期由 `thread-reply-reader.test.ts` 拥有，覆盖闭�
 - 安装交接在 PR 合并后执行 `package:mac:daily`、隔离 App 验收和 `install:mac:daily`，保留当前会话进程。
   精确安装路径、备份、PID 及截图记录在 Thread 交付，不作为公共仓库内的机器事实。
 
+## 原文定位回归修复
+
+首次交付的定位验收遗漏长列表关闭侧栏后的布局竞争：焦点已经移动，但布局恢复会覆盖滚动；
+完整阅读状态也未在关闭时清除。
+定位现在先退出跟随最新消息和完整阅读，再等待历史挂载与布局提交，最后滚动公共时间线并聚焦原文。
+Thread 切换及卸载使在途定位失效。`scripts/lib/reply-details.test.mjs` 复用生产 Renderer 夹具，
+通过真实浏览器检查已加载/历史消息、分栏/完整阅读/窄窗口、减少动态效果、调整窗口后的可见几何、
+草稿保留和迟到历史隔离；纳入 `pnpm test:run-presence-ui`。该验证不启动 Core 或 Runtime。
+
 ## 工作区
 
 Work item: 回复链只读详情

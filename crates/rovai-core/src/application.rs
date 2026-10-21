@@ -236,9 +236,11 @@ use rovai_core::{
         NetworkRecoveryRegistration, NetworkRecoveryRegistrationOutcome, classify_network_failure,
     },
     notification::{
-        AcknowledgeNotificationEpisodeCommand, AcknowledgeVisibleNotificationSourcesCommand,
-        ClearNotificationEpisodeCommand, MarkAllNotificationEpisodesReadCommand,
-        NotificationEpisodeFilter, NotificationEpisodeService, UpdateNotificationPreferenceCommand,
+        AcknowledgeNotificationEpisodeCommand, AcknowledgeThreadInterruptionsCommand,
+        AcknowledgeVisibleNotificationSourcesCommand, ClearNotificationEpisodeCommand,
+        MarkAllNotificationEpisodesReadCommand, NotificationEpisodeFilter,
+        NotificationEpisodeService, NotificationInterruptionReader,
+        NotificationThreadInterruptionsParams, UpdateNotificationPreferenceCommand,
     },
     planned_shutdown::{
         ActiveExecutionKey, ActiveExecutionSnapshot, ExecutionLaunchPermit,
@@ -868,6 +870,7 @@ fn request_uses_independent_read_queue(method: &str) -> bool {
             | "navigation.camps"
             | "navigation.groupCamps"
             | "navigation.findCamp"
+            | "notifications.threadInterruptions"
     )
 }
 
@@ -2415,6 +2418,7 @@ struct Core {
     execution_wake: crate::execution_wake::ExecutionWake,
     non_batch_retry_at: Mutex<Option<tokio::time::Instant>>,
     database: Arc<Mutex<Database>>,
+    notification_interruption_reader: Mutex<NotificationInterruptionReader>,
     subsystems: CoreSubsystems,
     subsystem_initialization: Mutex<SubsystemInitialization>,
     removed_skill_project_roots: RemovedSkillProjectRoots,
@@ -11848,6 +11852,26 @@ impl Core {
                     )?,
                 )?)
             }
+            "notifications.threadInterruptions" => {
+                let params: NotificationThreadInterruptionsParams =
+                    serde_json::from_value(request.params.clone())?;
+                let mut reader = self.notification_interruption_reader.lock().await;
+                Ok(serde_json::to_value(
+                    reader.read(CURRENT_USER_ID, &params.thread_ids)?,
+                )?)
+            }
+            "notifications.acknowledgeCampInterruptions" => {
+                let params: UserCommandParams<AcknowledgeThreadInterruptionsCommand> =
+                    serde_json::from_value(request.params.clone())?;
+                let mut database = self.database.lock().await;
+                let execution = NotificationEpisodeService::default()
+                    .acknowledge_thread_interruptions(
+                        &mut database,
+                        &user_command_envelope(params.command_id, params.command),
+                    )?;
+                emit(&self.output, "notification_episode.changed", json!({}));
+                Ok(serde_json::to_value(execution.result)?)
+            }
             "notifications.changesSince" => {
                 let params: NotificationChangesSinceParams =
                     serde_json::from_value(request.params.clone())?;
@@ -19652,6 +19676,9 @@ async fn run_core(
         delivery_batch_scheduler_notify: database.execution_wake.delivery.clone(),
         agent_run_cancellation_notify: database.execution_wake.cancellation.clone(),
         non_batch_retry_at: Mutex::new(None),
+        notification_interruption_reader: Mutex::new(NotificationInterruptionReader::for_database(
+            &database,
+        )),
         database: Arc::new(Mutex::new(database)),
         subsystems: CoreSubsystems::new(),
         subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
@@ -28075,6 +28102,9 @@ mod tests {
             delivery_batch_scheduler_notify: database.execution_wake.delivery.clone(),
             agent_run_cancellation_notify: database.execution_wake.cancellation.clone(),
             non_batch_retry_at: Mutex::new(None),
+            notification_interruption_reader: Mutex::new(
+                NotificationInterruptionReader::for_database(&database),
+            ),
             database: Arc::new(Mutex::new(database)),
             automation_scheduler_control: RwLock::new(None),
             subsystems: CoreSubsystems::ready_for_test(),
@@ -31940,6 +31970,12 @@ done
         assert!(request_uses_independent_read_queue("navigation.camps"));
         assert!(request_uses_independent_read_queue("navigation.groupCamps"));
         assert!(request_uses_independent_read_queue("navigation.findCamp"));
+        assert!(request_uses_independent_read_queue(
+            "notifications.threadInterruptions"
+        ));
+        assert!(!request_uses_independent_read_queue(
+            "notifications.acknowledgeCampInterruptions"
+        ));
         assert!(!request_uses_independent_read_queue(
             "navigation.campViewed"
         ));
@@ -32147,6 +32183,16 @@ done
                 )
                 .await
         });
+        let interruption_service = service.clone();
+        let interruption_camp_ids = camp_ids.clone();
+        let mut interruption_request = tokio::spawn(async move {
+            interruption_service
+                .request(
+                    "notifications.threadInterruptions",
+                    json!({ "threadIds": interruption_camp_ids }),
+                )
+                .await
+        });
         let repair_service = service.clone();
         let repair_target = repair_camp_id.clone();
         let mut repair_request = tokio::spawn(async move {
@@ -32181,6 +32227,9 @@ done
             tokio::time::timeout_at(barrier_release_at, &mut open_request).await;
         let navigation_before_release =
             tokio::time::timeout_at(barrier_release_at, &mut navigation_request).await;
+        let interruption_before_release =
+            tokio::time::timeout_at(barrier_release_at, &mut interruption_request).await;
+        let interruption_finished_while_blocked = interruption_before_release.is_ok();
         let repair_before_release =
             tokio::time::timeout_at(barrier_release_at, &mut repair_request).await;
         let repair_waited_for_ordered_queue = repair_before_release.is_err();
@@ -32223,6 +32272,10 @@ done
         let navigation_reply = match navigation_before_release {
             Ok(completed) => completed.unwrap().unwrap(),
             Err(_) => navigation_request.await.unwrap().unwrap(),
+        };
+        let interruption_reply = match interruption_before_release {
+            Ok(completed) => completed.unwrap().unwrap(),
+            Err(_) => interruption_request.await.unwrap().unwrap(),
         };
         let repair_reply = match repair_before_release {
             Ok(completed) => completed.unwrap().unwrap(),
@@ -32334,6 +32387,22 @@ done
         assert!(
             navigation_finished_while_blocked,
             "navigation snapshot waited for unrelated FIFO work"
+        );
+        assert!(
+            interruption_finished_while_blocked,
+            "interruption projection waited for unrelated FIFO work"
+        );
+        assert!(
+            interruption_reply.error.is_none(),
+            "{:?}",
+            interruption_reply.error
+        );
+        assert_eq!(
+            interruption_reply.result.unwrap()["threads"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
         );
         assert!(
             navigation_reply.error.is_none(),

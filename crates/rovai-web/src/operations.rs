@@ -80,6 +80,10 @@ pub enum Operation {
     NotificationInbox,
     #[serde(rename = "notifications.changesSince")]
     NotificationChanges,
+    #[serde(rename = "notifications.threadInterruptions")]
+    NotificationThreadInterruptions,
+    #[serde(rename = "notifications.acknowledgeThreadInterruptions")]
+    NotificationAcknowledgeInterruptions,
     #[serde(rename = "notifications.preference.get")]
     NotificationPreference,
     #[serde(rename = "notifications.preference.update")]
@@ -459,6 +463,10 @@ impl Operation {
             Self::SubsystemRetry => "runtime.subsystems.retry",
             Self::NotificationInbox => "notifications.inbox",
             Self::NotificationChanges => "notifications.changesSince",
+            Self::NotificationThreadInterruptions => "notifications.threadInterruptions",
+            Self::NotificationAcknowledgeInterruptions => {
+                "notifications.acknowledgeThreadInterruptions"
+            }
             Self::NotificationPreference => "notifications.preference.get",
             Self::NotificationPreferenceUpdate => "notifications.preference.update",
             Self::NotificationAcknowledge => "notifications.acknowledge",

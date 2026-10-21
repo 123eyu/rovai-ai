@@ -3985,6 +3985,8 @@ export function ThreadWorkspace({
       const messageIds = new Set<string>()
       const campTurnIds = new Set<string>()
       const agentRunIds = new Set<string>()
+      const terminalRunIds = new Set(snapshot.agentRuns
+        .filter(run => ['succeeded', 'failed', 'cancelled'].includes(run.status)).map(run => run.id))
       const approvalIds = new Set<string>()
       if (canObserveConversation && timeline) {
         const viewport = timeline.getBoundingClientRect()
@@ -3994,6 +3996,11 @@ export function ThreadWorkspace({
           const threadTurnId = node.dataset.threadTurnId
           if (messageId) messageIds.add(messageId)
           if (threadTurnId && !node.classList.contains('user')) campTurnIds.add(threadTurnId)
+        }
+        for (const node of timeline.querySelectorAll<HTMLElement>('[data-interrupted-run-id], [data-presence-run]')) {
+          const runId = node.dataset.interruptedRunId ?? node.dataset.presenceRun
+          if (runId && terminalRunIds.has(runId) && node.getClientRects().length
+            && rectanglesOverlap(node.getBoundingClientRect(), viewport)) agentRunIds.add(runId)
         }
         const approvalNode = approvalDockRef.current?.querySelector<HTMLElement>(
           '[data-approval-id]'
@@ -4016,7 +4023,7 @@ export function ThreadWorkspace({
           if (!viewport || !node.getClientRects().length || viewport.hidden) continue
           if (!rectanglesOverlap(node.getBoundingClientRect(), viewport.getBoundingClientRect())) continue
           const agentRunId = node.dataset.agentRunId
-          if (agentRunId) agentRunIds.add(agentRunId)
+          if (agentRunId && terminalRunIds.has(agentRunId)) agentRunIds.add(agentRunId)
         }
       }
       const sources: VisibleNotificationSources = {
@@ -4093,6 +4100,7 @@ export function ThreadWorkspace({
     singleChatVisible,
     onVisibleNotificationSources,
     snapshot.approvals,
+    snapshot.agentRuns,
     snapshot.thread.id,
     snapshot.messages,
     snapshot.throughGlobalSequence

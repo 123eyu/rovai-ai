@@ -118,6 +118,10 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
+中断通知的新事务/Thread 确认 seam 与批量查询规模 owner、修复前失败输入、fixture 成本及最小命令，
+见[中断注意力验收](../versions/v1.72/interruption-attention-validation.md#验证边界与-owner)。
+已存在的单聊终态、retention 和 Portal owner 原地扩展，不新增等价覆盖。
+
 Send 文件输入改动先运行 `cargo test -p rovai-core --bin rovai send_file_`，再运行
 `pnpm test:send-input-file`。后者构建当前 CLI，以隔离临时目录和本地 IPC 夹具验证请求传递、
 业务拒绝不降级、输入失败零 IPC、继承 stdin 不阻塞和 Unix FIFO/设备/权限拒绝；不启动 Core 或模型。

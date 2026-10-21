@@ -18,10 +18,17 @@ use crate::{
 #[path = "notification_sources.rs"]
 mod sources;
 pub(crate) use sources::{StatusTransition, record_status_transition};
+#[path = "notification_interruptions.rs"]
+mod interruptions;
+pub use interruptions::{
+    AcknowledgeThreadInterruptionsCommand, NotificationInterruptionAdmission,
+    NotificationInterruptionKind, NotificationInterruptionReader, NotificationThreadInterruption,
+    NotificationThreadInterruptions, NotificationThreadInterruptionsParams,
+};
 
 const DEFAULT_PAGE_LIMIT: usize = 50;
 const MAX_PAGE_LIMIT: usize = 100;
-const NOTIFICATION_EPISODE_SCHEMA_VERSION: i64 = 9;
+const NOTIFICATION_EPISODE_SCHEMA_VERSION: i64 = 10;
 const MESSAGE_SUMMARY_MAX_SCALARS: usize = 160;
 
 /// Retention only removes inactive, terminal Episodes. A delete first records a remove
@@ -56,7 +63,7 @@ pub(crate) fn maintain_notification_episode_retention(
                   SELECT 1 FROM notification_occurrence AS occurrence
                   WHERE occurrence.episode_id = notification_episode.id
                     AND occurrence.semantic IN (
-                        'turn_completed', 'turn_failed', 'turn_incomplete'
+                        'turn_completed', 'turn_failed', 'turn_incomplete', 'run_stopped'
                     )
               ))
               OR (kind = 'approval' AND NOT EXISTS (
@@ -96,7 +103,7 @@ pub(crate) fn maintain_notification_episode_retention(
                       SELECT 1 FROM notification_occurrence AS occurrence
                       WHERE occurrence.episode_id = candidate.id
                         AND occurrence.semantic IN (
-                            'turn_completed', 'turn_failed', 'turn_incomplete'
+                            'turn_completed', 'turn_failed', 'turn_incomplete', 'run_stopped'
                         )
                   ))
                   OR (candidate.kind = 'approval' AND NOT EXISTS (
@@ -174,6 +181,7 @@ pub enum NotificationSemantic {
     TurnCompleted,
     TurnFailed,
     TurnIncomplete,
+    RunStopped,
     RoundCompleted,
     SingleChatReply,
     MissionNeedsYou,
@@ -189,6 +197,7 @@ impl NotificationSemantic {
             "turn_completed" => Ok(Self::TurnCompleted),
             "turn_failed" => Ok(Self::TurnFailed),
             "turn_incomplete" => Ok(Self::TurnIncomplete),
+            "run_stopped" => Ok(Self::RunStopped),
             "round_completed" => Ok(Self::RoundCompleted),
             "single_chat_reply" => Ok(Self::SingleChatReply),
             "mission_needs_you" => Ok(Self::MissionNeedsYou),
@@ -202,7 +211,7 @@ impl NotificationSemantic {
         match self {
             Self::ApprovalPending => 5,
             Self::TurnFailed => 4,
-            Self::TurnIncomplete => 3,
+            Self::TurnIncomplete | Self::RunStopped => 3,
             Self::TurnCompleted => 2,
             Self::UserMention => 1,
             Self::RoundCompleted | Self::SingleChatReply => 2,
@@ -413,6 +422,7 @@ pub struct NotificationEpisodeChange {
     pub change_cause: NotificationChangeCause,
     pub heads_up_signal: Option<NotificationHeadsUpSignal>,
     pub heads_up_invalidation: Option<NotificationHeadsUpInvalidation>,
+    pub interruption_admission: Option<NotificationInterruptionAdmission>,
     pub changed_at: String,
     pub episode: Option<NotificationEpisodeView>,
 }
@@ -694,6 +704,8 @@ impl NotificationEpisodeService {
                 .as_deref()
                 .map(NotificationSemantic::parse)
                 .transpose()?;
+            let heads_up_reason =
+                heads_up_reason.filter(|semantic| *semantic != NotificationSemantic::RunStopped);
             let change_cause = NotificationChangeCause::parse(&raw.change_cause)?;
             let episode = if persisted_operation == NotificationChangeOperation::Upsert {
                 load_episode_by_id(&transaction, recipient_user_id, &raw.episode_id)?
@@ -722,6 +734,17 @@ impl NotificationEpisodeService {
                 NotificationChangeOperation::Remove
             };
             let heads_up_invalidation = heads_up_invalidation(&raw, change_cause)?;
+            let interruption_admission =
+                if change_cause == NotificationChangeCause::OccurrenceAdmitted {
+                    interruptions::admission(
+                        &transaction,
+                        recipient_user_id,
+                        &raw.episode_id,
+                        raw.change_sequence,
+                    )?
+                } else {
+                    None
+                };
             changes.push(NotificationEpisodeChange {
                 change_sequence: raw.change_sequence,
                 episode_id: raw.episode_id,
@@ -731,6 +754,7 @@ impl NotificationEpisodeService {
                 change_cause,
                 heads_up_signal,
                 heads_up_invalidation,
+                interruption_admission,
                 changed_at: raw.changed_at,
                 episode,
             });
@@ -901,7 +925,7 @@ impl NotificationEpisodeService {
                 .map(String::as_str)
                 .collect::<HashSet<_>>();
             let occurrence_ids = {
-                let mut statement = transaction.prepare(
+                let query = format!(
                     r#"
                     SELECT occurrence.id, occurrence.semantic, occurrence.source_type,
                            CASE WHEN occurrence.source_type IN ('round','single_chat_message') THEN occurrence.agent_run_id ELSE occurrence.source_id END,
@@ -918,9 +942,12 @@ impl NotificationEpisodeService {
                           > episode_disposition.cleared_through_attention_revision
                       AND disposition.acknowledged_at IS NULL
                 AND (occurrence.semantic <> 'mission_needs_you' OR disposition.resolved_at IS NULL)
+                      AND (occurrence.interruption_kind IS NULL OR {available_source})
                     ORDER BY occurrence.admitted_change_sequence, occurrence.id
                     "#,
-                )?;
+                    available_source = interruptions::AVAILABLE_SOURCE,
+                );
+                let mut statement = transaction.prepare(&query)?;
                 statement
                     .query_map(
                         params![
@@ -942,7 +969,7 @@ impl NotificationEpisodeService {
                         Ok((id, semantic, source_type, source_id, resolved_at)) => {
                             let visible = match semantic.as_str() {
                                 "user_mention" => visible_message_ids.contains(source_id.as_str()),
-                                "turn_completed" | "turn_failed" | "turn_incomplete" | "round_completed" | "single_chat_reply" => {
+                                "turn_completed" | "turn_failed" | "turn_incomplete" | "run_stopped" | "round_completed" | "single_chat_reply" => {
                                     if ["agent_run", "round", "single_chat_message"].contains(&source_type.as_str()) {
                                         visible_agent_run_ids.contains(source_id.as_str())
                                     } else {
@@ -1404,7 +1431,7 @@ fn load_episode_page(
                              AND occurrence.admitted_change_sequence <= :through
                              AND occurrence.admitted_attention_revision
                                  > episode_disposition.cleared_through_attention_revision
-                             AND occurrence.semantic = 'turn_incomplete'
+                             AND occurrence.semantic IN ('turn_incomplete', 'run_stopped')
                        ) THEN 300
                        WHEN EXISTS (
                            SELECT 1
@@ -2053,6 +2080,7 @@ fn reason_views(
         NotificationSemantic::ApprovalPending,
         NotificationSemantic::TurnFailed,
         NotificationSemantic::TurnIncomplete,
+        NotificationSemantic::RunStopped,
         NotificationSemantic::TurnCompleted,
         NotificationSemantic::UserMention,
         NotificationSemantic::RoundCompleted,
@@ -2102,6 +2130,7 @@ fn reason_views(
                 NotificationSemantic::UserMention
                 | NotificationSemantic::TurnFailed
                 | NotificationSemantic::TurnIncomplete
+                | NotificationSemantic::RunStopped
                 | NotificationSemantic::RoundCompleted
                 | NotificationSemantic::SingleChatReply
                 | NotificationSemantic::MissionStatusChanged
@@ -2215,7 +2244,8 @@ fn action_for_occurrence(
         ),
         NotificationSemantic::TurnCompleted
         | NotificationSemantic::TurnFailed
-        | NotificationSemantic::TurnIncomplete => {
+        | NotificationSemantic::TurnIncomplete
+        | NotificationSemantic::RunStopped => {
             if occurrence.source_type == "agent_run"
                 && let Some(agent_run_id) = occurrence.agent_run_id.clone()
             {
@@ -2523,6 +2553,7 @@ fn rejected(code: &str, message: &str) -> CommandHandlerResult {
 #[cfg(all(test, feature = "slow-tests"))]
 mod slow_tests {
     use super::*;
+    include!("notification_interruption_tests.rs");
 
     fn test_database() -> (std::path::PathBuf, Database) {
         let (database, directory) = crate::test_support::fresh_schema_database_fast();
@@ -3137,16 +3168,9 @@ mod slow_tests {
             "reopening preserves the fixed boundary"
         );
 
-        // An already-installed schema 155 upgrades without changing its flag or
+        // An already-installed schema 156 upgrades without changing its flag or
         // notification facts; existing history becomes the initial boundary.
-        database
-            .connection()
-            .execute_batch(
-                "ALTER TABLE task_preference DROP COLUMN heads_up_after_sequence;
-            DELETE FROM schema_migration WHERE version=206;
-            UPDATE rovai_data_contract SET projection_schema_version=155 WHERE singleton=1;",
-            )
-            .unwrap();
+        crate::db::downgrade_notification_boundary_for_test(&database);
         drop(database);
         let mut database = Database::open(&directory).unwrap();
         let upgraded = crate::task_capability::snapshot(database.connection()).unwrap();
@@ -3643,7 +3667,7 @@ mod slow_tests {
                 50,
             )
             .unwrap();
-        assert_eq!(inbox.schema_version, 9);
+        assert_eq!(inbox.schema_version, 10);
         assert_eq!(inbox.items.len(), 1);
         let episode = &inbox.items[0];
         assert_eq!(episode.camp_turn_id, None);
@@ -3664,7 +3688,7 @@ mod slow_tests {
         let changes = service
             .changes_since(&mut database, CURRENT_USER_ID, baseline, 50)
             .unwrap();
-        assert_eq!(changes.schema_version, 9);
+        assert_eq!(changes.schema_version, 10);
         assert!(changes.changes.iter().any(|change| {
             change.heads_up_signal.as_ref().is_some_and(|signal| {
                 signal.action.kind == NotificationActionKind::OpenAgentRun
@@ -3897,6 +3921,16 @@ mod slow_tests {
     #[test]
     fn retention_removes_only_inactive_terminal_episodes_and_advances_the_journal_floor() {
         let (directory, mut database) = test_database();
+        insert_camp(&database, "camp-retained-stop", "Stopped execution");
+        insert_batch_run(&database, "camp-retained-stop", "run-retained-stop");
+        database
+            .connection()
+            .execute_batch(
+                "UPDATE agent_run SET status='cancelled',
+            cancel_requested_at=datetime('now'),cancel_reason_code='user_requested_agent_run_stop',
+            ended_at=datetime('now') WHERE id='run-retained-stop';",
+            )
+            .unwrap();
         insert_camp(&database, "camp-retained-message", "Retained message");
         insert_mention(
             &database,

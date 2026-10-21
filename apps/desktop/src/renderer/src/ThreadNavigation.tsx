@@ -3,6 +3,7 @@ import { useThreadClient } from './camp-client'
 import { useMobileLayout } from './MobileLayout'
 import { useNavigationPressMenu } from './useNavigationPressMenu'
 import { navigationThreadHasUnread } from './navigation-unread'
+import { useInterruptionAttention } from './thread-interruption-attention'
 import {
   useEffect,
   useMemo,
@@ -1125,10 +1126,19 @@ function ThreadRow({
   const mobile = useMobileLayout()
   const pressMenu = useNavigationPressMenu(true)
   const title = formatThreadTitle(thread, firstRunThreadId)
-  const hasNewReply = navigationThreadHasUnread(thread, readState)
+  const attention = useInterruptionAttention()
+  const hasNewReply = navigationThreadHasUnread(thread, readState?.manualUnread ? { ...readState, manualUnread: false } : readState)
+  const hasInterruption = attention?.snapshots[thread.id]?.unread ?? false
+  const hasUnread = Boolean(readState?.manualUnread || hasNewReply || hasInterruption)
+  const showDot = hasUnread || (attention?.flashing.has(thread.id) ?? false)
+  const unreadLabel = [
+    readState?.manualUnread ? uiAttribute('已标记未读') : '',
+    hasNewReply ? uiAttribute('有新回复') : '',
+    hasInterruption ? uiAttribute('有未查看的执行中断') : ''
+  ].filter(Boolean).join('，')
   const loadingStatus = opening ? 'opening' : thread.marker === 'loading' ? 'loading' : null
-  const status = loadingStatus && hasNewReply ? `${loadingStatus}-unread` : loadingStatus ?? (hasNewReply ? 'unread' : 'none')
-  const menuLabels = campNavigationMenuLabels(pinned, hasNewReply)
+  const status = loadingStatus && showDot ? `${loadingStatus}-unread` : loadingStatus ?? (showDot ? 'unread' : 'none')
+  const menuLabels = campNavigationMenuLabels(pinned, hasUnread)
   const menuItems: SidebarActionMenuItem[] = thread.activationState === 'pending'
     ? []
     : [{
@@ -1144,8 +1154,8 @@ function ThreadRow({
         onSelect: () => onAction('rename', thread)
       }]
   if (onSetUnread) menuItems.splice(1, 0, {
-    key: 'toggle-unread', label: menuLabels[1], icon: hasNewReply ? 'read' : 'unread',
-    onSelect: () => onSetUnread(!hasNewReply)
+    key: 'toggle-unread', label: menuLabels[1], icon: hasUnread ? 'read' : 'unread',
+    onSelect: () => onSetUnread(!hasUnread)
   })
   menuItems.push({
     key: 'copy-id',
@@ -1170,15 +1180,15 @@ function ThreadRow({
         type="button"
         aria-current={active ? 'page' : undefined}
         aria-busy={opening || undefined}
-        aria-label={`${title}${hasNewReply ? readState?.manualUnread ? uiAttribute("，已标记未读") : uiAttribute("，有新回复") : ''}${opening ? uiAttribute("，正在打开") : thread.marker === 'loading' ? uiAttribute("，正在运行") : ''}`}
-        title={`${title}${hasNewReply ? uiAttribute(" · 未读") : ''}${opening ? uiAttribute(" · 正在打开") : loadingStatus ? uiAttribute(" · 正在运行") : ''}`}
+        aria-label={`${title}${unreadLabel ? `，${unreadLabel}` : ''}${opening ? uiAttribute("，正在打开") : thread.marker === 'loading' ? uiAttribute("，正在运行") : ''}`}
+        title={`${title}${hasUnread ? uiAttribute(" · 未读") : ''}${opening ? uiAttribute(" · 正在打开") : loadingStatus ? uiAttribute(" · 正在运行") : ''}`}
         onClick={() => onThread(thread)}
       >
         {pinned && <span className="pinned-camp-icon" aria-hidden="true"><NavigationIcon name="messages" /></span>}
         <span className="truncate">{title}</span>
         {thread.activationState === 'pending' && <span className="camp-draft-badge"><UiText zh={"草稿"} /></span>}
         <span className="camp-status-cluster" data-status={status} aria-hidden="true">
-          {hasNewReply && <span className="camp-status-slot"><i className="camp-unread-dot" /></span>}
+          {showDot && <span className="camp-status-slot"><i className="camp-unread-dot" /></span>}
           {loadingStatus && <span className="camp-status-slot"><span className={`camp-loading-spinner ${opening ? 'camp-open-spinner' : 'camp-marker-loading'}`} /></span>}
         </span>
       </button>

@@ -37,6 +37,9 @@ pub struct LocalAttachmentSourceRef {
     pub kind: LocalAttachmentKind,
     pub media_type: Option<String>,
     pub observed_byte_size: Option<u64>,
+    /// Display only; never grants file access or deletion authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pasted_text_preview: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +63,8 @@ pub struct LocalAttachmentSourceView {
     pub file_count: Option<u64>,
     pub preview_kind: String,
     pub availability: LocalAttachmentAvailability,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pasted_text_preview: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +83,7 @@ impl LocalAttachmentSourceRef {
         LocalAttachmentSourceView {
             id: self.id.clone(),
             display_name: self.display_name.clone(),
+            pasted_text_preview: self.pasted_text_preview.clone(),
             kind: self.kind.as_str().to_string(),
             media_type: self.media_type.clone(),
             byte_size: self.observed_byte_size,
@@ -350,6 +356,17 @@ fn validate_ref_shape(refs: &[LocalAttachmentSourceRef]) -> Result<()> {
             "Source Attachment path must be absolute"
         );
         validate_display_name(&source_ref.display_name)?;
+        if let Some(preview) = &source_ref.pasted_text_preview {
+            anyhow::ensure!(
+                source_ref.kind == LocalAttachmentKind::File
+                    && preview.chars().count() <= 160
+                    && !preview.chars().any(|character| {
+                        character.is_control()
+                            || matches!(character, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+                    }),
+                "Source Attachment pasted text preview is invalid"
+            );
+        }
         if source_ref.kind == LocalAttachmentKind::Directory {
             anyhow::ensure!(
                 source_ref.observed_byte_size.is_none(),
@@ -417,6 +434,7 @@ pub fn observe_source_attachment(
             .then_some(media_type)
             .flatten(),
         observed_byte_size: (kind == LocalAttachmentKind::File).then_some(metadata.len()),
+        pasted_text_preview: None,
     })
 }
 
@@ -783,6 +801,7 @@ mod tests {
             kind: LocalAttachmentKind::File,
             media_type: Some("text/plain".to_string()),
             observed_byte_size: Some(7),
+            pasted_text_preview: None,
         };
         let json = serialize_source_attachments(std::slice::from_ref(&source_ref)).unwrap();
         assert_eq!(
@@ -793,6 +812,46 @@ mod tests {
             serde_json::to_value(source_ref.view(LocalAttachmentAvailability::Unknown)).unwrap();
         assert!(view.get("sourcePath").is_none());
         assert_eq!(view["availability"], "unknown");
+        assert!(view.get("pastedTextPreview").is_none());
+        assert!(!json.contains("pastedTextPreview"));
+
+        // Optional presentation metadata survives existing JSON storage; old refs stay valid.
+        for preview in [String::new(), "😀".repeat(160)] {
+            let mut reference = source_ref.clone();
+            reference.pasted_text_preview = Some(preview.clone());
+            let encoded = serialize_source_attachments(std::slice::from_ref(&reference)).unwrap();
+            let restored = parse_source_attachments(&encoded).unwrap();
+            assert_eq!(restored, [reference]);
+            assert_eq!(
+                restored[0]
+                    .view(LocalAttachmentAvailability::Unknown)
+                    .pasted_text_preview,
+                Some(preview)
+            );
+            assert!(
+                serde_json::to_value(restored[0].history_view())
+                    .unwrap()
+                    .get("pastedTextPreview")
+                    .is_none()
+            );
+        }
+        for (kind, preview) in [
+            (LocalAttachmentKind::File, "😀".repeat(161)),
+            (LocalAttachmentKind::File, "line\nbreak".into()),
+            (LocalAttachmentKind::File, "a\u{202e}b".into()),
+            (LocalAttachmentKind::Directory, "text".into()),
+        ] {
+            let mut reference = source_ref.clone();
+            reference.kind = kind;
+            if kind == LocalAttachmentKind::Directory {
+                reference.observed_byte_size = None;
+            }
+            reference.pasted_text_preview = Some(preview);
+            assert!(serialize_source_attachments(std::slice::from_ref(&reference)).is_err());
+            assert!(
+                parse_source_attachments(&serde_json::to_string(&[reference]).unwrap()).is_err()
+            );
+        }
 
         // Desktop sends and restored drafts carry the original display label.
         // It is not a path component, including when it contains a timestamp.

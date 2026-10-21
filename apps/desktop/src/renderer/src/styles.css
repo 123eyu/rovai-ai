@@ -1419,7 +1419,7 @@ html[data-rovai-platform="win32"] .bootstrap-shell-brand { padding-left: 20px; }
 .single-chat-user-content { display: grid; min-width: 0; justify-items: end; gap: 7px; }
 .single-chat-user-bubble { padding: 8px 11px; border: 1px solid var(--conversation-user-message-line); border-radius: 12px; background: var(--conversation-user-message-surface); font-size: 12.5px; line-height: 1.62; overflow-wrap: anywhere; white-space: pre-wrap; }
 .single-chat-message-attachments { display: grid; width: min(296px, 100%); justify-items: stretch; gap: 6px; }
-.single-chat-message-attachments .user-timeline { width: 100%; max-width: 100%; }
+.single-chat-message-attachments .user-timeline { width: fit-content; max-width: min(var(--user-file-card-max-width), 100%); }
 .single-chat-agent-response { width: 100%; align-self: flex-start; border: 0; background: transparent; }
 .single-chat-agent-column { display: grid; min-width: 0; gap: 9px; border: 0; background: transparent; }
 .single-chat-run-history { width: 100%; min-width: 0; }
@@ -4661,11 +4661,12 @@ details summary { min-height: 28px; padding: 5px 0; color: var(--muted); font-si
 @keyframes composer-primary-action-spin { to { transform: rotate(360deg); } }
 .composer-attachment-strip { --user-file-gap: 9px; --user-composer-file-height: 48px; --user-composer-icon-size: 30px; --user-composer-font-size: 12.5px; --user-composer-min-width: 128px; --user-composer-max-width: 308px; display: flex; gap: var(--user-file-gap); min-width: 0; max-width: 100%; padding: 1px 1px 5px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scrollbar-width: none; scroll-snap-type: x proximity; }
 .composer-attachment-strip::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.attachment-card { --user-file-card-max-width: 280px; position: relative; display: flex; min-width: 0; align-items: stretch; overflow: hidden; border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
+.agent-output-files, .attachment-card { --user-file-card-max-width: 224px; }
+.attachment-card { position: relative; display: flex; min-width: 0; align-items: stretch; overflow: hidden; border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
 .composer-attachment-card { min-width: var(--user-composer-min-width); max-width: min(var(--user-composer-max-width), var(--user-file-card-max-width)); height: var(--user-composer-file-height); flex: 0 0 auto; border-radius: 11px; background: transparent; scroll-snap-align: start; }
 .composer-image-attachment { width: var(--user-composer-file-height); min-width: var(--user-composer-file-height); max-width: var(--user-composer-file-height); flex-basis: var(--user-composer-file-height); }
 .user-timeline { max-width: min(var(--user-file-card-max-width), 100%); height: 46px; flex: 0 1 auto; border-radius: 10px; background: transparent; }
-.agent-timeline { --attachment-accent: var(--attachment-generic); width: 100%; min-height: 56px; border-radius: 10px; background: var(--surface-raised); transition: background-color 120ms ease; }
+.agent-timeline { --attachment-accent: var(--attachment-generic); width: fit-content; max-width: min(var(--user-file-card-max-width), 100%); min-height: 56px; border-radius: 10px; background: var(--surface-raised); transition: background-color 120ms ease; }
 .agent-timeline.type-web { --attachment-accent: var(--attachment-web); }
 .agent-timeline.type-code { --attachment-accent: var(--attachment-code); }
 .agent-timeline.type-notes { --attachment-accent: var(--attachment-notes); }
@@ -4845,9 +4846,9 @@ body:has(.composer-image-attachment[data-context-open="true"]) .image-action-not
 .agent-message-outputs { display: grid; width: min(var(--conversation-artifact-width), 100%); gap: 9px; margin-top: 9px; container: agent-outputs / inline-size; }
 .agent-output-images,
 .agent-output-files { display: grid; min-width: 0; }
-.agent-output-files { width: min(620px, 100%); }
+.agent-output-files { width: fit-content; max-width: min(var(--user-file-card-max-width), 100%); }
 .agent-output-file-grid { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); }
-.agent-output-file-grid .agent-timeline { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.agent-output-file-grid .agent-timeline { width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .agent-output-file-grid .agent-timeline:last-child { border-bottom: 0; }
 .image-gallery { width: 100%; min-width: 0; container-type: inline-size; }
 .image-gallery-agent-output .image-gallery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 240px)); gap: 10px; }

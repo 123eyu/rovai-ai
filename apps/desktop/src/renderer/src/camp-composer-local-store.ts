@@ -74,6 +74,8 @@ function isAttachment(value: unknown): value is ThreadMessageAttachmentView {
     && (value.previewKind === 'image' || value.previewKind === 'none')
     && ['unknown', 'available', 'missing', 'unreadable', 'kind_changed'].includes(String(value.availability))
     && (value.sourcePath === undefined || string(value.sourcePath, 16_384))
+    && (value.pastedTextPreview === undefined || (typeof value.pastedTextPreview === 'string'
+      && Array.from(value.pastedTextPreview).length <= 160))
 }
 
 function isReplyIntent(value: unknown): boolean {

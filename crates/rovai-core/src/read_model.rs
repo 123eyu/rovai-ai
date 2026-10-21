@@ -2533,6 +2533,7 @@ fn hydrate_message_views(
         let attachment = ThreadMessageAttachmentView {
             id,
             display_name,
+            pasted_text_preview: None,
             kind,
             file_count: Some(file_count),
             media_type: Some(media_type),

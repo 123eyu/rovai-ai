@@ -8,9 +8,9 @@ export function isLongTextPaste(text: string): boolean {
   return false
 }
 
-export function pastedTextFileName(existingNames: Iterable<string>, prefix = '粘贴内容'): string {
+export function pastedTextFileName(existingNames: Iterable<string>, name = (index: number) => `粘贴内容-${index}.txt`): string {
   const names = new Set(existingNames)
   let index = 1
-  while (names.has(`${prefix}-${index}.txt`)) index += 1
-  return `${prefix}-${index}.txt`
+  while (names.has(name(index))) index += 1
+  return name(index)
 }

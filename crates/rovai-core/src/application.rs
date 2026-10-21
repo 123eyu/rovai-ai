@@ -30334,6 +30334,7 @@ done
             kind: rovai_core::local_attachment_source::LocalAttachmentKind::File,
             media_type: Some("text/plain".to_string()),
             observed_byte_size: Some(pasted_text.len() as u64),
+            pasted_text_preview: Some("😀中".repeat(80)),
         };
         let attachment_id = source_attachment.id.clone();
         let sent = core
@@ -30391,6 +30392,7 @@ done
         };
         assert_eq!(Path::new(&source_ref.source_path), source);
         assert_eq!(source_ref.display_name, "published_14:17:26.txt");
+        assert_eq!(source_ref.pasted_text_preview, Some("😀中".repeat(80)));
         let run_paths = resolve_source_attachments_for_run(&[source_ref.clone()]).unwrap();
         assert_eq!(run_paths, vec![source.to_string_lossy().to_string()]);
         assert_eq!(fs::read_to_string(&run_paths[0]).unwrap(), pasted_text);

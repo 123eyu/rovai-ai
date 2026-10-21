@@ -268,7 +268,9 @@ export function AttachmentCard({
         ? uiAttribute('文件类型已变化')
         : null
 
-  const detailLabel = availabilityLabel ?? (agentPresentation
+  const pastedText = attachment.kind === 'file' && typeof attachment.pastedTextPreview === 'string'
+  const title = pastedText ? attachment.pastedTextPreview || uiAttribute('空白文本') : baseName
+  const detailLabel = availabilityLabel ?? (pastedText ? uiAttribute('粘贴内容') : agentPresentation
     ? attachment.kind === 'directory'
       ? `${attachment.fileCount === null ? uiAttribute('文件数未知') : uiAttribute("{0} 个文件", String(attachment.fileCount))} · ${attachment.byteSize === null ? uiAttribute('大小未知') : formatByteSize(attachment.byteSize)}`
       : `${formatLabel} · ${attachment.byteSize === null ? uiAttribute('大小未知') : formatByteSize(attachment.byteSize)}`
@@ -296,8 +298,8 @@ export function AttachmentCard({
               )}
           <span className="attachment-copy">
             <span className="attachment-title-line">
-              <strong title={fileLocation.label ?? attachment.displayName}>{baseName}</strong>
-              {!agentPresentation && <FileExtensionLabel>{formatLabel}</FileExtensionLabel>}
+              <strong title={fileLocation.label ?? attachment.displayName}>{title}</strong>
+              {!agentPresentation && !pastedText && <FileExtensionLabel>{formatLabel}</FileExtensionLabel>}
             </span>
             {detailLabel && <small>{detailLabel}</small>}
           </span>

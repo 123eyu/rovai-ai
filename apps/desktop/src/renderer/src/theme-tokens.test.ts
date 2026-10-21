@@ -490,7 +490,9 @@ describe('Porcelain Day + Steel Night theme tokens', () => {
       /\.conversation-bubble:is\(\.user, \.external_principal\):has\(\.message-attachments\) \.message-surface\s*\{[^}]*width: 100%[^}]*max-width: none/
     )
     expect(css).toMatch(/\.user-message-files\s*\{[^}]*justify-content: flex-end/)
-    expect(css).toMatch(/\.attachment-card\s*\{[^}]*--user-file-card-max-width:\s*280px/)
+    expect(css).toMatch(/\.attachment-card\s*\{[^}]*--user-file-card-max-width:\s*224px/)
+    expect(css).toMatch(/\.single-chat-message-attachments \.user-timeline\s*\{[^}]*width: fit-content[^}]*max-width: min\(var\(--user-file-card-max-width\), 100%\)/)
+    expect(css).toMatch(/\.agent-timeline\s*\{[^}]*width: fit-content[^}]*max-width: min\(var\(--user-file-card-max-width\), 100%\)/)
     expect(css).toMatch(/\.user-timeline\s*\{[^}]*max-width:\s*min\(var\(--user-file-card-max-width\), 100%\)/)
     expect(css).toMatch(/\.composer-attachment-card\s*\{[^}]*max-width:\s*min\(var\(--user-composer-max-width\), var\(--user-file-card-max-width\)\)/)
     expect(css).toMatch(

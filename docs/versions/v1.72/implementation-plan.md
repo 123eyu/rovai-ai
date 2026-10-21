@@ -3,10 +3,49 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # v1.72 实施与验收
+
+## 原路径附件显示名（2026-10-21）
+
+- 工作目录：同级 worktree `rovai-ai-source-attachment-display-name`，分支
+  `rovai/source-attachment-display-name`，基线 `2773f3bc3`；不要求治理先行提交。
+- Source Ref 读写与观察入口使用展示文本检查，保留通过检查的原名；不再要求显示名等于
+  `normalize_display_name` 的安全落盘名称。路径、身份、owner 授权与文件有效性规则不变。
+- Contract 升为 [v11](../../contracts/camp-attachment-v11.md)，同步当前架构和导航。
+  无字段或模型输入结构变更、数据库迁移或新增版本决定。
+- 扩展已有 Rust owner：`source_ref_json_is_closed_and_pathless_view_is_stable` 负责名称输入矩阵、
+  序列化/恢复与展示；`resolver_returns_exact_stored_paths_for_files_and_directories` 负责原路径与
+  Core/Agent 观察；`source_path_message_bypasses_managed_attachment_publication` 负责 Desktop 原始
+  显示名实际发布、持久化与 Runtime 路径。未新增、删除或禁用 Rust 测试函数。
+- 扩展已有 Desktop registry 恢复测试，确认带冒号显示名在重启恢复后保留 ID 和真实路径。
+- 渠道入站复用原有有界 MIME 探测，直接传递既有展示标签，避免将带 `file-` 前缀的实际文件名
+  当成显示名检查。原渠道原子准入 owner 增加 120 码点标签，确认安全落盘名称和 MIME 识别保持。
+
+修复前附件模块的两项新增 case 分别复现“显示名被替换”和原始 normalized 报错；修复后该模块
+5 项测试全部通过。Desktop registry 13 项、`pnpm typecheck`、`pnpm test`（Vitest 2816 项）、
+`pnpm build:desktop` 与使用真实 base 的 `pnpm docs:check:ci` 已通过。
+最终代码的默认 Rust workspace 回归通过：474 项通过、1 项既有 ignored。实际发布
+（`slow-tests`）、渠道原子准入（`extended-tests`）与旧安全文件名清洗三个定向 owner 均通过。
+规范与需求两个独立静态审查均无发现；未启动日常 App 或调用真实模型。
+
+`pnpm test:rust:extended` 的 Core 扩展套件完成：1015 项通过、8 项既有 ignored、6 项失败，
+命令以 101 退出。六项失败均为主干既有问题：
+
+- `every_acp_adapter_uses_terminal_runtime_action_output_not_command_delta`：实际 ACP 数量为 15，
+  旧断言为 14。
+- `v103_adds_trae_delivery_without_overriding_custom_skill_assignments`、
+  `v104_adds_cursor_catalog_and_delivery_without_expanding_custom_skills`、
+  `v105_adds_kimi_catalog_and_delivery_without_expanding_custom_skills` 与
+  `v107_adds_grok_catalog_and_preserves_runtime_and_skill_rows`：旧迁移夹具的 Skill `group_key`
+  CHECK 约束失败。
+- `active_inputs_preserve_initial_context_and_unsubmitted_sources`：开头的 Runtime 能力矩阵断言
+  实际为 true、预期为 false，尚未进入上下文或附件部分。
+
+独立 detached worktree 在未修改的基线 `2773f3bc3` 编译并定向运行这六项，全部复现同样失败。
+相关测试、AdapterKind 与 Steer 定义未改动。保留失败记录，扩展层不记为全绿；本次没有改写或跳过无关断言。
 
 ## 单次长文本粘贴转附件（2026-10-20）
 

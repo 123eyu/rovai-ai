@@ -6,10 +6,18 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 原路径附件显示名（2026-10-21）
+
+按 User 确认收窄 Source Ref 的历史文件名约束：包含时间冒号等字符的显示名原样保留，
+仍检查非空、120 码点上限及控制字符，实际文件继续按原路径授权和读取。
+渠道下载与历史受管附件的安全落盘名称处理保持原边界。当前合同见
+[Camp Attachment v11](../../contracts/camp-attachment-v11.md)，验证见
+[实施记录](implementation-plan.md#原路径附件显示名2026-10-21)。
 
 ## 单次长文本粘贴转附件（2026-10-20）
 

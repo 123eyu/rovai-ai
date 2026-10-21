@@ -30291,8 +30291,15 @@ done
         };
         let pasted_text = format!(" \t\r\n{}\n  ", "😀中".repeat(10_001));
         fs::write(&source, pasted_text.as_bytes()).unwrap();
-        let source_attachment =
-            observe_source_attachment(&source, "published.txt", Some("text/plain")).unwrap();
+        // Desktop preparation and local-draft restore submit the original label.
+        let source_attachment = rovai_core::local_attachment_source::LocalAttachmentSourceRef {
+            id: uuid::Uuid::new_v4().to_string(),
+            source_path: source.to_str().unwrap().to_string(),
+            display_name: "published_14:17:26.txt".to_string(),
+            kind: rovai_core::local_attachment_source::LocalAttachmentKind::File,
+            media_type: Some("text/plain".to_string()),
+            observed_byte_size: Some(pasted_text.len() as u64),
+        };
         let attachment_id = source_attachment.id.clone();
         let sent = core
             .send_test_camp_message_request(SendThreadMessageParams {
@@ -30348,6 +30355,7 @@ done
                 .unwrap()
         };
         assert_eq!(Path::new(&source_ref.source_path), source);
+        assert_eq!(source_ref.display_name, "published_14:17:26.txt");
         let run_paths = resolve_source_attachments_for_run(&[source_ref.clone()]).unwrap();
         assert_eq!(run_paths, vec![source.to_string_lossy().to_string()]);
         assert_eq!(fs::read_to_string(&run_paths[0]).unwrap(), pasted_text);

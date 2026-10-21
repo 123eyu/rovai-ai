@@ -10977,7 +10977,7 @@ mod tests {
         );
         assert_eq!(database.connection().query_row(
             "SELECT count(*) FROM notification_occurrence WHERE agent_run_id=?1 AND interruption_kind='user_stop'",
-            [&target_run_id], |r| r.get::<_,i64>(0)).unwrap(), 1, "real cancel and repeat admit one interruption");
+            [&target_run_id], |r| r.get::<_,i64>(0)).unwrap(), 0, "manual cancel and repeat do not admit exit attention");
 
         let run_state: (
             String,

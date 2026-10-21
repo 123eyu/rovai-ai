@@ -21,14 +21,14 @@ pub(crate) use sources::{StatusTransition, record_status_transition};
 #[path = "notification_interruptions.rs"]
 mod interruptions;
 pub use interruptions::{
-    AcknowledgeThreadInterruptionsCommand, NotificationInterruptionAdmission,
-    NotificationInterruptionKind, NotificationInterruptionReader, NotificationThreadInterruption,
-    NotificationThreadInterruptions, NotificationThreadInterruptionsParams,
+    AcknowledgeThreadInterruptionsCommand, NotificationInterruptionReader,
+    NotificationThreadInterruption, NotificationThreadInterruptions,
+    NotificationThreadInterruptionsParams,
 };
 
 const DEFAULT_PAGE_LIMIT: usize = 50;
 const MAX_PAGE_LIMIT: usize = 100;
-const NOTIFICATION_EPISODE_SCHEMA_VERSION: i64 = 10;
+const NOTIFICATION_EPISODE_SCHEMA_VERSION: i64 = 11;
 const MESSAGE_SUMMARY_MAX_SCALARS: usize = 160;
 
 /// Retention only removes inactive, terminal Episodes. A delete first records a remove
@@ -422,7 +422,6 @@ pub struct NotificationEpisodeChange {
     pub change_cause: NotificationChangeCause,
     pub heads_up_signal: Option<NotificationHeadsUpSignal>,
     pub heads_up_invalidation: Option<NotificationHeadsUpInvalidation>,
-    pub interruption_admission: Option<NotificationInterruptionAdmission>,
     pub changed_at: String,
     pub episode: Option<NotificationEpisodeView>,
 }
@@ -734,17 +733,6 @@ impl NotificationEpisodeService {
                 NotificationChangeOperation::Remove
             };
             let heads_up_invalidation = heads_up_invalidation(&raw, change_cause)?;
-            let interruption_admission =
-                if change_cause == NotificationChangeCause::OccurrenceAdmitted {
-                    interruptions::admission(
-                        &transaction,
-                        recipient_user_id,
-                        &raw.episode_id,
-                        raw.change_sequence,
-                    )?
-                } else {
-                    None
-                };
             changes.push(NotificationEpisodeChange {
                 change_sequence: raw.change_sequence,
                 episode_id: raw.episode_id,
@@ -754,7 +742,6 @@ impl NotificationEpisodeService {
                 change_cause,
                 heads_up_signal,
                 heads_up_invalidation,
-                interruption_admission,
                 changed_at: raw.changed_at,
                 episode,
             });
@@ -925,8 +912,7 @@ impl NotificationEpisodeService {
                 .map(String::as_str)
                 .collect::<HashSet<_>>();
             let occurrence_ids = {
-                let query = format!(
-                    r#"
+                let query = r#"
                     SELECT occurrence.id, occurrence.semantic, occurrence.source_type,
                            CASE WHEN occurrence.source_type IN ('round','single_chat_message') THEN occurrence.agent_run_id ELSE occurrence.source_id END,
                            disposition.resolved_at
@@ -942,11 +928,9 @@ impl NotificationEpisodeService {
                           > episode_disposition.cleared_through_attention_revision
                       AND disposition.acknowledged_at IS NULL
                 AND (occurrence.semantic <> 'mission_needs_you' OR disposition.resolved_at IS NULL)
-                      AND (occurrence.interruption_kind IS NULL OR {available_source})
+                      AND occurrence.interruption_kind IS NULL
                     ORDER BY occurrence.admitted_change_sequence, occurrence.id
-                    "#,
-                    available_source = interruptions::AVAILABLE_SOURCE,
-                );
+                    "#;
                 let mut statement = transaction.prepare(&query)?;
                 statement
                     .query_map(
@@ -3667,7 +3651,7 @@ mod slow_tests {
                 50,
             )
             .unwrap();
-        assert_eq!(inbox.schema_version, 10);
+        assert_eq!(inbox.schema_version, 11);
         assert_eq!(inbox.items.len(), 1);
         let episode = &inbox.items[0];
         assert_eq!(episode.camp_turn_id, None);
@@ -3688,7 +3672,7 @@ mod slow_tests {
         let changes = service
             .changes_since(&mut database, CURRENT_USER_ID, baseline, 50)
             .unwrap();
-        assert_eq!(changes.schema_version, 10);
+        assert_eq!(changes.schema_version, 11);
         assert!(changes.changes.iter().any(|change| {
             change.heads_up_signal.as_ref().is_some_and(|signal| {
                 signal.action.kind == NotificationActionKind::OpenAgentRun
@@ -3927,7 +3911,7 @@ mod slow_tests {
             .connection()
             .execute_batch(
                 "UPDATE agent_run SET status='cancelled',
-            cancel_requested_at=datetime('now'),cancel_reason_code='user_requested_agent_run_stop',
+            cancel_requested_at=datetime('now'),cancel_reason_code='app_shutdown_cancel_all',
             ended_at=datetime('now') WHERE id='run-retained-stop';",
             )
             .unwrap();

@@ -1130,7 +1130,7 @@ function ThreadRow({
   const hasNewReply = navigationThreadHasUnread(thread, readState?.manualUnread ? { ...readState, manualUnread: false } : readState)
   const hasInterruption = attention?.snapshots[thread.id]?.unread ?? false
   const hasUnread = Boolean(readState?.manualUnread || hasNewReply || hasInterruption)
-  const showDot = hasUnread || (attention?.flashing.has(thread.id) ?? false)
+  const showDot = hasUnread
   const unreadLabel = [
     readState?.manualUnread ? uiAttribute('已标记未读') : '',
     hasNewReply ? uiAttribute('有新回复') : '',

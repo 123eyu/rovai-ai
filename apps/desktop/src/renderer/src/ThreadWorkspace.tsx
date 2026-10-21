@@ -4113,8 +4113,8 @@ export function ThreadWorkspace({
           if (messageId) messageIds.add(messageId)
           if (threadTurnId && !node.classList.contains('user')) campTurnIds.add(threadTurnId)
         }
-        for (const node of timeline.querySelectorAll<HTMLElement>('[data-interrupted-run-id], [data-presence-run]')) {
-          const runId = node.dataset.interruptedRunId ?? node.dataset.presenceRun
+        for (const node of timeline.querySelectorAll<HTMLElement>('[data-presence-run][data-presence-state="failed"]')) {
+          const runId = node.dataset.presenceRun
           if (runId && terminalRunIds.has(runId) && node.getClientRects().length
             && rectanglesOverlap(node.getBoundingClientRect(), viewport)) agentRunIds.add(runId)
         }

@@ -13,7 +13,7 @@ import { admitElectronIntegrationTest } from './electron-sandbox-capability.mjs'
 const root = resolve(import.meta.dirname, '../..')
 const source = join(root, 'scripts/fixtures/notification-attention')
 
-test('interruption dots keep durable reads separate from precise foreground feedback', { timeout: 45_000 }, async (t) => {
+test('exit reminders acknowledge displayed Threads without querying on execution progress', { timeout: 45_000 }, async (t) => {
   if (!admitElectronIntegrationTest(t)) return
   const fixture = await mkdtemp(join(tmpdir(), 'rovai-interruption-attention-test-'))
   let child

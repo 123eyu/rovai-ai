@@ -230,7 +230,7 @@ export async function readNotificationChangePages(
   let candidateCursor = startCursor
   for (let page = 0; page < maximumPages; page += 1) {
     const batch = await requestPage(candidateCursor)
-    if (batch.schemaVersion !== 10) throw new Error(uiAttribute('提醒增量合同不兼容。'))
+    if (batch.schemaVersion !== 11) throw new Error(uiAttribute('提醒增量合同不兼容。'))
     if (!validTaskCapability(batch.taskCapability)
       || batch.taskCapability.observedThroughChangeSequence !== batch.throughChangeSequence) {
       throw new Error(uiAttribute('提醒增量合同不兼容。'))
@@ -350,7 +350,7 @@ export function NotificationAttentionController({
   const interruptionAttention = useInterruptionAttention()
   const interruptionChanges = interruptionAttention?.changes
   const resetInterruptions = interruptionAttention?.reset
-  const interruptionCommitted = interruptionAttention?.committed
+  const recoverInterruptions = interruptionAttention?.recover
   const capability = useTaskCapability()
   const { enabled: tasksEnabled, headsUpAfterSequence, acceptSnapshot } = capability
   const taskCapability = useRef<TaskCapabilitySnapshot>(capability)
@@ -386,6 +386,8 @@ export function NotificationAttentionController({
   const baselineReady = useRef(false)
   const baselineGeneration = useRef(0)
   const pollRunning = useRef(false)
+  // null = no signal; otherwise remember whether the queued read is recovery.
+  const pendingPoll = useRef<boolean | null>(null)
   const pollFailureCount = useRef(0)
   const pollRetryAt = useRef(0)
   const navigationGeneration = useRef(0)
@@ -400,9 +402,13 @@ export function NotificationAttentionController({
     mounted.current = true
     return () => {
       mounted.current = false
+      pendingPoll.current = null
       if (visibleRetryTimer.current !== null) window.clearTimeout(visibleRetryTimer.current)
     }
   }, [])
+
+  const pollCurrent = useRef<(recover?: boolean) => Promise<void>>(async () => {})
+  const poll = useCallback((recover = false) => pollCurrent.current(recover), [])
 
   const loadPreference = useCallback(async (): Promise<NotificationPreference> => {
     const next = await client.request<NotificationPreference>(
@@ -419,7 +425,7 @@ export function NotificationAttentionController({
       'notifications.inbox',
       { filter: 'unread', limit: 1 }
     )
-    if (inbox.schemaVersion !== 10) throw new Error(uiAttribute('提醒基线合同不兼容。'))
+    if (inbox.schemaVersion !== 11) throw new Error(uiAttribute('提醒基线合同不兼容。'))
     setHasUnreadAttention(inbox.unreadCount > 0)
     return inbox
   }, [])
@@ -444,6 +450,7 @@ export function NotificationAttentionController({
     if (!enabled) {
       baselineReady.current = false
       baselineGeneration.current += 1
+      pendingPoll.current = null
       setHeadsUpState(emptyNotificationHeadsUpState())
       return undefined
     }
@@ -453,7 +460,7 @@ export function NotificationAttentionController({
     void Promise.all([
       establishBaseline(),
       loadPreference().catch(() => null)
-    ]).catch(() => {
+    ]).then(() => poll()).catch(() => {
       if (cancelled) return
       retryTimer = window.setTimeout(() => {
         setBaselineRetry((value) => value + 1)
@@ -463,7 +470,7 @@ export function NotificationAttentionController({
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [baselineRetry, enabled, establishBaseline, loadPreference])
+  }, [baselineRetry, enabled, establishBaseline, loadPreference, poll])
 
   const acknowledgeAction = useCallback(async (
     episode: NotificationEpisodeView,
@@ -489,12 +496,15 @@ export function NotificationAttentionController({
     ))
   }, [])
 
-  const pollChanges = useCallback(async (): Promise<void> => {
-    if (
-      !baselineReady.current
-      || pollRunning.current
-      || Date.now() < pollRetryAt.current
-    ) return
+  const pollChanges = useCallback(async (recover = false): Promise<void> => {
+    if (!enabled || !mounted.current || !baselineReady.current) return
+    if (pollRunning.current) {
+      pendingPoll.current = recover || pendingPoll.current === true
+      return
+    }
+    if (Date.now() < pollRetryAt.current) return
+    recover = recover || pendingPoll.current === true
+    pendingPoll.current = null
     pollRunning.current = true
     const generation = baselineGeneration.current
     try {
@@ -521,7 +531,8 @@ export function NotificationAttentionController({
           || (current.enabled && change.changeSequence > current.headsUpAfterSequence)
       }
       const changes = collected.changes.filter(includesChange)
-      interruptionChanges?.(changes, collected.nextChangeSequence)
+      interruptionChanges?.(changes)
+      if (recover) recoverInterruptions?.()
       for (const change of changes) {
         if (change.changeCause === 'occurrence_admitted' && change.episode) {
           visibleThreadAdmissions.current.set(change.episode.thread.id, change.changeSequence)
@@ -602,9 +613,18 @@ export function NotificationAttentionController({
       throw nextError
     } finally {
       pollRunning.current = false
+      // Coalesce signals received while reading. Failed reads keep their
+      // existing backoff; the next admitted poll also carries recovery intent.
+      if (pendingPoll.current !== null && mounted.current && baselineReady.current
+        && Date.now() >= pollRetryAt.current) {
+        void poll(pendingPoll.current).catch(() => undefined)
+      }
     }
   }, [
+    enabled,
+    poll,
     interruptionChanges,
+    recoverInterruptions,
     acceptSnapshot,
     acknowledgeAction,
     activeThreadId,
@@ -617,17 +637,19 @@ export function NotificationAttentionController({
     windowAttentive
   ])
 
+  pollCurrent.current = pollChanges
+
   useEffect(() => {
     if (!enabled) return undefined
     const timer = window.setInterval(() => {
-      void pollChanges().catch(() => undefined)
+      void poll(true).catch(() => undefined)
     }, NOTIFICATION_RECOVERY_INTERVAL_MS)
     let eventTimer: number | null = null
     const schedulePoll = (): void => {
       if (eventTimer !== null) window.clearTimeout(eventTimer)
       eventTimer = window.setTimeout(() => {
         eventTimer = null
-        void pollChanges().catch(() => undefined)
+        void poll().catch(() => undefined)
       }, 80)
     }
     const unsubscribe = client.onEvent?.((event) => {
@@ -637,24 +659,30 @@ export function NotificationAttentionController({
       }
       if (shouldPollForNotificationEvent(event.method)) schedulePoll()
     })
-    const unlisten = client.onInvalidated?.(() => { void loadPreference().catch(() => undefined); schedulePoll() })
-    window.addEventListener('focus', schedulePoll)
+    const unlisten = client.onInvalidated?.(change => {
+      if (!change || change.resync) {
+        void loadPreference().catch(() => undefined)
+        void poll(true).catch(() => undefined)
+      } else if (change.notificationsChanged) {
+        void loadPreference().catch(() => undefined)
+        schedulePoll()
+      }
+    })
     return () => {
       window.clearInterval(timer)
       if (eventTimer !== null) window.clearTimeout(eventTimer)
-      window.removeEventListener('focus', schedulePoll)
       unsubscribe?.()
       unlisten?.()
     }
-  }, [client, enabled, loadPreference, pollChanges])
+  }, [client, enabled, loadPreference, poll])
 
   useEffect(() => {
     if (!windowAttentive || !enabled) {
       setForegroundReady(false)
       return
     }
-    void pollChanges().catch(() => undefined)
-  }, [enabled, pollChanges, windowAttentive, observedThroughChangeSequence])
+    void poll(true).catch(() => undefined)
+  }, [enabled, poll, windowAttentive])
 
   useEffect(() => {
     setHeadsUpState((current) => filterVisibleNotificationHeadsUp(
@@ -700,11 +728,9 @@ export function NotificationAttentionController({
       if (result.status !== 'applied') throw new Error(commandFailure(result))
       applied = true
       if (!mounted.current || generation !== baselineGeneration.current) return
-      interruptionCommitted?.(visibleSources.threadId,
-        (result.payload as { resultingChangeSequence?: number })?.resultingChangeSequence)
       visibleAcknowledgementKeys.current.set(visibleSources.threadId, key)
       // A failed refresh does not make the already-acknowledged command uncertain.
-      await Promise.all([pollChanges(), readUnreadStatus()]).catch(() => undefined)
+      await Promise.all([poll(), readUnreadStatus()]).catch(() => undefined)
     }).catch(() => {
       // Keep the original UUID and frozen request for an uncertain-result retry.
     }).finally(() => {
@@ -718,14 +744,13 @@ export function NotificationAttentionController({
     // Dependency churn must not cancel receipt handling or an uncertain retry.
     return undefined
   }, [
-    interruptionCommitted,
     activeThreadId,
     activeThreadVisible,
     enabled,
     hasUnreadAttention,
     navigationActive,
     observedThroughChangeSequence,
-    pollChanges,
+    poll,
     readUnreadStatus,
     visibleAcknowledgementRetry,
     visibleSources,

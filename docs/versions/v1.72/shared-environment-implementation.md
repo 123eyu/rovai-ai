@@ -17,7 +17,7 @@ User 于 2026-10-21 确认第三版交互稿并授权独立 worktree 实施。�
 - 分支：`rovai/shared-runtime-environment`。
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-shared-runtime-environment`。
 - 基线：`origin/main`，`52758245275b024122e4fd35414362f05298b646`。
-- 无需前置治理提交。状态：ready，本地实现及门禁完成，等待 PR/CI；原主工作区保持不动。
+- 无需前置治理提交。提交时状态：ready，本地实现及门禁完成；合入状态见 [PR #851](https://github.com/murray17/rovai-ai/pull/851)。原主工作区保持不动。
 - 已合并主线 `1bcd9ba0a00b054886396c9e68ea7db5bdffbee6`，保留系统语言与纯文本粘贴修复。
 
 ## 实施范围

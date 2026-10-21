@@ -823,13 +823,17 @@ mod tests {
             let restored = parse_source_attachments(&encoded).unwrap();
             assert_eq!(restored, [reference]);
             assert_eq!(
-                restored[0].view(LocalAttachmentAvailability::Unknown).pasted_text_preview,
+                restored[0]
+                    .view(LocalAttachmentAvailability::Unknown)
+                    .pasted_text_preview,
                 Some(preview)
             );
-            assert!(serde_json::to_value(restored[0].history_view())
-                .unwrap()
-                .get("pastedTextPreview")
-                .is_none());
+            assert!(
+                serde_json::to_value(restored[0].history_view())
+                    .unwrap()
+                    .get("pastedTextPreview")
+                    .is_none()
+            );
         }
         for (kind, preview) in [
             (LocalAttachmentKind::File, "😀".repeat(161)),
@@ -844,7 +848,9 @@ mod tests {
             }
             reference.pasted_text_preview = Some(preview);
             assert!(serialize_source_attachments(std::slice::from_ref(&reference)).is_err());
-            assert!(parse_source_attachments(&serde_json::to_string(&[reference]).unwrap()).is_err());
+            assert!(
+                parse_source_attachments(&serde_json::to_string(&[reference]).unwrap()).is_err()
+            );
         }
 
         // Desktop sends and restored drafts carry the original display label.

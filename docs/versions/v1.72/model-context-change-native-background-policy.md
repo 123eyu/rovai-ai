@@ -10,7 +10,7 @@ confirmed_at: 2026-10-21T13:54:34+00:00
 authority: confirmed-model-input-change-statement
 implementation_baseline: caf66a6eac581a62cb242b0c4037f60cb6855ed5
 implementation_status: implemented
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # Claude Code / CodeBuddy 原生后台限制与完成规则
@@ -22,6 +22,10 @@ User 在 Thread `rvcamp_01m5c6ytwaey8a8kda42dzwbcr` 查看了 seq 34 的 33 词�
 确认同一文案及前述固定启动配置方案。seq 37（`d0fa0b0f-b15d-40ec-8a4b-8d84ff8035ff`）进一步要求
 “先不merge”：实施、推送和 PR 仍授权，合并暂停。`confirmed_at` 为本确认的归档时间，不冒充消息原始时间。
 本文件在生产代码修改前保存，逐字归档已交付对照，不要求 User 重复批准同一内容。
+
+User 在 seq 40（`e9b43243-2951-4669-b326-45f0de51c9d6`）明确要求 CodeBuddy 收敛为只注入最终进程环境，
+并接受原生 settings 同名值按 CLI 自身规则生效。下文原生配置与验证范围据此更新；模型可见文本、
+完整前后对照与已确认的变更说明 revision 1 保持原字节，不新增模型输入变更。
 
 新增规则只用于 Claude Code、CodeBuddy 的普通会话和 Single Chat；其他 Runtime 保留原章程。
 在用户指令／授权规则之后插入一条，共用一个文本来源；正常前台等待不因 in-progress 状态被判成后台。
@@ -268,15 +272,15 @@ MEMBER_IDENTITY、Skill/Memory 索引、RUN_INPUT、历史选择、预算、截�
 
 - Claude Code：成员环境和设置合并后，将 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 写入
   私有 `--settings` 和最终子进程环境；按 Windows 环境名等价语义覆盖。
-- CodeBuddy：私有 `--settings` 和最终子进程环境同时固定
+- CodeBuddy：只在环境合并后的专属启动分支注入最终子进程变量
   `CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS=1`、`CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED=1`、
   `CODEBUDDY_BASH_ASSISTANT_BUDGET_MS=0`。
-- CodeBuddy 2.133.1 的原生 `env` 是整块替换：保留按 user → project → local 优先级胜出的完整
-  env 对象，再覆盖三个策略键。私有文件不替代其他原生设置，不写用户配置；环境值不放 argv／诊断。
+- CodeBuddy 的 user／project／local settings 由 CLI 自己读取；显式同名变量仍按原生规则生效。
+  Rovai 不重建配置优先级、不复制原生 env、不添加后台策略 `--settings` 文件或私有 Host 目录。
 - CodeBuddy Host compatibility 增加 `nativeBackgroundPolicy=disabled-v1`，只淘汰未加载策略的
   warm Host；Session binding / native session compatibility 不变。
-- 能力仅表述为关闭显式后台及已确认的超时／响应预算自动转后台入口。`internal-abort` 未证明在正常
-  ACP 流程可触发，不修改原生包，不增加后台任务管理器。
+- 开关用于关闭显式后台及已确认的超时／响应预算自动转后台入口；CodeBuddy 只保证启动环境注入，
+  不保证压过原生 settings 冲突。`internal-abort` 未证明在正常 ACP 流程可触发，不修改原生包，不增加后台任务管理器。
 
 ## 版本轴与兼容
 
@@ -297,8 +301,9 @@ MEMBER_IDENTITY、Skill/Memory 索引、RUN_INPUT、历史选择、预算、截�
 扩展既有最低成本 owner，不新增平行 Rust 测试：
 
 - Claude 原有真实合成 CLI 进程矩阵：继承／成员覆盖、私有 settings、最终环境、新会话／恢复、临时文件清理。
-- CodeBuddy launch owner：user/project/local 的整块覆盖、空对象、无 env、固定值冲突、MCP 提前返回路径、
-  私有文件生命周期、凭据不进入 argv／错误、Windows 大小写等价。
+- CodeBuddy launch owner：覆盖已有进程变量、保留其他变量、默认／显式模型与 MCP 提前返回路径；
+  不依赖私有目录，不读取或复制原生 settings，也不追加 `--settings`。
+- Private Host owner：CodeBuddy 不再分配策略目录，其他 Adapter 的既有隔离／清理语义保留。
 - ACP Host compatibility owner：新旧策略摘要不同，Native Session 绑定保持；其他 Adapter 摘要不变。
 - Charter golden owner：两个 Adapter 的普通／Single Chat、渠道／Mission 组合只有一条精确新增规则；其他 Runtime 原字节。
 - 定向 extended-tests、默认 workspace Rust、格式检查，以及通用文档门禁。
@@ -317,9 +322,13 @@ PR 明示此证据边界，不据此宣称模型遵循率或端到端僵尸 Run 
 - Base: `origin/main@caf66a6eac581a62cb242b0c4037f60cb6855ed5`
 - Governance: 本文件归档已确认内容；无独立主线先行要求
 - Status: ready
-- Next: 推送并创建面向 main 的 PR；按 seq 37 不合并，保留 worktree 供审阅。
+- PR: [#857](https://github.com/murray17/rovai-ai/pull/857)
+- Next: 审阅按 seq 40 收敛后的 PR；按 seq 37 不合并，保留 worktree。
 
-## 实施与验证结果（2026-10-21）
+## 初版实施与验证结果（2026-10-21，提交 07227a94a）
+
+本节保留初版证据。CodeBuddy settings 流程现已按 seq 40 删除；其中配置复制、解析与私有文件的旧断言随之退役，
+不能把旧配置下的探针结果当作收敛后版本的验收。Claude 与提示词实现保持；本轮新增验证单独记录。
 
 生产变更集中在 `claude.rs`、`acp.rs`、`context.rs`；`context_contract.rs` 只推进 Charter revision。
 没有新增环境配置框架、后台任务管理器、Session 迁移或 Run 状态机。CodeBuddy 新增的私有文件复用
@@ -360,3 +369,32 @@ macOS arm64，独立临时 HOME、原生配置、工作目录与私有 settings�
 [CodeBuddy 环境变量](https://www.codebuddy.ai/docs/cli/env-vars)、
 [CodeBuddy 私有模型配置](https://www.codebuddy.ai/docs/cli/models)。CodeBuddy env 整块替换另核对本机官方
 2.133.1 发布包的 SettingsManager，而非假设各层按键合并。
+
+## 收敛实施与验证（2026-10-22）
+
+基于 `07227a94a`，CodeBuddy 生产改动只保留专属分支的三个 `command.env` 设置和 Host compatibility
+标记。删除新增的 settings 读取／复制／解析函数、`--settings` 文件、私有 Host 目录分支及目录必填检查。
+不增加替代文件工具或日志拦截；原生同名 settings 按 CLI 自身规则生效。`claude.rs`、`context.rs`、
+`context_contract.rs` 与十个完整提示词前后对照代码块相对 `07227a94a` 均保持原字节。
+
+原新增调用跨平台，而 `write_private_json_file` 只有 `#[cfg(unix)]` 定义；删除该调用消除了本次引入的
+Windows 未定义函数引用。保留已有 Unix helper 及其原用途，不将其扩建为跨平台工具。
+
+测试没有新增／删除函数或停用 owner。仅删除与退出生产路径对应的 env 优先级重建、复制文件、私有目录
+和解析错误脱敏断言；启动测试改为四组模型／MCP 路径，验证三个最终变量、无关变量保留、无 `--settings`、
+无需私有目录，且原生文件即使无法解析也不被 Rovai 读取或改写。私有目录 owner 改验 CodeBuddy 不分配目录；
+其他 Adapter 的原有隔离断言保留。Host/Session compatibility owner 不变。
+
+本轮本地验证：
+
+- `acp::tests::codebuddy_launch_preserves_native_default_and_explicit_model_selection`、
+  `acp::route_policy_tests::private_host_config_is_scoped_to_profiles_that_require_it`、
+  `acp::tests::warm_compatibility_matches_process_inputs_across_acp_adapters`：均以
+  `cargo test -p rovai-core --lib --features extended-tests <owner> -- --exact` 执行，3/3 通过。
+- `cargo check --workspace`、`cargo fmt --all --check` 与 `git diff --check` 通过。
+- `pnpm docs:test`：10/10；`pnpm docs:check` 和 `DOCS_BASE_REF=origin/main pnpm docs:check:ci` 通过。
+- Windows 全 workspace／target 编译检查由仓库 `Full check / windows-check` 独立执行，实际结果链接记录在 PR #857；
+  不以 macOS 编译代替 Windows 结果，不宣称 Windows 原生 CLI 已实测。
+
+初版的 474 项回归、Claude 探针与 Charter golden 属于上一提交的验证；本轮不将它们冒充为重新执行。
+CodeBuddy settings 复制探针不再作为当前实现的验收。此次未新增真实模型调用，也不扩大后台管理范围。

@@ -4,7 +4,7 @@ name: Runtime Launch and Verification
 version: v69
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # Runtime Launch and Verification v69
@@ -21,21 +21,21 @@ last_updated: 2026-10-21
 | CodeBuddy | `CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED` | `1` |
 | CodeBuddy | `CODEBUDDY_BASH_ASSISTANT_BUDGET_MS` | `0` |
 
-这些值在 Runtime／成员环境和设置合并后写入私有 settings，并再次固定在最终子进程环境。
-Windows 同名键按大小写不敏感语义处理；用户原生配置文件和 Core 进程环境不改写。
-关闭显式后台执行，以及已确认的超时、响应预算自动转后台入口；不宣称所有原生内部中断路径均已证明不可转后台。
+Claude 在成员环境及设置合并后，将策略值写入已有私有 settings，并再次固定在最终子进程环境。
+CodeBuddy 只在环境合并后的专属启动分支注入三个子进程环境变量，位置覆盖外部 MCP 提前返回路径。
+Windows 进程环境名遵循大小写不敏感语义，Claude 私有 settings 局部移除同名等价键；用户原生配置与 Core 环境不改写。
+这些开关用于关闭显式后台执行及已确认的超时、响应预算自动转后台入口；CodeBuddy 原生配置覆盖的边界见下节。
+不宣称所有原生内部中断路径均已证明不可转后台。
 长命令仍遵循原生前台超时，失败／超时结果由当前任务处理，不自动重复业务操作。
 
-## CodeBuddy 设置优先级
+## CodeBuddy 原生配置边界
 
-CodeBuddy 2.133.1 的默认来源为 user、project、local；较高层定义的 `env` 整体替换低层对象。
-Rovai 先按实际子进程 HOME／CODEBUDDY_CONFIG_DIR 与 workspace 读取原本胜出的 env，再覆盖三个策略键。
-高层不含 env 时继续使用下层；空对象与 null 清除下层 env，不能把低层被覆盖的键补回来。
-原生设置支持 JSON/JSONC；无法可靠读取／解析时在启动前报告不含配置值的错误，不用空对象吞掉未知有效配置。
+Rovai 保证启动时注入上述三个变量。用户原生 settings 继续由 CodeBuddy 自己读取；其中显式配置的同名变量
+仍按 CodeBuddy 原生规则生效，本项策略不保证覆盖所有原生配置冲突。
 
-额外 `--settings` 私有文件只包含最终 env，其余模型、权限、Hooks、MCP 等原生配置继续由 CLI 按原优先级处理。
-路径进入 argv，环境值不进入 argv 或公开诊断。文件由现有 ACP Host 私有目录生命周期拥有；确定未进入 spawn 的准备失败或 Host
-确认退出后沿现有流程清理。可能存在进程时保留资源，沿用现有回收边界。外部 MCP 的提前返回不跳过该策略。
+本项策略不读取 user／project／local settings，不重建 env 优先级，不复制原生 env，不生成
+`background-policy-settings.json` 或追加 `--settings`，也不为此分配私有 Host 目录。
+因此不新增原生 env 搬运、配置解析或文件清理路径，也不为已删除的路径增加日志拦截。
 
 ## Host 与 Session
 

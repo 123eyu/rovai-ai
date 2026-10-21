@@ -281,7 +281,7 @@ describe('application toast semantics', () => {
       onClose: () => undefined
     }))
     const neutral = renderToStaticMarkup(createElement(AppToast, {
-      toast: { message: '已复制会话 ID', tone: 'neutral' },
+      toast: { message: '响应模式未保存，请重试。', tone: 'neutral' },
       onClose: () => undefined
     }))
 

@@ -1567,7 +1567,6 @@ export function SingleChatPanel({
         setConversations(remainingConversations)
         await refreshList()
       }
-      onNotify(uiAttribute('单聊已结束'))
     } catch (nextError) {
       setError(readErrorMessage(nextError, uiAttribute('单聊未结束，请重试。')))
     } finally {

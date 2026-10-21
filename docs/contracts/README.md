@@ -651,7 +651,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Execution Record Storage v3（当前）](execution-record-storage-v3.md) | 新操作去掉同结果重复 diff、预览总预算、独立摘要减少进度正文写入；旧格式保持 |
 | [Execution Record Storage v2（历史）](execution-record-storage-v2.md) | 新操作与活动共用一行、小字段兼容读取、按需 diff，保留旧格式与 v1 回收 |
 | [Execution Record Storage v1（历史）](execution-record-storage-v1.md) | 新操作独立输入／结果、按页组合预览、旧格式收尾与会话删除 Blob 候选登记 |
-| [Run Process Detail Surface v55（当前）](run-process-detail-surface-v55.md) | 执行行按 Run 输入引用原消息，支持批量、按需历史定位与返回；保留身份、模型与执行控制 |
+| [Run Process Detail Surface v55（当前）](run-process-detail-surface-v55.md) | 执行行按 Run 输入引用原消息，支持批量、按需历史定位，共用会话“回到最新”；保留身份、模型与执行控制 |
 | [Run Process Detail Surface v54（历史）](run-process-detail-surface-v54.md) | 独立执行行复用队员卡片与模型浮层，显示本 Run 的模型与强度；精确 Run 身份衔接不变 |
 | [Run Process Detail Surface v53（历史）](run-process-detail-surface-v53.md) | 执行行固定启动时公开消息边界；任何 Run 均不能拆开回复与附属卡片 |
 | [Run Process Detail Surface v52（历史）](run-process-detail-surface-v52.md) | 当前轮次活动优先于晚到的输入受理回执，保留新轮次连接反馈；Desktop / Web 共用 |

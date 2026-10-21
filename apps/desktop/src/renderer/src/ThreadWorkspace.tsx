@@ -8,7 +8,7 @@ import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
 import { ConversationRunPresence } from './ConversationRunPresence'
-import { MessageQuotePreview, ReplyMark } from './MessageQuotePreview'
+import { MessageQuotePreview } from './MessageQuotePreview'
 import { ConversationRunSource } from './ConversationRunSource'
 import { useRunSourceNavigation } from './useRunSourceNavigation'
 import { conversationRunPresenceTimeline } from './conversation-run-presence'
@@ -4630,7 +4630,6 @@ export function ThreadWorkspace({
     try {
       await onWithdrawMessage(message)
       setWithdrawalMessage(null)
-      onNotify(uiAttribute('消息已撤回'))
     } catch (error) {
       setWithdrawalError(readErrorMessage(error, uiAttribute('撤回失败，请重试。')))
     } finally {
@@ -5944,17 +5943,12 @@ export function ThreadWorkspace({
                   {uiAttribute('消息目录暂不可用，重试')}
                 </button>}
             </div>}
-            {conversationView === 'conversation' && runSourceNavigation.returnPoint && <div className="run-source-return-layer">
-              <button type="button" className="run-source-return" onClick={runSourceNavigation.returnToRun}>
-                <ReplyMark />{uiAttribute('返回执行位置')}
-              </button>
-            </div>}
             <ReturnToLatest
               viewportRef={timelineScrollRef}
               ownerKey={snapshot.thread.id}
               contentRevision={publishedMessageSequence}
               scope="camp"
-              enabled={conversationView === 'conversation' && !conversationFind.open && !runSourceNavigation.returnPoint}
+              enabled={conversationView === 'conversation' && !conversationFind.open}
               onLatest={() => followTimelineAfterUserSend(snapshot.thread.id)}
             />
             {worldMapEnabled && (
@@ -6069,7 +6063,6 @@ export function ThreadWorkspace({
                 onAddMembers={onAddMembers}
                 onPreviewMemberRemoval={onPreviewMemberRemoval}
                 onRemoveMember={onRemoveMember}
-                onNotify={onNotify}
               />
             </section>
             </ThreadDetailPopover>}
@@ -8794,8 +8787,7 @@ function ThreadMembersPanel({
   onChangeLead,
   onAddMembers,
   onPreviewMemberRemoval,
-  onRemoveMember,
-  onNotify
+  onRemoveMember
 }: {
   addDialogOpen: boolean
   setAddDialogOpen(open: boolean): void
@@ -8808,7 +8800,6 @@ function ThreadMembersPanel({
   onAddMembers?(agentIds: string[]): Promise<ThreadMemberAddOutcome>
   onPreviewMemberRemoval?(agentId: string): Promise<ThreadMemberRemovalPreview>
   onRemoveMember?(preview: ThreadMemberRemovalPreview): Promise<ThreadMemberRemoveOutcome>
-  onNotify(message: string): void
 }): JSX.Element {
   const mobile = useMobileLayout()
   const members = campInspectorMembers(snapshot.members)
@@ -8901,9 +8892,6 @@ function ThreadMembersPanel({
       if (outcome.failures.length === 0) {
         setAddDialogOpen(false)
         setSelectedCandidateIds(new Set())
-        onNotify(outcome.addedAgentIds.length === 1
-          ? uiAttribute('1 位队员已加入；将在之后新建的执行中生效')
-          : uiAttribute("{0} 位队员已加入；将在之后新建的执行中生效", String(outcome.addedAgentIds.length)))
         return
       }
       setSelectedCandidateIds(new Set(outcome.failures.map((failure) => failure.agentId)))
@@ -8960,12 +8948,8 @@ function ThreadMembersPanel({
     try {
       const outcome = await onRemoveMember(removalPreviewState.preview)
       if (outcome.status === 'removed') {
-        const displayName = removalPreviewState.preview.displayName
         setRemovalTarget(null)
         setRemovalPreviewState({ status: 'idle' })
-        onNotify(outcome.reconciliationStatus === 'reconciling'
-          ? uiAttribute("已将{0}移出当前会话；正在收拢已开始的工作", String(displayName))
-          : uiAttribute("已将{0}移出当前会话", String(displayName)))
         return
       }
       setRemovalPreviewState({

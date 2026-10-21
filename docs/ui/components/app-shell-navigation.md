@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-app-shell-navigation
 status: accepted
-last_updated: 2026-10-19
+last_updated: 2026-10-21
 ---
 
 # App Shell 与统一侧栏
@@ -58,6 +58,8 @@ Camp（包括快速对话）按最近一条已发布用户消息排序，桌面�
 
 Camp 行显示稳定标题和必要状态。右键、三点按钮、Shift+F10 / ContextMenu 键及触屏长按打开同一份菜单，
 提供置顶/取消置顶、标记未读/已读、重命名、复制会话 ID 和删除；复制只写稳定 Camp ID 原文。
+复制会话 ID、复制项目路径、重命名项目和从侧栏移除项目成功后不显示 Toast，也不增加替代提示；
+失败继续使用原有错误反馈。
 右键不打开 Camp 或折叠 Project。鼠标菜单靠点击位置，三点和键盘菜单靠行末入口，均限制在窗口内；
 Escape、点击外部、滚动或窗口失焦关闭。Escape 关闭时，在菜单释放焦点约束后恢复原 Project/Camp 行的 DOM focus，
 以便继续键盘操作；点击外部、选择命令、滚动或失焦关闭不执行该恢复。Camp 顶栏不得重复这些操作。

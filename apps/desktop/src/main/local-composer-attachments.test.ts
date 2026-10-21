@@ -205,13 +205,17 @@ describe('Local Composer attachment authority', () => {
     await writeFile(imagePath, bytes)
     const first = new LocalComposerAttachmentRegistry(registryPath)
     const attachment = await first.prepare({
-      threadId: 'camp-a', sourcePath: imagePath, displayName: 'screenshot.png', mediaType: 'image/png'
+      threadId: 'camp-a', sourcePath: imagePath, displayName: 'screenshot_14:17:26.png', mediaType: 'image/png'
     })
-    expect(attachment).toMatchObject({ previewKind: 'image', availability: 'available', sourcePath: imagePath })
+    expect(attachment).toMatchObject({
+      displayName: 'screenshot_14:17:26.png', previewKind: 'image', availability: 'available', sourcePath: imagePath
+    })
 
     const restoredOwner = new LocalComposerAttachmentRegistry(registryPath)
     const [restored] = await restoredOwner.restore('camp-a', [attachment])
-    expect(restored).toMatchObject({ id: attachment.id, previewKind: 'image', sourcePath: imagePath })
+    expect(restored).toMatchObject({
+      id: attachment.id, displayName: attachment.displayName, previewKind: 'image', sourcePath: imagePath
+    })
     const preview = await restoredOwner.preview({
       owner: 'composer', threadId: 'camp-a', attachmentRefId: attachment.id
     })

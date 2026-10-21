@@ -31,10 +31,21 @@ last_updated: 2026-10-21
 （`slow-tests`）、渠道原子准入（`extended-tests`）与旧安全文件名清洗三个定向 owner 均通过。
 规范与需求两个独立静态审查均无发现；未启动日常 App 或调用真实模型。
 
-`pnpm test:rust:extended` 暴露主干既有的
-`every_acp_adapter_uses_terminal_runtime_action_output_not_command_delta` 断言失败：实际 ACP 数量为
-15，旧断言为 14。该测试函数与 `agent_profile.rs` 均和基线 `2773f3bc3` 完全一致；定向执行也在
-同一个数量断言处失败。保留该失败记录，扩展层不记为全绿；本次没有改写或跳过无关断言。
+`pnpm test:rust:extended` 的 Core 扩展套件完成：1015 项通过、8 项既有 ignored、6 项失败，
+命令以 101 退出。六项失败均为主干既有问题：
+
+- `every_acp_adapter_uses_terminal_runtime_action_output_not_command_delta`：实际 ACP 数量为 15，
+  旧断言为 14。
+- `v103_adds_trae_delivery_without_overriding_custom_skill_assignments`、
+  `v104_adds_cursor_catalog_and_delivery_without_expanding_custom_skills`、
+  `v105_adds_kimi_catalog_and_delivery_without_expanding_custom_skills` 与
+  `v107_adds_grok_catalog_and_preserves_runtime_and_skill_rows`：旧迁移夹具的 Skill `group_key`
+  CHECK 约束失败。
+- `active_inputs_preserve_initial_context_and_unsubmitted_sources`：开头的 Runtime 能力矩阵断言
+  实际为 true、预期为 false，尚未进入上下文或附件部分。
+
+独立 detached worktree 在未修改的基线 `2773f3bc3` 编译并定向运行这六项，全部复现同样失败。
+相关测试、AdapterKind 与 Steer 定义未改动。保留失败记录，扩展层不记为全绿；本次没有改写或跳过无关断言。
 
 ## 单次长文本粘贴转附件（2026-10-20）
 

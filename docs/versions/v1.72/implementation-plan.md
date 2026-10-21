@@ -3937,3 +3937,16 @@ User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree
 `pnpm test` 最终完整通过：252 个 Vitest 文件／2854 项、Node 357 项通过／2 项平台跳过。此前并行构建时出现既有配置读取、评测子进程等超时；隔离复验与最终默认命令均通过，未修改其测试或超时配置。
 `pnpm test:rust:pr` 默认 workspace 474 项通过／1 项既有 ignored；两个既有 Source Ref／实际发布 owner 定向通过。
 `pnpm test:composer-input` 三项通过；最终共享卡片夹具额外验证中英文／日夜主题、恢复、纯附件发送与队员文件列表的实际宽度，截图人工复核通过。未启动日常 App、改动其数据或调用真实模型。
+
+### Agent 文件列表宽度恢复（2026-10-21）
+
+User 后续要求恢复 Agent 文件列表并通过 PR 合入 main。分支 `rovai/restore-agent-file-width`，
+worktree `rovai-ai-restore-agent-file-width`，基线 `c0f8a0df7309913f63f8e12c1fa41badd2e90950`。
+恢复 PR #856 之前的 620px 列表上限和整行宽度，解除 Agent 文件区对用户 224px 上限的依赖；
+用户文件卡片和长粘贴内容前缀保持。同步当前 UI、附件合同与版本概览；不改变数据、模型上下文或发布版本。
+
+`pnpm typecheck` 通过；`pnpm test` 完整通过 252 个 Vitest 文件／2854 项与 Node 357 项／2 项平台跳过。
+首次全量的既有钉钉文件交付用例等待超时，定向复验和完整重跑均通过，未修改该测试或超时配置。
+`pnpm test:composer-input` 三项通过：既有生产夹具验证中英文、日夜主题、用户卡片 224px、
+Agent 列表 620px 上限及 200px 窄容器收缩，截图人工复核通过。验收使用隔离 Electron，无 Core 或真实 Runtime。
+基于上述基线运行通用文档门禁；源码布局评估与机械扫描未发现本次恢复的阻断问题。

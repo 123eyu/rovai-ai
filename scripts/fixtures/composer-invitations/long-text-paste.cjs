@@ -358,12 +358,21 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
     writeFileSync(join(evidence, `compact-cards-sent-${language}.png`), (await window.webContents.capturePage()).toPNG())
     await evaluate('pasteTest.agentFiles()')
     await wait('document.querySelectorAll(".agent-timeline").length === 3')
-    const agentCards = await cardState('.agent-timeline')
-    assert.ok(agentCards.every(card => card.width <= 224.5 && card.height >= 56))
-    assert.ok(await evaluate('document.querySelector(".agent-output-file-grid").getBoundingClientRect().width <= 224.5'))
-    assert.equal(agentCards[0].title, cards[0].title)
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    writeFileSync(join(evidence, `compact-cards-agent-${language}.png`), (await window.webContents.capturePage()).toPNG())
+    for (const width of [800, 200]) {
+      await evaluate(`document.querySelector('.agent-message-outputs').style.width = '${width}px'`)
+      const agentCards = await cardState('.agent-timeline')
+      const gridWidth = await evaluate('document.querySelector(".agent-output-file-grid").getBoundingClientRect().width')
+      assert.equal(gridWidth, Math.min(620, width), 'Agent files fill available space up to the original 620px limit')
+      assert.ok(agentCards.every(card => Math.abs(card.width - (gridWidth - 2)) < 0.5 && card.height >= 56))
+      assert.equal(agentCards[0].title, cards[0].title)
+      if (width === 200) assert.ok(agentCards[0].overflow && agentCards[1].overflow)
+      for (const theme of ['day', 'night']) {
+        await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+        await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        writeFileSync(join(evidence, `agent-cards-${language}-${theme}-${width}.png`), (await window.webContents.capturePage()).toPNG())
+      }
+    }
+    await evaluate('document.querySelector(".agent-message-outputs").style.removeProperty("width")')
     assert.deepEqual((await state()).errors, [])
   }
   await evaluate('invitationTest.language("zh-CN")')

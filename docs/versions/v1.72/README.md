@@ -11,6 +11,13 @@ last_updated: 2026-10-21
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 智能体通用环境配置（2026-10-21）
+
+按 User 确认的第三版交互稿接入 Runtime 通用变量、队员继承与原地只读预览，
+保持已有进程与队员草稿。字段、加密、检查失效及 schema 161 升级由
+[Runtime Launch v68](../../contracts/runtime-launch-and-verification-v68.md)拥有；
+实施与验收见[通用环境配置记录](shared-environment-implementation.md)。不改变模型上下文或发布版本。
+
 ## 跟随系统界面语言（2026-10-21）
 
 已确认的设置、训练营与 Web 登录入口增加“跟随系统”。General Preferences schema 6 分离偏好与显示结果；旧 schema 1–5 保留原语言，缺失配置才采用 system。桌面本地启动读取、浏览器作用域、响应顺序和异常恢复由 [Interface Language v2](../../contracts/interface-language-v2.md)拥有；创建资料语言由 [First-run Onboarding v7](../../contracts/first-run-onboarding-v7.md)固定。实现与验收见[实施记录](implementation-plan.md#跟随系统界面语言2026-10-21)。不改变 Core 数据库 schema 或发布版本。

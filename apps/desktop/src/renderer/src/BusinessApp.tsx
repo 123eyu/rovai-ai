@@ -19,7 +19,7 @@ export { AppHeader } from './AppHeader'
 import { CurrentUserProfileProvider } from './CurrentUserProfile'
 import { readErrorMessage } from './error-message'
 import { CoreSubsystemNotice } from './CoreSubsystemNotice'
-import { Activity, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Activity, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { THREAD_SNAPSHOT_SCHEMA_VERSION } from '@contracts'
 import type {
@@ -1187,6 +1187,15 @@ export function BusinessApp({
   const startupStartedAt = useRef(startupStartedAtMs ?? performance.now())
   const liveRuntimeEventSequence = useRef(0)
   const membersViewRef = useRef<MembersViewHandle>(null)
+  const [commonEnvironmentReturn, setCommonEnvironmentReturn] = useState<{ kind: AdapterKind; memberId: string; memberName: string } | null>(null)
+  const commonEnvironmentReturnRef = useRef(commonEnvironmentReturn); commonEnvironmentReturnRef.current = commonEnvironmentReturn
+  const commonEnvironmentScroll = useRef<{ element: HTMLElement; top: number; left: number }[]>([])
+  useLayoutEffect(() => {
+    if (view !== 'members' || !commonEnvironmentReturn) return
+    for (const { element, top, left } of commonEnvironmentScroll.current) { element.scrollTop = top; element.scrollLeft = left }
+    commonEnvironmentScroll.current = []
+    setCommonEnvironmentReturn(null)
+  }, [view, commonEnvironmentReturn])
   const campLeaveGuardRef = useRef<{ threadId: string; guard: ThreadLeaveGuard } | null>(null)
   const navigationThreadPreparation = useRef<{
     threadId: string; guard: ThreadLeaveGuard; promise: Promise<ThreadLeavePreparation>; users: number; didLeave: boolean
@@ -2859,7 +2868,7 @@ export function BusinessApp({
   const requestMemberTransition = useCallback((
     action: () => void | Promise<void>
   ): Promise<boolean> => {
-    if (viewRef.current !== 'members') {
+    if (viewRef.current !== 'members' && !commonEnvironmentReturnRef.current) {
       return Promise.resolve().then(action).then(() => true)
     }
     return membersViewRef.current?.requestTransition(action) ?? Promise.resolve(false)
@@ -2945,6 +2954,7 @@ export function BusinessApp({
         lastMainTarget.current = previous.entries[previous.index] ?? { kind: 'quick_chat' }
       }
       if (!transaction.commit()) return
+      if (target.kind !== 'members' && target.kind !== 'settings') setCommonEnvironmentReturn(null)
       context?.beforeCommit?.()
       setNotificationFocus(null)
       switch (target.kind) {
@@ -2967,7 +2977,7 @@ export function BusinessApp({
       else await leaveActiveSurface(() => Promise.race([apply(), transaction.superseded]))
     }
     try {
-      if (viewRef.current === 'members' && target.kind !== 'members' && !context?.prepared && !context?.memberPrepared) await requestMemberTransition(leave)
+      if ((viewRef.current === 'members' || (commonEnvironmentReturnRef.current && target.kind !== 'settings')) && target.kind !== 'members' && !context?.prepared && !context?.memberPrepared) await requestMemberTransition(leave)
       else await leave()
     } catch (nextError) {
       if (transaction.isCurrent()) setError(errorMessage(nextError))
@@ -4523,6 +4533,10 @@ export function BusinessApp({
             section={settingsSection}
             updates={appUpdates}
             serverUpdates={environment.serverUpdates}
+            commonEnvironmentReturn={commonEnvironmentReturn ? {
+              kind: commonEnvironmentReturn.kind, memberName: commonEnvironmentReturn.memberName,
+              onBack: () => { void desktopNavigation.push({ kind: 'members', agentId: commonEnvironmentReturn.memberId, tab: 'runtime' }, { memberPrepared: true }) }
+            } : undefined}
             onDiagnosticsNavigate={(section) => chooseSettingsSection(section)}
             onReload={loadRuntime}
             onAppearanceChange={changeAppearancePreferences}
@@ -4530,7 +4544,7 @@ export function BusinessApp({
           </MobileSettingsLayout>
         )}
 
-        {!startupGateVisible && view === 'members' && (
+        {!startupGateVisible && (view === 'members' || commonEnvironmentReturn !== null) && (
           startupRoutePending?.kind === 'members'
             ? startupStatus === 'waiting'
               ? (
@@ -4544,9 +4558,13 @@ export function BusinessApp({
               )
               : null
             : (
-                <div className="members-workspace">
+                <div className="members-workspace" style={view !== 'members' ? { display: 'none' } : undefined}>
                   <MembersView
                     ref={membersViewRef}
+                    onEditCommonEnvironment={(kind, member) => {
+                      commonEnvironmentScroll.current = Array.from(document.querySelectorAll<HTMLElement>('.members-workspace, .members-workspace *')).filter(element => element.scrollTop !== 0 || element.scrollLeft !== 0).map(element => ({ element, top: element.scrollTop, left: element.scrollLeft }))
+                      void desktopNavigation.push({ kind: 'settings', section: 'runtime' }, { memberPrepared: true, beforeCommit: () => setCommonEnvironmentReturn({ kind, memberId: member.agentId, memberName: member.displayName }) })
+                    }}
                     agents={agents}
                     topNotices={inlineNotices}
                     installations={installations}
@@ -4800,6 +4818,7 @@ export function SettingsView({
   updates,
   serverUpdates,
   onDiagnosticsNavigate,
+  commonEnvironmentReturn,
   onReload,
   onAppearanceChange
 }: {
@@ -4818,6 +4837,7 @@ export function SettingsView({
   section: SettingsSection
   updates: AppUpdatesController
   serverUpdates?: import('@contracts').AppUpdatesApi
+  commonEnvironmentReturn?: { kind: AdapterKind; memberName: string; onBack(): void }
   onDiagnosticsNavigate(section: 'mcp' | 'runtime', runtimeKind?: AdapterKind): void
   onReload(): Promise<void>
   onAppearanceChange(preferences: AppearancePreferences): Promise<AppearanceSnapshot>
@@ -4841,7 +4861,7 @@ export function SettingsView({
         <Activity mode={section === 'toolbox' ? 'visible' : 'hidden'}><ToolboxSettings agents={agents} /></Activity>
         <Activity mode={section === 'mcp' ? 'visible' : 'hidden'}><McpSettings agents={agents} platform={platform} /></Activity>
         <Activity mode={section === 'runtime' ? 'visible' : 'hidden'}>
-          <RuntimeInstallationsPanel health={health} installations={installations} onReload={onReload} />
+          <RuntimeInstallationsPanel health={health} installations={installations} onReload={onReload} commonEnvironmentReturn={commonEnvironmentReturn} />
         </Activity>
         {section === 'channels' && <ChannelSettings agents={agents} />}
         {section === 'appearance' && (

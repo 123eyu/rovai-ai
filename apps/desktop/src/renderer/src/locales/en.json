@@ -4027,5 +4027,19 @@
   "请输入此服务的登录 Token。": "Enter the login token for this server.",
   "有未查看的执行中断": "Unseen execution interruption",
   "执行中断提醒未能标记已读，请重试。": "Could not mark the execution interruption reminder as read. Please try again.",
-  "执行中断提醒的已读结果尚未确认，将继续核对。": "The execution interruption acknowledgement is unconfirmed. We will keep checking."
+  "执行中断提醒的已读结果尚未确认，将继续核对。": "The execution interruption acknowledgement is unconfirmed. We will keep checking.",
+  "继承通用配置": "Inherit shared configuration",
+  "编辑通用配置": "Edit shared configuration",
+  "查看合并结果": "View merged result",
+  "合并结果（只读）": "Merged result (read-only)",
+  "队员变量": "Member variables",
+  "独立变量": "Independent variables",
+  "合并结果 JSON，只读": "Merged environment JSON, read-only",
+  "通用环境变量": "Shared environment variables",
+  "通用环境变量说明": "About shared environment variables",
+  "用于在不同队员之间共享一些配置变量。": "Share configuration variables across teammates.",
+  "通用环境变量 JSON": "Shared environment variables JSON",
+  "返回 {0} 的队员配置": "Back to {0}’s configuration",
+  "通用配置已在其他位置更新，请重新读取。": "Shared configuration changed elsewhere. Reload the saved values.",
+  "配置已更改，请重新查看。": "Configuration changed. View the result again."
 }

@@ -693,6 +693,18 @@ impl ClaudeCodeCliRuntimeAdapter {
             &mut command,
         );
         if let Some(environment) = &request.runtime.environment {
+            environment.validate_model_selection(
+                rovai_core::agent_profile::AdapterKind::ClaudeCodeCli,
+                &if request.runtime.model.source == "runtime_default" {
+                    rovai_core::agent_profile::ModelSelection::RuntimeDefault
+                } else {
+                    rovai_core::agent_profile::ModelSelection::Explicit {
+                        model_id: request.runtime.model.model_id.clone(),
+                        options: request.runtime.model.options.clone(),
+                        dsh_source: None,
+                    }
+                },
+            )?;
             environment.validate_claude_routing(request.runtime.reported_version.as_deref())?;
             environment.apply(&mut command)?;
         }

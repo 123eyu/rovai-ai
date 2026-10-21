@@ -26,6 +26,7 @@ fn save(connection: &Connection, member: &str, revision: i64, values: Value) -> 
         AdapterKind::Pi,
         &ModelSelection::RuntimeDefault,
         EnvironmentEdit {
+            inherit_common: None,
             expected_revision: revision,
             json: values.to_string(),
         },
@@ -100,6 +101,7 @@ fn private_versions_preserve_credentials_and_new_launches_read_current_configura
             AdapterKind::Pi,
             &ModelSelection::RuntimeDefault,
             EnvironmentEdit {
+                inherit_common: None,
                 expected_revision: 1,
                 json: json!({"ANTHROPIC_API_KEY":"different"}).to_string()
             }
@@ -189,10 +191,168 @@ fn private_versions_preserve_credentials_and_new_launches_read_current_configura
         cleared.values.as_ref().unwrap()["ANTHROPIC_API_KEY"],
         "fixture-host-new"
     );
+    // The shared layer belongs to a Runtime, and never mutates an already captured launch.
+    let common_edit = |revision, value: Value| common::Edit {
+        expected_revision: revision,
+        json: value.to_string(),
+    };
+    common::prepare(database.connection(), AdapterKind::Pi, common_edit(0,
+        json!({"COMMON_ONLY":"shared", "ANTHROPIC_API_KEY":"fixture-common-secret", "EMPTY":"common"})))
+        .unwrap().commit(database.connection()).unwrap();
+    assert_eq!(
+        common::get(database.connection(), AdapterKind::Pi, false).unwrap()["environment"]["ANTHROPIC_API_KEY"],
+        SAVED
+    );
+    let bytes: Vec<u8> = database
+        .connection()
+        .query_row(
+            "SELECT ciphertext FROM runtime_common_environment",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains("fixture-common-secret"));
+    assert!(
+        common::current(database.connection(), AdapterKind::CodexCli)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        common::prepare(
+            database.connection(),
+            AdapterKind::Pi,
+            common_edit(0, json!({}))
+        )
+        .is_err()
+    );
+    let inherited = launch_with_host(database.connection(), a, AdapterKind::Pi, || {
+        Environment::from([("HOST_ONLY".into(), "host".into())])
+    })
+    .unwrap();
+    assert_eq!(inherited.values.as_ref().unwrap()["COMMON_ONLY"], "shared");
+    assert_eq!(inherited.values.as_ref().unwrap()["HOST_ONLY"], "host");
+    assert!(!cleared.values.as_ref().unwrap().contains_key("COMMON_ONLY"));
+    prepare(
+        database.connection(),
+        a,
+        AdapterKind::Pi,
+        &ModelSelection::RuntimeDefault,
+        EnvironmentEdit {
+            expected_revision: 4,
+            json: json!({"EMPTY":"", "ANTHROPIC_API_KEY":"member-secret"}).to_string(),
+            inherit_common: Some(true),
+        },
+    )
+    .unwrap()
+    .commit(database.connection())
+    .unwrap();
+    let merged = current_for_launch(database.connection(), a, AdapterKind::Pi).unwrap();
+    assert_eq!(
+        merged.values.as_ref().unwrap()["ANTHROPIC_API_KEY"],
+        "member-secret"
+    );
+    assert_eq!(merged.values.as_ref().unwrap()["EMPTY"], "");
+    assert_eq!(merged.values.as_ref().unwrap()["COMMON_ONLY"], "shared");
+    prepare(
+        database.connection(),
+        a,
+        AdapterKind::Pi,
+        &ModelSelection::RuntimeDefault,
+        EnvironmentEdit {
+            expected_revision: 5,
+            json: "{}".into(),
+            inherit_common: Some(false),
+        },
+    )
+    .unwrap()
+    .commit(database.connection())
+    .unwrap();
+    assert!(
+        !current_for_launch(database.connection(), a, AdapterKind::Pi)
+            .unwrap()
+            .values
+            .as_ref()
+            .unwrap()
+            .contains_key("COMMON_ONLY")
+    );
+    assert_eq!(
+        get(database.connection(), a, AdapterKind::Pi, false).unwrap()["inheritCommon"],
+        false
+    );
+    // Simulate a pre-upgrade nonempty revision. A missing preference must not opt it in.
     database
         .connection()
         .execute(
-            "UPDATE member_runtime_environment SET ciphertext=x'00' WHERE revision=4",
+            "DELETE FROM member_environment_inheritance WHERE member_id=?1 AND revision=5",
+            [a],
+        )
+        .unwrap();
+    assert!(
+        !inheritance(
+            database.connection(),
+            a,
+            AdapterKind::Pi,
+            5,
+            &read_version(database.connection(), a, AdapterKind::Pi, 5).unwrap()
+        )
+        .unwrap()
+    );
+    assert!(
+        inheritance(
+            database.connection(),
+            a,
+            AdapterKind::Pi,
+            0,
+            &Environment::new()
+        )
+        .unwrap()
+    );
+    let mut startup = crate::runtime_startup::RuntimeStartupConfiguration::default();
+    crate::runtime_startup::apply_common(database.connection(), AdapterKind::Pi, &mut startup)
+        .unwrap();
+    assert!(
+        startup
+            .environment
+            .iter()
+            .any(|entry| entry.name == "COMMON_ONLY" && entry.value == "shared")
+    );
+    // Common deletion and an unrelated runtime do not affect member/private values.
+    common::prepare(
+        database.connection(),
+        AdapterKind::Pi,
+        common_edit(1, json!({})),
+    )
+    .unwrap()
+    .commit(database.connection())
+    .unwrap();
+    assert!(
+        common::current(database.connection(), AdapterKind::Pi)
+            .unwrap()
+            .is_empty()
+    );
+    // One damaged common record cannot prevent Host startup or independent members.
+    let encrypted: Vec<u8> = database.connection().query_row(
+        "SELECT ciphertext FROM runtime_common_environment WHERE runtime_kind='pi' AND revision=2", [], |r| r.get(0)).unwrap();
+    database.connection().execute("UPDATE runtime_common_environment SET ciphertext=x'00' WHERE runtime_kind='pi' AND revision=2", []).unwrap();
+    let startup = crate::runtime_startup::load_all(&database).unwrap();
+    assert!(
+        startup[&AdapterKind::Pi]
+            .ensure_environment_available()
+            .is_err()
+    );
+    assert!(
+        !startup.contains_key(&AdapterKind::CodexCli)
+            || startup[&AdapterKind::CodexCli]
+                .ensure_environment_available()
+                .is_ok()
+    );
+    assert!(current_for_launch(database.connection(), a, AdapterKind::Pi).is_ok());
+    assert!(current_for_launch(database.connection(), MUWA_AGENT_ID, AdapterKind::Pi).is_err());
+    database.connection().execute("UPDATE runtime_common_environment SET ciphertext=?1 WHERE runtime_kind='pi' AND revision=2", [encrypted]).unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE member_runtime_environment SET ciphertext=x'00' WHERE revision=6",
             [],
         )
         .unwrap();

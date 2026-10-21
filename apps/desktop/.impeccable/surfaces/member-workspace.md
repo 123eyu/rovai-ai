@@ -118,7 +118,7 @@ Runtime default remains selectable without a catalog. The search input also acce
 trimmed input absent from the native catalog and current manual selection, show “使用 {ID}” / “Use {ID}” in the result list.
 Do not add a permanent action, badge or second editor. The current catalog-absent ID appears as an ordinary selected row;
 choosing another model removes that manual row. Save only the current explicit selection with initially empty options, never
-a custom catalog or recent-ID list. The model catalog continues to use native Runtime configuration, not member environment.
+a custom catalog or recent-ID list. The model catalog uses native Runtime configuration plus shared Runtime variables; member overrides stay local to member execution.
 
 Keep presence and destructive removal in the header overflow menu. Removal uses its existing confirmation
 and Core preview. Do not expose Installation IDs, executable paths or internal bindings in the ordinary profile.

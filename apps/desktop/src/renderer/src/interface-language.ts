@@ -75,9 +75,10 @@ export async function refreshInterfaceLanguage(): Promise<void> {
     if (generation === epoch) accept(snapshot)
   } catch {
     if (generation !== epoch) return
-    publish({ ...(initialized ? current : effective(saved)), readError: {
+    saved = { ...saved, readError: {
       code: 'interface_language_unreadable', message: '语言偏好暂时无法读取，原记录已保留。', retryable: true, details: {}
-    } })
+    } }
+    publish({ ...(initialized ? current : effective(saved)), readError: saved.readError })
   }
 }
 

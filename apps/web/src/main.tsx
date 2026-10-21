@@ -8,9 +8,10 @@ import { WebLogin } from './WebLogin'
 import { WebConnectionRecovery } from './WebConnectionRecovery'
 import '../../desktop/src/renderer/src/remote-connection.css'
 import { browserGeneralPreferences } from './general-preferences'
+import { createLoginLanguagePreferences } from './login-language'
 import { observeInterfaceLanguage, useUiText } from '../../desktop/src/renderer/src/interface-language'
 import { LanguagePreferenceReadNotice } from '../../desktop/src/renderer/src/LanguagePreferenceControl'
-import type { InterfaceLanguageApi, InterfaceLanguagePreference, WorkspaceSelection } from '@contracts'
+import type { InterfaceLanguageApi, WorkspaceSelection } from '@contracts'
 import { createRoot } from 'react-dom/client'
 import { BusinessApp } from '../../desktop/src/renderer/src/BusinessApp'
 import { ThreadClientProvider } from '../../desktop/src/renderer/src/camp-client'
@@ -57,16 +58,8 @@ const recovery = (async () => {
   return restored
 })()
 
-const loginPreferences = browserGeneralPreferences(null)
-let loginChoice: InterfaceLanguagePreference | null = null
-const loginLanguageApi: InterfaceLanguageApi = {
-  ...loginPreferences,
-  async setInterfaceLanguagePreference(preference) {
-    const snapshot = await loginPreferences.setInterfaceLanguagePreference(preference)
-    loginChoice = preference
-    return snapshot
-  }
-}
+const loginPreferences = createLoginLanguagePreferences(browserGeneralPreferences(null))
+const loginLanguageApi = loginPreferences.api
 
 function WebEntry() {
   const t = useUiText()
@@ -91,11 +84,8 @@ function WebEntry() {
     const next = createThreadAdapter(transport, selectWorkspace)
     preparing.current = (async () => {
       // An explicit login-page choice transfers once; passive detection never replaces a saved owner preference.
-      if (loginChoice !== null) {
-        try { await next.environment.preferences.generalPreferences.setInterfaceLanguagePreference(loginChoice) }
-        catch { setError('语言偏好未能保存，请重试。') }
-        loginChoice = null
-      }
+      try { await loginPreferences.transferTo(next.environment.preferences.generalPreferences) }
+      catch { setError('语言偏好未能保存，请重试。') }
       adapterRef.current = next
       setAdapter(next)
     })().finally(() => { preparing.current = null })

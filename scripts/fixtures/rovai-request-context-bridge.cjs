@@ -33,6 +33,14 @@ ipcMain.handle('rovai:general-preferences-set-new-conversation-defaults', (_even
 ipcMain.handle('rovai:navigation-preferences-set-project-name', (_event, targetKey, name) => ({ targetKey, name }))
 ipcMain.handle('rovai:onboarding-prepare-runtime-copies', (_event, targets) => ({ targets }))
 ipcMain.handle('rovai:onboarding-record-runtime-copy', (_event, agentId, commandId, outcome) => ({ agentId, commandId, outcome }))
+ipcMain.handle('rovai:onboarding-begin-provisioning', (_event, agentId, threadId, interfaceLanguage) => ({ agentId, threadId, interfaceLanguage }))
+let language = { interfaceLanguagePreference: 'system', interfaceLanguage: 'en', systemLanguage: 'en', languageRevision: 0, readError: null }
+ipcMain.handle('rovai:desktop-session-get-interface-language', () => language)
+ipcMain.handle('rovai:general-preferences-set-language', (event, preference) => {
+  language = { ...language, interfaceLanguagePreference: preference, interfaceLanguage: preference === 'system' ? 'en' : preference, languageRevision: language.languageRevision + 1 }
+  event.sender.send('rovai:interface-language-changed', language)
+  return language
+})
 
 const pastedText = ' \t\r\n' + '😀'.repeat(10_001) + '\n '
 const pastedId = '11111111-1111-4111-8111-111111111111'
@@ -64,6 +72,20 @@ app.whenReady().then(async () => {
       let hostWebFailure
       try { await window.rovai.hostWeb.token() } catch (error) { hostWebFailure = error }
       const defaults = { memberAgentIds: ['agent-a'], defaultLeadAgentId: 'agent-a' }
+      const initialLanguage = await window.rovai.generalPreferences.getInterfaceLanguage()
+      const startupLanguage = await window.rovai.desktopSession.getInterfaceLanguage()
+      const languageEvents = []
+      let languageChanged
+      const changed = new Promise(resolve => { languageChanged = resolve })
+      const stopLanguage = window.rovai.generalPreferences.onInterfaceLanguageChanged(snapshot => {
+        languageEvents.push(snapshot); languageChanged()
+      })
+      const manualLanguage = await window.rovai.generalPreferences.setInterfaceLanguagePreference('zh-CN')
+      await changed
+      stopLanguage()
+      const systemLanguage = await window.rovai.generalPreferences.setInterfaceLanguagePreference('system')
+      await window.rovai.generalPreferences.getInterfaceLanguage()
+      const provisioning = await window.rovai.onboarding.beginProvisioning('language-agent', 'language-thread', 'en')
       const savedOnly = await window.rovai.generalPreferences.setNewConversationDefaults(defaults)
       const enabled = await window.rovai.generalPreferences.setNewConversationDefaults(defaults, true)
       const projectName = await window.rovai.navigationPreferences.setProjectName('directory:/fixture/frontend', '官网前端')
@@ -104,7 +126,8 @@ app.whenReady().then(async () => {
           ))
         }
       }
-      return { value, failures, savedOnly, enabled, projectName, restoredName, hostWeb, hostWebFailure, copyPlan, copyResults, pasted, removedPaste, oversizedReads, oversizedError, boundaryReads }
+      return { value, failures, savedOnly, enabled, projectName, restoredName, hostWeb, hostWebFailure, copyPlan, copyResults, pasted, removedPaste, oversizedReads, oversizedError, boundaryReads,
+        initialLanguage, startupLanguage, manualLanguage, systemLanguage, languageEvents, provisioning }
     })()`)
     assert.deepEqual(observations.hostWeb, [
       { operation: 'status', params: undefined },
@@ -113,6 +136,14 @@ app.whenReady().then(async () => {
       { operation: 'stop', params: undefined }
     ])
     assert.deepEqual(observations.value, { unchanged: true, values: [1, null, 'ok'] })
+    assert.deepEqual(observations.initialLanguage, observations.startupLanguage)
+    assert.equal(observations.initialLanguage.interfaceLanguagePreference, 'system')
+    assert.equal(observations.manualLanguage.interfaceLanguage, 'zh-CN')
+    assert.deepEqual(observations.languageEvents, [observations.manualLanguage], 'Unsubscribing removes the real IPC listener')
+    assert.equal(observations.systemLanguage.interfaceLanguagePreference, 'system')
+    assert.equal(observations.systemLanguage.interfaceLanguage, 'en')
+    assert.equal(observations.systemLanguage.languageRevision, 2)
+    assert.deepEqual(observations.provisioning, { agentId: 'language-agent', threadId: 'language-thread', interfaceLanguage: 'en' })
     assert.deepEqual(observations.pasted, { id: pastedId, generatedBy: 'long_text_paste' })
     assert.equal(observations.oversizedReads, 0, 'Reject oversized text before reading its bytes')
     assert.match(observations.oversizedError, /25 MiB/u)

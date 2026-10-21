@@ -78,4 +78,30 @@ describe('interface language', () => {
     expect(state.getInterfaceLanguageSnapshot()).toMatchObject({ interfaceLanguagePreference: 'system', interfaceLanguage: 'en' })
     stop()
   })
+
+  it('retains a failed rollback read until a successful retry clears the recovery notice', async () => {
+    vi.resetModules()
+    const state = await import('./interface-language')
+    let failRead = false
+    const api = {
+      getInterfaceLanguage: async () => {
+        if (failRead) throw new Error('read failed')
+        return DEFAULT_GENERAL_PREFERENCES
+      },
+      onInterfaceLanguageChanged: () => () => undefined,
+      setInterfaceLanguagePreference: async () => { failRead = true; throw new Error('write failed') }
+    } as unknown as GeneralPreferencesApi
+    const ready = deferred<void>()
+    const stop = state.observeInterfaceLanguage(api, () => ready.resolve())
+    await ready.promise
+    await expect(state.changeInterfaceLanguage(api, 'zh-CN')).rejects.toThrow('write failed')
+    expect(state.getInterfaceLanguageSnapshot()).toMatchObject({
+      interfaceLanguagePreference: 'system', interfaceLanguage: 'en',
+      readError: { code: 'interface_language_unreadable', retryable: true }
+    })
+    failRead = false
+    await state.refreshInterfaceLanguage()
+    expect(state.getInterfaceLanguageSnapshot().readError).toBeNull()
+    stop()
+  })
 })

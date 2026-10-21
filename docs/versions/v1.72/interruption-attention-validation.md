@@ -60,6 +60,11 @@ Renderer 沿用现有通知交互 owner，生产 Hook/Controller/Sidebar 加隔�
   schema 11、新批量 RPC 与跨客户端范围确认回执；数据、Skill Library、MCP 和上传目录均为隔离临时路径。
 - `pnpm docs:test`、`pnpm docs:check`、diff-aware `pnpm docs:check:ci` 通过；Rust 格式检查通过。
 
+收口同步 `main` 的 `010e762f0`（#846、#847）后，在 `ab6e52b97` 再次通过类型检查、全量前端、
+退出提醒/Portal 两个交互 owner、桌面构建及以该 main 为基线的文档门禁。后端没有随同步变化。
+并行构建时，既有 evaluation-host 与 file-preview watcher 的 3 条计时断言曾超时；
+停止并行构建后的全量复跑通过，未修改这些测试或延长超时阈值。
+
 以上为隔离自动验证，不是日常安装版的操作验收；未重测整个 App 启动耗时或使用真实模型。
 
 ## 历史记录：R2 初次交付

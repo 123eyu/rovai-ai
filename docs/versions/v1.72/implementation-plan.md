@@ -8,6 +8,25 @@ last_updated: 2026-10-21
 
 # v1.72 实施与验收
 
+## 无公开输出停止的中断已读修复（2026-10-21）
+
+- Worktree：同级 `rovai-ai-silent-stop-attention`，分支 `rovai/fix-silent-stop-attention`，
+  基线 `6deaee767`，无需治理先行提交。
+- 真实问题来自无公开回复、无产物的手动停止：通知已准入，但原正文投影完全省略该 Run，
+  关闭执行台时没有精确终态节点供可见来源确认。旧 UI 的“无输出不显示中断行”与已确认中断方案的
+  无输出验收要求冲突，本次同步修正 [会话 UI](../../ui/components/conversation-workspace.md)。
+- 公屏为该 Run 显示一次既有样式的“你已中断”标记，按终止时间排序，不创建消息、头像或空产物区。
+  已有消息／产物仍使用原标记；单聊、运行中及其他取消原因不使用这个兜底。
+  继续走现有精确可见来源与 Disposition ACK；没有新未读状态、强制已读、数据库迁移或启动扫描。
+- 扩展现有正文投影测试及中断注意力 Electron 夹具。后者挂载生产 ThreadWorkspace、导航和
+  NotificationAttentionController，由真实停止按钮与 DOM 可见检测验证无输出停止、关闭执行台、
+  独立短亮、屏幕外历史及缓存预览，不再用手工提供 Run ID 代替该验收。
+- 验证通过：`pnpm typecheck`；`pnpm test`（249 个 Vitest 文件／2832 项，Node 357 项通过、
+  2 项既有 Windows skip）；通知 Electron 3 项及最终中断用例复跑；`pnpm build:desktop`；
+  默认 Rust workspace 474 项通过、1 项既有 ignored；使用上述真实 base 的文档门禁。
+  双主题截图确认短亮前后与独立标记。此前正文投影复现失败，旧“无输出不显示中断”断言已按本次规则修正。
+- 状态 `ready`：本次仅交付修复分支，保留 worktree 等待后续合入；未安装或重启日常 App，未改写真实通知。
+
 ## 原路径附件显示名（2026-10-21）
 
 - 工作目录：同级 worktree `rovai-ai-source-attachment-display-name`，分支

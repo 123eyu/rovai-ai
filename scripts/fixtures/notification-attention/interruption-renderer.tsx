@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { NavigationThreadItem, NotificationEpisodeChange, NotificationThreadInterruptions, StoredCommandResult } from '@contracts'
+import type { NavigationThreadItem, NotificationEpisodeChange, NotificationThreadInterruptions, StoredCommandResult, ThreadSnapshot } from '@contracts'
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
 import { ThreadNavigation } from '../../../apps/desktop/src/renderer/src/ThreadNavigation'
 import { NotificationAttentionController } from '../../../apps/desktop/src/renderer/src/NotificationAttentionController'
 import { ThreadInterruptionAttentionContext, useThreadInterruptionAttention } from '../../../apps/desktop/src/renderer/src/thread-interruption-attention'
-import type { VisibleNotificationSources } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
+import { ThreadWorkspace, type VisibleNotificationSources } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
+import { createReviewModel } from '../host-web-parity/model'
+import { agents, initial, initialDraft, installations, message, run as templateRun } from '../host-web-parity/data'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
 const id = 'rvcamp_01h47kvsy5fk1shh6w1g60eec0'
@@ -40,10 +42,21 @@ let showSidebar: (value: boolean) => void
 let changeSurface: (value: string | null) => void
 let changeThreadIds: (value: string[]) => void
 let localWrites = 0
-const client = { platform: 'darwin', onEvent: (listener: (event: { method: string }) => void) => {
+const workspaceModel = createReviewModel('desktop', 'camp')
+const workspaceRunId = 'workspace-stop'
+let showWorkspace: (status: 'running' | 'cancelled', offscreen: boolean, ready: boolean) => void
+let confirmWorkspace: () => void
+let currentWorkspace: ThreadSnapshot | null = null
+const client = { ...workspaceModel.client, platform: 'darwin', onEvent: (listener: (event: { method: string }) => void) => {
   events.add(listener); return () => events.delete(listener)
 }, request: async (method: string, request: any) => {
   requests.push({ method, request })
+  if (method === 'thread.messages.anchors') {
+    const messages = currentWorkspace?.messages ?? []
+    return { schemaVersion: 1, threadId: id, throughGlobalSequence: currentWorkspace?.throughGlobalSequence ?? 0, totalCount: messages.length,
+      items: messages.map(message => ({ messageId: message.id, sequence: message.sequence,
+        messageVersion: message.version, title: message.body })) }
+  }
   if (method === 'preferences.tasks.get') return task()
   if (method === 'notifications.preference.get') return { headsUpEnabled: false }
   if (method === 'notifications.inbox') return { schemaVersion: 10, throughChangeSequence: sequence,
@@ -75,8 +88,23 @@ const client = { platform: 'darwin', onEvent: (listener: (event: { method: strin
     emit()
     return result
   }
-  throw new Error(method)
+  return workspaceModel.client.request(method as Parameters<typeof workspaceModel.client.request>[0], request)
 } } as unknown as typeof desktopThreadClient
+
+function workspaceSnapshot(status: 'running' | 'cancelled', offscreen: boolean): ThreadSnapshot {
+  const startedAt = new Date(Date.now() - 2000).toISOString(), endedAt = new Date().toISOString()
+  return { ...initial, throughGlobalSequence: 100, thread: { ...initial.thread, id },
+    messages: [{ ...message(1, '检查没有公开输出就停止的执行。', 'user'), createdAt: startedAt },
+      ...Array.from({ length: offscreen ? 25 : 0 }, (_, i) => ({
+        ...message(i + 2, `后续消息 ${i + 1}，不代替旧执行的已读。`, 'user'), createdAt: new Date(Date.now() + 60_000).toISOString()
+      }))],
+    agentRuns: [{ ...templateRun, id: workspaceRunId, invocationKind: 'batch', threadTurnId: null,
+      status, inputMessageIds: ['review-message-1'], anchorMessageId: 'review-message-1', publicTailSequenceAtStart: 1,
+      executionEvidenceCount: 0, executionEvidenceChangeSequence: 0, createdAt: startedAt, startedAt,
+      updatedAt: status === 'running' ? startedAt : endedAt, endedAt: status === 'running' ? null : endedAt,
+      cancelReasonCode: status === 'running' ? null : 'user_requested_agent_run_stop' }]
+  }
+}
 
 function admit(runId: string, read = false, conversationId: string | null = null) {
   const n = ++sequence
@@ -101,13 +129,21 @@ function Fixture() {
   const [manualUnread, setManual] = useState(false)
   const [sidebar, setSidebar] = useState(true)
   const [threadIds, setThreadIds] = useState([id])
+  const [workspace, setWorkspace] = useState<ThreadSnapshot | null>(null)
+  const [workspaceReady, setWorkspaceReady] = useState(true)
+  const [workspaceSources, setWorkspaceSources] = useState<VisibleNotificationSources | null>(null)
+  currentWorkspace = workspace
   const sources: VisibleNotificationSources = { threadId: id, conversationId, surfaceVisible: true,
     snapshotSequence: 0, agentRunIds: runs, campTurnIds: [], messageIds: [], approvalIds: [] }
   attention = useThreadInterruptionAttention(true, threadIds, { threadId: id, conversationId, visible: true })
   showSources = setRuns; manual = setManual; showSidebar = setSidebar; changeSurface = setConversation
   changeThreadIds = setThreadIds
+  showWorkspace = (status, offscreen, ready) => {
+    setWorkspaceSources(null); setWorkspaceReady(ready); setWorkspace(workspaceSnapshot(status, offscreen))
+  }
+  confirmWorkspace = () => setWorkspaceReady(true)
   return <ThreadInterruptionAttentionContext.Provider value={attention}>
-    <div className="app-shell" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', height: '100vh' }}>
+    <div className="app-shell" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gridTemplateRows: 'minmax(0, 1fr)', height: '100vh' }}>
       <div id="sidebar" style={{ visibility: sidebar ? 'visible' : 'hidden' }}>
         <ThreadNavigation view="camp" state="ready" navigation={{ schemaVersion: 3, throughGlobalSequence: 0,
           quickChat: { totalCount: 1, recentThreads: [thread] }, projects: [] }}
@@ -117,9 +153,20 @@ function Fixture() {
           onThread={noop} onRemoveProject={async () => {}} onRename={async () => {}} onDelete={async () => {}}
           onError={error => { throw error }} />
       </div>
-      <main><input id="focus" defaultValue="保留的草稿" /></main>
-      <NotificationAttentionController enabled activeThreadId={id} activeThreadVisible navigationActive={false}
-        visibleSources={conversationId ? null : sources} singleChatSources={conversationId ? sources : null}
+      <main style={{ minWidth: 0, height: '100vh' }}>{workspace
+        ? <ThreadWorkspace snapshot={workspace} agents={agents} installations={installations}
+            initialComposerDraft={{ ...initialDraft, threadId: id }} busy={false} stopping={false}
+            onSend={async () => {}} onResolveApproval={noop} onChangeLead={async () => {}}
+            worldMapEnabled={false} suppressExecutionAutoOpen workspaceEntrySnapshotReady={workspaceReady}
+            onVisibleNotificationSources={setWorkspaceSources}
+            onCancelAgentRun={async stopped => {
+              attention.beginStop(stopped.id, { commandId: stopped.id, threadId: id, conversationId: null })
+              setWorkspace(workspaceSnapshot('cancelled', false))
+              admit(stopped.id)
+            }} />
+        : <input id="focus" defaultValue="保留的草稿" />}</main>
+      <NotificationAttentionController enabled activeThreadId={id} activeThreadVisible={workspaceReady} navigationActive={false}
+        visibleSources={conversationId ? null : workspace ? workspaceSources : sources} singleChatSources={conversationId ? sources : null}
         onNavigate={async () => ({ status: 'navigated' })} onPresentNavigation={async () => true}
         onCancelNavigation={noop} onRefreshVisibleThread={async () => false} onError={noop} />
     </div>
@@ -127,6 +174,8 @@ function Fixture() {
 }
 Object.assign(window, { interruptionTest: {
   admit, begin: (runId: string, conversationId: string | null = null) => attention.beginStop(runId, { commandId: runId, threadId: id, conversationId }),
+  workspace: (status: 'running' | 'cancelled', offscreen = false, ready = true) => showWorkspace(status, offscreen, ready),
+  confirmWorkspace: () => confirmWorkspace(),
   visible: (runs: string[]) => showSources(runs), sidebar: (value: boolean) => showSidebar(value),
   manual: (value: boolean) => manual(value), surface: (value: string | null) => changeSurface(value),
   attentive: (value: boolean) => { attentive = value; window.dispatchEvent(new Event(value ? 'focus' : 'blur')) },
@@ -157,6 +206,11 @@ Object.assign(window, { interruptionTest: {
     flashing: attention.flashing.has(id), dot: !!document.querySelector('.camp-unread-dot'),
     label: document.querySelector('.camp-nav-row button')?.getAttribute('aria-label'),
     headsUp: document.querySelectorAll('.notification-heads-up').length,
+    workspaceMarkers: [...document.querySelectorAll<HTMLElement>('[data-interrupted-run-id]')].map(node => node.dataset.interruptedRunId),
+    workspaceStop: !!document.querySelector('.run-presence-stop'),
+    stopConfirmation: !!document.querySelector('.run-presence-stop-confirmation .danger-button'),
+    executionOpen: !!document.querySelector('.execution-drawer'),
+    outputGroups: document.querySelectorAll('.agent-message-output').length,
     projectionCount: Object.keys(attention.snapshots).length, secondary: attention.snapshots[secondaryId],
     batchFailures, heldBatches: heldBatches.length,
     localWrites, requests, held: held.length, facts: [...facts].map(([runId, fact]) => ({ runId, ...fact })) })

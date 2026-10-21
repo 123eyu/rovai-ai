@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { mkdirSync } = require('node:fs')
+const { mkdirSync, writeFileSync } = require('node:fs')
 const { isAbsolute, join } = require('node:path')
 const { app, BrowserWindow } = require('electron')
 const [renderer, userData] = process.argv.slice(2)
@@ -12,8 +12,20 @@ app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, width: 1040, height: 700,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } })
   window.webContents.on('console-message', event => console.error(event.message))
-  const run = code => window.webContents.executeJavaScript(code, true)
+  const run = async code => {
+    try { return await window.webContents.executeJavaScript(code, true) }
+    catch (error) { throw new Error(`Renderer command failed: ${code}`, { cause: error }) }
+  }
   const state = () => run('window.interruptionTest.state()')
+  const capture = async name => {
+    const output = process.env.ROVAI_NOTIFICATION_OUTPUT
+    if (!output) return
+    assert.ok(isAbsolute(output))
+    mkdirSync(output, { recursive: true })
+    await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await wait(50)
+    writeFileSync(join(output, name), (await window.webContents.capturePage()).toPNG())
+  }
   const until = async (condition, message) => {
     for (let n = 0; n < 100; n++) { const current = await state(); if (condition(current)) return current; await wait(20) }
     throw new Error(`${message}: ${JSON.stringify(await state())}`)
@@ -137,11 +149,69 @@ app.whenReady().then(async () => {
     assert.equal(current.secondary.sequence, confirmedSnapshotSequence, 'Rejected late response must not replace the proven snapshot')
     await run("window.interruptionTest.batchMode('success'); window.interruptionTest.visible(['batch-delayed'])")
     await until(s => !s.dot && s.secondary.sequence >= acknowledgementSequence, 'Normal refresh accepts the post-ACK snapshot')
+
+    // Unlike the projection cases above, only the real ThreadWorkspace DOM may
+    // provide source IDs here. No public message, artifact or execution drawer.
+    await run("window.interruptionTest.workspace('running')")
+    await until(s => s.workspaceStop, 'Production running row exposes its stop button')
+    await run("document.querySelector('.run-presence-stop').scrollIntoView({ block: 'center' })")
+    await wait(80)
+    await run("document.querySelector('.run-presence-stop').click()")
+    await until(s => s.stopConfirmation, 'Production stop confirmation opens')
+    await run("document.querySelector('.run-presence-stop-confirmation .danger-button').click()")
+    current = await until(s => s.facts.find(f => f.runId === 'workspace-stop')?.read && s.flashing && s.dot,
+      'Silent stop must ACK from its real visible marker while the independent pulse remains')
+    assert.deepEqual(current.workspaceMarkers, ['workspace-stop'])
+    assert.equal(current.executionOpen, false, 'No execution drawer is needed')
+    assert.equal(current.outputGroups, 0, 'No synthetic reply, avatar or empty output group')
+    await capture('silent-stop-pulse.png')
+    await wait(720)
+    assert.equal((await state()).dot, false, 'The dot clears without re-entering the Thread')
+    for (const [theme, width, height] of [['day', 1040, 700], ['night', 1440, 920]]) {
+      window.setSize(width, height)
+      await run(`document.documentElement.dataset.theme = '${theme}'`)
+      await wait(80)
+      const marker = await run(`(() => {
+        const node = document.querySelector('[data-interrupted-run-id] button'), rect = node.getBoundingClientRect();
+        return { label: node.getAttribute('aria-label'), height: rect.height, inside: rect.top >= 0 && rect.bottom <= innerHeight
+          && rect.left >= 0 && rect.right <= innerWidth, overflow: document.documentElement.scrollWidth > innerWidth };
+      })()`)
+      assert.match(marker.label, /你已中断/)
+      assert.ok(marker.height >= 24 && marker.inside && !marker.overflow)
+      await capture(`silent-stop-${theme}-${width}.png`)
+    }
+
+    // Re-entry with the same stopped Run beyond the viewport is not a read.
+    await run("window.interruptionTest.invalidate('workspace-stop'); window.interruptionTest.workspace('cancelled', true, false)")
+    await wait(100)
+    await run("window.interruptionTest.admit('workspace-stop'); document.querySelector('.camp-timeline').scrollTop = 100000")
+    await wait(100)
+    await run('window.interruptionTest.confirmWorkspace()')
+    await until(s => s.unread && s.dot, 'An offscreen old stop remains unread on Thread entry')
+    await wait(150)
+    assert.equal((await state()).facts.find(f => f.runId === 'workspace-stop').read, false)
+    await run("document.querySelector('[data-interrupted-run-id]').scrollIntoView({ block: 'center' })")
+    await until(s => s.facts.find(f => f.runId === 'workspace-stop')?.read && !s.dot,
+      'Scrolling the exact old marker into view clears its interruption')
+
+    // A cached entry preview must not ACK; the same painted marker is eligible
+    // after the real entry snapshot is ready, as in BusinessApp's attention gate.
+    await run("window.interruptionTest.invalidate('workspace-stop'); window.interruptionTest.workspace('cancelled', false, false)")
+    await wait(80)
+    await run("window.interruptionTest.admit('workspace-stop')")
+    await until(s => s.unread && s.workspaceMarkers.length === 1, 'Cached marker is painted but unread')
+    await wait(150)
+    assert.equal((await state()).facts.find(f => f.runId === 'workspace-stop').read, false)
+    await run('window.interruptionTest.confirmWorkspace()')
+    await until(s => s.facts.find(f => f.runId === 'workspace-stop')?.read && !s.dot,
+      'Authoritative re-entry clears the visible silent stop without opening execution')
     console.log(JSON.stringify({ ok: true, cases: ['ACK-before-poll pulse', '600ms independent lifetime',
       'hidden sidebar ACK/no replay', 'exact result read', 'frozen Thread retry/new interruption/manual reminder',
       'stale projection rejection', 'source/route/focus/reset invalidation', 'accessible interruption label',
       '201 Threads: partial batch failure preserves old state without blocking a successful batch',
-      '201 Threads: slow batch does not block paint and late data cannot override ACK'] }))
+      '201 Threads: slow batch does not block paint and late data cannot override ACK',
+      'Production ThreadWorkspace: silent stop ACK, 600ms feedback and closed execution drawer',
+      'Production ThreadWorkspace: offscreen and cached stop stay unread until actually observed'] }))
     window.destroy(); app.quit()
   } catch (error) { console.error(error); window.destroy(); app.exit(1) }
 }).catch(error => { console.error(error); app.exit(1) })

@@ -1212,6 +1212,12 @@ export type ThreadConversationTimelineItem =
       fileChanges: AgentRunFileChangesView[]
     }
   | {
+      kind: 'run_interruption'
+      id: string
+      createdAt: string
+      run: AgentRunView
+    }
+  | {
       kind: 'stop_event'
       id: string
       createdAt: string
@@ -1225,6 +1231,7 @@ const TIMELINE_KIND_RANK: Record<ThreadConversationTimelineItem['kind'], number>
   task_card: 1,
   member_joined: 1,
   stop_event: 2,
+  run_interruption: 2,
   run_images: 3,
   run_artifacts: 3,
   run_file_changes: 4
@@ -1329,7 +1336,20 @@ export function campConversationTimeline(
       createdAt: (receipt.sourceAgentRunId ? runById.get(receipt.sourceAgentRunId)?.endedAt : null) ?? receipt.createdAt,
       receipt
     }))
-  const sortedCards = [...taskCards, ...stopEvents, ...runImageCards, ...runFileChangeCards, ...joinedCards]
+  const artifactRunIds = new Set([
+    ...agentRunFileChanges.map(changes => changes.agentRunId),
+    ...runImageCards.flatMap(card => card.kind === 'run_images' ? [card.images.agentRunId] : []),
+    ...joinedCards.flatMap(card => card.kind === 'member_joined' && card.receipt.sourceAgentRunId
+      ? [card.receipt.sourceAgentRunId] : [])
+  ])
+  // A stopped Run may never publish output. Keep an exact, readable result for
+  // visibility acknowledgement without inventing a message or empty artifact group.
+  const silentInterruptions: ThreadConversationTimelineItem[] = agentRuns
+    .filter(run => run.invocationKind !== 'single_chat' && isUserInterruptedRun(run)
+      && !publicAgentMessageRunIds.has(run.id) && !artifactRunIds.has(run.id))
+    .map(run => ({ kind: 'run_interruption', id: `run-interruption:${run.id}`,
+      createdAt: run.endedAt ?? run.updatedAt, run }))
+  const sortedCards = [...taskCards, ...stopEvents, ...runImageCards, ...runFileChangeCards, ...joinedCards, ...silentInterruptions]
     .sort(compareTimelinePresentationOrder)
   const sortedItems: ThreadConversationTimelineItem[] = []
   let messageIndex = 0
@@ -5393,6 +5413,15 @@ export function ThreadWorkspace({
                   if (timelineItem.kind === 'member_joined') {
                     previousMessageAuthorKey = null
                     items.push(<MemberJoinedCard key={timelineItem.id} receipt={timelineItem.receipt} onConfigure={onConfigureRuntime} />)
+                    continue
+                  }
+                  if (timelineItem.kind === 'run_interruption') {
+                    previousMessageAuthorKey = null
+                    const run = timelineItem.run
+                    const author = memberById.get(run.agentId)?.displayName
+                      ?? profileById.get(run.agentId)?.displayName ?? run.agentId
+                    items.push(<RunInterruptionMarker key={timelineItem.id} run={run}
+                      author={author} onOpen={openExecutionProcess} />)
                     continue
                   }
                   if (timelineItem.kind === 'task_card') {

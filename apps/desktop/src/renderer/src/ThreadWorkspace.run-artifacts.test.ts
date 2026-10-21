@@ -217,17 +217,27 @@ describe('Manual Run interruption in the conversation', () => {
       .toBeLessThan(markup.indexOf('data-interrupted-run-id'))
   })
 
-  it.each([false, true])('does not create an output row when stopping without a reply or artifacts, with history = %s', hasHistory => {
-    const candidate = snapshot([stopped()], false, false)
-    if (hasHistory) candidate.messages = [{ ...publicMessage(candidate.agentRuns[0]), id: 'later-user', sequence: 1,
-      authorType: 'user', authorId: 'local-user', sourceAgentRunId: null, createdAt: '2026-09-06T06:02:00Z' }]
-    expect(timeline(candidate).map(item => item.id)).toEqual(hasHistory ? ['later-user'] : [])
+  it.each([false, true])('keeps an exact stop marker without inventing output, with history = %s', hasHistory => {
+    const candidate = snapshot([stopped({ invocationKind: 'batch', executionEvidenceCount: 0 })], false, false)
+    if (hasHistory) {
+      const input = { ...publicMessage(candidate.agentRuns[0]), id: 'input', sequence: 1,
+        authorType: 'user' as const, authorId: 'local-user', sourceAgentRunId: null }
+      candidate.messages = [input, { ...input, id: 'later-user', sequence: 2, createdAt: '2026-09-06T06:02:00Z' }]
+    }
+    expect(timeline(candidate).map(item => item.id)).toEqual(hasHistory
+      ? ['input', 'run-interruption:run-1', 'later-user'] : ['run-interruption:run-1'])
+    expect(timeline(candidate).find(item => item.kind === 'run_interruption'))
+      .toMatchObject({ run: candidate.agentRuns[0], createdAt: endedAt })
     const markup = renderTimeline(candidate)
-    expect(markers(markup)).toEqual([])
+    expect(markers(markup)).toEqual(['run-1'])
+    expect(markup).toContain('你已中断，查看奥黛丽的本次执行')
     expect(avatars(markup)).toBe(0)
     expect(markup).not.toContain('run-artifact-output')
     expect(markup).not.toContain('run-file-changes-card')
     expect(markup).not.toContain('agent-message-output-actions')
+    candidate.agentRuns[0].invocationKind = 'single_chat'
+    expect(timeline(candidate).map(item => item.id)).toEqual(candidate.messages.map(message => message.id))
+    expect(markers(renderTimeline(candidate))).toEqual([])
   })
 
   it.each([

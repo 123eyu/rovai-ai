@@ -101,7 +101,7 @@ import {
   StructuredMentionComposer,
   type StructuredMentionComposerHandle
 } from './StructuredMentionComposer'
-import { inputHistoryFor } from './input-history'
+import { threadInputHistory } from './input-history'
 import {
   composerDocumentsEqualDirect,
   composerDocumentFromText,
@@ -4124,9 +4124,6 @@ export function ThreadWorkspace({
       sendAttempted = true
       const sendReceipt = await onSend(routedDraft, deliveryMode, submittedDeliveryPlans.flatMap(plan => plan.route === 'steer' && plan.target ? [plan.target] : []))
       if (!sendReceipt) throw new Error(uiAttribute('消息未被当前 Thread 接受。'))
-      if (sendReceipt.threadMessageId) {
-        inputHistoryFor(client).record({ kind: 'thread', threadId }, sendReceipt.threadMessageId, routedDraft.content)
-      }
       sendAccepted = true
       if (currentSnapshot.thread.activationState === 'pending' && sendReceipt.threadMessageId) {
         pendingDraftPersistence.current!.acknowledgeActivation(threadId)
@@ -6188,7 +6185,7 @@ export function ThreadWorkspace({
               ref={composerHandleRef}
               id="camp-message"
               draftIdentity={`${snapshot.thread.id}:composer`}
-              inputHistory={{ kind: 'thread', threadId: snapshot.thread.id }}
+              inputHistory={() => threadInputHistory(visibleThreadMessages)}
               onEffectiveDocumentChange={content => {
                 const atoms: ComposerDocument = { version: 2, segments: content.segments.filter(segment => segment.kind === 'atom') }
                 setLiveComposerAtoms(previous => previous?.threadId === snapshot.thread.id

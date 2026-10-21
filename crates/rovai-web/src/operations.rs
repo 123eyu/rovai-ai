@@ -99,8 +99,6 @@ pub enum Operation {
     SingleChatList,
     #[serde(rename = "singleChat.get")]
     SingleChatGet,
-    #[serde(rename = "singleChat.inputHistory")]
-    SingleChatInputHistory,
     #[serde(rename = "singleChat.open")]
     SingleChatOpen,
     #[serde(rename = "singleChat.send")]
@@ -241,8 +239,6 @@ pub enum Operation {
     CampExists,
     #[serde(rename = "thread.messages.page", alias = "camp.messages.page")]
     Messages,
-    #[serde(rename = "thread.messages.inputHistory")]
-    InputHistory,
     #[serde(rename = "thread.messages.around", alias = "camp.messages.around")]
     MessagesAround,
     #[serde(rename = "thread.messages.anchors")]
@@ -506,7 +502,6 @@ impl Operation {
             Self::TaskUpdate => "tasks.update",
             Self::SingleChatList => "singleChat.list",
             Self::SingleChatGet => "singleChat.get",
-            Self::SingleChatInputHistory => "singleChat.inputHistory",
             Self::SingleChatOpen => "singleChat.open",
             Self::SingleChatSend => "singleChat.send",
             Self::SingleChatEnd => "singleChat.end",
@@ -574,7 +569,6 @@ impl Operation {
             Self::GroupCamps => "navigation.groupCamps",
             Self::CampExists => "camps.exists",
             Self::Messages => "camp.messages.page",
-            Self::InputHistory => "camp.messages.inputHistory",
             Self::MessagesAround => "camp.messages.around",
             Self::UserAnchors => "camp.messages.anchors",
             Self::UserAnchorPreview => "camp.messages.anchorPreview",

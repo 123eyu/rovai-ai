@@ -39,7 +39,6 @@ import {
 import { ComposerTypeaheadPlugin } from './ComposerTypeaheadPlugin'
 import { ComposerWebLinksPlugin } from './ComposerWebLinksPlugin'
 import { ComposerInputHistoryPlugin, type ComposerHistoryNavigation } from './ComposerInputHistoryPlugin'
-import type { InputHistoryTarget } from './input-history'
 import { MemberAvatar } from './MemberAvatar'
 import { NavigationIcon } from './NavigationIcon'
 import { MentionRuntimeButton } from './MentionRuntimeButton'
@@ -113,7 +112,7 @@ export interface StructuredMentionComposerProps {
   purpose?: 'message' | 'mission'
   onDocumentChange?(document: ComposerDocument): void
   onEffectiveDocumentChange?(document: ComposerDocument): void
-  inputHistory?: InputHistoryTarget
+  inputHistory?: () => ComposerDocument[]
   id: string
   draftIdentity: string
   document: ComposerDocument
@@ -613,7 +612,7 @@ function ComposerBridge({
 
   return <div className={`structured-mention-composer ${className}`.trim()}>
     <ComposerWebLinksPlugin />
-    {inputHistory && ready && <ComposerInputHistoryPlugin target={inputHistory}
+    {inputHistory && ready && <ComposerInputHistoryPlugin key={draftIdentity} getHistory={inputHistory}
       syncRef={syncRef} navigationRef={historyNavigationRef} />}
     <ContentEditable id={id} ref={setEditorElement}
       className="structured-mention-editor" aria-label={ariaLabel}

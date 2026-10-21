@@ -10741,14 +10741,6 @@ impl Core {
                         .snapshot(&database, &params.conversation_id)?,
                 )?)
             }
-            "singleChat.inputHistory" => {
-                let query = serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                Ok(serde_json::to_value(rovai_core::input_history::single(
-                    database.connection(),
-                    query,
-                )?)?)
-            }
             "singleChat.sourceAttachments.addFromPath" => {
                 let params: AddSingleChatSourceAttachmentFromPathParams =
                     serde_json::from_value(request.params.clone())?;
@@ -11251,14 +11243,6 @@ impl Core {
                     params.before_sequence,
                     params.through_global_sequence,
                     params.limit,
-                )?)?)
-            }
-            "camp.messages.inputHistory" => {
-                let query = serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                Ok(serde_json::to_value(rovai_core::input_history::thread(
-                    database.connection(),
-                    query,
                 )?)?)
             }
             "camp.messages.anchors" => {

@@ -8,56 +8,65 @@ last_updated: 2026-10-21
 
 # 输入框上下键历史
 
-User 于 2026-10-21 授权创建 worktree 后执行已确认的简化方案。合同为
-[Input History v1](../../contracts/input-history-v1.md)。真实 ID 回执后入缓存，允许暖缓存陈旧，
-不维护撤回，取消的 pending 有正文即纳入。键盘采用文档绝对起止边界，候选菜单/IME 优先。
+User 于 2026-10-21 确认并授权在 `ddd445673e2b12e78dde5383df96f28e4f748391` 的交互实现上简化：
+首次 ↑ 从现有消息提取本轮固定内容，退出即释放；删除历史专用查询、分页和跨会话缓存。
+当前行为由 [Input History v1](../../contracts/input-history-v1.md) 拥有。
 
 Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-input-history`；
-分支：`rovai/input-history`；基线：`ce8351dad894a643ce9eabb8fc540385ac8c8d9b`（origin/main）。
-无主线治理先行要求。按 User 既有偏好完成后提交并推送分支，PR 由后续显式指示决定。
+分支：`rovai/input-history`；分支起点：`ce8351dad894a643ce9eabb8fc540385ac8c8d9b`。
+完成后提交推送该分支；不自动创建 PR。
 
 ## 实现边界
 
-- Core `input_history` 直接读取现有 Message/Pending，拥有筛选、稳定身份、排序、opaque cursor；
-- Desktop Main、Web operation allowlist、TS contracts 接入两个只读方法；
-- Renderer `InputHistoryStore` 负责共享分页/LRU，`InputHistoryNavigation` 负责瞬时浏览；
-- Public Lexical/Single Chat textarea adapter 分别处理 selection、预览和草稿接管；
-- `ComposerDraftSync` 保留原保存队列，预览只更新有效输入；发送仍由原入口捕获、flush；
-- 成功回执后记录实际内容，失败/缺失回执不增加历史恢复流程。
+- 公共输入从 `visibleThreadMessages` 提取独立 `ComposerDocument`，复用消息模块的顺序与去重。
+  先过滤不可编辑片段；原结构化内容过滤为空不能通过 body 复活引用。
+- 单聊从当前快照依次提取正式 User 消息和活动 Pending 的正文，反向浏览；不追加查询、排序或身份映射。
+- `InputHistoryNavigation` 只持有本轮内容数组、下标、原草稿/选区；操作同步，普通刷新不重建。
+- Public Lexical / Single Chat textarea adapter 通过最新的同步回调提供数据。切换目标、显式替换草稿、
+  编辑与发送结束浏览，普通消息更新保持当前内容。等于原稿的显式替换也主动 reset。
+- 原 `ComposerDraftSync`、有效输入与发送捕获继续复用；单聊显式修改引用时也接管当前预览。
+- Core 查询模块、Desktop/Web 路由、协议类型、缓存激活/LRU/裁剪、回执 record 与异步读取均退出。
 
-无数据库 schema 迁移、模型上下文、Built-in CLI、Skill、Runtime 或发布版本改变。
-局部缓存和输入交互可独立修改，未达到高成本架构决定准入条件，不增加 Version Decision。
+历史覆盖和新提交出现时间跟随现有消息；不改变聊天加载范围、队列、发送和草稿存储。
+没有数据库 schema 迁移、模型上下文、Built-in CLI、Skill、Runtime 或发布版本变化。
+旧方案尚未提交的分页/索引修复已移出本次改动，不带入 migration 或无关测试夹具调整。
+本项为可逆的局部交互和读取来源调整，未新增 Version Decision。
 
 ## 验证归属
 
-| Owner | 独立失败语义 |
+| Owner | 当前覆盖 |
 | --- | --- |
-| `input_history::tests` | 公共筛选后的 20+1 分页；单聊发布保持身份/时间、cancelled 纳入、清空不复活与会话隔离 |
-| `input-history.test.ts` | 请求复用/重试、提交归并/重建顺序、8 会话 LRU、100 条裁剪与迟到旧页续读、异步取消 |
-| `composer-draft-sync.test.ts` | 预览驱动接收者，自动保存/leave flush 保留原稿；编辑/发送接管 |
-| CampOpen Electron fixture | 生产工作区的键盘、Atom、分页、迟到读取、Undo/Redo、显示/发送一致、重挂载 |
-| Single Chat Electron fixture | 原稿、Esc 不关闭、停止/发送切换、pending ID 入缓存和编辑 |
+| `input-history.test.ts` | 当前 User 筛选、原文/Atom 独立快照、引用过滤、相同正文保留、空列表、固定轮次、边界、pending 发布/取消、下一轮更新及退出 |
+| `composer-draft-sync.test.ts` | 预览驱动接收者；自动保存/leave flush 保留原稿；编辑/发送接管 |
+| CampOpen Electron fixture | 空列表不接管、原生键盘优先级、结构化预览、零消息加载、固定轮次/下一轮更新、Undo/Redo、重挂载与显示/发送一致 |
+| Single Chat Electron fixture | Pending 排序与发布、等于原稿的显式替换、引用变更接管、Esc 不关闭、停止/发送切换、原稿恢复与编辑 |
 
-原时间线 owner 没有筛选后分页、pending/正式消息统一身份的路径，所以新增两个 Core 查询测试。
-使用最小 in-memory SQLite 表，不启动完整 Database/Runtime；纯函数不能证明 SQL 关联/keyset。
-最小命令：`cargo test -p rovai-core --lib input_history::`。前端扩展原保存器及生产 UI fixture，
-未建立第二套 App/模型验收环境。
+退役两个 Rust owner：`public_input_history_pages_only_recallable_current_user_submissions`、
+`single_input_history_keeps_pending_identity_across_publication_and_cancellation`。
+其专用 SQL / keyset / pending 身份映射合同与生产模块在同一变更中删除，没有关闭仍在使用的消息或迁移测试。
+回填内容筛选移交前端纯函数 owner；消息查询、发送事务、队列和草稿存储继续由原测试拥有。
+原前端 9 项缓存/异步导航测试改为 7 项内容/同步导航测试；保存器 11 项测试继续保留。
+
+最小命令：
+
+```sh
+pnpm exec vitest run apps/desktop/src/renderer/src/input-history.test.ts apps/desktop/src/renderer/src/composer-draft-sync.test.ts
+node --test --test-concurrency=1 --test-name-pattern='input history' scripts/lib/camp-open-projection.test.mjs scripts/lib/single-chat-panel.test.mjs
+```
 
 ## 验证结果
 
 | 命令/范围 | 结果 |
 | --- | --- |
-| `cargo test --workspace` | 476 passed，1 个既有 ignored；查询 SQL 调整后两个 `input_history::` owner 再次通过 |
-| `pnpm test` | 247 个 Vitest 文件、2,814 项通过；后续 Node 357 passed、2 个平台限定 skip；文档、Skill、sandbox 门禁通过 |
-| `pnpm test:composer-input` | 3 项原生 Composer/邀请/Web 链接场景通过，含 IME、光标与长文本输入 |
-| CampOpen/Single Chat 相关 Electron 回归 | 8 项通过：两种输入历史、Public 草稿、Steer、Single Chat 布局、撤回恢复、原生/网页链接 |
-| `pnpm typecheck`、`pnpm build:desktop` | 通过，包含共享 Renderer 与 Web 构建 |
+| 历史/草稿定向 Vitest | 18 项通过（历史 7、保存器 11） |
+| `pnpm test` | 247 个 Vitest 文件、2,812 项通过；Node 357 passed、2 个平台限定 skip；文档 10、Skill 3、sandbox 7 项通过 |
+| `cargo test --workspace` | 474 passed、1 个既有 ignored；删除专用 SQL 后 Core/CLI/Host/Web 默认回归通过 |
+| `cargo test -p rovai-web` | 最终删除 Web operation 后 11 项通过 |
+| 公共/单聊输入历史 Electron | 两个生产组件场景通过；单聊包含同文替换与引用接管回归 |
+| `pnpm typecheck`、`pnpm build:desktop` | 通过，构建包含 Web 与共享 Renderer |
 | `cargo fmt --all -- --check`、`git diff --check` | 通过 |
-| `DOCS_BASE_REF=ce8351dad894a643ce9eabb8fc540385ac8c8d9b pnpm docs:check:ci` | 通过 |
+| `DOCS_BASE_REF=ddd445673e2b12e78dde5383df96f28e4f748391 pnpm docs:check:ci` | 通过 |
 
-验收中修复了裁剪期间迟到空页覆盖游标、无 cursor 条目重建顺序，以及 Atom 展示刷新污染 Undo 的问题。
-原 Steer 场景把多接收者按钮断言为“发送”，在未修改基线也同样失败；按现行 UI 合同修正为“优先插话”，
-16 个分支、两种主题通过。一次并行构建期间，既有导航偏好测试超过 5 秒；单独 17 项以及之后完整重跑均通过。
-
-Electron 夹具使用脚本生成的独立绝对 userData；输入历史场景不启动 Core、SQLite、Skill Library 或模型。
-原 Composer 邀请回归使用其独立 fixture Skill Library。不据此声称真实 Runtime 或跨端实时同步已验证。
+Rust 两个查询测试及前端缓存测试的数量变化来自上述合同退役；未用旧方案的分页/索引测试结果替代当前验收。
+Electron 使用脚本生成的独立绝对 userData；这些输入历史夹具不启动 Core、SQLite、Skill Library 或模型。
+没有启动日常 App、写入日常数据库或执行真实 Runtime。

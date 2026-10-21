@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import { $getRoot, getNearestEditorFromDOMNode } from 'lexical'
-import { inputHistoryFor } from '../../../apps/desktop/src/renderer/src/input-history'
-import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desktop-camp-client'
+import { composerDocumentToStructuredContent } from '../../../apps/desktop/src/renderer/src/composer-document'
 import { ReturnToLatest } from '../../../apps/desktop/src/renderer/src/ReturnToLatest'
 import { ExecutionLatestContext } from '../../../apps/desktop/src/renderer/src/useExecutionWindow'
 import { createRoot } from 'react-dom/client'
@@ -32,10 +31,8 @@ let steerSent: {mode: string | undefined; attachments: number; recipients: strin
 const now = '2026-08-31T00:00:00Z'
 const threadId = 'rvcamp_01m0wzxbb8e1ht984tsbjmysfe'
 const inputHistoryMode = new URLSearchParams(location.search).has('inputHistory')
-const inputHistoryReads: Array<string | null> = []
+const inputHistoryReads: string[] = []
 const inputHistorySends: ComposerDocument[] = []
-let releaseInputHistory: () => void = () => {}
-const inputHistoryGate = inputHistoryMode ? new Promise<void>(resolve => { releaseInputHistory = resolve }) : Promise.resolve()
 const recallContent: ComposerDocument = { version: 2, segments: [
   { kind: 'atom', atom: { type: 'member', agentId: 'agent-2' } },
   { kind: 'text', text: ' 历史问题 ' },
@@ -198,6 +195,14 @@ const projection = (count: number): ThreadOpenProjection => ({
 const earlier = { ...campOpenProjectionAsSnapshot(projection(60)),
   messages: messages.slice(0, 40).map(message => ({ ...message, timelineGlobalSequence: message.sequence })) }
 let current = campOpenProjectionAsSnapshot(projection(60), earlier)
+const recallMessages = Array.from({ length: 22 }, (_, index) => ({
+  ...current.messages[0], id: `recall-${21 - index}`, sequence: index + 1,
+  authorType: 'user' as const, authorId: 'local_user', withdrawn: false, version: 1,
+  body: index === 21 ? '历史问题' : `old ${21 - index}`,
+  content: index === 21 ? composerDocumentToStructuredContent(recallContent) : [{ kind: 'text' as const, text: `old ${21 - index}` }]
+}))
+if (inputHistoryMode) current = { ...current, messages: [], agentRuns: [], turns: [], timeline: [] }
+
 let updateSnapshot: (snapshot: typeof current) => void
 let updateCurrentUserProfile: (profile: CurrentUserProfile) => void
 let updateMessageHistory: (coverage: ThreadOpenMessageCoverage | null) => void
@@ -354,17 +359,7 @@ Object.assign(window, { rovai: {
     beforeSequence?: number | null
     limit?: number
   }): Promise<unknown> => {
-    if (method === 'thread.messages.inputHistory') {
-      if (!inputHistoryMode) return { items: [], nextCursor: null, hasMore: false }
-      inputHistoryReads.push(params?.cursor ?? null)
-      await inputHistoryGate
-      const start = Number(params?.cursor ?? 0)
-      const items = Array.from({ length: Math.min(20, 22 - start) }, (_, index) => ({
-        historyId: `recall-${start + index}`, cursor: String(start + index + 1),
-        content: start + index === 0 ? recallContent : { version: 2, segments: [{ kind: 'text', text: `old ${start + index}` }] }
-      }))
-      return { items, nextCursor: items.at(-1)?.cursor ?? null, hasMore: start + items.length < 22 }
-    }
+    if (inputHistoryMode && method.startsWith('thread.messages.')) inputHistoryReads.push(method)
     if (steerFixture && method === 'thread.messages.anchors') return {schemaVersion:1,threadId,throughGlobalSequence:current.throughGlobalSequence,totalCount:0,items:[]}
     if (method === 'agentRunExecution.page') {
       const beforeSequence = params?.beforeSequence ?? null, afterSequence = params?.afterSequence ?? null
@@ -589,7 +584,13 @@ reactRoot.render(<Fixture />)
 const element = (selector: string): HTMLElement => document.querySelector(selector)!
 let anchor: HTMLElement | null = null
 Object.assign(window, { campOpenTest: {
-  releaseInputHistory: () => releaseInputHistory(),
+  setHistoryMessages: (refresh = false) => {
+    current = { ...current, messages: refresh ? [...recallMessages, {
+      ...recallMessages[0], id: 'arrived-later', sequence: 23, body: 'arrived later',
+      content: [{ kind: 'text', text: 'arrived later' }]
+    }] : recallMessages }
+    updateSnapshot(current)
+  },
   historyBoundary: (end = false) => {
     const editor = getNearestEditorFromDOMNode(element('#camp-message'))
     editor.update(() => { if (end) $getRoot().selectEnd(); else $getRoot().selectStart() }, { discrete: true })
@@ -597,7 +598,6 @@ Object.assign(window, { campOpenTest: {
   },
   inputHistoryState: () => ({
     reads: inputHistoryReads, sends: inputHistorySends, expected: recallContent,
-    ids: inputHistoryFor(desktopThreadClient).peek({ kind: 'thread', threadId })?.items.map(item => item.historyId) ?? [],
     stored: loadLocalThreadComposerDraft(threadId)?.content,
     text: element('#camp-message')?.textContent,
     atoms: element('#camp-message')?.querySelectorAll('[data-composer-atom]').length,

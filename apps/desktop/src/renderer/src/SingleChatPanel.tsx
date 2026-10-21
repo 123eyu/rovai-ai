@@ -2,8 +2,7 @@ import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { shouldSendComposerKey } from '../../shared/shortcuts'
 import { useThreadClient } from './camp-client'
 import { useTextareaInputHistory } from './use-textarea-input-history'
-import { inputHistoryFor } from './input-history'
-import { composerDocumentFromText } from './composer-document'
+import { singleInputHistory } from './input-history'
 import { useMobileLayout } from './MobileLayout'
 import { newCommandId } from '../../shared/command-id'
 import { RunningText } from './RunningText'
@@ -776,10 +775,11 @@ export function SingleChatPanel({
   const draft = bodyDrafts[bodyDraftKey] ?? ''
   const setDraft = (value: string): void => setBodyDrafts((current) => ({ ...current, [bodyDraftKey]: value }))
   const inputHistory = useTextareaInputHistory({
-    client, draft, setDraft, inputRef: composerRef,
-    target: visible && currentSnapshot
-      ? { kind: 'single', threadId, conversationId: currentSnapshot.conversation.id }
-      : null
+    draft, setDraft, inputRef: composerRef,
+    target: visible && currentSnapshot ? bodyDraftKey : null,
+    getHistory: () => currentSnapshot
+      ? singleInputHistory(currentSnapshot.messages, currentSnapshot.pendingInputs.items)
+      : []
   })
   useEffect(() => {
     if (!snapshot || snapshot.conversation.agentId !== selectedAgentId) return
@@ -1439,6 +1439,7 @@ export function SingleChatPanel({
     const owner = snapshotRef.current?.conversation.id
     const commandId = newCommandId()
     if (!owner) return Promise.reject(new Error('quote.owner_unavailable'))
+    inputHistory.adopt()
     quoteOperationCount.current += 1
     setQuoteBusy(true)
     const operation = quoteTailRef.current.then(async () => {
@@ -1486,11 +1487,6 @@ export function SingleChatPanel({
         }
       })
       if (result.status === 'rejected') throw new Error(resultMessage(result))
-      const historyId = resultPayloadString(result, 'pendingInputId') ?? resultPayloadString(result, 'conversationMessageId')
-      if (historyId) inputHistoryFor(client).record(
-        { kind: 'single', threadId, conversationId: current.conversation.id },
-        historyId, composerDocumentFromText(body)
-      )
       setDraft('')
       setPreparingAttachments([])
       await refreshCurrent(current.conversation.id)
@@ -1790,8 +1786,6 @@ export function SingleChatPanel({
               disabled={!selectedMember || !currentTargetReady || sending || returningPending || ending}
               placeholder={selectedMember ? uiAttribute("给 {0} 发消息…", String(selectedMember.displayName)) : uiAttribute("选择一位队员后开始单聊")}
               onChange={(event) => inputHistory.edit(event.target.value)}
-              onFocus={inputHistory.touch}
-              onBlur={inputHistory.blur}
               onPaste={(event) => {
                 const files = Array.from(event.clipboardData.files)
                 if (files.length === 0) return

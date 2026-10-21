@@ -1224,19 +1224,6 @@ export interface ComposerDocument {
   segments: ComposerSegment[]
 }
 
-export interface InputHistoryItem {
-  historyId: string
-  content: ComposerDocument
-  /** Opaque Core position. A just-accepted submission has no position yet. */
-  cursor: string | null
-}
-
-export interface InputHistoryPage {
-  items: InputHistoryItem[]
-  nextCursor: string | null
-  hasMore: boolean
-}
-
 export type ComposerSegment =
   | { kind: 'text'; text: string }
   | { kind: 'atom'; atom: ComposerAtom }
@@ -4356,7 +4343,6 @@ export type CoreMethod =
   | 'threads.retryDeletion'
   | 'singleChat.list'
   | 'singleChat.get'
-  | 'singleChat.inputHistory'
   | 'singleChat.open'
   | 'singleChat.send'
   | 'singleChat.end'
@@ -4372,7 +4358,6 @@ export type CoreMethod =
   | 'agentRunFileChanges.get'
   | 'agentRunImages.read'
   | 'thread.messages.page'
-  | 'thread.messages.inputHistory'
   | 'thread.messages.anchors'
   | 'thread.messages.anchorPreview'
   | 'thread.messages.around'

@@ -5,14 +5,13 @@ import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import electron from 'electron'
+import { admitElectronIntegrationTest } from './electron-sandbox-capability.mjs'
 import { launchAcceptanceBrowser, pause } from './host-web-browser.mjs'
 
 test('reply detail navigation reveals and retains the original after layout and history loading', { timeout: 120_000 }, async t => {
-  const chrome = process.env.ROVAI_TEST_CHROME ?? (process.platform === 'darwin'
-    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : process.platform === 'win32'
-      ? join(process.env.PROGRAMFILES ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe') : '/usr/bin/google-chrome')
-  if (!await access(chrome).then(() => true, () => false)) return t.skip('Chrome is not installed')
+  if (!admitElectronIntegrationTest(t)) return
   const root = await mkdtemp(join(tmpdir(), 'rovai-reply-details-'))
   const out = process.env.ROVAI_REPLY_UI_OUTPUT ?? join(root, 'screenshots')
   await mkdir(out, { recursive: true })
@@ -20,24 +19,42 @@ test('reply detail navigation reveals and retains the original after layout and 
   const results = []
   try {
     await promisify(execFile)(process.execPath, [resolve(import.meta.dirname, '../fixtures/run-presence/build.mjs'), root])
-    b = await launchAcceptanceBrowser({ executable: chrome, args: ['--headless=new',
-      `--user-data-dir=${join(root, 'profile')}`, '--no-first-run', '--no-default-browser-check',
-      '--disable-background-networking', '--remote-debugging-port=0', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank'] })
+    const main = join(root, 'main.cjs')
+    await writeFile(main, `const { app, BrowserWindow } = require('electron');
+      app.setPath('userData', ${JSON.stringify(join(root, 'profile'))});
+      let window;
+      app.whenReady().then(() => {
+        window = new BrowserWindow({ show: false, width: 1440, height: 920,
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+        window.loadURL('about:blank');
+      });`)
+    const env = { ...process.env }
+    delete env.ELECTRON_RUN_AS_NODE
+    b = await launchAcceptanceBrowser({ executable: electron, env, args: [main,
+      '--remote-debugging-port=0', ...(process.platform === 'linux' ? ['--no-sandbox'] : [])] })
     await b.send('Emulation.setFocusEmulationEnabled', { enabled: true })
     const click = selector => b.click(`document.querySelector(${JSON.stringify(selector)})`)
-    const open = async ({ width = 1440, loaded = false, full = false, reduced = false }) => {
+    const open = async ({ width = 1440, loaded = false, full = false, reduced = false, scrollAfterOpen = false, wrapped = false, grouped = false }) => {
       await b.send('Emulation.setDeviceMetricsOverride', { width, height: 920, deviceScaleFactor: 1, mobile: false })
       await b.send('Page.navigate', { url: pathToFileURL(join(root, 'rovai-teammate-presence.html')).href + '?pure=1' })
       await b.wait('!!window.__presence && !!document.querySelector("[contenteditable=true]")')
-      await b.evaluate(`__presence.showReplyCase(true, ${loaded}); document.documentElement.dataset.motionPreference = '${reduced ? 'reduce' : 'full'}'`)
+      await b.evaluate(`__presence.showReplyCase(true, ${loaded}, ${wrapped}, ${grouped}); document.documentElement.dataset.motionPreference = '${reduced ? 'reduce' : 'full'}'`)
       await b.wait('!!document.querySelector("[data-message-id=long-120]")')
       await click('[contenteditable=true]')
       await b.send('Input.insertText', { text: '跳转时保留草稿。' })
       const draft = await b.evaluate('document.querySelector("[contenteditable=true]").textContent')
-      await click('[data-message-id=long-120] .reply-parent-quote')
+      await click(`[data-message-id=${scrollAfterOpen ? 'reply-b' : 'long-120'}] .reply-parent-quote`)
       await b.wait('!!document.querySelector("[data-reply-message-id=reply-a]")')
       if (full) await click('.reply-detail-expand')
       await pause(300)
+      if (grouped) assert.equal(await b.evaluate('document.querySelectorAll("[data-message-id^=long-].is-group-continuation").length'), 0,
+        'narrow long messages must start above the grouping height threshold')
+      if (scrollAfterOpen) {
+        const point = await b.evaluate(`(() => { const e = document.querySelector('.timeline-scroll'), r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, deltaY: ${scrollAfterOpen === 'middle' ? 1800 : 'e.scrollHeight'} } })()`)
+        await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0 })
+        await b.wait(`(() => { const e = document.querySelector('.timeline-scroll'); return ${scrollAfterOpen === 'middle' ? 'e.scrollTop >= 1800' : 'e.scrollHeight - e.clientHeight - e.scrollTop < 2'} })()`)
+        await pause(300)
+      }
       return draft
     }
     const geometry = messageId => b.evaluate(`(() => {
@@ -46,9 +63,17 @@ test('reply detail navigation reveals and retains the original after layout and 
       return { visible: v.height > 0 && !!r && r.top >= v.top - 1 && r.bottom <= v.bottom + 1,
         top: r?.top, bottom: r?.bottom, viewportTop: v.top, viewportBottom: v.bottom, scrollTop: viewport.scrollTop,
         focused: document.activeElement === target, detailClosed: !document.querySelector('.reply-detail-panel'),
+        continuations: viewport.querySelectorAll('[data-message-id^=long-].is-group-continuation').length,
         draft: document.querySelector('[contenteditable=true]').textContent };
     })()`)
     for (const scenario of [
+      { name: 'regroup-middle', loaded: true, scrollAfterOpen: 'middle', wrapped: true, grouped: true },
+      { name: 'regroup-bottom', loaded: true, scrollAfterOpen: true, wrapped: true, grouped: true },
+      { name: 'regroup-destination', loaded: true, scrollAfterOpen: true, wrapped: true, grouped: true, target: 'long-30' },
+      { name: 'regroup-reduced-motion', loaded: true, scrollAfterOpen: true, wrapped: true, grouped: true, reduced: true },
+      { name: 'scroll-middle-wrapped', loaded: true, scrollAfterOpen: 'middle', wrapped: true },
+      { name: 'scroll-after-opening-wrapped', loaded: true, scrollAfterOpen: true, wrapped: true },
+      { name: 'scroll-after-opening', loaded: true, scrollAfterOpen: true },
       { name: 'loaded-split', loaded: true, target: 'long-30' }, { name: 'history-split', target: 'long-30' },
       { name: 'loaded-full', loaded: true, full: true }, { name: 'history-full', full: true },
       { name: 'loaded-compact', loaded: true, width: 1040 }, { name: 'history-compact', width: 1040 },
@@ -65,6 +90,7 @@ test('reply detail navigation reveals and retains the original after layout and 
       })()`)
       await pause(250)
       const afterReveal = await geometry(messageId)
+      if (scenario.grouped) assert.ok(afterReveal.continuations > 0, 'closing details must actually regroup the same Run messages')
       await b.capture(join(out, `${scenario.name}.png`))
       await b.send('Emulation.setDeviceMetricsOverride', { width: (scenario.width ?? 1440) + 40, height: 920, deviceScaleFactor: 1, mobile: false })
       await pause(400)
@@ -79,6 +105,18 @@ test('reply detail navigation reveals and retains the original after layout and 
       assert.equal(afterReveal.draft, expectedDraft)
       assert.equal(afterResize.visible, true, `${name}: subsequent resize must preserve the destination`)
     }
+    await open({ loaded: true, wrapped: true, grouped: true })
+    const beforeNavigation = await b.evaluate('document.querySelector(".timeline-scroll").scrollTop')
+    await click('[data-reply-message-id=reply-a] [aria-label="回到原文"]')
+    await b.wait(`(() => { const e = document.querySelector('.timeline-scroll'); return e.scrollTop > 800 && e.scrollTop < ${beforeNavigation} - 800 })()`)
+    const point = await b.evaluate(`(() => { const r = document.querySelector('.timeline-scroll').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
+    await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0, deltaY: 600 })
+    await pause(250)
+    const afterManualScroll = await b.evaluate('document.querySelector(".timeline-scroll").scrollTop')
+    await pause(700)
+    assert.ok(afterManualScroll > 800, 'manual scrolling interrupts the original navigation')
+    assert.ok(Math.abs(await b.evaluate('document.querySelector(".timeline-scroll").scrollTop') - afterManualScroll) <= 1,
+      'a cancelled navigation must not move the user back later')
     await open({})
     await b.evaluate('__presence.controls.holdSourceRead = true')
     await click('[data-reply-message-id=reply-a] [aria-label="回到原文"]')
@@ -88,7 +126,19 @@ test('reply detail navigation reveals and retains the original after layout and 
     await pause(500)
     assert.equal(await b.evaluate('!!document.querySelector("[data-message-id=reply-a]")'), false, 'Late history cannot enter another Thread')
     assert.deepEqual(b.errors, [])
-    console.log(JSON.stringify({ result: 'passed', scenarios: results.map(r => r.name), lateHistory: 'ignored' }))
+    console.log(JSON.stringify({ result: 'passed', scenarios: results.map(r => r.name), manualScroll: 'cancels', lateHistory: 'ignored' }))
+  } catch (error) {
+    if (b) {
+      await b.capture(join(out, 'failure.png'))
+      await writeFile(join(out, 'failure.json'), JSON.stringify(await b.evaluate(`(() => {
+        const e = document.querySelector('.timeline-scroll');
+        return { scrollTop: e?.scrollTop, scrollHeight: e?.scrollHeight, viewportHeight: e?.clientHeight,
+          focused: document.activeElement?.getAttribute('data-message-id'),
+          sampleHeight: e?.querySelector('[data-message-id=long-30] .message-surface')?.getBoundingClientRect().height,
+          detailOpen: !!document.querySelector('.reply-detail-panel') };
+      })()`), null, 2))
+    }
+    throw error
   } finally {
     await b?.close()
     await rm(root, { recursive: true, force: true })

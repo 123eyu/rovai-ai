@@ -265,7 +265,7 @@ export const model = {
   },
   get: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   note: (note: string) => update({ note }),
-  showReplyCase(long = false) {
+  showReplyCase(long = false, allLoaded = false) {
     this.setScenario('stream'); halt()
     const messages = [
       makeMessage('reply-a', 1, '回复详情保持只读，沿用当前会话里的回复锚点。'),
@@ -284,8 +284,8 @@ export const model = {
     if (long) for (let i = 10; i <= 120; i++) messages.push({ ...makeMessage(`long-${i}`,i,`长链回复 ${i}`,0), replyToThreadMessageId:'reply-g' })
     const run = { ...makeRun('run-alice',0,'running',['reply-c','reply-d']),anchorMessageId:'reply-d',publicTailSequenceAtStart:4 }
     const other = { ...makeRun('run-other',0,'running',['reply-f','reply-h']),anchorMessageId:'reply-h',publicTailSequenceAtStart:8 }
-    controls.hiddenMessages = long ? messages.slice(0,-12) : []
-    update({ snapshot: { ...state.snapshot, thread: { ...state.snapshot.thread,title:'回复详情' }, messages:long ? messages.slice(-12) : messages,
+    controls.hiddenMessages = long && !allLoaded ? messages.slice(0,-12) : []
+    update({ snapshot: { ...state.snapshot, thread: { ...state.snapshot.thread,title:'回复详情' }, messages:long && !allLoaded ? messages.slice(-12) : messages,
       agentRuns:[run,other],executionEvidence:[...evidence(run),...evidence(other)],messageDeliveries:[] } })
     model.resync()
   },

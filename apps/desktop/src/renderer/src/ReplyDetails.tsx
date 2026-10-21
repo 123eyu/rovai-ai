@@ -80,9 +80,9 @@ export function ReplyDetails({ state, reader, width, full, onWidth, onFull, onCl
       aria-label={uiAttribute('调整回复详情宽度')} aria-valuemin={360} aria-valuemax={Math.round(maximum)}
       aria-valuenow={Math.round(Math.min(width, maximum))} tabIndex={0} {...splitter.handlers}
       onKeyDown={event => {
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter'].includes(event.key)) return
         event.preventDefault()
-        onWidth(event.key === 'Home' ? 360 : event.key === 'End' ? maximum
+        onWidth(event.key === 'Enter' ? Math.min(466, maximum) : event.key === 'Home' ? 360 : event.key === 'End' ? maximum
           : Math.max(360, Math.min(maximum, width + (event.key === 'ArrowLeft' ? 24 : -24))))
       }} />
     <header className="reply-detail-header">

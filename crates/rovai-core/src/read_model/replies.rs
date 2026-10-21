@@ -54,8 +54,9 @@ pub(super) const REPLY_CHAIN_SQL: &str = "
       SELECT m.id, m.sequence, m.tombstoned_at IS NULL FROM camp_message m
       JOIN root ON root.id = m.id
       UNION ALL
-      SELECT m.id, m.sequence, m.tombstoned_at IS NULL FROM camp_message m
-      JOIN chain p ON m.reply_to_camp_message_id = p.id
+      SELECT m.id, m.sequence, m.tombstoned_at IS NULL FROM chain p
+      CROSS JOIN camp_message m INDEXED BY camp_message_direct_reply_idx
+        ON m.reply_to_camp_message_id = p.id
       WHERE m.camp_id = ?1 AND m.sequence > p.sequence
     ) SELECT id, sequence, visible FROM chain ORDER BY sequence";
 

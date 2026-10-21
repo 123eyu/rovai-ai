@@ -34,13 +34,30 @@ Renderer 请求生命周期由 `thread-reply-reader.test.ts` 拥有，覆盖闭�
 迟到响应、卸载、失效立即隐藏、错误/水位/Thread 校验与活动 Run 锚点刷新。界面 fixture 复用
 `scripts/fixtures/run-presence`，`?replies=1` / `?replies=long` 提供双话题合批及长链场景。
 
-验收与最终门禁结果在合入前补齐；当前实现不把静态 fixture 误报为真实 Runtime 验证。
+## 验证结果
+
+- `pnpm typecheck`、`pnpm test`（249 个 Vitest 文件 / 2832 项；Node 357 项通过、2 项平台跳过）、
+  `cargo test --workspace`（474 项通过、1 项人工 Runtime 忽略）和 `pnpm build:desktop` 通过。
+- 新增 SQLite owner 通过：增加 10,001 条无关消息后 VM 指令仅由 339 变成 340；
+  10,005 个链节点为 430,383 条 VM 指令，正文仅 hydration 100 条。
+  `CROSS JOIN` 固定逐父节点读取顺序，完整复合索引约束及 <1,000,000 指令预算防止退化为重复扫描。
+- 扩大运行既有 `camp_open_slow_tests`：5 项通过，既有
+  `camp_open_preserves_business_state_without_reading_event_history` 因 legacy Task timeline 断言失败；
+  在未修改的基线 `c83ce4468` 单独执行同一 owner，复现同一行失败。此项不是本变更引入，未删改或跳过原测试。
+- 生产 Renderer fixture 的浏览器验收覆盖：两个合批话题隔离、117 条消息按 50/50/17 分页及向前翻页、
+  撤回刷新、Run 结束收敛、复制/原文定位、草稿保留、精确 Run 执行浮层及 Escape 关闭顺序、
+  360px 最小宽度/最大比例/完整阅读、1280/1281px 断点、1440×920 Day/Night 与 1040×700 Night 无横向溢出。
+  这些是模拟 transport 下的生产组件证据，不代表真实 Runtime 验证。
+- Standards 审阅的焦点装饰、分隔线、个人路径 3 项已修复并复核；Spec 审阅的 Escape、正文语义及
+  inspector/执行浮层顺序问题已修复并复核。详情与时间线共享正文分流，避免语义差异。
+- 安装交接在 PR 合并后执行 `package:mac:daily`、隔离 App 验收和 `install:mac:daily`，保留当前会话进程。
+  精确安装路径、备份、PID 及截图记录在 Thread 交付，不作为公共仓库内的机器事实。
 
 ## 工作区
 
 Work item: 回复链只读详情
 
-Worktree: `/Users/murray.xue/.codex/worktrees/reply-chain-details/rovai-ai`
+Worktree: `$WORKTREE_ROOT/reply-chain-details/rovai-ai`（本机绝对路径仅保留在任务交接中）
 
 Branch: `rovai/reply-chain-details`
 
@@ -48,6 +65,6 @@ Base: `origin/main` / `c83ce446804d5333aa5e7b6fb2b91f25071a491b`
 
 Governance: none（无需主线先行）
 
-Status: active
+Status: implementation complete（合并、安装与清理结果见 Thread 最终交接）
 
-Next: 完成门禁、PR 合并与隔离验收后的非终止安装。
+Handoff: PR 合并后进行隔离 App 验收、非终止安装，并按工作区合同完成清理。

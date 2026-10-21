@@ -1411,7 +1411,7 @@ fn reply_pages_follow_only_scoped_parent_links_and_hydrate_one_page() {
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap()
         .join("\n");
-    assert!(plan.contains("camp_message_direct_reply_idx"), "{plan}");
+    assert!(plan.contains("camp_message_direct_reply_idx (camp_id=? AND reply_to_camp_message_id=? AND sequence>?)"), "{plan}");
     let steps = |database: &Database| {
         let mut query = database
             .connection()
@@ -1453,10 +1453,14 @@ fn reply_pages_follow_only_scoped_parent_links_and_hydrate_one_page() {
     assert_eq!(long.reply_count, 10003);
     assert_eq!(long.messages.len(), 100);
     assert!(long.has_later);
+    let long_steps = steps(&database);
+    assert_eq!(long_steps.0, 10005);
+    // One indexed child lookup per node, not repeated scans of the component.
+    assert!(long_steps.1 < 1_000_000, "{long_steps:?}");
     eprintln!(
         "reply_chain nodes={} vm_steps={} hydrated={}",
-        steps(&database).0,
-        steps(&database).1,
+        long_steps.0,
+        long_steps.1,
         long.messages.len()
     );
 }

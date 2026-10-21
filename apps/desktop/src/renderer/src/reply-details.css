@@ -13,7 +13,6 @@
 .reply-detail-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 5px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
 .reply-detail-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .reply-detail-icon:hover { background: var(--neutral-hover); color: var(--ink); }
-.reply-detail-icon:focus-visible, .reply-detail-page:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .reply-detail-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 22px 22px 26px; scrollbar-gutter: stable; }
 .reply-detail-message { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: start; gap: 10px; margin-bottom: 30px; }
 .reply-detail-message > .member-avatar, .reply-detail-message > .local-message-avatar { width: 32px; height: 32px; }
@@ -33,7 +32,8 @@
 .reply-detail-run.is-continuation { margin-top: -18px; }
 .reply-detail-run .run-presence-open { padding-right: 14px; }
 .reply-detail-resize { position: absolute; z-index: 3; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
-.reply-detail-resize:hover, .reply-detail-resize:focus-visible { background: var(--neutral-hover); outline: none; }
+.reply-detail-resize::after { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; }
+.reply-detail-resize:hover::after, .reply-detail-resize[data-resizing]::after { background: var(--resize-line); }
 .reply-execution-popover { position: fixed; top: 112px; right: 24px; width: min(760px, calc(100vw - 48px)); max-height: calc(100dvh - 144px); z-index: 90; }
 .reply-execution-popover > .camp-detail-heading { justify-content: space-between; }
 .reply-execution-popover > .execution-drawer-host { min-height: 0; flex: 1; overflow: hidden; }

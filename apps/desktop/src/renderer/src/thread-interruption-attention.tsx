@@ -10,7 +10,7 @@ export type InterruptionReadIntent = { commandId: string; command: { threadId: s
 type Surface = { threadId: string | null; visible: boolean }
 const attentive = (): boolean => document.visibilityState === 'visible' && document.hasFocus()
 
-/** App-exit reminders share the existing notification Disposition. Ordinary
+/** Execution interruption reminders share the existing notification Disposition. Ordinary
  * execution updates and local stop controls have no input into this module. */
 export function useThreadInterruptionAttention(enabled: boolean, threadIds: string[], surface: Surface) {
   const client = useThreadClient()
@@ -62,14 +62,14 @@ export function useThreadInterruptionAttention(enabled: boolean, threadIds: stri
       const result = await client.request<StoredCommandResult>('notifications.acknowledgeThreadInterruptions', intent)
       if (result.status !== 'applied') {
         pendingReads.current.delete(intent.commandId)
-        throw new Error(uiAttribute('退出提醒未能标记已读，请重试。'))
+        throw new Error(uiAttribute('执行中断提醒未能标记已读，请重试。'))
       }
       pendingReads.current.delete(intent.commandId)
       const sequence = (result.payload as { resultingChangeSequence?: number })?.resultingChangeSequence
       if (typeof sequence === 'number') floor.current.set(intent.command.threadId, Math.max(floor.current.get(intent.command.threadId) ?? 0, sequence))
       await refresh([intent.command.threadId])
     } catch (error) {
-      if (pendingReads.current.has(intent.commandId)) throw new Error(uiAttribute('退出提醒的已读结果尚未确认，将继续核对。'))
+      if (pendingReads.current.has(intent.commandId)) throw new Error(uiAttribute('执行中断提醒的已读结果尚未确认，将继续核对。'))
       throw error
     } finally { inFlightReads.current.delete(intent.commandId) }
   }, [client, refresh])
@@ -135,8 +135,12 @@ export function useThreadInterruptionAttention(enabled: boolean, threadIds: stri
   useEffect(() => {
     const threadId = surface.threadId
     if (!enabled || !threadId || !surface.visible || !focused || viewed.current === threadId || snapshots[threadId]?.generation !== scope.current.generation) return
+    const generation = scope.current.generation
     const frame = window.requestAnimationFrame(() => {
-      if (!attentive()) return
+      // A reset can invalidate the retained snapshot without causing a render
+      // before this frame. It must not consume this visit's acknowledgement.
+      if (!mounted.current || !attentive() || generation !== scope.current.generation
+        || snapshotsRef.current[threadId]?.generation !== generation) return
       viewed.current = threadId
       const intent = captureRead(threadId)
       if (intent) void acknowledge(intent).catch(() => undefined)

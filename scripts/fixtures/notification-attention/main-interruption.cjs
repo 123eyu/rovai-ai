@@ -26,7 +26,7 @@ app.whenReady().then(async () => {
     await until(s => s.ready && s.dot, 'Restart must restore the unread exit reminder')
     await wait(120)
     assert.equal((await state()).facts[0].read, false, 'Cached/failed content cannot acknowledge')
-    assert.match((await state()).label, /退出中断/)
+    assert.match((await state()).label, /执行中断/)
 
     // A fully displayed Thread acknowledges the observed exit reminder even if
     // the interrupted run produced no message, command row or visible Run ID.
@@ -89,6 +89,55 @@ app.whenReady().then(async () => {
     await run('window.interruptionTest.release()')
     await until(s => !s.dot, 'Fresh reset baseline confirms the displayed Thread')
 
+    // Opening queued an automatic read against false; reset then retained that
+    // old snapshot while the already-existing interruption loaded in a new generation.
+    await run('window.interruptionTest.ready(false)')
+    await wait(120)
+    await run("window.interruptionTest.silentAdmit('queued-reset-exit'); window.interruptionTest.holdFrames(); window.interruptionTest.ready(true)")
+    await until(s => s.heldFrames > 0, 'Automatic confirmation frame is queued')
+    await run('window.interruptionTest.hold(); window.interruptionTest.reset(); window.interruptionTest.releaseFrames()')
+    await until(s => s.held >= 2, 'New reset baseline is still pending after the old frame ran')
+    assert.equal((await state()).facts.find(f => f.runId === 'queued-reset-exit').read, false)
+    await run('window.interruptionTest.release()')
+    await until(s => !s.dot && s.facts.find(f => f.runId === 'queued-reset-exit').read,
+      'The old frame cannot consume the visit before the new baseline arrives')
+
+    await run("window.interruptionTest.ready(false); window.interruptionTest.holdChanges(); window.interruptionTest.admit('poll-first')")
+    await until(s => s.heldChanges === 1, 'First notification response is held')
+    const heldPollCount = (await state()).requests.filter(r => r.method === 'notifications.changesSince').length
+    await run("window.interruptionTest.admit('poll-second'); window.interruptionTest.admitWeb('poll-third')")
+    await wait(160)
+    assert.equal((await state()).requests.filter(r => r.method === 'notifications.changesSince').length, heldPollCount)
+    await run('window.interruptionTest.releaseChanges()')
+    current = await until(s => s.servedChangeSequence === s.sequence, 'An in-flight signal triggers a follow-up read without waiting for recovery')
+    assert.equal(current.requests.filter(r => r.method === 'notifications.changesSince').length, heldPollCount + 1,
+      'Concurrent Desktop/Web signals coalesce into one follow-up')
+
+    await run('window.interruptionTest.holdChanges(); window.interruptionTest.poll()')
+    await until(s => s.heldChanges === 1, 'Empty notification read is held')
+    const beforeRecovery = (await state()).requests.filter(r => r.method === 'notifications.threadInterruptions').length
+    await run('window.interruptionTest.attentive(false)')
+    await wait(40)
+    await run('window.interruptionTest.attentive(true)')
+    await wait(40)
+    await run('window.interruptionTest.releaseChanges()')
+    await until(s => s.requests.filter(r => r.method === 'notifications.threadInterruptions').length > beforeRecovery,
+      'A coalesced focus recovery still refreshes interruption projections')
+
+    await run('window.interruptionTest.holdChanges(); window.interruptionTest.poll()')
+    await until(s => s.heldChanges === 1, 'Prepare failed in-flight read')
+    await run("window.interruptionTest.admit('poll-retry')")
+    await wait(160)
+    const beforeFailure = (await state()).requests.filter(r => r.method === 'notifications.changesSince').length
+    await run('window.interruptionTest.releaseChanges(true)')
+    await wait(160)
+    assert.equal((await state()).requests.filter(r => r.method === 'notifications.changesSince').length, beforeFailure,
+      'A queued signal cannot bypass failure backoff or create a retry loop')
+    await run('window.interruptionTest.passBackoff(); window.interruptionTest.poll()')
+    await until(s => s.servedChangeSequence === s.sequence, 'The existing retry entry resumes after backoff')
+    await run('window.interruptionTest.ready(true)')
+    await until(s => !s.dot, 'Finish delayed notification confirmations')
+
     await run('window.interruptionTest.ready(false); window.interruptionTest.batches()')
     await until(s => s.projectionCount === 201 && s.secondary?.unread, 'Two bounded batches loaded')
     await run("window.interruptionTest.batchMode('fail'); window.interruptionTest.batchUnread(false); window.interruptionTest.recover(); window.interruptionTest.admit('batch-failure')")
@@ -109,7 +158,7 @@ app.whenReady().then(async () => {
     await until(s => !s.dot, 'Finish exact reads')
     assert.equal(await run("document.querySelector('#focus').value"), '保留的草稿')
     console.log(JSON.stringify({ ok: true, progressUpdates: 30, progressNotificationRequests: progressRequests.length,
-      cases: ['restart', 'cached-content', 'empty-output', 'hidden-sidebar', 'ordinary-progress', 'manual-stop', 'web-notification', 'empty-batch', 'background', 'frozen-read-retry', 'stale-read', 'reset-baseline', 'batch-failure', 'batch-delay'] }))
+      cases: ['restart', 'cached-content', 'empty-output', 'hidden-sidebar', 'ordinary-progress', 'manual-stop', 'web-notification', 'empty-batch', 'background', 'frozen-read-retry', 'stale-read', 'reset-baseline', 'queued-frame-reset', 'in-flight-signals', 'in-flight-recovery', 'in-flight-backoff', 'batch-failure', 'batch-delay'] }))
     app.exit(0)
   } catch (error) { console.error(error.stack ?? error); app.exit(1) }
 })

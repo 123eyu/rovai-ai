@@ -2640,14 +2640,6 @@ export function BusinessApp({
     currentProject,
     currentWorkspaceHint
   ), projectNames)
-  const interruptionAttention = useThreadInterruptionAttention(
-    startupStatus === 'resolved',
-    [...(displayNavigation ? allNavigationThreads(displayNavigation).map(thread => thread.id) : []),
-      ...pinnedThreadItems.map(thread => thread.id), ...(activeThreadId ? [activeThreadId] : [])],
-    { threadId: activeThreadId,
-      visible: view === 'camp' && campSnapshot?.thread.id === activeThreadId && !campSnapshotEntryPreviewRef.current
-        && !newConversationOpen && !newMissionOpen && !shuttingDown }
-  )
   const activeThread = navigation
     ? allNavigationThreads(navigation).find((thread) => thread.id === activeThreadId) ?? null
     : null
@@ -4131,6 +4123,17 @@ export function BusinessApp({
     settings: 'settings-content'
   }
   const startupGateVisible = Boolean(desktop) && startupGateShouldBeVisible(startupSnapshot)
+  const canRenderThread = !startupGateVisible && generalPreferences !== null && view === 'camp'
+    && (!missionThread || !!activeMission) && activeThreadId !== null
+    && visibleThreadSnapshot?.thread.id === activeThreadId
+  const formalThreadVisible = canRenderThread && !campSnapshotEntryPreviewRef.current
+    && !newConversationOpen && !newMissionOpen && !shuttingDown
+  const interruptionAttention = useThreadInterruptionAttention(
+    startupStatus === 'resolved',
+    [...(displayNavigation ? allNavigationThreads(displayNavigation).map(thread => thread.id) : []),
+      ...pinnedThreadItems.map(thread => thread.id), ...(activeThreadId ? [activeThreadId] : [])],
+    { threadId: activeThreadId, visible: formalThreadVisible }
+  )
   const shortcutsEnabled = startupStatus === 'resolved' && !shuttingDown
   useShortcutAction('new', beginNewConversation, shortcutsEnabled)
   useShortcutAction('settings', openSettings, shortcutsEnabled)
@@ -4367,7 +4370,7 @@ export function BusinessApp({
           onOpenMenu={openMobileMenu} menuOpen={mobileConversationDrawerOpen} menuTriggerRef={mobileConversationListButtonRef}
           onNew={() => { setNewMissionOpen(true) }} onOpen={mission => { void openMission(mission).catch(error => notifyError(missionError(error))) }}/>} 
         {!startupGateVisible && view === 'camp' && missionThread && !activeMission && <section className="mission-section-empty" role={missionList.error ? 'alert' : 'status'}><p>{missionList.error || (missionList.loading ? uiAttribute("正在读取使命…") : uiAttribute("此使命当前不可用。"))}</p>{!missionList.loading && <button className="quiet-button" onClick={() => void missionList.refresh()}><UiText zh={"重试"} /></button>}<button className="quiet-button" onClick={returnToMissions}><UiText zh={"返回使命板"} /></button></section>}
-        {!startupGateVisible && generalPreferences && view === 'camp' && (!missionThread || activeMission) && activeThreadId && visibleThreadSnapshot?.thread.id === activeThreadId && (
+        {canRenderThread && (
           <MissionSurface key={activeThreadId} enabled={!!activeMission} full={!missionDrawer} onExpand={() => setMissionPresentation('full')} onClose={returnToMissions}>
           {activeMission && <MissionHeader mission={activeMission} drawer={missionDrawer} thread={visibleThreadSnapshot} projectName={activeThreadProject?.name ?? activeThreadContextLabel}
             openRequest={missionOpenRequest} onExpand={() => setMissionPresentation('full')} onFold={() => setMissionPresentation('drawer')}
@@ -4636,12 +4639,7 @@ export function BusinessApp({
         enabled={startupStatus === 'resolved'}
         activeThreadId={activeThreadId}
         firstRunThreadId={firstRunThreadId}
-        activeThreadVisible={view === 'camp'
-          && campSnapshot?.thread.id === activeThreadId
-          && !campSnapshotEntryPreviewRef.current
-          && !newConversationOpen
-          && !newMissionOpen
-          && !shuttingDown}
+        activeThreadVisible={formalThreadVisible}
         navigationActive={notificationFocus !== null}
         onNavigate={navigateFromNotification}
         onPresentNavigation={presentNotificationNavigation}

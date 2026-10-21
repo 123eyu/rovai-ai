@@ -1163,22 +1163,23 @@ Disposition 已读真源；不采用启动逐会话推断或本机标记未读�
 
 <a id="v1-72-d55"></a>
 
-## V1.72-D55：退出提醒以 Thread 展示确认，删除手动停止短亮
+## V1.72-D55：执行中断提醒以 Thread 展示确认，删除手动停止短亮
 
 - 状态：accepted
 - 日期：2026-10-21
-- 确认：User 消息 613cf2d5-70c3-41c9-a5fb-7f7b9ee4c3de 收窄为 App 退出提醒；67fde392-eb82-4f7e-8284-54075161ff78 授权修改并清理多余代码。
-- 当前权威：[Notification Episode v12](../../contracts/notification-episode-v12.md)、[Current User Attention v10](../../contracts/current-user-attention-v10.md)、[App 退出中断提醒](../../architecture/notification-episodes.md#app-退出中断提醒)。
+- 确认：User 消息 613cf2d5-70c3-41c9-a5fb-7f7b9ee4c3de 收窄为 App 退出提醒；67fde392-eb82-4f7e-8284-54075161ff78 授权修改并清理多余代码。fb453917-508a-49ce-ba19-8fa4fe1481f2 补充确认保留 Run 异常退出提醒。
+- 当前权威：[Notification Episode v12](../../contracts/notification-episode-v12.md)、[Current User Attention v10](../../contracts/current-user-attention-v10.md)、[执行中断提醒](../../architecture/notification-episodes.md#执行中断提醒)。
 - 替代：[V1.72-D54](#v1-72-d54) 的手动停止来源、精确结果确认及独立短亮；通知事实与唯一 Disposition 继续保留。
 
 原实现把“退出打断过这个会话”扩展为逐 Run 的停止注意力。无输出的停止可能没有可见来源供确认，
 精确短亮又要求本机意图、准入描述、计时和槽位判断。普通快照推进还会通过 callback 身份触发重复读取。
 这些成本与本次所需的退出提醒不相称，继续补终态标记只能修局部症状。
 
-选择保留现有退出/启动恢复事务与通知持久性，把已读依据收窄为正式 Thread 内容成功展示。
+选择保留现有退出/启动恢复事务与通知持久性，包括 App 运行期间已确认的执行丢失，
+把已读依据收窄为正式 Thread 内容成功展示。
 读取仍按通知事件和已有恢复机制，普通执行进度不参与。删除手动停止 producer 与整套短亮链路，
 旧手动停止事实保留审计但不参与侧栏候选，不伪造已读。协议删除准入描述，数据库升级只换 producer。
 
 拒绝给空输出逐个补占位或增加展示状态机，也不改用本机标记未读、独立退出清单或每次启动全会话计算。
-代价是打开会话即可确认退出提醒，不证明用户看过每个被中断 Run；这一语义符合本次会话级目标。
+代价是打开会话即可确认执行中断提醒，不证明用户看过每个被中断 Run；这一语义符合本次会话级目标。
 其他精确通知、回复水位、手动提醒与运行显示保持各自责任。

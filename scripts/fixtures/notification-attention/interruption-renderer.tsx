@@ -26,6 +26,25 @@ const invalidations = new Set<(change: { messages?: never[]; resync?: boolean; n
 const requests: { method: string; request: any }[] = []
 const emit = (method = 'notification_episode.changed') => events.forEach(listener => listener({ method }))
 let holdProjection = false
+let holdChanges = false
+let failChanges = false
+let servedChangeSequence = 0
+const heldChanges: (() => void)[] = []
+const realNow = Date.now
+let clockOffset = 0
+Date.now = () => realNow() + clockOffset
+const requestFrame = window.requestAnimationFrame.bind(window)
+const cancelFrame = window.cancelAnimationFrame.bind(window)
+let holdFrames = false
+let frameId = 0
+const heldFrames = new Map<number, FrameRequestCallback>()
+window.requestAnimationFrame = callback => {
+  if (!holdFrames) return requestFrame(callback)
+  const id = --frameId
+  heldFrames.set(id, callback)
+  return id
+}
+window.cancelAnimationFrame = id => { if (id < 0) heldFrames.delete(id); else cancelFrame(id) }
 let failAck = false
 const held: (() => void)[] = []
 let secondaryUnread = false
@@ -52,9 +71,15 @@ const client = { platform: 'darwin', onEvent: (listener: (event: { method: strin
   if (method === 'notifications.preference.get') return { headsUpEnabled: false }
   if (method === 'notifications.inbox') return { schemaVersion: 11, throughChangeSequence: sequence,
     unreadCount: [...facts.values()].filter(fact => !fact.read).length, items: [], nextCursor: null }
-  if (method === 'notifications.changesSince') return { schemaVersion: 11, requestedAfterChangeSequence: request.afterChangeSequence,
-    throughChangeSequence: sequence, nextChangeSequence: sequence, retainedFloorChangeSequence: 0,
-    resetRequired: false, hasMore: false, taskCapability: task(), changes: journal.filter(change => change.changeSequence > request.afterChangeSequence) }
+  if (method === 'notifications.changesSince') {
+    const snapshot = { schemaVersion: 11, requestedAfterChangeSequence: request.afterChangeSequence,
+      throughChangeSequence: sequence, nextChangeSequence: sequence, retainedFloorChangeSequence: 0,
+      resetRequired: false, hasMore: false, taskCapability: task(), changes: journal.filter(change => change.changeSequence > request.afterChangeSequence) }
+    if (holdChanges) await new Promise<void>(resolve => heldChanges.push(resolve))
+    if (failChanges) { failChanges = false; throw new Error('change read failed') }
+    servedChangeSequence = snapshot.nextChangeSequence
+    return snapshot
+  }
   if (method === 'notifications.threadInterruptions') {
     const snapshot: NotificationThreadInterruptions = { throughChangeSequence: sequence, threads: request.threadIds.map((threadId: string) => ({
       threadId, hasUnreadInterruption: threadId === secondaryId ? secondaryUnread : unread(threadId)
@@ -99,11 +124,13 @@ function change(runId: string, n: number, cause: NotificationEpisodeChange['chan
       resolved: false, satisfied: false, pendingApprovalCount: 0, mentionCount: 0, unacknowledgedMentionCount: 0,
       mention: null, reasons: [], primaryAction: action, secondaryActions: [], createdAt: '2026-10-21', updatedAt: '2026-10-21' } }
 }
-function admit(runId: string, threadId = id, web = false) {
+function admit(runId: string, threadId = id, web = false, signal = true) {
   facts.set(runId, { sequence: ++sequence, read: false, threadId })
   journal.push(change(runId, sequence))
-  if (web) invalidations.forEach(fn => fn({ notificationsChanged: true }))
-  else emit()
+  if (signal) {
+    if (web) invalidations.forEach(fn => fn({ notificationsChanged: true }))
+    else emit()
+  }
 }
 function Fixture() {
   const [contentReady, setReady] = useState(false)
@@ -134,6 +161,21 @@ function Fixture() {
   </ThreadInterruptionAttentionContext.Provider>
 }
 Object.assign(window, { interruptionTest: {
+  silentAdmit: (runId: string) => admit(runId, id, false, false),
+  holdFrames: () => { holdFrames = true },
+  releaseFrames: () => {
+    holdFrames = false
+    const callbacks = [...heldFrames.values()]
+    heldFrames.clear()
+    callbacks.forEach(callback => callback(performance.now()))
+  },
+  holdChanges: () => { holdChanges = true },
+  releaseChanges: (fail = false) => {
+    holdChanges = false
+    failChanges = fail
+    heldChanges.splice(0).forEach(resolve => resolve())
+  },
+  passBackoff: () => { clockOffset += 5_001 },
   admit, admitWeb: (runId: string) => admit(runId, id, true), ready: (value: boolean) => ready(value), advance: () => advance(), sidebar: (value: boolean) => showSidebar(value),
   manual: (value: boolean) => manual(value), manualStop: () => emit('agent_run.cancelled'),
   attentive: (value: boolean) => { attentive = value; window.dispatchEvent(new Event(value ? 'focus' : 'blur')) },
@@ -152,6 +194,7 @@ Object.assign(window, { interruptionTest: {
   },
   releaseBatch: () => { secondaryMode = 'fail'; heldBatches.splice(0).forEach(resolve => resolve()) },
   state: () => ({ ready: !!attention.snapshots[id], unread: attention.snapshots[id]?.unread,
+    heldFrames: heldFrames.size, heldChanges: heldChanges.length, servedChangeSequence, sequence,
     dot: !!document.querySelector('.camp-unread-dot'),
     label: document.querySelector('.camp-nav-row button')?.getAttribute('aria-label'),
     headsUp: document.querySelectorAll('.notification-heads-up').length,

@@ -137,6 +137,16 @@ app.whenReady().then(async () => {
     await run("window.executionNotificationTest.focusSubject('mission', 103)")
     await waitFor(value => value.focusedMission === 'mission-rail' && value.presentedRequests.includes(103), 'Mission notification did not focus its exact introduction')
 
+    await run('window.executionNotificationTest.configureFailure()')
+    current = await waitFor(value => value.failureBubbleVisible && value.visibleRunIds.includes('silent-failure'),
+      'A visible ordinary failure bubble reports its Run even with no output and a closed drawer')
+    assert.equal(current.executionVisible, false, 'The failure source must come from the conversation, not an execution node')
+    assert.deepEqual(current.visibleRunIds, ['silent-failure'])
+    await run("Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false }); window.dispatchEvent(new Event('blur'))")
+    await waitFor(value => !value.visibleRunIds.length, 'Background failure bubbles cannot acknowledge notifications')
+    await run("Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true }); window.dispatchEvent(new Event('focus'))")
+    await waitFor(value => value.visibleRunIds.includes('silent-failure'), 'Returning to the visible failure bubble restores its precise source')
+
     console.log(JSON.stringify({
       ok: true,
       cases: [
@@ -144,7 +154,8 @@ app.whenReady().then(async () => {
         'closed right execution pane reopens for exact notification navigation',
         'compact layout retains and focuses the notification target',
         'completed Run notifications expand execution history before focusing',
-        'Task and Mission notifications focus their exact subject'
+        'Task and Mission notifications focus their exact subject',
+        'silent ordinary failures report their visible bubble with the execution drawer closed'
       ]
     }))
     window.destroy()

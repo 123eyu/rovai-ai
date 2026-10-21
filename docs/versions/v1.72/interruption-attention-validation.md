@@ -5,11 +5,11 @@ lifecycle: current
 last_updated: 2026-10-21
 ---
 
-# App 退出提醒实施与验收
+# 执行中断提醒实施与验收
 
 ## 当前收口：退出提醒（2026-10-21）
 
-User 将范围收窄为 App 退出打断会话。当前合同是
+User 将范围收窄为 App 退出打断会话，并在 seq75 明确保留已确认的 Run 异常退出提醒。当前合同是
 [Notification Episode v12](../../contracts/notification-episode-v12.md) 与
 [Current User Attention v10](../../contracts/current-user-attention-v10.md)，取舍见 [V1.72-D55](decisions.md#v1-72-d55)。
 后文 R2、A1–A22 及性能数字是 #841 交付时的历史记录，不代表本次重新测量或当前短亮承诺。
@@ -66,6 +66,31 @@ Renderer 沿用现有通知交互 owner，生产 Hook/Controller/Sidebar 加隔�
 停止并行构建后的全量复跑通过，未修改这些测试或延长超时阈值。
 
 以上为隔离自动验证，不是日常安装版的操作验收；未重测整个 App 启动耗时或使用真实模型。
+
+## 复核修复：异步确认与共用失败来源（2026-10-21）
+
+User seq75 的复核指出四处实现问题，seq77 授权修复；同时明确 Run 异常退出也应保留提醒。
+本轮不改变 Core 分类、数据库或 RPC；将展示文案改为“执行中断”，说明 `execution_lost`
+既包含启动恢复，也包含 App 运行期间已确认的 Host/worker 执行丢失。
+
+| 问题 | 修复及回归 |
+| --- | --- |
+| 下一帧回调先于 reset 新快照执行，把旧 false 记为已查看 | 写 viewed 之前再核对请求和快照代次。原 Hook 夹具保留旧 false，先排队确认，再 reset 并释放旧回调，最后释放新快照；无需额外聚焦即可确认。 |
+| 使命记录尚未就绪时提前确认 | 工作区挂载和正式可见条件共用。真实 App 启动恢复中挂起 missions.list，分别验证成功、失败、重试：工作区未挂载时零中断 ACK，正式内容出现后确认一次。 |
+| 拉取中收到的新信号被丢弃 | 单个待刷新标记合并 Desktop/Web 信号，保存恢复意图，请求完成后补读。夹具验证延迟响应期间多个信号只补读一次、聚焦恢复仍重读投影、失败不绕过退避或形成重试循环。 |
+| 普通失败气泡的精确来源被误删 | 仅恢复可见 failed presence 的 Run 上报。真实 ThreadWorkspace 使用无输出 batch 失败、关闭执行抽屉，仍回报精确 Run；失焦后不回报，恢复焦点后重新回报。 |
+
+原 201 Thread 部分失败/延迟、冻结确认重试、缓存/后台、隐藏侧栏和手动停止用例继续保留。
+连续 30 次执行进度、消息失效和快照推进仍产生零通知 RPC，不新增短亮、后台队列或定时器。
+定向门禁：`pnpm typecheck`、`pnpm test:notification-attention`（3 个 owner）、
+`pnpm test:startup-presentation`（1 个真实 App owner）通过。
+全部使用隔离 Renderer userData/Skill Library 和受控 transport；不启动 Core、真实模型或日常 App。
+另逐项临时还原四处旧行为，新用例均在对应断言失败；随后恢复修复版。这验证的是生产 Hook、
+Controller、App 和 Workspace 的行为，未用独立复制的业务逻辑代替组件。
+常规前端门禁也通过：`pnpm test`（249 个 Vitest 文件、2,832 项；Node 357 passed、2 项平台限定 skipped，
+含文档/Skill 门禁）、`pnpm build:desktop`（Web、Execution Web、Electron）与 `cargo fmt --all --check`。
+提交流程的默认 `pnpm test:rust:pr` 通过：474 passed、1 项既有 ignored。未改动 Rust、
+Migration 或 RPC，未重复执行历史启动性能测量。
 
 ## 历史记录：R2 初次交付
 

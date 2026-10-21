@@ -386,6 +386,8 @@ export function NotificationAttentionController({
   const baselineReady = useRef(false)
   const baselineGeneration = useRef(0)
   const pollRunning = useRef(false)
+  // null = no signal; otherwise remember whether the queued read is recovery.
+  const pendingPoll = useRef<boolean | null>(null)
   const pollFailureCount = useRef(0)
   const pollRetryAt = useRef(0)
   const navigationGeneration = useRef(0)
@@ -400,6 +402,7 @@ export function NotificationAttentionController({
     mounted.current = true
     return () => {
       mounted.current = false
+      pendingPoll.current = null
       if (visibleRetryTimer.current !== null) window.clearTimeout(visibleRetryTimer.current)
     }
   }, [])
@@ -447,6 +450,7 @@ export function NotificationAttentionController({
     if (!enabled) {
       baselineReady.current = false
       baselineGeneration.current += 1
+      pendingPoll.current = null
       setHeadsUpState(emptyNotificationHeadsUpState())
       return undefined
     }
@@ -493,11 +497,14 @@ export function NotificationAttentionController({
   }, [])
 
   const pollChanges = useCallback(async (recover = false): Promise<void> => {
-    if (
-      !baselineReady.current
-      || pollRunning.current
-      || Date.now() < pollRetryAt.current
-    ) return
+    if (!enabled || !mounted.current || !baselineReady.current) return
+    if (pollRunning.current) {
+      pendingPoll.current = recover || pendingPoll.current === true
+      return
+    }
+    if (Date.now() < pollRetryAt.current) return
+    recover = recover || pendingPoll.current === true
+    pendingPoll.current = null
     pollRunning.current = true
     const generation = baselineGeneration.current
     try {
@@ -606,8 +613,16 @@ export function NotificationAttentionController({
       throw nextError
     } finally {
       pollRunning.current = false
+      // Coalesce signals received while reading. Failed reads keep their
+      // existing backoff; the next admitted poll also carries recovery intent.
+      if (pendingPoll.current !== null && mounted.current && baselineReady.current
+        && Date.now() >= pollRetryAt.current) {
+        void poll(pendingPoll.current).catch(() => undefined)
+      }
     }
   }, [
+    enabled,
+    poll,
     interruptionChanges,
     recoverInterruptions,
     acceptSnapshot,

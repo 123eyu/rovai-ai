@@ -340,4 +340,4 @@ v62 移除原生会话重建提示和展示查询，保留恢复及审计行为�
 MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architecture/runtime-catalog-boundaries.md#minimax-code-acp-实施边界)
 拥有；启动系统提示与开发 Preview 的取舍见 [V1.72-D50](../versions/v1.72/decisions.md#v1-72-d50)。
 
-- App 退出中断提醒：[Notification Episode v12](../contracts/notification-episode-v12.md)、[Current User Attention v10](../contracts/current-user-attention-v10.md)、[通知架构](../architecture/notification-episodes.md#app-退出中断提醒)；理由：[V1.72-D55](../versions/v1.72/decisions.md#v1-72-d55)。
+- 执行中断提醒（App 退出/确认执行丢失）：[Notification Episode v12](../contracts/notification-episode-v12.md)、[Current User Attention v10](../contracts/current-user-attention-v10.md)、[通知架构](../architecture/notification-episodes.md#执行中断提醒)；理由：[V1.72-D55](../versions/v1.72/decisions.md#v1-72-d55)。

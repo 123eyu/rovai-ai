@@ -1,6 +1,6 @@
 import { shortcutDefaults } from '../../../apps/desktop/src/shared/shortcuts'
 import { EMPTY_SNAPSHOT, sanitizeSnapshot, registerNavigationProjects } from '../../../apps/desktop/src/shared/navigation-preferences-model'
-import type { NavigationSnapshot, NavigationPreferencesSnapshot } from '@contracts'
+import type { NavigationSnapshot, NavigationPreferencesSnapshot, MissionRecord } from '@contracts'
 import type { ThreadCreationPreflight, CoreEvent, DesktopStartupSnapshot, HealthStatus, OnboardingSnapshot, RestorableLocation, RovaiApi, SupervisorSnapshot } from '@contracts'
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
@@ -826,6 +826,65 @@ Object.assign(window, { startupTest: {
       check(!dot, 'The stopped Thread must not acquire an unread dot in ' + theme)
       await flush()
     }
+
+    // Use the real startup restore and workspace gates: the Thread is ready
+    // before missions.list, so selection/snapshot readiness alone cannot ACK.
+    const originalHasFocus = document.hasFocus.bind(document)
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true })
+    for (const outcome of ['loaded', 'failed'] as const) {
+      await reset({ kind: 'camp', threadId: 'A' })
+      for (const [method, response] of navigationResponses) responses.set(method, response)
+      for (const [method, handler] of navigationHandlers) requestHandlers.set(method, handler)
+      const mission: MissionRecord = { missionId: 'mission-attention', threadId: 'A', number: 1,
+        title: '恢复的使命', description: '', status: 'not_started', sourceMessageId: null,
+        projectPath: '/fixture/quick-chat', projectBindingKind: 'quick_chat', detailsVersion: 1,
+        tags: [], attachments: [], createdAt: stamp, updatedAt: stamp, memberAgentIds: [],
+        defaultLeadAgentId: null, runningAgentIds: [], startAvailable: false, hasUnread: false,
+        workspaceEverCreated: false, workspaceResourcesPresent: false, cleanupAvailable: false }
+      const projection = campProjection('A')
+      campRequest = id => id === 'A'
+        ? { ...projection, thread: { ...projection.thread, missionId: mission.missionId } }
+        : campProjection(id)
+      const missions = deferred<MissionRecord[]>()
+      requestHandlers.set('missions.list', () => missions.promise)
+      const task = { enabled: false, headsUpAfterSequence: 0, observedThroughChangeSequence: 10 }
+      responses.set('preferences.tasks.get', task)
+      responses.set('notifications.inbox', { schemaVersion: 11, throughChangeSequence: 10, unreadCount: 1, items: [], nextCursor: null })
+      responses.set('notifications.changesSince', { schemaVersion: 11, nextChangeSequence: 10,
+        resetRequired: false, hasMore: false, taskCapability: task, changes: [] })
+      let unread = true
+      const acknowledgements: unknown[] = []
+      requestHandlers.set('notifications.threadInterruptions', ({ threadIds }) => ({ throughChangeSequence: 10,
+        threads: threadIds.map(threadId => ({ threadId, hasUnreadInterruption: threadId === 'A' && unread })) }))
+      requestHandlers.set('notifications.acknowledgeThreadInterruptions', request => {
+        acknowledgements.push(request)
+        unread = false
+        return { commandId: request.commandId, status: 'applied', code: 'ok', payload: { resultingChangeSequence: 10 } }
+      })
+      onboarding.resolve({ schemaVersion: 2, status: 'completed', origin: 'existing_installation', completedAt: stamp,
+        selectedMemberRole: null, memberAgentId: null, quickChatThreadId: null })
+      publish({ runtimeMode: 'full_core', fullCoreState: 'ready', startupPhase: null, authorityState: { kind: 'current', origin: 'existing' },
+        capabilities: { ...supervisor.capabilities, authoritativeWorkspace: true, coreRequests: true } })
+      await flush(); await advance(0); await flush(); await advance(STARTUP_LOADING_EXIT_MS)
+      const placeholder = () => document.querySelector<HTMLElement>('.camp-content > .mission-section-empty')
+      check(placeholder()?.textContent?.includes('正在读取使命'), 'Mission restore must wait for the separate mission list')
+      check(!document.querySelector('.workspace-shell') && unread && acknowledgements.length === 0,
+        'Loading mission content cannot acknowledge its interruption')
+      if (outcome === 'failed') {
+        missions.reject(new Error('Mission list unavailable'))
+        await flush(); await flush()
+        check(placeholder()?.getAttribute('role') === 'alert' && !document.querySelector('.workspace-shell'),
+          'Mission failure must keep the workspace unmounted')
+        check(unread && acknowledgements.length === 0, 'Mission load failure must preserve the interruption')
+        requestHandlers.set('missions.list', () => [mission])
+        await clickNavigation('重试', '.camp-content > .mission-section-empty button')
+      } else missions.resolve([mission])
+      await flush(); await flush()
+      check(document.querySelector('.workspace-shell') && !unread && acknowledgements.length === 1,
+        'Only successfully displayed mission content acknowledges the observed interruption')
+    }
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: originalHasFocus })
+    cases.push('mission restore waits for actual content before interruption ACK, including load failure and retry')
 
     // Exercise the shared App with Web-style invalidation, including a refresh
     // already in flight when deletion is accepted and removal in another client.

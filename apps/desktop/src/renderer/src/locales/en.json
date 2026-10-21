@@ -4015,7 +4015,7 @@
   "查看较新回复": "Later replies",
   "回到原文": "Go to original",
   "收起执行过程": "Close execution history",
-  "有未查看的退出中断": "Unseen app-exit interruption",
-  "退出提醒未能标记已读，请重试。": "Could not mark the app-exit reminder as read. Please try again.",
-  "退出提醒的已读结果尚未确认，将继续核对。": "The app-exit reminder acknowledgement is unconfirmed. We will keep checking."
+  "有未查看的执行中断": "Unseen execution interruption",
+  "执行中断提醒未能标记已读，请重试。": "Could not mark the execution interruption reminder as read. Please try again.",
+  "执行中断提醒的已读结果尚未确认，将继续核对。": "The execution interruption acknowledgement is unconfirmed. We will keep checking."
 }

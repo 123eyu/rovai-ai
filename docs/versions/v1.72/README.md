@@ -1052,7 +1052,10 @@ Preview 的平台、CLI 子集、Skills/MCP 和并发资格边界不变。
 [Current User Attention v10](../../contracts/current-user-attention-v10.md)。Migration 210 / schema 160
 在原 Migration 209 基础上关闭手动停止来源，保留历史事实和唯一 Disposition。
 Cmd+Q 沿既有退出事务记录，强杀沿既有启动恢复确认；前台正式 Thread 展示后按观察边界确认。
+User 进一步确认保留 App 运行期间的 Run 异常退出提醒，统一称“执行中断”，沿用已有 `execution_lost`。
 删除 600ms 短亮、停止意图、精确准入描述及为中断添加的可见 Run 观察，普通执行进度不再触发通知读取。
 多批结果独立接收，挂起批次不阻挡后续刷新。旧手动停止退出侧栏候选，不伪造已读。
+复核修复排队确认遇到 reset、使命内容未挂载即确认、拉取中信号丢失与普通失败气泡可见来源误删；
+不恢复短亮或逐 command 读取。具体场景与验证见下述实施记录。
 
 取舍见 [V1.72-D55](decisions.md#v1-72-d55)，实施验证见[退出提醒验收](interruption-attention-validation.md)。

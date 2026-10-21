@@ -4113,6 +4113,11 @@ export function ThreadWorkspace({
           if (messageId) messageIds.add(messageId)
           if (threadTurnId && !node.classList.contains('user')) campTurnIds.add(threadTurnId)
         }
+        for (const node of timeline.querySelectorAll<HTMLElement>('[data-presence-run][data-presence-state="failed"]')) {
+          const runId = node.dataset.presenceRun
+          if (runId && terminalRunIds.has(runId) && node.getClientRects().length
+            && rectanglesOverlap(node.getBoundingClientRect(), viewport)) agentRunIds.add(runId)
+        }
         const approvalNode = approvalDockRef.current?.querySelector<HTMLElement>(
           '[data-approval-id]'
         ) ?? null

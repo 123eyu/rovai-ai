@@ -63,6 +63,17 @@ Thread ID；同一项目可以有多份草稿。Pending presence 的导航、清
 搜索/around 临时载入的消息已经是可见的完整 reply target，Composer 直接冻结其最小本地 snapshot；发送事务再按
 Camp+messageId 验证。附件缩略图、应用内预览、系统打开与 reveal 走 Main authority，不依赖 Core Draft locator。
 
+## User 输入历史
+
+公共 Thread 与 Single Chat 共用同步导航器；首次 ↑ 从现有消息集合提取独立的本轮内容数组，
+仅保留下标和原草稿/选区。公共数据来自 `visibleThreadMessages`，单聊来自当前快照的正式消息与
+活动 Pending。范围、顺序与筛选规则见 [Input History v1](../contracts/input-history-v1.md)。
+输入历史不拥有数据库读取、消息加载、跨会话缓存或成功回执记录。
+
+Lexical adapter 保留原 EditorState，预览只替换显示与有效输入；`ComposerDraftSync` 保存/重试仍引用
+原稿，编辑或发送才接管。工作区订阅路由需要的 live Atom，不因普通文本逐字输入新增整页重渲染。
+单聊 textarea 使用同一导航；消息刷新不改变本轮数组，显式替换草稿则结束浏览。退出后释放本轮内容。
+
 ## 长粘贴生成文件
 
 Desktop 公屏单次普通文本粘贴超过 10,000 码点时，将全文交给原附件准备队列；本机保存完成是明确接纳点。
@@ -88,6 +99,7 @@ ID 匹配仍限定发送 Thread。此复用不延长所属 Thread 的寿命；�
 
 发送后的本地 Principal 消息在首次目标 claim 前可以撤回。撤回操作针对已发布 CampMessage，原子取消 waiting Delivery
 并擦除受控原文；它不会把内容放回 Composer，也不是 Undo Send/草稿恢复。首次 claim 后撤回资格永久关闭。
+输入历史不另行监听撤回；本轮已提取内容仍可由 User 回填，下一轮依据最新消息数据，重新发送算新提交。
 
 ## 升级
 

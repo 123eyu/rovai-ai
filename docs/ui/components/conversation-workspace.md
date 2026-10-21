@@ -34,6 +34,15 @@ last_updated: 2026-10-20
 CampTurn Stop、Gather 或恢复旧 Run 状态的重试均为历史交互，不再适用于当前 public Camp；本机草稿与 recipient
 continuation 是当前 Desktop 行为。
 
+## 输入框上下键历史
+
+公共与单聊首次 ↑ 从当前已加载消息及现有 Pending 提取本轮固定的文本/结构化内容；
+结束后释放，下一轮使用最新数据。按钮、接收者提示与发送资格跟随预览，
+原草稿继续保留。Up 在文档起点回看，浏览中的 Down 在文档终点前进；Esc 恢复并消费事件，
+单聊不同时收起。编辑/发送预览后进入普通草稿流程，候选菜单、IME、选区、修饰键优先。
+见 [Input History v1](../../contracts/input-history-v1.md)。不增加面板、遮罩或持久“历史草稿”，
+不增加历史专用读取或跨会话缓存，也不扩大消息加载范围。
+
 ## 成员 Fast 响应模式
 
 成员浮层与执行详情顶栏直接为活跃 Claude Code/Codex 绑定显示 Fast 偏好；作用域见

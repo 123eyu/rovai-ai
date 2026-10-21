@@ -1,6 +1,8 @@
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { shouldSendComposerKey } from '../../shared/shortcuts'
 import { useThreadClient } from './camp-client'
+import { useTextareaInputHistory } from './use-textarea-input-history'
+import { singleInputHistory } from './input-history'
 import { useInterruptionAttention } from './thread-interruption-attention'
 import { useMobileLayout } from './MobileLayout'
 import { newCommandId } from '../../shared/command-id'
@@ -774,6 +776,13 @@ export function SingleChatPanel({
     ? `${threadId}:${snapshot.conversation.id}` : `${threadId}:pending:${selectedAgentId ?? ''}`
   const draft = bodyDrafts[bodyDraftKey] ?? ''
   const setDraft = (value: string): void => setBodyDrafts((current) => ({ ...current, [bodyDraftKey]: value }))
+  const inputHistory = useTextareaInputHistory({
+    draft, setDraft, inputRef: composerRef,
+    target: visible && currentSnapshot ? bodyDraftKey : null,
+    getHistory: () => currentSnapshot
+      ? singleInputHistory(currentSnapshot.messages, currentSnapshot.pendingInputs.items)
+      : []
+  })
   useEffect(() => {
     if (!snapshot || snapshot.conversation.agentId !== selectedAgentId) return
     const pendingKey = `${threadId}:pending:${selectedAgentId ?? ''}`
@@ -1167,6 +1176,7 @@ export function SingleChatPanel({
       const body = resultPayloadString(result, 'body') ?? ''
       const returnedDraft = result.payload.draft as unknown as SingleChatSnapshot['draft']
       const key = `${current.conversation.threadId}:${item.conversationId}`
+      if (currentConversationIdRef.current === item.conversationId) inputHistory.reset()
       setBodyDrafts((drafts) => ({ ...drafts, [key]: body }))
       if (currentConversationIdRef.current === item.conversationId) {
         const latest = snapshotRef.current?.conversation.id === item.conversationId ? snapshotRef.current : current
@@ -1439,6 +1449,7 @@ export function SingleChatPanel({
     const owner = snapshotRef.current?.conversation.id
     const commandId = newCommandId()
     if (!owner) return Promise.reject(new Error('quote.owner_unavailable'))
+    inputHistory.adopt()
     quoteOperationCount.current += 1
     setQuoteBusy(true)
     const operation = quoteTailRef.current.then(async () => {
@@ -1456,7 +1467,7 @@ export function SingleChatPanel({
   const send = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     if (returningPendingRef.current) return
-    const body = draft.trim()
+    const body = inputHistory.value.trim()
     const agentId = selectedAgentIdRef.current
     if (
       !agentId
@@ -1475,6 +1486,7 @@ export function SingleChatPanel({
       if (!current) throw new Error(uiAttribute('无法打开这段单聊。'))
       if (!body && (current.draft.quotes?.length ?? 0) > 0) throw new Error(uiAttribute('请填写这次的问题后再发送。'))
       if (!body && current.draft.attachments.length === 0) return
+      inputHistory.adopt()
       const result = await client.request<StoredCommandResult>('singleChat.send', {
         commandId: newCommandId(),
         command: {
@@ -1785,10 +1797,10 @@ export function SingleChatPanel({
             <textarea
               ref={composerRef}
               id={`${panelId}-composer`}
-              value={draft}
+              value={inputHistory.value}
               disabled={!selectedMember || !currentTargetReady || sending || returningPending || ending}
               placeholder={selectedMember ? uiAttribute("给 {0} 发消息…", String(selectedMember.displayName)) : uiAttribute("选择一位队员后开始单聊")}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => inputHistory.edit(event.target.value)}
               onPaste={(event) => {
                 const files = Array.from(event.clipboardData.files)
                 if (files.length === 0) return
@@ -1796,6 +1808,7 @@ export function SingleChatPanel({
                 void prepareFiles(files)
               }}
               onKeyDown={(event) => {
+                if (inputHistory.onKeyDown(event)) return
                 if (mobile) return
                 if (event.nativeEvent.keyCode === 229 || event.repeat) return
                 const submit = shortcutContext
@@ -1807,7 +1820,7 @@ export function SingleChatPanel({
               }}
             />
           </div>
-          <TextareaWebLinks key={bodyDraftKey} inputRef={composerRef} value={draft}
+          <TextareaWebLinks key={bodyDraftKey} inputRef={composerRef} value={inputHistory.value}
             enabled={visible && currentTargetReady && !sending && !returningPending && !ending} />
           <div className="composer-action-row">
             <div className="composer-tools">
@@ -1843,13 +1856,13 @@ export function SingleChatPanel({
                   </span>
                 </span>
               )}
-              {activeRun && !draft.trim() && (currentSnapshot?.draft.attachments.length ?? 0) === 0
+              {activeRun && !inputHistory.value.trim() && (currentSnapshot?.draft.attachments.length ?? 0) === 0
                 ? <ComposerPrimaryAction action="stop" type="button" busy={cancelling} disabled={!currentTargetReady || cancelling} onClick={() => void stopCurrentRun()} />
                 : <ComposerPrimaryAction
                     action="send"
                     type="submit"
                     busy={sending || preparingAttachments.some((item) => !item.error)}
-                    disabled={(!draft.trim() && (currentSnapshot?.draft.attachments.length ?? 0) === 0) || !selectedMember || !currentTargetReady || sending || returningPending || ending || quoteBusy || preparingAttachments.some((item) => !item.error)}
+                    disabled={(!inputHistory.value.trim() && (currentSnapshot?.draft.attachments.length ?? 0) === 0) || !selectedMember || !currentTargetReady || sending || returningPending || ending || quoteBusy || preparingAttachments.some((item) => !item.error)}
                   />}
             </div>
           </div>

@@ -1030,6 +1030,14 @@ Electron 夹具验证 Camp-local 草稿在业务投影刷新和重挂载后保�
 替换和无效快照拒绝。历史 `test:composer-continuation` 夹具依赖已退出的 Core Draft/Pending 接口，不能作为
 当前发布门禁。
 
+公共/单聊输入历史复用上述 CampOpen 与 `single-chat-panel` Electron 夹具的 `--input-history` 模式：
+验证固定浏览列表、零历史请求、结构化预览、原草稿/Undo 保留、有效输入驱动发送及 pending 变化。
+最小命令为
+`node --test --test-concurrency=1 --test-name-pattern='input history' scripts/lib/camp-open-projection.test.mjs scripts/lib/single-chat-panel.test.mjs`。
+`input-history.test.ts` 覆盖独立内容提取、筛选、固定数组、导航边界和退出恢复。
+历史专用 Core 查询及两个 SQLite 测试随生产路径一起退役；消息读取与草稿保存继续由原 owner 覆盖。
+退役依据和验证命令见[实施记录](../versions/v1.72/input-history-implementation.md#验证归属)。
+
 ### Core 可选功能启动回归
 
 Headless Host 的进程准入与 Unix 受控停止使用 `pnpm test:host-startup`；精确边界见

@@ -102,6 +102,7 @@ import {
   StructuredMentionComposer,
   type StructuredMentionComposerHandle
 } from './StructuredMentionComposer'
+import { threadInputHistory } from './input-history'
 import {
   composerDocumentsEqualDirect,
   composerDocumentFromText,
@@ -1776,6 +1777,11 @@ export function ThreadWorkspace({
   const [, setComposerDraftProjectionVersion] = useState(0)
   const [draftLoadState, setDraftLoadState] = useState<DraftLoadState>({ state: 'loading' })
   const [composerPersistenceError, setComposerPersistenceError] = useState<Error | null>(null)
+  // Routing observes live atoms (including previews). Text stays in the editor,
+  // so ordinary typing does not rerender the entire workspace on each character.
+  const [liveComposerAtoms, setLiveComposerAtoms] = useState<{
+    threadId: string; content: ComposerDocument
+  } | null>(null)
   const [memberInvitationThreadId, setMemberInvitationThreadId] = useState<string | null>(null)
   const [composerLocalStatus, setComposerLocalStatus] = useState<ComposerLocalStatus>({
     hasContent: false,
@@ -2584,8 +2590,11 @@ export function ThreadWorkspace({
   const isThreadEmpty = !campConversationHasVisibleHistory(conversationTimeline)
   const defaultLead = snapshot.members.find((member) => member.isDefaultLead && campMemberIsLeadEligible(member)) ?? null
   const hasCurrentMembers = campInspectorMembers(snapshot.members).length > 0
+  const effectiveComposerDraft = composerDraft && liveComposerAtoms?.threadId === snapshot.thread.id
+    ? { ...composerDraft, content: liveComposerAtoms.content }
+    : composerDraft
   const hasAvailableRecipient = pendingInviteIds.length > 0 || snapshot.members.some(campMemberIsLeadEligible)
-  const replyRepairRequired = composerDraftNeedsReplyRepair(composerDraft)
+  const replyRepairRequired = composerDraftNeedsReplyRepair(effectiveComposerDraft)
   const hasExplicitRecipient = composerLocalStatus.hasExplicitRecipient
   const continuationIntent = composerDraft?.continuationIntent ?? null
   const continuationReplacementMembers = composerRosterMembers.filter((member) =>
@@ -2599,14 +2608,14 @@ export function ThreadWorkspace({
     && continuationRecipient.profilePresence === 'present'
   const hasReadyAttachment = (composerDraft?.attachments.length ?? 0) > 0
   const hasSendablePayload = composerLocalStatus.hasContent || hasReadyAttachment
-  const composerDeliveryPlans = hasSendablePayload ? deliveryPlans(snapshot, composerDraft, deliveryMode, composerLocalStatus) : []
+  const composerDeliveryPlans = hasSendablePayload ? deliveryPlans(snapshot, effectiveComposerDraft, deliveryMode, composerLocalStatus) : []
   const composerDeliveryLabel = deliveryActionLabel(composerDeliveryPlans)
   const hasLocalDraftPayload = Boolean(
     hasSendablePayload
       || preparingAttachments.length > 0
   )
-  const continuationRepairRequired = composerDraftNeedsContinuationRepair(
-    composerDraft,
+  const continuationRepairRequired = !hasExplicitRecipient && composerDraftNeedsContinuationRepair(
+    effectiveComposerDraft,
     snapshot.members,
     hasLocalDraftPayload
   )
@@ -2628,12 +2637,12 @@ export function ThreadWorkspace({
     [composerSkillCatalog.candidates]
   )
   const unlistedSkillName = useMemo(() => {
-    if (composerSkillCatalog.status !== 'ready' || composerDraft?.threadId !== snapshot.thread.id) return null
+    if (composerSkillCatalog.status !== 'ready' || effectiveComposerDraft?.threadId !== snapshot.thread.id) return null
     const candidateIds = new Set(composerSkills.map((skill) => skill.id))
-    const missing = composerDraft.content.segments.find((segment) => segment.kind === 'atom'
+    const missing = effectiveComposerDraft.content.segments.find((segment) => segment.kind === 'atom'
       && segment.atom.type === 'skill' && !candidateIds.has(segment.atom.skillId))
     return missing?.kind === 'atom' && missing.atom.type === 'skill' ? missing.atom.nameAtSend : null
-  }, [composerDraft, composerSkillCatalog.status, composerSkills, snapshot.thread.id])
+  }, [effectiveComposerDraft, composerSkillCatalog.status, composerSkills, snapshot.thread.id])
   const activeRuns = snapshot.agentRuns.filter((run) => NON_TERMINAL_RUNS.has(run.status))
   const executionBlocked = activeRuns.length > 0 || stopping
   const composerInteractionDisabled = draftLoadState.state !== 'ready'
@@ -2752,6 +2761,7 @@ export function ThreadWorkspace({
       throw new Error(uiAttribute('Composer 正在提交变更，请稍后再离开当前会话。'))
     }
     const composerHandle = composerHandleRef.current
+    composerHandle?.cancelHistoryPreview()
     composerHandle?.setInteractionLocked(true)
     const pendingLeavePreparations: ThreadLeavePreparation[] = []
     try {
@@ -3255,6 +3265,7 @@ export function ThreadWorkspace({
     composerHandle.setInteractionLocked(true)
     let before: Awaited<ReturnType<StructuredMentionComposerHandle['flush']>> | null = null
     try {
+      composerHandle.adoptHistoryPreview()
       before = await composerHandle.flush()
       const nextDraft = await mutation()
       if (!composerDocumentsEqualDirect(before.document, nextDraft.content)) {
@@ -4125,6 +4136,7 @@ export function ThreadWorkspace({
     composerHandle.setInteractionLocked(true)
     setComposerInviteMessage(null)
     try {
+      composerHandle.adoptHistoryPreview()
       await attachmentPreparationQueue.current
       const flushed = await composerHandle.flush()
       const frozenDraft = flushed.draft ?? draftCoordinator.getCurrentDraft()
@@ -6306,6 +6318,13 @@ export function ThreadWorkspace({
               ref={composerHandleRef}
               id="camp-message"
               draftIdentity={`${snapshot.thread.id}:composer`}
+              inputHistory={() => threadInputHistory(visibleThreadMessages)}
+              onEffectiveDocumentChange={content => {
+                const atoms: ComposerDocument = { version: 2, segments: content.segments.filter(segment => segment.kind === 'atom') }
+                setLiveComposerAtoms(previous => previous?.threadId === snapshot.thread.id
+                  && composerDocumentsEqualDirect(previous.content, atoms)
+                  ? previous : { threadId: snapshot.thread.id, content: atoms })
+              }}
               document={composerDraft?.threadId === snapshot.thread.id
                 ? composerDraft.content
                 : emptyComposerDocument()}

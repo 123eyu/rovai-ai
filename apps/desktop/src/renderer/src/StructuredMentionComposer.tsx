@@ -13,6 +13,7 @@ import {
   $isTextNode,
   $nodesOfType,
   CLEAR_HISTORY_COMMAND,
+  HISTORIC_TAG,
   HISTORY_PUSH_TAG,
   PASTE_TAG,
   SKIP_DOM_SELECTION_TAG
@@ -38,6 +39,7 @@ import {
 } from './ComposerAtomNode'
 import { ComposerTypeaheadPlugin } from './ComposerTypeaheadPlugin'
 import { ComposerWebLinksPlugin } from './ComposerWebLinksPlugin'
+import { ComposerInputHistoryPlugin, type ComposerHistoryNavigation } from './ComposerInputHistoryPlugin'
 import { MemberAvatar } from './MemberAvatar'
 import { NavigationIcon } from './NavigationIcon'
 import { MentionRuntimeButton } from './MentionRuntimeButton'
@@ -93,6 +95,8 @@ export type StructuredMentionOption =
 
 export interface StructuredMentionComposerHandle {
   flush(): Promise<ComposerFlushResult<ThreadComposerDraftView>>
+  adoptHistoryPreview(): void
+  cancelHistoryPreview(): void
   appendText(text: string): void
   setInteractionLocked(locked: boolean): void
   replaceDocument(
@@ -109,6 +113,8 @@ export interface StructuredMentionComposerHandle {
 export interface StructuredMentionComposerProps {
   purpose?: 'message' | 'mission'
   onDocumentChange?(document: ComposerDocument): void
+  onEffectiveDocumentChange?(document: ComposerDocument): void
+  inputHistory?: () => ComposerDocument[]
   id: string
   draftIdentity: string
   document: ComposerDocument
@@ -260,6 +266,8 @@ export const StructuredMentionComposer = forwardRef<
 function ComposerBridge({
   purpose = 'message',
   onDocumentChange,
+  onEffectiveDocumentChange,
+  inputHistory,
   id,
   draftIdentity,
   document,
@@ -306,6 +314,7 @@ function ComposerBridge({
   const recoveryAttempted = useRef(false)
   const generatedId = useId()
   const syncRef = useRef<ComposerDraftSync<ThreadComposerDraftView> | null>(null)
+  const historyNavigationRef = useRef<ComposerHistoryNavigation | null>(null)
   const initializedRef = useRef(false)
   const readyRef = useRef(ready)
   const previousReadyRef = useRef(ready)
@@ -319,6 +328,7 @@ function ComposerBridge({
   const callbacks = useRef({
     purpose,
     onDocumentChange,
+    onEffectiveDocumentChange,
     getAuthoritativeDraft,
     members,
     skills: skills ?? [],
@@ -339,6 +349,7 @@ function ComposerBridge({
   callbacks.current = {
     purpose,
     onDocumentChange,
+    onEffectiveDocumentChange,
     getAuthoritativeDraft,
     members,
     skills: skills ?? [],
@@ -391,7 +402,12 @@ function ComposerBridge({
       atomPresentation(node, callbacks.current).availability === 'available',
     onStatusChange: (status: ComposerLocalStatus) =>
       callbacks.current.onLocalStatusChange?.(status),
-    onLocalDocumentChange: (local: ComposerDocument) => { callbacks.current.onDocumentChange?.(local); recovery?.set(draftIdentity, { document: local, base: callbacks.current.getAuthoritativeDraft?.()?.content ?? authorityDocument.current }) },
+    onLocalDocumentChange: (local: ComposerDocument) => {
+      historyNavigationRef.current?.adopt()
+      callbacks.current.onDocumentChange?.(local)
+      recovery?.set(draftIdentity, { document: local, base: callbacks.current.getAuthoritativeDraft?.()?.content ?? authorityDocument.current })
+    },
+    onEffectiveDocumentChange: (local: ComposerDocument) => callbacks.current.onEffectiveDocumentChange?.(local),
     onSaved: (_version: number, savedDocument: ComposerDocument) => {
       const pending = recovery?.get(draftIdentity) as { document?: ComposerDocument } | null
       if (pending?.document) recovery?.set(draftIdentity, { document: pending.document, base: savedDocument })
@@ -408,6 +424,7 @@ function ComposerBridge({
     nextDocument: ComposerDocument,
     boundary: 'start' | 'end' = 'end'
   ): void => {
+    historyNavigationRef.current?.adopt()
     closeTypeaheads()
     editor.update(() => {
       $replaceEditorWithComposerDocument(nextDocument)
@@ -491,10 +508,11 @@ function ComposerBridge({
       editor,
       (node) => atomPresentation(node, callbacks.current)
     )
-    // Refreshing member/Skill labels must not move focus out of an open menu.
+    // Presentation changes neither editable content nor undo history; in a
+    // recall preview it must not make a previously viewed entry undoable.
     editor.update(() => {
       for (const atom of $nodesOfType(ComposerAtomNode)) atom.markDirty()
-    }, { tag: [ROVAI_ATOM_PRESENTATION_TAG, SKIP_DOM_SELECTION_TAG] })
+    }, { tag: [ROVAI_ATOM_PRESENTATION_TAG, HISTORIC_TAG, SKIP_DOM_SELECTION_TAG] })
   }, [bindings, editor, members, skills])
 
   useLayoutEffect(() => {
@@ -528,6 +546,11 @@ function ComposerBridge({
   }, [disabled, editor, ready])
 
   useImperativeHandle(forwardedRef, () => ({
+    adoptHistoryPreview() {
+      historyNavigationRef.current?.adopt()
+      syncRef.current?.adoptHistoryPreview()
+    },
+    cancelHistoryPreview() { historyNavigationRef.current?.cancel() },
     flush: async () => {
       const sync = syncRef.current
       if (!sync) {
@@ -603,6 +626,8 @@ function ComposerBridge({
 
   return <div className={`structured-mention-composer ${className}`.trim()}>
     <ComposerWebLinksPlugin />
+    {inputHistory && ready && <ComposerInputHistoryPlugin key={draftIdentity} getHistory={inputHistory}
+      syncRef={syncRef} navigationRef={historyNavigationRef} />}
     <ContentEditable id={id} ref={setEditorElement}
       className="structured-mention-editor" aria-label={ariaLabel}
       aria-expanded={menuOpen} aria-controls={skillOpen ? skillMenuId : mentionMenuId}

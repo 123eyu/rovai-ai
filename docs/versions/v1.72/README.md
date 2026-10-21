@@ -11,6 +11,12 @@ last_updated: 2026-10-21
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+User 于 2026-10-21 确认输入历史简化：首次 ↑ 从现有消息提取本轮固定内容，退出后释放；
+移除专用查询、分页和跨会话缓存，保留草稿与键盘交互。范围与测试证据见
+[输入历史实施记录](input-history-implementation.md)，当前协议见
+[Input History v1](../../contracts/input-history-v1.md)。历史范围跟随现有消息数据，
+不改变模型上下文、数据库 schema 或发布版本。
+
 ## 原路径附件显示名（2026-10-21）
 
 按 User 确认收窄 Source Ref 的历史文件名约束：包含时间冒号等字符的显示名原样保留，

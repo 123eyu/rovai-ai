@@ -157,7 +157,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Open Projection v10（历史）](camp-open-projection-v10.md) | main Snapshot 34/Open 6；Open 不读取 event_log，移除 timeline/coverage.timeline，保留 high-water 与业务卡片 |
 | [Camp Open Projection v10（渠道分支历史）](camp-open-projection-channel-v10.md) | v9 保留；Camp/Navigation 增加可选 channelSource，原始 title 不变；合并时保留原文以区分同号合同 |
 | [Camp Open Projection v9（历史）](camp-open-projection-v9.md) | v8 保留；Snapshot 34/Open 5 增加可选 member.fast，仅查询安全缓存 |
-| [Runtime Launch and Verification v68（当前）](runtime-launch-and-verification-v68.md) | ZCode Session toolDenylist、OpenCode V2 question deny；只替换 Host，保留原生会话 |
+| [Runtime Launch and Verification v69（当前）](runtime-launch-and-verification-v69.md) | 继承通用环境与问卷限制；Claude／CodeBuddy 固定原生后台策略、保留 CodeBuddy 有效 env 与 Session |
 | [Runtime Launch and Verification v66（历史）](runtime-launch-and-verification-v66.md) | Qwen ACP 排除 ask_user_question，Host 策略替换与原会话保留；继承 v65 问卷兜底 |
 | [Runtime Launch and Verification v65（历史）](runtime-launch-and-verification-v65.md) | Claude/Copilot 正式禁用原生问卷，Kimi/Qwen 在审批前取消，保留归属与不支持终态 |
 | [Runtime Launch and Verification v64（历史）](runtime-launch-and-verification-v64.md) | 同程序版本与静态证据复用、单项检查必要工作、MiniMax 健康与完整目录分离；不增加启动健康检查 |

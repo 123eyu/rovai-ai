@@ -6858,6 +6858,9 @@ pub(crate) fn runtime_compatibility_digest(
     if frozen_runtime.adapter_kind == AdapterKind::CopilotCli {
         compatibility["nativeQuestionnairePolicy"] = json!("no-ask-user-v1");
     }
+    if frozen_runtime.adapter_kind == AdapterKind::CodebuddyCli {
+        compatibility["nativeBackgroundPolicy"] = json!("disabled-v1");
+    }
     if frozen_runtime.adapter_kind == AdapterKind::QwenCode {
         compatibility["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
     }
@@ -7026,12 +7029,97 @@ impl Drop for PreparedPrivateHostConfig {
     }
 }
 
+const CODEBUDDY_BACKGROUND_ENV: [(&str, &str); 3] = [
+    ("CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS", "1"),
+    ("CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED", "1"),
+    ("CODEBUDDY_BASH_ASSISTANT_BUDGET_MS", "0"),
+];
+
+fn configure_codebuddy_background_policy(
+    command: &mut Command,
+    cwd: &Path,
+    private_root: &Path,
+) -> Result<()> {
+    // Resolve from the final launch environment, including member overrides
+    // and explicit removals, without changing Core's process environment.
+    let value = |key: &str| {
+        command
+            .as_std()
+            .get_envs()
+            .find(|(name, _)| {
+                if cfg!(windows) {
+                    name.to_string_lossy().eq_ignore_ascii_case(key)
+                } else {
+                    *name == key
+                }
+            })
+            .map(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+            .unwrap_or_else(|| std::env::var_os(key))
+            .filter(|value| !value.to_string_lossy().trim().is_empty())
+    };
+    let home = value("CODEBUDDY_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            value(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|home| PathBuf::from(home).join(".codebuddy"))
+        })
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codebuddy")))
+        .context("CodeBuddy native configuration directory unavailable")?;
+    let home = if home.is_absolute() {
+        home
+    } else {
+        cwd.join(home)
+    };
+    let mut env = serde_json::Map::new();
+    // CodeBuddy 2.133.1 replaces env as a whole: local > project > user.
+    // Stop at the first defined env, including {} or null. Merging keys from
+    // lower scopes would resurrect values that the native CLI had discarded.
+    for path in [
+        cwd.join(".codebuddy/settings.local.json"),
+        cwd.join(".codebuddy/settings.json"),
+        home.join("settings.json"),
+    ] {
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error).context("failed to read CodeBuddy settings"),
+        };
+        // Never expose parser excerpts: native settings can contain credentials.
+        let settings: Value = if text.trim().is_empty() {
+            json!({})
+        } else {
+            json5::from_str(&text)
+                .map_err(|_| anyhow::anyhow!("CodeBuddy settings must be valid JSON/JSONC"))?
+        };
+        if let Some(value) = settings.get("env") {
+            env = match value {
+                Value::Null => serde_json::Map::new(),
+                Value::Object(env) => env.clone(),
+                _ => bail!("CodeBuddy settings env must be an object"),
+            };
+            break;
+        }
+    }
+    for (key, value) in CODEBUDDY_BACKGROUND_ENV {
+        if cfg!(windows) {
+            env.retain(|name, _| !name.eq_ignore_ascii_case(key));
+        }
+        env.insert(key.into(), json!(value));
+        command.env(key, value);
+    }
+    let path = private_root.join("background-policy-settings.json");
+    write_private_json_file(&path, &json!({"env": env}))?;
+    command.arg("--settings").arg(path);
+    Ok(())
+}
+
 fn prepare_private_host_config(
     private_runtime_dir: &Path,
     adapter_kind: AdapterKind,
 ) -> Result<Option<PreparedPrivateHostConfig>> {
     let (root, remove_on_shutdown) = match adapter_kind {
         AdapterKind::KiroCli
+        | AdapterKind::CodebuddyCli
         | AdapterKind::DeepseekHarness
         | AdapterKind::ClineCli
         | AdapterKind::CommandCodeCli
@@ -7229,6 +7317,11 @@ fn configure_runtime_command(
                     });
                 }
                 AdapterKind::CodebuddyCli => {
+                    configure_codebuddy_background_policy(
+                        command,
+                        workspace.path(),
+                        private_config_root.context("CodeBuddy private Host directory missing")?,
+                    )?;
                     // CodeBuddy resolves the launch model while creating an ACP
                     // Session. A custom provider cannot be selected later with
                     // session/set_model when session/new already rejected the
@@ -9317,6 +9410,52 @@ mod route_policy_tests {
         assert!(write_private_text_file(&prompt, "unexpected replacement").is_err());
         let abandoned = minimax.root.clone();
         drop(minimax);
+        assert!(!abandoned.exists());
+
+        let codebuddy = prepare_private_host_config(&root, AdapterKind::CodebuddyCli)
+            .unwrap()
+            .unwrap();
+        let native = root.join("native");
+        std::fs::create_dir_all(&native).unwrap();
+        let lower_key = "codebuddy_code_disable_background_tasks";
+        let original = json!({"env": {lower_key: "0", "KEEP": "value"}});
+        std::fs::write(native.join("settings.json"), original.to_string()).unwrap();
+        let mut command = Command::new("unused-policy-fixture");
+        command.env(
+            if cfg!(windows) {
+                "codebuddy_config_dir"
+            } else {
+                "CODEBUDDY_CONFIG_DIR"
+            },
+            &native,
+        );
+        command.env(lower_key, "0");
+        configure_codebuddy_background_policy(&mut command, &root, &codebuddy.root).unwrap();
+        let settings: Value = serde_json::from_slice(
+            &std::fs::read(codebuddy.root.join("background-policy-settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["env"]["KEEP"], "value");
+        assert_eq!(settings["env"].get(lower_key).is_some(), !cfg!(windows));
+        for (key, value) in CODEBUDDY_BACKGROUND_ENV {
+            assert_eq!(settings["env"][key], value);
+            assert_eq!(
+                command
+                    .as_std()
+                    .get_envs()
+                    .find(|(name, _)| name.to_string_lossy().eq_ignore_ascii_case(key))
+                    .unwrap()
+                    .1
+                    .unwrap(),
+                value
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(native.join("settings.json")).unwrap(),
+            original.to_string()
+        );
+        let abandoned = codebuddy.root.clone();
+        drop(codebuddy);
         assert!(!abandoned.exists());
 
         assert!(
@@ -11603,43 +11742,180 @@ done
         );
         session["models"]["currentModelId"] = Value::Null;
         assert!(codebuddy_context_model(&session).is_none());
-        let root = std::env::temp_dir();
+        let root =
+            std::env::temp_dir().join(format!("rovai-codebuddy-policy-{}", uuid::Uuid::new_v4()));
+        let native_home = root.join("native");
+        let project_home = root.join(".codebuddy");
+        std::fs::create_dir_all(&native_home).unwrap();
+        std::fs::create_dir_all(&project_home).unwrap();
         let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
-        for (source, model_id, expected) in [
-            ("runtime_default", "codebuddy-cli://runtime-default", None),
+        // Highest defined env wins as a whole; a missing key is not an empty env.
+        for (project, local, retained) in [
+            (json!({}), json!({}), Some("user")),
             (
-                "runtime",
-                "custom-local:MiniMax-M3",
-                Some("custom-local:MiniMax-M3"),
+                json!({"env":{"PROJECT":"project"}}),
+                json!({}),
+                Some("project"),
+            ),
+            (
+                json!({"env":{"PROJECT":"project"}}),
+                json!({"env":{"LOCAL":"local"}}),
+                Some("local"),
+            ),
+            (
+                json!({"env":{"PROJECT":"project"}}),
+                json!({"env":{}}),
+                None,
+            ),
+            (
+                json!({"env":{"PROJECT":"project"}}),
+                json!({"env":null}),
+                None,
             ),
         ] {
-            let mut runtime = frozen_kiro_runtime();
-            runtime.adapter_kind = AdapterKind::CodebuddyCli;
-            runtime.permissions.adapter_kind = AdapterKind::CodebuddyCli;
-            runtime.permissions.values = json!({"permission_mode":"bypassPermissions"});
-            runtime.model.source = source.to_string();
-            runtime.model.model_id = model_id.to_string();
-            let mut command = Command::new("/usr/bin/true");
-            configure_runtime_command(
-                &mut command,
-                &workspace,
-                PermissionSemantics::RuntimeManagedV2,
-                &runtime,
-                false,
-                &BTreeMap::new(),
-                &root,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-            let arguments = command.as_std().get_args().collect::<Vec<_>>();
-            let selected = arguments
-                .windows(2)
-                .find(|pair| pair[0] == "--model")
-                .map(|pair| pair[1].to_str().unwrap());
-            assert_eq!(selected, expected);
+            let user_text = r#"{ // Native JSONC allows comments and trailing commas.
+                "env":{"USER":"user", "CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS":"0",
+                    "CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED":"0", "CODEBUDDY_BASH_ASSISTANT_BUDGET_MS":"500",
+                    "FIXTURE_TOKEN":"private-fixture-value"}, "model":"native-model",
+            }"#;
+            let user_path = native_home.join("settings.json");
+            std::fs::write(&user_path, user_text).unwrap();
+            std::fs::write(project_home.join("settings.json"), project.to_string()).unwrap();
+            std::fs::write(project_home.join("settings.local.json"), local.to_string()).unwrap();
+            for (source, model_id, expected, with_mcp) in [
+                (
+                    "runtime_default",
+                    "codebuddy-cli://runtime-default",
+                    None,
+                    false,
+                ),
+                (
+                    "runtime",
+                    "custom-local:MiniMax-M3",
+                    Some("custom-local:MiniMax-M3"),
+                    true,
+                ),
+            ] {
+                let mut runtime = frozen_kiro_runtime();
+                runtime.adapter_kind = AdapterKind::CodebuddyCli;
+                runtime.permissions.adapter_kind = AdapterKind::CodebuddyCli;
+                runtime.permissions.values = json!({"permission_mode":"bypassPermissions"});
+                runtime.model.source = source.to_string();
+                runtime.model.model_id = model_id.to_string();
+                let private = prepare_private_host_config(&root, AdapterKind::CodebuddyCli)
+                    .unwrap()
+                    .unwrap();
+                let mut command = Command::new("/usr/bin/true");
+                // Relative native home is resolved against the child workspace,
+                // not Core's cwd. Member/process values must not beat policy.
+                command.env("CODEBUDDY_CONFIG_DIR", "native");
+                command.env("PROCESS_ONLY", "preserved");
+                for (key, _) in CODEBUDDY_BACKGROUND_ENV {
+                    command.env(key, "9");
+                }
+                let servers = if with_mcp {
+                    BTreeMap::from([(
+                        "fixture".into(),
+                        McpServerDefinition::StreamableHttp {
+                            url: "https://mcp.invalid/example".into(),
+                            headers: BTreeMap::new(),
+                        },
+                    )])
+                } else {
+                    BTreeMap::new()
+                };
+                let mcp = configure_runtime_command(
+                    &mut command,
+                    &workspace,
+                    PermissionSemantics::RuntimeManagedV2,
+                    &runtime,
+                    false,
+                    &servers,
+                    &root,
+                    Some(&private.root),
+                    None,
+                    None,
+                )
+                .unwrap();
+                assert_eq!(
+                    mcp.is_some(),
+                    with_mcp,
+                    "policy precedes the MCP early return"
+                );
+                let arguments = command.as_std().get_args().collect::<Vec<_>>();
+                let selected = arguments
+                    .windows(2)
+                    .find(|pair| pair[0] == "--model")
+                    .map(|pair| pair[1].to_str().unwrap());
+                assert_eq!(selected, expected);
+                assert_eq!(
+                    arguments.iter().filter(|arg| **arg == "--settings").count(),
+                    1
+                );
+                assert!(!format!("{arguments:?}").contains("private-fixture-value"));
+                let path = arguments
+                    .windows(2)
+                    .find(|pair| pair[0] == "--settings")
+                    .unwrap()[1];
+                let settings: Value =
+                    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                let mut expected_env = match retained {
+                    Some("user") => json!({"USER":"user", "FIXTURE_TOKEN":"private-fixture-value"}),
+                    Some("project") => json!({"PROJECT":"project"}),
+                    Some("local") => json!({"LOCAL":"local"}),
+                    _ => json!({}),
+                };
+                for (key, value) in CODEBUDDY_BACKGROUND_ENV {
+                    expected_env[key] = json!(value);
+                    assert_eq!(
+                        command
+                            .as_std()
+                            .get_envs()
+                            .find(|(name, _)| *name == key)
+                            .unwrap()
+                            .1
+                            .unwrap(),
+                        value
+                    );
+                }
+                assert_eq!(settings, json!({"env":expected_env}));
+                assert_eq!(
+                    command
+                        .as_std()
+                        .get_envs()
+                        .find(|(name, _)| *name == "PROCESS_ONLY")
+                        .unwrap()
+                        .1
+                        .unwrap(),
+                    "preserved"
+                );
+                assert_eq!(std::fs::read_to_string(&user_path).unwrap(), user_text);
+                let private_path = private.root.clone();
+                drop(mcp);
+                drop(private);
+                assert!(!private_path.exists());
+            }
         }
+        // Missing native files still produce the managed settings. An invalid
+        // file must never disclose its parser's credential-bearing excerpt.
+        std::fs::remove_dir_all(&project_home).unwrap();
+        std::fs::remove_file(native_home.join("settings.json")).unwrap();
+        let private = prepare_private_host_config(&root, AdapterKind::CodebuddyCli)
+            .unwrap()
+            .unwrap();
+        let mut command = Command::new("/usr/bin/true");
+        command.env("CODEBUDDY_CONFIG_DIR", &native_home);
+        configure_codebuddy_background_policy(&mut command, &root, &private.root).unwrap();
+        std::fs::write(
+            native_home.join("settings.json"),
+            "{broken: private-fixture-secret",
+        )
+        .unwrap();
+        let error =
+            configure_codebuddy_background_policy(&mut command, &root, &private.root).unwrap_err();
+        assert!(!format!("{error:#}").contains("private-fixture-secret"));
+        drop(private);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -15529,6 +15805,32 @@ while IFS= read -r ignored; do :; done
             &attachment_authorization,
         )
         .unwrap();
+        let mut old_inputs = json!({
+            "schemaVersion":4, "adapterKind":codebuddy.adapter_kind,
+            "hostConfigDigest":codebuddy.host_config_digest, "codebuddyLaunchModel":null,
+            "executionRoot":root.canonicalize().unwrap(), "workspace":workspace,
+            "permissionSemantics":PermissionSemantics::RuntimeManagedV2,
+            "builtinToolContractVersion":BUILTIN_TOOL_CONTRACT_VERSION,
+            "externalMcpServers":{}, "attachmentOutputRoot":attachment_authorization.output_root,
+        });
+        assert_ne!(
+            codebuddy_default,
+            canonical_json_digest(&old_inputs).unwrap()
+        );
+        old_inputs["nativeBackgroundPolicy"] = json!("disabled-v1");
+        assert_eq!(
+            codebuddy_default,
+            canonical_json_digest(&old_inputs).unwrap()
+        );
+        let unchanged = freeze_native_session_compatibility(codebuddy.clone(), &workspace).unwrap();
+        assert_eq!(
+            unchanged.binding_compatibility_digest,
+            codebuddy.binding_compatibility_digest
+        );
+        assert_eq!(
+            unchanged.native_session_compatibility_key,
+            codebuddy.native_session_compatibility_key
+        );
         codebuddy.model.source = "explicit".to_string();
         codebuddy.model.model_id = "provider:explicit-model".to_string();
         let codebuddy_explicit = runtime_compatibility_digest(

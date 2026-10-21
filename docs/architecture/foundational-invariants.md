@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: current-foundational-invariants
-last_updated: 2026-10-19
+last_updated: 2026-10-21
 ---
 
 # 当前基础架构不变量
@@ -345,7 +345,7 @@ last_updated: 2026-10-19
 
 ### Session continuity 与 Bootstrap
 
-- 同一 Run 的既有 Bootstrap 原字节恢复；新 Run 的公开执行使用当前模板，Single Chat 专用模板保持。旧历史材料不成为新输入的恢复门槛。`agent_v1`／`agent_v2` 分别验证旧／新投影，Skill 在原路径同步。精确规则见 [User Naming v1](../contracts/user-naming-v1.md)。
+- 同一 Run 的既有 Bootstrap 原字节恢复；新 Run 使用当前公开／Single Chat 模板；适配器固定完成规则见下文。旧历史材料不成为新输入的恢复门槛。`agent_v1`／`agent_v2` 分别验证旧／新投影，Skill 在原路径同步。精确规则见 [User Naming v1](../contracts/user-naming-v1.md)。
 
 - 同一 Camp、队员和当前 Conversation，未重置且 AdapterKind 相同，优先把当前绑定的原生 ID 交给 Adapter 恢复。历史配置、安装记录、版本、指纹、兼容 key 或上下文摘要不否决资格；切换 CLI 类型不传递旧 ID。当前权限、工具、工作目录、进程归属与执行防重继续检查。恢复目标与业务输入接收是不同权威。
 - Adapter 在恢复调用处提供结论；只有能力不支持、针对恢复请求的结构化拒绝或已有精确目标核验才允许一次新建。认证、网络、锁、初始化、模型、MCP、取消和超时等不能从报错文本推断旧历史失效。新建成功并绑定后才切换目标和提示，失败保留旧目标；完整行为见 [Runtime Launch v60](../contracts/runtime-launch-and-verification-v60.md)。
@@ -353,6 +353,7 @@ last_updated: 2026-10-19
 - 新 public Run 在 claim 时冻结本次启动内容与预算相关区段；首次物化和后续 Binding 准备复用同一内容，后续 Memory／身份编辑进入下一 Run。FIFO 按完整 payload 选批，同包 Bootstrap 以实际字节加补发包装预留；独立系统层保持原规则，见 [Profile 13](../contracts/context-delivery-profile-v13.md)。
 - 同一 Run/Binding/generation 的 Bootstrap 与 Manifest bytes 保持冻结。历史 Bootstrap 不作为下一个 Run 的必读材料，损坏或缺失不挡续聊；现有 Evidence 表保留每次准备结果和旧 Blob 引用。是否投递仍由 Adapter delivery mode、Charter digest、redelivery requirement 和 accepted Input 门禁决定；不重复业务输入，也不伪造已接受事实。
 - Session Charter 只拥有稳定产品合同、工具/Skill 进入方法与协作纪律，不复制 operation schema；文案及格式版本不构成原生历史有效性的证明。
+- Claude Code／CodeBuddy 固定原生后台执行开关，并在普通／Single Chat Charter 加入任务所需有限命令与原生子 Agent 的前台完成规则；Rovai 同伴等待纪律保留。CodeBuddy 只覆盖原生最终 env 的三个策略键，Host 策略升级不改变 Session 绑定，精确边界见 [Runtime Launch v69](../contracts/runtime-launch-and-verification-v69.md)。
 - Bootstrap 各组件、完整序列化 bytes 和实际投递是不同 evidence 层；不用“已生成完整 Bootstrap”替代 Runtime accepted evidence。ContextManifest 保存实际输入与必要来源，Runtime Input Delivery Evidence 记录实际 bytes 与 accepted ACK；只有当前有效 Run/epoch 和 Native Binding 的 accepted ACK 推进 Conversation 水位；明确未接受才可重新准备，accepted/unknown 不自动重发。迟到回执只补充证据，不修改 successor 水位。
 - Pi 的 `managed_system_prompt` 是第三种 Bootstrap delivery mode，不改变既有 Bootstrap 或 Formatter 22 原始 Dynamic Context。v7 extension 不注册 `input` 或 `tool_call` hook；它在每个 `before_agent_start` 重新读取当前 binding，只校验基本结构与 Bootstrap digest，并把完整 Bootstrap 追加到当时的 Pi system prompt。读取失败只发布脱敏 diagnostic 并让 Pi 按原生行为继续，不调用 abort，也不建立第二套 Session/cwd/Tool catalog 认证。`prompt` RPC response 只结束 command round trip；当前 Host owner 精确绑定的第一个 `agent_start` 才以现有 Delivery transition 接受 Input 并幂等发布 started。更早原生 Extension handled 输入而没有 `agent_start` 时，Rovai 不伪造 started。新 Run 不生成或读取 Managed Input Receipt；历史 Receipt 数据只作审计保留。Formatter 22 `prepared_context.rendered_payload` 不解析 `CURRENT_INPUT` 或 slash command，逐字节成为 Pi `prompt.message`；已授权图片只从结构化 ContextManifest refs 生成，schema-2 私有 evidence 直接绑定 Delivery。Pi `abort` 使用普通 pending request/response correlation，waiter 超时后迟到 response 仍被消费；非 Rovai Extension 的未映射交互只返回 cancelled/denied，不 poison Host。Pi system prompt 独立于压缩消息历史，因此固定使用 `native_system_prompt_preserved`，不创建 redelivery requirement 或 compaction observer lease。
 - Bootstrap redelivery 是 durable requirement，但 detector signal 本身不证明 compaction、不授权发送。Core 通过每 Native Session 唯一的 observer lease/generation、Runtime-owned policy epoch、prepared-input cutoff 和幂等 Session-scoped command 决定下一个尚未准备的输入是否需要 redelivery；旧 binding、旧 generation、迟到信号或已经 prepare 的输入都 fail closed。

@@ -358,7 +358,11 @@ the draft; returning to the catalog asks before discarding an unsaved draft. Beh
 
 Draft checks and restore-auto previews read fresh private search inputs. Failed previews must not fall back
 to the saved program/version as though it had just been checked. Editing or leaving invalidates older
-preview responses. A fallback search source retains a local warning without exposing environment values.
+preview responses. Explicitly reloading common configuration also clears the previous check result and does not run a new check.
+A fallback search source retains a local warning without exposing environment values.
+
+The global Back to App and other App exits reuse the startup page's discard confirmation. The leave guard and
+dialog remain available when another settings category hides the form; cancel keeps the current category and draft.
 
 ### Local startup settings only
 

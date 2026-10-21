@@ -19,6 +19,8 @@ const profiles = structuredClone(agents)
 const calls: Array<{ method: string; params: any }> = []
 const events = new Set<(event: any) => void>()
 const pendingMode = new URLSearchParams(location.search).get('flow') === 'pending'
+const environmentMode = new URLSearchParams(location.search).get('flow') === 'environment'
+const commonEnvironment = { revision: 1, environment: { API_TIMEOUT_MS: '60000' } }
 const checkpoint = pendingMode ? JSON.parse(localStorage.getItem('pending-fixture') ?? 'null') : null
 const threads = new Map<string, any>(checkpoint?.threads ?? [])
 const pendingPresence = new Set<string>(checkpoint?.presence ?? [])
@@ -26,7 +28,8 @@ let unavailable = false, rejectSend = false, lastHelper: string | null = profile
 let sequence = checkpoint?.sequence ?? 1
 const appearance = { ...DEFAULT_APPEARANCE, preference: 'day', resolvedTheme: 'day' } as const
 applyAppearanceSnapshot(document.documentElement, appearance)
-const prefs = { ...DEFAULT_GENERAL_PREFERENCES, oneClickNewConversationEnabled: pendingMode, newConversationDefaults: { memberAgentIds: [profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId } }
+const prefs = { ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: 'zh-CN' as const, interfaceLanguage: 'zh-CN' as const,
+  oneClickNewConversationEnabled: pendingMode, newConversationDefaults: { memberAgentIds: [profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId } }
 const navPrefs = { schemaVersion: 4, pins: [], removedProjects: [], projectOrder: [], projectNames: {}, threadReadStates: {} }
 const applied = (payload = {}) => ({ status: 'applied', code: 'ok', payload, resultEntity: null })
 const nav = () => {
@@ -36,7 +39,7 @@ const nav = () => {
 const invalidate = (threadId: string) => events.forEach((fn) => fn({ method: 'thread.memberCreated', params: { threadId } }))
 const projection = (thread: any) => {
   const coverage = (count: number) => ({ totalCount: count, loadedCount: count, omittedCount: 0, complete: true })
-  return { ...structuredClone(thread), schemaVersion: 8, throughGlobalSequence: sequence,
+  return { ...structuredClone(thread), schemaVersion: 9, throughGlobalSequence: sequence,
     coverage: { tasks: coverage(0), messages: { ...coverage(thread.messages.length), hasEarlier: false,
       oldestLoadedSequence: thread.messages[0]?.sequence ?? null, newestLoadedSequence: thread.messages.at(-1)?.sequence ?? null },
     messageDeliveries: coverage(0), turns: coverage(0), agentRuns: coverage(thread.agentRuns.length), approvals: coverage(0) } }
@@ -49,8 +52,14 @@ const client = { ...model.client, onInvalidated: undefined,
     const thread = threads.get(command.threadId)
     if (method === 'members.list') return structuredClone(profiles)
     if (method === 'members.get') return structuredClone(profiles.find((member) => member.agentId === command.agentId))
+    if (environmentMode && method === 'member.runtimeEnvironment.get') return { revision: 0, environment: {}, inheritCommon: true, common: structuredClone(commonEnvironment) }
+    if (environmentMode && method === 'runtime.environment.get') return structuredClone(commonEnvironment)
+    if (environmentMode && method === 'runtime.startup.get') return { runtimeKind: params.runtimeKind, revision: 1, configuration: { programPath: '/fixture/codex', environment: [] }, reconnectRequired: false, commonEnvironment: structuredClone(commonEnvironment) }
     if (method === 'runtime.installations.list') return installations
-    if (method === 'health.check') return { runtimeAvailability: availability, hostPlatform: 'darwin', runtimePlatformAdmission: [] }
+    if (method === 'health.check' || (environmentMode && method === 'runtime.status.get')) return {
+      runtimeAvailability: availability, hostPlatform: environmentMode ? 'macos-arm64' : 'darwin',
+      runtimePlatformAdmission: environmentMode ? availability.map(({ runtimeKind }) => ({ runtimeKind, platform: 'macos-arm64', status: 'qualified', reasonCode: null, evidenceRevision: 'isolated-fixture' })) : []
+    }
     if (['memory.hearthReviewItems.list', 'missions.list', 'missions.cleanup.list'].includes(method)) return []
     if (method === 'navigation.snapshot') return nav()
     if (method === 'navigation.threads') return { throughGlobalSequence: sequence, groupKeys: ['quick-chat'], threads: nav().quickChat.recentThreads }

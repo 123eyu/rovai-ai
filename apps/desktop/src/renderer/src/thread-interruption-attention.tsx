@@ -91,29 +91,31 @@ export function useThreadInterruptionAttention(enabled: boolean, threadIds: stri
       while (dirty.current && mounted.current && scope.current.enabled) {
         dirty.current = false
         const captured = scope.current
-        const batches: Promise<NotificationThreadInterruptions>[] = []
+        const batches: Promise<void>[] = []
         for (let at = 0; at < captured.ids.length; at += THREAD_BATCH_SIZE) {
-          batches.push(client.request('notifications.threadInterruptions', { threadIds: captured.ids.slice(at, at + THREAD_BATCH_SIZE) }))
+          const threadIds = captured.ids.slice(at, at + THREAD_BATCH_SIZE)
+          batches.push(client.request<NotificationThreadInterruptions>('notifications.threadInterruptions', { threadIds })
+            .then(result => {
+              if (!mounted.current || captured.generation !== scope.current.generation) return
+              const next = { ...snapshotsRef.current }
+              for (const thread of result.threads) {
+                if (!threadIds.includes(thread.threadId)) continue
+                if (result.throughChangeSequence < Math.max(floor.current.get(thread.threadId) ?? 0, next[thread.threadId]?.sequence ?? 0)) continue
+                next[thread.threadId] = { unread: thread.hasUnreadInterruption, sequence: result.throughChangeSequence }
+              }
+              if (Object.entries(next).some(([id, value]) => value.unread !== snapshotsRef.current[id]?.unread
+                || value.sequence !== snapshotsRef.current[id]?.sequence)) {
+                snapshotsRef.current = next
+                setSnapshots(next)
+              }
+            }).catch(() => {
+              // Keep this batch's last proven state; other batches apply as
+              // they arrive. Existing notification recovery/focus retries it.
+            }))
         }
-        const results = await Promise.all(batches)
-        if (!mounted.current || captured.generation !== scope.current.generation) continue
-        const next = { ...snapshotsRef.current }
-        for (const result of results) {
-          for (const thread of result.threads) {
-            if (!captured.ids.includes(thread.threadId)) continue
-            if (result.throughChangeSequence < Math.max(floor.current.get(thread.threadId) ?? 0, next[thread.threadId]?.sequence ?? 0)) continue
-            next[thread.threadId] = { unread: thread.hasUnreadInterruption, sequence: result.throughChangeSequence }
-          }
-        }
-        if (Object.entries(next).some(([id, value]) => value.unread !== snapshotsRef.current[id]?.unread
-          || value.sequence !== snapshotsRef.current[id]?.sequence)) {
-          snapshotsRef.current = next
-          setSnapshots(next)
-        }
+        // Coalesce refresh rounds only; receiving a batch never waits here.
+        await Promise.all(batches)
       }
-    } catch {
-      // Preserve the last proven projection. Existing notification recovery/focus
-      // will retry; an unknown read must never become a synthetic false.
     } finally {
       running.current = false
     }

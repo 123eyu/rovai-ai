@@ -108,9 +108,40 @@ app.whenReady().then(async () => {
     await run("window.interruptionTest.begin('reset'); window.interruptionTest.reset(); window.interruptionTest.admit('reset', true)")
     await wait(80)
     assert.equal((await state()).flashing, false, 'Reset discards local intents without replay')
+
+    // 201 requested Threads produce independent 200 + 1 batches. Establish an
+    // old true result in the second batch, then fail only that batch.
+    await run('window.interruptionTest.batches()')
+    await until(s => s.projectionCount === 201 && s.secondary?.unread, 'Both initial batches loaded')
+    await run("window.interruptionTest.batchMode('fail'); window.interruptionTest.batchUnread(false); window.interruptionTest.admit('batch-failure')")
+    current = await until(s => s.dot && s.unread && s.batchFailures > 0, 'Successful batch must paint despite another batch failing')
+    assert.equal(current.secondary.unread, true, 'Failed batch preserves its last proven result')
+    const batchRequests = current.requests.filter(r => r.method === 'notifications.threadInterruptions')
+    assert.ok(batchRequests.some(r => r.request.threadIds.length === 200))
+    assert.ok(batchRequests.some(r => r.request.threadIds.length === 1))
+    await run("window.interruptionTest.batchMode('success'); window.interruptionTest.visible(['batch-failure'])")
+    current = await until(s => !s.unread && !s.secondary.unread, 'Existing refresh recovers the failed batch')
+    const confirmedSnapshotSequence = current.secondary.sequence
+
+    // The slow second response captures true while its previous visible result
+    // is false. A later exact ACK raises the production hook's receipt floor.
+    await run("window.interruptionTest.visible([]); window.interruptionTest.batchMode('hold'); window.interruptionTest.batchUnread(true); window.interruptionTest.admit('batch-delayed')")
+    await until(s => s.dot && s.unread && s.heldBatches > 0, 'Fast batch must paint before the slow batch returns')
+    const acknowledgementSequence = await run('window.interruptionTest.confirmBatch()')
+    const failuresBeforeRelease = (await state()).batchFailures
+    await run('window.interruptionTest.releaseBatch()')
+    // Fail the subsequent retry so a fresh false cannot mask application of the
+    // stale true response. The older snapshot must remain untouched.
+    current = await until(s => s.heldBatches === 0 && s.batchFailures > failuresBeforeRelease, 'Late batch and pending refresh settled')
+    assert.equal(current.secondary.unread, false, 'Late batch cannot resurrect attention below the ACK boundary')
+    assert.equal(current.secondary.sequence, confirmedSnapshotSequence, 'Rejected late response must not replace the proven snapshot')
+    await run("window.interruptionTest.batchMode('success'); window.interruptionTest.visible(['batch-delayed'])")
+    await until(s => !s.dot && s.secondary.sequence >= acknowledgementSequence, 'Normal refresh accepts the post-ACK snapshot')
     console.log(JSON.stringify({ ok: true, cases: ['ACK-before-poll pulse', '600ms independent lifetime',
       'hidden sidebar ACK/no replay', 'exact result read', 'frozen Thread retry/new interruption/manual reminder',
-      'stale projection rejection', 'source/route/focus/reset invalidation', 'accessible interruption label'] }))
+      'stale projection rejection', 'source/route/focus/reset invalidation', 'accessible interruption label',
+      '201 Threads: partial batch failure preserves old state without blocking a successful batch',
+      '201 Threads: slow batch does not block paint and late data cannot override ACK'] }))
     window.destroy(); app.quit()
   } catch (error) { console.error(error); window.destroy(); app.exit(1) }
 }).catch(error => { console.error(error); app.exit(1) })

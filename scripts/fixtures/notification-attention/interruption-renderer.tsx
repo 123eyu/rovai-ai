@@ -10,6 +10,8 @@ import type { VisibleNotificationSources } from '../../../apps/desktop/src/rende
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
 const id = 'rvcamp_01h47kvsy5fk1shh6w1g60eec0'
+const batchIds = [id, ...Array.from({ length: 200 }, (_, index) => `rvcamp_extra_${String(index).padStart(3, '0')}`)]
+const secondaryId = batchIds[200]
 const thread: NavigationThreadItem = { id, title: '中断提醒验收', activationState: 'active', projectPath: '/fixture',
   projectBindingKind: 'quick_chat', defaultLead: null, marker: 'none', lastActivityAt: '2026-10-21',
   lastActivityGlobalSequence: 0, latestCompletionGlobalSequence: 0, version: 1 }
@@ -25,6 +27,10 @@ const emit = () => events.forEach(listener => listener({ method: 'notification_e
 let holdProjection = false
 let failAck = false
 const held: (() => void)[] = []
+let secondaryUnread = false
+let secondaryMode: 'success' | 'fail' | 'hold' = 'success'
+let batchFailures = 0
+const heldBatches: (() => void)[] = []
 const receipts = new Map<string, StoredCommandResult>()
 const task = () => ({ enabled: false, headsUpAfterSequence: 0, observedThroughChangeSequence: sequence })
 let attention: ReturnType<typeof useThreadInterruptionAttention>
@@ -32,6 +38,7 @@ let showSources: (runs: string[]) => void
 let manual: (value: boolean) => void
 let showSidebar: (value: boolean) => void
 let changeSurface: (value: string | null) => void
+let changeThreadIds: (value: string[]) => void
 let localWrites = 0
 const client = { platform: 'darwin', onEvent: (listener: (event: { method: string }) => void) => {
   events.add(listener); return () => events.delete(listener)
@@ -46,8 +53,12 @@ const client = { platform: 'darwin', onEvent: (listener: (event: { method: strin
     resetRequired: false, hasMore: false, taskCapability: task(), changes: journal.filter(change => change.changeSequence > request.afterChangeSequence) }
   if (method === 'notifications.threadInterruptions') {
     const snapshot: NotificationThreadInterruptions = { throughChangeSequence: sequence, threads: request.threadIds.map((threadId: string) => ({
-      threadId, hasUnreadInterruption: threadId === id && [...facts.values()].some(fact => !fact.read)
+      threadId, hasUnreadInterruption: threadId === id ? [...facts.values()].some(fact => !fact.read) : threadId === secondaryId && secondaryUnread
     })) }
+    if (request.threadIds.includes(secondaryId)) {
+      if (secondaryMode === 'fail') { batchFailures++; throw new Error('second batch unavailable') }
+      if (secondaryMode === 'hold') await new Promise<void>(resolve => heldBatches.push(resolve))
+    }
     if (holdProjection) await new Promise<void>(resolve => held.push(resolve))
     return snapshot
   }
@@ -89,10 +100,12 @@ function Fixture() {
   const [conversationId, setConversation] = useState<string | null>(null)
   const [manualUnread, setManual] = useState(false)
   const [sidebar, setSidebar] = useState(true)
+  const [threadIds, setThreadIds] = useState([id])
   const sources: VisibleNotificationSources = { threadId: id, conversationId, surfaceVisible: true,
     snapshotSequence: 0, agentRunIds: runs, campTurnIds: [], messageIds: [], approvalIds: [] }
-  attention = useThreadInterruptionAttention(true, [id], { threadId: id, conversationId, visible: true })
+  attention = useThreadInterruptionAttention(true, threadIds, { threadId: id, conversationId, visible: true })
   showSources = setRuns; manual = setManual; showSidebar = setSidebar; changeSurface = setConversation
+  changeThreadIds = setThreadIds
   return <ThreadInterruptionAttentionContext.Provider value={attention}>
     <div className="app-shell" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', height: '100vh' }}>
       <div id="sidebar" style={{ visibility: sidebar ? 'visible' : 'hidden' }}>
@@ -123,6 +136,16 @@ Object.assign(window, { interruptionTest: {
   capture: () => attention.captureRead(id),
   markRead: async (intent: Parameters<typeof attention.acknowledge>[0]) => { localWrites++; manual(false); try { await attention.acknowledge(intent) } catch {} },
   failAck: () => { failAck = true },
+  batches: () => { secondaryUnread = true; sequence++; changeThreadIds(batchIds) },
+  batchMode: (mode: typeof secondaryMode) => { secondaryMode = mode },
+  batchUnread: (unread: boolean) => { secondaryUnread = unread; sequence++ },
+  confirmBatch: () => {
+    secondaryUnread = false
+    attention.committed(secondaryId, ++sequence)
+    return sequence
+  },
+  releaseBatch: () => { secondaryMode = 'fail'; heldBatches.splice(0).forEach(resolve => resolve()) },
+  refresh: () => attention.refresh(),
   invalidate: (runId: string) => {
     facts.delete(runId)
     const old = journal.find(change => change.episodeId === runId)!
@@ -134,6 +157,8 @@ Object.assign(window, { interruptionTest: {
     flashing: attention.flashing.has(id), dot: !!document.querySelector('.camp-unread-dot'),
     label: document.querySelector('.camp-nav-row button')?.getAttribute('aria-label'),
     headsUp: document.querySelectorAll('.notification-heads-up').length,
+    projectionCount: Object.keys(attention.snapshots).length, secondary: attention.snapshots[secondaryId],
+    batchFailures, heldBatches: heldBatches.length,
     localWrites, requests, held: held.length, facts: [...facts].map(([runId, fact]) => ({ runId, ...fact })) })
 } })
 createRoot(document.getElementById('root')!).render(<ThreadClientProvider client={client}><Fixture /></ThreadClientProvider>)

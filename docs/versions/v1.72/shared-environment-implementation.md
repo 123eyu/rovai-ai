@@ -65,6 +65,21 @@ Desktop 与 Web 的 Owner 方法白名单同步扩展，不向 Agent 工具开�
 - `--features slow-tests --lib -- --exact` 定向执行 6 个现有 owner：当前 migration admission matrix、current schema objects、database preflight、interruption admission、lightweight task、single chat bootstrap；全部通过。
 - 合并主线后重新执行 typecheck、完整 `pnpm test`、25 组 Electron 验收、桌面构建、Rust check 与文档增量门禁；全部通过。
 
+## 配置恢复与迟到回包修复
+
+独立分支 `rovai/environment-state-recovery`，worktree 为
+`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-environment-state-recovery`，
+基于 `origin/main` 的 `e4346bef3ff33cf259756ee55b38502c867ad5a3`；无需前置治理提交。
+
+- 通用配置冲突后重新读取，再编辑并放弃更改，恢复到通用编辑器最近读取的保存基线；
+  程序路径仍恢复到自己的保存基线，清除原有检查结果和冲突提示。
+- 队员显示密钥请求的迟到回包仅更新队员变量，从 state 保留最新通用配置，避免合并预览倒退。
+- 既有 `member-editor` owner 扩展冲突恢复场景，并增加可手动释放回包的确定性并发场景；
+  两处修复前分别复现旧值回退，修复后 26 组隔离 Electron 场景通过，继续保存不再重复冲突，
+  队员未保存草稿与合并预览掩码均保留。`pnpm typecheck`、`pnpm build:desktop` 通过。
+- `pnpm test` 通过（2,847 项 Vitest、357 项脚本测试通过，2 项平台限定跳过）；文档测试、
+  全量校验与以本次基线为 `DOCS_BASE_REF` 的增量门禁通过。
+
 ## 未覆盖范围
 
 本地确定性回归使用合成凭据、临时数据库和隔离 Electron，不读取日常用户数据或调用真实中转/模型。

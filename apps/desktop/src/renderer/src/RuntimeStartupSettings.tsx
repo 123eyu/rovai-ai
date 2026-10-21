@@ -152,7 +152,10 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel 
     if (!saved) return
     sequence.current += 1
     setSaveCompleted(false)
-    applySaved(saved)
+    setDraft(saved.configuration)
+    setConflicts([])
+    // Common settings can reload their saved baseline independently.
+    common.discard()
     setInspection(null)
     setError(null)
   }

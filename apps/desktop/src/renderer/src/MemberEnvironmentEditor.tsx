@@ -106,7 +106,11 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
         if (revealRequest !== revealSequence.current || state.current.key !== key || state.current.current.text !== originalText) return
         if (snapshot.revision !== current.snapshot.revision) throw new Error(t('运行环境已在其他位置更新，请重新读取。'))
         for (const [name, value] of Object.entries(snapshot.environment)) if (parsed[name] === SAVED_ENVIRONMENT_VALUE) parsed[name] = value
-        patch({ text: environmentText(parsed), snapshot: { ...snapshot, common }, revealed: true })
+        setDrafts(all => {
+          const latest = all[key]
+          if (!latest) return all
+          return { ...all, [key]: { ...latest, text: environmentText(parsed), snapshot: { ...snapshot, common: latest.snapshot.common }, revealed: true } }
+        })
       } catch (error) { patch({ error: readErrorMessage(error) }) }
     }, mask
   }

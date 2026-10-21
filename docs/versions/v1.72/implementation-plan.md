@@ -143,6 +143,11 @@ User 实测输入框复制的纯正文也带私有 MIME，导致此前合法内�
 Node 357 通过／2 项平台跳过），生产 Composer 回归通过。当前规范升级为
 [Composer Draft v18](../../contracts/camp-composer-draft-v18.md)，复制 wire format 和 v17 的附件生命周期不变。
 
+同步语言设置主线 `94a1d843c` 后再次通过 `pnpm typecheck`、`pnpm build:desktop`、`pnpm test`
+（251 个 Vitest 文件／2,847 项，Node 357 通过／2 项平台跳过）、`pnpm test:composer-input` 的 3 个生产输入套件，
+以及基于该 main SHA 的 diff-aware 文档门禁。默认 `pnpm test:rust:pr` 474 项通过、1 项既有 ignored；
+本次及合入的语言更新均未修改 Rust。日常 App 未在本轮安装或重启。
+
 ## 会话执行条（2026-10-20）
 
 User 确认第七版交互稿的 01 浅灰、C 无底图标和转圈，并授权独立 worktree、PR 到 main 后合并。

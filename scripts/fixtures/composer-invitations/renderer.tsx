@@ -1,3 +1,4 @@
+import { pastedTextPreview } from '../../../apps/desktop/src/shared/pasted-text-preview'
 import { languageTestApi } from '../../../apps/desktop/src/renderer/src/interface-language-test-api'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -35,7 +36,7 @@ const profiles: AgentProfile[] = [agent, outside,
 const member = (profile: AgentProfile) => ({ agentId: profile.agentId, displayName: profile.displayName, avatarRef: null,
   teamRole: profile.teamRole, accent: '', membershipStatus: 'active' as const, leaveRequestedAt: null,
   profilePresence: 'present' as const, memberOrder: profile.memberOrder, isDefaultLead: profile === agent, version: 1 })
-const initial: ThreadSnapshot = { schemaVersion: 35, throughGlobalSequence: 1,
+const initial: ThreadSnapshot = { schemaVersion: 36, throughGlobalSequence: 1, tasksEnabled: true,
   thread: { id: threadId, title: '草稿邀请', activationState: 'pending', projectBindingKind: 'directory',
     projectPath: '/fixture/workspace', defaultLeadAgentId: agent.agentId, membershipGeneration: 1,
     version: 1, createdAt: now, updatedAt: now },
@@ -103,7 +104,8 @@ const client = {
       }
     },
     preparePastedText: async (id: string, file: File): Promise<LocalAttachmentSourceView> => ({
-      ...await client.composerAttachments.prepare(id, 0, file), generatedBy: 'long_text_paste'
+      ...await client.composerAttachments.prepare(id, 0, file), generatedBy: 'long_text_paste',
+      pastedTextPreview: pastedTextPreview(new Uint8Array(await file.arrayBuffer()))
     }),
     removePastedText: async (owner: string, id: string) => {
       calls.push('cleanup:' + id)
@@ -127,6 +129,7 @@ const client = {
     }
   }
 } as unknown as ThreadClient
+let showAgentFiles = () => {}
 function Fixture() {
   const [mobile, updateMobile] = useState(false)
   setMobile = updateMobile
@@ -134,6 +137,7 @@ function Fixture() {
   const [currentProfiles, updateProfiles] = useState(profiles)
   const [acceptedMessages, setAcceptedMessages] = useState<ThreadMessageView[]>([])
   clearAcceptedMessages = () => { setAcceptedMessages([]) }
+  showAgentFiles = () => setAcceptedMessages(current => current.map(message => ({ ...message, authorType: 'agent', authorId: 'lead' })))
   const [visible, show] = useState(true)
   const [entryHost, setEntryHost] = useState<HTMLElement | null>(null)
   const [inspectorVisible, setInspectorVisible] = useState(false)
@@ -142,7 +146,7 @@ function Fixture() {
   return <MobileLayoutProvider value={mobile}><ThreadClientProvider client={client}><div>
     <header ref={setEntryHost} style={{ height: 40, display: 'flex', justifyContent: 'flex-end' }} />
     <main className="content task-content" style={{ height: 'calc(100vh - 40px)', width: '100vw' }}>
-    {visible && <ThreadWorkspace snapshot={snapshot} optimisticMessages={acceptedMessages} agents={currentProfiles} busy={false} stopping={false}
+    {visible && <ThreadWorkspace snapshot={snapshot} projectName={null} optimisticMessages={acceptedMessages} agents={currentProfiles} busy={false} stopping={false}
       detailEntryHost={entryHost}
       inspectorVisible={inspectorVisible} inspectorTab={inspectorTab}
       onOpenInspector={tab => { setInspectorTab(tab); setInspectorVisible(true) }}
@@ -241,6 +245,7 @@ Object.assign(window, { invitationTest: {
 } })
 
 Object.assign(window, { pasteTest: {
+  agentFiles: () => showAgentFiles(),
   draftWrites: () => draftWrites,
   otherThread: () => setFixture({ ...initial, thread: { ...initial.thread, id: 'rvcamp_01m3rs4y3gfjssw5nstbzbdx7h', activationState: 'active' } }),
   reset: (pending: boolean) => {

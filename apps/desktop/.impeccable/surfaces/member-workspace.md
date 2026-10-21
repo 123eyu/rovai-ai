@@ -177,6 +177,8 @@ Each section owns its “放弃更改” and neutral primary save control: a 14p
 both sections' pending drafts for each visited teammate. Saving one section advances its accepted baseline
 without resetting the other. A conflicting external update preserves the local draft and blocks that section's
 save until the user reloads its saved values. Leaving the workspace confirms discarding pending changes.
+The environment editor does not add its own “已保存。” line; saving uses the enclosing Runtime section's
+existing clean state and disabled save/discard controls.
 
 New teammates use the same page. The pending draft has a separate bottom roster row and is excluded from
 saved teammate counts and ordering. Only a name is required. Runtime configuration becomes available after
@@ -213,3 +215,8 @@ the production component with explicit transport fixtures, including unknown res
 portrait/landscape and zoom; no real Runtime or daily profile participates.
 
 Selected roster rows use a neutral surface and text without a left selection rail. Keep the roster background and identity assets unchanged.
+
+Environment values are directly visible in the existing JSON textarea, without a reveal control or an add-variable entry.
+Accept string, number and boolean values; preview and submit their string forms, preserve raw drafts until save succeeds.
+Use the concise hint “支持字符串、数字和布尔值，保存时统一转换为字符串。” and the existing save/discard flow.
+The boundary is [Runtime Launch v69](../../../../docs/contracts/runtime-launch-and-verification-v69.md).

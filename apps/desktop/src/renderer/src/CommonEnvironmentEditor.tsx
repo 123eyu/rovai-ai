@@ -1,10 +1,9 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { AdapterKind } from '@contracts'
 import { useThreadClient } from './camp-client'
-import { DialogControlIcon } from './AppDialog'
 import { uiAttribute as t, useInterfaceLanguage } from './interface-language'
 import { readErrorMessage } from './error-message'
-import { COMMON_ENVIRONMENT_CHANGED, environmentText, maskEnvironment, parseMemberEnvironment, SAVED_ENVIRONMENT_VALUE, sensitiveEnvironmentName, type EnvironmentSnapshot } from './member-environment'
+import { COMMON_ENVIRONMENT_CHANGED, environmentText, parseMemberEnvironment, type EnvironmentSnapshot } from './member-environment'
 import './member-environment.css'
 
 export function EnvironmentJson({ value, onChange, id, label, disabled, readOnly = false, error, placeholder = '{}' }: {
@@ -26,30 +25,30 @@ export function EnvironmentJson({ value, onChange, id, label, disabled, readOnly
     observer.observe(el)
     return () => observer.disconnect()
   }, [value])
-  return <textarea ref={ref} id={id} className="member-environment-json" value={value} onChange={e => onChange(e.target.value)}
-    aria-label={label} aria-invalid={!!error} aria-describedby={error ? `${id}-error` : undefined} readOnly={readOnly} disabled={disabled}
+  return <><textarea ref={ref} id={id} className="member-environment-json" value={value} onChange={e => onChange(e.target.value)}
+    aria-label={label} aria-invalid={!!error} aria-describedby={[error ? `${id}-error` : '', readOnly ? '' : `${id}-hint`].filter(Boolean).join(' ') || undefined} readOnly={readOnly} disabled={disabled}
     placeholder={placeholder} rows={4} spellCheck={false} autoComplete="off"/>
+    {!readOnly && <p id={`${id}-hint`} className="environment-input-hint">{t('支持字符串、数字和布尔值，保存时统一转换为字符串。')}</p>}
+  </>
 }
 
 export function useCommonEnvironment(kind: AdapterKind, windows: boolean) {
   const client = useThreadClient()
   const [snapshot, setSnapshot] = useState<EnvironmentSnapshot | null>(null)
-  const [text, setText] = useState(''), [error, setError] = useState(''), [revealed, setRevealed] = useState(false)
-  const sequence = useRef(0), latest = useRef({ text, kind }); latest.current = { text, kind }
+  const [text, setText] = useState(''), [error, setError] = useState('')
+  const sequence = useRef(0)
   let parsed: Record<string,string> = {}, parseError = ''
   try { parsed = parseMemberEnvironment(text, windows, kind, undefined) } catch (e) { parseError = readErrorMessage(e) }
   const accept = (next: EnvironmentSnapshot): void => {
-    sequence.current++; setSnapshot(next); setText(environmentText(next.environment)); setError(''); setRevealed(false)
+    sequence.current++; setSnapshot(next); setText(environmentText(next.environment)); setError('')
   }
   const edit = (): { expectedRevision: number; json: string } => {
-    const invalid = Object.entries(parsed).some(([name,value]) => value === SAVED_ENVIRONMENT_VALUE && (!sensitiveEnvironmentName(name) || !snapshot || !Object.hasOwn(snapshot.environment, name)))
-    const problem = parseError || (invalid ? t('请填写真实值；“<saved>”仅用于保留已有凭据。') : '')
+    const problem = parseError
     if (problem || !snapshot) { setError(problem || t('正在读取…')); throw new Error(problem) }
-    return { expectedRevision: snapshot.revision, json: text }
+    return { expectedRevision: snapshot.revision, json: JSON.stringify(parsed) }
   }
   return {
-    text, error, revealed, loading: snapshot === null, dirty: snapshot !== null && text !== environmentText(snapshot.environment),
-    hasSecrets: Object.keys(parsed).some(sensitiveEnvironmentName),
+    text, error, loading: snapshot === null, dirty: snapshot !== null && text !== environmentText(snapshot.environment),
     accept, edit, fail: setError,
     async reload() {
       const request = ++sequence.current
@@ -57,23 +56,8 @@ export function useCommonEnvironment(kind: AdapterKind, windows: boolean) {
       catch (e) { if (request === sequence.current) setError(readErrorMessage(e)) }
     },
     update(value: string) { sequence.current++; setText(value); setError('') },
-    discard() { if (snapshot) accept({ ...snapshot, environment: maskEnvironment(snapshot.environment) }) },
+    discard() { if (snapshot) accept(snapshot) },
     saved(next: EnvironmentSnapshot) { accept(next); window.dispatchEvent(new CustomEvent(COMMON_ENVIRONMENT_CHANGED, { detail: kind })) },
-    async toggleReveal() {
-      try {
-        edit()
-        if (revealed && snapshot) {
-          for (const [name,value] of Object.entries(snapshot.environment)) if (sensitiveEnvironmentName(name) && value !== '' && parsed[name] === value) parsed[name] = SAVED_ENVIRONMENT_VALUE
-          setSnapshot({ ...snapshot, environment: maskEnvironment(snapshot.environment) }); setText(environmentText(parsed)); setRevealed(false); sequence.current++; return
-        }
-        const request = ++sequence.current
-        const result = await client.request<EnvironmentSnapshot>('runtime.environment.get', { runtimeKind: kind, reveal: true })
-        if (request !== sequence.current || latest.current.text !== text || latest.current.kind !== kind) return
-        if (result.revision !== snapshot?.revision) throw new Error(t('通用配置已在其他位置更新，请重新读取。'))
-        for (const [name,value] of Object.entries(result.environment)) if (parsed[name] === SAVED_ENVIRONMENT_VALUE) parsed[name] = value
-        setSnapshot(result); setText(environmentText(parsed)); setRevealed(true)
-      } catch (e) { setError(readErrorMessage(e)) }
-    }
   }
 }
 
@@ -93,7 +77,6 @@ export function CommonEnvironmentEditor({ environment: env, disabled, onChange }
       {help && <span id={`${id}-help`} role="tooltip" className="common-environment-tooltip">{t('用于在不同队员之间共享一些配置变量。')}</span>}
     </div></div>
     <EnvironmentJson id={id} value={env.text} onChange={value => { env.update(value); onChange() }} disabled={disabled || env.loading} error={env.error} label={t('通用环境变量 JSON')}/>
-    {env.error && <p id={`${id}-error`} className="environment-error" role="alert">{env.error}<button type="button" className="quiet-button" disabled={disabled} onClick={() => void env.reload()}>{t('重新读取')}</button></p>}
-    {env.hasSecrets && <div className="environment-caption"><button type="button" className="quiet-button environment-reveal" onClick={() => void env.toggleReveal()} disabled={disabled || env.loading} aria-pressed={env.revealed}><DialogControlIcon name={env.revealed ? 'eye-off' : 'eye'}/>{env.revealed ? t('隐藏密钥') : t('显示密钥')}</button></div>}
+    {env.error && <p id={`${id}-error`} className="environment-error" role="alert">{env.error}<button type="button" className="quiet-button" disabled={disabled} onClick={() => { onChange(); void env.reload() }}>{t('重新读取')}</button></p>}
   </section>
 }

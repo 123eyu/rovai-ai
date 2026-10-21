@@ -695,6 +695,20 @@ app
           'rovai://member-avatar/builtin/luoke/v1'
         )
         await capture('member-create-saved')
+        await click(`${active}[data-member-runtime-select]`)
+        await click('.member-runtime-menu-item', 'Claude Code')
+        await click(active + '.member-environment-entry')
+        const area = active + '.member-environment-json'
+        await wait(`!document.querySelector(${JSON.stringify(area)}).disabled`)
+        await fill(area, '{ "TIMEOUT_MS":60000, "ENABLED":false, "RETRY_COUNT":0, "EMPTY":"", "API_KEY":"fixture-created-key" }')
+        await saveRuntime()
+        await wait(`window.memberFixture.environment(${JSON.stringify(created.agentId)},'claude-code-cli').revision === 1`)
+        assert.deepEqual(await run(`window.memberFixture.environment(${JSON.stringify(created.agentId)},'claude-code-cli').environment`), {
+          TIMEOUT_MS: '60000', ENABLED: 'false', RETRY_COUNT: '0', EMPTY: '', API_KEY: 'fixture-created-key'
+        })
+        await wait(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value).TIMEOUT_MS === '60000'`)
+        assert.equal(await run(`document.querySelector('${active}.member-runtime-form button[aria-label="保存运行配置"]').disabled`), true)
+
       }
     )
     await check(
@@ -939,7 +953,7 @@ app
       assert.equal(await run(`window.memberFixture.profiles()[0].presence`), 'removed')
       assert.equal(await run(`window.memberFixture.calls.filter(call => call.method === 'members.remove').at(-1).command.confirmationName`), '研究员二')
     })
-    await check('late member secret reveal preserves refreshed common values in the merged preview', async () => {
+    await check('late member read preserves refreshed common values in the merged preview', async () => {
       await reloadPage()
       await run("window.memberFixture.common('codex-cli', { SHARED: 'before-refresh' })")
       const area = active + '.member-environment-json'
@@ -947,21 +961,21 @@ app
       await wait(`document.querySelector('${active}.environment-inherit-row')`)
       await fill(area, '{"API_KEY":"fixture-member-key","LOCAL":"saved"}')
       await saveRuntime()
-      await wait(`document.querySelector('${active}.environment-saved')`)
-      await fill(area, '{"API_KEY":"<saved>","LOCAL":"draft"}')
-      await run('window.memberFixture.holdEnvironmentReveal()')
-      await click(active + '.environment-reveal', '显示密钥')
-      await wait('window.memberFixture.environmentRevealPending()')
+      await wait(`!document.querySelector(${JSON.stringify(area)}).disabled && document.querySelector('${active}.member-runtime-form button[aria-label="保存运行配置"]').disabled && window.memberFixture.environment(window.memberFixture.profiles()[0].agentId,'codex-cli').revision === 1`)
+      await fill(area, '{"API_KEY":"fixture-member-key","LOCAL":"draft"}')
+      await run('window.memberFixture.holdEnvironmentRead()')
+      await run('window.memberFixture.change(window.memberFixture.profiles()[0].agentId, {})')
+      await wait('window.memberFixture.environmentReadPending()')
       await run("window.memberFixture.common('codex-cli', { SHARED: 'after-refresh', NEW: 'current' })")
       await click(active + '.environment-text-link', '查看合并结果')
       await wait(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value).SHARED === 'after-refresh'`)
-      await run('window.memberFixture.releaseEnvironmentReveal()')
+      await run('window.memberFixture.releaseEnvironmentRead()')
       await settle()
       assert.deepEqual(await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`), {
-        SHARED: 'after-refresh', NEW: 'current', API_KEY: '••••••••', LOCAL: 'draft'
+        SHARED: 'after-refresh', NEW: 'current', API_KEY: 'fixture-member-key', LOCAL: 'draft'
       })
       await click(active + '.environment-text-link', '编辑')
-      await wait(`document.querySelector('${active}.environment-reveal').textContent === '隐藏密钥'`)
+      assert.equal(await run(`document.querySelectorAll('${active}.environment-reveal').length`), 0)
       assert.deepEqual(await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`), {
         API_KEY: 'fixture-member-key', LOCAL: 'draft'
       })
@@ -972,14 +986,14 @@ app
       const area = active + '.member-environment-json'
       await click(active + '.member-environment-entry')
       await wait(`document.querySelector('${active}.environment-inherit-row')`)
-      const draft = '{  "LOCAL" : "draft", "EMPTY" : ""  }'
+      const draft = '{  "LOCAL" : "draft", "EMPTY" : "", "RETRY_COUNT": 0, "ENABLED": false, "PADDED": "00123"  }'
       await fill(area, draft)
       await run(`window.originalEnvironmentTextarea=document.querySelector(${JSON.stringify(area)})`)
       await click(active + '.environment-text-link', '查看合并结果')
       assert.equal(await run(`document.querySelector(${JSON.stringify(area)}) === window.originalEnvironmentTextarea`), true)
       assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).readOnly`), true)
       const result = await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`)
-      assert.deepEqual(result, { SHARED: 'one', API_KEY: '••••••••', EMPTY: '', LOCAL: 'draft' })
+      assert.deepEqual(result, { SHARED: 'one', API_KEY: 'fixture-secret', EMPTY: '', LOCAL: 'draft', RETRY_COUNT: '0', ENABLED: 'false', PADDED: '00123' })
       await click(active + '.environment-text-link', '编辑')
       assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).value`), draft)
       await click(active + '.environment-text-link', '查看合并结果')
@@ -994,18 +1008,44 @@ app
       assert.equal(await run("document.querySelector('[role=tooltip]').textContent"), '用于在不同队员之间共享一些配置变量。')
       await key('Escape')
       assert.equal(await run("!!document.querySelector('[role=tooltip]')"), false)
-      await fill('.common-environment-section textarea', '{"SHARED":"two","API_KEY":"<saved>","EMPTY":"updated"}')
+      await click('.runtime-startup-inspection button', '检查状态')
+      await wait("document.querySelector('.runtime-startup-result').textContent.includes('检查通过')")
+      const checksBeforeReload = await run("window.memberFixture.calls.filter(item=>item.method==='runtime.startup.check').length")
+      await run("window.memberFixture.common('codex-cli', { SHARED: 'refreshed', API_KEY: 'fixture-refreshed-key', EMPTY: 'default' })")
+      await fill('.common-environment-section textarea', '{"SHARED":"stale-save"}')
+      await click('.runtime-startup-actions button', '保存')
+      await wait("document.querySelector('.common-environment-section .environment-error')")
+      await click('.common-environment-section .environment-error button', '重新读取')
+      await wait("JSON.parse(document.querySelector('.common-environment-section textarea').value).SHARED === 'refreshed'")
+      assert.equal(await run("document.querySelector('.runtime-startup-result').textContent.includes('检查通过')"), false)
+      assert.equal(await run("window.memberFixture.calls.filter(item=>item.method==='runtime.startup.check').length"), checksBeforeReload)
+      const invalidCommon = '{ "OPTIONS":null, "SHARED":"kept" }'
+      const savesBeforeInvalid = await run("window.memberFixture.calls.filter(item=>item.method==='runtime.startup.save').length")
+      await fill('.common-environment-section textarea', invalidCommon)
+      await click('.runtime-startup-actions button', '保存')
+      await wait("document.querySelector('.common-environment-section .environment-error')")
+      assert.match(await run("document.querySelector('.common-environment-section .environment-error').textContent"), /OPTIONS/)
+      assert.equal(await run("document.querySelector('.common-environment-section textarea').value"), invalidCommon)
+      assert.equal(await run("window.memberFixture.calls.filter(item=>item.method==='runtime.startup.save').length"), savesBeforeInvalid)
+      const commonDraft = '{ "SHARED":"two", "API_KEY":"fixture-refreshed-key", "EMPTY":"updated", "TIMEOUT_MS":60000, "RETRY_COUNT":2, "ENABLED":true, "ZERO":0, "DISABLED":false, "BLANK":"" }'
+      await fill('.common-environment-section textarea', commonDraft)
       await click('.runtime-startup-inspection button', '检查状态')
       await wait("document.querySelector('.runtime-startup-result').textContent.includes('检查通过')")
       const checkRequest = await run("window.memberFixture.calls.findLast(item=>item.method==='runtime.startup.check').command")
       assert.equal(JSON.parse(checkRequest.commonEnvironment.json).SHARED, 'two')
       assert.deepEqual(checkRequest.configuration.environment, [])
+      assert.equal(JSON.parse(checkRequest.commonEnvironment.json).TIMEOUT_MS, '60000')
+      assert.equal(await run("document.querySelector('.common-environment-section textarea').value"), commonDraft)
       await run("window.memberFixture.fail('runtime.startup.save')")
       await click('.runtime-startup-actions button', '保存')
       await wait("document.querySelector('.runtime-startup-page .inline-error')")
-      assert.equal(await run("JSON.parse(document.querySelector('.common-environment-section textarea').value).SHARED"), 'two')
+      assert.equal(await run("document.querySelector('.common-environment-section textarea').value"), commonDraft)
       await click('.runtime-startup-actions button', '保存')
       await wait("document.querySelector('.runtime-startup-actions [role=status]')?.textContent === '已保存'")
+      assert.deepEqual(await run("JSON.parse(document.querySelector('.common-environment-section textarea').value)"), {
+        SHARED: 'two', API_KEY: 'fixture-refreshed-key', EMPTY: 'updated', TIMEOUT_MS: '60000', RETRY_COUNT: '2', ENABLED: 'true', ZERO: '0', DISABLED: 'false', BLANK: ''
+      })
+      assert.equal(await run("document.querySelector('.runtime-startup-actions button[type=submit]').disabled"), true)
       await capture('environment-common-day')
       await click('.runtime-startup-back')
       await wait("!document.querySelector('.runtime-startup-page')")
@@ -1013,13 +1053,32 @@ app
       assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).readOnly`), true)
       await wait(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value).SHARED === 'two'`)
       await click(active + '.environment-text-link', '编辑')
-      assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).value`), '{  "LOCAL" : "draft", "EMPTY" : ""  }')
+      assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).value`), '{  "LOCAL" : "draft", "EMPTY" : "", "RETRY_COUNT": 0, "ENABLED": false, "PADDED": "00123"  }')
+      const rawMemberDraft = await run(`document.querySelector(${JSON.stringify(area)}).value`)
+      for (const value of ['null', '[]', '{}', '9007199254740993', '1e400']) {
+        const invalid = `{ "OPTIONS":${value}, "LOCAL":"kept" }`
+        const before = await run("window.memberFixture.calls.filter(item=>item.method==='members.runtime.set').length")
+        await fill(area, invalid)
+        await saveRuntime()
+        await wait(`document.querySelector('${active}.environment-error')`)
+        assert.match(await run(`document.querySelector('${active}.environment-error').textContent`), /OPTIONS/)
+        assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).value`), invalid)
+        assert.equal(await run("window.memberFixture.calls.filter(item=>item.method==='members.runtime.set').length"), before)
+      }
+      await fill(area, rawMemberDraft)
+      await run("window.memberFixture.fail('members.runtime.set')")
+      await saveRuntime()
+      await wait(`document.querySelector('${active}.member-runtime-form [role=alert]')`)
+      assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).value`), rawMemberDraft)
       await click(active + '.environment-text-link', '查看合并结果')
       await saveRuntime()
-      await wait(`document.querySelector('${active}.environment-saved')`)
+      await wait("window.memberFixture.environment(window.memberFixture.profiles()[0].agentId,'codex-cli').environment.LOCAL === 'draft'")
       const own = await run("window.memberFixture.environment(window.memberFixture.profiles()[0].agentId,'codex-cli')")
-      assert.deepEqual(own.environment, { LOCAL: 'draft', EMPTY: '' })
+      assert.deepEqual(own.environment, { LOCAL: 'draft', EMPTY: '', RETRY_COUNT: '0', ENABLED: 'false', PADDED: '00123' })
       assert.equal(own.inheritCommon, true)
+      await click(active + '.environment-text-link', '编辑')
+      await wait(`document.querySelector(${JSON.stringify(area)}).value === ${JSON.stringify(JSON.stringify({ LOCAL: 'draft', EMPTY: '', RETRY_COUNT: '0', ENABLED: 'false', PADDED: '00123' }, null, 2))}`)
+      await click(active + '.environment-text-link', '查看合并结果')
     })
     await check('independent variables, discard guard, and removing common settings restore the compact editor', async () => {
       await click(active + '.environment-inherit-row input')
@@ -1046,7 +1105,7 @@ app
       await fill('.common-environment-section textarea', '{"SHARED":"discard-after-reload"}')
       await click('.runtime-startup-actions button', '放弃更改')
       assert.deepEqual(await run("JSON.parse(document.querySelector('.common-environment-section textarea').value)"), {
-        SHARED: 'external', API_KEY: '<saved>'
+        SHARED: 'external', API_KEY: 'fixture-external-key'
       })
       assert.equal(await run("document.querySelector('.runtime-startup-actions button[type=submit]').disabled"), true)
       assert.equal(await run("!!document.querySelector('.common-environment-section .environment-error')"), false)
@@ -1056,7 +1115,7 @@ app
       await click('.runtime-startup-back')
       await wait(`!document.querySelector('${active}.environment-inherit-row')`)
       assert.equal(await run(`document.querySelector(${JSON.stringify(area)}).readOnly`), false)
-      assert.deepEqual(await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`), { LOCAL: 'draft', EMPTY: '' })
+      assert.deepEqual(await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`), { LOCAL: 'draft', EMPTY: '', RETRY_COUNT: '0', ENABLED: 'false', PADDED: '00123' })
       await run("window.memberFixture.theme('night')")
       window.setContentSize(1040,700)
       await settle()

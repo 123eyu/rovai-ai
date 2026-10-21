@@ -12064,15 +12064,12 @@ impl Core {
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
                 struct Params {
                     runtime_kind: AdapterKind,
-                    #[serde(default)]
-                    reveal: bool,
                 }
                 let params: Params = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
                 rovai_core::member_environment::common::get(
                     database.connection(),
                     params.runtime_kind,
-                    params.reveal,
                 )
             }
             "member.runtimeEnvironment.get" => {
@@ -12081,8 +12078,6 @@ impl Core {
                 struct Params {
                     member_id: String,
                     adapter_kind: AdapterKind,
-                    #[serde(default)]
-                    reveal: bool,
                 }
                 let params: Params = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
@@ -12090,7 +12085,6 @@ impl Core {
                     database.connection(),
                     &params.member_id,
                     params.adapter_kind,
-                    params.reveal,
                 )
             }
             "runtime.environmentLegacy.list" => {
@@ -12102,8 +12096,6 @@ impl Core {
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
                 struct Params {
                     runtime_kind: AdapterKind,
-                    #[serde(default)]
-                    reveal: bool,
                     identity: Option<String>,
                 }
                 let params: Params = serde_json::from_value(request.params.clone())?;
@@ -12112,7 +12104,6 @@ impl Core {
                     rovai_core::member_environment::legacy_get(
                         database.connection(),
                         params.runtime_kind,
-                        params.reveal,
                     )
                 } else {
                     rovai_core::member_environment::legacy_acknowledge(
@@ -30334,6 +30325,7 @@ done
             kind: rovai_core::local_attachment_source::LocalAttachmentKind::File,
             media_type: Some("text/plain".to_string()),
             observed_byte_size: Some(pasted_text.len() as u64),
+            pasted_text_preview: Some("😀中".repeat(80)),
         };
         let attachment_id = source_attachment.id.clone();
         let sent = core
@@ -30391,6 +30383,7 @@ done
         };
         assert_eq!(Path::new(&source_ref.source_path), source);
         assert_eq!(source_ref.display_name, "published_14:17:26.txt");
+        assert_eq!(source_ref.pasted_text_preview, Some("😀中".repeat(80)));
         let run_paths = resolve_source_attachments_for_run(&[source_ref.clone()]).unwrap();
         assert_eq!(run_paths, vec![source.to_string_lossy().to_string()]);
         assert_eq!(fs::read_to_string(&run_paths[0]).unwrap(), pasted_text);

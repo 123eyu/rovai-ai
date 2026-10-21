@@ -511,9 +511,14 @@ async fn fresh_formal_and_draft_checks_preserve_program_selection_and_private_st
         "commonEnvironment":{"expectedRevision":0,"json":r#"{"CHECK_REFRESH_VALUE":"shared-private","API_KEY":"fixture-common-key"}"#}})).await.unwrap();
     assert_eq!(
         shared["commonEnvironment"]["environment"]["API_KEY"],
-        "<saved>"
+        "fixture-common-key"
     );
-    assert!(!shared.to_string().contains("fixture-common-key"));
+    assert!(
+        shared["configuration"]["environment"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         fixture
             .core
@@ -541,7 +546,7 @@ async fn fresh_formal_and_draft_checks_preserve_program_selection_and_private_st
     );
     let before = fixture.public_state().await;
     let preview = fixture.core.handle_runtime_startup("runtime.startup.check", json!({"runtimeKind":KIND,"configuration":automatic,
-        "commonEnvironment":{"expectedRevision":1,"json":r#"{"CHECK_REFRESH_VALUE":"draft-private","API_KEY":"<saved>"}"#}})).await.unwrap();
+        "commonEnvironment":{"expectedRevision":1,"json":r#"{"CHECK_REFRESH_VALUE":"draft-private","API_KEY":"fixture-common-key"}"#}})).await.unwrap();
     assert!(!preview.to_string().contains("fixture-common-key"));
     assert_eq!(
         std::fs::read_to_string(latest.parent().unwrap().join("environment.txt"))

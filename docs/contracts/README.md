@@ -1,7 +1,7 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-22
+last_updated: 2026-10-21
 ---
 
 # 长期接口合同
@@ -157,7 +157,10 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Open Projection v10（历史）](camp-open-projection-v10.md) | main Snapshot 34/Open 6；Open 不读取 event_log，移除 timeline/coverage.timeline，保留 high-water 与业务卡片 |
 | [Camp Open Projection v10（渠道分支历史）](camp-open-projection-channel-v10.md) | v9 保留；Camp/Navigation 增加可选 channelSource，原始 title 不变；合并时保留原文以区分同号合同 |
 | [Camp Open Projection v9（历史）](camp-open-projection-v9.md) | v8 保留；Snapshot 34/Open 5 增加可选 member.fast，仅查询安全缓存 |
-| [Runtime Launch and Verification v69（当前）](runtime-launch-and-verification-v69.md) | Claude 复用私有 settings 与进程环境；CodeBuddy 只注入后台启动变量，原生配置与 Session 保持自有边界 |
+| [Runtime Launch and Verification v70（当前）](runtime-launch-and-verification-v70.md) | 继承环境输入规则；Claude 复用私有 settings 与进程环境，CodeBuddy 只注入后台启动变量，原生配置与 Session 保持自有边界 |
+| [Runtime Launch and Verification v69（历史）](runtime-launch-and-verification-v69.md) | 环境值直接显示；Renderer 标量转字符串、取消独立条数和名称长度限制，保留私有存储与三层合并 |
+| [Runtime Launch and Verification v68（历史）](runtime-launch-and-verification-v68.md) | Host＋Runtime 通用环境、继承选择、三层合并与私有通用版本 |
+| [Runtime Launch and Verification v67（历史）](runtime-launch-and-verification-v67.md) | ZCode Session toolDenylist、OpenCode V2 question deny；只替换 Host，保留原生会话 |
 | [Runtime Launch and Verification v66（历史）](runtime-launch-and-verification-v66.md) | Qwen ACP 排除 ask_user_question，Host 策略替换与原会话保留；继承 v65 问卷兜底 |
 | [Runtime Launch and Verification v65（历史）](runtime-launch-and-verification-v65.md) | Claude/Copilot 正式禁用原生问卷，Kimi/Qwen 在审批前取消，保留归属与不支持终态 |
 | [Runtime Launch and Verification v64（历史）](runtime-launch-and-verification-v64.md) | 同程序版本与静态证据复用、单项检查必要工作、MiniMax 健康与完整目录分离；不增加启动健康检查 |
@@ -520,7 +523,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Pending Camp Activation v3（历史）](pending-camp-activation-v3.md) | AI 创建队员草稿可在同窗口侧栏切换；Core 导航与持久恢复仍排除 Pending |
 | [Pending Camp Activation v2（历史）](pending-camp-activation-v2.md) | 一键 Pending 保留首消息原子激活，未发送输入改为 Renderer-local，不进入导航或恢复 |
 | [Pending Camp Activation v1（历史）](pending-camp-activation-v1.md) | 一键 Pending 创建、Draft-backed Navigation/恢复、首消息原子激活与受控清理 |
-| [Camp Attachment v11（当前）](camp-attachment-v11.md) | Source Ref 保留通过展示安全检查的原始显示名；实际落盘入口继续清洗文件名 |
+| [Camp Attachment v12（当前）](camp-attachment-v12.md) | 长粘贴附件的有界内容前缀、草稿与发送展示保持，文件生命周期不变 |
+| [Camp Attachment v11（历史）](camp-attachment-v11.md) | Source Ref 保留通过展示安全检查的原始显示名；实际落盘入口继续清洗文件名 |
 | [Camp Attachment v10（历史）](camp-attachment-v10.md) | Agent 附件原路径引用、默认输出位置及新旧记录读取分流；详见合同 |
 | [Camp Attachment v9（历史）](camp-attachment-v9.md) | Desktop Source Ref 运行前做宿主重检，随后向 Context 原样投影 stored source path；不再 canonicalize、分流或复制 |
 | [Camp Attachment v8（历史）](camp-attachment-v8.md) | Desktop 新用户附件只存 owner source refs，Pending 原生携带，外部 Runtime 路径复制到当前 Run Temp；该交付语义由 v9 替代 |

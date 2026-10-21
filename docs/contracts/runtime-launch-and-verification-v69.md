@@ -9,50 +9,38 @@ last_updated: 2026-10-22
 
 # Runtime Launch and Verification v69
 
-继承 [v68](runtime-launch-and-verification-v68.md)。本版为 Rovai 托管的 Claude Code、CodeBuddy
-固定原生后台执行策略。前台命令、前台原生子 Agent 和平台同伴协作继续可用。
+继承 [v68](runtime-launch-and-verification-v68.md)。本版替代环境编辑器的凭据遮蔽、保留标记和独立数量／名称长度限制；
+输入转换只由 Renderer 公共解析函数拥有，Core 持续使用字符串映射。决定理由见
+[V1.72-D56](../versions/v1.72/decisions.md#v1-72-d56)。
 
-## 固定启动策略
+## Owner 环境读取与保存
 
-| Runtime | 环境变量 | 值 |
-| --- | --- | --- |
-| Claude Code | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` | `1` |
-| CodeBuddy | `CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS` | `1` |
-| CodeBuddy | `CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED` | `1` |
-| CodeBuddy | `CODEBUDDY_BASH_ASSISTANT_BUDGET_MS` | `0` |
+- `runtime.environment.get { runtimeKind }` 返回 `{ revision, environment }`，值为完整字符串。
+- `member.runtimeEnvironment.get { memberId, adapterKind }` 返回队员字符串映射、revision、inheritCommon 及当前完整 common 快照。
+- `runtime.startup.get/save` 的 `commonEnvironment` 同样返回完整值。
+- `runtime.environmentLegacy.get { runtimeKind }` 返回完整的只读归档；不启用、不迁移、不改写归档值。
+- 上述读取不再接受 `reveal`。编辑和合并预览不遮蔽变量，不提供显示／隐藏密钥状态或额外请求。
+- `<saved>` 不再是保留凭据的特殊标记，是普通字符串；缺省条目仍表示删除该层覆盖，空字符串仍是显式覆盖。
+- `members.runtime.set.command.environment.json` 及 `runtime.startup.save/inspect/check.commonEnvironment.json`
+  均为字符串映射 JSON。Core 不接受 number、boolean、null、数组或对象值，也不建立第二套数值转换规则。
 
-Claude 在成员环境及设置合并后，将策略值写入已有私有 settings，并再次固定在最终子进程环境。
-CodeBuddy 只在环境合并后的专属启动分支注入三个子进程环境变量，位置覆盖外部 MCP 提前返回路径。
-Windows 进程环境名遵循大小写不敏感语义，Claude 私有 settings 局部移除同名等价键；用户原生配置与 Core 环境不改写。
-这些开关用于关闭显式后台执行及已确认的超时、响应预算自动转后台入口；CodeBuddy 原生配置覆盖的边界见下节。
-不宣称所有原生内部中断路径均已证明不可转后台。
-长命令仍遵循原生前台超时，失败／超时结果由当前任务处理，不自动重复业务操作。
+Owner Desktop/Web 访问边界、AES-256-GCM 私有存储、revision 冲突、原子保存和日志脱敏保持。
+公开资料、模板、跨队员应用、事件、诊断及命令回执仍不能携带环境值。无需数据库迁移。
 
-## CodeBuddy 原生配置边界
+## JSON 输入转换
 
-Rovai 保证启动时注入上述三个变量。用户原生 settings 继续由 CodeBuddy 自己读取；其中显式配置的同名变量
-仍按 CodeBuddy 原生规则生效，本项策略不保证覆盖所有原生配置冲突。
+通用和队员编辑器复用 `parseMemberEnvironment`，返回 `Record<string, string>`。
+字符串原样保留；有限数字和布尔值使用 `String(value)`。`0`、`false`、`""` 都保留，`"00123"` 不移除前导零。
+非有限数字及超出 JavaScript 安全整数范围的整数须提示使用字符串；null、数组和对象值须指出变量名并拒绝整次提交。
+需要传递 JSON 内容时显式填写字符串。重复变量检查针对原始 JSON 文本执行，包含转义解码及 Windows 大小写别名。
 
-本项策略不读取 user／project／local settings，不重建 env 优先级，不复制原生 env，不生成
-`background-policy-settings.json` 或追加 `--settings`，也不为此分配私有 Host 目录。
-因此不新增原生 env 搬运、配置解析或文件清理路径，也不为已删除的路径增加日志拦截。
+输入、失焦和进入预览均不改写原始草稿。合并预览使用转换后的字符串，沿用通用配置与队员同名覆盖、其余保留的规则。
+提交使用 `JSON.stringify(parsed)`；成功后显示保存的字符串快照并清除脏标记，失败保留原始草稿。
+新队员创建后的运行配置与已有队员共用此路径。
 
-## Host 与 Session
+## 保留的限制
 
-CodeBuddy 的 Host compatibility 添加 `nativeBackgroundPolicy=disabled-v1`。未加载策略的旧 Host
-不再符合后续获取的复用条件，已经接受的输入不因本次策略被强行重放或中断。
-标记不进入 Native Session binding／session compatibility，原生会话历史沿既有恢复机制保留。
-Claude 每次 one-shot 新建进程时应用同一策略。
-
-## 完成规则
-
-Claude Code、CodeBuddy 的普通会话与 Single Chat 在用户指令／授权规则之后加入同一条：
-
-> Do not background required finite commands or native subagents. If a tool backgrounds them, collect results and complete authorized follow-up before your final response. Do not assume background completion will resume your work.
-
-此规则只约束任务所需的有限命令与原生子 Agent。Rovai 同伴等待、授权、当前输入、进度说明和 Single Chat
-私有输出规则继续有效。其他 Runtime 的章程保持原字节；不建立后台完成自动唤醒机制。
-本条替代 [Single Chat v9](single-chat-v9.md) 中对这两个 Runtime 的“专用 Charter 保持原字节”限制，
-其余 Single Chat 输入、权限和历史边界不变。
-
-验证与已确认的完整前后对照见 [v1.72 实施记录](../versions/v1.72/model-context-change-native-background-policy.md)。
+取消独立的 128 项上限与 256 字符变量名上限；单值 64 KiB、配置覆盖层合计 128 KiB 的 UTF-8 容量限制保持，
+通用与队员合并结果也须满足总容量限制。名称仍须满足 `[A-Za-z_][A-Za-z0-9_]*`，拒绝重复名、NUL 和应用保留名。
+Windows 名称按大写持久化；Claude 显式模型与合并后的 `ANTHROPIC_MODEL` 仍互斥。
+三层优先级、关闭继承、Host 字面值、新进程读取和健康 Warm 生命周期沿用 v68，不进行 Shell 展开。

@@ -7,6 +7,7 @@ import { useThreadClient } from './camp-client'
 import { CurrentUserProfileEditor, CurrentUserRosterEntry } from './CurrentUserProfileEditor'
 import { readErrorMessage } from './error-message'
 import {
+  Activity,
   forwardRef,
   useCallback,
   useEffect,
@@ -44,7 +45,7 @@ import {
 } from './AppDialog'
 import { localizeExecutionEngineTerms } from './product-copy'
 import { SettingsPageHeader } from './SettingsPageHeader'
-import { RuntimeStartupSettings } from './RuntimeStartupSettings'
+import { RuntimeStartupSettings, type RuntimeStartupLeaveGuard } from './RuntimeStartupSettings'
 import { RuntimeInstallationGuide } from './RuntimeInstallationGuide'
 import { runtimeInstallGuide } from './runtime-install-guide'
 import { invalidateManagedAvatarObjectUrl } from './managed-avatar-cache'
@@ -1461,11 +1462,15 @@ function persistedRuntimeKey(agent: AgentProfile): string {
 export function RuntimeInstallationsPanel({
   health,
   commonEnvironmentReturn,
+  active = true,
+  onLeaveGuardChange,
   onReload
 }: {
   health: RuntimeStatus | null
   installations: AdapterInstallation[]
   commonEnvironmentReturn?: { kind: AdapterKind; memberName: string; onBack(): void }
+  active?: boolean
+  onLeaveGuardChange?(guard: RuntimeStartupLeaveGuard | null): void
   onReload(): Promise<void>
 }): React.JSX.Element {
   const client = useThreadClient()
@@ -1525,12 +1530,12 @@ export function RuntimeInstallationsPanel({
     }
   }
 
-  if (settingsRuntime) return <RuntimeStartupSettings key={settingsRuntime} runtimeKind={settingsRuntime} health={health}
+  if (settingsRuntime) return <RuntimeStartupSettings key={settingsRuntime} runtimeKind={settingsRuntime} health={health} active={active} onLeaveGuardChange={onLeaveGuardChange}
     backLabel={commonEnvironmentReturn ? uiAttribute('返回 {0} 的队员配置', commonEnvironmentReturn.memberName) : undefined}
     onBack={() => { if (commonEnvironmentReturn) commonEnvironmentReturn.onBack(); else setSettingsRuntime(null); void onReload() }} />
 
   return (
-    <>
+    <Activity mode={active ? 'visible' : 'hidden'}>
       <SettingsPageHeader
         eyebrow="Settings / Agents"
         title={uiAttribute("智能体")}
@@ -1633,7 +1638,7 @@ export function RuntimeInstallationsPanel({
           </div>
         )}
       </section>
-    </>
+    </Activity>
   )
 }
 

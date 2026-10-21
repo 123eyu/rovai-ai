@@ -320,6 +320,7 @@ PR 明示此证据边界，不据此宣称模型遵循率或端到端僵尸 Run 
 - Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-native-background-policy`
 - Branch: `rovai/native-background-policy`
 - Base: `origin/main@caf66a6eac581a62cb242b0c4037f60cb6855ed5`
+- Integration base: `origin/main@9ba64da03ce1d1f6bbcaec03bb0c9d7b070db909`（2026-10-22，仅同步到 PR 分支）
 - Governance: 本文件归档已确认内容；无独立主线先行要求
 - Status: ready
 - PR: [#857](https://github.com/murray17/rovai-ai/pull/857)
@@ -371,6 +372,9 @@ macOS arm64，独立临时 HOME、原生配置、工作目录与私有 settings�
 2.133.1 发布包的 SettingsManager，而非假设各层按键合并。
 
 ## 收敛实施与验证（2026-10-22）
+
+主线同期新增了环境编辑合同 v69，本项合同顺延为 [Runtime Launch v70](../../contracts/runtime-launch-and-verification-v70.md)，
+继承主线 v69；同步主线只发生在 PR 分支，不合并 PR。四个本项 Rust 文件在同步前后保持原字节。
 
 基于 `07227a94a`，CodeBuddy 生产改动只保留专属分支的三个 `command.env` 设置和 Host compatibility
 标记。删除新增的 settings 读取／复制／解析函数、`--settings` 文件、私有 Host 目录分支及目录必填检查。

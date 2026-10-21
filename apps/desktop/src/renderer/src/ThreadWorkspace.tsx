@@ -56,6 +56,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import { ThreadDetailPopover } from './ThreadDetailPopover'
+import { ThreadPanelCollapseButton, ThreadPanelDismissHint, useThreadPanelDismiss } from './ThreadPanelDismiss'
 import { SingleChatPanel } from './SingleChatPanel'
 import {
   CompactionEventRow, ExecutionToolGroupStateContext, FileOperationRow, ModifiedFileRow, RuntimeRetryNotice,
@@ -1764,6 +1765,11 @@ export function ThreadWorkspace({
   const [replyWidth, setReplyWidth] = useState(466)
   const [replyExecutionVisible, setReplyExecutionVisible] = useState(false)
   const replyExecutionHost = useRef<HTMLDivElement>(null)
+  const replyExecutionPanelRef = useRef<HTMLElement>(null)
+  const closeReplyExecution = useCallback(() => setReplyExecutionVisible(false), [])
+  const dismissReplyExecution = useThreadPanelDismiss({
+    visible: !!replyDetail.messageId && replyExecutionVisible, panelRef: replyExecutionPanelRef, onClose: closeReplyExecution
+  })
   const replyTrigger = useRef<HTMLElement | null>(null)
   useEffect(() => replyReader.start(), [replyReader])
   const replyRunAnchors = snapshot.agentRuns.filter(run => run.status === 'running' || run.status === 'waiting')
@@ -1793,14 +1799,9 @@ export function ThreadWorkspace({
     const escape = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented
         || document.querySelector('.app-dialog, .mention-profile-popover, [role="menu"][data-state="open"], [data-radix-popper-content-wrapper]')) return
-      if (replyExecutionVisible) {
-        if (event.target instanceof Element && event.target.closest('.tool-call-result-scroll')) return
-        setReplyExecutionVisible(false)
-        requestAnimationFrame(() => executionDrawerTriggerRef.current?.focus({ preventScroll: true }))
-      } else {
-        if (inspectorVisible || singleChatVisible) return
-        closeReplyDetails()
-      }
+      // Each overlaid Thread panel owns its first Escape.
+      if (replyExecutionVisible || inspectorVisible || singleChatVisible) return
+      closeReplyDetails()
       event.preventDefault()
       event.stopPropagation()
     }
@@ -4430,9 +4431,6 @@ export function ThreadWorkspace({
             onAccepted: () => { accepted = true },
             onPrepared: attachment => { preparedAttachmentId = attachment.id }
           } : undefined)
-          if (pastedText && draftThreadId.current === threadId) {
-            setPasteMessage(uiAttribute('长文本已转为附件'))
-          }
         } catch (error) {
           if (pastedText && accepted && draftThreadId.current === threadId) {
             setComposerPersistenceError(error instanceof Error ? error : new Error(readErrorMessage(error)))
@@ -4481,7 +4479,7 @@ export function ThreadWorkspace({
         ...(draftCoordinator.getCurrentDraft()?.attachments.map(item => item.displayName) ?? []),
         ...preparingAttachmentNames.current.values()
       ]
-      file = new File([text], pastedTextFileName(names, uiAttribute('粘贴内容')), { type: 'text/plain;charset=utf-8' })
+      file = new File([text], pastedTextFileName(names, index => uiAttribute('粘贴内容-{0}.txt', index)), { type: 'text/plain;charset=utf-8' })
     } catch {
       // Still inside paste: the ordinary text branch can insert the original.
       return false
@@ -6145,14 +6143,12 @@ export function ThreadWorkspace({
             <MessageAttachmentGroups attachments={message.attachments} threadId={snapshot.thread.id} messageId={message.id}
               presentation={message.authorType === 'agent' ? 'agent' : 'user'} onNotify={onNotify} />
           </>} />}
-        {replyDetail.messageId && replyExecutionVisible && <aside className="camp-detail-popover reply-execution-popover" role="dialog" aria-modal={false} aria-label={uiAttribute('执行过程')}>
+        {replyDetail.messageId && replyExecutionVisible && <aside ref={replyExecutionPanelRef} tabIndex={-1} className="camp-detail-popover reply-execution-popover" role="dialog" aria-modal={false} aria-label={uiAttribute('执行过程')}>
           <header className="camp-detail-heading"><strong>{uiAttribute('执行过程')}</strong>
-            <button type="button" className="reply-detail-icon" aria-label={uiAttribute('收起执行过程')} onClick={() => {
-              setReplyExecutionVisible(false)
-              requestAnimationFrame(() => executionDrawerTriggerRef.current?.focus({ preventScroll: true }))
-            }}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button>
+            <ThreadPanelCollapseButton label={uiAttribute('收起执行过程')} mobile={mobile} onDismiss={dismissReplyExecution} />
           </header>
           <div ref={replyExecutionHost} className="execution-drawer-host execution-drawer-host-inspector" />
+          <footer className="camp-detail-footer"><ThreadPanelDismissHint /></footer>
         </aside>}
 
         {filePreview ? (

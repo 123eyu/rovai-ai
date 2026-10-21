@@ -2230,7 +2230,8 @@ describe('task event projections', () => {
         mediaType: 'text/plain',
         byteSize: 12,
         previewKind: 'none',
-        availability: 'available'
+        availability: 'available',
+        pastedTextPreview: '正文开头'
       }],
       replyIntent: null,
       continuationIntent: null,
@@ -2249,7 +2250,8 @@ describe('task event projections', () => {
         displayName: '说明.txt',
         kind: 'file',
         mediaType: 'text/plain',
-        observedByteSize: 12
+        observedByteSize: 12,
+        pastedTextPreview: '正文开头'
       }],
       quotes: [],
       replyToThreadMessageId: null,
@@ -2262,7 +2264,7 @@ describe('task event projections', () => {
     expect(optimisticThreadMessage(null, 'command-attachment-only', draft)).toMatchObject({
       body: '',
       content: [],
-      attachments: [{ id: 'attachment-only' }]
+      attachments: [{ id: 'attachment-only', pastedTextPreview: '正文开头' }]
     })
   })
 

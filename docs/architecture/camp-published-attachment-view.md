@@ -9,7 +9,7 @@ last_updated: 2026-10-21
 # Camp Attachments：原路径引用、默认输出与历史读取
 
 新用户输入和新 Agent 发布复用 `LocalAttachmentSourceRef`；历史 Managed/Prepared/Message Attachment 保留原位读取。
-[Camp Attachment v11](../contracts/camp-attachment-v11.md) 拥有当前合同；
+[Camp Attachment v12](../contracts/camp-attachment-v12.md) 拥有当前合同；
 [V1.59-D08](../versions/v1.59/decisions.md#v1-59-d08) 解释从复制快照转为原路径的选择。
 
 ## 发布和身份

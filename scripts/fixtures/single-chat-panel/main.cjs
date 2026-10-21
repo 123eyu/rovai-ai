@@ -423,6 +423,31 @@ app.whenReady().then(async () => {
       app.quit()
       return
     }
+    const collapseStyle = await run(`(() => {
+      const b = document.querySelector('.single-chat-heading .camp-detail-collapse'), k = document.querySelector('.single-chat-footer kbd');
+      const r = b.getBoundingClientRect(), s = getComputedStyle(k), p = b.closest('aside').getBoundingClientRect();
+      return { text:b.textContent.trim(), width:r.width, height:r.height, top:r.top-p.top, right:p.right-r.right,
+        keyBorder:s.borderWidth, keyPadding:s.padding, keyBackground:s.backgroundColor };
+    })()`)
+    assert.deepEqual(collapseStyle, { text:'收起', width:62, height:28, top:9, right:13,
+      keyBorder:'0px', keyPadding:'0px', keyBackground:'rgba(0, 0, 0, 0)' })
+    await fillComposer('收起后继续编辑的单聊草稿')
+    await click('.single-chat-target-trigger')
+    await key('Escape')
+    assert.equal(await run('document.querySelector(".single-chat-popover").hidden'), false, 'Menu Escape keeps Single Chat open')
+    await fillComposer('收起后继续编辑的单聊草稿')
+    await run(`document.querySelector('.single-chat-composer textarea').dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', isComposing:true, bubbles:true, cancelable:true }))`)
+    assert.equal(await run('document.querySelector(".single-chat-popover").hidden'), false, 'IME Escape cannot collapse the panel')
+    await key('Escape')
+    assert.equal(await run('document.querySelector(".single-chat-popover").hidden'), true)
+    assert.equal(await run('document.querySelector(".single-chat-popover").contains(document.activeElement)'), false, 'No focus remains inside the hidden panel')
+    await click('.camp-detail-entry[data-detail="single-chat"]')
+    assert.equal(await run('document.querySelector(".single-chat-composer textarea").value'), '收起后继续编辑的单聊草稿')
+    await fillComposer('')
+    await click('.single-chat-heading .camp-detail-collapse')
+    assert.equal(await run('document.querySelector(".single-chat-popover").hidden'), true)
+    await click('.camp-detail-entry[data-detail="single-chat"]')
+    state = await settle()
     assert.ok(state.panel && state.panel.width <= 441 && state.panel.height <= 701)
     assert.equal(state.pageOverflow, false)
     assert.equal(state.triggerAvatars, 1)

@@ -57,6 +57,38 @@ test('reply detail navigation reveals and retains the original after layout and 
       }
       return draft
     }
+    for (const scenario of [
+      { width: 1920, full: false }, { width: 1440, full: true }, { width: 1040, full: false }
+    ]) {
+      await open({ ...scenario, loaded: true })
+      for (const tab of ['execution', 'members']) {
+        await click(`.camp-detail-entry[data-detail="${tab}"]`)
+        await b.wait('!document.querySelector(".camp-detail-popover:not(.reply-execution-popover)").hidden')
+        const bounds = await b.evaluate(`(() => {
+          const panel = document.querySelector('.camp-detail-popover:not(.reply-execution-popover)'), button = panel.querySelector('.camp-detail-collapse');
+          const p = panel.getBoundingClientRect(), r = button.getBoundingClientRect(), w = document.querySelector('.camp-workspace').getBoundingClientRect();
+          return { panelTop:p.top, workspaceTop:w.top, panelRight:p.right, workspaceRight:w.right,
+            x:Math.round(r.x+r.width/2), y:Math.ceil(r.top), width:r.width, height:r.height,
+            hit:button.contains(document.elementFromPoint(r.x+r.width/2, r.y+r.height/2)) };
+        })()`)
+        assert.equal(bounds.panelTop, bounds.workspaceTop + 8, 'Reply details must anchor the inspector below the native titlebar')
+        assert.ok(bounds.panelRight <= bounds.workspaceRight && bounds.hit)
+        assert.ok(bounds.width >= 62 && bounds.height === 28)
+        // Click the top edge through native input: pressing must not move this target.
+        await b.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:bounds.x, y:bounds.y })
+        await b.send('Input.dispatchMouseEvent', { type:'mousePressed', x:bounds.x, y:bounds.y, button:'left', clickCount:1 })
+        await pause(40)
+        await b.send('Input.dispatchMouseEvent', { type:'mouseReleased', x:bounds.x, y:bounds.y, button:'left', clickCount:1 })
+        await b.wait('document.querySelector(".camp-detail-popover:not(.reply-execution-popover)").hidden')
+        assert.equal(await b.evaluate('!!document.querySelector(".reply-detail-panel")'), true)
+        await click(`.camp-detail-entry[data-detail="${tab}"]`)
+        await b.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Escape', code:'Escape', windowsVirtualKeyCode:27 })
+        await b.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Escape', code:'Escape', windowsVirtualKeyCode:27 })
+        await b.wait('document.querySelector(".camp-detail-popover:not(.reply-execution-popover)").hidden')
+        assert.equal(await b.evaluate('!!document.querySelector(".reply-detail-panel")'), true, 'One Escape keeps the underlying reply tab open')
+        results.push({ name:'reply-inspector-dismissal', ...scenario, tab, bounds })
+      }
+    }
     const geometry = messageId => b.evaluate(`(() => {
       const viewport = document.querySelector('.timeline-scroll'), target = viewport.querySelector('[data-message-id="${messageId}"]');
       const v = viewport.getBoundingClientRect(), r = target?.getBoundingClientRect();
@@ -98,7 +130,7 @@ test('reply detail navigation reveals and retains the original after layout and 
       results.push({ name: scenario.name, messageId, expectedDraft, afterReveal, afterResize })
     }
     await writeFile(join(out, 'verification.json'), JSON.stringify(results, null, 2))
-    for (const { name, expectedDraft, afterReveal, afterResize } of results) {
+    for (const { name, expectedDraft, afterReveal, afterResize } of results.filter(result => result.afterReveal)) {
       assert.equal(afterReveal.visible, true, `${name}: original must remain in the viewport: ${JSON.stringify(afterReveal)}`)
       assert.equal(afterReveal.focused, true, `${name}: original takes keyboard focus`)
       assert.equal(afterReveal.detailClosed, true)

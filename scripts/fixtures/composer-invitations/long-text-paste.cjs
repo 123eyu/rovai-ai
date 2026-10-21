@@ -321,6 +321,61 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
   assert.equal((await state()).text, long)
   assert.equal((await pasteState()).preparedFiles.length, 0)
   assert.deepEqual((await state()).errors, [])
+  // Shared production cards: both locales/themes, restore, then the accepted message.
+  const cardState = selector => evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(selector)})).map(card => ({
+    width: card.getBoundingClientRect().width, height: card.getBoundingClientRect().height,
+    title: card.querySelector('strong')?.textContent, label: card.querySelector('small')?.textContent,
+    overflow: card.querySelector('strong')?.scrollWidth > card.querySelector('strong')?.clientWidth
+  }))`)
+  for (const language of ['zh-CN', 'en']) {
+    await reset()
+    await evaluate(`invitationTest.language('${language}')`)
+    await paste('# Rovai：Claude Code、CodeBuddy 原生后台执行限制方案\n' + long)
+    for (const name of ['ordinary-file-with-a-very-long-name-that-needs-ellipsis.md', 'short.json']) {
+      await evaluate(`pasteTest.paste("", undefined, undefined, ${JSON.stringify(name)})`)
+    }
+    await wait('invitationTest.state().draft?.attachments.length === 3 && pasteTest.state().preparing === 0')
+    await evaluate('invitationTest.hide()'); await wait('!document.querySelector("#camp-message")')
+    await evaluate('invitationTest.show()'); await wait('document.querySelectorAll(".composer .attachment-card").length === 3')
+    const cards = await cardState('.composer .attachment-card')
+    assert.ok(cards.every(card => card.width <= 224.5 && card.height === 48))
+    assert.ok(cards[0].title.startsWith('# Rovai：Claude Code'))
+    assert.equal(cards[0].label, language === 'en' ? 'Pasted text' : '粘贴内容')
+    assert.ok(cards[0].overflow && cards[1].overflow)
+    assert.ok(cards[2].width < 224, 'Short filenames stay naturally narrow')
+    for (const theme of ['day', 'night']) {
+      await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+      await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      writeFileSync(join(evidence, `compact-cards-${language}-${theme}.png`), (await window.webContents.capturePage()).toPNG())
+    }
+    await evaluate('invitationTest.accept(); invitationTest.submit()')
+    await wait('invitationTest.state().draft === null && document.querySelectorAll(".user-timeline").length === 3')
+    const sent = await cardState('.user-timeline')
+    assert.ok(sent.every(card => card.width <= 224.5 && card.height === 46))
+    assert.equal(sent[0].title, cards[0].title)
+    assert.equal(sent[0].label, cards[0].label)
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    writeFileSync(join(evidence, `compact-cards-sent-${language}.png`), (await window.webContents.capturePage()).toPNG())
+    await evaluate('pasteTest.agentFiles()')
+    await wait('document.querySelectorAll(".agent-timeline").length === 3')
+    for (const width of [800, 200]) {
+      await evaluate(`document.querySelector('.agent-message-outputs').style.width = '${width}px'`)
+      const agentCards = await cardState('.agent-timeline')
+      const gridWidth = await evaluate('document.querySelector(".agent-output-file-grid").getBoundingClientRect().width')
+      assert.equal(gridWidth, Math.min(620, width), 'Agent files fill available space up to the original 620px limit')
+      assert.ok(agentCards.every(card => Math.abs(card.width - (gridWidth - 2)) < 0.5 && card.height >= 56))
+      assert.equal(agentCards[0].title, cards[0].title)
+      if (width === 200) assert.ok(agentCards[0].overflow && agentCards[1].overflow)
+      for (const theme of ['day', 'night']) {
+        await evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+        await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        writeFileSync(join(evidence, `agent-cards-${language}-${theme}-${width}.png`), (await window.webContents.capturePage()).toPNG())
+      }
+    }
+    await evaluate('document.querySelector(".agent-message-outputs").style.removeProperty("width")')
+    assert.deepEqual((await state()).errors, [])
+  }
+  await evaluate('invitationTest.language("zh-CN")')
   await reset(true)
   console.error('Long-text paste cases passed: thresholds, Unicode/UTF-8, selection, storage/send, priority, names, capacity, delayed failure, leave, presence and storage failure')
 }

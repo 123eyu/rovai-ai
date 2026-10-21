@@ -154,7 +154,7 @@ Runtime Startup Settings 保存本机程序路径及按 Runtime 隔离的通用�
 进程只在同一 Camp、同一队员的当前会话内复用，继续遵循各 Adapter 的工作目录、恢复与停止策略。
 值不进入成员资料、公开命令、工具、事件或诊断导出；Owner 管理面使用遮蔽读取及显式查看。
 程序绝对路径仍属于安装发现，不由队员 PATH 偷换。详细字段、CAS、凭据保护、CLI 资格与迁移见
-[Runtime Launch v68](../contracts/runtime-launch-and-verification-v68.md)。
+[Runtime Launch v69](../contracts/runtime-launch-and-verification-v69.md)。
 正式检查与模型目录使用 Host＋通用配置；保存使相关缓存和旧检查失效，不主动替换 Warm。
 
 ### Claude Code 与 Codex 原生配置
@@ -586,7 +586,7 @@ Runtime-managed AgentRun 通过标准 ACP `session/set_config_option` 投递冻�
 `default`、`auto` 或 `plan` 不由 discovery、升级或 migration 静默扩权。十二种 Runtime 的 exact 默认矩阵见
 [Runtime Launch and Verification v55](../contracts/runtime-launch-and-verification-v55.md)。
 复用 Kimi Host 时从当前 AgentRun 的冻结配置设置 Session 模式，不继承原 Host 创建时的模式。
-Host＋通用＋队员环境按 [v68](../contracts/runtime-launch-and-verification-v68.md) 在进程创建时读取；保存配置不替换
+Host＋通用＋队员环境按 [v68](../contracts/runtime-launch-and-verification-v69.md) 在进程创建时读取；保存配置不替换
 当前 Host。会话重置通过既有 native binding 身份隔离，原生配置与协议兼容判断继续保留，不新增环境摘要。
 CodeBuddy 的显式模型通过 Host 启动参数 `--model` 选择，因此它参与进程兼容；Runtime-default
 不传该参数，Session/Turn 选项变化不因完整 Run 配置摘要而重启 Host。

@@ -1345,6 +1345,8 @@ export interface ThreadMessageAttachmentView {
   byteSize: number | null
   previewKind: 'image' | 'none'
   availability: LocalAttachmentAvailability
+  /** Optional, display-only prefix (at most 160 Unicode code points) of generated pasted text. */
+  pastedTextPreview?: string
   /** Present only while an unsent local Composer owns this attachment. */
   sourcePath?: string
 }

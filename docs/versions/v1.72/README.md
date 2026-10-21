@@ -17,7 +17,7 @@ last_updated: 2026-10-22
 CodeBuddy 按 2026-10-22 的收敛要求只注入三个最终子进程变量，原生同名 settings 仍按 CLI 自身规则生效。
 CodeBuddy 只更新 Host 策略摘要。普通／Single Chat 均覆盖，原生会话不迁移。
 完整前后文本、确认记录、验证与 worktree 交接见[独立说明](model-context-change-native-background-policy.md)，
-当前合同见 [Runtime Launch v69](../../contracts/runtime-launch-and-verification-v69.md)。按 User 最新指令只创建 PR，不合并。
+当前合同见 [Runtime Launch v70](../../contracts/runtime-launch-and-verification-v70.md)。按 User 最新指令只创建 PR，不合并。
 
 本项更新当前 Contract、Architecture、Context revision 与文档路由；不改变数据库 schema、发布版本、UI、
 Runtime Activity 或平台资格。属于局部启动策略，无需新增 Version Decision；正式模型质量 Gate 状态另记在独立说明。
@@ -26,7 +26,7 @@ Runtime Activity 或平台资格。属于局部启动策略，无需新增 Versi
 
 按 User 确认的第三版交互稿接入 Runtime 通用变量、队员继承与原地只读预览，
 保持已有进程与队员草稿。字段、加密、检查失效及 schema 161 升级由
-[Runtime Launch v68](../../contracts/runtime-launch-and-verification-v68.md)拥有；
+[Runtime Launch v69](../../contracts/runtime-launch-and-verification-v69.md)拥有；
 实施与验收见[通用环境配置记录](shared-environment-implementation.md)。不改变模型上下文或发布版本。
 
 ## 跟随系统界面语言（2026-10-21）
@@ -53,12 +53,21 @@ User 于 2026-10-21 确认输入历史简化：首次 ↑ 从现有消息提取�
 合同见 [Thread Replies v1](../../contracts/thread-replies-v1.md)，实现与验证见
 [回复详情实施记录](reply-details-implementation.md)。不改变模型上下文、数据库 schema 或发布版本。
 
+## 紧凑文件卡片与粘贴内容前缀（2026-10-21）
+
+用户文件卡片最大宽度调整为 224px，短文件名按内容收窄，图片缩略图尺寸不变。
+按 User 后续要求，Agent 文件列表恢复 620px 上限，各行填满列表并随窄容器收缩。
+新生成的长粘贴附件显示原文开头与“粘贴内容 / Pasted text”，草稿恢复和发送后保持。
+仅存有界展示前缀，全文、原文件名、预览与移除规则保持；旧记录不扫描回填。
+合同见 [Camp Attachment v12](../../contracts/camp-attachment-v12.md)，验证见
+[实施记录](implementation-plan.md#紧凑文件卡片与粘贴内容前缀2026-10-21)。
+
 ## 原路径附件显示名（2026-10-21）
 
 按 User 确认收窄 Source Ref 的历史文件名约束：包含时间冒号等字符的显示名原样保留，
 仍检查非空、120 码点上限及控制字符，实际文件继续按原路径授权和读取。
 渠道下载与历史受管附件的安全落盘名称处理保持原边界。当前合同见
-[Camp Attachment v11](../../contracts/camp-attachment-v11.md)，验证见
+[Camp Attachment v12](../../contracts/camp-attachment-v12.md)，验证见
 [实施记录](implementation-plan.md#原路径附件显示名2026-10-21)。
 
 ## 单次长文本粘贴转附件（2026-10-20）

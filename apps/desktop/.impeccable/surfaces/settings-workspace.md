@@ -371,7 +371,8 @@ login status, address, Key, Claude model mappings and the custom Codex model lis
 explicit checks, masked environment values and the existing save/discard row. Do not add replacement help,
 a disabled entry or an alternative connection editor. Existing native files remain unchanged.
 
-Save ends from its local receipt and shows “已保存”; it does not call parent reloads, native observation or
+Save ends from its local receipt and shows “已保存” in the shared member-editor footer status slot: muted text
+on the left, with save/discard actions on the right. Do not reuse the green Runtime check-result style. It does not call parent reloads, native observation or
 runtime checks. Preserve failed drafts and field conflict recovery. Native login/install guides remain in
 the Runtime catalog. Behavior is owned by [Runtime Launch v52](../../../../docs/contracts/runtime-launch-and-verification-v52.md).
 

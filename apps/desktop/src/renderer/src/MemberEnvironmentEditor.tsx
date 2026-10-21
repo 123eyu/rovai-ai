@@ -9,8 +9,8 @@ import { EnvironmentJson } from './CommonEnvironmentEditor'
 import { COMMON_ENVIRONMENT_CHANGED, maskEnvironment, mergeEnvironment, type EnvironmentSnapshot } from './member-environment'
 import './member-environment.css'
 
-type Draft = { snapshot: MemberEnvironmentSnapshot; text: string; error: string; loading: boolean; revealed: boolean; saved: boolean; inherit: boolean }
-const empty = (): Draft => ({ snapshot: { revision: 0, environment: {} }, text: '', error: '', loading: true, revealed: false, saved: false, inherit: true })
+type Draft = { snapshot: MemberEnvironmentSnapshot; text: string; error: string; loading: boolean; revealed: boolean; inherit: boolean }
+const empty = (): Draft => ({ snapshot: { revision: 0, environment: {} }, text: '', error: '', loading: true, revealed: false, inherit: true })
 
 export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', memberVersion: number, model: ModelSelection | undefined, windows: boolean, active = true) {
   const client = useThreadClient()
@@ -38,7 +38,7 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
         if (!force && !saved && previous && (previous.text !== environmentText(previous.snapshot.environment) || previous.inherit !== (previous.snapshot.inheritCommon ?? true))) {
           return { ...all, [key]: { ...previous, loading: false, error: snapshot.revision !== previous.snapshot.revision ? t('运行环境已在其他位置更新，请重新读取。') : previous.error } }
         }
-        return { ...all, [key]: { ...empty(), snapshot, text: environmentText(snapshot.environment), loading: false, saved: saved || (previous?.saved === true && previous.snapshot.revision === snapshot.revision), inherit: snapshot.inheritCommon ?? true } }
+        return { ...all, [key]: { ...empty(), snapshot, text: environmentText(snapshot.environment), loading: false, inherit: snapshot.inheritCommon ?? true } }
       })
     } catch (error) { if (request === sequence.current) patch({ error: readErrorMessage(error), loading: true }) }
   }, [client, key, kind, memberId, patch])
@@ -74,7 +74,7 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
   }
   return {
     ...current, dirty, kind, memberId, common, parsed, parseError,
-    setInherit(inherit: boolean) { patch({ inherit, error: '', saved: false }) },
+    setInherit(inherit: boolean) { patch({ inherit, error: '' }) },
     async previewValues(): Promise<Record<string,string>> {
       const text = current.text
       const snapshot = await client.request<MemberEnvironmentSnapshot>('member.runtimeEnvironment.get', { memberId, adapterKind: kind, reveal: true })
@@ -86,7 +86,7 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
     },
     count: Object.keys(current.snapshot.environment).length,
     hasSecrets: Object.entries(current.snapshot.environment).some(([name, value]) => sensitiveEnvironmentName(name) && value !== ''),
-    update(text: string) { patch({ text, error: '', saved: false }) },
+    update(text: string) { patch({ text, error: '' }) },
     reset() { revealSequence.current++; setDrafts({}); void load(true) },
     async savedSuccessfully() { savedReadKey.current = key; await load(true) },
     edit(): MemberEnvironmentEdit | undefined {
@@ -162,7 +162,6 @@ export function MemberEnvironmentEditor({ environment: env, disabled, onEditComm
         {hasCommon && <button className="quiet-button environment-text-link" type="button" disabled={disabled || env.loading} onClick={togglePreview}>{viewing ? t('编辑') : t('查看合并结果')}</button>}
         {showSecret && <button type="button" className="quiet-button environment-reveal" disabled={disabled || env.loading || revealing} aria-pressed={revealed} onClick={() => viewing ? void revealPreview() : void env.toggleReveal()}><DialogControlIcon name={revealed ? 'eye-off' : 'eye'}/>{revealed ? t('隐藏密钥') : t('显示密钥')}</button>}
       </div>}
-      {env.saved && <p className="environment-saved" role="status">{t('已保存。')}</p>}
     </div>
   </details>
 }

@@ -97,6 +97,34 @@ Desktop 与 Web 的 Owner 方法白名单同步扩展，不向 Agent 工具开�
 - `pnpm typecheck`、`pnpm build:desktop`、文档与 Skill 门禁通过；Vitest 全量 2,847 项及脚本层
   357 项通过，2 项平台限定跳过。本机并行全量曾出现 5 秒超时；改用 2 个 worker 完成全量，
   遗留的个人资料文件单独重跑 3 项通过（测试耗时 60ms），未更改断言或超时门槛。
+
+## 保存反馈与真实运行验证
+
+2026-10-21，分支 `rovai/runtime-save-feedback` 基于 `21f5855909652b89887034a7835a5e08f171a645`，
+worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-runtime-save-feedback`；无需前置治理提交。
+
+- 移除队员变量编辑器下重复的“已保存。”及其专用展示状态。通用配置保存成功反馈复用队员信息页的
+  `member-editor-save-row` / `member-editor-save-status`：左侧灰色文字、右侧操作，不再使用绿色检查结果样式。
+- `pnpm typecheck`、`pnpm build:desktop`、26 组 `member-editor` 场景、`settings-workspace` 双主题及缩放验收通过。
+  原有场景改为等待实际保存值，不再依赖已移除的提示节点。Impeccable 检测无新增问题。
+- 文档、Skill、Electron sandbox 门禁通过；Vitest 使用 2 个 worker，252 文件 / 2,854 项全部通过；
+  脚本测试 357 项通过、2 项平台限定跳过。`cargo test -p rovai-core --lib --features extended-tests member_environment::`
+  的 4 项既有 owner 测试通过，覆盖并发子进程、合并、空值、作用域、加密与生命周期。
+- 按 User 授权，从 cc-switch 的 PackyCode Claude 配置只读取得连接参数，在本 worktree 构建 Debug Core，
+  用独立 Core data-dir、Skill Library、MCP、HOME 与 Claude 配置目录调用 Claude Code `2.1.304`。
+  一个仅记录专用测试变量的启动观察器随后 `exec` 原生 CLI；每个场景建立新 Thread，观察到一个新原生进程，
+  真实模型回复及 Core Run 均成功。没有复制日常数据库、切换 cc-switch 当前配置或更新日常 App。
+
+| 场景 | 实际原生进程观察 |
+| --- | --- |
+| 队员继承通用配置，设置同名、独有和空字符串变量 | 队员同名值覆盖通用及 Host；Host 独有、通用独有、队员独有值均保留；空字符串仍为空 |
+| 删除队员的同名及空字符串条目，另建 Thread | 同名值及原空值恢复到通用配置；队员独有值保留 |
+| 第二位队员关闭继承，以自己的 PackyCode 参数调用 | 通用独有变量不存在；Host 值保留；第二位队员独有值生效，第一位队员配置未改变 |
+
+额外核对不同 Runtime 的通用记录为空、公开 Core 事件无凭据、SQLite 中凭据未以明文存储。
+三次真实调用结束后已停止本次隔离 Core 并删除临时数据；仅保留不含凭据的验收摘要。
+旧 `configure-product-runtime.mjs` 辅助函数会等待成员 `ready`，与当前未执行前的 `installed_unverified`
+状态不符；本次临时验收直接使用当前 Installation 检查结果及真实 Run 结果，没有修改产品准入逻辑。
 - 复用的 `member-creation` 夹具显式固定初始中文，避免系统语言默认值使既有中文断言失效；
   同时将其旧的会话打开快照版本更新为当前合同的 9，并以运行配置表单替换已移除的标题选择器。
   原有中英文切换覆盖与协议准入校验保留；AI 队员创建、一键草稿和新增导航保护三个验收入口均通过。

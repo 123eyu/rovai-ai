@@ -1,3 +1,5 @@
+import { ReplyDetails } from './ReplyDetails'
+import { ThreadReplyReader } from './thread-reply-reader'
 import { useTaskCapability } from './TaskCapabilityProvider'
 import { RunInputRow, RunInputSourceContext } from './RunInputRow'
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
@@ -1756,6 +1758,53 @@ export function ThreadWorkspace({
   const { profile: currentUserProfile } = useCurrentUserProfile()
   const currentUserName = currentUserDisplayName(currentUserProfile)
   const filePreview = useOptionalFilePreview()
+  const replyReader = useMemo(() => new ThreadReplyReader(snapshot.thread.id, client), [snapshot.thread.id, client])
+  const replyDetail = useSyncExternalStore(replyReader.subscribe, replyReader.getSnapshot, replyReader.getSnapshot)
+  const [replyFull, setReplyFull] = useState(false)
+  const [replyWidth, setReplyWidth] = useState(466)
+  const [replyExecutionVisible, setReplyExecutionVisible] = useState(false)
+  const replyExecutionHost = useRef<HTMLDivElement>(null)
+  const replyTrigger = useRef<HTMLElement | null>(null)
+  useEffect(() => replyReader.start(), [replyReader])
+  const replyRunAnchors = snapshot.agentRuns.filter(run => run.status === 'running' || run.status === 'waiting')
+    .map(run => run.anchorMessageId).filter((id): id is string => !!id).sort().join('\n')
+  useEffect(() => replyReader.setRunAnchors(replyRunAnchors.split('\n').filter(Boolean)), [replyReader, replyRunAnchors])
+  useEffect(() => { setReplyFull(false); setReplyExecutionVisible(false) }, [replyReader])
+  const closeReplyDetails = useCallback((): void => {
+    setReplyExecutionVisible(false)
+    replyReader.close()
+    requestAnimationFrame(() => replyTrigger.current?.focus({ preventScroll: true }))
+  }, [replyReader])
+  const openReplyDetails = (messageId: string): void => {
+    replyTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    filePreview?.hidePane()
+    onCloseInspector()
+    onCloseSingleChat()
+    setReplyExecutionVisible(false)
+    replyReader.open(messageId)
+  }
+  useEffect(() => {
+    if (filePreview?.paneVisible) closeReplyDetails()
+  }, [filePreview?.paneVisible, closeReplyDetails])
+  useEffect(() => {
+    if (!replyDetail.messageId) return
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented
+        || document.querySelector('.app-dialog, .mention-profile-popover, [role="menu"][data-state="open"], [data-radix-popper-content-wrapper]')) return
+      if (replyExecutionVisible) {
+        if (event.target instanceof Element && event.target.closest('.tool-call-result-scroll')) return
+        setReplyExecutionVisible(false)
+        requestAnimationFrame(() => executionDrawerTriggerRef.current?.focus({ preventScroll: true }))
+      } else {
+        if (inspectorVisible || singleChatVisible) return
+        closeReplyDetails()
+      }
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [replyDetail.messageId, replyExecutionVisible, inspectorVisible, singleChatVisible, closeReplyDetails])
   const initializePreviewMinimumWidth = useInitializeFilePreviewMinimumWidth()
   useEffect(() => {
     filePreview?.syncFileChanges(snapshot.thread.id, snapshot.agentRunFileChanges)
@@ -2147,7 +2196,7 @@ export function ThreadWorkspace({
   }, [conversationView, worldMapEnabled])
   useLayoutEffect(() => {
     if (!executionDrawerPortal) return
-    const host = executionPlacement === 'right'
+    const host = replyExecutionVisible ? replyExecutionHost.current : executionPlacement === 'right'
       ? executionPreviewHost
       : executionPlacement === 'inspector'
         ? inspectorExecutionDrawerHostRef.current
@@ -2162,7 +2211,7 @@ export function ThreadWorkspace({
     cancelExecutionReadingRestore.current = scheduleExecutionConsoleReadingRestore(
       executionDrawerPortal, readingPosition
     )
-  }, [executionDrawerPortal, executionPlacement, executionPreviewHost, inspectorVisible])
+  }, [executionDrawerPortal, executionPlacement, executionPreviewHost, inspectorVisible, replyExecutionVisible])
   useEffect(() => {
     executionPlacementMounted.current = true
     return () => {
@@ -4952,10 +5001,35 @@ export function ThreadWorkspace({
   const conversationFindNavigationDisabled = conversationFindBusy
     || conversationFindTotal <= 0
 
+  // Share message semantics with the timeline; only the reader's outer layout differs.
+  const renderPublicMessageBody = (message: ThreadMessageView, context: 'timeline' | 'reply', forceExpanded = false): JSX.Element => {
+    const onFileReference: FileReferenceActivation = (rawReference, source, target) => {
+      if (!filePreview) return
+      if (context === 'reply') closeReplyDetails()
+      else captureFilePreviewAnchor(source)
+      void filePreview.open({ kind: 'message_reference', threadId: snapshot.thread.id,
+        messageId: message.id, rawReference }, target).then(outcome => {
+        if (outcome.kind === 'error') notifyError(outcome.error.message)
+      })
+    }
+    if (message.authorType === 'agent' && !message.content?.some(segment => segment.kind === 'current_user_mention')) {
+      return <AgentMessageMarkdownBody body={message.body} content={message.content} members={snapshot.members}
+        pendingMemberProfiles={pendingMemberProfiles} onActivateMemberMention={openMemberProfilePopover}
+        onFileReference={onFileReference} />
+    }
+    return <TruncatedStructuredMessageBody body={message.body} content={message.content} members={snapshot.members}
+      pendingMemberProfiles={pendingMemberProfiles} leadingRecipientAgentId={defaultRecipientMentionAgentId(message)}
+      truncate={context === 'timeline' && (message.authorType === 'user' || message.authorType === 'external_principal')}
+      forceExpanded={forceExpanded} renderLeadingCurrentUserMarkdown={message.authorType === 'agent'}
+      onActivateCurrentUserMention={openCurrentUserProfilePopover} onActivateMemberMention={openMemberProfilePopover}
+      onActivateAllMembersMention={(trigger, focusPanel) => openAllMembersMentionPopover('history', message.addressedAgentIds, trigger, focusPanel)}
+      onActivateSkillMention={openSkillPreview} onFileReference={onFileReference} />
+  }
+
   const executionDrawer = executionDrawerProcess ? (
     <ExecutionDrawer
       key={executionDrawerProcess.agentId}
-      placement={executionPlacement}
+      placement={replyExecutionVisible ? 'inspector' : executionPlacement}
       process={executionDrawerProcess}
       overview={executionDrawerOverview}
       memberFast={memberFast}
@@ -4978,7 +5052,7 @@ export function ThreadWorkspace({
       confirmingRunIds={confirmingRunIds}
       focusedRunId={executionDrawerFocusedRunId}
       focusRequest={executionDrawerFocusRequest}
-      onClose={closeExecutionProcess}
+      onClose={replyExecutionVisible ? () => setReplyExecutionVisible(false) : closeExecutionProcess}
       onCancelAgentRun={onCancelAgentRun}
       memberById={memberById}
       onRevealMessage={(messageId) => void revealReplyParent(messageId)}
@@ -5070,7 +5144,7 @@ export function ThreadWorkspace({
         navigateUserAnchor(messageId)
       }
     }}>
-    <section ref={workspaceShellRef} className="workspace-shell camp-workspace" data-mobile-panel={mobile && inspectorVisible ? inspectorSurfaceTab : undefined} data-mobile-execution-maximized={mobile && mobileExecutionMaximized || undefined} aria-label={uiAttribute("会话：{0}", String(formatThreadTitle(snapshot.thread, firstRunThreadId)))}>
+    <section ref={workspaceShellRef} className={`workspace-shell camp-workspace${replyDetail.messageId ? ' reply-detail-open' : ''}${replyFull ? ' reply-detail-full' : ''}`} style={{ '--reply-detail-width': `${replyWidth}px` } as CSSProperties} data-mobile-panel={mobile && inspectorVisible ? inspectorSurfaceTab : undefined} data-mobile-execution-maximized={mobile && mobileExecutionMaximized || undefined} aria-label={uiAttribute("会话：{0}", String(formatThreadTitle(snapshot.thread, firstRunThreadId)))}>
       <FilePreviewWorkspace
       >
         <RevealNotificationConversation active={!!notificationFocus?.active
@@ -5495,6 +5569,20 @@ export function ThreadWorkspace({
                     && replyAnchorWindows.has(replyParentId)
                     && replyAnchorWindows.get(replyParentId) === null
                   )
+                  const replyQuote = replyParentId && (
+                                  <ReplyParentQuote
+                                    parent={replyParent}
+                                    projectedBody={replyParent?.content
+                                      ? structuredThreadContentPlainText(replyParent.content, messageMentionNames, currentUserName)
+                                      : replyParent?.body ?? ''}
+                                    authorLabel={replyParent
+                                      ? campMessageAuthorLabel(replyParent, memberById, currentUserName)
+                                      : null}
+                                    unavailable={replyParentUnavailable}
+                                    loading={!replyParent && !replyParentUnavailable}
+                                    onReveal={() => openReplyDetails(campMessage.id)}
+                                  />
+                                )
                   const isConversationFindCurrent = conversationFind.open
                     && conversationFind.snapshot?.match?.messageId === campMessage.id
                   const trailingResultItems: Extract<
@@ -5642,20 +5730,8 @@ export function ThreadWorkspace({
                                 onCopy={handleCopy}
                               >
                                 <MessageQuotes history quotes={campMessage.quotes ?? []} onReveal={revealQuote} />
-                                {replyParentId && (
-                                  <ReplyParentQuote
-                                    parent={replyParent}
-                                    projectedBody={replyParent?.content
-                                      ? structuredThreadContentPlainText(replyParent.content, messageMentionNames, currentUserName)
-                                      : replyParent?.body ?? ''}
-                                    authorLabel={replyParent
-                                      ? campMessageAuthorLabel(replyParent, memberById, currentUserName)
-                                      : null}
-                                    unavailable={replyParentUnavailable}
-                                    loading={!replyParent && !replyParentUnavailable}
-                                    onReveal={() => void revealReplyParent(replyParentId)}
-                                  />
-                                )}
+
+                                {!displayBody.trim() && defaultRecipientAgentId === null && replyQuote && <div className="message-bubble">{replyQuote}</div>}
                                 {humanAuthored && (
                                   <MessageAttachmentGroups
                                     attachments={campMessage.attachments}
@@ -5672,61 +5748,14 @@ export function ThreadWorkspace({
                                   )
                                     ? (
                                         <div className="final-copy" data-message-quote-body={campMessage.id} data-quote-owner={`thread:${snapshot.thread.id}`}>
-                                          <AgentMessageMarkdownBody
-                                            body={displayBody}
-                                            content={campMessage.content}
-                                            members={snapshot.members}
-                                            pendingMemberProfiles={pendingMemberProfiles}
-                                            onActivateMemberMention={openMemberProfilePopover}
-                                            onFileReference={(rawReference, source, target) => {
-                                              if (!filePreview) return
-                                              captureFilePreviewAnchor(source)
-                                              void filePreview.open({
-                                                kind: 'message_reference',
-                                                threadId: snapshot.thread.id,
-                                                messageId: campMessage.id,
-                                                rawReference
-                                              }, target).then((outcome) => {
-                                                if (outcome.kind === 'error') onNotify(outcome.error.message)
-                                              })
-                                            }}
-                                          />
+                                          {replyQuote}
+                                          {renderPublicMessageBody(campMessage, 'timeline')}
                                         </div>
                                       )
                                     : (
                                         <div className="message-bubble" data-message-quote-body={campMessage.authorType === 'user' || campMessage.authorType === 'agent' ? campMessage.id : undefined} data-quote-owner={`thread:${snapshot.thread.id}`}>
-                                          <TruncatedStructuredMessageBody
-                                            body={displayBody}
-                                            content={campMessage.content}
-                                            members={snapshot.members}
-                                            pendingMemberProfiles={pendingMemberProfiles}
-                                            leadingRecipientAgentId={defaultRecipientAgentId}
-                                            truncate={humanAuthored}
-                                            forceExpanded={isConversationFindCurrent || quoteSourceId === campMessage.id}
-                                            renderLeadingCurrentUserMarkdown={campMessage.authorType === 'agent'}
-                                            onActivateCurrentUserMention={openCurrentUserProfilePopover}
-                                            onActivateMemberMention={openMemberProfilePopover}
-                                            onActivateAllMembersMention={(trigger, focusPanel) =>
-                                              openAllMembersMentionPopover(
-                                                'history',
-                                                campMessage.addressedAgentIds,
-                                                trigger,
-                                                focusPanel
-                                              )}
-                                            onActivateSkillMention={openSkillPreview}
-                                            onFileReference={(rawReference, source, target) => {
-                                              if (!filePreview) return
-                                              captureFilePreviewAnchor(source)
-                                              void filePreview.open({
-                                                kind: 'message_reference',
-                                                threadId: snapshot.thread.id,
-                                                messageId: campMessage.id,
-                                                rawReference
-                                              }, target).then((outcome) => {
-                                                if (outcome.kind === 'error') onNotify(outcome.error.message)
-                                              })
-                                            }}
-                                          />
+                                          {replyQuote}
+                                          {renderPublicMessageBody(campMessage, 'timeline', isConversationFindCurrent || quoteSourceId === campMessage.id)}
                                         </div>
                                       )
                                 )}
@@ -5887,6 +5916,7 @@ export function ThreadWorkspace({
               </div>
             )}
             {snapshot.thread.activationState === 'active' && <ThreadDetailPopover
+              portalHost={replyDetail.messageId ? workspaceShellRef.current : null}
               executionActions={executionPlacement === 'inspector' ? <ExecutionPlacementControl
                 placement="inspector" placementButtonRef={inspectorPlacementButtonRef}
                 onPlacementMenuIntent={captureExecutionPlacementMenuReadingPosition}
@@ -6037,6 +6067,41 @@ export function ThreadWorkspace({
             {!executionDrawerPortal && executionPlacement === 'bottom' && executionDrawer}
           </div>
         </section>
+
+        {replyDetail.messageId && <ReplyDetails state={replyDetail} reader={replyReader} width={replyWidth} full={replyFull}
+          onWidth={setReplyWidth} onFull={() => setReplyFull(value => !value)} onClose={closeReplyDetails}
+          snapshot={snapshot} profiles={agents} eventsByRunId={executionEventsByRunId} windowedEvidence={openCoverage !== null}
+          author={message => campMessageAuthorLabel(message, memberById, currentUserName)}
+          onReveal={messageId => { closeReplyDetails(); requestAnimationFrame(() => void revealReplyParent(messageId)) }}
+          onOpenExecution={(agentId, trigger, options) => {
+            onCloseInspector()
+            onCloseSingleChat()
+            setReplyExecutionVisible(true)
+            openExecutionProcess(agentId, trigger, { ...options, reveal: false })
+          }}
+          onError={error => notifyError(readErrorMessage(error, uiAttribute('复制失败')))}
+          onCopy={async message => {
+            const structured = createStructuredMessageClipboardData(message.content, messageMentionNames, currentUserName)
+            if (!await writeClipboardText(structured?.text ?? (message.body || message.attachments.map(item => item.displayName).join('\n')), structured?.html)) {
+              throw new Error(uiAttribute('复制失败'))
+            }
+          }}
+          renderBody={message => <>
+            <div className="reply-detail-body">
+              {renderPublicMessageBody(message, 'reply')}
+            </div>
+            <MessageAttachmentGroups attachments={message.attachments} threadId={snapshot.thread.id} messageId={message.id}
+              presentation={message.authorType === 'agent' ? 'agent' : 'user'} onNotify={onNotify} />
+          </>} />}
+        {replyDetail.messageId && replyExecutionVisible && <aside className="camp-detail-popover reply-execution-popover" role="dialog" aria-modal={false} aria-label={uiAttribute('执行过程')}>
+          <header className="camp-detail-heading"><strong>{uiAttribute('执行过程')}</strong>
+            <button type="button" className="reply-detail-icon" aria-label={uiAttribute('收起执行过程')} onClick={() => {
+              setReplyExecutionVisible(false)
+              requestAnimationFrame(() => executionDrawerTriggerRef.current?.focus({ preventScroll: true }))
+            }}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button>
+          </header>
+          <div ref={replyExecutionHost} className="execution-drawer-host execution-drawer-host-inspector" />
+        </aside>}
 
         {filePreview ? (
           <>
@@ -9839,10 +9904,10 @@ function ReplyParentQuote({
 }): JSX.Element {
   if (!parent) {
     return (
-      <div className={`reply-parent-quote is-static${unavailable ? ' is-unavailable' : ''}`}>
-        <ReplyMark />
+      <button type="button" onClick={onReveal} className={`reply-parent-quote${unavailable ? ' is-unavailable' : ''}`}>
+        <span className="reply-quote-prefix">{uiAttribute('回复')}</span>
         <span>{unavailable ? uiAttribute("引用的消息当前不可用") : loading ? uiAttribute("正在载入引用…") : uiAttribute("引用消息")}</span>
-      </div>
+      </button>
     )
   }
   return (

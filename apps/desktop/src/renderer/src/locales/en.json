@@ -2626,7 +2626,6 @@
   "第 {0} 项，共 {1} 项": "Item {0} of {1} items",
   "{0} 等 {1} 个附件": "{0} and {1} attachments",
   "{0}时 {1}分": "{0}h {1}m",
-  "{0}分 {1}秒": "{0}m {1}s",
   "查看{0}的 {1} 条输入": "View {0}'s {1} inputs",
   "待处理 · {0}": "Pending · {0}",
   "处理中 · {0}": "Processing · {0}",
@@ -4022,5 +4021,18 @@
   "无法确认最新审核状态，请刷新后再处理。{0}": "The latest review state is unconfirmed. Refresh before taking another action. {0}",
   "正式记忆 ": "Memory ",
   " · 版本 ": " · Revision ",
-  " · 接受前已编辑": " · Edited before acceptance"
+  " · 接受前已编辑": " · Edited before acceptance",
+  "回复详情": "Reply details",
+  "{0} 条回复": "{0} replies",
+  "调整回复详情宽度": "Resize reply details",
+  "退出完整阅读": "Exit full reading",
+  "完整阅读": "Full reading",
+  "关闭回复详情": "Close reply details",
+  "正在加载回复…": "Loading replies…",
+  "回复暂时无法加载": "Replies could not be loaded",
+  "消息当前不可用": "Message unavailable",
+  "查看较早回复": "Earlier replies",
+  "查看较新回复": "Later replies",
+  "回到原文": "Go to original",
+  "收起执行过程": "Close execution history"
 }

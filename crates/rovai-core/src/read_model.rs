@@ -31,7 +31,9 @@ use crate::{
 
 mod navigation;
 use navigation::*;
+mod replies;
 mod user_anchors;
+pub use replies::{ReplyPage, ReplyPageParams};
 pub use user_anchors::{ThreadUserAnchorIndex, ThreadUserAnchorPreview};
 mod message_model;
 pub use message_model::ThreadMessageRuntimeModelView;

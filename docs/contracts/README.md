@@ -48,6 +48,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## Navigation
 
+- [Thread Replies v1（当前）](thread-replies-v1.md)：单回复锚点形成平铺链，完整链分页与只读缓存。
+
 - [Navigation Read v1（当前）](navigation-read-v1.md)：单会话、单分组、完整摘要快照，观察水位内已读确认与局部失效。
 - [Input History v1（当前）](input-history-v1.md)：公共/单聊从现有消息生成本轮固定内容、同步导航与草稿预览。
 

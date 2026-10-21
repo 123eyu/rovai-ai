@@ -156,6 +156,7 @@ export const WEB_OPERATIONS = [
   'thread.messages.page',
   'thread.messages.anchors',
   'thread.messages.anchorPreview',
+  'thread.messages.replies',
   'thread.messages.around',
   'thread.messages.find',
   'members.list',

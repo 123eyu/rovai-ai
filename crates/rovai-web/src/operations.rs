@@ -245,6 +245,8 @@ pub enum Operation {
     Messages,
     #[serde(rename = "thread.messages.around", alias = "camp.messages.around")]
     MessagesAround,
+    #[serde(rename = "thread.messages.replies")]
+    Replies,
     #[serde(rename = "thread.messages.anchors")]
     UserAnchors,
     #[serde(rename = "thread.messages.anchorPreview")]
@@ -578,6 +580,7 @@ impl Operation {
             Self::CampExists => "camps.exists",
             Self::Messages => "camp.messages.page",
             Self::MessagesAround => "camp.messages.around",
+            Self::Replies => "camp.messages.replies",
             Self::UserAnchors => "camp.messages.anchors",
             Self::UserAnchorPreview => "camp.messages.anchorPreview",
             Self::FindMessages => "camp.messages.find",
@@ -725,6 +728,7 @@ mod tests {
         for (public, internal) in [
             ("runtime.status.get", "runtime.status.get"),
             ("thread.messages.anchors", "camp.messages.anchors"),
+            ("thread.messages.replies", "camp.messages.replies"),
             (
                 "thread.messages.anchorPreview",
                 "camp.messages.anchorPreview",

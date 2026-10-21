@@ -45,7 +45,9 @@ Desktop 公屏单次普通文本粘贴超过 10,000 个码点时，生成完整 
 不进入系统临时目录；已有正文保留，失败先回填最新编辑器内容。普通弹窗零消息 Active 与一键 Pending
 沿用各自生命周期。采用单向发送保护，移除先保存草稿再异步清理，发送成功先保存新草稿再释放登记。
 必要恢复登记不受普通缓存裁剪，Pending 启动清理补齐输出目录；不增加预算预判、发送对账或垃圾回收器。
-当前规则见 [Composer Draft v17](../../contracts/camp-composer-draft-v17.md) 与
+2026-10-21 修正内部纯正文复制：只有恢复后仍含实际 Mention／Skill Atom 才保留结构化粘贴优先级，
+内部纯正文同样按单次 10,000 码点阈值处理。
+当前规则见 [Composer Draft v18](../../contracts/camp-composer-draft-v18.md) 与
 [Clipboard](../../ui/components/structured-mentions.md#clipboard)，取舍见 [V1.72-D53](decisions.md#v1-72-d53)，
 实施及验证见[实施记录](implementation-plan.md#单次长文本粘贴转附件2026-10-20)。
 

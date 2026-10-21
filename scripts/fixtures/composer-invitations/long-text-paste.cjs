@@ -16,6 +16,46 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
   const type = text => window.webContents.debugger.sendCommand('Input.insertText', { text })
   const settle = () => wait('pasteTest.state().preparing === 0')
   const long = '😀'.repeat(10_001)
+  const textDocument = text => JSON.stringify({ version: 2, segments: [{ kind: 'text', text }] })
+
+  await reset()
+  const boundary = '😀'.repeat(10_000)
+  await evaluate(`pasteTest.paste("fallback", ${JSON.stringify(textDocument(boundary))})`)
+  assert.equal((await state()).text, boundary, 'Internal text remains authoritative at the threshold')
+  assert.equal((await pasteState()).preparedFiles.length, 0)
+
+  // Copy through the production editor: plain text also carries the private MIME.
+  await reset()
+  const copiedText = ' @爱丽丝 /review-code\t\n' + long + '\n  '
+  await type(copiedText)
+  await evaluate('pasteTest.selectAll()')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const copied = await evaluate(`(() => {
+    const data = new DataTransfer()
+    document.getElementById('camp-message').dispatchEvent(new ClipboardEvent('copy', {
+      clipboardData: data, bubbles: true, cancelable: true
+    }))
+    return { text: data.getData('text/plain'), structured: data.getData('application/x-rovai-composer+json') }
+  })()`)
+  assert.equal(copied.text, copiedText)
+  assert.ok(JSON.parse(copied.structured).segments.every(segment => segment.kind === 'text'))
+  await reset()
+  await type('keep selected body')
+  await evaluate('pasteTest.selectAll()')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  await evaluate(`pasteTest.paste(${JSON.stringify(copied.text)}, ${JSON.stringify(copied.structured)})`)
+  await wait('invitationTest.state().draft?.attachments.length === 1 && pasteTest.state().preparing === 0')
+  assert.equal((await state()).text, 'keep selected body')
+  assert.equal((await pasteState()).preparedFiles[0].text, copiedText)
+  assert.equal((await pasteState()).preparedFiles[0].size, Buffer.byteLength(copiedText, 'utf8'))
+
+  await reset()
+  const splitText = JSON.stringify({ version: 2, segments: [
+    { kind: 'text', text: ' \t\r\n' }, { kind: 'text', text: long }, { kind: 'text', text: '\n  ' }
+  ] })
+  await evaluate(`pasteTest.paste("short fallback", ${JSON.stringify(splitText)})`)
+  await wait('invitationTest.state().draft?.attachments.length === 1 && pasteTest.state().preparing === 0')
+  assert.equal((await pasteState()).preparedFiles[0].text, ' \t\r\n' + long + '\n  ')
 
   await reset()
   await paste('😀'.repeat(10_000))
@@ -64,14 +104,26 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
   await wait('invitationTest.state().draft?.attachments.length === 2 && pasteTest.state().preparing === 0')
   assert.deepEqual((await pasteState()).preparedFiles.map(file => file.name), ['original.txt', 'image.png'])
   assert.equal((await state()).text, '')
-  await reset()
-  const structured = JSON.stringify({ version: 2, segments: [
-    { kind: 'atom', atom: { type: 'member', agentId: 'lead' } }, { kind: 'text', text: long }
-  ] })
-  await evaluate(`pasteTest.paste(${JSON.stringify(long)}, ${JSON.stringify(structured)})`)
-  await wait('invitationTest.state().atoms === 1')
-  assert.equal((await pasteState()).preparedFiles.length, 0)
-  assert.ok((await state()).text.endsWith(long))
+  for (const atom of [
+    { type: 'member', agentId: 'lead' },
+    { type: 'all_members' },
+    { type: 'skill', skillId: 'paste-review', nameAtSend: 'review-code' }
+  ]) {
+    await reset()
+    if (atom.type === 'skill') {
+      await type('/')
+      await wait('document.querySelector(".structured-skill-menu")?.textContent.includes("review-code")')
+      await evaluate('pasteTest.selectAll()')
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+    const structured = JSON.stringify({ version: 2, segments: [
+      { kind: 'atom', atom }, { kind: 'text', text: long }
+    ] })
+    await evaluate(`pasteTest.paste(${JSON.stringify(long)}, ${JSON.stringify(structured)})`)
+    await wait(`document.querySelectorAll('#camp-message [data-composer-atom="${atom.type}"]').length === 1`)
+    assert.equal((await pasteState()).preparedFiles.length, 0)
+    assert.ok((await state()).text.endsWith(long))
+  }
 
   await reset()
   await evaluate(`pasteTest.paste(${JSON.stringify(long)}, "invalid")`)
@@ -99,7 +151,7 @@ module.exports = async function verifyLongTextPaste({ evaluate, wait, window, ev
   await reset()
   await type('before')
   await evaluate('pasteTest.mode("deferred")')
-  await paste(long)
+  await evaluate(`pasteTest.paste("short fallback", ${JSON.stringify(textDocument(long))})`)
   await wait('pasteTest.state().deferred')
   await type(' during')
   await evaluate('invitationTest.submit()')

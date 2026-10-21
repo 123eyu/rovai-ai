@@ -15,6 +15,7 @@ import {
   CLEAR_HISTORY_COMMAND,
   HISTORIC_TAG,
   HISTORY_PUSH_TAG,
+  PASTE_TAG,
   SKIP_DOM_SELECTION_TAG
 } from 'lexical'
 import {
@@ -96,6 +97,7 @@ export interface StructuredMentionComposerHandle {
   flush(): Promise<ComposerFlushResult<ThreadComposerDraftView>>
   adoptHistoryPreview(): void
   cancelHistoryPreview(): void
+  appendText(text: string): void
   setInteractionLocked(locked: boolean): void
   replaceDocument(
     document: ComposerDocument,
@@ -143,6 +145,7 @@ export interface StructuredMentionComposerProps {
   onSubmit(): void | Promise<void>
   onBackspaceAtStart?(): void | Promise<void>
   onPasteFiles?(files: File[]): void
+  onPasteLongText?(text: string): boolean
   onActivateMemberMention?(
     member: StructuredMentionMember,
     trigger: HTMLElement,
@@ -292,6 +295,7 @@ function ComposerBridge({
   onSubmit,
   onBackspaceAtStart,
   onPasteFiles,
+  onPasteLongText,
   onActivateMemberMention,
   onActivateAllMembersMention,
   onActivateSkillMention,
@@ -337,6 +341,7 @@ function ComposerBridge({
     onSubmit,
     onBackspaceAtStart,
     onPasteFiles,
+    onPasteLongText,
     onActivateMemberMention,
     onActivateAllMembersMention,
     onActivateSkillMention
@@ -357,6 +362,7 @@ function ComposerBridge({
     onSubmit,
     onBackspaceAtStart,
     onPasteFiles,
+    onPasteLongText,
     onActivateMemberMention,
     onActivateAllMembersMention,
     onActivateSkillMention
@@ -454,6 +460,7 @@ function ComposerBridge({
       },
       backspaceAtStart: () => { void callbacks.current.onBackspaceAtStart?.() },
       pasteFiles: (files) => callbacks.current.onPasteFiles?.(files),
+      pasteLongText: (text) => callbacks.current.onPasteLongText?.(text) ?? false,
       plainText: (selection) =>
         composerDocumentToPlainText(selection, callbacks.current.members),
       recoverClipboard: (value) => {
@@ -555,6 +562,13 @@ function ComposerBridge({
         }
       }
       return sync.flush()
+    },
+    appendText(text) {
+      // Recovery uses the live editor, including edits made while preparation
+      // was pending. Never replace it with the pre-paste draft snapshot.
+      editor.update(() => {
+        $getRoot().selectEnd().insertRawText(text)
+      }, { discrete: true, tag: [PASTE_TAG, SKIP_DOM_SELECTION_TAG] })
     },
     setInteractionLocked(locked) {
       interactionLockCountRef.current = locked

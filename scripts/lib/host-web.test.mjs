@@ -837,7 +837,17 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(changedPreference.status, 'applied')
     assert.deepEqual((await call(second, 'notifications.preference.get')).headsUpEnabled, !preference.headsUpEnabled)
     assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'notifications.preference.update', params: preferenceParams })).result, changedPreference)
-    assert.equal((await call(first, 'notifications.inbox', { filter: 'unread', limit: 1 })).schemaVersion, 9)
+    assert.equal((await call(first, 'notifications.inbox', { filter: 'unread', limit: 1 })).schemaVersion, 10)
+    const interruptionProjection = await call(first, 'notifications.threadInterruptions', { threadIds: [fileCampId] })
+    assert.deepEqual(interruptionProjection.threads, [{ threadId: fileCampId, hasUnreadInterruption: false }])
+    const interruptionRead = { commandId: crypto.randomUUID(), command: {
+      threadId: fileCampId, observedThroughChangeSequence: interruptionProjection.throughChangeSequence
+    } }
+    const interruptionReceipt = await call(first, 'notifications.acknowledgeThreadInterruptions', interruptionRead)
+    assert.equal(interruptionReceipt.status, 'applied')
+    assert.deepEqual((await call(second, 'commands.reconcile', {
+      operation: 'notifications.acknowledgeThreadInterruptions', params: interruptionRead
+    })).result, interruptionReceipt)
     const exported = await call(first, 'diagnostics.export')
     assert.equal(exported.format, 'rovai-diagnostics-v5')
     assert.equal(JSON.stringify(exported).includes(administrator), false)

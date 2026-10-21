@@ -411,6 +411,18 @@ const api: RovaiApi = {
     }
   },
   composerAttachments: {
+    async preparePastedText(threadId, file) {
+      if (file.size > 25 * 1024 * 1024) throw new Error('附件无效或超过 25 MiB。')
+      return ipcRenderer.invoke(
+        'rovai:composer-attachment-prepare-pasted-text',
+        threadId,
+        file.name,
+        new Uint8Array(await file.arrayBuffer())
+      )
+    },
+    removePastedText(threadId, attachmentRefId) {
+      return ipcRenderer.invoke('rovai:composer-attachment-remove-pasted-text', threadId, attachmentRefId)
+    },
     async prepare(threadId, expectedRevision, file) {
       const sourcePath = webUtils.getPathForFile(file)
       if (sourcePath) {

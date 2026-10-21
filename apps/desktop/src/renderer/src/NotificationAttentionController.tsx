@@ -19,6 +19,7 @@ import type { VisibleNotificationSources } from './ThreadWorkspace'
 import { preferenceFromUnknown } from './NotificationSettings'
 import { formatThreadTitle } from './camp-title'
 import { UiText, uiAttribute } from './interface-language'
+import { useInterruptionAttention } from './thread-interruption-attention'
 
 export const NOTIFICATION_RECOVERY_INTERVAL_MS = 30_000
 
@@ -138,7 +139,7 @@ export function applyNotificationHeadsUpChanges(
 }
 
 function headsUpPriority(semantic: NotificationSemantic): number {
-  return { approval_pending: 5, mission_needs_you: 5, turn_failed: 4, turn_incomplete: 3, user_mention: 2, turn_completed: 1, round_completed: 1, single_chat_reply: 1, mission_status_changed: 2, task_status_changed: 1 }[semantic]
+  return { approval_pending: 5, mission_needs_you: 5, turn_failed: 4, turn_incomplete: 3, run_stopped: 3, user_mention: 2, turn_completed: 1, round_completed: 1, single_chat_reply: 1, mission_status_changed: 2, task_status_changed: 1 }[semantic]
 }
 
 export function filterVisibleNotificationHeadsUp(
@@ -229,7 +230,7 @@ export async function readNotificationChangePages(
   let candidateCursor = startCursor
   for (let page = 0; page < maximumPages; page += 1) {
     const batch = await requestPage(candidateCursor)
-    if (batch.schemaVersion !== 9) throw new Error(uiAttribute('提醒增量合同不兼容。'))
+    if (batch.schemaVersion !== 10) throw new Error(uiAttribute('提醒增量合同不兼容。'))
     if (!validTaskCapability(batch.taskCapability)
       || batch.taskCapability.observedThroughChangeSequence !== batch.throughChangeSequence) {
       throw new Error(uiAttribute('提醒增量合同不兼容。'))
@@ -274,6 +275,8 @@ export function notificationHeadsUpPresentation(
       return { label:uiAttribute("执行失败"), message:uiAttribute("本轮执行失败，请查看详情") }
     case 'turn_incomplete':
       return { label:uiAttribute("执行未完成"), message:uiAttribute("本轮未完成，请查看详情") }
+    case 'run_stopped':
+      return { label:uiAttribute("执行已停止"), message:uiAttribute("本轮执行已停止") }
     case 'turn_completed':
     case 'round_completed':
       return { label:uiAttribute("本轮完成"), message:uiAttribute("本轮已完成") }
@@ -344,6 +347,10 @@ export function NotificationAttentionController({
   singleChatSources = null,
   onHeadsUpVisibleChange
 }: NotificationAttentionControllerProps): React.JSX.Element {
+  const interruptionAttention = useInterruptionAttention()
+  const interruptionChanges = interruptionAttention?.changes
+  const resetInterruptions = interruptionAttention?.reset
+  const interruptionCommitted = interruptionAttention?.committed
   const capability = useTaskCapability()
   const { enabled: tasksEnabled, headsUpAfterSequence, acceptSnapshot } = capability
   const taskCapability = useRef<TaskCapabilitySnapshot>(capability)
@@ -412,7 +419,7 @@ export function NotificationAttentionController({
       'notifications.inbox',
       { filter: 'unread', limit: 1 }
     )
-    if (inbox.schemaVersion !== 9) throw new Error(uiAttribute('提醒基线合同不兼容。'))
+    if (inbox.schemaVersion !== 10) throw new Error(uiAttribute('提醒基线合同不兼容。'))
     setHasUnreadAttention(inbox.unreadCount > 0)
     return inbox
   }, [])
@@ -421,6 +428,7 @@ export function NotificationAttentionController({
     const generation = ++baselineGeneration.current
     const inbox = await readUnreadStatus()
     if (generation !== baselineGeneration.current) return
+    resetInterruptions?.()
     setHeadsUpState(emptyNotificationHeadsUpState())
     changeCursor.current = inbox.throughChangeSequence
     visibleAcknowledgementKeys.current.clear()
@@ -430,7 +438,7 @@ export function NotificationAttentionController({
     baselineReady.current = true
     pollFailureCount.current = 0
     pollRetryAt.current = 0
-  }, [readUnreadStatus])
+  }, [readUnreadStatus, resetInterruptions])
 
   useEffect(() => {
     if (!enabled) {
@@ -513,6 +521,7 @@ export function NotificationAttentionController({
           || (current.enabled && change.changeSequence > current.headsUpAfterSequence)
       }
       const changes = collected.changes.filter(includesChange)
+      interruptionChanges?.(changes, collected.nextChangeSequence)
       for (const change of changes) {
         if (change.changeCause === 'occurrence_admitted' && change.episode) {
           visibleThreadAdmissions.current.set(change.episode.thread.id, change.changeSequence)
@@ -595,6 +604,7 @@ export function NotificationAttentionController({
       pollRunning.current = false
     }
   }, [
+    interruptionChanges,
     acceptSnapshot,
     acknowledgeAction,
     activeThreadId,
@@ -690,6 +700,8 @@ export function NotificationAttentionController({
       if (result.status !== 'applied') throw new Error(commandFailure(result))
       applied = true
       if (!mounted.current || generation !== baselineGeneration.current) return
+      interruptionCommitted?.(visibleSources.threadId,
+        (result.payload as { resultingChangeSequence?: number })?.resultingChangeSequence)
       visibleAcknowledgementKeys.current.set(visibleSources.threadId, key)
       // A failed refresh does not make the already-acknowledged command uncertain.
       await Promise.all([pollChanges(), readUnreadStatus()]).catch(() => undefined)
@@ -706,6 +718,7 @@ export function NotificationAttentionController({
     // Dependency churn must not cancel receipt handling or an uncertain retry.
     return undefined
   }, [
+    interruptionCommitted,
     activeThreadId,
     activeThreadVisible,
     enabled,
@@ -959,6 +972,7 @@ export function shouldShowHeadsUp(
 ): boolean {
   if (!preference.headsUpEnabled) return false
   switch (signal.semantic) {
+    case 'run_stopped': return false
     case 'approval_pending': return preference.approvalHeadsUpEnabled
     case 'user_mention': return preference.userMentionHeadsUpEnabled
     case 'turn_completed':

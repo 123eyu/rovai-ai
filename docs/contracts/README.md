@@ -1,7 +1,7 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # 长期接口合同
@@ -23,7 +23,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Camp Message Send v28](camp-message-send-v28.md)
 - [AgentRun Continuation v4](agent-run-continuation-v4.md)
 - [Camp Open Projection v30](camp-open-projection-v30.md)
-- [Notification Episode v10](notification-episode-v10.md)
+- [Notification Episode v11](notification-episode-v11.md)
 - [Desktop Shortcuts v2](desktop-shortcuts-v2.md)
 - [Host Web v8](host-web-v8.md)
 
@@ -487,6 +487,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Message Send v5 (historical)](camp-message-send-v5.md) | v4 Core 效果与 wire 不变；收窄 `mentionUser` / `--to-user` 的消息局部使用边界，但正文不解析显示名 alias |
 | [Camp Message Send v4 (historical)](camp-message-send-v4.md) | v3 显式 Agent 寻址/caller return 加初版 `--to-user`、Structured Current User Mention 与原子通知 |
 | [Camp Message Send v4 Errata](camp-message-send-v4-errata.md) | 历史 v4 Current User Attention 生命周期与 locator-present exact verification 勘误；其修正已由 v5 继承 |
+| [Notification Episode v10（历史）](notification-episode-v10.md) | Task 能力与固定通知边界 |
 | [Notification Episode v9（历史）](notification-episode-v9.md) | Schema 9；整轮完成、单聊回复、使命/任务状态、独立偏好与精确事项动作 |
 | [Notification Episode v8（历史）](notification-episode-v8.md) | Schema 8 wire 不变；当前前台 Camp 全语义静默且不改变精确已读 |
 | [Notification Episode v7（历史）](notification-episode-v7.md) | Schema 8；batch AgentRun 精确来源、导航与可见确认；历史 CampTurn 继续兼容 |
@@ -496,7 +497,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Notification Episode v3 (historical)](notification-episode-v3.md) | v2 精确 signal 加 Journal acknowledgement/Clear/remove invalidation、顺序式队列归约与 reset 清空；不含普通会话可见来源确认 |
 | [Notification Episode v2 (historical)](notification-episode-v2.md) | v1 三层模型加 Active Attention、exact HeadsUpSignal、事务式 Renderer cursor、pending-first Approval 与 acknowledge-only action；不含 signal 入队后的精确失效合同 |
 | [Notification Episode v1 (historical)](notification-episode-v1.md) | 初版 immutable Occurrence、separate Disposition、materialized Episode、minimal Change Journal、bounded write、typed action、heads-up 与 retention |
-| [Current User Attention v8（当前）](current-user-attention-v8.md) | 三组设置、同来源合并、业务事项精确导航和发布消息新回复小点 |
+| [Current User Attention v9（当前）](current-user-attention-v9.md) | 中断事件蓝点、即时精确确认与独立短亮 |
+| [Current User Attention v8（历史）](current-user-attention-v8.md) | 三组设置、同来源合并、业务事项精确导航和发布消息新回复小点 |
 | [Current User Attention v7（历史）](current-user-attention-v7.md) | 当前前台 Camp 不弹浮层；精确来源已读独立；三位置 AgentRun 共用 Portal 定位与观察 |
 | [Current User Attention v6（历史）](current-user-attention-v6.md) | 公屏 / 单聊边界不变；新增 exact AgentRun 可见来源与执行台定位 |
 | [Current User Attention v5（历史）](current-user-attention-v5.md) | 公屏 / 单聊独立可见来源，抑制与已读分离 |
@@ -512,7 +514,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Pending Camp Activation v3（历史）](pending-camp-activation-v3.md) | AI 创建队员草稿可在同窗口侧栏切换；Core 导航与持久恢复仍排除 Pending |
 | [Pending Camp Activation v2（历史）](pending-camp-activation-v2.md) | 一键 Pending 保留首消息原子激活，未发送输入改为 Renderer-local，不进入导航或恢复 |
 | [Pending Camp Activation v1（历史）](pending-camp-activation-v1.md) | 一键 Pending 创建、Draft-backed Navigation/恢复、首消息原子激活与受控清理 |
-| [Camp Attachment v10（当前）](camp-attachment-v10.md) | Agent 附件原路径引用、默认输出位置及新旧记录读取分流；详见合同 |
+| [Camp Attachment v11（当前）](camp-attachment-v11.md) | Source Ref 保留通过展示安全检查的原始显示名；实际落盘入口继续清洗文件名 |
+| [Camp Attachment v10（历史）](camp-attachment-v10.md) | Agent 附件原路径引用、默认输出位置及新旧记录读取分流；详见合同 |
 | [Camp Attachment v9（历史）](camp-attachment-v9.md) | Desktop Source Ref 运行前做宿主重检，随后向 Context 原样投影 stored source path；不再 canonicalize、分流或复制 |
 | [Camp Attachment v8（历史）](camp-attachment-v8.md) | Desktop 新用户附件只存 owner source refs，Pending 原生携带，外部 Runtime 路径复制到当前 Run Temp；该交付语义由 v9 替代 |
 | [Camp Attachment v7（历史）](camp-attachment-v7.md) | v6 Managed v2 不变；CLI 私有外部源快照、共享安全复制与 lease 清理 |
@@ -526,7 +529,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Published Attachment View v2（历史）](camp-published-attachment-view-v2.md) | v1 root/journal/generation fence 不变；增加稳定 semantic catalog/receipt、可重建物理轴与无全局 DB 锁 copy phase |
 | [Camp Published Attachment View v1（历史）](camp-published-attachment-view-v1.md) | 实例/Camp 隔离 root、publication journal、ready catalog、generation、物理 Manifest receipt、quota、rebuild 与安全清理 |
 | [Camp Attachment v1（历史）](camp-attachment-v1.md) | 普通文件/目录联合、Core-owned 只读快照、限制、Draft 原子消费、Snapshot 29 与旧 Runtime Authority path |
-| [Camp Composer Draft v16（当前）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |
+| [Camp Composer Draft v17（当前）](camp-composer-draft-v17.md) | Desktop 长粘贴生成文件、Thread 归属、单向发送保护与先保存后清理；不改变本机草稿权威 |
+| [Camp Composer Draft v16（历史）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |
 | [Camp Composer Draft v15（历史）](camp-composer-draft-v15.md) | 无 Core Draft/Pending；Desktop 按 Camp 本地恢复完整输入、continuation、anchored reply 与发送前附件预览 |
 | [Camp Composer Draft v14（历史）](camp-composer-draft-v14.md) | public Camp 输入只存在于当前 Renderer；无 Core Draft、Pending、恢复或跨客户端合并 |
 | [Camp Composer Draft v13（历史）](camp-composer-draft-v13.md) | Host 验证编辑归属、Web 单调 revision 与 Pending 原子移回；由 v14 clean break 替代 |

@@ -3,10 +3,106 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # v1.72 实施与验收
+
+## 原路径附件显示名（2026-10-21）
+
+- 工作目录：同级 worktree `rovai-ai-source-attachment-display-name`，分支
+  `rovai/source-attachment-display-name`，基线 `2773f3bc3`；不要求治理先行提交。
+- Source Ref 读写与观察入口使用展示文本检查，保留通过检查的原名；不再要求显示名等于
+  `normalize_display_name` 的安全落盘名称。路径、身份、owner 授权与文件有效性规则不变。
+- Contract 升为 [v11](../../contracts/camp-attachment-v11.md)，同步当前架构和导航。
+  无字段或模型输入结构变更、数据库迁移或新增版本决定。
+- 扩展已有 Rust owner：`source_ref_json_is_closed_and_pathless_view_is_stable` 负责名称输入矩阵、
+  序列化/恢复与展示；`resolver_returns_exact_stored_paths_for_files_and_directories` 负责原路径与
+  Core/Agent 观察；`source_path_message_bypasses_managed_attachment_publication` 负责 Desktop 原始
+  显示名实际发布、持久化与 Runtime 路径。未新增、删除或禁用 Rust 测试函数。
+- 扩展已有 Desktop registry 恢复测试，确认带冒号显示名在重启恢复后保留 ID 和真实路径。
+- 渠道入站复用原有有界 MIME 探测，直接传递既有展示标签，避免将带 `file-` 前缀的实际文件名
+  当成显示名检查。原渠道原子准入 owner 增加 120 码点标签，确认安全落盘名称和 MIME 识别保持。
+
+修复前附件模块的两项新增 case 分别复现“显示名被替换”和原始 normalized 报错；修复后该模块
+5 项测试全部通过。Desktop registry 13 项、`pnpm typecheck`、`pnpm test`（Vitest 2816 项）、
+`pnpm build:desktop` 与使用真实 base 的 `pnpm docs:check:ci` 已通过。
+最终代码的默认 Rust workspace 回归通过：474 项通过、1 项既有 ignored。实际发布
+（`slow-tests`）、渠道原子准入（`extended-tests`）与旧安全文件名清洗三个定向 owner 均通过。
+规范与需求两个独立静态审查均无发现；未启动日常 App 或调用真实模型。
+
+`pnpm test:rust:extended` 的 Core 扩展套件完成：1015 项通过、8 项既有 ignored、6 项失败，
+命令以 101 退出。六项失败均为主干既有问题：
+
+- `every_acp_adapter_uses_terminal_runtime_action_output_not_command_delta`：实际 ACP 数量为 15，
+  旧断言为 14。
+- `v103_adds_trae_delivery_without_overriding_custom_skill_assignments`、
+  `v104_adds_cursor_catalog_and_delivery_without_expanding_custom_skills`、
+  `v105_adds_kimi_catalog_and_delivery_without_expanding_custom_skills` 与
+  `v107_adds_grok_catalog_and_preserves_runtime_and_skill_rows`：旧迁移夹具的 Skill `group_key`
+  CHECK 约束失败。
+- `active_inputs_preserve_initial_context_and_unsubmitted_sources`：开头的 Runtime 能力矩阵断言
+  实际为 true、预期为 false，尚未进入上下文或附件部分。
+
+独立 detached worktree 在未修改的基线 `2773f3bc3` 编译并定向运行这六项，全部复现同样失败。
+相关测试、AdapterKind 与 Steer 定义未改动。保留失败记录，扩展层不记为全绿；本次没有改写或跳过无关断言。
+
+## 单次长文本粘贴转附件（2026-10-20）
+
+复用分支 `rovai/long-text-paste-attachment` 与同级 worktree `rovai-ai-long-text-paste`，本轮合入 main 基线
+`85a57b3c7`，保留原分支历史。按 User 确认的五条范围，采用单向发送保护，不增加发送关联或清理框架。
+
+- 普通文本 paste 使用可选 Desktop 能力；10,000／10,001 按码点分流，文件／图片／合法内部结构优先。
+  原正文及选区保留，显示名避开当前 ready/preparing 项；计数准入放在既有附件串行准备队列中。
+- Main 通过本机 Host/Core 读取 Thread 输出目录，直接写 UUID `.txt`。原登记增补生成来源和单向发送标记；
+  只对最终发送快照中的生成附件先持久保存保护再转发发布，物理删除复用同一队列。已移除附件不连带保护，
+  本次无附件也不解除更早标记。未承担恢复或清理责任后释放登记，其他附件仍按原缓存规则。
+- 明确本机保存完成点，随后 Pending presence 失败不回填。未接纳先追加到原编辑器最新内容，再尝试清理已准备文件；
+  回填沿用既有保存、重试与离开保护，失败时不重读旧快照覆盖新增输入。创建阶段尚未返回登记身份时的异常残留
+  留到 Thread 删除，不另设恢复或清理任务。
+- 用户移除先成功保存新草稿，再异步删除未保护生成文件；已保护文件仅移除引用。清理失败不回滚草稿、不锁住编辑。
+  发送成功先保存后续草稿再 discard；保存失败保留文件与登记。纯附件 Pending 离开也等待已有 presence 确认。
+- 普通弹窗零消息 Active 保留；一键 Pending 沿用空草稿隐藏／离开／启动清理。启动清理补齐同 Thread 输出目录，
+  复用既有删除通知释放 Main 登记。没有目录扫描、定时任务、引用计数或新建垃圾回收器。
+
+验证 owner：Main registry 定向测试覆盖完整 UTF-8、重启恢复、Thread 隔离、外部文件、单向保护、删除与发送串行、
+登记写入失败、unlink 失败、最终附件快照范围与缓存裁剪豁免。原生产 Composer Electron 夹具覆盖阈值、选区、HTML／文件／图片／内部
+复制、快速粘贴、数量上限、延迟失败期间编辑，以及两种状态下的空正文附件发送、移除顺序和发送后清空失败。
+界面使用临时 userData 与独立 Skill Library，不连接日常 App。
+
+Rust 继续扩展既有 `application::tests::source_path_message_bypasses_managed_attachment_publication` owner：
+使用 Pending 首条纯附件发布、Thread 目录的完整 Unicode 文件，验证 Active 激活、消息 source ref、运行附件路径
+解析与逐字读取，同时保留“不走 legacy managed publication”的原断言；不新增平行 Rust fixture。最小命令为
+`cargo test -p rovai-core --lib --features slow-tests source_path_message_bypasses_managed_attachment_publication`。
+现有 Core 启动进程夹具新增目录生命周期场景，证明 root RPC、空 Pending 重启清理、带 presence 的 Pending 保留、
+零消息 Active 保留与离开时受保护 discard；领域单元测试不能证明启动器是否实际接上文件清理。
+
+验证：`pnpm typecheck`、`pnpm build:desktop`、`pnpm test` 通过；完整回归包含 247 个 Vitest 文件／2,812 项，
+后续 Node 357 项通过、2 项平台专属跳过。补充最终附件快照边界后，Main registry 的 11 项定向测试与生产
+Composer 隔离 Electron 场景再次通过，证明移除项不进入请求、无附件发送不连带删除或保护其他文件。
+`pnpm test:composer-input` 的 3 个生产输入套件与 `pnpm test:desktop-bridge` 的真实 preload/contextBridge
+验证通过；人工核对长粘贴的日夜主题截图，沿用原附件卡片和短提示。
+
+`pnpm test:rust:pr` 474 项通过、1 项既有 ignored；上述 slow Rust owner 和 Core 真实启动目录场景均通过。
+文档 10 项测试、普通及基于 `85a57b3c7` 的 diff-aware 文档门禁、Rust 格式与 diff 检查通过。
+证据覆盖真实 Core 发布与运行附件解析，不声称已经让外部模型实际读取；没有安装日常 App。
+
+保持 v1.72。当前长期规范升级为 [Composer Draft v17](../../contracts/camp-composer-draft-v17.md)，
+Architecture、UI、合同索引、文档入口与 [V1.72-D53](decisions.md#v1-72-d53) 同步。
+不改变模型上下文字段、Runtime 启动协议或其他附件入口，Runtime Activity、Runtime compatibility、Root README 无需改动。
+
+后续按 User 对固定提交 `035902a5e` 的复核，在同一分支完成局部修正：
+空附件发送在读取登记和入队前返回；最终发送清单中的相同 `sourcePath` 能保护另一 Thread 的原生成登记，
+附件 ID 匹配仍限定 Thread。Preload 在读取完整缓冲区前检查现有 25 MiB 上限，Main 最终校验保留。
+明确保存完成点不变，协调器不重复发布已接纳的同一快照，Active 的 onChange 跳过该已成功保存对象的重复写入。
+没有增加常驻任务、发送关联、去重、引用计数或新存储系统；真实文件和少量失败残留仍承担原有存储成本。
+同路径复用只限制草稿移除时的物理删除，不改变所属 Thread 删除（含空 Pending 清理）的目录寿命。
+后续验证：27 项定向测试、生产 preload/contextBridge 及隔离生产 Composer 回归通过，覆盖空发送绕过阻塞清理、
+跨 Thread 路径保护与 ID 隔离、超限时零字节读取／零 IPC、正常添加与保留正文时移除各一次快照保存。
+既有清空后的草稿重读保持原样，没有把独立重读的空快照写入算作本次接纳重复通知。
+`pnpm typecheck`、`pnpm build:desktop` 和 `pnpm test` 通过（247 个 Vitest 文件／2,816 项，
+Node 357 通过／2 项平台跳过）；文档 10 项测试、普通及基于 `035902a5e` 的 diff-aware 门禁通过。
+本轮未修改 Rust，不重复运行既有 Rust 回归；没有测量整机内存或磁盘占用，也没有更新日常 App。
 
 ## 会话执行条（2026-10-20）
 

@@ -1355,7 +1355,10 @@ export type LocalAttachmentAvailability =
   | 'unreadable'
   | 'kind_changed'
 
-export type LocalAttachmentSourceView = ThreadMessageAttachmentView
+export type LocalAttachmentSourceView = ThreadMessageAttachmentView & {
+  /** Main-authored hint for the local removal path; never grants deletion authority. */
+  generatedBy?: 'long_text_paste'
+}
 
 export type LocalAttachmentOwnerLocator =
   | { owner: 'composer'; threadId: string; attachmentRefId: string }
@@ -2710,6 +2713,7 @@ export type NotificationSemantic =
   | 'turn_completed'
   | 'turn_failed'
   | 'turn_incomplete'
+  | 'run_stopped'
   | 'round_completed'
   | 'single_chat_reply'
   | 'mission_needs_you'
@@ -2813,7 +2817,7 @@ export interface NotificationEpisodeView {
 }
 
 export interface NotificationEpisodeInbox {
-  schemaVersion: 9
+  schemaVersion: 10
   throughChangeSequence: number
   unreadCount: number
   items: NotificationEpisodeView[]
@@ -2835,8 +2839,23 @@ export interface NotificationEpisodeChange {
     | 'retained'
   headsUpSignal: NotificationHeadsUpSignal | null
   headsUpInvalidation: NotificationHeadsUpInvalidation | null
+  interruptionAdmission?: NotificationInterruptionAdmission | null
   changedAt: string
   episode: NotificationEpisodeView | null
+}
+
+export interface NotificationInterruptionAdmission {
+  acknowledgementId: string
+  threadId: string
+  agentRunId: string
+  conversationId: string | null
+  kind: 'user_stop' | 'app_shutdown' | 'execution_lost'
+  admittedChangeSequence: number
+}
+
+export interface NotificationThreadInterruptions {
+  throughChangeSequence: number
+  threads: { threadId: string; hasUnreadInterruption: boolean }[]
 }
 
 export interface NotificationHeadsUpSignal {
@@ -2864,7 +2883,7 @@ export type NotificationHeadsUpInvalidation =
   }
 
 export interface NotificationEpisodeChangeBatch {
-  schemaVersion: 9
+  schemaVersion: 10
   requestedAfterChangeSequence: number
   nextChangeSequence: number
   throughChangeSequence: number
@@ -4379,9 +4398,11 @@ export type CoreMethod =
   | 'userAutomation.thread.send'
   | 'action.approvals.resolve'
   | 'notifications.inbox'
+  | 'notifications.threadInterruptions'
   | 'notifications.changesSince'
   | 'notifications.acknowledge'
   | 'notifications.acknowledgeVisibleSources'
+  | 'notifications.acknowledgeThreadInterruptions'
   | 'notifications.markAllRead'
   | 'notifications.clear'
   | 'notifications.preference.get'
@@ -4439,6 +4460,10 @@ export interface RovaiApi {
   memberAvatars: MemberAvatarsApi
   composerAttachments: {
     prepare(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView>
+    /** Desktop public Composer only; generated in the canonical Thread output directory. */
+    preparePastedText?(threadId: string, file: File): Promise<LocalAttachmentSourceView>
+    /** After saving the draft without this ref. Main decides whether the file is deletable. */
+    removePastedText?(threadId: string, attachmentRefId: string): Promise<'deleted' | 'retained'>
     preview(locator: LocalAttachmentOwnerLocator): Promise<AttachmentPreviewResult>
     /** Desktop-local authority restore; absent on remote/browser adapters. */
     restore?(threadId: string, attachments: LocalAttachmentSourceView[]): Promise<LocalAttachmentSourceView[]>

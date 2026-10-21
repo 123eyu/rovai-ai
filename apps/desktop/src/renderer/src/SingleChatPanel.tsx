@@ -3,6 +3,7 @@ import { shouldSendComposerKey } from '../../shared/shortcuts'
 import { useThreadClient } from './camp-client'
 import { useTextareaInputHistory } from './use-textarea-input-history'
 import { singleInputHistory } from './input-history'
+import { useInterruptionAttention } from './thread-interruption-attention'
 import { useMobileLayout } from './MobileLayout'
 import { newCommandId } from '../../shared/command-id'
 import { RunningText } from './RunningText'
@@ -431,7 +432,7 @@ export function SingleChatRunHistory({
           onToggle={(event) => { if (terminal) setOpen(event.currentTarget.open) }}
         >
           <summary hidden={!terminal}>
-            <span className="single-chat-run-summary" data-notification-turn-id={terminal ? run.threadTurnId : undefined}>{terminal && executionRunSummary(run, now)}</span>
+            <span className="single-chat-run-summary" data-notification-run-id={terminal ? run.id : undefined} data-notification-turn-id={terminal ? run.threadTurnId : undefined}>{terminal && executionRunSummary(run, now)}</span>
             <span className="single-chat-disclosure" aria-hidden="true"><ChevronGlyph /></span>
           </summary>
           <div className="single-chat-execution-content process-content">
@@ -450,7 +451,7 @@ export function SingleChatRunHistory({
         </details>
         {finalMessage && <>
           <hr className="single-chat-final-rule" />
-          <div className="single-chat-final" data-single-chat-message-id={finalMessage.id} data-message-quote-body={finalMessage.id} data-quote-owner={`single_chat:${conversationId}`} data-notification-turn-id={run.threadTurnId}><SafeMarkdown>{finalMessage.body}</SafeMarkdown></div>
+          <div className="single-chat-final" data-single-chat-message-id={finalMessage.id} data-message-quote-body={finalMessage.id} data-quote-owner={`single_chat:${conversationId}`} data-notification-run-id={terminal ? run.id : undefined} data-notification-turn-id={run.threadTurnId}><SafeMarkdown>{finalMessage.body}</SafeMarkdown></div>
         </>}
       </div>
     </section>
@@ -679,6 +680,7 @@ export function SingleChatPanel({
   const initialAgentId = members.find((member) => memberCanSingleChat(member) && member.isDefaultLead)?.agentId
     ?? members.find(memberCanSingleChat)?.agentId
     ?? null
+  const interruptionAttention = useInterruptionAttention()
   const shortcutContext = useShortcuts()
   const panelRef = useRef<HTMLElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -1083,6 +1085,9 @@ export function SingleChatPanel({
       const canObserve = visible && currentSnapshot !== null && viewport !== null
         && document.visibilityState === 'visible' && document.hasFocus()
       const campTurnIds = new Set<string>()
+      const agentRunIds = new Set<string>()
+      const terminalRunIds = new Set(currentSnapshot?.agentRuns
+        .filter(run => !NON_TERMINAL_RUNS.has(run.status)).map(run => run.id) ?? [])
       const approvalIds = new Set<string>()
       if (canObserve && viewport) {
         const bounds = viewport.getBoundingClientRect()
@@ -1090,6 +1095,11 @@ export function SingleChatPanel({
           if (node.getClientRects().length && rectanglesOverlap(node.getBoundingClientRect(), bounds)) {
             campTurnIds.add(node.dataset.notificationTurnId!)
           }
+        }
+        for (const node of viewport.querySelectorAll<HTMLElement>('[data-notification-run-id]')) {
+          const runId = node.dataset.notificationRunId!
+          if (terminalRunIds.has(runId) && node.getClientRects().length
+            && rectanglesOverlap(node.getBoundingClientRect(), bounds)) agentRunIds.add(runId)
         }
         for (const node of approvalRef.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []) {
           if (node.getClientRects().length && rectanglesOverlap(node.getBoundingClientRect(), {
@@ -1100,7 +1110,7 @@ export function SingleChatPanel({
       const sources: VisibleNotificationSources = { threadId,
         conversationId: currentSnapshot?.conversation.id ?? null, surfaceVisible: canObserve,
         snapshotSequence: 0, messageIds: [], campTurnIds: [...campTurnIds].sort(),
-        agentRunIds: [], approvalIds: [...approvalIds].sort() }
+        agentRunIds: [...agentRunIds].sort(), approvalIds: [...approvalIds].sort() }
       const signature = JSON.stringify(sources)
       if (signature !== lastVisibleSources.current) {
         lastVisibleSources.current = signature
@@ -1509,12 +1519,17 @@ export function SingleChatPanel({
     ) return
     setCancelling(true)
     setError(null)
+    const commandId = newCommandId()
+    interruptionAttention?.beginStop(run.id, { commandId, threadId, conversationId: current.conversation.id })
     try {
       const result = await client.request<StoredCommandResult>('agentRuns.cancel', {
-        commandId: newCommandId(),
+        commandId,
         command: { threadId, agentRunId: run.id, expectedVersion: run.version }
       })
-      if (result.status === 'rejected') throw new Error(resultMessage(result))
+      if (result.status === 'rejected') {
+        interruptionAttention?.rejectStop(run.id)
+        throw new Error(resultMessage(result))
+      }
       await refreshCurrent(current.conversation.id)
     } catch (nextError) {
       if (currentConversationIdRef.current === current.conversation.id) {

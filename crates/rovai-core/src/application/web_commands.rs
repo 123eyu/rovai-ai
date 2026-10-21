@@ -75,6 +75,9 @@ pub(super) fn reconcile(
         "members.reorder" => user!(ReorderAgentProfilesCommand),
         "notifications.preference.update" => user!(UpdateNotificationPreferenceCommand),
         "notifications.acknowledge" => user!(AcknowledgeNotificationEpisodeCommand),
+        "notifications.acknowledgeCampInterruptions" => {
+            user!(AcknowledgeThreadInterruptionsCommand)
+        }
         "notifications.acknowledgeVisibleSources" => {
             user!(AcknowledgeVisibleNotificationSourcesCommand)
         }

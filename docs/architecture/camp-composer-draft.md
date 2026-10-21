@@ -3,14 +3,14 @@ document_type: architecture
 architecture: camp-composer-draft
 authority: desktop-local-public-camp-composer
 status: accepted
-last_updated: 2026-10-08
+last_updated: 2026-10-20
 ---
 
 # Public Camp Composer
 
 公开 Camp Composer 的内容权威是客户端本机、按 Camp 隔离的轻量状态。Active 与普通一键 Pending
 都保存本机快照；Core 仅为普通 Pending 保存客户端 presence，拥有侧栏可见性与清理保护。合同见
-[Camp Composer Draft v16](../contracts/camp-composer-draft-v16.md)。Single Chat 的私有 Draft/Pending 不在本架构范围。
+[Camp Composer Draft v17](../contracts/camp-composer-draft-v17.md)。Single Chat 的私有 Draft/Pending 不在本架构范围。
 
 ## 组件边界
 
@@ -73,6 +73,27 @@ Camp+messageId 验证。附件缩略图、应用内预览、系统打开与 reve
 Lexical adapter 保留原 EditorState，预览只替换显示与有效输入；`ComposerDraftSync` 保存/重试仍引用
 原稿，编辑或发送才接管。工作区订阅路由需要的 live Atom，不因普通文本逐字输入新增整页重渲染。
 单聊 textarea 使用同一导航；消息刷新不改变本轮数组，显式替换草稿则结束浏览。退出后释放本轮内容。
+
+## 长粘贴生成文件
+
+Desktop 公屏单次普通文本粘贴超过 10,000 码点时，将全文交给原附件准备队列；本机保存完成是明确接纳点。
+准备期间原编辑器持有原文；未接纳时先追加到原编辑器最新正文，再清理生成物。Pending presence 失败发生在
+本机接纳之后，不重复回填，也不以旧快照覆盖等待期间的新输入。
+
+Main 使用 Host/Core 解析的 Thread 输出目录写入 UUID `.txt`，沿用 source ref 的预览、恢复和发送；
+草稿正文与附件清单仍在原 localStorage。Main 登记仅增加生成来源和不可撤销的发送保护；保护持久保存
+先于请求发出，只覆盖本次最终发送快照中的生成附件，并与物理删除使用同一现有串行队列。
+已移除的附件不被后续发送连带标记；本次空附件快照也不解除更早的保护。
+空附件发送直接绕过登记队列；另一 Thread 显式发送同一 `sourcePath` 时，原生成登记同样保留文件，
+ID 匹配仍限定发送 Thread。此复用不延长所属 Thread 的寿命；删除该 Thread（含既有空 Pending 清理）
+仍按原规则清理目录。
+用户移除先保存草稿，再等待异步文件删除，最后释放登记。
+已进入发送流程或资格不明时只移除引用，保留文件。清理失败不成为草稿保存失败，允许残留到 Thread 删除。
+发送成功同样先保存新草稿，再释放恢复登记。仍有恢复或清理职责的生成登记不参与普通缓存裁剪。
+
+普通弹窗的零消息 Active 不因清空而丢弃；一键 Pending 继续使用既有 presence、离开与启动清理，并补齐
+输出目录删除。首次发布后身份与路径不变。不建立新的草稿事务、发送对账或垃圾回收框架；
+精确接口与负例由 [v17](../contracts/camp-composer-draft-v17.md) 拥有。
 
 ## 撤回不是草稿恢复
 

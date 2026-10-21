@@ -236,9 +236,11 @@ use rovai_core::{
         NetworkRecoveryRegistration, NetworkRecoveryRegistrationOutcome, classify_network_failure,
     },
     notification::{
-        AcknowledgeNotificationEpisodeCommand, AcknowledgeVisibleNotificationSourcesCommand,
-        ClearNotificationEpisodeCommand, MarkAllNotificationEpisodesReadCommand,
-        NotificationEpisodeFilter, NotificationEpisodeService, UpdateNotificationPreferenceCommand,
+        AcknowledgeNotificationEpisodeCommand, AcknowledgeThreadInterruptionsCommand,
+        AcknowledgeVisibleNotificationSourcesCommand, ClearNotificationEpisodeCommand,
+        MarkAllNotificationEpisodesReadCommand, NotificationEpisodeFilter,
+        NotificationEpisodeService, NotificationInterruptionReader,
+        NotificationThreadInterruptionsParams, UpdateNotificationPreferenceCommand,
     },
     planned_shutdown::{
         ActiveExecutionKey, ActiveExecutionSnapshot, ExecutionLaunchPermit,
@@ -868,6 +870,7 @@ fn request_uses_independent_read_queue(method: &str) -> bool {
             | "navigation.camps"
             | "navigation.groupCamps"
             | "navigation.findCamp"
+            | "notifications.threadInterruptions"
     )
 }
 
@@ -2415,6 +2418,7 @@ struct Core {
     execution_wake: crate::execution_wake::ExecutionWake,
     non_batch_retry_at: Mutex<Option<tokio::time::Instant>>,
     database: Arc<Mutex<Database>>,
+    notification_interruption_reader: Mutex<NotificationInterruptionReader>,
     subsystems: CoreSubsystems,
     subsystem_initialization: Mutex<SubsystemInitialization>,
     removed_skill_project_roots: RemovedSkillProjectRoots,
@@ -11668,6 +11672,30 @@ impl Core {
                     None => Value::Null,
                 })
             }
+            "host.camp.attachmentOutputRoot" => {
+                anyhow::ensure!(
+                    request.client.is_desktop(),
+                    "Desktop attachment owner required"
+                );
+                let params: ThreadIdParams = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                anyhow::ensure!(
+                    database.connection().query_row(
+                        "SELECT EXISTS(SELECT 1 FROM camp WHERE id = ?1)",
+                        [params.camp_id.as_str()],
+                        |row| row.get::<_, bool>(0),
+                    )?,
+                    "Thread no longer exists"
+                );
+                // Creation already prepared this directory. A late attachment
+                // request must not recreate it after Thread deletion.
+                Ok(json!(
+                    rovai_core::storage_layout::resolve_attachment_output_root(
+                        database.connection(),
+                        params.camp_id.as_str(),
+                    )?
+                ))
+            }
             "camp.attachments.location" => {
                 let locator: LocalAttachmentOwnerLocator =
                     serde_json::from_value(request.params.clone())?;
@@ -11823,6 +11851,26 @@ impl Core {
                         params.limit,
                     )?,
                 )?)
+            }
+            "notifications.threadInterruptions" => {
+                let params: NotificationThreadInterruptionsParams =
+                    serde_json::from_value(request.params.clone())?;
+                let mut reader = self.notification_interruption_reader.lock().await;
+                Ok(serde_json::to_value(
+                    reader.read(CURRENT_USER_ID, &params.thread_ids)?,
+                )?)
+            }
+            "notifications.acknowledgeCampInterruptions" => {
+                let params: UserCommandParams<AcknowledgeThreadInterruptionsCommand> =
+                    serde_json::from_value(request.params.clone())?;
+                let mut database = self.database.lock().await;
+                let execution = NotificationEpisodeService::default()
+                    .acknowledge_thread_interruptions(
+                        &mut database,
+                        &user_command_envelope(params.command_id, params.command),
+                    )?;
+                emit(&self.output, "notification_episode.changed", json!({}));
+                Ok(serde_json::to_value(execution.result)?)
             }
             "notifications.changesSince" => {
                 let params: NotificationChangesSinceParams =
@@ -19628,6 +19676,9 @@ async fn run_core(
         delivery_batch_scheduler_notify: database.execution_wake.delivery.clone(),
         agent_run_cancellation_notify: database.execution_wake.cancellation.clone(),
         non_batch_retry_at: Mutex::new(None),
+        notification_interruption_reader: Mutex::new(NotificationInterruptionReader::for_database(
+            &database,
+        )),
         database: Arc::new(Mutex::new(database)),
         subsystems: CoreSubsystems::new(),
         subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
@@ -28051,6 +28102,9 @@ mod tests {
             delivery_batch_scheduler_notify: database.execution_wake.delivery.clone(),
             agent_run_cancellation_notify: database.execution_wake.cancellation.clone(),
             non_batch_retry_at: Mutex::new(None),
+            notification_interruption_reader: Mutex::new(
+                NotificationInterruptionReader::for_database(&database),
+            ),
             database: Arc::new(Mutex::new(database)),
             automation_scheduler_control: RwLock::new(None),
             subsystems: CoreSubsystems::ready_for_test(),
@@ -30186,8 +30240,6 @@ done
         let workspace = root.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
         let core = runtime_resolution_test_core(&root).unwrap();
-        let source = root.join("published.txt");
-        fs::write(&source, b"referenced source").unwrap();
 
         let camp_id = {
             let mut database = core.database.lock().await;
@@ -30216,7 +30268,7 @@ done
                             member_agent_ids: vec![agent_id.clone()],
                             default_lead_agent_id: agent_id,
                             collaboration_mode: ThreadCollaborationMode::Peer,
-                            activation_state: ThreadActivationState::Active,
+                            activation_state: ThreadActivationState::Pending,
                         },
                     },
                 )
@@ -30230,8 +30282,24 @@ done
                 .unwrap();
             camp_id
         };
-        let source_attachment =
-            observe_source_attachment(&source, "published.txt", Some("text/plain")).unwrap();
+        let source = {
+            let database = core.database.lock().await;
+            ThreadOutputDirectory::prepare(&database, &camp_id)
+                .unwrap()
+                .output_root
+                .join(format!("{}.txt", uuid::Uuid::new_v4()))
+        };
+        let pasted_text = format!(" \t\r\n{}\n  ", "😀中".repeat(10_001));
+        fs::write(&source, pasted_text.as_bytes()).unwrap();
+        // Desktop preparation and local-draft restore submit the original label.
+        let source_attachment = rovai_core::local_attachment_source::LocalAttachmentSourceRef {
+            id: uuid::Uuid::new_v4().to_string(),
+            source_path: source.to_str().unwrap().to_string(),
+            display_name: "published_14:17:26.txt".to_string(),
+            kind: rovai_core::local_attachment_source::LocalAttachmentKind::File,
+            media_type: Some("text/plain".to_string()),
+            observed_byte_size: Some(pasted_text.len() as u64),
+        };
         let attachment_id = source_attachment.id.clone();
         let sent = core
             .send_test_camp_message_request(SendThreadMessageParams {
@@ -30239,7 +30307,7 @@ done
                 steer_targets: None,
                 command_id: uuid::Uuid::new_v4().to_string(),
                 camp_id: ThreadId::parse(&camp_id).unwrap(),
-                content: text_composer_document("Use the published attachment"),
+                content: text_composer_document(""),
                 source_attachments: vec![source_attachment],
                 quotes: Vec::new(),
                 reply_to_camp_message_id: None,
@@ -30287,6 +30355,23 @@ done
                 .unwrap()
         };
         assert_eq!(Path::new(&source_ref.source_path), source);
+        assert_eq!(source_ref.display_name, "published_14:17:26.txt");
+        let run_paths = resolve_source_attachments_for_run(&[source_ref.clone()]).unwrap();
+        assert_eq!(run_paths, vec![source.to_string_lossy().to_string()]);
+        assert_eq!(fs::read_to_string(&run_paths[0]).unwrap(), pasted_text);
+        assert_eq!(
+            core.database
+                .lock()
+                .await
+                .connection()
+                .query_row(
+                    "SELECT activation_state FROM camp WHERE id = ?1",
+                    [&camp_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "active"
+        );
         assert_eq!(
             desktop_target_for_source_attachment(&source_ref)
                 .unwrap()
@@ -31885,6 +31970,12 @@ done
         assert!(request_uses_independent_read_queue("navigation.camps"));
         assert!(request_uses_independent_read_queue("navigation.groupCamps"));
         assert!(request_uses_independent_read_queue("navigation.findCamp"));
+        assert!(request_uses_independent_read_queue(
+            "notifications.threadInterruptions"
+        ));
+        assert!(!request_uses_independent_read_queue(
+            "notifications.acknowledgeCampInterruptions"
+        ));
         assert!(!request_uses_independent_read_queue(
             "navigation.campViewed"
         ));
@@ -32092,6 +32183,16 @@ done
                 )
                 .await
         });
+        let interruption_service = service.clone();
+        let interruption_camp_ids = camp_ids.clone();
+        let mut interruption_request = tokio::spawn(async move {
+            interruption_service
+                .request(
+                    "notifications.threadInterruptions",
+                    json!({ "threadIds": interruption_camp_ids }),
+                )
+                .await
+        });
         let repair_service = service.clone();
         let repair_target = repair_camp_id.clone();
         let mut repair_request = tokio::spawn(async move {
@@ -32126,6 +32227,9 @@ done
             tokio::time::timeout_at(barrier_release_at, &mut open_request).await;
         let navigation_before_release =
             tokio::time::timeout_at(barrier_release_at, &mut navigation_request).await;
+        let interruption_before_release =
+            tokio::time::timeout_at(barrier_release_at, &mut interruption_request).await;
+        let interruption_finished_while_blocked = interruption_before_release.is_ok();
         let repair_before_release =
             tokio::time::timeout_at(barrier_release_at, &mut repair_request).await;
         let repair_waited_for_ordered_queue = repair_before_release.is_err();
@@ -32168,6 +32272,10 @@ done
         let navigation_reply = match navigation_before_release {
             Ok(completed) => completed.unwrap().unwrap(),
             Err(_) => navigation_request.await.unwrap().unwrap(),
+        };
+        let interruption_reply = match interruption_before_release {
+            Ok(completed) => completed.unwrap().unwrap(),
+            Err(_) => interruption_request.await.unwrap().unwrap(),
         };
         let repair_reply = match repair_before_release {
             Ok(completed) => completed.unwrap().unwrap(),
@@ -32279,6 +32387,22 @@ done
         assert!(
             navigation_finished_while_blocked,
             "navigation snapshot waited for unrelated FIFO work"
+        );
+        assert!(
+            interruption_finished_while_blocked,
+            "interruption projection waited for unrelated FIFO work"
+        );
+        assert!(
+            interruption_reply.error.is_none(),
+            "{:?}",
+            interruption_reply.error
+        );
+        assert_eq!(
+            interruption_reply.result.unwrap()["threads"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
         );
         assert!(
             navigation_reply.error.is_none(),

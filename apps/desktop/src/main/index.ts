@@ -117,7 +117,7 @@ import {
   revealDesktopAttachmentTarget,
   type DesktopAttachmentTarget
 } from './attachment-desktop'
-import { LocalComposerAttachmentRegistry } from './local-composer-attachments'
+import { createPastedTextAttachment, LocalComposerAttachmentRegistry } from './local-composer-attachments'
 import {
   prepareWindowsBootstrapRoot,
   prepareWindowsDataRoot,
@@ -342,9 +342,11 @@ const allowedMethods = new Set<CoreMethod>([
   'userAutomation.thread.send',
   'action.approvals.resolve',
   'notifications.inbox',
+  'notifications.threadInterruptions',
   'notifications.changesSince',
   'notifications.acknowledge',
   'notifications.acknowledgeVisibleSources',
+  'notifications.acknowledgeThreadInterruptions',
   'notifications.markAllRead',
   'notifications.clear',
   'notifications.preference.get',
@@ -1017,6 +1019,16 @@ if (primaryInstance) void app.whenReady().then(async () => {
   publishAppearance()
   core.onEvent((event) => {
     channelSettings.handleCoreEvent(event)
+    const params = event.params as { reason?: unknown; threadId?: unknown } | null
+    if (event.method === 'navigation.invalidated'
+      && (params?.reason === 'camps.discardPending' || params?.reason === 'camp.deleted')
+      && typeof params.threadId === 'string') {
+      // This notification follows authoritative Thread deletion, including
+      // empty-Pending startup cleanup. No draft recovery responsibility remains.
+      void localComposerAttachments.discard(params.threadId).catch((error) => {
+        console.warn('Deleted Thread attachment registration cleanup failed', error)
+      })
+    }
     mainWindow?.webContents.send('rovai:event', event)
   })
   core.onSnapshot((snapshot) => {
@@ -1180,6 +1192,16 @@ ipcMain.handle('rovai:request', async (_event, method: CoreMethod, params?: unkn
     }
   }
   try {
+    if (method === 'thread.messages.send' && params && typeof params === 'object') {
+      const input = params as { threadId?: unknown; sourceAttachments?: unknown }
+      if (typeof input.threadId === 'string' && Array.isArray(input.sourceAttachments)) {
+        await localComposerAttachments.protectForSend(input.threadId, input.sourceAttachments.flatMap(source =>
+          source && typeof source.id === 'string' && typeof source.sourcePath === 'string'
+            ? [{ id: source.id, sourcePath: source.sourcePath }]
+            : []
+        ))
+      }
+    }
     const value = await core.request(method, params)
     if ((method === 'threads.delete' || method === 'threads.discardPending') && params && typeof params === 'object') {
       const command = (params as { command?: { threadId?: unknown } }).command
@@ -2072,6 +2094,31 @@ ipcMain.handle(
     } finally {
       if (rejected) await Promise.all(prepared.temporaryPaths.map(path => unlink(path).catch(() => undefined)))
     }
+  }
+)
+
+ipcMain.handle(
+  'rovai:composer-attachment-prepare-pasted-text',
+  async (_event, threadId: unknown, displayName: unknown, input: unknown) => {
+    const resolvedThreadId = requireIpcString(threadId, 'Thread ID')
+    const name = requireIpcString(displayName, '附件名称')
+    if (!name.endsWith('.txt') || Array.from(name).length > 120
+      || !(input instanceof Uint8Array) || input.byteLength > MAX_COMPOSER_ATTACHMENT_BYTES) {
+      throw new Error('附件无效或超过 25 MiB。')
+    }
+    const root = await core.request<string>('host.thread.attachmentOutputRoot', { threadId: resolvedThreadId })
+    return createPastedTextAttachment(localComposerAttachments, resolvedThreadId, root, name, input)
+  }
+)
+
+ipcMain.handle(
+  'rovai:composer-attachment-remove-pasted-text',
+  async (_event, threadId: unknown, attachmentRefId: unknown) => {
+    const resolvedThreadId = requireIpcString(threadId, 'Thread ID')
+    if (!isAttachmentId(attachmentRefId)) throw new Error('Composer 附件清理范围无效。')
+    return localComposerAttachments.removePastedText(resolvedThreadId, attachmentRefId, () =>
+      core.request<string>('host.thread.attachmentOutputRoot', { threadId: resolvedThreadId })
+    )
   }
 )
 

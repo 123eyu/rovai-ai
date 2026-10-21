@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -16,6 +16,24 @@ User 于 2026-10-21 确认输入历史简化：首次 ↑ 从现有消息提取�
 [输入历史实施记录](input-history-implementation.md)，当前协议见
 [Input History v1](../../contracts/input-history-v1.md)。历史范围跟随现有消息数据，
 不改变模型上下文、数据库 schema 或发布版本。
+
+## 原路径附件显示名（2026-10-21）
+
+按 User 确认收窄 Source Ref 的历史文件名约束：包含时间冒号等字符的显示名原样保留，
+仍检查非空、120 码点上限及控制字符，实际文件继续按原路径授权和读取。
+渠道下载与历史受管附件的安全落盘名称处理保持原边界。当前合同见
+[Camp Attachment v11](../../contracts/camp-attachment-v11.md)，验证见
+[实施记录](implementation-plan.md#原路径附件显示名2026-10-21)。
+
+## 单次长文本粘贴转附件（2026-10-20）
+
+Desktop 公屏单次普通文本粘贴超过 10,000 个码点时，生成完整 UTF-8 `.txt`。文件按 Thread 管理，
+不进入系统临时目录；已有正文保留，失败先回填最新编辑器内容。普通弹窗零消息 Active 与一键 Pending
+沿用各自生命周期。采用单向发送保护，移除先保存草稿再异步清理，发送成功先保存新草稿再释放登记。
+必要恢复登记不受普通缓存裁剪，Pending 启动清理补齐输出目录；不增加预算预判、发送对账或垃圾回收器。
+当前规则见 [Composer Draft v17](../../contracts/camp-composer-draft-v17.md) 与
+[Clipboard](../../ui/components/structured-mentions.md#clipboard)，取舍见 [V1.72-D53](decisions.md#v1-72-d53)，
+实施及验证见[实施记录](implementation-plan.md#单次长文本粘贴转附件2026-10-20)。
 
 ## 会话执行条（2026-10-20）
 
@@ -1011,3 +1029,13 @@ Preview 的平台、CLI 子集、Skills/MCP 和并发资格边界不变。
 模型上下文变更。当前规范为 [Transport v43](../../contracts/builtin-tool-transport-v43.md)与
 [File Change v9](../../contracts/runtime-file-change-observation-v9.md)，验证见[实施计划](implementation-plan.md#send-输入文件退出文件变化卡片2026-10-19)。
 本项为可逆的局部投影规则，不新增 Version Decision；同步当前合同、架构、UI 与导航，Runtime 原生映射和根 README 无需变化。
+
+## 中断通知与侧栏短亮（2026-10-21）
+
+实现 [Notification Episode v11](../../contracts/notification-episode-v11.md) 与
+[Current User Attention v9](../../contracts/current-user-attention-v9.md)：Migration 209 / schema 159
+新增真实停止/退出取消的通知准入、已有丢失失败来源分类，以及最多 200 个 Thread 的批量候选读取和
+冻结边界确认。停止不写本机标记未读，不新增启动扫描。精确结果可见立即确认；当前窗口真实停止
+准入在可绘制侧栏槽位短亮约 600ms，重启/reset 不补播。已结束单聊退出候选并保留审计。
+
+实施验证记录见 [中断注意力验收](interruption-attention-validation.md)。

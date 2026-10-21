@@ -1,3 +1,4 @@
+import { languageTestApi } from '../../../apps/desktop/src/renderer/src/interface-language-test-api'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { AgentProfile, ThreadSnapshot, ThreadComposerDraftView, ThreadMessageView, LocalAttachmentSourceView } from '@contracts'
@@ -210,7 +211,7 @@ Object.assign(window, { invitationTest: {
     button: document.querySelector<HTMLButtonElement>('form.composer:has(#camp-message) button[type="submit"]')?.disabled,
     stored: Object.values(localStorage).join(' ') }),
   mobile: (value: boolean) => setMobile(value),
-  language: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async () => ({ interfaceLanguage: language }) } as any, language),
+  language: (language: 'zh-CN' | 'en') => changeInterfaceLanguage(languageTestApi, language),
   presentation: () => {
     setProfiles([...profiles.map(profile => profile.agentId === 'outside'
       ? { ...profile, professionalResponsibilities: '负责落实界面设计，保留完整职责。'.repeat(8) } : profile),

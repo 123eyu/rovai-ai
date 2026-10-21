@@ -98,7 +98,7 @@ const client = { ...model.client, onInvalidated: undefined,
   }
 }
 const preferences: any = { appearance: { get: async () => appearance, onChanged: () => () => {} },
-  generalPreferences: new Proxy({}, { get: (_, key) => async (...args: any[]) => { if (key === 'setInterfaceLanguage') prefs.interfaceLanguage = args[0]; return prefs } }),
+  generalPreferences: new Proxy({}, { get: (_, key) => async (...args: any[]) => { if (key === 'setInterfaceLanguagePreference') { prefs.interfaceLanguagePreference = args[0]; prefs.interfaceLanguage = args[0] === 'system' ? 'en' : args[0]; prefs.systemLanguage = 'en'; prefs.languageRevision = (prefs.languageRevision ?? 0) + 1; prefs.readError = null }; return prefs } }),
   navigationPreferences: new Proxy({}, { get: () => async () => navPrefs }) }
 const environment: any = { client, files: { ...model.fileApi, bindThread: async () => {} }, preferences,
   navigationHistory: { initial: { entries: [pendingMode ? { kind: 'quick_chat' } : { kind: 'members', agentId: profiles[0].agentId, tab: 'identity' }], index: 0 }, write: (state: any) => state, go: async () => false, listen: () => () => {} } }

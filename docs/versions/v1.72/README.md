@@ -11,6 +11,10 @@ last_updated: 2026-10-21
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 跟随系统界面语言（2026-10-21）
+
+已确认的设置、训练营与 Web 登录入口增加“跟随系统”。General Preferences schema 6 分离偏好与显示结果；旧 schema 1–5 保留原语言，缺失配置才采用 system。桌面本地启动读取、浏览器作用域、响应顺序和异常恢复由 [Interface Language v2](../../contracts/interface-language-v2.md)拥有；创建资料语言由 [First-run Onboarding v7](../../contracts/first-run-onboarding-v7.md)固定。实现与验收见[实施记录](implementation-plan.md#跟随系统界面语言2026-10-21)。不改变 Core 数据库 schema 或发布版本。
+
 ## 操作提示精简（2026-10-21）
 
 按 User 确认移除复制会话 ID／项目路径／附件路径、项目改名与移除、撤回、结束单聊、成员邀请／移出、

@@ -3869,6 +3869,26 @@ User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree
 新增断言在首次验证时修正了 snapshot／operation 输出顺序假设及 macOS 临时目录 cwd 别名，未改变生产
 路径身份规则。未启动真实 Runtime、模型或 Renderer；本项不宣称真实 Session 或 UI 点击验收。
 
+## 跟随系统界面语言（2026-10-21）
+
+按 User 确认的 HTML 交互稿实施：复用设置语言行、训练营欢迎页位置和登录表单，统一三个选择。Desktop Main 和 Web 本地偏好各自解析设备语言，不将远端 Host 语言当作访问者语言。持久化 schema 6 只保存偏好，运行时快照携带解析结果、读取状态与顺序版本。
+
+有效 schema 1–4 保留中文，schema 5 保留原语言，缺失配置默认 system。损坏记录保留且阻止无关自动写入；恢复读取后才解除保护。语言读写独立于业务服务，较早读取、事件和保存响应不能覆盖较晚选择；system 保存失败回退时按当前设备重新解析。
+
+训练营 schema 4 固定具体资料语言，旧检查点保留进度与命令 ID；创建和重启恢复使用冻结值。界面切换保持草稿、页面、角色和执行状态。Web 登录前选择在内存中暂存，认证后仅将用户明确选择接续到既有 owner 作用域。
+
+工作分支 `rovai/system-interface-language` 从 `010e762f0` 建立，随后合入 `527582452` 的主干更新；没有主线治理先行要求。通用门禁使用同级干净检出 `rovai-ai-language-validation`，避免工作目录中被忽略的历史 HTML 原型参与文档扫描，未修改检查器或删除原型。
+
+验证结果：
+
+- `pnpm typecheck` 与 `pnpm test` 通过：251 个 Vitest 文件、2,847 项用例；后续 Node 套件 357 项通过、2 项 Windows 专用测试按平台跳过。覆盖旧配置迁移、system 持久化、读取损坏保护、恢复、请求顺序、Web 作用域和创建资料冻结。
+- `pnpm test:startup-presentation` 在隔离 Electron 中通过：语言读取前保持中性首帧，训练营三个选择更新页面语言属性；从 English 切回 system 保留选择方式，且原组件树保持不变。`pnpm test:desktop-bridge` 验证生产 preload 的语言读取、保存、事件清理及创建语言参数。
+- `pnpm build:desktop`（包含 Web、Execution Web、Main、preload 与 Renderer）和以真实主干为 base 的 `pnpm docs:check:ci` 通过。
+- `pnpm test:rust:pr` 在语言实现提交 `7c62e5580` 通过：474 项通过、1 项既有手动 smoke ignored；本功能未修改 Rust。后续主干合并仅处理翻译、文档与验收夹具的并行增量。
+- 规范与需求两项独立审查发现的读取异常提示丢失、登录交接期间新选择丢失均已修复，并通过回归与复核。保存失败文案按回退后的当前语言显示。
+- 完整复验曾触发未改动的 `cline-observer` 测试误判：它的敏感字段正则匹配到了 `observedAt` 的 `.999` 毫秒值；单项复查与完整重跑通过，未改动该 owner。
+
+本次只启动隔离自动验收进程，未启动真实 Runtime，也未安装或重启日常 App；不将 macOS 验收当作 Windows 原生系统通知验证。
 
 ## App 退出提醒收口（2026-10-21）
 

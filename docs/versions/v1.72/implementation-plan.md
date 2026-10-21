@@ -3878,3 +3878,18 @@ User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree
 训练营 schema 4 固定具体资料语言，旧检查点保留进度与命令 ID；创建和重启恢复使用冻结值。界面切换保持草稿、页面、角色和执行状态。Web 登录前选择在内存中暂存，认证后仅将用户明确选择接续到既有 owner 作用域。
 
 验证由现有 General Preferences、Host Preferences、Renderer language、onboarding 与 Web preferences owner 承担；另检查真实隔离 Electron 启动界面与桥接、桌面/Web 构建和通用文档门禁。最终执行结果随本次 PR 验收记录补充。
+
+## App 退出提醒收口（2026-10-21）
+
+- User seq73 授权按退出范围简化并清理旧代码；独立分支 `rovai/app-exit-attention`。
+- User seq75 确认保留 Run 异常退出提醒，seq77 授权四处复核修复；不收窄既有 `execution_lost`，统一使用执行中断文案。
+- Migration 210 / schema 160 只替换终态 producer；退出取消/确认丢失仍沿原通知事务，
+  手动停止停止准入。旧 `user_stop` 不再参与侧栏候选，原审计不被删除或伪造为已读。
+- 前台正式 Thread 展示按已观察边界确认，无需精确 Run/command/output；显式标记已读保留分步与重试语义。
+- 删除短亮计时、本机停止意图、精确准入描述及专属 DOM 可见观察；移除未合入的无输出终态标记补丁。
+- 稳定通知 dispatcher，普通快照/进度不触发读取，空增量不读投影；成功批次及后续刷新不被慢批次阻塞。
+  Web 沿原 SSE 附加通知失效标识，普通消息失效不触发通知轮询。
+- 自动确认执行时再次校验快照代次，与工作区共用正式展示条件；拉取中的通知信号合并补读，
+  不跳过失败退避。恢复普通失败气泡可见来源，保持中断提醒的 Thread 范围确认。
+- 当前规范与验证边界见[退出提醒验收](interruption-attention-validation.md#当前收口退出提醒2026-10-21)。
+  本轮未安装或重启日常 App；没有新增运行中清单、恢复扫描、轮询器或已读存储。

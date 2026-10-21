@@ -2602,6 +2602,7 @@ export interface ThreadMessageChange {
   throughGlobalSequence: number
 }
 export interface ThreadReadInvalidation {
+  notificationsChanged?: boolean
   tasksChanged?: boolean
   resync?: boolean
   messages?: ThreadMessageChange[]
@@ -2842,7 +2843,7 @@ export interface NotificationEpisodeView {
 }
 
 export interface NotificationEpisodeInbox {
-  schemaVersion: 10
+  schemaVersion: 11
   throughChangeSequence: number
   unreadCount: number
   items: NotificationEpisodeView[]
@@ -2864,18 +2865,8 @@ export interface NotificationEpisodeChange {
     | 'retained'
   headsUpSignal: NotificationHeadsUpSignal | null
   headsUpInvalidation: NotificationHeadsUpInvalidation | null
-  interruptionAdmission?: NotificationInterruptionAdmission | null
   changedAt: string
   episode: NotificationEpisodeView | null
-}
-
-export interface NotificationInterruptionAdmission {
-  acknowledgementId: string
-  threadId: string
-  agentRunId: string
-  conversationId: string | null
-  kind: 'user_stop' | 'app_shutdown' | 'execution_lost'
-  admittedChangeSequence: number
 }
 
 export interface NotificationThreadInterruptions {
@@ -2908,7 +2899,7 @@ export type NotificationHeadsUpInvalidation =
   }
 
 export interface NotificationEpisodeChangeBatch {
-  schemaVersion: 10
+  schemaVersion: 11
   requestedAfterChangeSequence: number
   nextChangeSequence: number
   throughChangeSequence: number

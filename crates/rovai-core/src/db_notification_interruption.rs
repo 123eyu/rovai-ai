@@ -70,9 +70,9 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             DROP TRIGGER notification_agent_run_terminal_update;
             DROP TRIGGER notification_single_chat_failure;",
         )?;
-        tx.execute_batch(&terminal_trigger(false, false))?;
-        tx.execute_batch(&terminal_trigger(true, false))?;
-        tx.execute_batch(&terminal_trigger(true, true))?;
+        tx.execute_batch(&terminal_trigger(false, false, true))?;
+        tx.execute_batch(&terminal_trigger(true, false, true))?;
+        tx.execute_batch(&terminal_trigger(true, true, true))?;
         tx.execute_batch("INSERT INTO schema_migration VALUES(209,datetime('now'));
             UPDATE rovai_data_contract SET projection_schema_version=159,updated_at=datetime('now') WHERE singleton=1;")?;
         validate_migration_foreign_keys(
@@ -82,7 +82,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
-                DatabaseContractClassification::Current(_)
+                DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 159
             ),
             "Interruption notification schema admission failed"
         );
@@ -92,6 +92,54 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
     let restored = database.connection.execute_batch("PRAGMA foreign_keys=ON;");
     result?;
     restored?;
+    Ok(())
+}
+
+/// Only the producer changes. Historical notifications and their read audit are
+/// retained; legacy user_stop occurrences no longer qualify for the sidebar.
+pub(super) fn exit_schema_matches(c: &Connection) -> rusqlite::Result<bool> {
+    if !schema_matches(c)? {
+        return Ok(false);
+    }
+    for name in [
+        "notification_agent_run_terminal_insert",
+        "notification_agent_run_terminal_update",
+        "notification_single_chat_failure",
+    ] {
+        if schema(c, name)?.contains("THEN 'user_stop'") {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+pub(super) fn migrate_exit_attention(database: &mut Database) -> Result<()> {
+    let tx = database
+        .connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    anyhow::ensure!(
+        matches!(classify_database_contract(&tx)?,
+        DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version == 159),
+        "App-exit attention requires schema 159"
+    );
+    tx.execute_batch(
+        "DROP TRIGGER notification_agent_run_terminal_insert;
+        DROP TRIGGER notification_agent_run_terminal_update;
+        DROP TRIGGER notification_single_chat_failure;",
+    )?;
+    tx.execute_batch(&terminal_trigger(false, false, false))?;
+    tx.execute_batch(&terminal_trigger(true, false, false))?;
+    tx.execute_batch(&terminal_trigger(true, true, false))?;
+    tx.execute_batch("INSERT INTO schema_migration VALUES(210,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=160,updated_at=datetime('now') WHERE singleton=1;")?;
+    anyhow::ensure!(
+        matches!(
+            classify_database_contract(&tx)?,
+            DatabaseContractClassification::Current(_)
+        ),
+        "App-exit attention schema admission failed"
+    );
+    tx.commit()?;
     Ok(())
 }
 
@@ -141,7 +189,7 @@ pub(super) fn downgrade_for_test(c: &Connection) {
         }
     }
     tx.execute_batch(
-        "DELETE FROM schema_migration WHERE version=209;
+        "DELETE FROM schema_migration WHERE version IN (209,210);
         UPDATE rovai_data_contract SET projection_schema_version=158 WHERE singleton=1;",
     )
     .unwrap();
@@ -184,6 +232,7 @@ pub(super) fn assert_upgrade(db: &mut Database) {
         .execute_batch("DROP TRIGGER fail_interruption_receipt")
         .unwrap();
     migrate(db).unwrap();
+    migrate_exit_attention(db).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(db.connection()).unwrap()
@@ -194,9 +243,74 @@ pub(super) fn assert_upgrade(db: &mut Database) {
     ));
 }
 
+#[cfg(all(test, feature = "slow-tests"))]
+pub(super) fn assert_exit_upgrade(db: &mut Database, run_id: &str) {
+    let c = db.connection();
+    c.execute_batch(
+        "DROP TRIGGER notification_agent_run_terminal_insert;
+        DROP TRIGGER notification_agent_run_terminal_update;
+        DROP TRIGGER notification_single_chat_failure;",
+    )
+    .unwrap();
+    for (update, private) in [(false, false), (true, false), (true, true)] {
+        c.execute_batch(&terminal_trigger(update, private, true))
+            .unwrap();
+    }
+    c.execute_batch(
+        "DELETE FROM schema_migration WHERE version=210;
+        UPDATE rovai_data_contract SET projection_schema_version=159 WHERE singleton=1;",
+    )
+    .unwrap();
+    c.execute(
+        "UPDATE agent_run SET status='cancelled',cancel_requested_at=datetime('now'),
+        cancel_reason_code='user_requested_agent_run_stop',ended_at=datetime('now') WHERE id=?1",
+        [run_id],
+    )
+    .unwrap();
+    let occurrence: String = c.query_row("SELECT id FROM notification_occurrence WHERE agent_run_id=?1 AND interruption_kind='user_stop'", [run_id], |r|r.get(0)).unwrap();
+    let before: i64 = c
+        .query_row(
+            "SELECT current_sequence FROM notification_change_clock",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    c.execute_batch(
+        "CREATE TEMP TRIGGER fail_exit_attention BEFORE INSERT ON schema_migration
+        WHEN NEW.version=210 BEGIN SELECT RAISE(ABORT,'exit attention rollback'); END;",
+    )
+    .unwrap();
+    assert!(
+        migrate_exit_attention(db)
+            .unwrap_err()
+            .to_string()
+            .contains("exit attention rollback")
+    );
+    assert!(
+        matches!(classify_database_contract(db.connection()).unwrap(),
+        DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version==159)
+    );
+    db.connection()
+        .execute_batch("DROP TRIGGER fail_exit_attention")
+        .unwrap();
+    migrate_exit_attention(db).unwrap();
+    assert!(db.connection().query_row("SELECT acknowledged_at IS NULL FROM notification_occurrence_disposition WHERE occurrence_id=?1", [&occurrence], |r|r.get::<_,bool>(0)).unwrap());
+    assert_eq!(
+        before,
+        db.connection()
+            .query_row(
+                "SELECT current_sequence FROM notification_change_clock",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        "upgrade must not manufacture acknowledgements or new notifications"
+    );
+}
+
 // Both public and private failures retain their existing semantic. Only confirmed
 // cancellation introduces run_stopped; cleanup/version changes cannot re-admit it.
-fn terminal_trigger(update: bool, private: bool) -> String {
+fn terminal_trigger(update: bool, private: bool, legacy_user_stop: bool) -> String {
     let event = if update { "UPDATE OF status" } else { "INSERT" };
     let suffix = if update { "update" } else { "insert" };
     let name = if private {
@@ -223,6 +337,11 @@ fn terminal_trigger(update: bool, private: bool) -> String {
         WHEN NEW.cancel_reason_code = 'core_restarted' OR NEW.last_error_code = 'accepted_input_outcome_unknown' THEN 'execution_lost'
         WHEN NEW.status='cancelled' AND NEW.cancel_reason_code IN ('user_requested_agent_run_stop','camp_turn_cancelled') THEN 'user_stop'
         ELSE NULL END";
+    let classification = if legacy_user_stop {
+        classification.to_owned()
+    } else {
+        classification.replace("        WHEN NEW.status='cancelled' AND NEW.cancel_reason_code IN ('user_requested_agent_run_stop','camp_turn_cancelled') THEN 'user_stop'\n", "")
+    };
     let semantic = "CASE WHEN NEW.status='failed' THEN 'turn_failed'
         WHEN NEW.cancel_requested_at IS NOT NULL THEN 'run_stopped' ELSE 'turn_incomplete' END";
     let key = "CASE WHEN NEW.invocation_kind='single_chat' THEN 'single_chat:local_user:' ELSE 'agent-run:local_user:' END || NEW.id";

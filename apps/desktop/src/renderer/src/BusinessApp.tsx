@@ -3361,7 +3361,6 @@ export function BusinessApp({
         if (removingCurrent || removingActiveThread) {
           await commitRestorableLocation({ kind: 'quick_chat' })
         }
-        notify(uiAttribute("已从侧栏移除“{0}”", String(project.name)))
       } finally {
         setBusy(null)
       }
@@ -3379,7 +3378,6 @@ export function BusinessApp({
   const renameProject = async (project: ProjectNavigationGroup, name: string | null): Promise<void> => {
     const snapshot = await uiPreferences.navigationPreferences.setProjectName(project.projectKey, name)
     applyNavigationPreferences(snapshot)
-    notify(uiAttribute('项目名称已保存'))
   }
 
   const renameThread = async (thread: NavigationThreadItem, title: string): Promise<void> => {
@@ -4276,7 +4274,6 @@ export function BusinessApp({
     threadReadStates={threadReadStates}
     onSetThreadUnread={setThreadUnread}
     onRevealProject={environment.revealProjectDirectory ? project => environment.revealProjectDirectory!(project.projectPath) : undefined}
-    onProjectPathCopied={() => notify(uiAttribute('已复制项目路径'))}
     settingsSection={settingsSection}
     updateSnapshot={appUpdates.snapshot}
     onNewConversation={() => { setMobileConversationDrawerOpen(false); beginNewConversation() }}
@@ -4315,7 +4312,6 @@ export function BusinessApp({
     onRenameProject={renameProject}
     onThreadIdCopied={() => {
       setError(null)
-      notify(uiAttribute('已复制会话 ID'))
     }}
     onRename={renameThread}
     onDelete={deleteThread}
@@ -4485,7 +4481,6 @@ export function BusinessApp({
               ?? ''}
             topNotices={inlineNotices}
             onOpenThread={(threadId) => void activateThread(threadId, { reconcileDefaultLead: false })}
-            onNotify={notify}
             onLeaveGuardChange={registerAutomationLeaveGuard}
           />
         )}

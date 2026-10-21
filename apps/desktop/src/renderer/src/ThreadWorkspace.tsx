@@ -4635,7 +4635,6 @@ export function ThreadWorkspace({
     try {
       await onWithdrawMessage(message)
       setWithdrawalMessage(null)
-      onNotify(uiAttribute('消息已撤回'))
     } catch (error) {
       setWithdrawalError(readErrorMessage(error, uiAttribute('撤回失败，请重试。')))
     } finally {
@@ -6074,7 +6073,6 @@ export function ThreadWorkspace({
                 onAddMembers={onAddMembers}
                 onPreviewMemberRemoval={onPreviewMemberRemoval}
                 onRemoveMember={onRemoveMember}
-                onNotify={onNotify}
               />
             </section>
             </ThreadDetailPopover>}
@@ -8799,8 +8797,7 @@ function ThreadMembersPanel({
   onChangeLead,
   onAddMembers,
   onPreviewMemberRemoval,
-  onRemoveMember,
-  onNotify
+  onRemoveMember
 }: {
   addDialogOpen: boolean
   setAddDialogOpen(open: boolean): void
@@ -8813,7 +8810,6 @@ function ThreadMembersPanel({
   onAddMembers?(agentIds: string[]): Promise<ThreadMemberAddOutcome>
   onPreviewMemberRemoval?(agentId: string): Promise<ThreadMemberRemovalPreview>
   onRemoveMember?(preview: ThreadMemberRemovalPreview): Promise<ThreadMemberRemoveOutcome>
-  onNotify(message: string): void
 }): JSX.Element {
   const mobile = useMobileLayout()
   const members = campInspectorMembers(snapshot.members)
@@ -8906,9 +8902,6 @@ function ThreadMembersPanel({
       if (outcome.failures.length === 0) {
         setAddDialogOpen(false)
         setSelectedCandidateIds(new Set())
-        onNotify(outcome.addedAgentIds.length === 1
-          ? uiAttribute('1 位队员已加入；将在之后新建的执行中生效')
-          : uiAttribute("{0} 位队员已加入；将在之后新建的执行中生效", String(outcome.addedAgentIds.length)))
         return
       }
       setSelectedCandidateIds(new Set(outcome.failures.map((failure) => failure.agentId)))
@@ -8965,12 +8958,8 @@ function ThreadMembersPanel({
     try {
       const outcome = await onRemoveMember(removalPreviewState.preview)
       if (outcome.status === 'removed') {
-        const displayName = removalPreviewState.preview.displayName
         setRemovalTarget(null)
         setRemovalPreviewState({ status: 'idle' })
-        onNotify(outcome.reconciliationStatus === 'reconciling'
-          ? uiAttribute("已将{0}移出当前会话；正在收拢已开始的工作", String(displayName))
-          : uiAttribute("已将{0}移出当前会话", String(displayName)))
         return
       }
       setRemovalPreviewState({

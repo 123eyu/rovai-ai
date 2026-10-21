@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 lifecycle: current
 authority: implementation-status
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # 通用环境配置实施与验收
@@ -133,3 +133,41 @@ worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-runtime-save-
 
 本地确定性回归使用合成凭据、临时数据库和隔离 Electron，不读取日常用户数据或调用真实中转/模型。
 Windows 大小写语义以纯边界测试覆盖；真实 Windows Runtime 与用户中转账户需要独立环境验收。
+
+## 直接显示与标量输入
+
+2026-10-21，分支 `rovai/environment-input` 基于 `77dad3838673914f1e12f633a7c5b70389ee065b`，
+worktree 为 `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-environment-input`；无需前置治理提交。
+本节替代上文历史验收中的掩码行为。当前数据边界为 [Runtime Launch v69](../../contracts/runtime-launch-and-verification-v69.md)。
+
+- 保留 JSON 编辑器，不增加添加变量入口。队员、通用及只读旧配置直接显示完整值，删除 reveal 请求、
+  掩码、`<saved>` 特殊标记和相应验证；保留 Owner 访问、加密存储和公开输出脱敏。
+- `parseMemberEnvironment` 统一接受 string/number/boolean，按 `String(value)` 转换。重复名检查仍针对
+  原始文本；不支持的类型与不安全数字明确指出变量名。预览及提交使用字符串映射，输入和失败保持原稿。
+  通用与队员保存成功都接受后端最新字符串快照；新队员创建后共用同一个运行配置编辑器。
+- 前后端取消独立 128 项与 256 字符名称限制，保留名称、NUL、保留名、字节容量、模型及 revision 冲突。
+- 复用既有 Rust owner：`runtime_startup::tests::environment_validation_preserves_values_and_rejects_ambiguous_or_reserved_names`
+  覆盖放宽限制、保留 Core 字符串输入合同；`member_environment` 的私有版本、迁移和实际并行子进程 owner
+  验证完整 Owner 读回、明文不落库、合并、空值及 `"0"`/`"false"`/`"00123"` 在真实进程中的结果。
+  `runtime_check_environment` 保留正式/草稿检查与公开输出脱敏。没有新增、删除或禁用 Rust 测试函数。
+  原掩码和保留标记断言因 v69 明确退役而改为完整值断言，密文与输出保护仍由原 owner 负责。
+- `member-editor` 既有 Electron owner 扩展新队员、普通编辑和通用配置的规范化、失败草稿、非法值拒绝，
+  原地预览、具名返回和独立模式继续验证。旧 reveal 并发路径已删除，原迟到回包场景改为普通队员读取，
+  仍验证最新通用配置不会被迟到的旧快照覆盖。
+
+2026-10-22 本轮验证：
+
+- `pnpm typecheck`、`pnpm build:desktop`、`cargo fmt --all --check`、`cargo check --workspace` 通过。
+- 全量 Vitest（2 workers）共 2,856 项，首轮 2,855 项通过；既有文件预览 watcher 一项未在等待时间内收到事件，
+  该文件单独重跑 59 项全部通过，未修改断言或超时门槛。后续脚本 357 项通过、2 项平台限定跳过。
+- `pnpm test:rust:pr`：474 项通过、1 项既有忽略；extended `member_environment::` 4 项通过；
+  slow `fresh_formal_and_draft_checks_preserve_program_selection_and_private_state` 1 项通过。
+- 隔离 Electron `member-editor` 26 组通过，包含新队员标量保存、完整凭据显示、草稿/保存/预览一致性、
+  同名覆盖及迟到读取；`member-creation` 三个入口通过，其中环境导航 5 项；移动端英文 smoke 6 项通过。
+  日夜、最小窗口截图检查无新增问题。
+- 真实 Core `smoke-member-environment.mjs` 16 项通过，含 Owner 完整读回、命令重放、CAS、重启、密文、
+  公开事件脱敏和归档只读/确认。旧脚本手工回退局部 schema 已不满足当前升级准入，改为当前 schema 加密归档夹具；
+  真正的历史迁移、失败回滚与重开继续由已通过的既有 Rust migration owner 验证。
+- 文档测试、全量及基于 `77dad3838` 的增量门禁、Skill 门禁通过。
+- 本轮真实子进程验证字符串值及合并，未重复 LLM 调用；上文三次 PackyCode 真实调用属于此前验收。
+  Windows 名称折叠由纯边界测试覆盖，本轮未在 Windows 真机启动 Runtime。

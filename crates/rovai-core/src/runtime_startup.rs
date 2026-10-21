@@ -94,7 +94,6 @@ impl RuntimeStartupConfiguration {
                 "程序路径必须是本机绝对路径。"
             );
         }
-        ensure!(self.environment.len() <= 128, "环境变量不能超过 128 项。");
         let mut names = BTreeSet::new();
         let mut bytes = 0;
         for variable in &mut self.environment {
@@ -102,8 +101,7 @@ impl RuntimeStartupConfiguration {
             let mut chars = variable.name.chars();
             ensure!(
                 matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
-                    && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    && variable.name.len() <= 256,
+                    && chars.all(|c| c.is_ascii_alphanumeric() || c == '_'),
                 "变量名需以字母或下划线开头，只含字母、数字、下划线。"
             );
             ensure!(
@@ -596,6 +594,15 @@ mod tests {
             )
             .unwrap()["EMPTY"],
             ""
+        );
+        let mut many = (0..129)
+            .map(|index| (format!("KEY_{index}"), "".to_owned()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        many.insert("K".repeat(257), "long name".into());
+        assert_eq!(
+            crate::member_environment::parse(&serde_json::to_string(&many).unwrap(), false)
+                .unwrap(),
+            many
         );
         let overlay = crate::member_environment::parse(
             r#"{"anthropic_base_url":"https://fixture.example","anthropic_api_key":"fixture-key"}"#,

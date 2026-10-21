@@ -33,9 +33,9 @@ fn read(c: &Connection, kind: AdapterKind, revision: i64) -> Result<Environment>
 pub fn current(c: &Connection, kind: AdapterKind) -> Result<Environment> {
     read(c, kind, revision(c, kind)?)
 }
-pub fn get(c: &Connection, kind: AdapterKind, reveal: bool) -> Result<Value> {
+pub fn get(c: &Connection, kind: AdapterKind) -> Result<Value> {
     let revision = revision(c, kind)?;
-    Ok(json!({"revision":revision, "environment":public_values(&read(c, kind, revision)?, reveal)}))
+    Ok(json!({"revision":revision, "environment":read(c, kind, revision)?}))
 }
 
 pub fn resolve(c: &Connection, kind: AdapterKind, edit: &Edit) -> Result<Environment> {
@@ -47,22 +47,7 @@ pub fn resolve(c: &Connection, kind: AdapterKind, edit: &Edit) -> Result<Environ
         revision(c, kind)? == edit.expected_revision,
         "Common environment changed; reload the saved configuration"
     );
-    let previous = read(c, kind, edit.expected_revision)?;
-    let mut values = parse(&edit.json, cfg!(windows))?;
-    for (name, value) in &mut values {
-        if value == SAVED {
-            ensure!(
-                sensitive(name),
-                "The saved marker is only valid for an existing credential"
-            );
-            *value = previous
-                .get(name)
-                .context("The saved credential is unavailable")?
-                .clone();
-        }
-    }
-    parse(&serde_json::to_string(&values)?, cfg!(windows))?;
-    Ok(values)
+    parse(&edit.json, cfg!(windows))
 }
 pub fn prepare(c: &Connection, kind: AdapterKind, edit: Edit) -> Result<Prepared> {
     let values = resolve(c, kind, &edit)?;

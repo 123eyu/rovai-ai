@@ -12064,15 +12064,12 @@ impl Core {
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
                 struct Params {
                     runtime_kind: AdapterKind,
-                    #[serde(default)]
-                    reveal: bool,
                 }
                 let params: Params = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
                 rovai_core::member_environment::common::get(
                     database.connection(),
                     params.runtime_kind,
-                    params.reveal,
                 )
             }
             "member.runtimeEnvironment.get" => {
@@ -12081,8 +12078,6 @@ impl Core {
                 struct Params {
                     member_id: String,
                     adapter_kind: AdapterKind,
-                    #[serde(default)]
-                    reveal: bool,
                 }
                 let params: Params = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
@@ -12090,7 +12085,6 @@ impl Core {
                     database.connection(),
                     &params.member_id,
                     params.adapter_kind,
-                    params.reveal,
                 )
             }
             "runtime.environmentLegacy.list" => {
@@ -12102,8 +12096,6 @@ impl Core {
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
                 struct Params {
                     runtime_kind: AdapterKind,
-                    #[serde(default)]
-                    reveal: bool,
                     identity: Option<String>,
                 }
                 let params: Params = serde_json::from_value(request.params.clone())?;
@@ -12112,7 +12104,6 @@ impl Core {
                     rovai_core::member_environment::legacy_get(
                         database.connection(),
                         params.runtime_kind,
-                        params.reveal,
                     )
                 } else {
                     rovai_core::member_environment::legacy_acknowledge(

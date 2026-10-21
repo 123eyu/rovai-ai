@@ -368,7 +368,7 @@ dialog remain available when another settings category hides the form; cancel ke
 
 Claude Code and Codex no longer expose the native connection editor. Remove official/API mode selection,
 login status, address, Key, Claude model mappings and the custom Codex model list. Keep program path,
-explicit checks, masked environment values and the existing save/discard row. Do not add replacement help,
+explicit checks, fully visible environment values and the existing save/discard row. Do not add replacement help,
 a disabled entry or an alternative connection editor. Existing native files remain unchanged.
 
 Save ends from its local receipt and shows “已保存” in the shared member-editor footer status slot: muted text
@@ -380,6 +380,7 @@ the Runtime catalog. Behavior is owned by [Runtime Launch v52](../../../../docs/
 
 智能体的启动设置在程序路径下提供紧凑 JSON 编辑器“通用环境变量”，沿用原保存和放弃操作。
 标题旁的 ? 支持 hover、键盘 focus 和触屏点击，说明为“用于在不同队员之间共享一些配置变量。”；Escape 可收起。
-不增加使用人数入口、继承/覆盖数量、模式选择器或密钥管理弹窗。显示密钥复用队员编辑器的显式查看行为。
+不增加使用人数入口、继承/覆盖数量、模式选择器或密钥管理弹窗。所有值直接显示，不保留显示／隐藏密钥或 `<saved>` 标记。
+编辑说明为“支持字符串、数字和布尔值，保存时统一转换为字符串。”；输入不改写草稿，保存成功才展示字符串形式。
 由队员进入时使用具名返回入口，保留其草稿和位置；直接进入保留原返回。精确数据规则见
-[Runtime Launch v68](../../../../docs/contracts/runtime-launch-and-verification-v68.md)。
+[Runtime Launch v69](../../../../docs/contracts/runtime-launch-and-verification-v69.md)。

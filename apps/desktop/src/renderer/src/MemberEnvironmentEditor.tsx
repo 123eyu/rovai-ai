@@ -4,22 +4,20 @@ import { useThreadClient } from './camp-client'
 import { DialogControlIcon } from './AppDialog'
 import { uiAttribute as t, useInterfaceLanguage } from './interface-language'
 import { readErrorMessage } from './error-message'
-import { ENVIRONMENT_PLACEHOLDER, SAVED_ENVIRONMENT_VALUE, environmentText, parseMemberEnvironment, sensitiveEnvironmentName, type MemberEnvironmentEdit, type MemberEnvironmentSnapshot } from './member-environment'
+import { ENVIRONMENT_PLACEHOLDER, environmentText, parseMemberEnvironment, type MemberEnvironmentEdit, type MemberEnvironmentSnapshot } from './member-environment'
 import { EnvironmentJson } from './CommonEnvironmentEditor'
-import { COMMON_ENVIRONMENT_CHANGED, maskEnvironment, mergeEnvironment, type EnvironmentSnapshot } from './member-environment'
+import { COMMON_ENVIRONMENT_CHANGED, mergeEnvironment, type EnvironmentSnapshot } from './member-environment'
 import './member-environment.css'
 
-type Draft = { snapshot: MemberEnvironmentSnapshot; text: string; error: string; loading: boolean; revealed: boolean; inherit: boolean }
-const empty = (): Draft => ({ snapshot: { revision: 0, environment: {} }, text: '', error: '', loading: true, revealed: false, inherit: true })
+type Draft = { snapshot: MemberEnvironmentSnapshot; text: string; error: string; loading: boolean; inherit: boolean }
+const empty = (): Draft => ({ snapshot: { revision: 0, environment: {} }, text: '', error: '', loading: true, inherit: true })
 
 export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', memberVersion: number, model: ModelSelection | undefined, windows: boolean, active = true) {
   const client = useThreadClient()
   const key = `${memberId}:${kind}`
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const current = drafts[key] ?? empty()
-  const state = useRef({ key, current }); state.current = { key, current }
   const sequence = useRef(0)
-  const revealSequence = useRef(0)
   const savedReadKey = useRef<string | null>(null)
   const patch = useCallback((change: Partial<Draft>): void => setDrafts(all => ({ ...all, [key]: { ...(all[key] ?? empty()), ...change } })), [key])
   const load = useCallback(async (force = false): Promise<void> => {
@@ -64,55 +62,18 @@ export function useMemberEnvironment(memberId: string, kind: AdapterKind | '', m
     parseMemberEnvironment(JSON.stringify(mergeEnvironment(common.environment, parsed, current.inherit)), windows, kind, model)
   } catch (error) { parseError = readErrorMessage(error) }
   const dirty = current.text !== environmentText(current.snapshot.environment) || current.inherit !== (current.snapshot.inheritCommon ?? true)
-  const mask = (): void => {
-    revealSequence.current++
-    if (current.revealed && !parseError) {
-      for (const [name, value] of Object.entries(current.snapshot.environment)) if (sensitiveEnvironmentName(name) && value !== '' && parsed[name] === value) parsed[name] = SAVED_ENVIRONMENT_VALUE
-      const masked = Object.fromEntries(Object.entries(current.snapshot.environment).map(([name,value]) => [name, sensitiveEnvironmentName(name) && value !== '' ? SAVED_ENVIRONMENT_VALUE : value]))
-      patch({ text: environmentText(parsed), snapshot: { ...current.snapshot, environment: masked }, revealed: false })
-    }
-  }
   return {
     ...current, dirty, kind, memberId, common, parsed, parseError,
     setInherit(inherit: boolean) { patch({ inherit, error: '' }) },
-    async previewValues(): Promise<Record<string,string>> {
-      const text = current.text
-      const snapshot = await client.request<MemberEnvironmentSnapshot>('member.runtimeEnvironment.get', { memberId, adapterKind: kind, reveal: true })
-      if (state.current.key !== key || state.current.current.text !== text) throw new Error(t('配置已更改，请重新查看。'))
-      if (snapshot.revision !== current.snapshot.revision || snapshot.common?.revision !== current.snapshot.common?.revision) throw new Error(t('运行环境已在其他位置更新，请重新读取。'))
-      const local = { ...parsed }
-      for (const [name,value] of Object.entries(snapshot.environment)) if (local[name] === SAVED_ENVIRONMENT_VALUE) local[name] = value
-      return mergeEnvironment(snapshot.common?.environment ?? {}, local, current.inherit)
-    },
     count: Object.keys(current.snapshot.environment).length,
-    hasSecrets: Object.entries(current.snapshot.environment).some(([name, value]) => sensitiveEnvironmentName(name) && value !== ''),
     update(text: string) { patch({ text, error: '' }) },
-    reset() { revealSequence.current++; setDrafts({}); void load(true) },
+    reset() { setDrafts({}); void load(true) },
     async savedSuccessfully() { savedReadKey.current = key; await load(true) },
     edit(): MemberEnvironmentEdit | undefined {
-      const invalidMarker = Object.entries(parsed).some(([name,value]) => value === SAVED_ENVIRONMENT_VALUE && (!sensitiveEnvironmentName(name) || !Object.hasOwn(current.snapshot.environment, name)))
-      const error = parseError || (invalidMarker ? t('请填写真实值；“<saved>”仅用于保留已有凭据。') : '')
-      if (error) { patch({ error }); throw new Error(error) }
+      if (parseError) { patch({ error: parseError }); throw new Error(parseError) }
       if (!dirty) return undefined
-      return { expectedRevision: current.snapshot.revision, json: current.text, inheritCommon: current.inherit }
+      return { expectedRevision: current.snapshot.revision, json: JSON.stringify(parsed), inheritCommon: current.inherit }
     },
-    async toggleReveal() {
-      if (current.revealed) { mask(); return }
-      if (parseError) { patch({ error: parseError }); return }
-      const originalText = current.text
-      const revealRequest = ++revealSequence.current
-      try {
-        const snapshot = await client.request<MemberEnvironmentSnapshot>('member.runtimeEnvironment.get', { memberId, adapterKind: kind, reveal: true })
-        if (revealRequest !== revealSequence.current || state.current.key !== key || state.current.current.text !== originalText) return
-        if (snapshot.revision !== current.snapshot.revision) throw new Error(t('运行环境已在其他位置更新，请重新读取。'))
-        for (const [name, value] of Object.entries(snapshot.environment)) if (parsed[name] === SAVED_ENVIRONMENT_VALUE) parsed[name] = value
-        setDrafts(all => {
-          const latest = all[key]
-          if (!latest) return all
-          return { ...all, [key]: { ...latest, text: environmentText(parsed), snapshot: { ...snapshot, common: latest.snapshot.common }, revealed: true } }
-        })
-      } catch (error) { patch({ error: readErrorMessage(error) }) }
-    }, mask
   }
 }
 
@@ -121,33 +82,18 @@ export function MemberEnvironmentEditor({ environment: env, disabled, onEditComm
 }): React.JSX.Element {
   useInterfaceLanguage()
   const id = useId(), [open, setOpen] = useState(false), [preview, setPreview] = useState(false)
-  const [revealedResult, setRevealedResult] = useState<Record<string,string> | null>(null)
-  const [previewError, setPreviewError] = useState(''), [revealing, setRevealing] = useState(false)
-  const revealSequence = useRef(0)
   const hasCommon = Object.keys(env.common.environment).length > 0
   const viewing = hasCommon && preview
   const merged = mergeEnvironment(env.common.environment, env.parsed, env.inherit)
-  const result = JSON.stringify(revealedResult ?? maskEnvironment(merged, '••••••••'), null, 2)
-  const showSecret = viewing ? Object.entries(merged).some(([name,value]) => sensitiveEnvironmentName(name) && value !== '') : env.hasSecrets
-  const revealed = viewing ? revealedResult !== null : env.revealed
+  const result = JSON.stringify(merged, null, 2)
   useEffect(() => { setPreview(false) }, [env.memberId, env.kind, hasCommon])
-  useEffect(() => { revealSequence.current++; setRevealedResult(null); setRevealing(false) }, [env.memberId, env.kind, env.text, env.inherit, env.common.revision, viewing, open])
-  useEffect(() => { if (env.error || previewError) setOpen(true) }, [env.error, previewError])
+  useEffect(() => { if (env.error) setOpen(true) }, [env.error])
   const togglePreview = (): void => {
-    setPreviewError('')
     if (viewing) { setPreview(false); return }
     try { env.edit(); setPreview(true) } catch { /* Validation is displayed beside this editor. */ }
   }
-  const revealPreview = async (): Promise<void> => {
-    if (revealedResult) { setRevealedResult(null); return }
-    const request = ++revealSequence.current
-    setRevealing(true); setPreviewError('')
-    try { const values = await env.previewValues(); if (request === revealSequence.current) setRevealedResult(values) }
-    catch (error) { if (request === revealSequence.current) setPreviewError(readErrorMessage(error)) }
-    finally { if (request === revealSequence.current) setRevealing(false) }
-  }
-  const error = env.error || previewError
-  return <details className="member-environment-disclosure" open={open} onToggle={event => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) env.mask() }}>
+  const error = env.error
+  return <details className="member-environment-disclosure" open={open} onToggle={event => { setOpen(event.currentTarget.open) }}>
     <summary className="member-environment-entry"><DialogControlIcon name="chevron"/><span>{t('环境变量')}</span></summary>
     <div className="member-environment-body">
       {hasCommon && <div className="environment-inherit-row">
@@ -158,9 +104,8 @@ export function MemberEnvironmentEditor({ environment: env, disabled, onEditComm
       <EnvironmentJson id={id} value={viewing ? result : env.text} onChange={env.update} disabled={disabled || env.loading} readOnly={viewing} error={error}
         label={viewing ? t('合并结果 JSON，只读') : t('环境变量 JSON')} placeholder={ENVIRONMENT_PLACEHOLDER}/>
       {error && <p id={`${id}-error`} className="environment-error" role="alert">{error}{env.loading && <button type="button" className="quiet-button" onClick={env.reset}>{t('重试')}</button>}</p>}
-      {(hasCommon || showSecret) && <div className="environment-caption environment-member-caption">
-        {hasCommon && <button className="quiet-button environment-text-link" type="button" disabled={disabled || env.loading} onClick={togglePreview}>{viewing ? t('编辑') : t('查看合并结果')}</button>}
-        {showSecret && <button type="button" className="quiet-button environment-reveal" disabled={disabled || env.loading || revealing} aria-pressed={revealed} onClick={() => viewing ? void revealPreview() : void env.toggleReveal()}><DialogControlIcon name={revealed ? 'eye-off' : 'eye'}/>{revealed ? t('隐藏密钥') : t('显示密钥')}</button>}
+      {hasCommon && <div className="environment-caption environment-member-caption">
+        <button className="quiet-button environment-text-link" type="button" disabled={disabled || env.loading} onClick={togglePreview}>{viewing ? t('编辑') : t('查看合并结果')}</button>
       </div>}
     </div>
   </details>

@@ -15,7 +15,7 @@ last_updated: 2026-10-21
 
 按 User 确认的第三版交互稿接入 Runtime 通用变量、队员继承与原地只读预览，
 保持已有进程与队员草稿。字段、加密、检查失效及 schema 161 升级由
-[Runtime Launch v68](../../contracts/runtime-launch-and-verification-v68.md)拥有；
+[Runtime Launch v69](../../contracts/runtime-launch-and-verification-v69.md)拥有；
 实施与验收见[通用环境配置记录](shared-environment-implementation.md)。不改变模型上下文或发布版本。
 
 ## 跟随系统界面语言（2026-10-21）

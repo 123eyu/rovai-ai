@@ -1,3 +1,4 @@
+import { languageTestApi } from '../../../apps/desktop/src/renderer/src/interface-language-test-api'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { AgentProfile, ThreadSnapshot, ThreadComposerDraftView, ThreadMessageView, LocalAttachmentSourceView } from '@contracts'
@@ -81,7 +82,10 @@ const client = {
   platform: 'darwin', onEvent: () => () => {},
   request: async (method: string) => {
     calls.push(method)
-    if (method === 'skills.candidates') return { skills: [], errors: [] }
+    if (method === 'skills.candidates') return { skills: [{
+      id: 'paste-review', name: 'review-code', description: 'Clipboard regression fixture',
+      source: 'native', entryPath: '/fixture/review-code/SKILL.md', memberIds: ['lead']
+    }], errors: [] }
     if (method === 'thread.messages.anchors') return { schemaVersion: 1, threadId, throughGlobalSequence: 0, totalCount: 0, items: [] }
     if (method === 'threads.pendingDraft.setPresence') {
       if (failPresence) throw new Error('Fixture presence offline')
@@ -210,7 +214,7 @@ Object.assign(window, { invitationTest: {
     button: document.querySelector<HTMLButtonElement>('form.composer:has(#camp-message) button[type="submit"]')?.disabled,
     stored: Object.values(localStorage).join(' ') }),
   mobile: (value: boolean) => setMobile(value),
-  language: (language: 'zh-CN' | 'en') => changeInterfaceLanguage({ setInterfaceLanguage: async () => ({ interfaceLanguage: language }) } as any, language),
+  language: (language: 'zh-CN' | 'en') => changeInterfaceLanguage(languageTestApi, language),
   presentation: () => {
     setProfiles([...profiles.map(profile => profile.agentId === 'outside'
       ? { ...profile, professionalResponsibilities: '负责落实界面设计，保留完整职责。'.repeat(8) } : profile),

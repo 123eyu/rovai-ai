@@ -219,9 +219,11 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Desktop Runtime Availability v3（当前）](desktop-runtime-availability-v3.md) | 继承 v2 的权威与恢复边界；冷启动首帧即显示整窗加载画布，删除启动反馈 400ms 延迟 |
 | [Desktop Runtime Availability v2（历史）](desktop-runtime-availability-v2.md) | 严格 lease/ticket 后原位逐版本事务、receipt 续跑、旧 manifest 恢复及独立瞬时重试；启动呈现延迟由 v3 替代 |
 | [Desktop Runtime Availability v1（历史）](desktop-runtime-availability-v1.md) | Bootstrap/Full Core、SQLite 准入、copy/switch 与结构化 failure；旧 manifest 恢复仍保留，普通升级执行策略由 v2 替代 |
-| [First-run Onboarding v6（当前）](first-run-onboarding-v6.md) | schema 3；训练营自动复制所选 Runtime、模型与权限到其余未配置内置队员，逐人冻结、恢复与冲突保护；已完成用户不补写 |
+| [First-run Onboarding v7（当前）](first-run-onboarding-v7.md) | schema 4；创建检查点固定具体资料语言，迁移保留已有进度与 Runtime 复制计划 |
+| [First-run Onboarding v6（历史）](first-run-onboarding-v6.md) | schema 3；训练营自动复制所选 Runtime、模型与权限到其余未配置内置队员，逐人冻结、恢复与冲突保护；已完成用户不补写 |
 | [First-run Onboarding v5（历史）](first-run-onboarding-v5.md) | v4 admission/provisioning 不变；Active Camp starter 进入可恢复的 Desktop-local Composer snapshot |
-| [Interface Language v1（当前）](interface-language-v1.md) | 通用偏好 schema 5、中英文界面文案、切换失败恢复及内置队员候选资料边界 |
+| [Interface Language v2（当前）](interface-language-v2.md) | 通用偏好 schema 6；跟随系统、旧语言保留、本地解析与读写失败恢复 |
+| [Interface Language v1（历史）](interface-language-v1.md) | 通用偏好 schema 5、中英文界面文案、切换失败恢复及内置队员候选资料边界 |
 | [First-run Onboarding v4（历史）](first-run-onboarding-v4.md) | v3 admission/provisioning 不变；第四页 starter 改为 mounted Renderer 输入，不持久 public Draft |
 | [First-run Onboarding v3（历史）](first-run-onboarding-v3.md) | v2 schema/flow 不变；首次安装改用 Full Core authority origin，损坏偏好只在内存降级且保留原文件 |
 | [First-run Onboarding v2（历史）](first-run-onboarding-v2.md) | v1 admission/provisioning 不变；schema 2 增加无可用 Runtime 时无产品副作用的 `runtime_deferred` 终态；其 pre-Core 文件存在性 admission 已由 v3 替代 |
@@ -533,7 +535,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Published Attachment View v2（历史）](camp-published-attachment-view-v2.md) | v1 root/journal/generation fence 不变；增加稳定 semantic catalog/receipt、可重建物理轴与无全局 DB 锁 copy phase |
 | [Camp Published Attachment View v1（历史）](camp-published-attachment-view-v1.md) | 实例/Camp 隔离 root、publication journal、ready catalog、generation、物理 Manifest receipt、quota、rebuild 与安全清理 |
 | [Camp Attachment v1（历史）](camp-attachment-v1.md) | 普通文件/目录联合、Core-owned 只读快照、限制、Draft 原子消费、Snapshot 29 与旧 Runtime Authority path |
-| [Camp Composer Draft v17（当前）](camp-composer-draft-v17.md) | Desktop 长粘贴生成文件、Thread 归属、单向发送保护与先保存后清理；不改变本机草稿权威 |
+| [Camp Composer Draft v18（当前）](camp-composer-draft-v18.md) | 内部复制的纯正文也按单次长粘贴阈值附件化；仅恢复后仍含 Atom 的内容优先按结构化粘贴 |
+| [Camp Composer Draft v17（历史）](camp-composer-draft-v17.md) | Desktop 长粘贴生成文件、Thread 归属、单向发送保护与先保存后清理；不改变本机草稿权威 |
 | [Camp Composer Draft v16（历史）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |
 | [Camp Composer Draft v15（历史）](camp-composer-draft-v15.md) | 无 Core Draft/Pending；Desktop 按 Camp 本地恢复完整输入、continuation、anchored reply 与发送前附件预览 |
 | [Camp Composer Draft v14（历史）](camp-composer-draft-v14.md) | public Camp 输入只存在于当前 Renderer；无 Core Draft、Pending、恢复或跨客户端合并 |

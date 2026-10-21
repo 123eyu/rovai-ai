@@ -64,7 +64,8 @@ describe('General settings', () => {
     const agents = [profile('agent-a', '洛可'), profile('agent-b', '沐瓦')]
     agents[1].runtimeReadiness.status = 'needs_attention'
     const preferences: GeneralPreferencesSnapshot = {
-      schemaVersion: 5,
+      schemaVersion: 6,
+      interfaceLanguagePreference: 'zh-CN', systemLanguage: 'en', languageRevision: 0, readError: null,
       interfaceLanguage: 'zh-CN',
       startupLocationMode: 'last_location',
       lastSettingsSection: 'general',

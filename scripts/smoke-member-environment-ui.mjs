@@ -21,6 +21,7 @@ import ${source('styles.css')};
 import {MemberEnvironmentEditor,useMemberEnvironment} from ${source('MemberEnvironmentEditor.tsx')};
 import {ThreadClientProvider} from ${source('camp-client.tsx')};
 import {changeInterfaceLanguage} from ${source('interface-language.ts')};
+import {languageTestApi} from ${source('interface-language-test-api.ts')};
 let revision=1;
 let values={ANTHROPIC_BASE_URL:'https://fixture.example',ANTHROPIC_API_KEY:'<saved>'};
 const client={platform:'darwin',onEvent:()=>()=>{},request:async(method)=>{
@@ -30,7 +31,7 @@ const client={platform:'darwin',onEvent:()=>()=>{},request:async(method)=>{
 function Editor(){
  const [version,setVersion]=useState(1);
  const env=useMemberEnvironment('member-a','claude-code-cli',version,undefined,false);
- window.fixture={language:language=>changeInterfaceLanguage({setInterfaceLanguage:async value=>({interfaceLanguage:value})},language),update:env.update};
+ window.fixture={language:language=>changeInterfaceLanguage(languageTestApi,language),update:env.update};
  return <main style={{maxWidth:560,padding:20,margin:'0 auto'}}>
   <MemberEnvironmentEditor environment={env} disabled={false}/>
   <button data-save onClick={async()=>{const edit=env.edit();if(edit){values=JSON.parse(edit.json);revision++;setVersion(v=>v+1);await env.savedSuccessfully()}}}>Save</button>

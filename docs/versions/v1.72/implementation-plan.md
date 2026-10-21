@@ -128,6 +128,26 @@ Architecture、UI、合同索引、文档入口与 [V1.72-D53](decisions.md#v1-7
 Node 357 通过／2 项平台跳过）；文档 10 项测试、普通及基于 `035902a5e` 的 diff-aware 门禁通过。
 本轮未修改 Rust，不重复运行既有 Rust 回归；没有测量整机内存或磁盘占用，也没有更新日常 App。
 
+### 内部纯正文复制修正（2026-10-21）
+
+分支 `rovai/long-paste-text-only`，同级 worktree `rovai-ai-long-paste-text-only`，初始基线 `527582452`。
+User 实测输入框复制的纯正文也带私有 MIME，导致此前合法内部格式整体豁免了长文本阈值。
+只调整生产 Clipboard Extension 的 paste 分流：恢复后仍含 Member、All Members 或 Skill Atom 时保留
+结构化优先级；其余内部文档用自身完整正文判断 10,000 码点阈值，普通 `@名字`、`/skill` 字符不构成 Atom。
+既有文件优先级、短文本插入、选区、未启用回调的入口及异步回填保持原路径，不增加持久字段或后台机制。
+
+新增场景先在旧代码复现失败，再在隔离 Electron 的生产 Composer 中通过；使用编辑器自身 Copy 产生私有 MIME，
+验证纯正文回贴生成附件且不覆盖选区。补齐边界、Unicode／空白全文、内外文本不一致、三种 Atom 保留，
+并用内部纯文本覆盖既有延迟失败期间继续输入的回填场景。夹具隔离 userData 和 Skill Library，不启动 Core／Runtime。
+初始基线上的 `pnpm typecheck`、`pnpm build:desktop`、`pnpm test` 通过（249 个 Vitest 文件／2,832 项，
+Node 357 通过／2 项平台跳过），生产 Composer 回归通过。当前规范升级为
+[Composer Draft v18](../../contracts/camp-composer-draft-v18.md)，复制 wire format 和 v17 的附件生命周期不变。
+
+同步语言设置主线 `94a1d843c` 后再次通过 `pnpm typecheck`、`pnpm build:desktop`、`pnpm test`
+（251 个 Vitest 文件／2,847 项，Node 357 通过／2 项平台跳过）、`pnpm test:composer-input` 的 3 个生产输入套件，
+以及基于该 main SHA 的 diff-aware 文档门禁。默认 `pnpm test:rust:pr` 474 项通过、1 项既有 ignored；
+本次及合入的语言更新均未修改 Rust。日常 App 未在本轮安装或重启。
+
 ## 会话执行条（2026-10-20）
 
 User 确认第七版交互稿的 01 浅灰、C 无底图标和转圈，并授权独立 worktree、PR 到 main 后合并。
@@ -3869,6 +3889,26 @@ User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree
 新增断言在首次验证时修正了 snapshot／operation 输出顺序假设及 macOS 临时目录 cwd 别名，未改变生产
 路径身份规则。未启动真实 Runtime、模型或 Renderer；本项不宣称真实 Session 或 UI 点击验收。
 
+## 跟随系统界面语言（2026-10-21）
+
+按 User 确认的 HTML 交互稿实施：复用设置语言行、训练营欢迎页位置和登录表单，统一三个选择。Desktop Main 和 Web 本地偏好各自解析设备语言，不将远端 Host 语言当作访问者语言。持久化 schema 6 只保存偏好，运行时快照携带解析结果、读取状态与顺序版本。
+
+有效 schema 1–4 保留中文，schema 5 保留原语言，缺失配置默认 system。损坏记录保留且阻止无关自动写入；恢复读取后才解除保护。语言读写独立于业务服务，较早读取、事件和保存响应不能覆盖较晚选择；system 保存失败回退时按当前设备重新解析。
+
+训练营 schema 4 固定具体资料语言，旧检查点保留进度与命令 ID；创建和重启恢复使用冻结值。界面切换保持草稿、页面、角色和执行状态。Web 登录前选择在内存中暂存，认证后仅将用户明确选择接续到既有 owner 作用域。
+
+工作分支 `rovai/system-interface-language` 从 `010e762f0` 建立，随后合入 `527582452` 的主干更新；没有主线治理先行要求。通用门禁使用同级干净检出 `rovai-ai-language-validation`，避免工作目录中被忽略的历史 HTML 原型参与文档扫描，未修改检查器或删除原型。
+
+验证结果：
+
+- `pnpm typecheck` 与 `pnpm test` 通过：251 个 Vitest 文件、2,847 项用例；后续 Node 套件 357 项通过、2 项 Windows 专用测试按平台跳过。覆盖旧配置迁移、system 持久化、读取损坏保护、恢复、请求顺序、Web 作用域和创建资料冻结。
+- `pnpm test:startup-presentation` 在隔离 Electron 中通过：语言读取前保持中性首帧，训练营三个选择更新页面语言属性；从 English 切回 system 保留选择方式，且原组件树保持不变。`pnpm test:desktop-bridge` 验证生产 preload 的语言读取、保存、事件清理及创建语言参数。
+- `pnpm build:desktop`（包含 Web、Execution Web、Main、preload 与 Renderer）和以真实主干为 base 的 `pnpm docs:check:ci` 通过。
+- `pnpm test:rust:pr` 在语言实现提交 `7c62e5580` 通过：474 项通过、1 项既有手动 smoke ignored；本功能未修改 Rust。后续主干合并仅处理翻译、文档与验收夹具的并行增量。
+- 规范与需求两项独立审查发现的读取异常提示丢失、登录交接期间新选择丢失均已修复，并通过回归与复核。保存失败文案按回退后的当前语言显示。
+- 完整复验曾触发未改动的 `cline-observer` 测试误判：它的敏感字段正则匹配到了 `observedAt` 的 `.999` 毫秒值；单项复查与完整重跑通过，未改动该 owner。
+
+本次只启动隔离自动验收进程，未启动真实 Runtime，也未安装或重启日常 App；不将 macOS 验收当作 Windows 原生系统通知验证。
 
 ## App 退出提醒收口（2026-10-21）
 

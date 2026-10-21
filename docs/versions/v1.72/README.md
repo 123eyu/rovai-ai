@@ -18,6 +18,10 @@ last_updated: 2026-10-21
 [Runtime Launch v68](../../contracts/runtime-launch-and-verification-v68.md)拥有；
 实施与验收见[通用环境配置记录](shared-environment-implementation.md)。不改变模型上下文或发布版本。
 
+## 跟随系统界面语言（2026-10-21）
+
+已确认的设置、训练营与 Web 登录入口增加“跟随系统”。General Preferences schema 6 分离偏好与显示结果；旧 schema 1–5 保留原语言，缺失配置才采用 system。桌面本地启动读取、浏览器作用域、响应顺序和异常恢复由 [Interface Language v2](../../contracts/interface-language-v2.md)拥有；创建资料语言由 [First-run Onboarding v7](../../contracts/first-run-onboarding-v7.md)固定。实现与验收见[实施记录](implementation-plan.md#跟随系统界面语言2026-10-21)。不改变 Core 数据库 schema 或发布版本。
+
 ## 操作提示精简（2026-10-21）
 
 按 User 确认移除复制会话 ID／项目路径／附件路径、项目改名与移除、撤回、结束单聊、成员邀请／移出、
@@ -52,7 +56,9 @@ Desktop 公屏单次普通文本粘贴超过 10,000 个码点时，生成完整 
 不进入系统临时目录；已有正文保留，失败先回填最新编辑器内容。普通弹窗零消息 Active 与一键 Pending
 沿用各自生命周期。采用单向发送保护，移除先保存草稿再异步清理，发送成功先保存新草稿再释放登记。
 必要恢复登记不受普通缓存裁剪，Pending 启动清理补齐输出目录；不增加预算预判、发送对账或垃圾回收器。
-当前规则见 [Composer Draft v17](../../contracts/camp-composer-draft-v17.md) 与
+2026-10-21 修正内部纯正文复制：只有恢复后仍含实际 Mention／Skill Atom 才保留结构化粘贴优先级，
+内部纯正文同样按单次 10,000 码点阈值处理。
+当前规则见 [Composer Draft v18](../../contracts/camp-composer-draft-v18.md) 与
 [Clipboard](../../ui/components/structured-mentions.md#clipboard)，取舍见 [V1.72-D53](decisions.md#v1-72-d53)，
 实施及验证见[实施记录](implementation-plan.md#单次长文本粘贴转附件2026-10-20)。
 

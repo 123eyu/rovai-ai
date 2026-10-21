@@ -1,3 +1,4 @@
+import { isInterfaceLanguage } from '../shared/general-preferences-model'
 import { creationPreferences, withHostConversationPreferences } from '../shared/host-general-preferences'
 import { createHostChannelHandler } from './host-channels'
 import { FilePreviewFrameNavigation } from './file-preview/file-preview-navigation'
@@ -22,6 +23,7 @@ import {
   powerMonitor,
   protocol,
   screen,
+  systemPreferences,
   shell
 } from 'electron'
 import { isThreadId } from '@contracts'
@@ -85,7 +87,7 @@ import { RUNTIME_RENDERER_CORE_METHODS } from './runtime-core-methods'
 import {
   GeneralPreferencesStore,
   isExecutionConsolePlacement,
-  isInterfaceLanguage,
+  isInterfaceLanguagePreference,
   isNewConversationDefaults,
   isSettingsSection,
   isStartupLocationMode
@@ -995,7 +997,7 @@ if (primaryInstance) void app.whenReady().then(async () => {
   await executionView.start().catch((error) => {
     console.warn('[rovai] Execution Web service did not start; channel execution remains available.', error)
   })
-  generalPreferences = GeneralPreferencesStore.defaults(generalPreferencesPath)
+  generalPreferences = GeneralPreferencesStore.defaults(generalPreferencesPath, () => app.getPreferredSystemLanguages())
   if (process.platform === 'win32') {
     windowsWindowClose = new WindowsWindowClose({
       preferences: new WindowClosePreferences(join(userDataPath, 'window-close.json')),
@@ -1057,21 +1059,33 @@ if (primaryInstance) void app.whenReady().then(async () => {
   })
   removeRetiredLoginItemRegistration()
   void memberAvatars?.cleanupStaleTemporaryDirectories().catch(() => undefined)
+  const loadedGeneralPreferences = await GeneralPreferencesStore.load(generalPreferencesPath, () => app.getPreferredSystemLanguages())
   const [
-    loadedGeneralPreferences,
     loadedOnboarding,
     loadedRestorableLocations,
     loadedNavigationPreferences,
     loadedCurrentUserProfile
   ] = await Promise.all([
-    GeneralPreferencesStore.load(generalPreferencesPath),
-    OnboardingStore.load(onboardingPath),
+    OnboardingStore.load(onboardingPath, loadedGeneralPreferences.get().interfaceLanguage),
     RestorableLocationStore.load(restorableLocationPath),
     NavigationPreferencesStore.load(navigationPreferencesPath),
     CurrentUserProfileStore.load(currentUserProfilePath),
     shortcutPreferences.load()
   ])
   generalPreferences = loadedGeneralPreferences
+  generalPreferences.onInterfaceLanguageChanged(snapshot => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) window.webContents.send('rovai:interface-language-changed', snapshot)
+    }
+  })
+  const refreshLanguage = (): void => generalPreferences?.refreshInterfaceLanguage()
+  app.on('browser-window-focus', refreshLanguage)
+  app.on('activate', refreshLanguage)
+  powerMonitor.on('resume', refreshLanguage)
+  if (process.platform === 'darwin') {
+    const subscription = systemPreferences.subscribeLocalNotification('NSCurrentLocaleDidChangeNotification', refreshLanguage)
+    app.once('will-quit', () => systemPreferences.unsubscribeLocalNotification(subscription))
+  }
   onboarding = loadedOnboarding
   restorableLocations = loadedRestorableLocations
   navigationPreferences = loadedNavigationPreferences
@@ -1433,7 +1447,7 @@ ipcMain.handle('rovai:desktop-session-get-startup', async (event) => {
 ipcMain.handle('rovai:desktop-session-get-interface-language', async (event) => {
   requireMainWindow(event.sender)
   await localStoresLoaded
-  return requireGeneralPreferences().get().interfaceLanguage
+  return requireGeneralPreferences().getInterfaceLanguage()
 })
 
 ipcMain.handle('rovai:desktop-session-commit-location', async (_event, location: unknown) => {
@@ -1466,9 +1480,10 @@ ipcMain.handle('rovai:shortcuts-recording', (event, recording) => {
   input.setRecording(recording)
 })
 
-ipcMain.handle('rovai:general-preferences-set-language', (_event, language: unknown) => {
-  if (!isInterfaceLanguage(language)) throw new Error('Unsupported interface language')
-  return hostGeneralPreferences().setInterfaceLanguage(language)
+ipcMain.handle('rovai:general-preferences-set-language', async (_event, preference: unknown) => {
+  if (!isInterfaceLanguagePreference(preference)) throw new Error('Unsupported interface language preference')
+  await localStoresLoaded
+  return hostGeneralPreferences().setInterfaceLanguagePreference(preference)
 })
 
 ipcMain.handle('rovai:general-preferences-set-startup', (_event, mode: unknown) => {
@@ -1624,9 +1639,11 @@ ipcMain.handle('rovai:onboarding-defer-runtime', () => {
 ipcMain.handle('rovai:onboarding-begin-provisioning', (
   _event,
   selection: unknown,
-  runtimePermissions: unknown
+  runtimePermissions: unknown,
+  interfaceLanguage: unknown
 ) => {
-  return requireOnboarding().beginProvisioning(selection, runtimePermissions)
+  if (!isInterfaceLanguage(interfaceLanguage)) throw new Error('Unsupported onboarding language')
+  return requireOnboarding().beginProvisioning(selection, runtimePermissions, interfaceLanguage)
 })
 
 ipcMain.handle('rovai:onboarding-record-member', (_event, agentId: unknown, version: unknown) => {

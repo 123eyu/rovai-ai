@@ -3954,7 +3954,6 @@
   "查看本次执行的 {0} 条原消息": "View the {0} original messages for this run",
   "{0} 条原消息": "{0} original messages",
   "本次执行的原消息": "Original messages for this run",
-  "返回执行位置": "Return to execution",
   "{0} 条共同记忆待审核": "{0} shared memories awaiting review",
   "共同记忆审核已更新": "Shared memory review updated",
   "关闭记忆通知": "Dismiss memory notification",

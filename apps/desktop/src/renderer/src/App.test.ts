@@ -1,3 +1,4 @@
+import { languageTestApi } from './interface-language-test-api'
 import { RemoteConnectionStatus } from './RemoteConnectionStatus'
 import { VISIBLE_PRODUCT_RUNTIMES } from './runtime-products'
 import { DEFAULT_APPEARANCE } from '../../shared/appearance'
@@ -319,14 +320,14 @@ describe('accepted Thread deletion tombstone', () => {
 })
 
 describe('availability-first workspace gate', () => {
-  it('covers the ordinary page frame with loading before the first Supervisor snapshot', () => {
+  it('holds locale-dependent page copy until the local language snapshot is restored', () => {
     vi.stubGlobal('document', { documentElement: { dataset: {}, style: {} } })
     vi.stubGlobal('window', { rovai: { platform: 'darwin' } })
     try {
       const markup = renderToStaticMarkup(createElement(App))
-      expect(markup).toContain('unified-sidebar')
+      expect(markup).toContain('language-bootstrap')
+      expect(markup).not.toContain('unified-sidebar')
       expect(markup).not.toContain('bootstrap-shell')
-      expect(markup).toContain('startup-loading-canvas')
       expect(markup).not.toContain('sidebar-empty')
       expect(markup).not.toContain('onboarding-app-shell')
     } finally {
@@ -1542,10 +1543,7 @@ describe('task event projections', () => {
   })
 
   it('localizes file change summaries and evidence labels in English', async () => {
-    const languageApi = {
-      setInterfaceLanguage: async (language: 'zh-CN' | 'en') =>
-        ({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage: language })
-    } as GeneralPreferencesApi
+    const languageApi = languageTestApi
     await changeInterfaceLanguage(languageApi, 'en')
     try {
       const changes = {
@@ -2723,10 +2721,7 @@ describe('task event projections', () => {
   })
 
   it('shows the localized first-run title in navigation and recent chats across language changes', async () => {
-    const languageApi = {
-      setInterfaceLanguage: async (interfaceLanguage: 'zh-CN' | 'en') =>
-        ({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage })
-    } as GeneralPreferencesApi
+    const languageApi = languageTestApi
     const thread = {
       id: 'camp-first', title: '初次集结', activationState: 'active' as const,
       projectBindingKind: 'quick_chat' as const, projectPath: '/tmp/quick-chat', defaultLead: null,
@@ -4876,10 +4871,7 @@ describe('task event projections', () => {
   })
 
   it('shows app-owned model and effort labels in English', async () => {
-    const languageApi = {
-      setInterfaceLanguage: async (language: 'zh-CN' | 'en') =>
-        ({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage: language })
-    } as GeneralPreferencesApi
+    const languageApi = languageTestApi
     await changeInterfaceLanguage(languageApi, 'en')
     try {
       expect(memberRuntimeConfigurationPresentation(configuredRuntime('codex-cli'), null)).toEqual({
@@ -6250,10 +6242,7 @@ describe('task event projections', () => {
     expect(networkBlockedMarkup).toContain('自动恢复已停止')
     expect(networkBlockedMarkup).not.toContain('process-spinner')
 
-    const languageApi = {
-      setInterfaceLanguage: async (language: 'zh-CN' | 'en') =>
-        ({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage: language })
-    } as GeneralPreferencesApi
+    const languageApi = languageTestApi
     await changeInterfaceLanguage(languageApi, 'en')
     try {
       const englishMarkup = renderToStaticMarkup(createElement(RunExecutionDisclosure, {

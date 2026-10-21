@@ -1,3 +1,4 @@
+import { languageTestApi } from './interface-language-test-api'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -61,9 +62,7 @@ function render(value: AppUpdateSnapshot | null, options: {
   }))
 }
 
-const languageApi = {
-  setInterfaceLanguage: async (interfaceLanguage: 'zh-CN' | 'en') => ({ interfaceLanguage })
-} as GeneralPreferencesApi
+const languageApi = languageTestApi
 
 afterEach(async () => { await changeInterfaceLanguage(languageApi, 'zh-CN') })
 

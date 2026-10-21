@@ -1,3 +1,4 @@
+import { DEFAULT_GENERAL_PREFERENCES } from '../../../apps/desktop/src/shared/general-preferences-model'
 import { shortcutDefaults } from '../../../apps/desktop/src/shared/shortcuts'
 import { EMPTY_SNAPSHOT, sanitizeSnapshot, registerNavigationProjects } from '../../../apps/desktop/src/shared/navigation-preferences-model'
 import type { NavigationSnapshot, NavigationPreferencesSnapshot } from '@contracts'
@@ -114,10 +115,10 @@ function api(path = ''): unknown {
       if (path.split('.').at(-1)?.startsWith('on')) return () => undefined
       if (path === 'supervisor.getSnapshot') return initialSupervisor.promise
       if (path === 'desktopSession.getStartupSnapshot') { calls.push(path); return localSession.promise }
-      if (path === 'desktopSession.getInterfaceLanguage') { calls.push(path); return Promise.resolve('zh-CN') }
+      if (path === 'generalPreferences.getInterfaceLanguage') { calls.push(path); return Promise.resolve({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: 'zh-CN', interfaceLanguage: 'zh-CN' }) }
       if (path === 'currentUserProfile.get') return Promise.resolve({ displayName: '', avatarDataUrl: null })
       if (path === 'appearance.get') return Promise.resolve({ ...DEFAULT_APPEARANCE, resolvedTheme: appearanceTheme })
-      if (path === 'generalPreferences.get') return Promise.resolve({ schemaVersion: 4,
+      if (path === 'generalPreferences.get') return Promise.resolve({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: 'zh-CN', interfaceLanguage: 'zh-CN',
         startupLocationMode: 'last_location', lastSettingsSection: 'general', executionConsolePlacement: 'bottom',
         newConversationDefaults: null, newConversationDefaultsRequireConfirmation: false,
         oneClickNewConversationEnabled: false, worldMapEnabled: true, ...(responses.get(path) ?? {}) })
@@ -227,7 +228,7 @@ function recoveryFrame(kind: string) {
 function noAuthority() {
   // Session state, interface language and preview retention are Main-owned
   // local reads; none enter Core authority before admission.
-  check(calls.every(call => ['desktopSession.getStartupSnapshot', 'desktopSession.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
+  check(calls.every(call => ['desktopSession.getStartupSnapshot', 'generalPreferences.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
 }
 
 Object.assign(window, { startupTest: {

@@ -1,3 +1,4 @@
+import { languageTestApi } from './interface-language-test-api'
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -27,10 +28,7 @@ import { DEFAULT_GENERAL_PREFERENCES } from '../../shared/general-preferences-mo
 import { changeInterfaceLanguage } from './interface-language'
 
 it('localizes the identified first-run notification title while retaining the episode data', async () => {
-  const languageApi = {
-    setInterfaceLanguage: async (interfaceLanguage: 'zh-CN' | 'en') =>
-      ({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage })
-  } as GeneralPreferencesApi
+  const languageApi = languageTestApi
   const current = episode('turn_completed', { thread: { id: 'camp-1', title: '初次集结' } })
   const entry = { episode: current, signal: headsUpSignal(current, 'turn_completed'), changeSequence: 1 }
   const render = (firstRunThreadId: string | null) => renderToStaticMarkup(createElement(NotificationHeadsUp, {

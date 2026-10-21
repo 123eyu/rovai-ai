@@ -2558,6 +2558,31 @@ export interface ThreadMessagePage {
   messages: ThreadMessageView[]
 }
 
+export interface ThreadReplyPageParams {
+  threadId: string
+  messageId: string
+  sequence?: number
+  before?: boolean
+  limit?: number
+  runAnchorMessageIds?: string[]
+}
+
+/** One chronological page in the component defined solely by replyToThreadMessageId. */
+export interface ThreadReplyPage {
+  schemaVersion: 1
+  threadId: string
+  messageId: string
+  rootMessageId: string | null
+  throughGlobalSequence: number
+  sourceAvailable: boolean
+  replyCount: number
+  hasEarlier: boolean
+  hasLater: boolean
+  messages: ThreadMessageView[]
+  /** Requested current Run anchors that belong to this chain, including unloaded pages. */
+  runAnchorMessageIds: string[]
+}
+
 export interface ThreadMessageAroundSnapshot {
   schemaVersion: 1
   throughGlobalSequence: number
@@ -4379,6 +4404,7 @@ export type CoreMethod =
   | 'thread.messages.page'
   | 'thread.messages.anchors'
   | 'thread.messages.anchorPreview'
+  | 'thread.messages.replies'
   | 'thread.messages.around'
   | 'thread.messages.find'
   | 'thread.messages.withdraw'

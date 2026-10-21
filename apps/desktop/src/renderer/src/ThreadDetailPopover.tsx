@@ -146,6 +146,7 @@ export function ThreadDetailEntries({
 }
 
 export function ThreadDetailPopover({
+  portalHost,
   executionActions,
   entryHost,
   tasksEnabled = true,
@@ -166,6 +167,7 @@ export function ThreadDetailPopover({
   onOpenMissionActivity,
   children
 }: {
+  portalHost?: HTMLElement | null
   executionActions?: ReactNode
   entryHost?: HTMLElement | null
   tasksEnabled?: boolean
@@ -282,16 +284,7 @@ export function ThreadDetailPopover({
     }}
   />
 
-  return <>
-    {entryHost
-      ? createPortal(entries, mobile ? entryHost : primarySlot!)
-      : <div className="camp-detail-entry-fallback">{entries}</div>}
-    {!mobile && tasksEnabled && taskSlot && createPortal(<ThreadDetailEntries tasksOnly tasksEnabled
-      activeTab={activeTab} visible={visible} panelId={panelId} showExecution={false}
-      runningMembers={runningMembers} executionCount={executionCount} taskCount={taskCount} memberCount={memberCount}
-      onSelect={(tab, trigger, keyboard) => { triggerRef.current = trigger; focusPanelRef.current = keyboard; if (visible && activeTab === tab) onClose(); else onOpen(tab) }}
-    />, taskSlot)}
-    <aside
+  const panel = (<aside
       ref={panelRef}
       id={panelId}
       className="camp-detail-popover"
@@ -343,6 +336,17 @@ export function ThreadDetailPopover({
       <footer className="camp-detail-footer">
         <span className="camp-detail-dismiss-hint"><kbd>Esc</kbd><UiText zh={" 收起"} /></span>
       </footer>
-    </aside>
+    </aside>)
+
+  return <>
+    {entryHost
+      ? createPortal(entries, mobile ? entryHost : primarySlot!)
+      : <div className="camp-detail-entry-fallback">{entries}</div>}
+    {!mobile && tasksEnabled && taskSlot && createPortal(<ThreadDetailEntries tasksOnly tasksEnabled
+      activeTab={activeTab} visible={visible} panelId={panelId} showExecution={false}
+      runningMembers={runningMembers} executionCount={executionCount} taskCount={taskCount} memberCount={memberCount}
+      onSelect={(tab, trigger, keyboard) => { triggerRef.current = trigger; focusPanelRef.current = keyboard; if (visible && activeTab === tab) onClose(); else onOpen(tab) }}
+    />, taskSlot)}
+    {portalHost ? createPortal(panel, portalHost) : panel}
   </>
 }

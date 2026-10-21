@@ -17,6 +17,13 @@ User 于 2026-10-21 确认输入历史简化：首次 ↑ 从现有消息提取�
 [Input History v1](../../contracts/input-history-v1.md)。历史范围跟随现有消息数据，
 不改变模型上下文、数据库 schema 或发布版本。
 
+## 回复链只读详情（2026-10-21）
+
+按 User 确认的 B 方案实现回复块入口、只读平铺详情、悬浮操作、活动执行条和窄窗口替换。
+正式链读取沿单一 reply anchor，不把合批的其他输入合并入链；完整历史通过分页查询与当前 Thread 缓存提供。
+合同见 [Thread Replies v1](../../contracts/thread-replies-v1.md)，实现与验证见
+[回复详情实施记录](reply-details-implementation.md)。不改变模型上下文、数据库 schema 或发布版本。
+
 ## 原路径附件显示名（2026-10-21）
 
 按 User 确认收窄 Source Ref 的历史文件名约束：包含时间冒号等字符的显示名原样保留，

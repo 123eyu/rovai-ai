@@ -324,6 +324,7 @@ const allowedMethods = new Set<CoreMethod>([
   'thread.messages.page',
   'thread.messages.anchors',
   'thread.messages.anchorPreview',
+  'thread.messages.replies',
   'thread.messages.around',
   'thread.messages.find',
   'agentRunEvidence.getContent',

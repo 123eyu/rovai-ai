@@ -11270,6 +11270,15 @@ impl Core {
                 drop(database);
                 Ok(serde_json::to_value(preview.format()?)?)
             }
+            "camp.messages.replies" => {
+                let params = serde_json::from_value::<rovai_core::read_model::ReplyPageParams>(
+                    request.params.clone(),
+                )?;
+                let mut database = self.database.lock().await;
+                let page = ReadModelService.reply_page(&mut database, &params)?;
+                drop(database);
+                Ok(serde_json::to_value(page)?)
+            }
             "camp.messages.around" => {
                 let params: ThreadMessageAroundParams =
                     serde_json::from_value(request.params.clone())?;

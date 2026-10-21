@@ -1,3 +1,4 @@
+import { LanguagePreferenceOptions } from './LanguagePreferenceControl'
 import { useTaskCapability } from './TaskCapabilityProvider'
 import { WindowCloseSettings } from './WindowCloseSettings'
 import { GeneralLeadSelect } from './GeneralLeadSelect'
@@ -8,7 +9,7 @@ import type {
   AgentProfile,
   GeneralPreferencesSnapshot,
   GeneralPreferencesApi,
-  InterfaceLanguage,
+  InterfaceLanguagePreference,
   NewConversationDefaults,
   StartupLocationMode,
   WindowResetCapability,
@@ -62,7 +63,7 @@ export function GeneralSettings({
   const t = useUiText()
   const interfaceLanguage = useInterfaceLanguage()
   const [preferences, setPreferences] = useState<GeneralPreferencesSnapshot | null>(initialPreferences)
-  const [languageError, setLanguageError] = useState<string | null>(null)
+  const [languageError, setLanguageError] = useState(false)
   const languageRequest = useRef(0)
   const [preferenceBusy, setPreferenceBusy] = useState(false)
   const [preferenceError, setPreferenceError] = useState<string | null>(null)
@@ -161,14 +162,14 @@ export function GeneralSettings({
     }
   }
 
-  const setInterfaceLanguage = async (language: InterfaceLanguage): Promise<void> => {
-    if (!preferences || language === interfaceLanguage) return
+  const setInterfaceLanguage = async (language: InterfaceLanguagePreference): Promise<void> => {
+    if (!preferences) return
     const request = ++languageRequest.current
-    setLanguageError(null)
+    setLanguageError(false)
     try {
       await changeInterfaceLanguage(api, language, acceptPreferences)
     } catch {
-      if (request === languageRequest.current) setLanguageError(t('语言偏好未能保存，请重试。'))
+      if (request === languageRequest.current) setLanguageError(true)
     }
   }
 
@@ -373,17 +374,9 @@ export function GeneralSettings({
         <section className="section-block general-settings-section general-language-section" aria-labelledby="general-language-heading">
           <div className="section-heading"><div><h2 id="general-language-heading">{t('界面语言')}</h2></div></div>
           <div className="general-section-body">
-            <div className="general-language-options" role="radiogroup" aria-labelledby="general-language-heading">
-              {(['zh-CN', 'en'] as const).map((language) => (
-                <label key={language} className={interfaceLanguage === language ? 'selected' : ''}>
-                  <input type="radio" name="interface-language" value={language}
-                    checked={interfaceLanguage === language} disabled={!preferences}
-                    onChange={() => void setInterfaceLanguage(language)} />
-                  <span>{language === 'zh-CN' ? uiAttribute("简体中文") : 'English'}</span>
-                </label>
-              ))}
-            </div>
-            {languageError && <p className="general-inline-status is-error" role="alert">{languageError}</p>}
+            <LanguagePreferenceOptions name="interface-language" className="general-language-options" disabled={!preferences}
+              onChange={language => void setInterfaceLanguage(language)} />
+            {languageError && <p className="general-inline-status is-error" role="alert">{t('语言偏好未能保存，请重试。')}</p>}
           </div>
         </section>
         <section className="section-block general-settings-section" aria-labelledby="general-startup-heading">

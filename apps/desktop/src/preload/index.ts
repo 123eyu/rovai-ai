@@ -15,7 +15,7 @@ import type {
   CoreMethod,
   ExecutionWebSettingsSnapshot,
   ExecutionConsolePlacement,
-  InterfaceLanguage,
+  InterfaceLanguagePreference,
   RestorableLocation,
   SettingsSection,
   StartupLocationMode,
@@ -202,8 +202,16 @@ const api: RovaiApi = {
     get() {
       return ipcRenderer.invoke('rovai:general-preferences-get')
     },
-    setInterfaceLanguage(language: InterfaceLanguage) {
-      return ipcRenderer.invoke('rovai:general-preferences-set-language', language)
+    getInterfaceLanguage() {
+      return ipcRenderer.invoke('rovai:desktop-session-get-interface-language')
+    },
+    onInterfaceLanguageChanged(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, snapshot: import('@contracts').InterfaceLanguageSnapshot): void => listener(snapshot)
+      ipcRenderer.on('rovai:interface-language-changed', handler)
+      return () => ipcRenderer.removeListener('rovai:interface-language-changed', handler)
+    },
+    setInterfaceLanguagePreference(preference: InterfaceLanguagePreference) {
+      return ipcRenderer.invoke('rovai:general-preferences-set-language', preference)
     },
     setStartupLocationMode(mode: StartupLocationMode) {
       return ipcRenderer.invoke('rovai:general-preferences-set-startup', mode)
@@ -308,11 +316,12 @@ const api: RovaiApi = {
     deferRuntimeSetup() {
       return ipcRenderer.invoke('rovai:onboarding-defer-runtime')
     },
-    beginProvisioning(selection, runtimePermissions) {
+    beginProvisioning(selection, runtimePermissions, interfaceLanguage) {
       return ipcRenderer.invoke(
         'rovai:onboarding-begin-provisioning',
         selection,
-        runtimePermissions
+        runtimePermissions,
+        interfaceLanguage
       )
     },
     recordProvisionedMember(agentId, version) {

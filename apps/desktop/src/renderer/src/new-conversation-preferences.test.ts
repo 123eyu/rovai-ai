@@ -231,7 +231,8 @@ describe('new conversation preferences', () => {
 
 function configuredPreferences(): GeneralPreferencesSnapshot {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
+      interfaceLanguagePreference: 'zh-CN', systemLanguage: 'en', languageRevision: 0, readError: null,
     interfaceLanguage: 'zh-CN',
     startupLocationMode: 'last_location',
     lastSettingsSection: 'general',

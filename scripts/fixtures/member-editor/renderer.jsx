@@ -1,3 +1,4 @@
+import { languageTestApi } from '../../../apps/desktop/src/renderer/src/interface-language-test-api'
 import { CurrentUserProfileProvider } from '../../../apps/desktop/src/renderer/src/CurrentUserProfile'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 import '../../../apps/desktop/src/renderer/src/member-editor.css'
@@ -223,7 +224,7 @@ window.memberFixture = {
   theme: (theme) => {
     document.documentElement.dataset.theme = theme
   },
-  language: language => changeInterfaceLanguage({ setInterfaceLanguage: async interfaceLanguage => ({ interfaceLanguage }) }, language),
+  language: language => changeInterfaceLanguage(languageTestApi, language),
   leave: () => openSettings(),
   reset: () => {
     members = initialMembers()

@@ -9464,3 +9464,6 @@ button.skill-file-current:hover, .skill-file-current[aria-expanded="true"] { bac
   .file-action-spinner { animation: none; }
   .file-action-button, .agent-timeline { transition: none; }
 }
+
+.language-bootstrap { width: 100%; height: 100%; background: var(--canvas); }
+.language-preference-notice { position: fixed; z-index: 1000; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px); display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12px; }

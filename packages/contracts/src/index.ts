@@ -3310,10 +3310,12 @@ export interface NewConversationDefaults {
 }
 
 export type InterfaceLanguage = 'zh-CN' | 'en'
+export type InterfaceLanguagePreference = 'system' | InterfaceLanguage
 
-export interface GeneralPreferencesSnapshot {
-  schemaVersion: 5
-  interfaceLanguage: InterfaceLanguage
+/** Disk/browser representation. Resolved language and read status are never persisted. */
+export interface GeneralPreferencesStorage {
+  schemaVersion: 6
+  interfaceLanguagePreference: InterfaceLanguagePreference
   startupLocationMode: StartupLocationMode
   lastSettingsSection: SettingsSection
   executionConsolePlacement: ExecutionConsolePlacement
@@ -3321,6 +3323,23 @@ export interface GeneralPreferencesSnapshot {
   newConversationDefaultsRequireConfirmation: boolean
   oneClickNewConversationEnabled: boolean
   worldMapEnabled: boolean
+}
+
+export interface InterfaceLanguageSnapshot {
+  interfaceLanguagePreference: InterfaceLanguagePreference
+  interfaceLanguage: InterfaceLanguage
+  systemLanguage: InterfaceLanguage
+  languageRevision: number
+  readError: StructuredError | null
+}
+
+export interface GeneralPreferencesSnapshot extends GeneralPreferencesStorage, InterfaceLanguageSnapshot {}
+
+export interface InterfaceLanguageApi {
+  /** Local-only read and retry; never waits for the business service. */
+  getInterfaceLanguage(): Promise<InterfaceLanguageSnapshot>
+  setInterfaceLanguagePreference(preference: InterfaceLanguagePreference): Promise<GeneralPreferencesSnapshot>
+  onInterfaceLanguageChanged(listener: (snapshot: InterfaceLanguageSnapshot) => void): () => void
 }
 
 export interface DesktopStartupSnapshot {
@@ -3365,13 +3384,12 @@ export interface WindowResetResult {
 
 export interface DesktopSessionApi {
   getStartupSnapshot(): Promise<DesktopStartupSnapshot>
-  getInterfaceLanguage(): Promise<InterfaceLanguage>
+  getInterfaceLanguage(): Promise<InterfaceLanguageSnapshot>
   commitRestorableLocation(location: RestorableLocation): Promise<void>
 }
 
-export interface GeneralPreferencesApi {
+export interface GeneralPreferencesApi extends InterfaceLanguageApi {
   get(): Promise<GeneralPreferencesSnapshot>
-  setInterfaceLanguage(language: InterfaceLanguage): Promise<GeneralPreferencesSnapshot>
   setStartupLocationMode(mode: StartupLocationMode): Promise<GeneralPreferencesSnapshot>
   setLastSettingsSection(section: SettingsSection): Promise<GeneralPreferencesSnapshot>
   setExecutionConsolePlacement(placement: ExecutionConsolePlacement): Promise<GeneralPreferencesSnapshot>
@@ -3390,6 +3408,7 @@ export interface OnboardingRuntimeSelection {
 }
 
 export interface OnboardingProvisioningOperation {
+  interfaceLanguage: InterfaceLanguage
   memberCommandId: string
   runtimeCommandId: string
   campCommandId: string
@@ -3415,11 +3434,11 @@ export type OnboardingRuntimeCopyOutcome = 'applied' | 'skipped' | 'retry'
 
 export type OnboardingSnapshot =
   | {
-      schemaVersion: 3
+      schemaVersion: 4
       status: 'uninitialized'
     }
   | {
-      schemaVersion: 3
+      schemaVersion: 4
       status: 'in_progress'
       step: OnboardingStep
       selectedMemberRole: BuiltinMemberAvatarRole | null
@@ -3427,7 +3446,7 @@ export type OnboardingSnapshot =
       provisioning: OnboardingProvisioningOperation | null
     }
   | {
-      schemaVersion: 3
+      schemaVersion: 4
       status: 'completed'
       origin: 'onboarding' | 'runtime_deferred' | 'existing_installation'
       completedAt: string
@@ -3447,7 +3466,8 @@ export interface OnboardingApi {
   deferRuntimeSetup(): Promise<OnboardingSnapshot>
   beginProvisioning(
     selection: OnboardingRuntimeSelection,
-    runtimePermissions: AdapterPermissionConfig
+    runtimePermissions: AdapterPermissionConfig,
+    interfaceLanguage: InterfaceLanguage
   ): Promise<OnboardingSnapshot>
   recordProvisionedMember(agentId: string, version: number): Promise<OnboardingSnapshot>
   recordProvisionedRuntime(version: number): Promise<OnboardingSnapshot>

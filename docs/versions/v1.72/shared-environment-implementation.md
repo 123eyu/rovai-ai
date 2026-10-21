@@ -17,7 +17,8 @@ User 于 2026-10-21 确认第三版交互稿并授权独立 worktree 实施。�
 - 分支：`rovai/shared-runtime-environment`。
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-shared-runtime-environment`。
 - 基线：`origin/main`，`52758245275b024122e4fd35414362f05298b646`。
-- 无需前置治理提交。状态：active，实施和回归中；原主工作区保持不动。
+- 无需前置治理提交。状态：ready，本地实现及门禁完成，等待 PR/CI；原主工作区保持不动。
+- 已合并主线 `1bcd9ba0a00b054886396c9e68ea7db5bdffbee6`，保留系统语言与纯文本粘贴修复。
 
 ## 实施范围
 
@@ -55,12 +56,14 @@ Desktop 与 Web 的 Owner 方法白名单同步扩展，不向 Agent 工具开�
 ## 本地验证
 
 - `pnpm typecheck`、`pnpm build:desktop`：通过。
-- `pnpm test`：249 个 Vitest 文件、2,832 项测试通过；脚本层 357 项通过、2 项平台限定跳过；文档、Skill 及 sandbox 探针回归通过。
+- `pnpm test`：251 个 Vitest 文件、2,847 项测试通过；脚本层 357 项通过、2 项平台限定跳过；文档、Skill 及 sandbox 探针回归通过。
 - `node --test scripts/lib/member-editor.test.mjs`：隔离 Electron 的 25 组场景通过，含并发通用修改拒绝、保留草稿与显式重新读取。
 - `cargo test -p rovai-core --features slow-tests --lib environment`：20 项通过。
 - 同参数 `startup_saves_preserve_native_files_and_merge_only_local_preferences`：1 项通过。
 - `pnpm docs:test`、`pnpm docs:check`、以基线 SHA 为 `DOCS_BASE_REF` 的 `pnpm docs:check:ci`：通过。
-- Rust workspace、最新 schema 准入以及主线集成后的验证仍在进行，收口时补全。
+- `pnpm test:rust:pr`：workspace 474 项通过、1 项既有忽略；`cargo check --workspace`、`cargo fmt --all --check` 通过。
+- `--features slow-tests --lib -- --exact` 定向执行 6 个现有 owner：当前 migration admission matrix、current schema objects、database preflight、interruption admission、lightweight task、single chat bootstrap；全部通过。
+- 合并主线后重新执行 typecheck、完整 `pnpm test`、25 组 Electron 验收、桌面构建、Rust check 与文档增量门禁；全部通过。
 
 ## 未覆盖范围
 

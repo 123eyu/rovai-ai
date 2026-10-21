@@ -1797,6 +1797,7 @@ export function ThreadWorkspace({
     if (restoreFocus) requestAnimationFrame(() => replyTrigger.current?.focus({ preventScroll: true }))
   }, [replyReader])
   const openReplyDetails = (messageId: string): void => {
+    cancelReplyReveal()
     replyTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     filePreview?.hidePane()
     onCloseInspector()
@@ -2084,7 +2085,16 @@ export function ThreadWorkspace({
   )
   const replyAnchorLoads = useRef(new Map<string, Promise<ThreadMessageView[] | null>>())
   const replyRevealGeneration = useRef(0)
-  useEffect(() => () => { replyRevealGeneration.current++ }, [snapshot.thread.id])
+  const replyRevealActive = useRef(false)
+  const replyRevealCleanup = useRef<(() => void) | null>(null)
+  const cancelReplyReveal = useCallback((): void => {
+    replyRevealGeneration.current++
+    replyRevealActive.current = false
+    replyRevealCleanup.current?.()
+    replyRevealCleanup.current = null
+  }, [])
+  const preserveTimelineReadingPosition = useCallback(() => !replyRevealActive.current, [])
+  useEffect(() => cancelReplyReveal, [snapshot.thread.id, cancelReplyReveal])
   const approvalDockRef = useRef<HTMLElement>(null)
   const lastTimelineItem = useRef<{
     threadId: string
@@ -2651,13 +2661,14 @@ export function ThreadWorkspace({
   [conversationFind.open, snapshot.thread.id])
   useEffect(() => {
     if (conversationView !== 'conversation' || notificationFocus?.active) {
+      cancelReplyReveal()
       anchorNavigation.navigation.cancelNavigation()
       runSourceNavigation.cancel()
     }
-  }, [conversationView, notificationFocus?.requestId, notificationFocus?.active, anchorNavigation.navigation, runSourceNavigation.cancel])
+  }, [conversationView, notificationFocus?.requestId, notificationFocus?.active, anchorNavigation.navigation, runSourceNavigation.cancel, cancelReplyReveal])
   const shortPublicMessages = usePublicMessageLayout(
     timelineScrollRef, conversationTimeline, snapshot.thread.id,
-    conversationView === 'conversation', groupingFollowsLatest
+    conversationView === 'conversation', groupingFollowsLatest, preserveTimelineReadingPosition
   )
   const isThreadEmpty = !campConversationHasVisibleHistory(conversationTimeline)
   const defaultLead = snapshot.members.find((member) => member.isDefaultLead && campMemberIsLeadEligible(member)) ?? null
@@ -3094,6 +3105,7 @@ export function ThreadWorkspace({
   }, [client, focusConversationFindInput, snapshot.thread.id])
 
   const openConversationFind = useCallback((): void => {
+    cancelReplyReveal()
     runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
     if (!conversationFind.open) {
@@ -3132,7 +3144,7 @@ export function ThreadWorkspace({
       setConversationView('conversation')
     }
     focusConversationFindInput(true)
-  }, [conversationFind.open, focusConversationFindInput, snapshot.thread.id, anchorNavigation.navigation, runSourceNavigation.cancel])
+  }, [conversationFind.open, focusConversationFindInput, snapshot.thread.id, anchorNavigation.navigation, runSourceNavigation.cancel, cancelReplyReveal])
 
   const closeConversationFind = useCallback((restore = true): void => {
     conversationFindRequestGeneration.current += 1
@@ -3183,6 +3195,7 @@ export function ThreadWorkspace({
   }, [snapshot.thread.id])
 
   const navigateUserAnchor = useCallback((messageId: string): void => {
+    cancelReplyReveal()
     runSourceNavigation.cancel()
     const threadId = snapshot.thread.id
     if (conversationFind.open) closeConversationFind(false)
@@ -3203,7 +3216,7 @@ export function ThreadWorkspace({
           - viewport.getBoundingClientRect().top - 18), behavior: prefersReducedMotion() ? 'instant' : 'smooth' })
       }))
     }).catch(error => (onNotifyError ?? onNotify)(readErrorMessage(error)))
-  }, [snapshot.thread.id, conversationFind.open, closeConversationFind, anchorNavigation.navigation,
+  }, [snapshot.thread.id, conversationFind.open, closeConversationFind, anchorNavigation.navigation, cancelReplyReveal,
     visibleMessageById, onNotifyError, onNotify, runSourceNavigation.cancel])
 
   const navigateConversationFind = (direction: 1 | -1): void => {
@@ -3488,6 +3501,7 @@ export function ThreadWorkspace({
   ])
 
   const revealQuote = async (quote: MessageQuoteSnapshot): Promise<void> => {
+    cancelReplyReveal()
     runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
     const threadId = snapshot.thread.id
@@ -3512,7 +3526,9 @@ export function ThreadWorkspace({
 
   const revealReplyParent = async (messageId: string, fromDetails = false): Promise<void> => {
     const threadId = snapshot.thread.id
-    const generation = ++replyRevealGeneration.current
+    cancelReplyReveal()
+    const generation = replyRevealGeneration.current
+    replyRevealActive.current = true
     const isCurrent = (): boolean => activeThreadIdRef.current === threadId
       && replyRevealGeneration.current === generation
     runSourceNavigation.cancel()
@@ -3529,6 +3545,7 @@ export function ThreadWorkspace({
       const messages = replyAnchorWindows.get(messageId) ?? await loadReplyAnchorWindow(messageId)
       if (!isCurrent()) return
       if (!messages) {
+        cancelReplyReveal()
         setReplyInteractionError(uiAttribute('引用的消息当前不可用。'))
         return
       }
@@ -3546,15 +3563,35 @@ export function ThreadWorkspace({
     const scroll = timelineScrollRef.current
     const target = scroll?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`)
     if (!scroll?.clientHeight || !target) {
+      cancelReplyReveal()
       setReplyInteractionError(uiAttribute('引用的消息当前不可用。'))
       return
     }
     target.focus({ preventScroll: true })
-    scroll.scrollTo({
-      top: Math.max(0, scroll.scrollTop + target.getBoundingClientRect().top
-        - scroll.getBoundingClientRect().top - Math.max(18, (scroll.clientHeight - target.clientHeight) / 2)),
-      behavior: prefersReducedMotion() ? 'instant' : 'smooth'
-    })
+    const destination = (): number => Math.max(0, Math.min(scroll.scrollHeight - scroll.clientHeight,
+      scroll.scrollTop + target.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      - Math.max(18, (scroll.clientHeight - target.clientHeight) / 2)))
+    const finish = (): void => {
+      if (!isCurrent()) return
+      // Grouping can change row heights during the animation. Finish against the
+      // destination's current geometry, then hand reading ownership back to layout.
+      const top = destination()
+      cancelReplyReveal()
+      scroll.scrollTo({ top, behavior: 'instant' })
+      timelineLayoutAnchorRef.current = { threadId, width: timelineViewportWidth(scroll), hidden: false,
+        scrollTop: scroll.scrollTop, anchor: captureTimelineReadingAnchor(scroll) }
+      timelineReadingPosition.current = { threadId, position: { scrollTop: scroll.scrollTop, followingLatest: false } }
+      timelineViewportGeometry.current = { threadId,
+        geometry: { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight } }
+    }
+    scroll.addEventListener('scrollend', finish)
+    replyRevealCleanup.current = () => {
+      scroll.removeEventListener('scrollend', finish)
+      scroll.scrollTo({ top: scroll.scrollTop, behavior: 'instant' })
+    }
+    const top = destination()
+    if (Math.abs(top - scroll.scrollTop) <= 1 || prefersReducedMotion()) finish()
+    else scroll.scrollTo({ top, behavior: 'smooth' })
   }
 
   useLayoutEffect(() => {
@@ -3832,7 +3869,7 @@ export function ThreadWorkspace({
       threadId,
       position: {
         scrollTop: geometry.scrollTop,
-        followingLatest: !conversationFind.open && campTimelineFollowingLatestAfterScroll(
+        followingLatest: !replyRevealActive.current && !conversationFind.open && campTimelineFollowingLatestAfterScroll(
           previousPosition,
           previousGeometry,
           geometry
@@ -3875,6 +3912,7 @@ export function ThreadWorkspace({
   const restoreTimelineLayout = useCallback((): void => {
     const scroll = timelineScrollRef.current
     if (!scroll) return
+    if (replyRevealActive.current) return
     const threadId = snapshot.thread.id
     const saved = timelineLayoutAnchorRef.current
     const width = timelineViewportWidth(scroll)
@@ -3901,6 +3939,7 @@ export function ThreadWorkspace({
   }, [snapshot.thread.id])
 
   const followTimelineAfterUserSend = useCallback((threadId: string): void => {
+    cancelReplyReveal()
     runSourceNavigation.cancel()
     const scroll = timelineScrollRef.current
     const position = scroll
@@ -3922,7 +3961,7 @@ export function ThreadWorkspace({
       timelinePositionSaveTimer.current = null
     }
     rememberThreadTimelineReadingPosition(threadId, position)
-  }, [runSourceNavigation.cancel])
+  }, [runSourceNavigation.cancel, cancelReplyReveal])
 
   useLayoutEffect(() => {
     const threadId = snapshot.thread.id
@@ -5341,12 +5380,15 @@ export function ThreadWorkspace({
               aria-label={uiAttribute("对话时间线")}
               hidden={conversationView !== 'conversation'}
               onWheelCapture={(event) => {
+                cancelReplyReveal()
                 captureFilePreviewAnchor()
                 if (event.deltaY < 0) checkHistoryAfterUserInput()
               }}
-              onTouchStartCapture={() => captureFilePreviewAnchor()}
+              onTouchStartCapture={() => { cancelReplyReveal(); captureFilePreviewAnchor() }}
+              onPointerDownCapture={cancelReplyReveal}
               onKeyDownCapture={(event) => {
                 if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+                  cancelReplyReveal()
                   captureFilePreviewAnchor()
                 }
                 if (campHistoryKeyboardInputMovesEarlier(event.key, event.shiftKey)) {

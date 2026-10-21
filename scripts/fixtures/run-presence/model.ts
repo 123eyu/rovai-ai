@@ -265,7 +265,7 @@ export const model = {
   },
   get: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   note: (note: string) => update({ note }),
-  showReplyCase(long = false, allLoaded = false) {
+  showReplyCase(long = false, allLoaded = false, wrapped = false, grouped = false) {
     this.setScenario('stream'); halt()
     const messages = [
       makeMessage('reply-a', 1, '回复详情保持只读，沿用当前会话里的回复锚点。'),
@@ -281,7 +281,11 @@ export const model = {
     const parents: Record<string,string> = { 'reply-b':'reply-a','reply-c':'reply-a','reply-d':'reply-b',
       'reply-f':'reply-d','reply-g':'reply-d','reply-h':'reply-e','reply-i':'reply-h' }
     for (const message of messages) message.replyToThreadMessageId = parents[message.id] ?? null
-    if (long) for (let i = 10; i <= 120; i++) messages.push({ ...makeMessage(`long-${i}`,i,`长链回复 ${i}`,0), replyToThreadMessageId:'reply-g' })
+    if (long) for (let i = 10; i <= 120; i++) {
+      // Cross the public-message grouping height when the detail pane closes.
+      const body = `长链回复 ${i}${wrapped ? '\n\n' + '消息正文会随会话宽度重新换行，关闭右侧详情后仍应显示选中的原文。'.repeat(16) : ''}`
+      messages.push({ ...makeMessage(`long-${i}`,i,body,0,grouped ? 'run-alice' : null), replyToThreadMessageId:'reply-g' })
+    }
     const run = { ...makeRun('run-alice',0,'running',['reply-c','reply-d']),anchorMessageId:'reply-d',publicTailSequenceAtStart:4 }
     const other = { ...makeRun('run-other',0,'running',['reply-f','reply-h']),anchorMessageId:'reply-h',publicTailSequenceAtStart:8 }
     controls.hiddenMessages = long && !allLoaded ? messages.slice(0,-12) : []

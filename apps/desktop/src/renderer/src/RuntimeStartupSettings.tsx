@@ -1,6 +1,6 @@
 import { CommonEnvironmentEditor, useCommonEnvironment } from './CommonEnvironmentEditor'
 import { useThreadClient } from './camp-client'
-import { useEffect, useId, useRef, useState } from 'react'
+import { Activity, useCallback, useEffect, useId, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { AdapterKind, RuntimeStatus, RuntimeStartupInspection } from '@contracts'
 import { configurationFromSnapshot, conflictValue, editableSnapshot, withSnapshotValue, type FieldConflict, type RuntimeStartupConfiguration, type RuntimeStartupSettings as StartupSettings } from './runtime-startup-editor'
@@ -16,8 +16,11 @@ const INSPECTION_LABELS: Record<RuntimeStartupInspection['status'], string> = {
   authentication_required: '已识别程序，需要登录', ready: '检查通过', check_failed: '检查未通过，请确认登录和运行环境'
 }
 
-export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel }: {
-  runtimeKind: AdapterKind; health: RuntimeStatus | null; onBack(): void; backLabel?: string
+export type RuntimeStartupLeaveGuard = () => Promise<boolean>
+
+export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel, active = true, onLeaveGuardChange }: {
+  runtimeKind: AdapterKind; health: RuntimeStatus | null; onBack(): void; backLabel?: string; active?: boolean
+  onLeaveGuardChange?(guard: RuntimeStartupLeaveGuard | null): void
 }): React.JSX.Element {
   const client = useThreadClient()
   const common = useCommonEnvironment(runtimeKind, health?.hostPlatform === 'windows-x64')
@@ -28,7 +31,8 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel 
   const [loadError, setLoadError] = useState<string | null>(null)
   const [conflicts, setConflicts] = useState<FieldConflict[]>([])
   const [inspection, setInspection] = useState<RuntimeStartupInspection | null>(null)
-  const [confirmAction, setConfirmAction] = useState<'back' | null>(null)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const pendingLeave = useRef<{ promise: Promise<boolean>; resolve(allowed: boolean): void } | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [saveCompleted, setSaveCompleted] = useState(false)
   const sequence = useRef(0)
@@ -42,6 +46,26 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel 
   const item = health?.runtimeAvailability.find((candidate) => candidate.runtimeKind === runtimeKind)
   const initialPath = item?.discovery.executablePath ?? null
   const label = adapterLabel(runtimeKind)
+
+  const requestLeave = useCallback((): Promise<boolean> => {
+    if (pendingLeave.current) return pendingLeave.current.promise
+    if (state.current.busy) return Promise.resolve(false)
+    if (!state.current.dirty) return Promise.resolve(true)
+    let resolve!: (allowed: boolean) => void
+    const promise = new Promise<boolean>(complete => { resolve = complete })
+    pendingLeave.current = { promise, resolve }
+    setConfirmLeave(true)
+    return promise
+  }, [])
+
+  useEffect(() => {
+    onLeaveGuardChange?.(requestLeave)
+    return () => {
+      onLeaveGuardChange?.(null)
+      pendingLeave.current?.resolve(false)
+      pendingLeave.current = null
+    }
+  }, [onLeaveGuardChange, requestLeave])
 
   const applySaved = (settings: StartupSettings): void => {
     setSaved(settings)
@@ -165,6 +189,18 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel 
     setLoadAttempt((value) => value + 1)
   }
 
+  const finishLeave = (allowed: boolean): void => {
+    if (allowed) {
+      discard()
+      // A local Back can immediately enter the App's navigation guard again.
+      state.current.dirty = false
+    }
+    const pending = pendingLeave.current
+    pendingLeave.current = null
+    setConfirmLeave(false)
+    pending?.resolve(allowed)
+  }
+
   const resolveConflict = (conflict: FieldConflict, keepMine: boolean): void => {
     if (!keepMine) {
       setDraft(current => configurationFromSnapshot(withSnapshotValue(editableSnapshot(current), conflict.path, conflict.current)))
@@ -183,9 +219,10 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel 
     !startupDirty && !saved?.reconnectRequired && !error && busy !== 'inspect' && busy !== 'check' ? initialPath : null)
   const environmentIncomplete = (inspection?.searchEnvironment?.diagnosticCodes?.length ?? 0) > 0
 
-  return <section className="runtime-startup-page" aria-busy={busy === 'load' || busy === 'save'}>
+  // Hidden settings categories retain their draft, leave guard and confirmation dialog.
+  return <><Activity mode={active ? 'visible' : 'hidden'}><section className="runtime-startup-page" aria-busy={busy === 'load' || busy === 'save'}>
     <button className="quiet-button runtime-startup-back" type="button" disabled={busy !== null}
-      onClick={() => dirty ? setConfirmAction('back') : onBack()}><DialogControlIcon name="back" />{backLabel ?? uiAttribute('智能体')}</button>
+      onClick={() => { void requestLeave().then(allowed => { if (allowed) onBack() }) }}><DialogControlIcon name="back" />{backLabel ?? uiAttribute('智能体')}</button>
     <header className="runtime-startup-heading">
       <span className="runtime-product-logo" aria-hidden="true"><img src={PRODUCT_RUNTIME_LOGOS[runtimeKind]} alt="" /></span>
       <div><h1>{label}</h1><p><UiText zh={"启动设置"} /></p></div>
@@ -226,9 +263,10 @@ export function RuntimeStartupSettings({ runtimeKind, health, onBack, backLabel 
         <button className="quiet-button member-editor-save" type="submit" disabled={!canSave || locked}><DialogControlIcon name="save" />{busy === 'save' ? uiAttribute("正在保存…") : uiAttribute("保存")}</button>
       </footer>
     </form>
-    <Dialog.Root open={confirmAction !== null} onOpenChange={(open) => { if (!open) setConfirmAction(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay app-dialog-overlay" /><AppDialogContent width="compact" tone="attention">
+  </section></Activity>
+    <Dialog.Root open={confirmLeave} onOpenChange={(open) => { if (!open) finishLeave(false) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay app-dialog-overlay" /><AppDialogContent width="compact" tone="attention">
       <AppDialogHeader title={uiAttribute("放弃更改？")} description={uiAttribute("当前编辑的启动设置尚未保存。")} />
-      <AppDialogFooter><button className="quiet-button" data-dialog-autofocus onClick={() => setConfirmAction(null)}><UiText zh={"继续编辑"} /></button><button className="danger-button" onClick={onBack}><UiText zh={"放弃更改"} /></button></AppDialogFooter>
+      <AppDialogFooter><button className="quiet-button" data-dialog-autofocus onClick={() => finishLeave(false)}><UiText zh={"继续编辑"} /></button><button className="danger-button" onClick={() => finishLeave(true)}><UiText zh={"放弃更改"} /></button></AppDialogFooter>
     </AppDialogContent></Dialog.Portal></Dialog.Root>
-  </section>
+  </>
 }

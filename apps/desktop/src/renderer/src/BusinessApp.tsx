@@ -81,6 +81,7 @@ import {
   type MembersViewHandle
 } from './MemberManagement'
 import type { MemberWorkspaceTab } from './MemberSidebar'
+import type { RuntimeStartupLeaveGuard } from './RuntimeStartupSettings'
 import {
   ThreadWorkspace,
   QuickChatWorkspace,
@@ -1201,6 +1202,7 @@ export function BusinessApp({
     threadId: string; guard: ThreadLeaveGuard; promise: Promise<ThreadLeavePreparation>; users: number; didLeave: boolean
   } | null>(null)
   const automationLeaveGuardRef = useRef<AutomationLeaveGuard | null>(null)
+  const runtimeSettingsLeaveGuardRef = useRef<RuntimeStartupLeaveGuard | null>(null)
   const startupResolvedSessionId = useRef<string | null>(null)
   const pendingRestorableLocation = useRef<RestorableLocation | null>(null)
   const invalidatingNewConversationDefaults = useRef(false)
@@ -1319,6 +1321,10 @@ export function BusinessApp({
     automationLeaveGuardRef.current = guard
   }, [])
 
+  const registerRuntimeSettingsLeaveGuard = useCallback((guard: RuntimeStartupLeaveGuard | null): void => {
+    runtimeSettingsLeaveGuardRef.current = guard
+  }, [])
+
   const leaveActiveAutomation = useCallback(async (
     transition: () => void | Promise<void>
   ): Promise<boolean> => {
@@ -1337,6 +1343,7 @@ export function BusinessApp({
   const leaveActiveSurface = useCallback(async (
     transition: () => void | Promise<void>
   ): Promise<boolean> => {
+    if (viewRef.current === 'settings' && runtimeSettingsLeaveGuardRef.current && !(await runtimeSettingsLeaveGuardRef.current())) return false
     let automationTransitioned = false
     const campTransitioned = await leaveActiveThread(async () => {
       automationTransitioned = await leaveActiveAutomation(transition)
@@ -4538,6 +4545,7 @@ export function BusinessApp({
               onBack: () => { void desktopNavigation.push({ kind: 'members', agentId: commonEnvironmentReturn.memberId, tab: 'runtime' }, { memberPrepared: true }) }
             } : undefined}
             onDiagnosticsNavigate={(section) => chooseSettingsSection(section)}
+            onRuntimeLeaveGuardChange={registerRuntimeSettingsLeaveGuard}
             onReload={loadRuntime}
             onAppearanceChange={changeAppearancePreferences}
           />
@@ -4819,6 +4827,7 @@ export function SettingsView({
   serverUpdates,
   onDiagnosticsNavigate,
   commonEnvironmentReturn,
+  onRuntimeLeaveGuardChange,
   onReload,
   onAppearanceChange
 }: {
@@ -4838,6 +4847,7 @@ export function SettingsView({
   updates: AppUpdatesController
   serverUpdates?: import('@contracts').AppUpdatesApi
   commonEnvironmentReturn?: { kind: AdapterKind; memberName: string; onBack(): void }
+  onRuntimeLeaveGuardChange?(guard: RuntimeStartupLeaveGuard | null): void
   onDiagnosticsNavigate(section: 'mcp' | 'runtime', runtimeKind?: AdapterKind): void
   onReload(): Promise<void>
   onAppearanceChange(preferences: AppearancePreferences): Promise<AppearanceSnapshot>
@@ -4860,9 +4870,8 @@ export function SettingsView({
         <Activity mode={section === 'skills' ? 'visible' : 'hidden'}><NativeSkillsSettings /></Activity>
         <Activity mode={section === 'toolbox' ? 'visible' : 'hidden'}><ToolboxSettings agents={agents} /></Activity>
         <Activity mode={section === 'mcp' ? 'visible' : 'hidden'}><McpSettings agents={agents} platform={platform} /></Activity>
-        <Activity mode={section === 'runtime' ? 'visible' : 'hidden'}>
-          <RuntimeInstallationsPanel health={health} installations={installations} onReload={onReload} commonEnvironmentReturn={commonEnvironmentReturn} />
-        </Activity>
+        <RuntimeInstallationsPanel health={health} installations={installations} onReload={onReload} commonEnvironmentReturn={commonEnvironmentReturn}
+          active={section === 'runtime'} onLeaveGuardChange={onRuntimeLeaveGuardChange} />
         {section === 'channels' && <ChannelSettings agents={agents} />}
         {section === 'appearance' && (
           <AppearanceSettings

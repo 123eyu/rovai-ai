@@ -93,7 +93,7 @@ export function CommonEnvironmentEditor({ environment: env, disabled, onChange }
       {help && <span id={`${id}-help`} role="tooltip" className="common-environment-tooltip">{t('用于在不同队员之间共享一些配置变量。')}</span>}
     </div></div>
     <EnvironmentJson id={id} value={env.text} onChange={value => { env.update(value); onChange() }} disabled={disabled || env.loading} error={env.error} label={t('通用环境变量 JSON')}/>
-    {env.error && <p id={`${id}-error`} className="environment-error" role="alert">{env.error}<button type="button" className="quiet-button" disabled={disabled} onClick={() => void env.reload()}>{t('重新读取')}</button></p>}
+    {env.error && <p id={`${id}-error`} className="environment-error" role="alert">{env.error}<button type="button" className="quiet-button" disabled={disabled} onClick={() => { onChange(); void env.reload() }}>{t('重新读取')}</button></p>}
     {env.hasSecrets && <div className="environment-caption"><button type="button" className="quiet-button environment-reveal" onClick={() => void env.toggleReveal()} disabled={disabled || env.loading} aria-pressed={env.revealed}><DialogControlIcon name={env.revealed ? 'eye-off' : 'eye'}/>{env.revealed ? t('隐藏密钥') : t('显示密钥')}</button></div>}
   </section>
 }

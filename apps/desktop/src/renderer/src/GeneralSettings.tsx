@@ -63,7 +63,7 @@ export function GeneralSettings({
   const t = useUiText()
   const interfaceLanguage = useInterfaceLanguage()
   const [preferences, setPreferences] = useState<GeneralPreferencesSnapshot | null>(initialPreferences)
-  const [languageError, setLanguageError] = useState<string | null>(null)
+  const [languageError, setLanguageError] = useState(false)
   const languageRequest = useRef(0)
   const [preferenceBusy, setPreferenceBusy] = useState(false)
   const [preferenceError, setPreferenceError] = useState<string | null>(null)
@@ -165,11 +165,11 @@ export function GeneralSettings({
   const setInterfaceLanguage = async (language: InterfaceLanguagePreference): Promise<void> => {
     if (!preferences) return
     const request = ++languageRequest.current
-    setLanguageError(null)
+    setLanguageError(false)
     try {
       await changeInterfaceLanguage(api, language, acceptPreferences)
     } catch {
-      if (request === languageRequest.current) setLanguageError(t('语言偏好未能保存，请重试。'))
+      if (request === languageRequest.current) setLanguageError(true)
     }
   }
 
@@ -376,7 +376,7 @@ export function GeneralSettings({
           <div className="general-section-body">
             <LanguagePreferenceOptions name="interface-language" className="general-language-options" disabled={!preferences}
               onChange={language => void setInterfaceLanguage(language)} />
-            {languageError && <p className="general-inline-status is-error" role="alert">{languageError}</p>}
+            {languageError && <p className="general-inline-status is-error" role="alert">{t('语言偏好未能保存，请重试。')}</p>}
           </div>
         </section>
         <section className="section-block general-settings-section" aria-labelledby="general-startup-heading">

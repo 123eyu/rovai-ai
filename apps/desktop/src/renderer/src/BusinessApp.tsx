@@ -4216,7 +4216,7 @@ export function BusinessApp({
             setOnboardingError(null)
             void changeInterfaceLanguage(uiPreferences.generalPreferences, language, setGeneralPreferences)
               .then(() => { if (request === onboardingLanguageRequest.current) setOnboardingError(null) })
-              .catch(() => { if (request === onboardingLanguageRequest.current) setOnboardingError(uiAttribute('语言偏好未能保存，请重试。')) })
+              .catch(() => { if (request === onboardingLanguageRequest.current) setOnboardingError('语言偏好未能保存，请重试。') })
           }}
           onThemeChange={(preference) => void changeOnboardingTheme(preference)}
           onShowWelcome={() => void runOnboardingMutation(

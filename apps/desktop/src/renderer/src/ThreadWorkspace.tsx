@@ -8,7 +8,7 @@ import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
 import { ConversationRunPresence } from './ConversationRunPresence'
-import { MessageQuotePreview, ReplyMark } from './MessageQuotePreview'
+import { MessageQuotePreview } from './MessageQuotePreview'
 import { ConversationRunSource } from './ConversationRunSource'
 import { useRunSourceNavigation } from './useRunSourceNavigation'
 import { conversationRunPresenceTimeline } from './conversation-run-presence'
@@ -5949,17 +5949,12 @@ export function ThreadWorkspace({
                   {uiAttribute('消息目录暂不可用，重试')}
                 </button>}
             </div>}
-            {conversationView === 'conversation' && runSourceNavigation.returnPoint && <div className="run-source-return-layer">
-              <button type="button" className="run-source-return" onClick={runSourceNavigation.returnToRun}>
-                <ReplyMark />{uiAttribute('返回执行位置')}
-              </button>
-            </div>}
             <ReturnToLatest
               viewportRef={timelineScrollRef}
               ownerKey={snapshot.thread.id}
               contentRevision={publishedMessageSequence}
               scope="camp"
-              enabled={conversationView === 'conversation' && !conversationFind.open && !runSourceNavigation.returnPoint}
+              enabled={conversationView === 'conversation' && !conversationFind.open}
               onLatest={() => followTimelineAfterUserSend(snapshot.thread.id)}
             />
             {worldMapEnabled && (

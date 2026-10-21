@@ -8,6 +8,30 @@ last_updated: 2026-10-21
 
 # v1.72 实施与验收
 
+## 操作提示精简（2026-10-21）
+
+- 工作目录：同级 worktree `rovai-ai-remove-action-toasts`，分支 `rovai/remove-action-toasts`，
+  基线 `9d4f17b6e`；不要求治理先行提交。
+- 移除 User 列出的操作 Toast：复制会话 ID／项目路径／附件完整路径、项目改名／移除、消息撤回、
+  结束单聊、队员邀请／移出（含生效时机与收尾）、定时任务创建／运行／开启／关闭／删除
+  （含运行已跳过与未启动），以及 Web 附件下载准备与交接成功。不新增局部提示。
+- 移除定时任务与成员面板不再使用的通知回调，清理独占翻译；保留其他错误回调、草稿、
+  异步刷新、操作忙碌状态、成员收尾区域与通知分类开关。
+- 既有侧栏／成员验收改为检查剪贴板、名册与 Dialog 收起后没有 Toast；定时任务创建验收
+  等待持久定义界面，不再依赖成功提示。不新增、删除或停用 Rust 测试。
+
+验证：
+
+- `pnpm typecheck`、验收夹具 TypeScript 检查、`pnpm build:desktop`、文档治理门禁通过。
+- `pnpm test` 通过：249 个 Vitest 文件、2832 个用例；后续 Node 套件 357 个通过、
+  2 个 Windows 专用用例按平台跳过。首次执行的文件监听用例发生等待超时，单独复查与
+  完整重跑均通过，未改动该用例。
+- `pnpm test:rust:pr` 默认 workspace 套件通过；`pnpm test:automation-splitter`
+  隔离 Electron 集成验收通过。侧栏／成员验收脚本通过语法检查，未运行完整打包验收。
+- 浏览器使用生产 Renderer 的内存夹具，验证定时任务创建、运行、关闭、开启、删除后
+  状态更新且没有操作 Toast；未启动真实 Runtime 或访问日常实例数据。
+- Impeccable 对六个改动的生产组件检查无发现；未改动布局、主题或 CSS。
+
 ## 原路径附件显示名（2026-10-21）
 
 - 工作目录：同级 worktree `rovai-ai-source-attachment-display-name`，分支

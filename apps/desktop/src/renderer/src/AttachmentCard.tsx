@@ -200,7 +200,6 @@ export function AttachmentCard({
     if (!primaryActionAvailable || disabled || attachmentActionPending.current) return
     attachmentActionPending.current = true
     setAttachmentAction(action)
-    if (action === 'open' && forceSystem && client.attachments.kind === 'download') onNotify(uiAttribute('准备下载…'))
     try {
       if (action === 'open') {
         if (!forceSystem && attachment.kind === 'file' && filePreview) {
@@ -221,7 +220,6 @@ export function AttachmentCard({
           ? await client.attachments.download(locator)
           : await client.attachments.open(locator)
         setAvailability(result.availability)
-        if (!result.error && client.attachments.kind === 'download') onNotify(uiAttribute('已交给浏览器下载。'))
         if (result.error === 'target_unavailable') onNotify(uiAttribute('此附件当前不可用'))
         else if (result.error) onNotify(client.attachments.kind === 'download' ?uiAttribute("下载附件失败") :uiAttribute("无法使用系统应用打开此附件"))
       } else if (client.attachments.kind === 'native') {

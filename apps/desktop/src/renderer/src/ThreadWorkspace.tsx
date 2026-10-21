@@ -4431,9 +4431,6 @@ export function ThreadWorkspace({
             onAccepted: () => { accepted = true },
             onPrepared: attachment => { preparedAttachmentId = attachment.id }
           } : undefined)
-          if (pastedText && draftThreadId.current === threadId) {
-            setPasteMessage(uiAttribute('长文本已转为附件'))
-          }
         } catch (error) {
           if (pastedText && accepted && draftThreadId.current === threadId) {
             setComposerPersistenceError(error instanceof Error ? error : new Error(readErrorMessage(error)))

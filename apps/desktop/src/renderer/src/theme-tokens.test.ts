@@ -269,7 +269,7 @@ describe('Porcelain Day + Steel Night theme tokens', () => {
     expect(day['--diff-add-soft']).toBe('#d9f1e2')
     expect(day['--diff-remove-soft']).toBe('#f5dede')
     expect(contrast(day['--mention-ink'], day['--surface'])).toBeGreaterThanOrEqual(4.5)
-    expect(css).toContain('.camp-workspace { background: var(--conversation-surface); }')
+    expect(css).toMatch(/\.camp-workspace\s*\{[^}]*background: var\(--conversation-surface\)[^}]*\}/)
     expect(css).toContain('border-left: 1px solid var(--conversation-inspector-line)')
     expect(css).toContain('background: var(--inspector-surface)')
     expect(css).toContain('.new-conversation-workspace { background: var(--home-surface); }')

@@ -4,6 +4,7 @@ import { useThreadClient } from './camp-client'
 import { useTextareaInputHistory } from './use-textarea-input-history'
 import { singleInputHistory } from './input-history'
 import { useMobileLayout } from './MobileLayout'
+import { ThreadPanelCollapseButton, ThreadPanelDismissHint, useThreadPanelDismiss } from './ThreadPanelDismiss'
 import { newCommandId } from '../../shared/command-id'
 import { RunningText } from './RunningText'
 import { useRuntimePhase } from './useRuntimePhase'
@@ -681,6 +682,7 @@ export function SingleChatPanel({
     ?? null
   const shortcutContext = useShortcuts()
   const panelRef = useRef<HTMLElement>(null)
+  const dismiss = useThreadPanelDismiss({ visible, panelRef, onClose })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const focusPanel = useRef(false)
   const visibleRef = useRef(visible)
@@ -1054,18 +1056,6 @@ export function SingleChatPanel({
     focusPanel.current = false
     panelRef.current?.focus({ preventScroll: true })
   }, [visible, mobile])
-
-  useEffect(() => {
-    if (!visible) return
-    const dismissOnEscape = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (document.querySelector('.app-dialog, [role="menu"][data-state="open"]')) return
-      event.preventDefault()
-      onClose()
-    }
-    document.addEventListener('keydown', dismissOnEscape)
-    return () => document.removeEventListener('keydown', dismissOnEscape)
-  }, [onClose, visible])
 
   useEffect(() => {
     if (!visible) return
@@ -1656,9 +1646,7 @@ export function SingleChatPanel({
         <SingleChatGlyph />
         <strong id={`${panelId}-title`}>{copy.singleChatTitle}</strong>
         <span><UiText zh={"当前会话"} /></span>
-        <button className="icon-button" type="button" aria-label={uiAttribute("收起单聊")} title={uiAttribute("收起 · Esc")} onClick={() => {
-          onClose()
-        }}><CloseGlyph /></button>
+        <ThreadPanelCollapseButton label={uiAttribute("收起单聊")} mobile={mobile} onDismiss={dismiss} />
       </header>
 
       <div className="single-chat-target-bar">
@@ -1872,7 +1860,7 @@ export function SingleChatPanel({
       </form>
       <footer className="single-chat-footer">
         <span><UiText zh={"单聊正文不会进入公屏"} /></span>
-        <span><kbd>Esc</kbd><UiText zh={" 收起"} /></span>
+        <ThreadPanelDismissHint />
       </footer>
       {attachmentDragState && (
         <div className="single-chat-drop-layer" aria-hidden="true">

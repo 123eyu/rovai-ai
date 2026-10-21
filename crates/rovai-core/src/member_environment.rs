@@ -20,7 +20,6 @@ use std::{
 
 pub mod common;
 
-pub const SAVED: &str = "<saved>";
 type Environment = BTreeMap<String, String>;
 
 #[derive(Deserialize)]
@@ -223,16 +222,9 @@ fn decrypt<T: serde::de::DeserializeOwned>(
     serde_json::from_slice(data).context("Private environment storage is damaged")
 }
 
-pub fn sensitive(name: &str) -> bool {
-    let name = name.to_ascii_uppercase();
-    ["TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"]
-        .iter()
-        .any(|word| name.contains(word))
-}
-
-// Mask the editor conservatively, but only credential-bearing names contribute
-// values to output scrubbing. AUTH_ENABLED, TOKEN_LIMIT and KEY_PATH are settings,
-// not secrets; their values must not become global replacement patterns.
+// Only credential-bearing names contribute values to output scrubbing.
+// AUTH_ENABLED, TOKEN_LIMIT and KEY_PATH are settings, not secrets; their
+// values must not become global replacement patterns.
 fn credential_variable(name: &str) -> bool {
     let name = name.to_ascii_uppercase();
     [
@@ -279,34 +271,14 @@ fn require_member(connection: &Connection, member: &str) -> Result<()> {
     );
     Ok(())
 }
-fn public_values(values: &Environment, reveal: bool) -> Environment {
-    values
-        .iter()
-        .map(|(name, value)| {
-            (
-                name.clone(),
-                if !reveal && sensitive(name) && !value.is_empty() {
-                    SAVED.into()
-                } else {
-                    value.clone()
-                },
-            )
-        })
-        .collect()
-}
-pub fn get(
-    connection: &Connection,
-    member: &str,
-    kind: AdapterKind,
-    reveal: bool,
-) -> Result<Value> {
+pub fn get(connection: &Connection, member: &str, kind: AdapterKind) -> Result<Value> {
     require_member(connection, member)?;
     let revision = latest(connection, member, kind)?;
     let values = read_version(connection, member, kind, revision)?;
     let inherit_common = inheritance(connection, member, kind, revision, &values)?;
     Ok(
-        json!({"revision":revision,"environment":public_values(&values,reveal),"inheritCommon":inherit_common,
-        "common":common::get(connection,kind,reveal)?}),
+        json!({"revision":revision,"environment":values,"inheritCommon":inherit_common,
+        "common":common::get(connection,kind)?}),
     )
 }
 
@@ -430,19 +402,7 @@ pub fn prepare(
         edit.expected_revision,
         &previous,
     )?);
-    let mut values = parse(&edit.json, cfg!(windows))?;
-    for (name, value) in &mut values {
-        if value == SAVED {
-            ensure!(
-                sensitive(name),
-                "The saved marker is only valid for an existing credential"
-            );
-            *value = previous
-                .get(name)
-                .context("The saved credential is unavailable")?
-                .clone();
-        }
-    }
+    let values = parse(&edit.json, cfg!(windows))?;
     // Preserve command replay/conflict detection without hashing environment values.
     // A committed revision is immutable, so an old command must carry the same private values.
     if latest(connection, member, kind)? > edit.expected_revision {
@@ -664,14 +624,14 @@ pub fn legacy_list(connection: &Connection) -> Result<Value> {
     let rows=query.query_map([],|r|Ok(json!({"runtimeKind":r.get::<_,String>(0)?,"identity":r.get::<_,String>(1)?,"count":r.get::<_,i64>(2)?,"handled":r.get::<_,bool>(3)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!(rows))
 }
-pub fn legacy_get(connection: &Connection, kind: AdapterKind, reveal: bool) -> Result<Value> {
+pub fn legacy_get(connection: &Connection, kind: AdapterKind) -> Result<Value> {
     let bytes: Vec<u8> = connection.query_row(
         "SELECT ciphertext FROM runtime_environment_legacy WHERE runtime_kind=?1",
         [kind.as_str()],
         |r| r.get(0),
     )?;
     let values: Environment = decrypt(connection, &format!("legacy:{}", kind.as_str()), &bytes)?;
-    Ok(json!(public_values(&values, reveal)))
+    Ok(json!(values))
 }
 pub fn legacy_acknowledge(
     connection: &Connection,

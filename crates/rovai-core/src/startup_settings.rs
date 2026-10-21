@@ -126,11 +126,8 @@ impl Core {
             _ => anyhow::bail!("Unknown startup settings method"),
         }?;
         if matches!(method, "runtime.startup.get" | "runtime.startup.save") {
-            result["commonEnvironment"] = common::get(
-                self.database.lock().await.connection(),
-                kind.runtime_kind,
-                false,
-            )?;
+            result["commonEnvironment"] =
+                common::get(self.database.lock().await.connection(), kind.runtime_kind)?;
         }
         Ok(result)
     }

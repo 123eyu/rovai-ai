@@ -8,25 +8,6 @@ last_updated: 2026-10-21
 
 # v1.72 实施与验收
 
-## 无公开输出停止的中断已读修复（2026-10-21）
-
-- Worktree：同级 `rovai-ai-silent-stop-attention`，分支 `rovai/fix-silent-stop-attention`，
-  基线 `6deaee767`，无需治理先行提交。
-- 真实问题来自无公开回复、无产物的手动停止：通知已准入，但原正文投影完全省略该 Run，
-  关闭执行台时没有精确终态节点供可见来源确认。旧 UI 的“无输出不显示中断行”与已确认中断方案的
-  无输出验收要求冲突，本次同步修正 [会话 UI](../../ui/components/conversation-workspace.md)。
-- 公屏为该 Run 显示一次既有样式的“你已中断”标记，按终止时间排序，不创建消息、头像或空产物区。
-  已有消息／产物仍使用原标记；单聊、运行中及其他取消原因不使用这个兜底。
-  继续走现有精确可见来源与 Disposition ACK；没有新未读状态、强制已读、数据库迁移或启动扫描。
-- 扩展现有正文投影测试及中断注意力 Electron 夹具。后者挂载生产 ThreadWorkspace、导航和
-  NotificationAttentionController，由真实停止按钮与 DOM 可见检测验证无输出停止、关闭执行台、
-  独立短亮、屏幕外历史及缓存预览，不再用手工提供 Run ID 代替该验收。
-- 验证通过：`pnpm typecheck`；`pnpm test`（249 个 Vitest 文件／2832 项，Node 357 项通过、
-  2 项既有 Windows skip）；通知 Electron 3 项及最终中断用例复跑；`pnpm build:desktop`；
-  默认 Rust workspace 474 项通过、1 项既有 ignored；使用上述真实 base 的文档门禁。
-  双主题截图确认短亮前后与独立标记。此前正文投影复现失败，旧“无输出不显示中断”断言已按本次规则修正。
-- 状态 `ready`：本次仅交付修复分支，保留 worktree 等待后续合入；未安装或重启日常 App，未改写真实通知。
-
 ## 原路径附件显示名（2026-10-21）
 
 - 工作目录：同级 worktree `rovai-ai-source-attachment-display-name`，分支
@@ -3863,3 +3844,16 @@ User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree
 `pnpm test`（Vitest 2,798 passed；组合脚本 357 passed、2 项平台相关 skip）及文档治理门禁。
 新增断言在首次验证时修正了 snapshot／operation 输出顺序假设及 macOS 临时目录 cwd 别名，未改变生产
 路径身份规则。未启动真实 Runtime、模型或 Renderer；本项不宣称真实 Session 或 UI 点击验收。
+
+
+## App 退出提醒收口（2026-10-21）
+
+- User seq73 授权按退出范围简化并清理旧代码；独立分支 `rovai/app-exit-attention`。
+- Migration 210 / schema 160 只替换终态 producer；退出取消/确认丢失仍沿原通知事务，
+  手动停止停止准入。旧 `user_stop` 不再参与侧栏候选，原审计不被删除或伪造为已读。
+- 前台正式 Thread 展示按已观察边界确认，无需精确 Run/command/output；显式标记已读保留分步与重试语义。
+- 删除短亮计时、本机停止意图、精确准入描述及专属 DOM 可见观察；移除未合入的无输出终态标记补丁。
+- 稳定通知 dispatcher，普通快照/进度不触发读取，空增量不读投影；成功批次及后续刷新不被慢批次阻塞。
+  Web 沿原 SSE 附加通知失效标识，普通消息失效不触发通知轮询。
+- 当前规范与验证边界见[退出提醒验收](interruption-attention-validation.md#当前收口退出提醒2026-10-21)。
+  本轮未安装或重启日常 App；没有新增运行中清单、恢复扫描、轮询器或已读存储。

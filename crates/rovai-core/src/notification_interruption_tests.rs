@@ -11,28 +11,28 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
             "cancelled",
             Some("user_requested_agent_run_stop"),
             None,
-            Some(NotificationInterruptionKind::UserStop),
+            None,
         ),
         (
             "shutdown",
             "cancelled",
             Some("app_shutdown_cancel_all"),
             None,
-            Some(NotificationInterruptionKind::AppShutdown),
+            Some("app_shutdown"),
         ),
         (
             "planned",
             "cancelled",
             Some("planned_shutdown_cancelled"),
             None,
-            Some(NotificationInterruptionKind::AppShutdown),
+            Some("app_shutdown"),
         ),
         (
             "lost",
             "failed",
             None,
             Some("accepted_input_outcome_unknown"),
-            Some(NotificationInterruptionKind::ExecutionLost),
+            Some("execution_lost"),
         ),
         (
             "ordinary-failure",
@@ -54,7 +54,7 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
         db.connection()
             .execute(sql, params![id, status, reason, error])
             .unwrap();
-        assert!(change_clock(db.connection()).unwrap().0 > before);
+        assert_eq!(change_clock(db.connection()).unwrap().0 > before, id != "stop");
         db.connection()
             .execute_batch("ROLLBACK TO terminal; RELEASE terminal")
             .unwrap();
@@ -77,32 +77,44 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
         let changes = service
             .changes_since(&mut db, CURRENT_USER_ID, before, 100)
             .unwrap();
-        let admissions: Vec<_> = changes
-            .changes
-            .iter()
-            .filter_map(|c| c.interruption_admission.as_ref())
-            .collect();
-        assert_eq!(admissions.len(), usize::from(expected.is_some()));
-        if let Some(kind) = expected {
-            assert_eq!(admissions[0].kind, kind);
-            assert_eq!(admissions[0].agent_run_id, id);
-            assert_eq!(admissions[0].conversation_id, None);
-        }
+        let kind: Option<String> = db.connection().query_row(
+            "SELECT interruption_kind FROM notification_occurrence WHERE agent_run_id=?1",
+            [id], |r| r.get(0)).optional().unwrap().flatten();
+        assert_eq!(kind.as_deref(), expected);
+        assert_eq!(changes.changes.len(), usize::from(id != "stop"));
+        assert!(serde_json::to_value(&changes).unwrap()["changes"].as_array().unwrap()
+            .iter().all(|change| change.get("interruptionAdmission").is_none()));
         if status == "cancelled" && reason.is_some() {
             assert!(
                 changes.changes.iter().all(|c| c.heads_up_signal.is_none()),
                 "stops have no heads-up"
             );
         }
+        if expected.is_some() {
+            let visible = service.acknowledge_visible_sources(&mut db, &envelope(
+                &format!("visible-{id}"), Some(id), AcknowledgeVisibleNotificationSourcesCommand {
+                    camp_id: id.into(), observed_through_change_sequence: admitted,
+                    visible_message_ids: Vec::new(), visible_camp_turn_ids: Vec::new(),
+                    visible_agent_run_ids: vec![id.into()], visible_approval_ids: Vec::new(),
+                },
+            )).unwrap();
+            assert_eq!(visible.result.payload["changed"], 0,
+                "Run visibility cannot replace the Thread exit-reminder boundary");
+        }
         let projection = service
             .thread_interruptions(&mut db, CURRENT_USER_ID, &[id.into()])
             .unwrap();
         assert_eq!(
             projection.threads[0].has_unread_interruption,
-            !admissions.is_empty()
+            expected.is_some()
         );
     }
-    let ids = vec!["stop".to_string(), "lost".to_string()];
+    insert_camp(&db, "legacy-stop", "Legacy stop");
+    insert_batch_run(&db, "legacy-stop", "legacy-stop");
+    crate::db::assert_exit_attention_upgrade(&mut db, "legacy-stop");
+    assert!(!service.thread_interruptions(&mut db, CURRENT_USER_ID, &["legacy-stop".into()])
+        .unwrap().threads[0].has_unread_interruption);
+    let ids = vec!["shutdown".to_string(), "lost".to_string()];
     let boundary = service
         .thread_interruptions(&mut db, CURRENT_USER_ID, &ids)
         .unwrap()
@@ -115,13 +127,13 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
         cancel_requested_at,cancel_reason_code,ended_at,version,created_at,updated_at)
         SELECT 'stop-late',NULL,conversation_id,1,0,'batch:stop-late',0,'initial',purpose,'required','{}',
         'runtime_managed_v2','cancelled','batch:stop-late','batch',camp_id,anchor_message_id,1,
-        datetime('now'),'user_requested_agent_run_stop',datetime('now'),1,created_at,updated_at
-        FROM agent_run WHERE id='stop';").unwrap();
+        datetime('now'),'app_shutdown_cancel_all',datetime('now'),1,created_at,updated_at
+        FROM agent_run WHERE id='shutdown';").unwrap();
     let command = envelope(
         "read-interruptions",
-        Some("stop"),
+        Some("shutdown"),
         AcknowledgeThreadInterruptionsCommand {
-            thread_id: "stop".into(),
+            thread_id: "shutdown".into(),
             observed_through_change_sequence: boundary,
         },
     );
@@ -145,32 +157,19 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
         projection.threads.iter().all(|t| t.has_unread_interruption),
         "late same-Thread and other-Thread facts survive"
     );
-    let acked: bool = db.connection().query_row("SELECT acknowledged_at IS NOT NULL FROM notification_occurrence_disposition d JOIN notification_occurrence o ON o.id=d.occurrence_id WHERE o.agent_run_id='stop'", [], |r| r.get(0)).unwrap();
+    let acked: bool = db.connection().query_row("SELECT acknowledged_at IS NOT NULL FROM notification_occurrence_disposition d JOIN notification_occurrence o ON o.id=d.occurrence_id WHERE o.agent_run_id='shutdown'", [], |r| r.get(0)).unwrap();
     assert!(acked);
-    // Already ACKed before the first poll: the precise real-time admission survives.
-    let changes = service
-        .changes_since(&mut db, CURRENT_USER_ID, 0, 100)
-        .unwrap();
-    assert_eq!(
-        changes
-            .changes
-            .iter()
-            .filter_map(|c| c.interruption_admission.as_ref())
-            .filter(|s| s.agent_run_id == "stop")
-            .count(),
-        1
-    );
     let latest = service
-        .thread_interruptions(&mut db, CURRENT_USER_ID, &["stop".into()])
+        .thread_interruptions(&mut db, CURRENT_USER_ID, &["shutdown".into()])
         .unwrap();
     service
         .acknowledge_thread_interruptions(
             &mut db,
             &envelope(
                 "read-late-stop",
-                Some("stop"),
+                Some("shutdown"),
                 AcknowledgeThreadInterruptionsCommand {
-                    thread_id: "stop".into(),
+                    thread_id: "shutdown".into(),
                     observed_through_change_sequence: latest.through_change_sequence,
                 },
             ),
@@ -178,7 +177,7 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
         .unwrap();
     assert!(
         !service
-            .thread_interruptions(&mut db, CURRENT_USER_ID, &["stop".into()])
+            .thread_interruptions(&mut db, CURRENT_USER_ID, &["shutdown".into()])
             .unwrap()
             .threads[0]
             .has_unread_interruption
@@ -222,13 +221,13 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
     );
     assert_eq!(change_clock(db.connection()).unwrap().0, before);
     let (episode_id, revision): (String, i64) = db.connection().query_row(
-        "SELECT episode_id,admitted_attention_revision FROM notification_occurrence WHERE agent_run_id='shutdown'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+        "SELECT episode_id,admitted_attention_revision FROM notification_occurrence WHERE agent_run_id='planned'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
     service
         .clear(
             &mut db,
             &envelope(
                 "clear-shutdown",
-                Some("shutdown"),
+                Some("planned"),
                 ClearNotificationEpisodeCommand {
                     episode_id,
                     through_attention_revision: revision,
@@ -253,7 +252,7 @@ fn interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded() {
     );
     assert!(
         !service
-            .thread_interruptions(&mut reopened, CURRENT_USER_ID, &["stop".into()])
+            .thread_interruptions(&mut reopened, CURRENT_USER_ID, &["shutdown".into()])
             .unwrap()
             .threads[0]
             .has_unread_interruption
@@ -393,7 +392,7 @@ fn interruption_projection_reads_only_requested_thread_indexes() {
         cancel_requested_at,cancel_reason_code,ended_at,version,created_at,updated_at)
         SELECT 'dense-'||n.value,NULL,r.conversation_id,1,0,'dense-'||n.value,0,'initial',r.purpose,'required','{}',
         'runtime_managed_v2','cancelled','dense-'||n.value,'batch',r.camp_id,r.anchor_message_id,1,
-        datetime('now'),'user_requested_agent_run_stop',datetime('now'),1,r.created_at,r.updated_at
+        datetime('now'),'app_shutdown_cancel_all',datetime('now'),1,r.created_at,r.updated_at
         FROM n JOIN agent_run r ON r.id='visible-a';").unwrap();
     let boundary = change_clock(db.connection()).unwrap().0;
     let started = std::time::Instant::now();

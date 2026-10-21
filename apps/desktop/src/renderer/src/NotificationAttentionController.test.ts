@@ -410,7 +410,7 @@ describe('Notification attention controller', () => {
     const request = async (cursor: number): Promise<NotificationEpisodeChangeBatch> => {
       requests.push(cursor)
       if (cursor === 0) return {
-        schemaVersion: 10,
+        schemaVersion: 11,
         requestedAfterChangeSequence: 0,
         nextChangeSequence: 1,
         throughChangeSequence: 2,
@@ -425,7 +425,7 @@ describe('Notification attention controller', () => {
     await expect(readNotificationChangePages(0, request)).rejects.toThrow('page two failed')
     expect(requests).toEqual([0, 1])
     const retried = await readNotificationChangePages(0, async (cursor) => ({
-      schemaVersion: 10,
+      schemaVersion: 11,
       requestedAfterChangeSequence: cursor,
       nextChangeSequence: 2,
       throughChangeSequence: 2,
@@ -436,7 +436,7 @@ describe('Notification attention controller', () => {
     }))
     expect(retried.nextChangeSequence).toBe(2)
     const paged = await readNotificationChangePages(0, async (cursor) => ({
-      schemaVersion: 10,
+      schemaVersion: 11,
       requestedAfterChangeSequence: cursor,
       nextChangeSequence: cursor === 0 ? 1 : 3,
       throughChangeSequence: cursor === 0 ? 2 : 3,

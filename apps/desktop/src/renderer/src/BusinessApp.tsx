@@ -2645,7 +2645,6 @@ export function BusinessApp({
     [...(displayNavigation ? allNavigationThreads(displayNavigation).map(thread => thread.id) : []),
       ...pinnedThreadItems.map(thread => thread.id), ...(activeThreadId ? [activeThreadId] : [])],
     { threadId: activeThreadId,
-      conversationId: singleChatVisible ? visibleSingleChatSources?.conversationId ?? undefined : null,
       visible: view === 'camp' && campSnapshot?.thread.id === activeThreadId && !campSnapshotEntryPreviewRef.current
         && !newConversationOpen && !newMissionOpen && !shuttingDown }
   )
@@ -3443,7 +3442,6 @@ export function BusinessApp({
     setCancellingRunIds((current) => new Set(current).add(run.id))
 
     const stopCommandId = newCommandId()
-    interruptionAttention.beginStop(run.id, { commandId: stopCommandId, threadId, conversationId: null })
     let result: StoredCommandResult
     try {
       result = await client.request<StoredCommandResult>('agentRuns.cancel', {
@@ -3478,7 +3476,6 @@ export function BusinessApp({
     }
 
     if (result.status === 'rejected') {
-      interruptionAttention.rejectStop(run.id)
       setCancellingRunIds((current) => {
         const next = new Set(current)
         next.delete(run.id)

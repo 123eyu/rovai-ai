@@ -4,8 +4,7 @@ use super::*;
 pub const MAX_INTERRUPTION_THREADS: usize = 200;
 
 // This predicate is about exact durable identity, never about a loaded UI page.
-// It is also used by exact visible acknowledgement for classified interruptions.
-pub(super) const AVAILABLE_SOURCE: &str = "EXISTS (
+const AVAILABLE_SOURCE: &str = "EXISTS (
     SELECT 1 FROM agent_run r LEFT JOIN conversation c ON c.id=r.destination_conversation_id
     WHERE r.id=occurrence.agent_run_id
       AND (r.invocation_kind<>'single_chat' OR (c.kind='single_chat' AND c.ended_at IS NULL AND c.camp_id=occurrence.camp_id))
@@ -15,7 +14,7 @@ const CANDIDATES: &str = "FROM notification_occurrence AS occurrence
     INDEXED BY notification_interruption_thread_idx
     JOIN notification_occurrence_disposition d ON d.occurrence_id=occurrence.id
     JOIN notification_episode_disposition e ON e.episode_id=occurrence.episode_id
-    WHERE occurrence.interruption_kind IS NOT NULL
+    WHERE occurrence.interruption_kind IN ('app_shutdown','execution_lost')
       AND occurrence.recipient_user_id=?1 AND occurrence.camp_id=?2
       AND occurrence.admitted_change_sequence<=?3
       AND occurrence.admitted_attention_revision>e.cleared_through_attention_revision";
@@ -30,41 +29,11 @@ pub(super) fn projection_query() -> String {
         AND d.acknowledged_at IS NULL AND {AVAILABLE_SOURCE}) FROM json_each(?2) requested"
     )
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NotificationInterruptionKind {
-    UserStop,
-    AppShutdown,
-    ExecutionLost,
-}
-
 pub(super) fn acknowledgement_query() -> String {
     format!("UPDATE notification_occurrence_disposition
         SET acknowledged_at=?4,updated_at=?4
         WHERE acknowledged_at IS NULL AND occurrence_id IN (
             SELECT occurrence.id {CANDIDATES} AND d.acknowledged_at IS NULL AND {AVAILABLE_SOURCE})")
-}
-
-impl NotificationInterruptionKind {
-    fn parse(value: &str) -> Result<Self> {
-        match value {
-            "user_stop" => Ok(Self::UserStop),
-            "app_shutdown" => Ok(Self::AppShutdown),
-            "execution_lost" => Ok(Self::ExecutionLost),
-            _ => anyhow::bail!("unknown interruption kind: {value}"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotificationInterruptionAdmission {
-    pub acknowledgement_id: String,
-    pub thread_id: String,
-    pub agent_run_id: String,
-    pub conversation_id: Option<String>,
-    pub kind: NotificationInterruptionKind,
-    pub admitted_change_sequence: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -220,50 +189,4 @@ impl NotificationEpisodeService {
             ))
         })
     }
-}
-
-// Acknowledge-before-poll is legal: this descriptor deliberately does not inspect
-// acknowledged_at or heads-up preferences. Clear and source invalidation still win.
-pub(super) fn admission(
-    c: &rusqlite::Connection,
-    recipient: &str,
-    episode_id: &str,
-    sequence: i64,
-) -> Result<Option<NotificationInterruptionAdmission>> {
-    let query = format!(
-        "SELECT occurrence.id,occurrence.camp_id,occurrence.agent_run_id,
-        CASE WHEN r.invocation_kind='single_chat' THEN r.destination_conversation_id ELSE NULL END,
-        occurrence.interruption_kind
-        FROM notification_occurrence AS occurrence
-        JOIN notification_episode_disposition e ON e.episode_id=occurrence.episode_id
-        JOIN agent_run r ON r.id=occurrence.agent_run_id
-        WHERE occurrence.recipient_user_id=?1 AND occurrence.admitted_change_sequence=?2
-          AND occurrence.episode_id=?3 AND occurrence.interruption_kind IS NOT NULL
-          AND occurrence.admitted_attention_revision>e.cleared_through_attention_revision
-          AND {AVAILABLE_SOURCE}"
-    );
-    let raw = c
-        .query_row(&query, params![recipient, sequence, episode_id], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-                r.get::<_, String>(4)?,
-            ))
-        })
-        .optional()?;
-    raw.map(
-        |(acknowledgement_id, thread_id, agent_run_id, conversation_id, kind)| {
-            Ok(NotificationInterruptionAdmission {
-                acknowledgement_id,
-                thread_id,
-                agent_run_id,
-                conversation_id,
-                kind: NotificationInterruptionKind::parse(&kind)?,
-                admitted_change_sequence: sequence,
-            })
-        },
-    )
-    .transpose()
 }

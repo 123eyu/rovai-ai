@@ -28,6 +28,9 @@ last_updated: 2026-10-18
 
 Host 独占 data-dir lease、SQLite 准入、执行、恢复与后台驱动。普通业务命令保留串行入口和已有独立通道；
 HTTP 并发不改变领域调度，SSE 不占命令队列，取消与审批不等待长 Runtime 执行。
+通知事实/偏好事件在既有 invalidate 帧携带 `notificationsChanged: true`；共享 Renderer 只对该标识
+或 resync 读取通知，普通执行/消息帧不触发通知轮询。它不是事实副本，细节见
+[Notification Episode v12](../contracts/notification-episode-v12.md#读取与事件边界)。
 业务事务提交成功后，正文定稿只向既有文本维护任务发出唤醒；命令及回执 replay 不同步读 Run、
 保存正文 Blob 或更新正文 revision。运行期首次定稿及失败重试均由该后台任务拥有，沿用有界退避并发布
 正文更新。正常退出另由[关闭监督器](planned-shutdown.md#6-deadline-与-runtime-reap)提供有界末次落盘机会。正文暂未完成不改变已提交命令或 Run 的结果；执行结束也不等待 Usage 刷盘，详见

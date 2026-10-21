@@ -118,8 +118,9 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
-中断通知的新事务/Thread 确认 seam 与批量查询规模 owner、修复前失败输入、fixture 成本及最小命令，
-见[中断注意力验收](../versions/v1.72/interruption-attention-validation.md#验证边界与-owner)。
+退出提醒沿用通知事务/Thread 确认及批量查询规模 owner；本次在原 owner 内覆盖 schema 160、
+手动停止退出候选及按 Thread 展示确认，删除随短亮接口退役的描述断言，不增加 Rust 测试函数。
+修复前失败输入、fixture 成本及最小命令见[中断注意力验收](../versions/v1.72/interruption-attention-validation.md#验证边界与-owner)。
 已存在的单聊终态、retention 和 Portal owner 原地扩展，不新增等价覆盖。
 
 Send 文件输入改动先运行 `cargo test -p rovai-core --bin rovai send_file_`，再运行

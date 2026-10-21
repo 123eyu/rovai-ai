@@ -3470,9 +3470,37 @@ mod tests {
             )
             .unwrap();
         assert_eq!(stopped.result.status, CommandResultStatus::Applied);
+        assert_eq!(
+            database
+                .connection()
+                .query_row(
+                    "SELECT count(*) FROM notification_occurrence WHERE agent_run_id=?1",
+                    [&cancelled_run_id],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0,
+            "manual stop does not create an exit reminder"
+        );
+        let shutdown_send = send(
+            &service,
+            &mut database,
+            &camp_id,
+            &cancel_conversation_id,
+            "single-chat-exit-reminder",
+        );
+        let shutdown_run = shutdown_send.result.payload["agentRunId"].as_str().unwrap();
+        database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET status='cancelled',cancel_requested_at=datetime('now'),
+            cancel_reason_code='app_shutdown_cancel_all',ended_at=datetime('now') WHERE id=?1",
+                [shutdown_run],
+            )
+            .unwrap();
         let stop_id: String = database.connection().query_row(
-            "SELECT id FROM notification_occurrence WHERE agent_run_id=?1 AND semantic='run_stopped' AND interruption_kind='user_stop'",
-            [&cancelled_run_id], |r| r.get(0)).unwrap();
+            "SELECT id FROM notification_occurrence WHERE agent_run_id=?1 AND interruption_kind='app_shutdown'",
+            [shutdown_run], |r|r.get(0)).unwrap();
         assert!(
             notifications
                 .thread_interruptions(&mut database, "local_user", &[camp_id.clone()])
@@ -3587,16 +3615,6 @@ mod tests {
             failed_conversation
         );
         let failure_id = failure.action.acknowledgement_id.clone().unwrap();
-        let interruption = changes
-            .changes
-            .iter()
-            .filter_map(|change| change.interruption_admission.as_ref())
-            .find(|source| source.agent_run_id == failed_run)
-            .unwrap();
-        assert_eq!(
-            interruption.conversation_id.as_deref(),
-            Some(failed_conversation.as_str())
-        );
         assert!(
             notifications
                 .thread_interruptions(&mut database, "local_user", &[camp_id.clone()])
@@ -3637,16 +3655,6 @@ mod tests {
                 .unwrap()
                 .threads[0]
                 .has_unread_interruption
-        );
-        assert!(
-            notifications
-                .changes_since(&mut database, "local_user", through, 100)
-                .unwrap()
-                .changes
-                .iter()
-                .filter_map(|change| change.interruption_admission.as_ref())
-                .all(|source| source.agent_run_id != failed_run),
-            "ending C1 removes real-time feedback eligibility without acknowledging its audit"
         );
         assert_eq!(
             database

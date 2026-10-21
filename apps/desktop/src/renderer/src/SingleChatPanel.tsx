@@ -3,7 +3,6 @@ import { shouldSendComposerKey } from '../../shared/shortcuts'
 import { useThreadClient } from './camp-client'
 import { useTextareaInputHistory } from './use-textarea-input-history'
 import { singleInputHistory } from './input-history'
-import { useInterruptionAttention } from './thread-interruption-attention'
 import { useMobileLayout } from './MobileLayout'
 import { newCommandId } from '../../shared/command-id'
 import { RunningText } from './RunningText'
@@ -680,7 +679,6 @@ export function SingleChatPanel({
   const initialAgentId = members.find((member) => memberCanSingleChat(member) && member.isDefaultLead)?.agentId
     ?? members.find(memberCanSingleChat)?.agentId
     ?? null
-  const interruptionAttention = useInterruptionAttention()
   const shortcutContext = useShortcuts()
   const panelRef = useRef<HTMLElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -1520,14 +1518,12 @@ export function SingleChatPanel({
     setCancelling(true)
     setError(null)
     const commandId = newCommandId()
-    interruptionAttention?.beginStop(run.id, { commandId, threadId, conversationId: current.conversation.id })
     try {
       const result = await client.request<StoredCommandResult>('agentRuns.cancel', {
         commandId,
         command: { threadId, agentRunId: run.id, expectedVersion: run.version }
       })
       if (result.status === 'rejected') {
-        interruptionAttention?.rejectStop(run.id)
         throw new Error(resultMessage(result))
       }
       await refreshCurrent(current.conversation.id)

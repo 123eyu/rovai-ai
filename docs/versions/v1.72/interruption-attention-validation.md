@@ -5,7 +5,64 @@ lifecycle: current
 last_updated: 2026-10-21
 ---
 
-# 中断注意力实施与验收
+# App 退出提醒实施与验收
+
+## 当前收口：退出提醒（2026-10-21）
+
+User 将范围收窄为 App 退出打断会话。当前合同是
+[Notification Episode v12](../../contracts/notification-episode-v12.md) 与
+[Current User Attention v10](../../contracts/current-user-attention-v10.md)，取舍见 [V1.72-D55](decisions.md#v1-72-d55)。
+后文 R2、A1–A22 及性能数字是 #841 交付时的历史记录，不代表本次重新测量或当前短亮承诺。
+
+当前代码删除手动停止来源、600ms 短亮、停止意图登记、精确准入描述水合及中断专属 DOM 观察。
+退出已读改为前台正式 Thread 展示后按观察边界确认；旧手动停止保留审计而退出侧栏候选。
+普通执行进度不再因 callback 身份变化触发通知轮询；空通知增量不刷新投影。
+各批独立接收，删除等待全批结束后才能开始后续刷新的门闩，继续用代次和序号拒绝旧响应。
+
+## 验证边界与 owner
+
+本次不增加 Rust 测试函数；在既有 owner 中更换与收窄语义对应的断言：
+
+- `interruption_admission_is_atomic_and_thread_acknowledgement_is_bounded`：退出/执行丢失来源、
+  手动停止零准入、同事务回滚、精确 Run 可见性不代替 Thread 范围确认、冻结边界、幂等和迟到确认；增加真实 schema 159→160 的 producer
+  升级与 receipt 故障回滚，验证旧手动停止审计的 ACK/通知时钟不变而候选退出。
+- `interruption_projection_reads_only_requested_thread_indexes`：保留 100/1,000/10,000 Thread
+  与单 Thread 1,001 中断规模/索引断言，不扩大性能承诺。
+- 既有单聊、Runtime 退出/恢复、retention、数据库准入 owners 保留原责任；
+  主动停止断言改为无通知，退出来源继续验证，旧精确短亮描述断言随接口一起删除。
+
+Renderer 沿用现有通知交互 owner，生产 Hook/Controller/Sidebar 加隔离 transport：
+
+| 场景 | 验证 |
+| --- | --- |
+| 重启未读、空输出 | 恢复已有退出点；正式 Thread 展示后确认，无需 Run/command/output 来源。 |
+| 缓存、失败、后台、折叠侧栏 | 缓存/未就绪/后台不确认；正式展示不依赖侧栏可绘制性。 |
+| 执行进度与手动停止 | 连续 30 次 snapshotSequence＋普通执行事件＋messages invalidation，通知 RPC 为 0；停止无点/无短亮/无请求。 |
+| 空增量、冻结确认与重试 | 空 changes 不读投影；Web 通知失效可触发重读；边界后新中断保留；失败重试同 UUID/范围且不重做本机设置。 |
+| 迟到投影与多批 | 201 Thread 中一批失败不拖住成功批；一批挂起不阻挡另一批后续事件；旧响应不能覆盖确认水位，reset 未加载新代次时不能用保留的旧点自动确认。 |
+| 其他通知 | 原通知卡片队列/静默/暂停、三位置 Portal 精确来源继续由原两个交互 owners 验证。 |
+
+最小命令：`cargo test -p rovai-core --features slow-tests --lib notification::slow_tests::`、
+`cargo test -p rovai-core --features slow-tests --lib successful_final_is_private_and_a_cancelled_run_cannot_append_late_output`、
+`pnpm test:notification-attention`。不启动日常 App 或真实模型，临时 Renderer userData 与 Skill Library 隔离。
+本次没有重测整个 App 启动时间；后文历史毫秒值不能作为本次性能实测。
+
+## 本次门禁
+
+- `cargo test --workspace -j4`：474 passed，1 项既有 ignored。
+- `cargo test -p rovai-core --features slow-tests --lib <owner>` 定向 25 项通过，包含通知、
+  单聊、实际停止/退出/启动恢复与数据库升级准入；新增 Run 可见性隔离断言随后在原事务 owner 复验。
+- `pnpm typecheck`、`pnpm test`：249 个 Vitest 文件、2,832 项通过；Node 357 passed、2 项平台限定 skipped。
+  数据库 schema 指纹预期随 160 升级同步。
+- `pnpm test:notification-attention`：3 项交互 owner 通过；补入 Web 通知失效入口后，退出提醒 owner 再次通过。
+- `pnpm build:desktop`：Web、Execution Web 与 Electron 构建通过，既有大 chunk 提示保留。
+- 当前 Host 二进制通过 `Desktop and Web share one Core` 集成 owner，包含真实 SSE 通知标识、
+  schema 11、新批量 RPC 与跨客户端范围确认回执；数据、Skill Library、MCP 和上传目录均为隔离临时路径。
+- `pnpm docs:test`、`pnpm docs:check`、diff-aware `pnpm docs:check:ci` 通过；Rust 格式检查通过。
+
+以上为隔离自动验证，不是日常安装版的操作验收；未重测整个 App 启动耗时或使用真实模型。
+
+## 历史记录：R2 初次交付
 
 按 R2 经评审计划实施。初始基线 `ce8351dad894a643ce9eabb8fc540385ac8c8d9b`；
 收口前同步 `main` 的 `2773f3bc3`（#839），保留长粘贴附件改动。
@@ -13,7 +70,7 @@ last_updated: 2026-10-21
 展示为 [Current User Attention v9](../../contracts/current-user-attention-v9.md)；
 取舍见 [V1.72-D54](decisions.md#v1-72-d54)。
 
-## 验证边界与 owner
+## 初次交付的验证边界与 owner
 
 新增两个 Rust owner，复用原 notification SQLite fixture：
 

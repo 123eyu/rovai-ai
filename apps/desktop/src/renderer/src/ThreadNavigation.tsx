@@ -1130,11 +1130,11 @@ function ThreadRow({
   const hasNewReply = navigationThreadHasUnread(thread, readState?.manualUnread ? { ...readState, manualUnread: false } : readState)
   const hasInterruption = attention?.snapshots[thread.id]?.unread ?? false
   const hasUnread = Boolean(readState?.manualUnread || hasNewReply || hasInterruption)
-  const showDot = hasUnread || (attention?.flashing.has(thread.id) ?? false)
+  const showDot = hasUnread
   const unreadLabel = [
     readState?.manualUnread ? uiAttribute('已标记未读') : '',
     hasNewReply ? uiAttribute('有新回复') : '',
-    hasInterruption ? uiAttribute('有未查看的执行中断') : ''
+    hasInterruption ? uiAttribute('有未查看的退出中断') : ''
   ].filter(Boolean).join('，')
   const loadingStatus = opening ? 'opening' : thread.marker === 'loading' ? 'loading' : null
   const status = loadingStatus && showDot ? `${loadingStatus}-unread` : loadingStatus ?? (showDot ? 'unread' : 'none')

@@ -475,6 +475,21 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(stream.status, 200)
     const reader = stream.body.getReader()
     assert.match(new TextDecoder().decode((await within(reader.read())).value), /event: resync/)
+    const eventPreference = await call(first, 'notifications.preference.get')
+    await call(first, 'notifications.preference.update', { commandId: crypto.randomUUID(), command: {
+      expectedVersion: eventPreference.version, headsUpEnabled: !eventPreference.headsUpEnabled,
+      ...Object.fromEntries(['approvalHeadsUpEnabled', 'userMentionHeadsUpEnabled', 'turnCompletedHeadsUpEnabled',
+        'turnIncompleteHeadsUpEnabled', 'singleChatHeadsUpEnabled', 'missionNeedsYouHeadsUpEnabled',
+        'missionStatusHeadsUpEnabled', 'taskStatusHeadsUpEnabled', 'missionStatuses', 'taskStatuses'].map(key => [key, eventPreference[key]]))
+    } })
+    await within((async () => {
+      let frames = ''
+      while (!frames.includes('"notificationsChanged":true')) {
+        const next = await reader.read()
+        assert.equal(next.done, false, 'notification invalidation must arrive on the existing stream')
+        frames += new TextDecoder().decode(next.value)
+      }
+    })())
     const otherReaders = []
     for (const session of [first, second]) {
       const controller = new AbortController(); controllers.push(controller)
@@ -837,7 +852,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.equal(changedPreference.status, 'applied')
     assert.deepEqual((await call(second, 'notifications.preference.get')).headsUpEnabled, !preference.headsUpEnabled)
     assert.deepEqual((await call(first, 'commands.reconcile', { operation: 'notifications.preference.update', params: preferenceParams })).result, changedPreference)
-    assert.equal((await call(first, 'notifications.inbox', { filter: 'unread', limit: 1 })).schemaVersion, 10)
+    assert.equal((await call(first, 'notifications.inbox', { filter: 'unread', limit: 1 })).schemaVersion, 11)
     const interruptionProjection = await call(first, 'notifications.threadInterruptions', { threadIds: [fileCampId] })
     assert.deepEqual(interruptionProjection.threads, [{ threadId: fileCampId, hasUnreadInterruption: false }])
     const interruptionRead = { commandId: crypto.randomUUID(), command: {

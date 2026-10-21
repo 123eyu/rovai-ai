@@ -5112,6 +5112,7 @@ export function campMessageSendParams(
     kind: 'file' | 'directory'
     mediaType: string | null
     observedByteSize: number | null
+    pastedTextPreview?: string
   }>
   quotes: ThreadComposerDraftView['quotes']
   replyToThreadMessageId: string | null
@@ -5129,7 +5130,8 @@ export function campMessageSendParams(
       displayName: attachment.displayName,
       kind: attachment.kind,
       mediaType: attachment.mediaType,
-      observedByteSize: attachment.byteSize
+      observedByteSize: attachment.byteSize,
+      ...(attachment.pastedTextPreview !== undefined ? { pastedTextPreview: attachment.pastedTextPreview } : {})
     }
   })
   return {

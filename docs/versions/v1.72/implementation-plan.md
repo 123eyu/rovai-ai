@@ -3924,3 +3924,16 @@ User 在本轮确认按实际 Send 输入路径过滤，并授权独立 worktree
   不跳过失败退避。恢复普通失败气泡可见来源，保持中断提醒的 Thread 范围确认。
 - 当前规范与验证边界见[退出提醒验收](interruption-attention-validation.md#当前收口退出提醒2026-10-21)。
   本轮未安装或重启日常 App；没有新增运行中清单、恢复扫描、轮询器或已读存储。
+
+## 紧凑文件卡片与粘贴内容前缀（2026-10-21）
+
+- 独立 worktree `rovai-ai-compact-attachment-cards`，分支 `rovai/compact-attachment-cards`，基线 `caf66a6ea`。
+- 所有文件卡片最大宽度 224px；粘贴内容显示有界原文前缀及中英文类型标签。图片、原文件名、预览和移除流程保持。
+- [Camp Attachment v12](../../contracts/camp-attachment-v12.md) 仅增加可选展示前缀。复用现有登记、草稿、发送快照和 Source Ref JSON；不新增迁移或后台读取。
+- 扩展既有 Rust owner `source_ref_json_is_closed_and_pathless_view_is_stable`：旧记录兼容、前缀边界和序列化／投影；`source_path_message_bypasses_managed_attachment_publication`：实际发布持久化、全文读取保持。新字段在修改前会被 closed JSON 拒绝。没有新增、删除或禁用 Rust 测试函数。
+- 最小 Rust 验证：`cargo test -p rovai-core --lib source_ref_json_is_closed_and_pathless_view_is_stable`；发布 seam 使用 `cargo test -p rovai-core --features slow-tests --lib source_path_message_bypasses_managed_attachment_publication`。沿用原有 fixture，不新建数据库测试。
+
+验证结果：`pnpm typecheck`、`pnpm build:desktop`、`DOCS_BASE_REF=caf66a6eac581a62cb242b0c4037f60cb6855ed5 pnpm docs:check:ci` 通过。
+`pnpm test` 最终完整通过：252 个 Vitest 文件／2854 项、Node 357 项通过／2 项平台跳过。此前并行构建时出现既有配置读取、评测子进程等超时；隔离复验与最终默认命令均通过，未修改其测试或超时配置。
+`pnpm test:rust:pr` 默认 workspace 474 项通过／1 项既有 ignored；两个既有 Source Ref／实际发布 owner 定向通过。
+`pnpm test:composer-input` 三项通过；最终共享卡片夹具额外验证中英文／日夜主题、恢复、纯附件发送与队员文件列表的实际宽度，截图人工复核通过。未启动日常 App、改动其数据或调用真实模型。

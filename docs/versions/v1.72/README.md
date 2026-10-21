@@ -42,12 +42,20 @@ User 于 2026-10-21 确认输入历史简化：首次 ↑ 从现有消息提取�
 合同见 [Thread Replies v1](../../contracts/thread-replies-v1.md)，实现与验证见
 [回复详情实施记录](reply-details-implementation.md)。不改变模型上下文、数据库 schema 或发布版本。
 
+## 紧凑文件卡片与粘贴内容前缀（2026-10-21）
+
+所有文件卡片最大宽度调整为 224px，短文件名按内容收窄，图片缩略图尺寸不变。
+新生成的长粘贴附件显示原文开头与“粘贴内容 / Pasted text”，草稿恢复和发送后保持。
+仅存有界展示前缀，全文、原文件名、预览与移除规则保持；旧记录不扫描回填。
+合同见 [Camp Attachment v12](../../contracts/camp-attachment-v12.md)，验证见
+[实施记录](implementation-plan.md#紧凑文件卡片与粘贴内容前缀2026-10-21)。
+
 ## 原路径附件显示名（2026-10-21）
 
 按 User 确认收窄 Source Ref 的历史文件名约束：包含时间冒号等字符的显示名原样保留，
 仍检查非空、120 码点上限及控制字符，实际文件继续按原路径授权和读取。
 渠道下载与历史受管附件的安全落盘名称处理保持原边界。当前合同见
-[Camp Attachment v11](../../contracts/camp-attachment-v11.md)，验证见
+[Camp Attachment v12](../../contracts/camp-attachment-v12.md)，验证见
 [实施记录](implementation-plan.md#原路径附件显示名2026-10-21)。
 
 ## 单次长文本粘贴转附件（2026-10-20）

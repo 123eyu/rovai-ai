@@ -29,13 +29,15 @@ describe('Local Composer attachment authority', () => {
     expect(await readFile(attachment.sourcePath!, 'utf8')).toBe(text)
     const restarted = new LocalComposerAttachmentRegistry(registryPath)
     expect((await restarted.restore('thread-a', [attachment]))[0]).toMatchObject({
-      id: attachment.id, generatedBy: 'long_text_paste', availability: 'available'
+      id: attachment.id, generatedBy: 'long_text_paste', availability: 'available',
+      pastedTextPreview: '😀中'.repeat(80)
     })
     // A different Thread or an ordinary external .txt never gains deletion permission.
     expect(await restarted.removePastedText('thread-b', attachment.id, async () => root)).toBe('retained')
     const external = await restarted.prepare({
       threadId: 'thread-a', sourcePath: attachment.sourcePath!, displayName: 'external.txt', mediaType: 'text/plain'
     })
+    expect(external.pastedTextPreview).toBeUndefined()
     expect(await restarted.removePastedText('thread-a', external.id, async () => root)).toBe('retained')
     await restarted.discard('thread-a', [external.id])
     expect(await readFile(attachment.sourcePath!, 'utf8')).toBe(text)

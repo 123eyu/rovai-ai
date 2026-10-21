@@ -10,6 +10,7 @@ import type {
 } from '@contracts'
 import { isAttachmentId, type DesktopAttachmentTarget } from './attachment-desktop'
 import { classifyFilePreview } from './file-preview/file-preview-classifier'
+import { pastedTextPreview } from '../shared/pasted-text-preview'
 
 const REGISTRY_SCHEMA_VERSION = 1
 const MAX_PREVIEW_BYTES = 8 * 1024 * 1024
@@ -29,6 +30,7 @@ interface RegistryEntry {
   /** Only Main's long-paste creation path can grant physical deletion authority. */
   generatedBy?: 'long_text_paste'
   enteredSendFlow?: boolean
+  pastedTextPreview?: string
 }
 
 interface PersistedRegistry {
@@ -65,6 +67,8 @@ function validEntry(value: unknown): value is RegistryEntry {
       || (Number.isInteger(entry.observedByteSize) && Number(entry.observedByteSize) >= 0))
     && typeof entry.createdAt === 'string'
     && typeof entry.updatedAt === 'string'
+    && (entry.pastedTextPreview === undefined || (typeof entry.pastedTextPreview === 'string'
+      && Array.from(entry.pastedTextPreview).length <= 160))
 }
 
 export class LocalComposerAttachmentRegistry {
@@ -83,6 +87,7 @@ export class LocalComposerAttachmentRegistry {
     displayName: string
     mediaType: string | null
     generatedBy?: 'long_text_paste'
+    pastedTextPreview?: string
   }): Promise<LocalAttachmentSourceView> {
     await this.#ensureLoaded()
     const attachmentId = randomUUID()
@@ -97,7 +102,8 @@ export class LocalComposerAttachmentRegistry {
       observedByteSize: null,
       createdAt: now,
       updatedAt: now,
-      ...(input.generatedBy ? { generatedBy: input.generatedBy, enteredSendFlow: false } : {})
+      ...(input.generatedBy ? { generatedBy: input.generatedBy, enteredSendFlow: false } : {}),
+      ...(input.generatedBy && input.pastedTextPreview !== undefined ? { pastedTextPreview: input.pastedTextPreview } : {})
     }, true)
     if (inspected.view.availability !== 'available' || !inspected.entry) {
       throw new Error('附件当前不可读取。')
@@ -303,6 +309,7 @@ export class LocalComposerAttachmentRegistry {
       previewKind: image ? 'image' : 'none',
       availability,
       ...(entry.generatedBy === 'long_text_paste' ? { generatedBy: entry.generatedBy } : {}),
+      ...(entry.pastedTextPreview !== undefined ? { pastedTextPreview: entry.pastedTextPreview } : {}),
       sourcePath: availability === 'missing' ? undefined : entry.sourcePath
     }
   }
@@ -401,6 +408,7 @@ export async function createPastedTextAttachment(
   // A write/registry failure before returning an identity can leave a residue
   // for normal Thread deletion; it does not create a second recovery protocol.
   return registry.prepare({
-    threadId, sourcePath, displayName, mediaType: 'text/plain;charset=utf-8', generatedBy: 'long_text_paste'
+    threadId, sourcePath, displayName, mediaType: 'text/plain;charset=utf-8', generatedBy: 'long_text_paste',
+    pastedTextPreview: pastedTextPreview(bytes)
   })
 }

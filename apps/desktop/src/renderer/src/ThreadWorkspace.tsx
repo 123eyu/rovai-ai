@@ -4481,7 +4481,7 @@ export function ThreadWorkspace({
         ...(draftCoordinator.getCurrentDraft()?.attachments.map(item => item.displayName) ?? []),
         ...preparingAttachmentNames.current.values()
       ]
-      file = new File([text], pastedTextFileName(names, uiAttribute('粘贴内容')), { type: 'text/plain;charset=utf-8' })
+      file = new File([text], pastedTextFileName(names, index => uiAttribute('粘贴内容-{0}.txt', index)), { type: 'text/plain;charset=utf-8' })
     } catch {
       // Still inside paste: the ordinary text branch can insert the original.
       return false

@@ -34,6 +34,8 @@ let delayedReload = false
 let catalogScenario = null
 let removalRunning = false
 let releaseCatalog = null
+let holdEnvironmentReveal = false
+let releaseEnvironmentReveal = null
 const catalogCalls = []
 const catalogDisplayTimings = []
 const fixtureConsoleInfo = console.info.bind(console)
@@ -77,7 +79,9 @@ window.rovai = {
   request: async (method, payload) => {
     if (method === 'member.runtimeEnvironment.get') {
       const own = environment(payload.memberId,payload.adapterKind), shared = common(payload.adapterKind)
-      return { ...clone(own), environment: payload.reveal ? own.environment : masked(own.environment), common: { ...clone(shared), environment: payload.reveal ? shared.environment : masked(shared.environment) } }
+      const snapshot = { ...clone(own), environment: payload.reveal ? clone(own.environment) : masked(own.environment), common: { ...clone(shared), environment: payload.reveal ? clone(shared.environment) : masked(shared.environment) } }
+      if (payload.reveal && holdEnvironmentReveal) await new Promise(resolve => { releaseEnvironmentReveal = resolve })
+      return snapshot
     }
     if (method === 'runtime.environment.get') { const saved = common(payload.runtimeKind); return { ...clone(saved), environment: payload.reveal ? saved.environment : masked(saved.environment) } }
     if (method.startsWith('runtime.startup.')) {
@@ -206,6 +210,9 @@ window.rovai = {
 }
 window.memberFixture = {
   environment: (id,kind) => clone(environment(id,kind)),
+  holdEnvironmentReveal: () => { holdEnvironmentReveal = true },
+  environmentRevealPending: () => releaseEnvironmentReveal !== null,
+  releaseEnvironmentReveal: () => { holdEnvironmentReveal = false; releaseEnvironmentReveal?.(); releaseEnvironmentReveal = null },
   common: (kind,values) => {
     commonEnvironments[kind] = { revision: common(kind).revision+1, environment: values }
     window.dispatchEvent(new CustomEvent(COMMON_ENVIRONMENT_CHANGED,{ detail: kind }))

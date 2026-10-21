@@ -939,6 +939,33 @@ app
       assert.equal(await run(`window.memberFixture.profiles()[0].presence`), 'removed')
       assert.equal(await run(`window.memberFixture.calls.filter(call => call.method === 'members.remove').at(-1).command.confirmationName`), '研究员二')
     })
+    await check('late member secret reveal preserves refreshed common values in the merged preview', async () => {
+      await reloadPage()
+      await run("window.memberFixture.common('codex-cli', { SHARED: 'before-refresh' })")
+      const area = active + '.member-environment-json'
+      await click(active + '.member-environment-entry')
+      await wait(`document.querySelector('${active}.environment-inherit-row')`)
+      await fill(area, '{"API_KEY":"fixture-member-key","LOCAL":"saved"}')
+      await saveRuntime()
+      await wait(`document.querySelector('${active}.environment-saved')`)
+      await fill(area, '{"API_KEY":"<saved>","LOCAL":"draft"}')
+      await run('window.memberFixture.holdEnvironmentReveal()')
+      await click(active + '.environment-reveal', '显示密钥')
+      await wait('window.memberFixture.environmentRevealPending()')
+      await run("window.memberFixture.common('codex-cli', { SHARED: 'after-refresh', NEW: 'current' })")
+      await click(active + '.environment-text-link', '查看合并结果')
+      await wait(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value).SHARED === 'after-refresh'`)
+      await run('window.memberFixture.releaseEnvironmentReveal()')
+      await settle()
+      assert.deepEqual(await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`), {
+        SHARED: 'after-refresh', NEW: 'current', API_KEY: '••••••••', LOCAL: 'draft'
+      })
+      await click(active + '.environment-text-link', '编辑')
+      await wait(`document.querySelector('${active}.environment-reveal').textContent === '隐藏密钥'`)
+      assert.deepEqual(await run(`JSON.parse(document.querySelector(${JSON.stringify(area)}).value)`), {
+        API_KEY: 'fixture-member-key', LOCAL: 'draft'
+      })
+    })
     await check('shared variables appear only when saved and merged preview preserves the exact local draft', async () => {
       await reloadPage()
       await run("window.memberFixture.common('codex-cli', { SHARED: 'one', API_KEY: 'fixture-secret', EMPTY: 'default' })")
@@ -1016,6 +1043,13 @@ app
       assert.equal(await run("JSON.parse(document.querySelector('.common-environment-section textarea').value).SHARED"), 'local-conflict')
       await click('.common-environment-section .environment-error button', '重新读取')
       await wait("JSON.parse(document.querySelector('.common-environment-section textarea').value).SHARED === 'external'")
+      await fill('.common-environment-section textarea', '{"SHARED":"discard-after-reload"}')
+      await click('.runtime-startup-actions button', '放弃更改')
+      assert.deepEqual(await run("JSON.parse(document.querySelector('.common-environment-section textarea').value)"), {
+        SHARED: 'external', API_KEY: '<saved>'
+      })
+      assert.equal(await run("document.querySelector('.runtime-startup-actions button[type=submit]').disabled"), true)
+      assert.equal(await run("!!document.querySelector('.common-environment-section .environment-error')"), false)
       await fill('.common-environment-section textarea', '{}')
       await click('.runtime-startup-actions button', '保存')
       await wait("document.querySelector('.runtime-startup-actions [role=status]')?.textContent === '已保存'")

@@ -3,14 +3,14 @@ document_type: architecture
 architecture: camp-composer-draft
 authority: desktop-local-public-camp-composer
 status: accepted
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Public Camp Composer
 
 公开 Camp Composer 的内容权威是客户端本机、按 Camp 隔离的轻量状态。Active 与普通一键 Pending
 都保存本机快照；Core 仅为普通 Pending 保存客户端 presence，拥有侧栏可见性与清理保护。合同见
-[Camp Composer Draft v17](../contracts/camp-composer-draft-v17.md)。Single Chat 的私有 Draft/Pending 不在本架构范围。
+[Camp Composer Draft v18](../contracts/camp-composer-draft-v18.md)。Single Chat 的私有 Draft/Pending 不在本架构范围。
 
 ## 组件边界
 
@@ -77,6 +77,7 @@ Lexical adapter 保留原 EditorState，预览只替换显示与有效输入；`
 ## 长粘贴生成文件
 
 Desktop 公屏单次普通文本粘贴超过 10,000 码点时，将全文交给原附件准备队列；本机保存完成是明确接纳点。
+内部复制恢复后只有文字的内容也使用同一阈值；仅仍含 Member、All Members 或 Skill Atom 时保留结构化粘贴优先级。
 准备期间原编辑器持有原文；未接纳时先追加到原编辑器最新正文，再清理生成物。Pending presence 失败发生在
 本机接纳之后，不重复回填，也不以旧快照覆盖等待期间的新输入。
 
@@ -93,7 +94,7 @@ ID 匹配仍限定发送 Thread。此复用不延长所属 Thread 的寿命；�
 
 普通弹窗的零消息 Active 不因清空而丢弃；一键 Pending 继续使用既有 presence、离开与启动清理，并补齐
 输出目录删除。首次发布后身份与路径不变。不建立新的草稿事务、发送对账或垃圾回收框架；
-精确接口与负例由 [v17](../contracts/camp-composer-draft-v17.md) 拥有。
+精确接口与负例由 [v18](../contracts/camp-composer-draft-v18.md) 拥有。
 
 ## 撤回不是草稿恢复
 

@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-composer-atoms-and-structured-mentions
 status: accepted
-last_updated: 2026-10-16
+last_updated: 2026-10-21
 ---
 
 # 结构化 Mention 与 Composer Atom
@@ -138,8 +138,10 @@ Composer 选区 Copy/Cut 同时写：
 - `text/html`：仅兼容可见文本，不拥有 identity。
 
 粘贴时文件优先交给附件入口。没有文件时优先读取私有 MIME，严格校验 version、closed Segment/Atom shape 和
-identity；当前 Catalog 中可恢复的引用还原为 Atom，不可恢复引用转换为普通可见文本。没有合法私有 MIME 时只
-使用 `text/plain`，或把 HTML 解析为可见纯文本。
+identity；当前 Catalog 中可恢复的引用还原为 Atom，不可恢复引用转换为普通可见文本。只有恢复后仍包含实际
+Member、All Members 或 Skill Atom 的内容优先按结构化粘贴。仅含文字的内部文档使用文档自身的完整正文，
+同样参与下面的长文本阈值判断；不能因带私有 MIME 而豁免，也不被并行的 `text/plain` 截短或替换。
+没有合法私有 MIME 时使用 `text/plain`，或把 HTML 解析为可见纯文本。
 
 仅公屏消息输入框（已有与新建 Thread）通过调用方可选回调启用单次长文本附件化；使命描述和单聊不启用。
 只在 paste 的普通文本分支对本次最终纯文本按 Unicode 码点计数：不超过 10,000 时正常插入，超过时
@@ -157,7 +159,7 @@ identity；当前 Catalog 中可恢复的引用还原为 Atom，不可恢复引�
 移除未进入发送流程的生成附件，先成功保存移除后的本机草稿，再等待异步删除并清登记。曾进入发送流程的
 文件只移除引用，保留到会话删除。清理失败用轻提示说明，允许继续编辑；外部文件和发送成功后的源文件不删除。
 发送成功后先保存新草稿，再释放旧登记，保存失败保留恢复能力。普通弹窗零消息 Active 不按 Pending 清理；
-一键 Pending 的附件仍在时不是空草稿。存储、保护和失败边界见 [Composer Draft v17](../../contracts/camp-composer-draft-v17.md)。
+一键 Pending 的附件仍在时不是空草稿。存储、保护和失败边界见 [Composer Draft v18](../../contracts/camp-composer-draft-v18.md)。
 
 不得从纯文本 `@Alice`、`/review-code` 或外部 HTML 的 `data-reference-id`、`data-atom-type`、`data-skill-id`
 猜测 identity。整条历史用户消息的专用复制入口继续保留文件链接原始 target，不因显示 label 丢失路径。

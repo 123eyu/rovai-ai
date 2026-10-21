@@ -262,18 +262,18 @@ export const ComposerClipboardExtension = defineExtension({
         const structured = clipboard.getData(ROVAI_COMPOSER_CLIPBOARD_MIME)
         const document = structured ? runtime.recoverClipboard(structured) : null
         event.preventDefault()
+        const hasAtoms = document?.segments.some(segment => segment.kind === 'atom') ?? false
+        const plainText = document
+          ? runtime.plainText(document)
+          : clipboard.getData('text/plain') || htmlClipboardToPlainText(clipboard.getData('text/html'))
+        if (!hasAtoms && runtime.pasteLongText && isLongTextPaste(plainText) && runtime.pasteLongText(plainText)) {
+          return true
+        }
+        $addUpdateTag(PASTE_TAG)
+        $restoreComposerAtomSelection()
         if (document) {
-          $addUpdateTag(PASTE_TAG)
-          $restoreComposerAtomSelection()
           $insertComposerDocument(document)
         } else {
-          const plainText = clipboard.getData('text/plain')
-            || htmlClipboardToPlainText(clipboard.getData('text/html'))
-          if (runtime.pasteLongText && isLongTextPaste(plainText) && runtime.pasteLongText(plainText)) {
-            return true
-          }
-          $addUpdateTag(PASTE_TAG)
-          $restoreComposerAtomSelection()
           const selection = $getSelection()
           if ($isRangeSelection(selection)) selection.insertRawText(plainText)
         }

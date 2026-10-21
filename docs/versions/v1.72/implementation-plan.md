@@ -128,6 +128,26 @@ Architecture、UI、合同索引、文档入口与 [V1.72-D53](decisions.md#v1-7
 Node 357 通过／2 项平台跳过）；文档 10 项测试、普通及基于 `035902a5e` 的 diff-aware 门禁通过。
 本轮未修改 Rust，不重复运行既有 Rust 回归；没有测量整机内存或磁盘占用，也没有更新日常 App。
 
+### 内部纯正文复制修正（2026-10-21）
+
+分支 `rovai/long-paste-text-only`，同级 worktree `rovai-ai-long-paste-text-only`，初始基线 `527582452`。
+User 实测输入框复制的纯正文也带私有 MIME，导致此前合法内部格式整体豁免了长文本阈值。
+只调整生产 Clipboard Extension 的 paste 分流：恢复后仍含 Member、All Members 或 Skill Atom 时保留
+结构化优先级；其余内部文档用自身完整正文判断 10,000 码点阈值，普通 `@名字`、`/skill` 字符不构成 Atom。
+既有文件优先级、短文本插入、选区、未启用回调的入口及异步回填保持原路径，不增加持久字段或后台机制。
+
+新增场景先在旧代码复现失败，再在隔离 Electron 的生产 Composer 中通过；使用编辑器自身 Copy 产生私有 MIME，
+验证纯正文回贴生成附件且不覆盖选区。补齐边界、Unicode／空白全文、内外文本不一致、三种 Atom 保留，
+并用内部纯文本覆盖既有延迟失败期间继续输入的回填场景。夹具隔离 userData 和 Skill Library，不启动 Core／Runtime。
+初始基线上的 `pnpm typecheck`、`pnpm build:desktop`、`pnpm test` 通过（249 个 Vitest 文件／2,832 项，
+Node 357 通过／2 项平台跳过），生产 Composer 回归通过。当前规范升级为
+[Composer Draft v18](../../contracts/camp-composer-draft-v18.md)，复制 wire format 和 v17 的附件生命周期不变。
+
+同步语言设置主线 `94a1d843c` 后再次通过 `pnpm typecheck`、`pnpm build:desktop`、`pnpm test`
+（251 个 Vitest 文件／2,847 项，Node 357 通过／2 项平台跳过）、`pnpm test:composer-input` 的 3 个生产输入套件，
+以及基于该 main SHA 的 diff-aware 文档门禁。默认 `pnpm test:rust:pr` 474 项通过、1 项既有 ignored；
+本次及合入的语言更新均未修改 Rust。日常 App 未在本轮安装或重启。
+
 ## 会话执行条（2026-10-20）
 
 User 确认第七版交互稿的 01 浅灰、C 无底图标和转圈，并授权独立 worktree、PR 到 main 后合并。

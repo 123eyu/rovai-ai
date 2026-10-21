@@ -82,7 +82,10 @@ const client = {
   platform: 'darwin', onEvent: () => () => {},
   request: async (method: string) => {
     calls.push(method)
-    if (method === 'skills.candidates') return { skills: [], errors: [] }
+    if (method === 'skills.candidates') return { skills: [{
+      id: 'paste-review', name: 'review-code', description: 'Clipboard regression fixture',
+      source: 'native', entryPath: '/fixture/review-code/SKILL.md', memberIds: ['lead']
+    }], errors: [] }
     if (method === 'thread.messages.anchors') return { schemaVersion: 1, threadId, throughGlobalSequence: 0, totalCount: 0, items: [] }
     if (method === 'threads.pendingDraft.setPresence') {
       if (failPresence) throw new Error('Fixture presence offline')

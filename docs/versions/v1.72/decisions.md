@@ -1119,7 +1119,7 @@ Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此
 
 - 状态：accepted
 - 日期：2026-10-20
-- 当前权威：[Public Composer](../../architecture/camp-composer-draft.md#长粘贴生成文件)、[Composer Draft v17](../../contracts/camp-composer-draft-v17.md)
+- 当前权威：[Public Composer](../../architecture/camp-composer-draft.md#长粘贴生成文件)、[Composer Draft v18](../../contracts/camp-composer-draft-v18.md)
 
 ### 背景与选择
 
@@ -1130,6 +1130,10 @@ Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此
 已移除附件不受后续发送连带保护，本次无附件也不解除更早保护。用户优先要求可用性和架构简洁：
 接受少量实际未发布的文件保留到 Thread 删除，以避免误删已发布文件。移除引用不以物理清理成功为条件；
 草稿保存失败与清理失败分开处理，发送后先保存新草稿再释放恢复登记。
+
+2026-10-21 按 User 的实际复现收窄 Clipboard 豁免：私有 MIME 同时承载纯正文，不能把格式存在当作
+含有结构化身份。只在恢复后仍有 Member、All Members 或 Skill Atom 时优先插入结构化内容；
+内部纯正文沿用同一单次长粘贴入口，保留现有复制格式及附件生命周期。
 
 ### 未选择方案与后果
 

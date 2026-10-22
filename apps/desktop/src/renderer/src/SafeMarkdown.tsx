@@ -45,12 +45,16 @@ type InlineHtmlNode = {
 // Neither policy parses HTML or creates elements from untrusted markup.
 function rehypeRawHtmlPolicy({ policy }: { policy: RawHtmlPolicy }): (tree: InlineHtmlNode) => void {
   return (tree) => {
+    // react-markdown's skipHtml already handles the drop policy.
+    if (policy === 'drop') return
     const visit = (parent: InlineHtmlNode): void => {
-      parent.children = parent.children?.flatMap((node) => {
-        if (node.type === 'raw') return policy === 'text' ? [{ type: 'text', value: node.value }] : []
-        visit(node)
-        return [node]
-      })
+      const children = parent.children
+      if (!children) return
+      for (let index = 0; index < children.length; index++) {
+        const node = children[index]
+        if (node.type === 'raw') children[index] = { type: 'text', value: node.value }
+        else visit(node)
+      }
     }
     visit(tree)
   }
@@ -141,7 +145,7 @@ function scrollToMarkdownHeading(root: HTMLElement, target: string): boolean {
   return Boolean(heading)
 }
 
-function fileLinkTransformer(addInlineSpacing: boolean): (tree: MarkdownTreeNode) => void {
+function fileLinkTransformer(addInlineSpacing: boolean, rawHtmlPolicy: RawHtmlPolicy): (tree: MarkdownTreeNode) => void {
   return (tree) => {
     visitMarkdownFileReferences(tree, (node, spacing) => {
       if (typeof node.url !== 'string') return
@@ -159,16 +163,16 @@ function fileLinkTransformer(addInlineSpacing: boolean): (tree: MarkdownTreeNode
           }
         }
       }
-    })
+    }, rawHtmlPolicy)
   }
 }
 
-function remarkFileLinks(): (tree: MarkdownTreeNode) => void {
-  return fileLinkTransformer(false)
+function remarkFileLinks({ rawHtmlPolicy }: { rawHtmlPolicy: RawHtmlPolicy }): (tree: MarkdownTreeNode) => void {
+  return fileLinkTransformer(false, rawHtmlPolicy)
 }
 
-function remarkMessageFileLinks(): (tree: MarkdownTreeNode) => void {
-  return fileLinkTransformer(true)
+function remarkMessageFileLinks({ rawHtmlPolicy }: { rawHtmlPolicy: RawHtmlPolicy }): (tree: MarkdownTreeNode) => void {
+  return fileLinkTransformer(true, rawHtmlPolicy)
 }
 
 export function SafeMarkdown({
@@ -251,7 +255,7 @@ export function SafeMarkdown({
           remarkCjkFriendly,
           [remarkCjkFriendlyStrikethrough, { singleTilde: false }],
           remarkRepairCjkUrlTail,
-          ...(fileReferencesEnabled ? [mode === 'message' ? remarkMessageFileLinks : remarkFileLinks] : []),
+          [mode === 'message' ? remarkMessageFileLinks : remarkFileLinks, fileReferencesEnabled ? { rawHtmlPolicy } : false],
           [remarkLeadingContent, { enabled: hasLeadingContent, inline: inlineLeadingContent }]
         ]}
         rehypePlugins={[

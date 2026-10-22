@@ -8,6 +8,30 @@ last_updated: 2026-10-22
 
 # v1.72 实施与验收
 
+## 字面 HTML 间距与遍历收尾（2026-10-22）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-markdown-spacing`；
+  分支 `rovai/markdown-spacing`，基线 `1dde043f6cb3b074682141d328a52e3d3c7e4ad8`；Governance：none。
+- 文件引用间距显式接收 `rawHtmlPolicy`，在 `text` 下以 HTML 字面字符作为相邻边界，
+  在 `drop` 下跳过隐藏节点。共用忽略列表保留，HTML 块内的 Markdown 形状不进入文件引用解析。
+- raw→text 只替换对应子节点并保留原 children 数组；`drop` 直接返回，交由现有 `skipHtml` 删除。
+  插件顺序和可信 Mention 机制保持；未增加缓存、解析层或性能框架。
+- 扩展既有 SafeMarkdown owner：前后两个 HTML 间距 case 修复前均失败；补充显式 drop 间距、
+  HTML 块内伪文件引用和被丢弃块中的 Mention 边界。无 Rust、Core、引用投影或模型上下文变更。
+- 属于已有显示合同的局部修正，无需新增 Version Decision、schema 迁移或协议版本。
+
+验证：
+
+- 定向 129 项通过；`pnpm typecheck`、`pnpm build:desktop` 和文档通用门禁通过。
+- `pnpm test` 通过：252 个 Vitest 文件、2868 项通过、2 项既有跳过；后续 Node 套件
+  357 项通过、2 项 Windows 专用验证跳过。
+- `pnpm test:file-reference-navigation` 隔离 Electron 验收通过：两侧 HTML 场景在日间、夜间的
+  实际附加边距均为 `0px`，字面标签完整；文件打开、原生选文、键盘、阅读锚点与宽内容约束保持。
+  已核对两主题截图；没有启动 Core、真实 Runtime 或日常 App。
+- `pnpm test:message-quotes` 通过，复用已有 71 项投影对照和可信 Mention／旧引用边界。
+  本次未改 Rust 或引用协议，未重复执行 Rust workspace 套件；不声明整体性能提升幅度。
+- 已完成验证，进入 PR 与 main 合入流程；合入后清理独立 worktree。
+
 ## 消息字面 HTML 与引用投影（2026-10-22）
 
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-markdown-literal-text`；

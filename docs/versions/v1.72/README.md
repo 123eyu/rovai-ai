@@ -20,6 +20,9 @@ last_updated: 2026-10-22
 同步引用 Architecture、Contract、更新日志 Contract 与 UI；无 schema/发布版本、模型上下文格式、
 历史快照、Runtime Activity 或平台资格变化。沿已有投影版本处理兼容，无需新 Version Decision。
 
+后续补齐[文件链接间距](../../ui/components/file-preview.md#会话内的文件链接)对 HTML 字面文字的识别，
+并将 raw→text 改为原位替换、`drop` 复用 `skipHtml`；详见[跟进验收](implementation-plan.md#字面-html-间距与遍历收尾2026-10-22)。
+
 ## TRAE ACP 错误详情（2026-10-22）
 
 TRAE CLI 0.209.1 使用字符串 `error.data`，原共享 Host 仅提取对象中的 `error.data.error`，

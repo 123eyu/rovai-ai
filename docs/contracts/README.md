@@ -25,7 +25,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Camp Open Projection v30](camp-open-projection-v30.md)
 - [Notification Episode v12](notification-episode-v12.md)
 - [Desktop Shortcuts v2](desktop-shortcuts-v2.md)
-- [Host Web v8](host-web-v8.md)
+- [Host Web v9](host-web-v9.md)
 
 上述版本取代同族旧合同的当前入口；旧版本继续解释冻结对象及恢复。
 
@@ -106,7 +106,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Windows Window Close v1（当前）](windows-window-close-v1.md) | Windows 主窗口关闭选择、记忆、本机设置与托盘生命周期；明确退出复用 Planned Shutdown |
 | [Host Lifecycle v2（当前）](host-lifecycle-v2.md) | 统一 Host 的原生 Server 单一数据根与用户入口；Desktop 旧布局兼容、唯一 owner、配套 WebUI 与受控停止 |
 | [Host Lifecycle v1（兼容入口）](host-lifecycle-v1.md) | 旧预览 Host CLI 的显式内部路径和初始化；由 v2 保留兼容，不自动迁移数据 |
-| [Host Web v8（当前）](host-web-v8.md) | 候选内分页/定位复用 Analysis，以原始大小和修改时间校验；其他读取和传输规则保持 |
+| [Host Web v9（当前）](host-web-v9.md) | Web 长粘贴直写 Thread 输出目录、上传恢复与单向保护下的异步删除 |
+| [Host Web v8（历史）](host-web-v8.md) | 候选内分页/定位复用 Analysis，以原始大小和修改时间校验；其他读取和传输规则保持 |
 | [Host Web v7（历史）](host-web-v7.md) | 30 MiB 上传、独立下载票据与原生有界流式传输、取消及原结果核对 |
 | [Host Web v5（历史）](host-web-v5.md) | User 继续入口与既有命令回执核对，传输协议仍为 4 |
 | [Host Web v4（历史）](host-web-v4.md) | Task v5 当前输入/投影与 Host protocol 4 clean break |
@@ -540,7 +541,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Published Attachment View v2（历史）](camp-published-attachment-view-v2.md) | v1 root/journal/generation fence 不变；增加稳定 semantic catalog/receipt、可重建物理轴与无全局 DB 锁 copy phase |
 | [Camp Published Attachment View v1（历史）](camp-published-attachment-view-v1.md) | 实例/Camp 隔离 root、publication journal、ready catalog、generation、物理 Manifest receipt、quota、rebuild 与安全清理 |
 | [Camp Attachment v1（历史）](camp-attachment-v1.md) | 普通文件/目录联合、Core-owned 只读快照、限制、Draft 原子消费、Snapshot 29 与旧 Runtime Authority path |
-| [Camp Composer Draft v18（当前）](camp-composer-draft-v18.md) | 内部复制的纯正文也按单次长粘贴阈值附件化；仅恢复后仍含 Atom 的内容优先按结构化粘贴 |
+| [Camp Composer Draft v19（当前）](camp-composer-draft-v19.md) | Web 公屏长粘贴、浏览器草稿接纳、Host 生成文件存储与清理 |
+| [Camp Composer Draft v18（历史）](camp-composer-draft-v18.md) | 内部复制的纯正文也按单次长粘贴阈值附件化；仅恢复后仍含 Atom 的内容优先按结构化粘贴 |
 | [Camp Composer Draft v17（历史）](camp-composer-draft-v17.md) | Desktop 长粘贴生成文件、Thread 归属、单向发送保护与先保存后清理；不改变本机草稿权威 |
 | [Camp Composer Draft v16（历史）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |
 | [Camp Composer Draft v15（历史）](camp-composer-draft-v15.md) | 无 Core Draft/Pending；Desktop 按 Camp 本地恢复完整输入、continuation、anchored reply 与发送前附件预览 |

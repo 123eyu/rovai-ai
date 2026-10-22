@@ -1119,7 +1119,7 @@ Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此
 
 - 状态：accepted
 - 日期：2026-10-20
-- 当前权威：[Public Composer](../../architecture/camp-composer-draft.md#长粘贴生成文件)、[Composer Draft v18](../../contracts/camp-composer-draft-v18.md)
+- 当前权威：[Public Composer](../../architecture/camp-composer-draft.md#长粘贴生成文件)、[Composer Draft v19](../../contracts/camp-composer-draft-v19.md)
 
 ### 背景与选择
 
@@ -1134,6 +1134,10 @@ Task 与消息协作重复，直接删除会破坏存量责任和恢复。因此
 2026-10-21 按 User 的实际复现收窄 Clipboard 豁免：私有 MIME 同时承载纯正文，不能把格式存在当作
 含有结构化身份。只在恢复后仍有 Member、All Members 或 Skill Atom 时优先插入结构化内容；
 内部纯正文沿用同一单次长粘贴入口，保留现有复制格式及附件生命周期。
+
+2026-10-22 补齐 Web：浏览器不能依赖 Electron Main；现有上传回执不可变，不能用更新回执或
+逐次追加发送事件记录删除资格。因此在 Core 原 SQLite 中增加一张仅属于生成文件的资格表，
+复用数据库锁和上传事务；不新建数据库服务，也不重做普通上传。
 
 ### 未选择方案与后果
 

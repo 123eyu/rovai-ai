@@ -4501,14 +4501,14 @@ export interface RovaiApi {
   memberAvatars: MemberAvatarsApi
   composerAttachments: {
     prepare(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView>
-    /** Desktop public Composer only; generated in the canonical Thread output directory. */
+    /** Public Composer; generated in the canonical Host Thread output directory. */
     preparePastedText?(threadId: string, file: File): Promise<LocalAttachmentSourceView>
-    /** After saving the draft without this ref. Main decides whether the file is deletable. */
+    /** After saving the draft without this ref. Main/Host decides whether the file is deletable. */
     removePastedText?(threadId: string, attachmentRefId: string): Promise<'deleted' | 'retained'>
     preview(locator: LocalAttachmentOwnerLocator): Promise<AttachmentPreviewResult>
-    /** Desktop-local authority restore; absent on remote/browser adapters. */
+    /** Restore through the owning Main registry or verified Web upload receipts. */
     restore?(threadId: string, attachments: LocalAttachmentSourceView[]): Promise<LocalAttachmentSourceView[]>
-    /** Releases Desktop-local authority after remove, send, or Thread deletion. */
+    /** Releases draft recovery registration; never physically deletes files. */
     discard?(threadId: string, attachmentRefIds?: string[]): Promise<void>
     location?(locator: LocalAttachmentOwnerLocator): Promise<string | null>
   }

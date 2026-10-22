@@ -79,6 +79,13 @@ User 于 2026-10-21 确认输入历史简化：首次 ↑ 从现有消息提取�
 [Camp Attachment v12](../../contracts/camp-attachment-v12.md)，验证见
 [实施记录](implementation-plan.md#原路径附件显示名2026-10-21)。
 
+## Web 长粘贴附件（2026-10-22）
+
+补齐浏览器远程连接公屏的长粘贴、恢复与移除。Host 直接写入 Thread 输出目录，Core schema 162
+保存生成归属及单向发送保护，草稿内容仍在浏览器。普通上传不变，不增加后台清理。
+合同见 [Composer Draft v19](../../contracts/camp-composer-draft-v19.md) 和 [Host Web v9](../../contracts/host-web-v9.md)。
+验证与测试归属见[实施记录](web-pasted-text-implementation.md)。
+
 ## 单次长文本粘贴转附件（2026-10-20）
 
 Desktop 公屏单次普通文本粘贴超过 10,000 个码点时，生成完整 UTF-8 `.txt`。文件按 Thread 管理，
@@ -87,7 +94,7 @@ Desktop 公屏单次普通文本粘贴超过 10,000 个码点时，生成完整 
 必要恢复登记不受普通缓存裁剪，Pending 启动清理补齐输出目录；不增加预算预判、发送对账或垃圾回收器。
 2026-10-21 修正内部纯正文复制：只有恢复后仍含实际 Mention／Skill Atom 才保留结构化粘贴优先级，
 内部纯正文同样按单次 10,000 码点阈值处理。
-当前规则见 [Composer Draft v18](../../contracts/camp-composer-draft-v18.md) 与
+当前规则见 [Composer Draft v19](../../contracts/camp-composer-draft-v19.md) 与
 [Clipboard](../../ui/components/structured-mentions.md#clipboard)，取舍见 [V1.72-D53](decisions.md#v1-72-d53)，
 实施及验证见[实施记录](implementation-plan.md#单次长文本粘贴转附件2026-10-20)。
 
@@ -161,7 +168,7 @@ Claude Code、Copilot、Qwen 正式启动禁用提问工具；Kimi 与 Qwen 的�
 按 User 确认的三项优化，Desktop 只复用句柄内最近一次行号定位；Web 候选完整分析一次，后续分页和定位按需读取；
 自动刷新确认同版本后跳过正文和 HTML 准备。Web 接受同候选等大小、等修改时间改写可能无法识别的取舍，
 其他读取的摘要校验保持。规范为 [File Preview v23](../../contracts/file-preview-v23.md) 与
-[Host Web v8](../../contracts/host-web-v8.md)，计数与验收见[实施记录](implementation-plan.md#文件预览读取复用2026-10-18)。
+[Host Web v9](../../contracts/host-web-v9.md)，计数与验收见[实施记录](implementation-plan.md#文件预览读取复用2026-10-18)。
 更新现有 Contracts、Architecture、UI 和测试约定；局部可逆实现无需新增 Version Decision，其他领域和模型输入不变。
 
 ## 浏览器文件传输（2026-10-17）
@@ -169,7 +176,7 @@ Claude Code、Copilot、Qwen 正式启动禁用提问工具；Kimi 与 Qwen 的�
 按 User 确认方案实施单文件 30 MiB 上传、进度/取消与原结果核对，及独立授权的原生流式下载。
 预览预算与下载分离，下载保留申请来源授权、准入 Session 校验和资源约束，不增加附件资产或保存期限。
 2026-10-18 按 User seq27 收敛为准入后直接流式发送，取消持续重验及下载所见版本/尾块检查；不新增严格模式。
-当前规范为 [Host Web v8](../../contracts/host-web-v8.md)，取舍见 [D52](decisions.md#v1-72-d52)。
+当前规范为 [Host Web v9](../../contracts/host-web-v9.md)，取舍见 [D52](decisions.md#v1-72-d52)。
 实施及验收状态见[下载链路收尾记录](implementation-plan.md#文件下载准入后直接传输2026-10-18)。
 
 本项保持 v1.72 生命周期；Contracts、Architecture、UI、Decisions、用户/部署文档及导航已更新。

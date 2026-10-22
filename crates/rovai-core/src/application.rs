@@ -7895,6 +7895,53 @@ impl Core {
                     rovai_core::draft_client::resolve_editor(&database, resume)?,
                 )?)
             }
+            "host.upload.pastedTextRoot" => {
+                let intent: rovai_core::web_upload::UploadIntent =
+                    serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                Ok(json!(rovai_core::web_upload::pasted_text_root(
+                    &database,
+                    &request.client,
+                    &intent
+                )?))
+            }
+            "host.upload.removePastedText" | "host.upload.discardPastedText" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Remove {
+                    thread_id: String,
+                    attachment_ref_ids: Vec<String>,
+                }
+                let params: Remove = serde_json::from_value(request.params.clone())?;
+                anyhow::ensure!(
+                    params.attachment_ref_ids.len() <= 10,
+                    "too many attachment references"
+                );
+                let mut database = self.database.lock().await;
+                if request.method == "host.upload.discardPastedText" {
+                    rovai_core::web_upload::discard_pasted_text(
+                        &database,
+                        &request.client,
+                        &params.thread_id,
+                        &params.attachment_ref_ids,
+                    )?;
+                    Ok(json!({"released": true}))
+                } else {
+                    anyhow::ensure!(
+                        params.attachment_ref_ids.len() == 1,
+                        "one generated attachment required"
+                    );
+                    Ok(json!(
+                        rovai_core::web_upload::remove_pasted_text(
+                            &mut database,
+                            &request.client,
+                            &params.thread_id,
+                            &params.attachment_ref_ids[0]
+                        )
+                        .await?
+                    ))
+                }
+            }
             "host.upload.restore" => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -7913,20 +7960,34 @@ impl Core {
                         .attachment_ref_ids
                         .iter()
                         .map(|id| {
-                            rovai_core::web_upload::load_composer_source(
+                            let source = rovai_core::web_upload::load_composer_source(
                                 &database,
                                 &request.client,
                                 &params.thread_id,
                                 id,
-                            )
+                            )?;
+                            let generated = rovai_core::web_upload::is_pasted_text(
+                                &database,
+                                &request.client,
+                                &params.thread_id,
+                                id,
+                            )?;
+                            Ok((source, generated))
                         })
                         .collect::<Result<Vec<_>>>()?
                 };
                 tokio::task::spawn_blocking(move || {
                     sources
                         .iter()
-                        .map(|source| match source {
-                            Some(source) => rovai_core::web_upload::composer_source_view(source),
+                        .map(|(source, generated)| match source {
+                            Some(source) => {
+                                let mut view =
+                                    rovai_core::web_upload::composer_source_view(source)?;
+                                if *generated {
+                                    view["generatedBy"] = json!("long_text_paste");
+                                }
+                                Ok(view)
+                            }
                             None => Ok(Value::Null),
                         })
                         .collect::<Result<Vec<_>>>()

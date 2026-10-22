@@ -62,6 +62,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         matches!(
             classify_database_contract(&tx)?,
             DatabaseContractClassification::Current(_)
+                | DatabaseContractClassification::SupportedMigrationSource(_)
         ),
         "Shared environment schema admission failed"
     );
@@ -71,6 +72,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
+    super::web_pasted_text::downgrade_for_test(c);
     c.execute_batch("DROP TABLE IF EXISTS member_environment_inheritance;
         DROP TABLE IF EXISTS runtime_common_environment;
         DELETE FROM schema_migration WHERE version=211;

@@ -183,6 +183,50 @@ fn pending_invitations_commit_with_first_message_and_roll_back_every_failure() {
             assert!(replay.replayed);
             assert_eq!(replay.result, rejected.result);
         }
+        // A small input can expand beyond the content limit when Core captures titles.
+        // Reject inside the same transaction and replay the rejection after a rename.
+        database
+            .connection()
+            .execute(
+                "UPDATE camp SET title=?1 WHERE id=?2",
+                params!["登".repeat(80), source_id],
+            )
+            .unwrap();
+        let mut oversized = send.clone();
+        oversized
+            .content
+            .segments
+            .push(crate::camp_content::ComposerSegment::Text {
+                text: "x".repeat(650_000),
+            });
+        oversized.content.segments.extend((0..2_000).map(|_| {
+            crate::camp_content::ComposerSegment::Atom {
+                atom: crate::camp_content::ComposerAtom::ThreadReference {
+                    thread_id: source_id.clone(),
+                    label_fallback: None,
+                },
+            }
+        }));
+        let oversized_command = envelope(
+            &format!("reference-size-{broadcast}"),
+            Some(&camp),
+            oversized,
+        );
+        let rejected = service
+            .send_user_camp_message(&mut database, &oversized_command)
+            .unwrap();
+        assert_eq!(rejected.result.code, "camp_message.invalid_content");
+        assert_eq!(domain_state(&database, &camp), initial);
+        database
+            .connection()
+            .execute("UPDATE camp SET title='短标题' WHERE id=?1", [&source_id])
+            .unwrap();
+        let replay = service
+            .send_user_camp_message(&mut database, &oversized_command)
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.result, rejected.result);
+
         for label in ["旧标题", "伪造另一标题"] {
             send.content
                 .segments

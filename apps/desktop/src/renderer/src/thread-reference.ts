@@ -19,12 +19,13 @@ export function validReferenceAtom(value: Record<string, unknown>): value is Rec
   if (key === 'threadId' ? !isThreadId(id) : typeof id !== 'string' || !/^rvm_[a-f0-9]{12}7[a-f0-9]{3}[89ab][a-f0-9]{15}$/u.test(id)) return false
   const label = value.labelFallback
   return label === undefined || typeof label === 'string' && label.length > 0 && label.trim() === label
-    && Array.from(label).length <= 500 && !/[\u0000-\u001f\u007f-\u009f]/u.test(label)
+    && Array.from(label).length <= 500
 }
 export function projectReference(value: ReferenceAtom | ReferenceSegment): string {
   const ref = referenceIdentity(value)
   const title = 'titleAtSend' in value ? value.titleAtSend : value.labelFallback ?? ref.id
-  const escaped = title.replace(/[!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~]/gu, '\\$&')
+  const escaped = title.replace(/[\s\u0000-\u001f\u007f-\u009f]/gu, ' ')
+    .replace(/[!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~]/gu, '\\$&')
   return `[${escaped}](rovai://${ref.kind}/${ref.id})`
 }
 export function referenceProject(item: ReferenceCandidate): string {

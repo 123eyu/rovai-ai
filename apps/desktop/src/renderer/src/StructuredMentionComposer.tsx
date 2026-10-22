@@ -681,8 +681,7 @@ function ComposerBridge({
       getOptionState={(match) => match.kind === 'member'
         ? {
             catalogStatus: callbacks.current.referenceScope && (pickerRef.current.query !== match.query || pickerRef.current.loading) ? 'loading' : 'ready',
-            optionCount: getMentionOptions(match.query).length,
-            preventEmptySubmit: !!callbacks.current.referenceScope
+            optionCount: getMentionOptions(match.query).length
           }
         : {
             catalogStatus: callbacks.current.skillCatalogStatus,

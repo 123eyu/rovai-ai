@@ -228,7 +228,7 @@ it('keeps reference identity through editing and clipboard without making it a r
   const document: ComposerDocument = { version: 2, segments: [
     { kind: 'atom', atom: { type: 'thread_reference', threadId, labelFallback: '登录 [旧]' } },
     { kind: 'text', text: '检查' },
-    { kind: 'atom', atom: { type: 'mission_reference', missionId, labelFallback: '使命' } }
+    { kind: 'atom', atom: { type: 'mission_reference', missionId, labelFallback: '登录\n使命' } }
   ] }
   expect(validateComposerDocument(document)).toBe(true)
   const recovered = recoverComposerClipboardDocument(parseComposerClipboardDocument(JSON.stringify(document))!, [], [])
@@ -238,7 +238,7 @@ it('keeps reference identity through editing and clipboard without making it a r
   const segments = composerDocumentToStructuredContent(document)
   expect(composerDocumentFromLegacyContent(segments)).toEqual(document)
   expect(composerDocumentToPlainText(document)).toContain(`[登录 \\[旧\\]](rovai://thread/${threadId})`)
-  expect(composerDocumentToPlainText(document)).toContain(`](rovai://mission/${missionId})`)
+  expect(composerDocumentToPlainText(document)).toContain(`[登录 使命](rovai://mission/${missionId})`)
   expect(composerDocumentStatus(document, members, skills)).toMatchObject({ hasExplicitRecipient: false, memberAgentIds: [] })
   for (const field of ['titleAtSend', 'body', 'sourceText']) {
     const forged = structuredClone(document)

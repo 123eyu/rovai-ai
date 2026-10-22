@@ -1,5 +1,5 @@
 import * as Popover from '@radix-ui/react-popover'
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ReferenceCandidate, ReferenceIdentity } from '@contracts'
 import { useThreadClient } from './camp-client'
 import { MissionIcon } from './MissionIcon'
@@ -19,9 +19,14 @@ export function ThreadReferencePreviewProvider({ threadId, onOpen, children }: {
   const [request, setRequest] = useState<PreviewRequest | null>(null)
   const [result, setResult] = useState<{ item: ReferenceCandidate | null; error: boolean } | null>(null)
   const [opening, setOpening] = useState(false)
+  const returnFocus = useRef<HTMLElement | null>(null)
+  const show = useCallback((next: PreviewRequest) => {
+    returnFocus.current = next.trigger
+    setRequest(next)
+  }, [])
   const virtualRef = useRef<{ getBoundingClientRect(): DOMRect } | null>(null)
   virtualRef.current = request?.trigger ?? null
-  useEffect(() => { setRequest(null) }, [threadId])
+  useEffect(() => { returnFocus.current = null; setRequest(null) }, [threadId])
   useEffect(() => {
     if (!request || !threadId) return
     let cancelled = false
@@ -32,12 +37,18 @@ export function ThreadReferencePreviewProvider({ threadId, onOpen, children }: {
     return () => { cancelled = true }
   }, [client, threadId, request])
   const close = () => { setRequest(null); setOpening(false) }
-  return <PreviewContext.Provider value={setRequest}>
+  return <PreviewContext.Provider value={show}>
     {children}
     <Popover.Root open={!!request} onOpenChange={open => { if (!open) close() }}>
       <Popover.Anchor virtualRef={virtualRef} />
       <Popover.Portal><Popover.Content className="ref-popover" side="top" align="start" sideOffset={8} collisionPadding={12}
-        aria-label={uiAttribute('引用详情')} onCloseAutoFocus={event => { event.preventDefault(); request?.trigger.focus({ preventScroll: true }) }}>
+        aria-label={uiAttribute('引用详情')}
+        onInteractOutside={() => { returnFocus.current = null }}
+        onCloseAutoFocus={event => {
+          event.preventDefault()
+          if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true })
+          returnFocus.current = null
+        }}>
         {request && <>
           <div className="ref-popover-title">{request.reference.kind === 'mission' ? <MissionIcon /> : <NavigationIcon name="messages" />}<strong>{result?.item?.title ?? request.title}</strong></div>
           {result?.item && <p className="ref-meta">{referenceProject(result.item)}</p>}
@@ -48,7 +59,7 @@ export function ThreadReferencePreviewProvider({ threadId, onOpen, children }: {
             {request.replace && <button type="button" className="ref-text-button" onClick={() => { request.replace?.(); close() }}>{uiAttribute('重新选择')}</button>}
             {result?.item && <button type="button" className="ref-text-button" disabled={opening} onClick={() => {
               setOpening(true)
-              void onOpen(request.reference).then(close).catch(() => { setOpening(false); setResult({ item: null, error: true }) })
+              void onOpen(request.reference).then(() => { returnFocus.current = null; close() }).catch(() => { setOpening(false); setResult({ item: null, error: true }) })
             }}>{uiAttribute('打开')}</button>}
           </div>
         </>}

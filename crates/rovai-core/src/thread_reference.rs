@@ -92,10 +92,7 @@ pub fn validate_id(kind: ReferenceKind, id: &str) -> Result<()> {
 
 pub fn validate_label(label: &str) -> Result<()> {
     ensure!(
-        !label.is_empty()
-            && label.trim() == label
-            && label.chars().count() <= 500
-            && !label.chars().any(char::is_control),
+        !label.is_empty() && label.trim() == label && label.chars().count() <= 500,
         "Invalid reference label"
     );
     Ok(())
@@ -104,6 +101,11 @@ pub fn validate_label(label: &str) -> Result<()> {
 pub fn render_link(kind: ReferenceKind, id: &str, title: &str) -> String {
     let mut escaped = String::new();
     for c in title.chars() {
+        let c = if c.is_whitespace() || c.is_control() {
+            ' '
+        } else {
+            c
+        };
         if c.is_ascii_punctuation() {
             escaped.push('\\');
         }
@@ -292,6 +294,14 @@ pub fn capture_titles(
         }
         *title = titles[&key].clone();
     }
+    if !titles.is_empty() {
+        if let Err(error) = crate::camp_content::validate_content(content) {
+            return Ok(Err(CommandHandlerResult::rejected(
+                "camp_message.invalid_content",
+                json!({ "message": error.to_string() }),
+            )));
+        }
+    }
     Ok(Ok(()))
 }
 
@@ -330,7 +340,7 @@ mod tests {
         let mission_id = format!("rvm_{}", uuid::Uuid::now_v7().simple());
         connection
             .execute(
-                "INSERT INTO mission VALUES (?1,?2,'登录使命')",
+                "INSERT INTO mission VALUES (?1,?2,'登录\n使命')",
                 params![mission_id, ids[2]],
             )
             .unwrap();
@@ -418,7 +428,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(content[0], content[1]);
+        crate::camp_content::validate_content(&content).unwrap();
         let rendered = crate::camp_content::render_plain_text(&content, |_| None).unwrap();
+        assert!(rendered.starts_with("[登录 使命](rovai://mission/"));
         assert_eq!(
             rendered
                 .matches(&format!("rovai://mission/{mission_id}"))

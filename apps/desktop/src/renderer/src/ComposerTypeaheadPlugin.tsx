@@ -43,7 +43,6 @@ export interface ComposerTypeaheadPluginProps {
 export interface ComposerTypeaheadOptionState {
   catalogStatus: 'loading' | 'ready' | 'error'
   optionCount: number
-  preventEmptySubmit?: boolean
 }
 
 export type ComposerTypeaheadEnterAction = 'pass' | 'consume' | 'select'
@@ -51,7 +50,7 @@ export type ComposerTypeaheadEnterAction = 'pass' | 'consume' | 'select'
 export function composerTypeaheadEnterAction(
   state: ComposerTypeaheadOptionState
 ): ComposerTypeaheadEnterAction {
-  if (state.catalogStatus === 'loading' || state.preventEmptySubmit && !state.optionCount) return 'consume'
+  if (state.catalogStatus === 'loading') return 'consume'
   if (state.catalogStatus === 'ready' && state.optionCount > 0) return 'select'
   return 'pass'
 }
@@ -86,17 +85,23 @@ export function ComposerTypeaheadPlugin({
     }
   } }), [editor])
   const selectedIndexRef = useRef(selectedIndex)
+  const dismissedMatch = useRef<ComposerTriggerMatch | null>(null)
   const memberOnlyRef = useRef(memberOnly)
   memberOnlyRef.current = memberOnly
   const findMatch = useCallback(() => {
     const found = $findComposerTriggerMatch(editor)
+    if (found && composerTriggerMatchesEqual(dismissedMatch.current, found)) return null
+    dismissedMatch.current = null
     return memberOnlyRef.current && found?.kind !== 'member' ? null : found
   }, [editor])
   const current = useRef({ match, optionCount, getOptionState, onMatchChange, onSelect })
   current.current = { match, optionCount, getOptionState, onMatchChange, onSelect }
   selectedIndexRef.current = selectedIndex
 
-  const close = useCallback(() => current.current.onMatchChange(null), [])
+  const close = useCallback(() => {
+    dismissedMatch.current = current.current.match
+    current.current.onMatchChange(null)
+  }, [])
   const selectIndex = useCallback((index: number) => {
     const state = current.current
     if (editor.isComposing()) return

@@ -44,6 +44,8 @@ mod single_chat_facts;
 mod steer;
 #[path = "db_task_capability.rs"]
 mod task_capability;
+#[path = "db_web_pasted_text.rs"]
+mod web_pasted_text;
 #[cfg(test)]
 pub(crate) fn assert_task_capability_upgrade(database: &mut Database) {
     task_capability::assert_upgrade(database);
@@ -491,7 +493,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 161;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 162;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -977,6 +979,7 @@ struct CurrentMigrationState {
     v209: bool,
     v210: bool,
     v211: bool,
+    v212: bool,
 }
 
 impl CurrentMigrationState {
@@ -998,6 +1001,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v212 {
+            let mut previous = *self;
+            previous.v212 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 162
+                && self.v211
+                && previous.admits("v1.72", 161, classifier);
+        }
         if self.v211 {
             let mut previous = *self;
             previous.v211 = false;
@@ -3248,6 +3259,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
                         | 159
                         | 160
                         | 161
+                        | 162
                 )
         })
     {
@@ -3673,6 +3685,7 @@ pub(crate) fn classify_database_contract(
                 | 159
                 | 160
                 | 161
+                | 162
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3682,6 +3695,8 @@ pub(crate) fn classify_database_contract(
             |row| row.get(0),
         )?;
         let valid = completed
+            && (marker.projection_schema_version < 162
+                || web_pasted_text::schema_matches(connection)?)
             && (marker.projection_schema_version < 161
                 || shared_environment::schema_matches(connection)?)
             && (marker.projection_schema_version < 155 || minimax::schema_matches(connection)?)
@@ -5975,7 +5990,8 @@ fn load_current_migration_state(
             EXISTS(SELECT 1 FROM schema_migration WHERE version=208),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=209),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=210),
-            EXISTS(SELECT 1 FROM schema_migration WHERE version=211)
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=211),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=212)
         "#,
         [],
         |row| {
@@ -6122,6 +6138,7 @@ fn load_current_migration_state(
                 v209: row.get(139)?,
                 v210: row.get(140)?,
                 v211: row.get(141)?,
+                v212: row.get(142)?,
             })
         },
     )
@@ -9414,6 +9431,9 @@ impl Database {
             if !self.schema_migration_applied(211)? {
                 migration_step!("migration_211", shared_environment::migrate(self));
             }
+            if !self.schema_migration_applied(212)? {
+                migration_step!("migration_212", web_pasted_text::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -10271,6 +10291,9 @@ impl Database {
         }
         if !self.schema_migration_applied(211)? {
             migration_step!("migration_211", shared_environment::migrate(self));
+        }
+        if !self.schema_migration_applied(212)? {
+            migration_step!("migration_212", web_pasted_text::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -42068,6 +42091,7 @@ mod tests {
             v209: version >= 209,
             v210: version >= 210,
             v211: version >= 211,
+            v212: version >= 212,
         }
     }
 
@@ -42856,7 +42880,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(211);
+        let current = migration_state_through(212);
         assert!(current.admits(
             CURRENT_DATA_CONTRACT_VERSION,
             CURRENT_PROJECTION_SCHEMA_VERSION,
@@ -43526,7 +43550,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(211));
+        assert_eq!(state, migration_state_through(212));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43548,6 +43572,7 @@ mod tests {
             "task_boundary",
             "common_environment",
             "member_inheritance",
+            "web_pasted_text",
         ] {
             connection
                 .execute_batch("SAVEPOINT current_admission")
@@ -43585,7 +43610,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=211", [])
+                        .execute("DELETE FROM schema_migration WHERE version=212", [])
                         .unwrap();
                 }
                 "steer_identity" => {
@@ -43620,6 +43645,11 @@ mod tests {
                         .execute_batch("DROP TABLE member_environment_inheritance")
                         .unwrap();
                 }
+                "web_pasted_text" => {
+                    connection
+                        .execute_batch("DROP TABLE web_pasted_text_attachment")
+                        .unwrap();
+                }
                 _ => unreachable!(),
             }
             assert_eq!(
@@ -43634,6 +43664,7 @@ mod tests {
                         | "task_boundary"
                         | "common_environment"
                         | "member_inheritance"
+                        | "web_pasted_text"
                 ),
                 "{change}"
             );
@@ -43662,7 +43693,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<211;
+                "DELETE FROM schema_migration WHERE version<212;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();

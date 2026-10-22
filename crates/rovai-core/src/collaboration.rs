@@ -615,6 +615,7 @@ impl CollaborationService {
         database: &mut Database,
         envelope: &CommandEnvelope<SendUserThreadMessageCommand>,
     ) -> Result<CommandExecution> {
+        crate::web_upload::protect_for_send(database, &envelope.payload.source_attachments)?;
         let command = SendUserThreadDraftCommand {
             draft_client: DraftClient::default(),
             camp_id: envelope.payload.camp_id.clone(),

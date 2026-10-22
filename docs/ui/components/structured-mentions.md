@@ -159,7 +159,7 @@ Member、All Members 或 Skill Atom 的内容优先按结构化粘贴。仅含�
 移除未进入发送流程的生成附件，先成功保存移除后的本机草稿，再等待异步删除并清登记。曾进入发送流程的
 文件只移除引用，保留到会话删除。清理失败用轻提示说明，允许继续编辑；外部文件和发送成功后的源文件不删除。
 发送成功后先保存新草稿，再释放旧登记，保存失败保留恢复能力。普通弹窗零消息 Active 不按 Pending 清理；
-一键 Pending 的附件仍在时不是空草稿。存储、保护和失败边界见 [Composer Draft v18](../../contracts/camp-composer-draft-v18.md)。
+一键 Pending 的附件仍在时不是空草稿。存储、保护和失败边界见 [Composer Draft v19](../../contracts/camp-composer-draft-v19.md)。
 
 不得从纯文本 `@Alice`、`/review-code` 或外部 HTML 的 `data-reference-id`、`data-atom-type`、`data-skill-id`
 猜测 identity。整条历史用户消息的专用复制入口继续保留文件链接原始 target，不因显示 label 丢失路径。

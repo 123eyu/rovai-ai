@@ -10,7 +10,7 @@ last_updated: 2026-10-18
 [Runtime 兼容性](../runtime-compatibility.md)，不能由目标结构推断完成。
 现有准入、事务、Runtime 与关闭合同继续有效；新增 wire 合同随对应实现明确发布。
 原生 Server 数据根、初始 CLI 兼容、初始化准入和停止适配由[Host Lifecycle v2](../contracts/host-lifecycle-v2.md)拥有；
-当前受控网络入口由[Host Web v8](../contracts/host-web-v8.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
+当前受控网络入口由[Host Web v9](../contracts/host-web-v9.md)拥有；未变更的详细边界继续由其继承的 v2 章节定义。
 
 当前已实现父进程匿名管道与进程内请求共用一个 Host/Core、共享生产 Camp 页面、客户端草稿、source 上传及
 逐项准入的 Camp 写入。以下 UDS/Named Pipe 身份握手与完整公共 DTO 生成仍是后续目标，
@@ -100,14 +100,18 @@ Web 断线在公共传输层阻止新业务请求，页面级遮罩保留挂载�
 自动重连只查询回执，见 [Host Web v4](../contracts/host-web-v4.md#web-断线恢复)。
 普通刷新沿用原编辑身份，浏览器标签页占用记录仅存随机文档标识；复制标签页由已认证 Host 分配独立编辑身份和 Session，不复制草稿或原命令。浏览器重开只有认证材料时同样新建编辑身份，不借用其他标签页草稿；细节见[Draft v13](../contracts/camp-composer-draft-v13.md)。
 
-Web 上传写 Host 临时文件后绑定已验证编辑身份，复用现行 source reference。
+Web 普通文件上传写 Host 临时文件后绑定已验证编辑身份，复用现行 source reference。
 Public Composer 以成功上传回执授权恢复、预览与位置查询，adapter 补齐共享附件视图；
 恢复重验当前文件，不能用浏览器保存的路径或退役 Core Draft 作为归属，见
 [Host Web v4](../contracts/host-web-v4.md#public-composer-上传恢复)。
 失败或可确认未绑定文件由入口清理；绑定结果未知按原命令查询回执，不能证明未绑定就不删除。
-Core 接受后由 OS 决定临时文件寿命；发送失败、退出或删除一个引用不删除源文件。
+普通上传由 Core 接受后，OS 决定临时文件寿命；发送失败、退出或删除一个引用不删除源文件。
 消息发布及私聊 Draft/Pending 交接由 Core 原事务管理，重启或 OS 清理后按实际可用性处理；不承诺永久历史下载。
 Agent Managed 与 legacy 机制不变，不建对象存储、附件目录库或用户 Managed 资产。
+
+Web 公屏长粘贴单独使用既有 UploadTarget 分支，直接写入 Thread 输出目录的 UUID `.txt`。
+Core 原 SQLite 持久保存生成归属与单向发送保护，原数据库锁协调保护与异步 unlink；浏览器先保存草稿再请求清理。
+不改变普通上传与私聊规则，不引入后台任务或额外存储服务，见 [Host Web v9](../contracts/host-web-v9.md)。
 
 资源读取按精确身份、owner locator 与作用域授权；路径规范化、符号链接和读取时变化不能逃逸授权。
 远程 Owner 直接选择 Host 有权访问的工作目录，不需要本机预授权名单；Core 继续拥有原有项目和文件校验。
@@ -124,7 +128,7 @@ Session 撤销阻止新准入，来源失效阻止新申请；已签发能力在
 预览失败不阻止来源下载，文件内容沿用 source reference 与 legacy 的既有生命周期。草稿缩略图仅在 Host 确认绑定、可用性及摘要一致后
 复用当前客户端的有界 File 缓存；刷新、内容变化或缓存淘汰恢复 Host 读取。空句柄不启动文件更新轮询。
 静态服务只挂应用构建产物。长期缓存只准入构建清单中带内容哈希且字节校验相符的文件，入口及私有响应仍不缓存。
-具体字段和边界由 [Host Web v8](../contracts/host-web-v8.md) 及其继承的预览规则拥有。
+具体字段和边界由 [Host Web v9](../contracts/host-web-v9.md) 及其继承的预览规则拥有。
 HTML/HTM 附件复用共享交互查看器，由认证 POST 读取后交给同来源静态预览壳。Desktop 托管 Web 和独立
 Server Web 共用该 Rust 路径；响应 CSP 与 iframe 均采用
 `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"`，仅预览响应允许 HTTP(S)

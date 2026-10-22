@@ -118,6 +118,10 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
+Web 长粘贴扩展既有 Host HTTP 与浏览器适配/恢复 owners；schema 161→162 的 DDL 失败回滚
+无法由 HTTP 测试证明，新增一个复用 schema-only fixture 的迁移 owner。准入与最小命令见
+[Web 长粘贴实施记录](../versions/v1.72/web-pasted-text-implementation.md#验证归属)。
+
 通用环境配置扩展既有环境合并、启动设置事务、检测环境和 Renderer owner；仅 schema 160→161 的
 新增表事务增加独立 owner，覆盖无 key 升级、失败回滚和旧凭据保留。准入理由、fixture 边界及最小命令见
 [通用配置实施记录](../versions/v1.72/shared-environment-implementation.md#验证归属)。

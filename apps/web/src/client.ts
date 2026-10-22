@@ -275,7 +275,7 @@ const RECONCILABLE_COMMANDS = new Set<WebOperation>([
 export type ConnectionState = 'connecting' | 'live' | 'offline' | 'expired'
 type PendingCommand = { operation: WebOperation; params: unknown; resolve(value: unknown): void; reject(error: unknown): void }
 export type UploadProgress = { id: string; name: string; phase: 'hashing' | 'transferring' | 'binding' | 'unknown' | 'received'; percent: number; cancelled: boolean }
-type UploadTarget = { kind: 'single_chat'; conversationId: string }
+type UploadTarget = { kind: 'pasted_text' } | { kind: 'single_chat'; conversationId: string }
   | { kind: 'single_chat_pending'; conversationId: string; pendingInputId: string; editToken: string }
 type UploadIntent = { commandId: string; threadId: string; expectedRevision: number; target?: UploadTarget; displayName: string; byteSize: number; sha256: string }
 type PendingUpload = { cancelled?: boolean; signal?: AbortSignal; intent: UploadIntent; data: FormData | null; resolve(draft: unknown): void; reject(error: unknown): void }
@@ -726,24 +726,28 @@ export class ConsoleClient {
     } catch { this.#requireRecovery() /* Still unknown if reconciliation itself could not complete. */ }
   }
 
-  async uploadFile(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView> {
+  async uploadFile(threadId: string, expectedRevision: number, file: File, target?: UploadTarget): Promise<LocalAttachmentSourceView> {
     const source = await this.uploadTo<{
       id: string; sourcePath: string; displayName: string; kind: 'file' | 'directory'
       mediaType: string | null; observedByteSize: number | null
-    }>(threadId, expectedRevision, file)
+      generatedBy?: 'long_text_paste'; pastedTextPreview?: string
+    }>(threadId, expectedRevision, file, target)
     return {
       id: source.id, sourcePath: source.sourcePath, displayName: source.displayName, kind: source.kind,
       mediaType: source.mediaType, byteSize: source.observedByteSize,
       fileCount: source.kind === 'file' ? 1 : null,
       previewKind: source.mediaType?.startsWith('image/') ? 'image' : 'none',
-      availability: 'available'
+      availability: 'available',
+      ...(source.generatedBy ? { generatedBy: source.generatedBy } : {}),
+      ...(source.pastedTextPreview !== undefined ? { pastedTextPreview: source.pastedTextPreview } : {})
     }
   }
 
   async uploadTo<T>(threadId: string, expectedRevision: number, file: File, target?: UploadTarget): Promise<T> {
     if (!this.authenticated) throw new SessionRequired()
     this.#assertConnected()
-    if (file.size > this.#uploadMaxBytes) throw new Error(`单个上传文件不能超过 ${this.#uploadMaxBytes / (1024 * 1024)} MiB（${this.#uploadMaxBytes.toLocaleString('en-US')} 字节）。`)
+    const maxBytes = target?.kind === 'pasted_text' ? Math.min(this.#uploadMaxBytes, 25 * 1024 * 1024) : this.#uploadMaxBytes
+    if (file.size > maxBytes) throw new Error(`单个上传文件不能超过 ${maxBytes / (1024 * 1024)} MiB（${maxBytes.toLocaleString('en-US')} 字节）。`)
     const scope = this.editingScope
     let commandId = newCommandId()
     const controller = new AbortController()
@@ -756,7 +760,9 @@ export class ConsoleClient {
     const matchesFile = (intent: unknown): boolean => {
       const previous = intent as UploadIntent
       return previous.threadId === threadId && previous.sha256 === digest && previous.displayName === file.name && previous.byteSize === file.size
-        && previous.target?.kind === target?.kind && previous.target?.conversationId === target?.conversationId
+        && previous.target?.kind === target?.kind
+        && (previous.target?.kind !== 'single_chat' && previous.target?.kind !== 'single_chat_pending'
+          || (target?.kind === 'single_chat' || target?.kind === 'single_chat_pending') && previous.target.conversationId === target.conversationId)
         && (previous.target?.kind !== 'single_chat_pending' || target?.kind === 'single_chat_pending'
           && previous.target.pendingInputId === target.pendingInputId && previous.target.editToken === target.editToken)
     }

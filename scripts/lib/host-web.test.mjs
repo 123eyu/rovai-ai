@@ -8,6 +8,7 @@ import { launchHost, within } from './host-test-client.mjs'
 import { createServer } from 'node:net'
 import { request as httpRequest } from 'node:http'
 import test from 'node:test'
+import { exercisePastedText, verifyPastedTextRestart } from './host-web-pasted-text.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { setTimeout as pause } from 'node:timers/promises'
 import { coreDataDirectoryArguments, removeEphemeralRuntimeCampFilesRoot } from './runtime-camp-files-root.mjs'
@@ -386,6 +387,8 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       assert.equal(missingUpload.availability, 'missing')
       assert.equal('sourcePath' in missingUpload, false)
     } finally { await rename(`${bound.sourcePath}-temporarily-missing`, bound.sourcePath) }
+
+    const pasteState = await exercisePastedText({ host, origin, session: first, otherSession: second, threadId, otherThreadId: directoryCamp.payload.threadId, dataDir, spools })
 
     // Actual HTTP ingress and the shared private page API use the verified
     // editor, never the client-provided conversation or command identity alone.
@@ -961,6 +964,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       assert.equal(recoveredIdentity.clientId, beforeExit.clientId)
       assert.equal(recoveredIdentity.expiresAt, beforeExit.expiresAt)
       for (const session of [first, second, beforeStop]) assert.equal((await fetch(`${reopenedWeb.origin}/api/v1/session/renew`, { method: 'POST', headers: { Authorization: `Bearer ${session.token}` } })).status, 401, 'prior explicit revocations survive Host restart')
+      await verifyPastedTextRestart({ origin: reopenedWeb.origin, administratorToken: reopenedWeb.administratorToken, state: pasteState })
       assert.deepEqual(await reopened.request(defaultsMethod + 'get'), sharedDefaults)
       assert.deepEqual(await reopened.request(defaultsMethod + 'initialize', legacyDefaults), sharedDefaults)
       const path = join(dataDir, 'new-conversation-preferences.json')

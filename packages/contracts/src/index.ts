@@ -2624,6 +2624,7 @@ export interface ThreadMessageChange {
 export interface ThreadReadInvalidation {
   notificationsChanged?: boolean
   tasksChanged?: boolean
+  teamsChanged?: boolean
   resync?: boolean
   messages?: ThreadMessageChange[]
 }

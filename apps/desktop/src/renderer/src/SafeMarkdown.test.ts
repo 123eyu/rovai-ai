@@ -3,6 +3,43 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { SafeMarkdown } from './SafeMarkdown'
 
+describe('SafeMarkdown literal HTML policy', () => {
+  it('preserves placeholders, comments and HTML as inert text', () => {
+    const markup = renderToStaticMarkup(createElement(SafeMarkdown, {
+      children: 'attachments/<threadId>/<UUID>.txt\n\n<UUID>\n\n<!-- lang:en -->\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n`<UUID>`'
+    }))
+    expect(markup).toContain('attachments/&lt;threadId&gt;/&lt;UUID&gt;.txt')
+    expect(markup).toContain('&lt;!-- lang:en --&gt;')
+    expect(markup).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(markup).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    expect(markup).toContain('<code>&lt;UUID&gt;</code>')
+    expect(markup).not.toMatch(/<(?:script|img|UUID)\b/u)
+  })
+
+  it('normalizes raw blocks before replacing trusted inline content', () => {
+    const token = 'TRUSTEDTOKEN'
+    const markup = renderToStaticMarkup(createElement(SafeMarkdown, {
+      children: `<div>\n${token}\n</div>`,
+      inlineContent: { [token]: createElement('button', { className: 'trusted-mention' }, '@用户') }
+    }))
+    expect(markup).toContain('&lt;div&gt;\n<button class="trusted-mention">@用户</button>\n&lt;/div&gt;')
+    expect(markup).not.toContain(token)
+  })
+
+  it('drops raw metadata only when explicitly requested, regardless of layout mode', () => {
+    for (const mode of ['message', 'document'] as const) {
+      const markup = renderToStaticMarkup(createElement(SafeMarkdown, {
+        children: '<!-- lang:en -->\n\n<div>hidden</div>\n\n`<UUID>`\n\nVisible',
+        rawHtmlPolicy: 'drop', mode
+      }))
+      expect(markup).not.toContain('lang:en')
+      expect(markup).not.toContain('hidden')
+      expect(markup).toContain('<code>&lt;UUID&gt;</code>')
+      expect(markup).toContain('Visible')
+    }
+  })
+})
+
 describe('SafeMarkdown file preview references', () => {
   it('keeps document headings at their native levels without changing the default message hierarchy', () => {
     const source = [
@@ -221,7 +258,7 @@ describe('SafeMarkdown trusted leading content', () => {
     expect(markup).toContain('<p><span class="trusted-prefix">@评审</span> 查看 <a class="markdown-web-reference" href="https://example.com/review"')
     expect(markup).toContain('<span class="resource-reference-label">说明</span>')
     expect(markup.match(/trusted-prefix/g)).toHaveLength(1)
-    expect(markup).not.toContain('forged')
-    expect(markup).not.toContain('data-rovai-leading-content')
+    expect(markup).toContain('&lt;p data-rovai-leading-content=&quot;true&quot;&gt;forged&lt;/p&gt;')
+    expect(markup).not.toContain('<p data-rovai-leading-content')
   })
 })

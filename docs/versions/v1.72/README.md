@@ -11,6 +11,15 @@ last_updated: 2026-10-22
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 消息字面 HTML 与引用投影（2026-10-22）
+
+聊天正文保留尖括号占位符和原始 HTML 文字，并在可信 Mention 替换前完成文本化。
+更新日志、Markdown 文件与 Skill 阅读面显式保留隐藏策略；执行过程可见性判断和引用投影 v3 同步。
+当前规则见[会话 UI](../../ui/components/conversation-workspace.md#原始-html-与字面文本)与
+[引用合同](../../contracts/message-quotes-v1.md)，验证见[实施记录](implementation-plan.md#消息字面-html-与引用投影2026-10-22)。
+同步引用 Architecture、Contract、更新日志 Contract 与 UI；无 schema/发布版本、模型上下文格式、
+历史快照、Runtime Activity 或平台资格变化。沿已有投影版本处理兼容，无需新 Version Decision。
+
 ## TRAE ACP 错误详情（2026-10-22）
 
 TRAE CLI 0.209.1 使用字符串 `error.data`，原共享 Host 仅提取对象中的 `error.data.error`，

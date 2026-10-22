@@ -252,6 +252,14 @@ describe('AboutUpdatesSettingsView', () => {
     expect(unsafe).not.toContain('href="javascript:')
     expect(unsafe).toContain('class="markdown-inert-link"')
     expect(unsafe).toContain('href="https://example.com/notes"')
+    expect(unsafe).not.toContain('alert(1)&lt;/script&gt;')
+
+    const fallback = render(snapshot({ status: 'available', availableRelease: {
+      ...release, releaseNotes: '<!-- lang:en -->\n\nFirst\n\n<!-- lang:en -->\n\nSecond'
+    } }))
+    expect(fallback).toContain('First')
+    expect(fallback).toContain('Second')
+    expect(fallback).not.toContain('lang:en')
   })
 
   it('removes only a matching leading release title from the displayed copy', () => {

@@ -41,22 +41,25 @@
 .team-crud-menu .member-editor-menu-item { min-width:0; padding:6px 12px; white-space:nowrap; }
 .team-crud-menu .member-editor-menu-separator { margin:3px 6px; }
 .team-editor-content { display:grid; gap:24px; }
-.team-editor-content>.member-editor-field:first-child { max-width:540px; }
 .team-section-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:32px; }
 .team-section-heading h2 { display:flex; align-items:center; gap:8px; margin:0; color:var(--ink); font-size:13px; font-weight:500; }
 .team-member-count,.team-guidance-optional,.team-guidance-count { color:var(--muted); font-size:11px; font-weight:400; }
 .team-guidance-count { text-align:right; }
-.team-guidance-block { padding-bottom:22px; border-bottom:1px solid var(--line); }
-.team-guidance-block .team-section-heading h2 { color:var(--dialog-field-label); font-size:12px; font-weight:400; }
+.team-guidance-block { padding:14px 18px 18px; border-radius:10px; background:var(--workspace-surface-subtle); }
+.team-guidance-block .team-section-heading { min-height:30px; gap:12px; }
+.team-guidance-block .team-section-heading h2 { color:var(--ink); font-size:12px; font-weight:500; }
 .team-guidance-toggle,.team-roster-add { display:inline-flex; align-items:center; justify-content:center; gap:4px; min-height:30px; padding:4px 7px; border:0; border-radius:5px; color:var(--muted); background:transparent; font:inherit; font-size:12px; white-space:nowrap; cursor:pointer; }
 .team-guidance-toggle:hover,.team-roster-add:hover,.team-roster-add[data-state=open] { color:var(--ink); background:var(--neutral-hover); }
 .team-roster-add svg { width:14px; height:14px; }
 .team-roster-add svg:last-child { margin-left:4px; width:12px; height:12px; }
-.team-guidance-preview { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.75; white-space:pre-line; overflow-wrap:anywhere; }
-.team-guidance-editor { margin-top:10px; }
-.team-guidance-editor textarea { min-height:132px; line-height:1.8; resize:vertical; }
-.team-member-rows { list-style:none; margin:10px 0 0; padding:0; border-top:1px solid var(--line); }
-.team-member-row { display:flex; align-items:center; gap:12px; min-height:68px; padding:12px 0; border-bottom:1px solid var(--line); }
+.team-guidance-preview { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:6px 0 0; color:var(--ink); font-size:12.5px; line-height:1.75; white-space:pre-line; overflow-wrap:anywhere; }
+.team-guidance-editor { margin-top:8px; }
+.team-guidance-editor textarea { min-height:132px; background:var(--input); font-size:13px; line-height:1.8; resize:vertical; }
+.team-member-rows { overflow:hidden; list-style:none; margin:10px 0 0; padding:0; border:1px solid var(--line); border-radius:10px; }
+.team-member-row { display:flex; align-items:center; gap:12px; min-height:68px; padding:12px 14px; border-bottom:1px solid var(--line); transition:background-color 120ms ease; }
+.team-member-row:last-child { border-bottom:0; }
+.team-member-row:hover,.team-member-row:focus-within { background:var(--workspace-surface-subtle); }
+.team-member-count { font-variant-numeric:tabular-nums; }
 .team-member-row>.member-avatar { flex-shrink:0; }
 .team-member-identity { min-width:0; flex:1; }
 .team-member-name { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; }
@@ -64,7 +67,7 @@
 .team-member-role { display:block; margin-top:4px; color:var(--muted); font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
 .team-lead-badge { display:inline-flex; align-items:center; min-height:20px; padding:1px 6px; border-radius:4px; color:var(--muted); background:var(--neutral-selected); font-size:10px; line-height:1.4; white-space:nowrap; }
 .team-member-attention { color:var(--attention); font-size:10px; }
-.team-roster-empty { display:flex; align-items:center; justify-content:center; min-height:120px; margin-top:10px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; }
+.team-roster-empty { display:flex; align-items:center; justify-content:center; min-height:120px; margin-top:10px; border:1px solid var(--line); border-radius:10px; color:var(--muted); font-size:12px; }
 .team-roster-attention { margin:12px 0; color:var(--attention); font-size:12px; }
 .team-save-bar { flex-shrink:0; padding:14px 36px 18px; border-top:1px solid var(--line); background:var(--home-surface); }
 .team-save-bar-inner { max-width:740px; margin:0 auto; }
@@ -100,7 +103,7 @@
 .team-general-choice>strong { flex-shrink:0; font-size:13px; font-weight:500; }
 .team-general-choice>.team-picker-trigger { width:auto; min-width:180px; max-width:70%; }
 .team-general-custom { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; }
-@media (prefers-reduced-motion:reduce) { .team-row-actions { transition:none; } }
+@media (prefers-reduced-motion:reduce) { .team-member-row,.team-row-actions { transition:none; } }
 @media (hover:none) { .team-row-actions { opacity:1; pointer-events:auto; } .team-row-action,.team-roster-add,.team-guidance-toggle { min-height:44px; } }
 @media (max-width:767px) {
   .team-workspace:not([data-detail=true])>.team-detail { display:none; }
@@ -109,8 +112,10 @@
   .team-detail-header { align-items:flex-start; flex-wrap:wrap; gap:12px; padding-bottom:20px; margin-bottom:20px; }
   .team-heading-identity h1 { font-size:18px; }
   .team-save-bar { padding:12px 20px max(16px,env(safe-area-inset-bottom)); }
-  .team-member-row { flex-wrap:wrap; gap:10px; }
-  .team-row-actions { margin-left:auto; opacity:1; pointer-events:auto; }
+  .team-guidance-block { padding:12px 14px 16px; }
+  .team-guidance-block .team-section-heading h2,.team-guidance-preview { font-size:13px; }
+  .team-member-row { flex-wrap:wrap; gap:10px; padding:12px; }
+  .team-row-actions { flex-basis:100%; justify-content:flex-end; margin-top:-6px; opacity:1; pointer-events:auto; }
   .team-row-action { min-height:44px; }
   .team-guidance-editor textarea { min-height:148px; }
   .team-first-workspace { padding:24px 20px; }

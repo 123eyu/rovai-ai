@@ -11,7 +11,9 @@ function localPreferences(initial: GeneralPreferencesSnapshot) {
   }
   return {
     get: async () => structuredClone(snapshot),
-    setInterfaceLanguage: (interfaceLanguage: GeneralPreferencesSnapshot['interfaceLanguage']) => commit({ interfaceLanguage }),
+    getInterfaceLanguage: async () => structuredClone(snapshot),
+    onInterfaceLanguageChanged: () => () => undefined,
+    setInterfaceLanguagePreference: (interfaceLanguagePreference: GeneralPreferencesSnapshot['interfaceLanguagePreference']) => commit({ interfaceLanguagePreference, interfaceLanguage: interfaceLanguagePreference === 'system' ? snapshot.systemLanguage : interfaceLanguagePreference }),
     setStartupLocationMode: (startupLocationMode: GeneralPreferencesSnapshot['startupLocationMode']) => commit({ startupLocationMode }),
     setLastSettingsSection: (lastSettingsSection: GeneralPreferencesSnapshot['lastSettingsSection']) => commit({ lastSettingsSection }),
     setExecutionConsolePlacement: (executionConsolePlacement: GeneralPreferencesSnapshot['executionConsolePlacement']) => commit({ executionConsolePlacement }),
@@ -23,6 +25,13 @@ function localPreferences(initial: GeneralPreferencesSnapshot) {
 }
 
 describe('Host-backed general preferences', () => {
+  it('reads and saves language locally even before the first successful Host read', async () => {
+    const local = localPreferences(DEFAULT_GENERAL_PREFERENCES)
+    const preferences = withHostConversationPreferences(local, async () => { throw new Error('offline') })
+    expect(await preferences.getInterfaceLanguage()).toMatchObject({ interfaceLanguagePreference: 'system' })
+    expect(await preferences.setInterfaceLanguagePreference('zh-CN')).toMatchObject({ interfaceLanguagePreference: 'zh-CN', interfaceLanguage: 'zh-CN' })
+    await expect(preferences.get()).rejects.toThrow('offline')
+  })
   it('does not block local presentation changes on a second Host read', async () => {
     const local = localPreferences(DEFAULT_GENERAL_PREFERENCES)
     const shared = creationPreferences(DEFAULT_GENERAL_PREFERENCES)

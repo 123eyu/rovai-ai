@@ -618,6 +618,7 @@ impl CollaborationService {
         database: &mut Database,
         envelope: &CommandEnvelope<SendUserThreadMessageCommand>,
     ) -> Result<CommandExecution> {
+        crate::web_upload::protect_for_send(database, &envelope.payload.source_attachments)?;
         let command = SendUserThreadDraftCommand {
             draft_client: DraftClient::default(),
             camp_id: envelope.payload.camp_id.clone(),
@@ -5426,6 +5427,21 @@ pub(crate) fn delete_camp_aggregate(transaction: &Connection, camp_id: &str) -> 
         "DELETE FROM camp_composer_draft WHERE camp_id = ?1",
         [camp_id],
     )?;
+    // An Automation occurrence references its trigger message and Delivery with
+    // NO ACTION foreign keys, and terminal occurrences are immutable, so the
+    // link cannot be nulled. The occurrence belongs to this Camp: remove it
+    // (its notification deliveries cascade) before the Camp's messages and
+    // Deliveries. The Automation definition and other occurrences are kept.
+    // Historical migration fixtures also use aggregate deletion before the
+    // Automation schema exists (for example, the v135-v139 Pi receipt owner).
+    let automation_runs_exist: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'automation_run')",
+        [],
+        |row| row.get(0),
+    )?;
+    if automation_runs_exist {
+        transaction.execute("DELETE FROM automation_run WHERE camp_id = ?1", [camp_id])?;
+    }
     transaction.execute(
         "DELETE FROM message_attachment WHERE camp_id = ?1",
         [camp_id],

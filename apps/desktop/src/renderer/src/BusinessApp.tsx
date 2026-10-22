@@ -1,5 +1,7 @@
 import { useTeams } from './useTeams'
 import { TeamWorkspace, type TeamLeaveGuard } from './TeamWorkspace'
+import { MemoryChangeNotice } from './MemoryChangeNotice'
+import { collectMemoryChanges, memoryChangeText, resolveMemoryChangeScope, type MemoryChange } from './memory-change-notice'
 import { useTaskCapability } from './TaskCapabilityProvider'
 import { ShortcutSettings } from './ShortcutSettings'
 import { useShortcutAction } from './ShortcutProvider'
@@ -9,7 +11,7 @@ import { EMPTY_SNAPSHOT, isProjectPath } from '../../shared/navigation-preferenc
 import { useThreadUserAnchorCache } from './useThreadUserAnchors'
 import { hasPendingThreadDraftInput } from './pending-thread-draft'
 import { memberCreationHelper, memberCreationInitialDraft, navigationWithMemberCreationDrafts, type MemberCreationDraft } from './member-creation-flow'
-import { navigationThreadReadState } from './navigation-unread'
+import { navigationThreadReadState, saveNavigationThreadReadState } from './navigation-unread'
 import { newCommandId } from '../../shared/command-id'
 import type { BusinessEnvironment } from './business-environment'
 import { AppHeader } from './AppHeader'
@@ -19,7 +21,7 @@ export { AppHeader } from './AppHeader'
 import { CurrentUserProfileProvider } from './CurrentUserProfile'
 import { readErrorMessage } from './error-message'
 import { CoreSubsystemNotice } from './CoreSubsystemNotice'
-import { Activity, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Activity, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { THREAD_SNAPSHOT_SCHEMA_VERSION } from '@contracts'
 import type {
@@ -48,7 +50,7 @@ import type {
   EventBatch,
   ExecutionConsolePlacement,
   GeneralPreferencesSnapshot,
-  HealthStatus,
+  RuntimeStatus,
   NotificationActionView,
   NotificationEpisodeView,
   OnboardingRuntimeSelection,
@@ -68,6 +70,7 @@ import type {
   RestorableLocation,
   RovaiApi,
   HearthReviewItem,
+  MemoryRecord,
   SendThreadMessageResult,
   StoredCommandResult,
   SupervisorSnapshot,
@@ -81,6 +84,7 @@ import {
   type MembersViewHandle
 } from './MemberManagement'
 import type { MemberWorkspaceTab } from './MemberSidebar'
+import type { RuntimeStartupLeaveGuard } from './RuntimeStartupSettings'
 import {
   ThreadWorkspace,
   QuickChatWorkspace,
@@ -106,7 +110,7 @@ import { MissionBoard, MissionInteractionProvider, MissionIntro } from './Missio
 import { MissionActivityDocument } from './MissionDelivery'
 import { MissionCommandRejected, missionCommand, missionError, unreadMissionCount, useMissions } from './useMissions'
 import './mission.css'
-import { openRuntimeModelCatalog } from './runtime-check'
+import { createRuntimeRefresh, openRuntimeModelCatalog } from './runtime-check'
 import { MissionSurface } from './MissionSurface'
 import { MissionHeader } from './MissionHeader'
 import { FilePreviewProvider } from './FilePreviewContext'
@@ -119,6 +123,7 @@ import { AboutUpdatesSettings } from './AboutUpdatesSettings'
 import { RemoteAboutSettings } from './RemoteAboutSettings'
 import { AppUpdatePrompt } from './AppUpdatePrompt'
 import { useAppUpdates, type AppUpdatesController } from './useAppUpdates'
+import { ThreadInterruptionAttentionContext, useThreadInterruptionAttention } from './thread-interruption-attention'
 import {
   NotificationAttentionController,
   type NotificationNavigationResult
@@ -1038,7 +1043,7 @@ export function BusinessApp({
     () => initialAppearanceSnapshot(document.documentElement)
   )
   const appUpdates = useAppUpdates(desktop?.appUpdates ?? null)
-  const [health, setHealth] = useState<HealthStatus | null>(null)
+  const [health, setHealth] = useState<RuntimeStatus | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
   const [healthAttempted, setHealthAttempted] = useState(false)
   const [agents, setAgents] = useState<AgentProfile[]>([])
@@ -1069,11 +1074,7 @@ export function BusinessApp({
   const [pinnedThreadItems, setPinnedThreadItems] = useState<NavigationThreadItem[]>([])
   const [pendingMemoryCount, setPendingMemoryCount] = useState(0)
   const [memoryReviewNotice, setMemoryReviewNotice] = useState(false)
-  const [memoryAutoNotice, setMemoryAutoNotice] = useState<{
-    count: number
-    memoryId: string | null
-    scope: 'companion' | 'relationship' | null
-  }>({ count: 0, memoryId: null, scope: null })
+  const [memoryAutoNotice, setMemoryAutoNotice] = useState<MemoryChange[]>([])
   const [memoryRefreshKey, setMemoryRefreshKey] = useState(0)
   const [memoryTarget, setMemoryTarget] = useState<MemoryNavigationTarget>({ kind: 'memory', memoryId: null })
   const [memoryReviewDrawerSignal, setMemoryReviewDrawerSignal] = useState(0)
@@ -1186,7 +1187,6 @@ export function BusinessApp({
   const [openedNavigationRow, setOpenedNavigationRow] = useState<NavigationThreadItem | null>(null)
   const pinnedThreadIdsRef = useRef<string[]>([])
   pinnedThreadIdsRef.current = navigationPins.filter(pin => pin.kind === 'camp').map(pin => pin.targetKey)
-  const healthRequest = useRef<Promise<HealthStatus> | null>(null)
   const navigationSnapshotRef = useRef<NavigationSnapshot | null>(null)
   const deletingThreadIdsRef = useRef(new Set<string>())
   const shownDeletionIssuesRef = useRef(new Set<string>())
@@ -1197,14 +1197,22 @@ export function BusinessApp({
   const startupTraceId = useRef(newCommandId())
   const startupStartedAt = useRef(startupStartedAtMs ?? performance.now())
   const liveRuntimeEventSequence = useRef(0)
-  const runtimeHealthRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const runtimeHealthRefreshIncludesMembers = useRef(false)
   const membersViewRef = useRef<MembersViewHandle>(null)
+  const [commonEnvironmentReturn, setCommonEnvironmentReturn] = useState<{ kind: AdapterKind; memberId: string; memberName: string } | null>(null)
+  const commonEnvironmentReturnRef = useRef(commonEnvironmentReturn); commonEnvironmentReturnRef.current = commonEnvironmentReturn
+  const commonEnvironmentScroll = useRef<{ element: HTMLElement; top: number; left: number }[]>([])
+  useLayoutEffect(() => {
+    if (view !== 'members' || !commonEnvironmentReturn) return
+    for (const { element, top, left } of commonEnvironmentScroll.current) { element.scrollTop = top; element.scrollLeft = left }
+    commonEnvironmentScroll.current = []
+    setCommonEnvironmentReturn(null)
+  }, [view, commonEnvironmentReturn])
   const campLeaveGuardRef = useRef<{ threadId: string; guard: ThreadLeaveGuard } | null>(null)
   const navigationThreadPreparation = useRef<{
     threadId: string; guard: ThreadLeaveGuard; promise: Promise<ThreadLeavePreparation>; users: number; didLeave: boolean
   } | null>(null)
   const automationLeaveGuardRef = useRef<AutomationLeaveGuard | null>(null)
+  const runtimeSettingsLeaveGuardRef = useRef<RuntimeStartupLeaveGuard | null>(null)
   const startupResolvedSessionId = useRef<string | null>(null)
   const pendingRestorableLocation = useRef<RestorableLocation | null>(null)
   const invalidatingNewConversationDefaults = useRef(false)
@@ -1248,8 +1256,9 @@ export function BusinessApp({
     state: NavigationPreferencesSnapshot['threadReadStates'][string] | null
   ): Promise<void> => {
     const generation = ++threadReadGeneration.current
-    const snapshot = await uiPreferences.navigationPreferences.setThreadReadState(threadId, state)
-    if (generation === threadReadGeneration.current) acceptThreadReadStates(snapshot)
+    const { snapshot, confirmed } = await saveNavigationThreadReadState(uiPreferences.navigationPreferences, threadId, state)
+    if (snapshot && generation === threadReadGeneration.current) acceptThreadReadStates(snapshot)
+    if (!confirmed) throw new Error(uiAttribute('本机阅读状态的保存结果尚未确认，请重试。'))
   }, [uiPreferences, acceptThreadReadStates])
 
   const clearThreadUnreadReminder = useCallback(async (threadId: string, generation: number): Promise<void> => {
@@ -1324,6 +1333,10 @@ export function BusinessApp({
     automationLeaveGuardRef.current = guard
   }, [])
 
+  const registerRuntimeSettingsLeaveGuard = useCallback((guard: RuntimeStartupLeaveGuard | null): void => {
+    runtimeSettingsLeaveGuardRef.current = guard
+  }, [])
+
   const leaveActiveAutomation = useCallback(async (
     transition: () => void | Promise<void>
   ): Promise<boolean> => {
@@ -1342,6 +1355,7 @@ export function BusinessApp({
   const leaveActiveSurface = useCallback(async (
     transition: () => void | Promise<void>
   ): Promise<boolean> => {
+    if (viewRef.current === 'settings' && runtimeSettingsLeaveGuardRef.current && !(await runtimeSettingsLeaveGuardRef.current())) return false
     let automationTransitioned = false
     const campTransitioned = await leaveActiveThread(async () => {
       automationTransitioned = await leaveActiveAutomation(transition)
@@ -1610,6 +1624,12 @@ export function BusinessApp({
     }
   }, [uiPreferences, applyNavigationPreferences, legacySelectedProject, notifyError])
 
+  const loadInstallations = useMemo(() => createRuntimeRefresh(async () => {
+    const next = await client.request<AdapterInstallation[]>('runtime.installations.list')
+    setInstallations(next)
+    return next
+  }), [client])
+
   const loadOverview = useCallback((showLoading = false): Promise<boolean> => {
     if (showLoading) setState('loading')
     if (overviewRequest.current) return overviewRequest.current
@@ -1621,12 +1641,7 @@ export function BusinessApp({
         // projections can populate independently as their serialized Core replies arrive.
         const nextNavigationPromise = loadNavigation()
         const nextAgentsPromise = loadAgents()
-        const nextInstallationsPromise = client
-          .request<AdapterInstallation[]>('runtime.installations.list')
-          .then((nextInstallations) => {
-            setInstallations(nextInstallations)
-            return nextInstallations
-          })
+        const nextInstallationsPromise = loadInstallations()
         const nextMemoryReviewItemsPromise = client
           .request<HearthReviewItem[]>('memory.hearthReviewItems.list')
           .then((nextMemoryReviewItems) => {
@@ -1680,24 +1695,21 @@ export function BusinessApp({
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadNavigation, applyNavigationPreferences, completeLegacyProjects])
+  }, [loadAgents, loadInstallations, loadNavigation, applyNavigationPreferences, completeLegacyProjects])
 
-  const loadHealth = useCallback((): Promise<HealthStatus> => {
-    if (healthRequest.current) return healthRequest.current
+  const loadRuntime = useMemo(() => createRuntimeRefresh(async () => {
     setHealthAttempted(true)
     setHealthLoading(true)
-    const request = client.request<HealthStatus>('health.check')
-      .then((nextHealth) => {
-        setHealth(nextHealth)
-        return nextHealth
-      })
-      .finally(() => {
-        if (healthRequest.current === request) healthRequest.current = null
-        setHealthLoading(false)
-      })
-    healthRequest.current = request
-    return request
-  }, [])
+    try {
+      const results = await Promise.allSettled([
+        client.request<RuntimeStatus>('runtime.status.get'),
+        loadInstallations()
+      ])
+      if (results[0].status === 'fulfilled') setHealth(results[0].value)
+      const failure = results.find(result => result.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
+    } finally { setHealthLoading(false) }
+  }), [client, loadInstallations])
 
   const refreshOnboardingRuntime = useCallback((): Promise<void> => {
     if (onboardingRuntimeRequest.current) return onboardingRuntimeRequest.current
@@ -1708,15 +1720,8 @@ export function BusinessApp({
         await client.request('runtime.discovery.rescan', { interactiveShell: true })
 
         setOnboardingRuntimePhase('checking')
-        const nextHealth = await client.request<HealthStatus>('health.check')
-        setHealth(nextHealth)
-        setHealthAttempted(true)
-
+        await loadRuntime()
         setOnboardingRuntimePhase('models')
-        const nextInstallations = await client.request<AdapterInstallation[]>(
-          'runtime.installations.list'
-        )
-        setInstallations(nextInstallations)
         setOnboardingRuntimePhase('ready')
       } catch (nextError) {
         setOnboardingRuntimePhase('error')
@@ -1728,12 +1733,7 @@ export function BusinessApp({
       if (onboardingRuntimeRequest.current === request) onboardingRuntimeRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [])
-
-  const loadInstallations = useCallback(async (): Promise<void> => {
-    const nextInstallations = await client.request<AdapterInstallation[]>('runtime.installations.list')
-    setInstallations(nextInstallations)
-  }, [])
+  }, [client, loadRuntime])
 
   const loadMemberData = useCallback(async (): Promise<void> => {
     await Promise.all([loadAgents(), loadInstallations()])
@@ -2448,8 +2448,8 @@ export function BusinessApp({
       health !== null,
       healthAttempted
     )) return
-    void loadHealth().catch((nextError) => setError(errorMessage(nextError)))
-  }, [health, healthAttempted, loadHealth, settingsSection, startupStatus, view])
+    void loadRuntime().catch((nextError) => setError(errorMessage(nextError)))
+  }, [health, healthAttempted, loadRuntime, settingsSection, startupStatus, view])
 
   useEffect(() => {
     if (startupStatus !== 'resolved' || shuttingDown) return undefined
@@ -2616,17 +2616,7 @@ export function BusinessApp({
         || event.method === 'runtime.discovery.completed'
         || event.method === 'runtime.availability.updated'
       ) {
-        runtimeHealthRefreshIncludesMembers.current ||= event.method !== 'runtime.availability.updated'
-        if (runtimeHealthRefreshTimer.current) clearTimeout(runtimeHealthRefreshTimer.current)
-        runtimeHealthRefreshTimer.current = setTimeout(() => {
-          runtimeHealthRefreshTimer.current = null
-          const includeMembers = runtimeHealthRefreshIncludesMembers.current
-          runtimeHealthRefreshIncludesMembers.current = false
-          void Promise.all([
-            loadHealth(),
-            includeMembers ? loadMemberData() : loadInstallations()
-          ]).catch(() => undefined)
-        }, 80)
+        void loadRuntime().catch(() => undefined)
       }
       if (event.method === 'navigation.invalidated') {
         const reason = stringField(params, 'reason')
@@ -2670,7 +2660,7 @@ export function BusinessApp({
     return () => { unsubscribe?.(); liveEvents.dispose() }
   }, [
     activeThreadRefreshCoordinator,
-    loadHealth,
+    loadRuntime,
     loadInstallations,
     loadAgents,
     loadMemberData,
@@ -2780,18 +2770,15 @@ export function BusinessApp({
         if (reviewItemCreated || autoAppliedEvents.length > 0) {
           if (reviewItemCreated) setMemoryReviewNotice(true)
           if (autoAppliedEvents.length > 0) {
-            const lastPayload = asRecord(autoAppliedEvents.at(-1)?.payload)
-            const lastMemoryId = typeof lastPayload.memoryId === 'string'
-              ? lastPayload.memoryId
-              : null
-            const lastScope = lastPayload.scope === 'companion' || lastPayload.scope === 'relationship'
-              ? lastPayload.scope
-              : null
-            setMemoryAutoNotice((current) => ({
-              count: current.count + autoAppliedEvents.length,
-              memoryId: lastMemoryId ?? current.memoryId,
-              scope: lastScope ?? current.scope
-            }))
+            setMemoryAutoNotice((current) => collectMemoryChanges(current, autoAppliedEvents))
+            const lastChange = collectMemoryChanges([], autoAppliedEvents).at(-1)
+            if (lastChange && lastChange.scope === null) {
+              void client.request<MemoryRecord>('memory.get', { memoryId: lastChange.memoryId })
+                .then((memory) => {
+                  if (!cancelled) setMemoryAutoNotice((current) => resolveMemoryChangeScope(current, lastChange.memoryId, lastChange.sequence, memory.scope))
+                })
+                .catch(() => undefined)
+            }
           }
           setMemoryRefreshKey((current) => current + 1)
           void client.request<HearthReviewItem[]>('memory.hearthReviewItems.list')
@@ -2929,7 +2916,7 @@ export function BusinessApp({
     if (viewRef.current === 'teams') {
       return (teamLeaveGuard.current?.() ?? Promise.resolve(true)).then(async allowed => { if (allowed) await action(); return allowed })
     }
-    if (viewRef.current !== 'members') {
+    if (viewRef.current !== 'members' && !commonEnvironmentReturnRef.current) {
       return Promise.resolve().then(action).then(() => true)
     }
     return membersViewRef.current?.requestTransition(action) ?? Promise.resolve(false)
@@ -2973,9 +2960,9 @@ export function BusinessApp({
   }
 
   const openAutomaticMemory = (): void => {
-    const clearNotice = (): void => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })
-    if (viewRef.current === 'memory' && memoryTarget.memoryId === memoryAutoNotice.memoryId) clearNotice()
-    else void desktopNavigation.push({ kind: 'memory', memoryId: memoryAutoNotice.memoryId }, { beforeCommit: clearNotice })
+    const clearNotice = (): void => setMemoryAutoNotice([])
+    if (viewRef.current === 'memory' && memoryTarget.memoryId === (memoryAutoNotice.at(-1)?.memoryId ?? null)) clearNotice()
+    else void desktopNavigation.push({ kind: 'memory', memoryId: (memoryAutoNotice.at(-1)?.memoryId ?? null) }, { beforeCommit: clearNotice })
   }
 
   const closeSettings = (): void => { void desktopNavigation.push(lastMainTarget.current) }
@@ -3016,6 +3003,7 @@ export function BusinessApp({
         lastMainTarget.current = previous.entries[previous.index] ?? { kind: 'quick_chat' }
       }
       if (!transaction.commit()) return
+      if (target.kind !== 'members' && target.kind !== 'settings') setCommonEnvironmentReturn(null)
       context?.beforeCommit?.()
       setNotificationFocus(null)
       switch (target.kind) {
@@ -3039,7 +3027,7 @@ export function BusinessApp({
       else await leaveActiveSurface(() => Promise.race([apply(), transaction.superseded]))
     }
     try {
-      if ((viewRef.current === 'members' && target.kind !== 'members' || viewRef.current === 'teams' && target.kind !== 'teams') && !context?.prepared && !context?.memberPrepared) await requestMemberTransition(leave)
+      if (((viewRef.current === 'members' || (commonEnvironmentReturnRef.current && target.kind !== 'settings')) && target.kind !== 'members' || viewRef.current === 'teams' && target.kind !== 'teams') && !context?.prepared && !context?.memberPrepared) await requestMemberTransition(leave)
       else await leave()
     } catch (nextError) {
       if (transaction.isCurrent()) setError(errorMessage(nextError))
@@ -3050,21 +3038,6 @@ export function BusinessApp({
     const rememberedSection = generalPreferences?.lastSettingsSection ?? 'general'
     if (mobile) void desktopNavigation.replace({ kind: 'settings', section: rememberedSection, overview: true })
     else void navigateToSettings(rememberedSection)
-  }
-
-  const openMotionSettings = async (): Promise<void> => {
-    try {
-      if (!await navigateToSettings('appearance')) return
-      await afterNextPaint()
-      const { entries, index } = desktopNavigation.getSnapshot()
-      const target = entries[index]
-      if (target?.kind !== 'settings' || target.section !== 'appearance') return
-      const control = document.querySelector<HTMLSelectElement>('#appearance-motion')
-      control?.scrollIntoView({ block: 'center', behavior: 'instant' })
-      control?.focus({ preventScroll: true })
-    } catch (nextError) {
-      setError(errorMessage(nextError))
-    }
   }
 
   const returnToMobileSettings = (): void => {
@@ -3140,7 +3113,9 @@ export function BusinessApp({
   }
 
   const setThreadUnread = async (thread: NavigationThreadItem, unread: boolean): Promise<void> => {
+    const acknowledgement = unread ? null : interruptionAttention.captureRead(thread.id)
     await saveThreadReadState(thread.id, navigationThreadReadState(thread, unread, threadReadStatesRef.current[thread.id]))
+    if (acknowledgement) await interruptionAttention.acknowledge(acknowledgement)
   }
 
   const chooseThread = (thread: NavigationThreadTarget): void => {
@@ -3437,7 +3412,6 @@ export function BusinessApp({
         if (removingCurrent || removingActiveThread) {
           await commitRestorableLocation({ kind: 'quick_chat' })
         }
-        notify(uiAttribute("已从侧栏移除“{0}”", String(project.name)))
       } finally {
         setBusy(null)
       }
@@ -3455,7 +3429,6 @@ export function BusinessApp({
   const renameProject = async (project: ProjectNavigationGroup, name: string | null): Promise<void> => {
     const snapshot = await uiPreferences.navigationPreferences.setProjectName(project.projectKey, name)
     applyNavigationPreferences(snapshot)
-    notify(uiAttribute('项目名称已保存'))
   }
 
   const renameThread = async (thread: NavigationThreadItem, title: string): Promise<void> => {
@@ -3518,10 +3491,11 @@ export function BusinessApp({
     })
     setCancellingRunIds((current) => new Set(current).add(run.id))
 
+    const stopCommandId = newCommandId()
     let result: StoredCommandResult
     try {
       result = await client.request<StoredCommandResult>('agentRuns.cancel', {
-        commandId: newCommandId(),
+        commandId: stopCommandId,
         command: {
           threadId,
           agentRunId: run.id,
@@ -4063,7 +4037,7 @@ export function BusinessApp({
       const [nextAgents, , nextInstallations] = await Promise.all([
         client.request<AgentProfile[]>('members.list'),
         loadNavigation(),
-        client.request<AdapterInstallation[]>('runtime.installations.list')
+        loadInstallations()
       ])
       setAgents(nextAgents)
       setInstallations(nextInstallations)
@@ -4212,6 +4186,17 @@ export function BusinessApp({
     settings: 'settings-content'
   }
   const startupGateVisible = Boolean(desktop) && startupGateShouldBeVisible(startupSnapshot)
+  const canRenderThread = !startupGateVisible && generalPreferences !== null && view === 'camp'
+    && (!missionThread || !!activeMission) && activeThreadId !== null
+    && visibleThreadSnapshot?.thread.id === activeThreadId
+  const formalThreadVisible = canRenderThread && !campSnapshotEntryPreviewRef.current
+    && !newConversationOpen && !newMissionOpen && !shuttingDown
+  const interruptionAttention = useThreadInterruptionAttention(
+    startupStatus === 'resolved',
+    [...(displayNavigation ? allNavigationThreads(displayNavigation).map(thread => thread.id) : []),
+      ...pinnedThreadItems.map(thread => thread.id), ...(activeThreadId ? [activeThreadId] : [])],
+    { threadId: activeThreadId, visible: formalThreadVisible }
+  )
   const shortcutsEnabled = startupStatus === 'resolved' && !shuttingDown
   useShortcutAction('new', beginNewConversation, shortcutsEnabled)
   useShortcutAction('settings', openSettings, shortcutsEnabled)
@@ -4227,21 +4212,19 @@ export function BusinessApp({
     ? 'location'
     : startupRoutePending?.kind ?? startupRouteTarget?.kind ?? 'location'
   const inlineNotices = memoryReviewNotice
-    || memoryAutoNotice.count > 0
+    || memoryAutoNotice.length > 0
     || (!shuttingDown && (error || locationSaveError))
     ? (
         <>
           {memoryReviewNotice && (
-            <div className="memory-review-notice" role="status">
-              <div><strong><UiText zh={"队员提交了一条共同记忆审核"} /></strong><span><UiText zh={"候选内容尚未成为正式记忆，你可以稍后在“记忆”中逐条处理。"} /></span></div>
-              <div><button className="quiet-button compact" type="button" onClick={openMemoryReviews}><UiText zh={"查看审核"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("暂时忽略共同记忆审核提示")} onClick={() => setMemoryReviewNotice(false)}>×</button></div>
-            </div>
+            <MemoryChangeNotice review onOpen={openMemoryReviews} onClose={() => setMemoryReviewNotice(false)}>
+              {pendingMemoryCount > 0 ? uiAttribute('{0} 条共同记忆待审核', pendingMemoryCount) : uiAttribute('共同记忆审核已更新')}
+            </MemoryChangeNotice>
           )}
-          {memoryAutoNotice.count > 0 && (
-            <div className="memory-review-notice memory-auto-applied-notice" role="status" aria-live="polite">
-              <div><strong><UiText zh={"已自动形成 "} />{memoryAutoNotice.count}<UiText zh={" 条"} />{memoryAutoNotice.count === 1 ? memoryAutoNotice.scope === 'relationship' ? uiAttribute("队员间记忆") : memoryAutoNotice.scope === 'companion' ? uiAttribute("队员记忆") : uiAttribute("共同记忆") : uiAttribute("记忆")}</strong><span><UiText zh={"已立即用于后续协作，你可以随时查看、修订、停止沿用或遗忘。"} /></span></div>
-              <div><button className="quiet-button compact" type="button" onClick={openAutomaticMemory}><UiText zh={"查看"} /></button><button className="icon-button" type="button" aria-label={uiAttribute("关闭自动形成提示")} onClick={() => setMemoryAutoNotice({ count: 0, memoryId: null, scope: null })}>×</button></div>
-            </div>
+          {memoryAutoNotice.length > 0 && (
+            <MemoryChangeNotice onOpen={openAutomaticMemory} onClose={() => setMemoryAutoNotice([])}>
+              {memoryChangeText(memoryAutoNotice, agents.find((agent) => agent.agentId === memoryAutoNotice.at(-1)?.actorId)?.displayName)}
+            </MemoryChangeNotice>
           )}
           {!shuttingDown && error && (
             <div className="error-banner" role="alert">
@@ -4296,7 +4279,7 @@ export function BusinessApp({
             setOnboardingError(null)
             void changeInterfaceLanguage(uiPreferences.generalPreferences, language, setGeneralPreferences)
               .then(() => { if (request === onboardingLanguageRequest.current) setOnboardingError(null) })
-              .catch(() => { if (request === onboardingLanguageRequest.current) setOnboardingError(uiAttribute('语言偏好未能保存，请重试。')) })
+              .catch(() => { if (request === onboardingLanguageRequest.current) setOnboardingError('语言偏好未能保存，请重试。') })
           }}
           onThemeChange={(preference) => void changeOnboardingTheme(preference)}
           onShowWelcome={() => void runOnboardingMutation(
@@ -4317,10 +4300,7 @@ export function BusinessApp({
           onRefreshRuntime={() => void refreshOnboardingRuntime()}
           onOpenModelCatalog={async (runtimeKind, target) => {
             const catalog = await openRuntimeModelCatalog(runtimeKind, client.request, false, target)
-            const nextInstallations = await client.request<AdapterInstallation[]>(
-              'runtime.installations.list'
-            )
-            setInstallations(nextInstallations)
+            await loadInstallations()
             return catalog
           }}
           onRuntimeSelectionChange={(selection: OnboardingRuntimeSelection | null) => {
@@ -4357,7 +4337,6 @@ export function BusinessApp({
     threadReadStates={threadReadStates}
     onSetThreadUnread={setThreadUnread}
     onRevealProject={environment.revealProjectDirectory ? project => environment.revealProjectDirectory!(project.projectPath) : undefined}
-    onProjectPathCopied={() => notify(uiAttribute('已复制项目路径'))}
     settingsSection={view === 'memory' ? 'memory' : settingsSection}
     updateSnapshot={appUpdates.snapshot}
     onNewConversation={() => { setMobileConversationDrawerOpen(false); beginNewConversation() }}
@@ -4397,7 +4376,6 @@ export function BusinessApp({
     onRenameProject={renameProject}
     onThreadIdCopied={() => {
       setError(null)
-      notify(uiAttribute('已复制会话 ID'))
     }}
     onRename={renameThread}
     onDelete={deleteThread}
@@ -4406,6 +4384,7 @@ export function BusinessApp({
   />
 
   return (
+    <ThreadInterruptionAttentionContext.Provider value={interruptionAttention}>
     <MobileLayoutProvider value={mobile}>
     <FilePreviewProvider api={environment.files} threadId={view === 'camp' ? activeThreadId : null} resolvedTheme={appearance.resolvedTheme}
       missionActivity={activeMission && view === 'camp' ? <MissionActivityDocument mission={activeMission} agents={agents} onSource={missionSource} onNotify={notify} onWorkspaceCleanupRequested={refreshMissionAfterWorkspaceCleanup}/> : null}>
@@ -4455,7 +4434,7 @@ export function BusinessApp({
           onOpenMenu={openMobileMenu} menuOpen={mobileConversationDrawerOpen} menuTriggerRef={mobileConversationListButtonRef}
           onNew={() => { setNewMissionOpen(true) }} onOpen={mission => { void openMission(mission).catch(error => notifyError(missionError(error))) }}/>} 
         {!startupGateVisible && view === 'camp' && missionThread && !activeMission && <section className="mission-section-empty" role={missionList.error ? 'alert' : 'status'}><p>{missionList.error || (missionList.loading ? uiAttribute("正在读取使命…") : uiAttribute("此使命当前不可用。"))}</p>{!missionList.loading && <button className="quiet-button" onClick={() => void missionList.refresh()}><UiText zh={"重试"} /></button>}<button className="quiet-button" onClick={returnToMissions}><UiText zh={"返回使命板"} /></button></section>}
-        {!startupGateVisible && generalPreferences && view === 'camp' && (!missionThread || activeMission) && activeThreadId && visibleThreadSnapshot?.thread.id === activeThreadId && (
+        {canRenderThread && (
           <MissionSurface key={activeThreadId} enabled={!!activeMission} full={!missionDrawer} onExpand={() => setMissionPresentation('full')} onClose={returnToMissions}>
           {activeMission && <MissionHeader mission={activeMission} drawer={missionDrawer} thread={visibleThreadSnapshot} projectName={activeThreadProject?.name ?? activeThreadContextLabel}
             openRequest={missionOpenRequest} onExpand={() => setMissionPresentation('full')} onFold={() => setMissionPresentation('drawer')}
@@ -4535,7 +4514,6 @@ export function BusinessApp({
             firstRunThreadId={firstRunThreadId}
             onConfigureRuntime={configureMemberRuntime}
             onOpenMembers={() => chooseView('members')}
-            onOpenMotionSettings={() => { void openMotionSettings() }}
             onDismissRuntimeRecovery={() => setRuntimeRecovery(null)}
             onNotify={notify}
             onNotifyError={notifyError}
@@ -4567,7 +4545,6 @@ export function BusinessApp({
               ?? ''}
             topNotices={inlineNotices}
             onOpenThread={(threadId) => void activateThread(threadId, { reconcileDefaultLead: false })}
-            onNotify={notify}
             onLeaveGuardChange={registerAutomationLeaveGuard}
           />
         )}
@@ -4613,10 +4590,13 @@ export function BusinessApp({
             section={settingsSection}
             updates={appUpdates}
             serverUpdates={environment.serverUpdates}
+            commonEnvironmentReturn={commonEnvironmentReturn ? {
+              kind: commonEnvironmentReturn.kind, memberName: commonEnvironmentReturn.memberName,
+              onBack: () => { void desktopNavigation.push({ kind: 'members', agentId: commonEnvironmentReturn.memberId, tab: 'runtime' }, { memberPrepared: true }) }
+            } : undefined}
             onDiagnosticsNavigate={(section) => chooseSettingsSection(section)}
-            onReload={async () => {
-              await Promise.all([loadOverview(), loadHealth()])
-            }}
+            onRuntimeLeaveGuardChange={registerRuntimeSettingsLeaveGuard}
+            onReload={loadRuntime}
             onAppearanceChange={changeAppearancePreferences}
           />
           </MobileSettingsLayout>
@@ -4627,7 +4607,7 @@ export function BusinessApp({
           refresh={teamLibrary.refresh} onLeaveGuardChange={registerTeamLeaveGuard} onNewConversation={team => {
             openNewConversation(currentProjectWorkspace(displayNavigation, currentProject), null, generalPreferences, team)
           }}/>}
-        {!startupGateVisible && view === 'members' && (
+        {!startupGateVisible && (view === 'members' || commonEnvironmentReturn !== null) && (
           startupRoutePending?.kind === 'members'
             ? startupStatus === 'waiting'
               ? (
@@ -4641,9 +4621,13 @@ export function BusinessApp({
               )
               : null
             : (
-                <div className="members-workspace">
+                <div className="members-workspace" style={view !== 'members' ? { display: 'none' } : undefined}>
                   <MembersView
                     ref={membersViewRef}
+                    onEditCommonEnvironment={(kind, member) => {
+                      commonEnvironmentScroll.current = Array.from(document.querySelectorAll<HTMLElement>('.members-workspace, .members-workspace *')).filter(element => element.scrollTop !== 0 || element.scrollLeft !== 0).map(element => ({ element, top: element.scrollTop, left: element.scrollLeft }))
+                      void desktopNavigation.push({ kind: 'settings', section: 'runtime' }, { memberPrepared: true, beforeCommit: () => setCommonEnvironmentReturn({ kind, memberId: member.agentId, memberName: member.displayName }) })
+                    }}
                     agents={agents}
                     topNotices={inlineNotices}
                     installations={installations}
@@ -4742,11 +4726,7 @@ export function BusinessApp({
         enabled={startupStatus === 'resolved'}
         activeThreadId={activeThreadId}
         firstRunThreadId={firstRunThreadId}
-        activeThreadVisible={view === 'camp'
-          && campSnapshot?.thread.id === activeThreadId
-          && !newConversationOpen
-          && !newMissionOpen
-          && !shuttingDown}
+        activeThreadVisible={formalThreadVisible}
         navigationActive={notificationFocus !== null}
         onNavigate={navigateFromNotification}
         onPresentNavigation={presentNotificationNavigation}
@@ -4773,6 +4753,7 @@ export function BusinessApp({
     </MissionInteractionProvider>
     </FilePreviewProvider>
     </MobileLayoutProvider>
+    </ThreadInterruptionAttentionContext.Provider>
   )
 }
 
@@ -4907,6 +4888,8 @@ export function SettingsView({
   updates,
   serverUpdates,
   onDiagnosticsNavigate,
+  commonEnvironmentReturn,
+  onRuntimeLeaveGuardChange,
   onReload,
   onAppearanceChange
 }: {
@@ -4917,7 +4900,7 @@ export function SettingsView({
   zoomManagedBy?: 'desktop' | 'browser'
   platform?: NodeJS.Platform
   appearance: AppearanceSnapshot
-  health: HealthStatus | null
+  health: RuntimeStatus | null
   agents: AgentProfile[]
   generalPreferences?: GeneralPreferencesSnapshot | null
   onGeneralPreferencesChange?(preferences: GeneralPreferencesSnapshot): void
@@ -4926,6 +4909,8 @@ export function SettingsView({
   section: SettingsSection
   updates: AppUpdatesController
   serverUpdates?: import('@contracts').AppUpdatesApi
+  commonEnvironmentReturn?: { kind: AdapterKind; memberName: string; onBack(): void }
+  onRuntimeLeaveGuardChange?(guard: RuntimeStartupLeaveGuard | null): void
   onDiagnosticsNavigate(section: 'mcp' | 'runtime', runtimeKind?: AdapterKind): void
   onReload(): Promise<void>
   onAppearanceChange(preferences: AppearancePreferences): Promise<AppearanceSnapshot>
@@ -4949,9 +4934,8 @@ export function SettingsView({
         <Activity mode={section === 'skills' ? 'visible' : 'hidden'}><NativeSkillsSettings /></Activity>
         <Activity mode={section === 'toolbox' ? 'visible' : 'hidden'}><ToolboxSettings agents={agents} /></Activity>
         <Activity mode={section === 'mcp' ? 'visible' : 'hidden'}><McpSettings agents={agents} platform={platform} /></Activity>
-        <Activity mode={section === 'runtime' ? 'visible' : 'hidden'}>
-          <RuntimeInstallationsPanel health={health} installations={installations} onReload={onReload} />
-        </Activity>
+        <RuntimeInstallationsPanel health={health} installations={installations} onReload={onReload} commonEnvironmentReturn={commonEnvironmentReturn}
+          active={section === 'runtime'} onLeaveGuardChange={onRuntimeLeaveGuardChange} />
         {section === 'channels' && <ChannelSettings agents={agents} />}
         {section === 'appearance' && (
           <AppearanceSettings
@@ -5201,6 +5185,7 @@ export function campMessageSendParams(
     kind: 'file' | 'directory'
     mediaType: string | null
     observedByteSize: number | null
+    pastedTextPreview?: string
   }>
   quotes: ThreadComposerDraftView['quotes']
   replyToThreadMessageId: string | null
@@ -5218,7 +5203,8 @@ export function campMessageSendParams(
       displayName: attachment.displayName,
       kind: attachment.kind,
       mediaType: attachment.mediaType,
-      observedByteSize: attachment.byteSize
+      observedByteSize: attachment.byteSize,
+      ...(attachment.pastedTextPreview !== undefined ? { pastedTextPreview: attachment.pastedTextPreview } : {})
     }
   })
   return {

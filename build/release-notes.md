@@ -1,43 +1,39 @@
-# Rovai AI v0.4.13
+# Rovai AI v0.4.16
 
 <!-- lang:zh-CN -->
 
-本次更新新增 MiniMax Code 接入，支持网页版文件上传与下载、文件预览自动刷新和执行来源定位，并修复网页断线后无法继续发送的问题。
+本次更新新增智能体通用环境变量、输入历史和回复详情，支持长文本粘贴转附件，并调整会话提醒、设置入口与操作反馈。
 
-- 【功能】**新增 MiniMax Code 接入。** 支持使用本机官方 `mcode`，读取原生模型与思考档位配置，接入 Skills、MCP、图片与文件工具，并支持插话和会话恢复。
-- 【功能】**网页版单文件上传上限提高至 30 MiB。** 增加上传进度和取消操作；上传失败或取消时，保留正文和其他附件。
-- 【功能】**网页版支持直接下载文件。** 可在文件查看区下载到本机，无法在线预览的文件也可下载。采用流式传输，进度与取消由浏览器管理，不再受在线预览大小限制。
-- 【功能】**文件保存后，预览自动更新。** 支持文本、Markdown、代码、图片和 HTML；后台标签在重新打开时更新。大文本刷新后尽量保留原阅读行号，读取失败时保留旧内容。
-- 【功能】**执行记录支持定位原消息。** 可查看触发本次执行的消息，多条输入可展开来源列表；定位后可返回原执行位置，不影响正在编辑的草稿。
-- 【功能】**会话任务改为按需开启。** 默认关闭，可在“通用设置”中开启。关闭后隐藏任务面板、提醒和队员任务工具，已有任务记录保留，不中断当前执行。
-- 【界面】**调整会话中的文件列表。** 队员发送的文件改为紧凑单列，宽度与差异卡片对齐，点击整行即可打开；窄窗口下保持自适应。
-- 【交互】**统一网页链接的显示和操作。** 消息、输入框、单聊和使命描述中的网页链接使用统一图标；编辑使命时可直接打开或复制链接，不打断当前编辑。
-- 【修复】**修复网页断线后一直提示“原提交仍待核对”的问题。** 服务断开时保留页面和草稿，提供“恢复连接并重试”入口；恢复时先核对原提交结果，再重试未完成的操作，避免重复提交。
-- 【修复】**修正部分智能体的执行结束判断。** 本轮已正常发送回复、工具操作也已结束时，不再仅因原生结束文本为空而误报失败；真实错误和取消仍会如实显示。
-- 【优化】**精简单聊中的重复上下文。** 减少每轮重复传入的固定说明，不改写已有会话记录和历史输入。
+- 【功能】**支持智能体通用环境变量。** 在智能体启动设置中保存通用配置，使用同一种智能体的队员可选择继承或独立配置；同名变量以队员设置为准，并可查看合并结果。修改在新进程启动时生效，不打断正在运行的任务。
+- 【交互】**环境变量填写更方便。** 支持直接输入字符串、数字和布尔值，保存时统一转为字符串。编辑器直接显示变量值，空配置提供简短 JSON 示例；保存失败时保留原始草稿。
+- 【功能】**公屏和单聊支持查看历史输入。** 在输入框起点按 ↑ 浏览已加载的历史输入，可修改后再次发送；按 Esc 或向下翻过最新一条，可恢复原草稿和光标位置。
+- 【功能】**新增回复详情。** 点击消息中的回复块，可集中查看同一回复链的内容和相关执行过程，支持调整宽度、完整阅读、复制和回到原文，查看时保留当前输入草稿。
+- 【功能】**长文本粘贴自动转为附件。** 桌面端公屏单次粘贴超过 10,000 个字符的纯文本时，自动生成保留全文的 `.txt` 附件，卡片显示内容开头。已修正 Windows 路径处理，支持附件预览、重启恢复和移除。
+- 【功能】**界面语言支持“跟随系统”。** 桌面端根据本机语言、Web 端根据浏览器语言选择简体中文或英文，也可手动指定；切换时不重载页面、不清空草稿或中断执行。
+- 【功能】**增加执行中断提醒。** 因应用退出或已确认的执行异常中断时，侧栏会话显示提醒蓝点；打开并查看会话后自动确认，也可手动标记已读。
+- 【界面】**调整设置入口与会话展示。** “智能体”移至设置中“能力”分组的首项；会话顶栏调整字号与字重，区分项目名和会话名。用户附件卡片更紧凑，队员交付的文件列表保留原有宽度。
+- 【交互】**统一会话浮层的收起操作。** 单聊、执行、队员和任务浮层使用一致的收起按钮与 Esc 提示；修正打开回复详情后，执行和队员浮层收起按钮无法点击的问题。
+- 【交互】**减少重复的操作提示。** 移除复制、撤回、成员管理、定时任务及长文本转换等操作的重复成功提示；执行来源定位统一使用已有的“回到最新”按钮。
+- 【修复】**修复部分合法文件名无法作为附件发送的问题。** 包含时间冒号等字符的附件名称会原样保留，不再被错误拒绝或改写。
 
-感谢 [@liangxyz](https://github.com/liangxyz) 在 [#779](https://github.com/murray17/rovai-ai/issues/779) 中持续补充网页版问题的复现信息，也感谢最早反馈 Server 停服后提交卡住问题的用户。
-
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.15...v0.4.16)
 
 ---
 
 <!-- lang:en -->
 
-This release adds MiniMax Code, browser file uploads and downloads, automatic file preview refresh, and links from executions to their source messages. It also fixes Web submissions that remained blocked after a service disconnect.
+This release adds shared agent environment settings, input history, reply details, and text attachments for long pastes. It also updates conversation reminders, settings navigation, and action feedback.
 
-- [Feature] **Add MiniMax Code.** Connect the official local `mcode` CLI, read its native models and thinking levels, and use Skills, MCP, image and file tools, steering, and session recovery.
-- [Feature] **Increase the Web upload limit to 30 MiB per file.** Uploads now show progress and can be cancelled. Failed or cancelled uploads preserve the message text and other attachments.
-- [Feature] **Download files directly from the Web app.** Download from the file viewer even when online preview is unavailable. Files stream to the browser, which manages progress and cancellation, independently of the preview size limit.
-- [Feature] **Refresh file previews after saving.** Text, Markdown, code, images, and HTML update automatically. Background tabs refresh when shown again. Large text previews try to retain the visible line, and failed reads keep the previous content.
-- [Feature] **Navigate from an execution to its source messages.** See the messages that triggered a run, expand the source list for multiple inputs, and return to the execution after navigating without changing the current draft.
-- [Feature] **Make conversation Tasks optional.** Tasks are off by default and can be enabled in General settings. Turning them off hides the task panel, notifications, and teammate task tools while preserving existing records and running executions.
-- [UI] **Adjust conversation file lists.** Teammate files use a compact single-column list aligned with diff cards. The entire row opens the file, and the list adapts to narrow windows.
-- [Interaction] **Use consistent web-link icons and actions.** Messages, composers, Single Chat, and Mission descriptions share the same link icon. Open or copy links while editing a Mission without interrupting the edit.
-- [Fix] **Recover Web submissions blocked by an unresolved earlier request.** Keep the page and drafts during disconnection and provide a “Reconnect and retry” action. Recovery checks the original result before retrying unfinished work to avoid duplicate submissions.
-- [Fix] **Correct completion handling for some runtimes.** A run that has sent its reply successfully and finished its tool operations is no longer reported as failed solely because its native final text is empty. Actual errors and cancellation remain visible.
-- [Optimization] **Remove redundant Single Chat context.** Send fewer repeated fixed instructions on each turn without rewriting existing conversation records or historical inputs.
+- [Feature] **Share environment variables between teammates using the same agent.** Save common settings in the agent's startup settings. Teammates can inherit them or use independent settings, override matching names, and inspect the merged result. Changes apply when a new process starts without interrupting running tasks.
+- [Interaction] **Enter environment variables more easily.** Values can be strings, numbers, or booleans and are converted to strings when saved. The editor displays values directly and shows a short JSON example for empty settings. Failed saves preserve the original draft.
+- [Feature] **Recall previous input in public conversations and direct chats.** Press the up arrow at the start of the input to browse inputs from loaded messages, edit them, and send again. Press Esc or move down past the newest entry to restore the original draft and cursor position.
+- [Feature] **Read related messages in reply details.** Click a message's reply block to read its reply chain and inspect related executions. Resize the pane, switch to full reading, copy messages, or return to their original locations without losing the current input draft.
+- [Feature] **Turn long text pastes into attachments.** A single plain-text paste exceeding 10,000 characters in a Desktop public conversation becomes a complete `.txt` attachment, with the beginning of its contents shown on the card. Windows path handling has been corrected, including attachment preview, recovery after restarting, and removal.
+- [Feature] **Follow the system interface language.** Desktop uses the local device's language and Web uses the browser's language to select Simplified Chinese or English, with manual selection still available. Switching does not reload the page, clear drafts, or interrupt executions.
+- [Feature] **Show reminders for interrupted executions.** A conversation's sidebar entry displays a reminder dot when an execution is interrupted by an App exit or a confirmed execution loss. Opening and viewing the conversation acknowledges the reminder; it can also be marked as read manually.
+- [UI] **Adjust settings navigation and conversation presentation.** Move Agents to the first item in the Capabilities settings group. Distinguish project and conversation names with updated header typography. User attachment cards are more compact, while teammate file lists retain their existing width.
+- [Interaction] **Make conversation panel dismissal consistent.** Direct chat, execution, teammate, and task panels use consistent collapse buttons and Esc hints. Fix collapse buttons becoming unclickable in execution and teammate panels after opening reply details.
+- [Interaction] **Remove repeated action notices.** Remove redundant success notices for copying, withdrawing messages, managing teammates, scheduled tasks, and converting long pastes. Execution source navigation uses the existing return-to-latest button.
+- [Fix] **Accept valid attachment filenames that were previously rejected.** Preserve display names containing characters such as colons in timestamps instead of rejecting or rewriting them.
 
-Thanks to [@liangxyz](https://github.com/liangxyz) for continuing to provide Web issue reproduction details in [#779](https://github.com/murray17/rovai-ai/issues/779), and to the user who first reported submissions getting stuck after stopping the Server.
-
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.12...v0.4.13)
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.15...v0.4.16)

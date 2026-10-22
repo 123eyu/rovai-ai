@@ -339,3 +339,30 @@ Desktop 三行补丁 digest 为 `79f6bc4ebd57668c1b8bc449f2dbd741fa9b11033c0ac15
 同目录 `launch.json`、`plan.json`、`run-acceptance.mjs`、`results.json`、`evidence-summary.json`、
 `public-thread-evidence.json`、阶段测试日志、桥接回归及最终截图保存可复核证据。
 正式展示为团队「三 Runtime 协作验收」、会话「三 Runtime · 实现—复核—验收」。
+
+
+## V10 收口与 main 整合（2026-10-22）
+
+User 在 Thread sequence 62 选择 V10，明确要求实施、PR 合入 main、安装本机 App。
+整合基线为 main `69f4741c84684b43aced1e94e9cbc4c67424a878`。沿用全部已确认的 Team/Custom
+与创建状态修复，V10 只调整指引框、名册边框、行反馈和窄屏操作换行，左侧列表保持原式样。
+没有引入 V11 的列表和背景改版。生产组件预览覆盖日/夜、6/12 人与 390px 英文窄屏，后者无横向溢出。
+
+主线 Migration 209–212 已被通知、通用环境和 Web 长粘贴使用，Team 顺延为 **213 / schema 163**。
+现有 Bootstrap DDL owner 原地增加 Team 迁移收据失败回滚与 schema 162 来源准入；不新增测试 owner
+或数据库夹具。旧 Single Chat/通知升级 helper 按主线顺序补齐 Web 长粘贴与 Team 的尾部迁移。
+General Preferences 升为 **schema 7**，保留主线 schema 6 的跟随系统语言；旧配置仍作为 Custom，
+不自动生成 Team。既有偏好 owner 验证 schema 5/6 语言、Team-only 默认配置与精确 schema。
+保留主线 Charter revision 25，只叠加已确认的 R1 Team Guidance；Binding 与动态上下文规则不变。
+
+本轮验证：TypeScript 检查、Desktop/Web/Execution Web 构建、真实 contextBridge 通过；4 项生产
+Electron 集成通过，其中 Team 为 20 组受控 Promise 场景，另保留主线 Runtime 通用环境离页保护。
+`pnpm test` 首次出现一个旧语言 schema 夹具错误和四个并发超时；夹具去除新 Team 字段后，
+按同一测试链将 Vitest worker 限为 2，252 文件 / 2870 项通过，2 项既有跳过；后续 Node 357 通过、2 跳过。
+文档和 Skill 门禁均通过。Rust 默认 workspace 474 项通过、1 项既有忽略。
+定向 Rust 12 项通过：Team 事务、当前准入/结构、Bootstrap 与历史证据、schema 162→163 回滚/升级、
+Web 长粘贴/通用环境/通知迁移链、首次绑定及 Single Chat 省略规则；已先列出非零 owner。
+`cargo fmt --all --check`、以固定 main SHA 执行的 `docs:check:ci` 均通过。
+
+完整上下文 Gate 保留之前的 **degraded**，本轮没有重跑模型评测，也不将 UI、单元或迁移验证
+写成语义 Gate 通过。用户本轮明确交付指令是此次合并与本机安装依据。

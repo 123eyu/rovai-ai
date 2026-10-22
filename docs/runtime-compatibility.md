@@ -1,10 +1,28 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-18
+last_updated: 2026-10-20
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-20 ZCode 与 OpenCode V2 原生问卷禁用
+
+macOS arm64、ZCode App **3.14.5** / 内核 **0.16.9** 的 create/resume `toolDenylist`，
+以及 OpenCode **2.0.26** 的全局/build/plan `question / * / deny` 已接入正式路径。
+生产 Core 各三轮新建、后继输入、重启恢复中，模型工具集合不含问卷，普通 Shell、文件和公开发送保留，
+每组维持同一原生会话。ZCode 后继输入实际重建 Host，OpenCode 后继输入复用 Host。
+这是实际内核加本地脚本化 Provider 的协议验证，不扩大平台或外部模型资格；
+旧版本及自定义 Agent 未实测，OpenCode V1 保持原状。详见
+[本轮验证记录](versions/v1.72/native-questionnaire-verification.md#zcodeopencode-v2-禁用增量2026-10-20)。
+
+## 2026-10-20 Qwen 原生问卷禁用
+
+macOS arm64、Qwen **0.25.0** 的 ACP 实测确认 `--exclude-tools=ask_user_question` 从模型工具集合
+移除问卷，普通 Shell 和原生 Session 恢复保留。正式 Core 的新建、后继原生恢复与 Core 重启恢复均通过；
+Kimi **2.1.1** 的 Skip/取消不终止原生整轮执行，Rovai 的未承接问卷失败规则保持。
+这是本地脚本化 Provider 配合真实 CLI 的协议验证，不扩大外部模型或跨平台资格。
+范围、启动 wire 和证据见[本轮增量记录](versions/v1.72/native-questionnaire-verification.md#qwen-启动禁用增量2026-10-20)。
 
 ## 2026-10-18 MiniMax Code Linux x64 准入
 
@@ -1260,9 +1278,10 @@ External MCP Library、Assignment 与 Runtime-native Projection 保持独立。v
 
 2026-08-25 起，macOS arm64、macOS x64、Windows x64 共用 `grok >= 1.0.0` 最低版本门；这只统一 Runtime
 版本合同，不合并三个平台的 qualification evidence。低版本或不可解析版本在 light discovery 中为
-`light_failed / runtime_version_below_minimum`；Deep Probe 和 machine Ready 必须观察
-`initialize.agentCapabilities.sessionCapabilities.resume` 对象，并对刚创建的 exact Session ID 成功执行一次无
-Prompt 的 `session/resume`。只广告但实际拒绝该方法时不得判 Ready。
+`light_failed / runtime_version_below_minimum`。2026-10-19 起，普通检查按
+[Runtime Launch v64](contracts/runtime-launch-and-verification-v64.md#单项检查的必要工作)只验证必要认证、
+初始化、空会话和当前模型，不再演练 `session/resume` 或重复 `session/set_model`；正式恢复仍实际验证。
+以下原生恢复实测保留为当时版本的证据，不作为每次普通检查必须重做的步骤。
 
 Grok continuation 为 compatible same-host Session → exact `session/resume` → 一次 continuity-lost replacement
 `session/new`。Grok 不再声明或选择 `session.load`，`0.2.118` HistoryRestore fallback 已删除；TRAE、Kimi 等

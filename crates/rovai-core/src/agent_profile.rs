@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-#[cfg(unix)]
+#[cfg(all(test, unix, feature = "slow-tests"))]
 use std::os::unix::fs::PermissionsExt;
 
 use anyhow::{Context, Result};
@@ -604,7 +604,9 @@ pub fn runtime_model_catalog_cache_view(
     runtime_model_catalog_cache_view_at(
         adapter_kind,
         snapshot,
-        snapshot.and_then(|snapshot| snapshot.last_successful_probe_at.as_deref()),
+        (adapter_kind != AdapterKind::MinimaxCodeCli)
+            .then(|| snapshot.and_then(|snapshot| snapshot.last_successful_probe_at.as_deref()))
+            .flatten(),
         now,
     )
 }
@@ -1067,6 +1069,10 @@ pub struct RuntimeEntrypointLocatorIdentity {
 
 #[derive(Debug, Clone)]
 pub struct VerifiedManagedInstallation {
+    /// Whether this request read the complete model options (MiniMax catalog intent).
+    pub model_catalog_complete: bool,
+    /// Captured with the snapshot fingerprint before acquiring the database lock.
+    pub executable_file_identity: Option<ExecutableFileIdentity>,
     pub adapter_kind: AdapterKind,
     pub executable_path: String,
     pub command_name: String,
@@ -1098,18 +1104,88 @@ impl VerifiedDiscoveredRuntimeEntry {
     pub fn executable_file_identity(&self) -> &ExecutableFileIdentity {
         &self.identity
     }
+
+    pub fn entry(&self) -> &DiscoveredRuntimeEntry {
+        &self.entry
+    }
+
+    pub fn is_current(&self) -> bool {
+        crate::agent_runtime_adapter::observe_executable_file_identity(Path::new(
+            &self.entry.executable_path,
+        ))
+        .is_ok_and(|identity| identity == self.identity)
+            && crate::runtime_discovery::entrypoint_locator_identity_is_current(
+                self.entry.entrypoint_locator_identity.as_ref(),
+            )
+    }
+
+    /// Static discovery performs one stable read, or reuses the identity already
+    /// persisted for this exact path. No health evidence is produced.
+    pub fn discover(
+        adapter_kind: AdapterKind,
+        executable_path: String,
+        source: InstallationSource,
+        entrypoint_locator_identity: Option<RuntimeEntrypointLocatorIdentity>,
+        previous: Option<(&str, &ExecutableFileIdentity)>,
+    ) -> Result<Self> {
+        use crate::agent_runtime_adapter::{
+            executable_fingerprint, observe_executable_file_identity,
+        };
+        let path = Path::new(&executable_path);
+        let before = observe_executable_file_identity(path)?;
+        // Windows command shims retain their full dependency verification.
+        let reusable = !path.extension().is_some_and(|extension| {
+            cfg!(windows)
+                && matches!(
+                    extension.to_str().map(str::to_ascii_lowercase).as_deref(),
+                    Some("cmd" | "bat")
+                )
+        });
+        let fingerprint = match previous.filter(|(_, identity)| reusable && *identity == &before) {
+            Some((fingerprint, _)) => fingerprint.to_owned(),
+            None => executable_fingerprint(path)?,
+        };
+        let after = observe_executable_file_identity(path)?;
+        anyhow::ensure!(
+            before == after,
+            "Runtime entry changed during installation discovery"
+        );
+        anyhow::ensure!(
+            crate::runtime_discovery::entrypoint_locator_identity_is_current(
+                entrypoint_locator_identity.as_ref()
+            ),
+            "Runtime entrypoint locator changed during installation discovery"
+        );
+        Ok(Self {
+            entry: DiscoveredRuntimeEntry {
+                adapter_kind,
+                executable_path,
+                source,
+                executable_fingerprint: fingerprint,
+                entrypoint_locator_identity,
+            },
+            identity: after,
+        })
+    }
 }
 
 impl DiscoveredRuntimeEntry {
-    /// Reads the executable and entrypoint dependencies. Async callers must run
-    /// this in a blocking worker before acquiring the database lock.
-    pub fn verify(self) -> Result<VerifiedDiscoveredRuntimeEntry> {
+    /// Rechecks the executable and entrypoint dependencies. The supplied identity
+    /// must have been verified together with this entry's fingerprint. Async callers
+    /// must run this in a blocking worker before acquiring the database lock.
+    pub fn verify(
+        self,
+        verified_identity: Option<&ExecutableFileIdentity>,
+    ) -> Result<VerifiedDiscoveredRuntimeEntry> {
         validate_installation(&self.executable_path, "default")?;
         let identity = match crate::agent_runtime_adapter::verify_executable_integrity(
             Path::new(&self.executable_path),
-            None,
+            verified_identity,
             &self.executable_fingerprint,
         )? {
+            crate::agent_runtime_adapter::ExecutableIntegrityStatus::Unchanged => verified_identity
+                .context("unchanged Runtime entry requires its verified identity")?
+                .clone(),
             crate::agent_runtime_adapter::ExecutableIntegrityStatus::Reverified(identity) => {
                 identity
             }
@@ -1130,6 +1206,8 @@ impl DiscoveredRuntimeEntry {
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredManagedInstallation {
+    /// Captured with the snapshot fingerprint before acquiring the database lock.
+    pub executable_file_identity: Option<ExecutableFileIdentity>,
     pub adapter_kind: AdapterKind,
     pub executable_path: String,
     pub command_name: String,
@@ -1361,12 +1439,15 @@ impl AgentProfileService {
                        attempt.diagnostic_code, attempt.candidate_path,
                        attempt.executable_fingerprint, attempt.attempted_at,
                        attempt.retry_after, attempt.public_runtime_failure_json,
-                       COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at),
-                       (SELECT executable_fingerprint FROM runtime_executable_identity
-                        WHERE installation_id = installation.id
-                          AND executable_path = installation.executable_path),
+                       CASE WHEN installation.adapter_kind = 'minimax-code-cli'
+                            THEN snapshot.model_catalog_succeeded_at
+                            ELSE COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at) END,
+                       identity.executable_fingerprint,
                        (SELECT generation FROM runtime_search_environment_state WHERE singleton = 1)
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN adapter_probe_attempt AS attempt
@@ -1375,7 +1456,7 @@ impl AgentProfileService {
                       FROM adapter_probe_attempt AS candidate
                       WHERE candidate.installation_id = installation.id
                         AND candidate.executable_fingerprint
-                            IS snapshot.executable_fingerprint
+                            IS COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint)
                       ORDER BY candidate.attempted_at DESC, candidate.id DESC
                       LIMIT 1
                   )
@@ -1432,7 +1513,7 @@ impl AgentProfileService {
         Ok(database.connection_mut().execute(
             r#"
             UPDATE adapter_installation
-            SET path_state = 'path_missing', updated_at = ?6
+            SET path_state = 'path_missing', version = version + 1, updated_at = ?6
             WHERE id = ?1
               AND adapter_kind = ?2
               AND auth_scope = ?3
@@ -1463,34 +1544,48 @@ impl AgentProfileService {
         executable_path: &str,
         executable_fingerprint: &str,
     ) -> Result<Option<ExecutableFileIdentity>> {
+        Ok(self
+            .recorded_executable_identity(database, installation_id, executable_path)?
+            .filter(|(fingerprint, _)| fingerprint == executable_fingerprint)
+            .map(|(_, identity)| identity))
+    }
+
+    pub fn recorded_executable_identity(
+        &self,
+        database: &Database,
+        installation_id: &str,
+        executable_path: &str,
+    ) -> Result<Option<(String, ExecutableFileIdentity)>> {
         database
             .connection()
             .query_row(
                 r#"
                 SELECT identity.byte_size, identity.modified_at_unix_nanos,
-                       identity.file_id
+                       identity.file_id, identity.executable_fingerprint
                 FROM runtime_executable_identity AS identity
                 JOIN adapter_installation AS installation
                   ON installation.id = identity.installation_id
                 WHERE identity.installation_id = ?1
                   AND identity.executable_path = ?2
-                  AND identity.executable_fingerprint = ?3
                   AND installation.executable_path = ?2
                 "#,
-                params![installation_id, executable_path, executable_fingerprint],
+                params![installation_id, executable_path],
                 |row| {
                     let byte_size = row.get::<_, i64>(0)?;
-                    Ok(ExecutableFileIdentity {
-                        byte_size: u64::try_from(byte_size).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                0,
-                                rusqlite::types::Type::Integer,
-                                Box::new(error),
-                            )
-                        })?,
-                        modified_at_unix_nanos: row.get(1)?,
-                        file_id: row.get(2)?,
-                    })
+                    Ok((
+                        row.get(3)?,
+                        ExecutableFileIdentity {
+                            byte_size: u64::try_from(byte_size).map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    0,
+                                    rusqlite::types::Type::Integer,
+                                    Box::new(error),
+                                )
+                            })?,
+                            modified_at_unix_nanos: row.get(1)?,
+                            file_id: row.get(2)?,
+                        },
+                    ))
                 },
             )
             .optional()
@@ -1749,7 +1844,7 @@ impl AgentProfileService {
     pub fn commit_verified_managed_installation(
         &self,
         database: &mut Database,
-        verified: VerifiedManagedInstallation,
+        mut verified: VerifiedManagedInstallation,
     ) -> Result<String> {
         validate_installation(&verified.executable_path, &verified.auth_scope)?;
         validate_command_name(&verified.command_name)?;
@@ -1772,21 +1867,25 @@ impl AgentProfileService {
             .entrypoint_locator_identity
             .as_ref()
             .map(|identity| identity.compatibility_fingerprint.as_str());
-        let executable_identity =
-            observe_executable_file_identity(Path::new(&verified.executable_path)).ok();
+        let executable_identity = verified.executable_file_identity;
         if verified.adapter_kind == AdapterKind::TraeCnCli && executable_identity.is_none() {
             anyhow::bail!("TRAE machine Ready requires the current executable identity");
         }
 
         let transaction = database.connection_mut().transaction()?;
+        // Static discovery may already have recorded an upgrade while the old
+        // health snapshot remains stale. Only the current installation advances.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
                        installation.generation, installation.version,
-                       snapshot.executable_fingerprint,
+                       COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint),
                        locator.compatibility_fingerprint
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN runtime_entrypoint_locator_identity AS locator
@@ -1809,17 +1908,26 @@ impl AgentProfileService {
             )
             .optional()?;
         let now = chrono::Utc::now().to_rfc3339();
-        let (installation_id, previous_path, previous_fingerprint, identity_changed) =
-            if let Some((id, path, _generation, _version, fingerprint, locator_fingerprint)) =
-                existing
-            {
-                let identity_changed = path != verified.executable_path
-                    || fingerprint != verified.snapshot.executable_fingerprint;
-                let compatibility_changed =
-                    identity_changed || locator_fingerprint.as_deref() != next_locator_fingerprint;
-                if compatibility_changed {
+        let (installation_id, previous_path, previous_fingerprint, identity_changed) = if let Some(
+            (id, path, _generation, _version, fingerprint, locator_fingerprint),
+        ) =
+            existing
+        {
+            let identity_changed = path != verified.executable_path
+                || fingerprint != verified.snapshot.executable_fingerprint;
+            let compatibility_changed =
+                identity_changed || locator_fingerprint.as_deref() != next_locator_fingerprint;
+            if compatibility_changed {
+                if verified.adapter_kind == AdapterKind::MinimaxCodeCli
+                    && !verified.model_catalog_complete
+                {
                     transaction.execute(
-                        r#"
+                        "UPDATE adapter_capability_snapshot SET stale_at = ?2 WHERE installation_id = ?1",
+                        params![id, now],
+                    )?;
+                }
+                transaction.execute(
+                    r#"
                         UPDATE adapter_installation
                         SET executable_path = ?2, command_name = ?3, source = ?4,
                             enabled = 1, path_state = 'valid',
@@ -1827,29 +1935,31 @@ impl AgentProfileService {
                             version = version + 1, updated_at = ?5
                         WHERE id = ?1
                         "#,
-                        params![
-                            id,
-                            verified.executable_path,
-                            verified.command_name,
-                            verified.source.as_str(),
-                            now,
-                        ],
-                    )?;
-                } else {
-                    transaction.execute(
-                        r#"
-                        UPDATE adapter_installation
-                        SET enabled = 1, path_state = 'valid', updated_at = ?2
-                        WHERE id = ?1
-                        "#,
-                        params![id, now],
-                    )?;
-                }
-                (id, path, fingerprint, identity_changed)
+                    params![
+                        id,
+                        verified.executable_path,
+                        verified.command_name,
+                        verified.source.as_str(),
+                        now,
+                    ],
+                )?;
             } else {
-                let id = format!("adapter-installation-{}", Uuid::new_v4());
                 transaction.execute(
                     r#"
+                        UPDATE adapter_installation
+                        SET enabled = 1, path_state = 'valid',
+                            version = version + CASE WHEN path_state <> 'valid' THEN 1 ELSE 0 END,
+                            updated_at = ?2
+                        WHERE id = ?1
+                        "#,
+                    params![id, now],
+                )?;
+            }
+            (id, path, fingerprint, identity_changed)
+        } else {
+            let id = format!("adapter-installation-{}", Uuid::new_v4());
+            transaction.execute(
+                r#"
                     INSERT INTO adapter_installation(
                         id, adapter_kind, executable_path, command_name,
                         installation_class, source, auth_scope, enabled,
@@ -1859,20 +1969,27 @@ impl AgentProfileService {
                         1, 'valid', 1, ?7, ?7
                     )
                     "#,
-                    params![
-                        id,
-                        verified.adapter_kind.as_str(),
-                        verified.executable_path,
-                        verified.command_name,
-                        verified.source.as_str(),
-                        verified.auth_scope,
-                        now,
-                    ],
-                )?;
-                (id, String::new(), None, false)
-            };
+                params![
+                    id,
+                    verified.adapter_kind.as_str(),
+                    verified.executable_path,
+                    verified.command_name,
+                    verified.source.as_str(),
+                    verified.auth_scope,
+                    now,
+                ],
+            )?;
+            (id, String::new(), None, false)
+        };
 
-        upsert_successful_capability_snapshot(&transaction, &installation_id, &verified.snapshot)?;
+        verified.snapshot.models =
+            merge_persisted_dsh_options(&transaction, &installation_id, &verified.snapshot.models)?;
+        upsert_successful_capability_snapshot(
+            &transaction,
+            &installation_id,
+            &verified.snapshot,
+            verified.adapter_kind != AdapterKind::MinimaxCodeCli || verified.model_catalog_complete,
+        )?;
         if let (Some(identity), Some(fingerprint)) = (
             executable_identity.as_ref(),
             verified.snapshot.executable_fingerprint.as_deref(),
@@ -2127,7 +2244,9 @@ impl AgentProfileService {
                         .map(|value| value.compatibility_fingerprint.as_str());
             transaction.execute(
                 "UPDATE adapter_installation SET executable_path = ?2, path_state = 'valid',
-                    generation = generation + ?3, version = version + ?3, updated_at = ?4 WHERE id = ?1",
+                    generation = generation + ?3,
+                    version = version + CASE WHEN path_state <> 'valid' OR ?3 = 1 THEN 1 ELSE 0 END,
+                    updated_at = ?4 WHERE id = ?1",
                 params![id, entry.executable_path, i64::from(changed), now],
             )?;
             if changed {
@@ -2199,31 +2318,31 @@ impl AgentProfileService {
             .entrypoint_locator_identity
             .as_ref()
             .map(|identity| identity.compatibility_fingerprint.as_str());
-        #[cfg(unix)]
-        let executable_is_usable = std::fs::metadata(&discovered.executable_path)
-            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0);
-        #[cfg(windows)]
-        let executable_is_usable =
-            observe_executable_file_identity(Path::new(&discovered.executable_path)).is_ok();
-        #[cfg(not(any(unix, windows)))]
-        let executable_is_usable = false;
-        let executable_identity =
-            observe_executable_file_identity(Path::new(&discovered.executable_path)).ok();
+        let executable_identity = discovered.executable_file_identity;
+        let executable_is_usable = executable_identity.is_some();
 
         let transaction = database.connection_mut().transaction()?;
+        // Installation changes and preservation of health evidence have separate
+        // fingerprints: static discovery can advance only the former.
         let existing = transaction
             .query_row(
                 r#"
                 SELECT installation.id, installation.executable_path,
-                       snapshot.executable_fingerprint, snapshot.probe_status,
+                       COALESCE(identity.executable_fingerprint, snapshot.executable_fingerprint), snapshot.probe_status,
                        snapshot.permission_schema_version,
                        snapshot.permission_schema_digest,
                        snapshot.permission_options_json,
                        snapshot.model_catalog_json,
                        snapshot.last_successful_probe_at,
                        locator.compatibility_fingerprint,
-                       COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at)
+                       CASE WHEN installation.adapter_kind = 'minimax-code-cli'
+                            THEN snapshot.model_catalog_succeeded_at
+                            ELSE COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at) END,
+                       snapshot.executable_fingerprint
                 FROM adapter_installation AS installation
+                LEFT JOIN runtime_executable_identity AS identity
+                  ON identity.installation_id = installation.id
+                 AND identity.executable_path = installation.executable_path
                 LEFT JOIN adapter_capability_snapshot AS snapshot
                   ON snapshot.installation_id = installation.id
                 LEFT JOIN runtime_entrypoint_locator_identity AS locator
@@ -2246,6 +2365,7 @@ impl AgentProfileService {
                         row.get::<_, Option<String>>(8)?,
                         row.get::<_, Option<String>>(9)?,
                         row.get::<_, Option<String>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
                     ))
                 },
             )
@@ -2272,12 +2392,15 @@ impl AgentProfileService {
             last_successful_probe_at,
             locator_fingerprint,
             catalog_succeeded_at,
+            snapshot_fingerprint,
         )) = existing
         {
             let identity_changed =
                 path != discovered.executable_path || fingerprint.as_deref() != next_fingerprint;
             let compatibility_changed =
                 identity_changed || locator_fingerprint.as_deref() != next_locator_fingerprint;
+            let snapshot_compatibility_changed =
+                compatibility_changed || snapshot_fingerprint.as_deref() != next_fingerprint;
             transaction.execute(
                 if compatibility_changed {
                     r#"
@@ -2292,7 +2415,9 @@ impl AgentProfileService {
                     r#"
                     UPDATE adapter_installation
                     SET command_name = ?3, source = ?4, enabled = 1,
-                        path_state = 'valid', updated_at = ?5
+                        path_state = 'valid',
+                        version = version + CASE WHEN path_state <> 'valid' THEN 1 ELSE 0 END,
+                        updated_at = ?5
                     WHERE id = ?1
                     "#
                 },
@@ -2324,13 +2449,13 @@ impl AgentProfileService {
                     }
                     _ => false,
                 };
-            let preserve_existing = !compatibility_changed
+            let preserve_existing = !snapshot_compatibility_changed
                 && (schema_matches || normalize_legacy_trae_schema)
                 && (probe_status.as_deref() == Some("ready")
                     || (probe_status.as_deref() == Some("light_ready")
                         && discovered.snapshot.probe_status == "light_failed"
                         && executable_is_usable));
-            let retained_lkg = compatibility_changed
+            let retained_lkg = snapshot_compatibility_changed
                 .then(|| {
                     let models_json = model_catalog_json?;
                     let last_successful_probe_at = last_successful_probe_at?;
@@ -2541,7 +2666,9 @@ impl AgentProfileService {
             transaction.execute(
                 r#"
                 UPDATE adapter_installation
-                SET path_state = 'path_missing', updated_at = ?2
+                SET path_state = 'path_missing',
+                    version = version + CASE WHEN path_state <> 'path_missing' THEN 1 ELSE 0 END,
+                    updated_at = ?2
                 WHERE id = ?1
                 "#,
                 params![installation_id, attempted_at],
@@ -3636,60 +3763,11 @@ impl AgentProfileService {
                 envelope.payload.failure.as_ref(),
             )?;
             if successful {
-                transaction.execute(
-                    r#"
-                    INSERT INTO adapter_capability_snapshot(
-                        installation_id, reported_version, executable_fingerprint,
-                        authentication_status, probe_status, permission_schema_version,
-                        permission_schema_digest,
-                        capabilities_json, protocols_json, model_catalog_json,
-                        permission_options_json, observed_at, last_attempted_at,
-                        last_successful_probe_at, stale_at, last_error,
-                        native_session_compatibility_key
-                    ) VALUES (
-                        ?1, ?2, ?3, ?4, 'ready', ?5, ?6, ?7, ?8, ?9,
-                        ?10, ?11, ?12, ?12, NULL, NULL, ?13
-                    )
-                    ON CONFLICT(installation_id) DO UPDATE SET
-                        reported_version = COALESCE(NULLIF(TRIM(excluded.reported_version), ''),
-                            CASE WHEN NULLIF(excluded.executable_fingerprint, '') = adapter_capability_snapshot.executable_fingerprint
-                                THEN adapter_capability_snapshot.reported_version END),
-                        executable_fingerprint = excluded.executable_fingerprint,
-                        authentication_status = excluded.authentication_status,
-                        probe_status = 'ready',
-                        permission_schema_version = excluded.permission_schema_version,
-                        permission_schema_digest = excluded.permission_schema_digest,
-                        capabilities_json = excluded.capabilities_json,
-                        protocols_json = excluded.protocols_json,
-                        model_catalog_json = excluded.model_catalog_json,
-                        permission_options_json = excluded.permission_options_json,
-                        observed_at = excluded.observed_at,
-                        last_attempted_at = excluded.last_attempted_at,
-                        last_successful_probe_at = excluded.last_successful_probe_at,
-                        stale_at = NULL,
-                        last_error = NULL,
-                        native_session_compatibility_key =
-                            excluded.native_session_compatibility_key
-                    "#,
-                    params![
-                        envelope.payload.installation_id,
-                        snapshot.reported_version,
-                        snapshot.executable_fingerprint,
-                        snapshot.authentication_status,
-                        snapshot.permission_schema_version,
-                        snapshot.permission_schema_digest,
-                        serde_json::to_string(&snapshot.capabilities)?,
-                        serde_json::to_string(&snapshot.protocols)?,
-                        serde_json::to_string(&snapshot.models)?,
-                        serde_json::to_string(&snapshot.permission_options)?,
-                        snapshot.observed_at,
-                        snapshot.last_attempted_at,
-                        snapshot.native_session_compatibility_key,
-                    ],
-                )?;
-                transaction.execute(
-                    "UPDATE adapter_capability_snapshot SET model_catalog_succeeded_at = ?2 WHERE installation_id = ?1",
-                    params![envelope.payload.installation_id, snapshot.last_attempted_at],
+                upsert_successful_capability_snapshot(
+                    transaction,
+                    &envelope.payload.installation_id,
+                    snapshot,
+                    adapter_kind != AdapterKind::MinimaxCodeCli,
                 )?;
                 if let (Some((executable_path, identity)), Some(executable_fingerprint)) = (
                     executable_identity.as_ref(),
@@ -4060,11 +4138,40 @@ fn upsert_successful_capability_snapshot(
     transaction: &Transaction<'_>,
     installation_id: &str,
     snapshot: &AdapterCapabilitySnapshot,
+    catalog_complete: bool,
 ) -> Result<()> {
     if snapshot.probe_status != "ready" {
         anyhow::bail!("only a successful probe can replace the capability snapshot");
     }
-    let models = merge_persisted_dsh_options(transaction, installation_id, &snapshot.models)?;
+    // Health and a complete MiniMax options catalog have separate success times.
+    // Preserve a complete catalog only inside its existing identity/config scope.
+    let retained_catalog = if catalog_complete {
+        None
+    } else {
+        transaction
+            .query_row(
+                "SELECT model_catalog_json, model_catalog_succeeded_at
+             FROM adapter_capability_snapshot WHERE installation_id = ?1
+               AND stale_at IS NULL AND executable_fingerprint = ?2
+               AND permission_schema_digest = ?3 AND model_catalog_succeeded_at IS NOT NULL",
+                params![
+                    installation_id,
+                    snapshot.executable_fingerprint,
+                    snapshot.permission_schema_digest
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+    };
+    let models = match &retained_catalog {
+        Some((models, _)) => serde_json::from_str(models)?,
+        None => snapshot.models.clone(),
+    };
+    let catalog_succeeded_at = if catalog_complete {
+        Some(snapshot.last_attempted_at.as_str())
+    } else {
+        retained_catalog.as_ref().map(|(_, time)| time.as_str())
+    };
     transaction.execute(
         r#"
         INSERT INTO adapter_capability_snapshot(
@@ -4118,7 +4225,7 @@ fn upsert_successful_capability_snapshot(
     )?;
     transaction.execute(
         "UPDATE adapter_capability_snapshot SET model_catalog_succeeded_at = ?2 WHERE installation_id = ?1",
-        params![installation_id, snapshot.last_attempted_at],
+        params![installation_id, catalog_succeeded_at],
     )?;
     Ok(())
 }
@@ -6264,6 +6371,12 @@ mod slow_tests {
         b.runtime_metadata.as_mut().unwrap()["dshOptionsObservedAt"] = Value::Null;
         snapshot.models = vec![a.clone(), b.clone()];
         let verified = |snapshot| VerifiedManagedInstallation {
+            model_catalog_complete: true,
+            executable_file_identity:
+                crate::agent_runtime_adapter::observe_executable_file_identity(
+                    std::path::Path::new(&(executable.to_string_lossy().into_owned())),
+                )
+                .ok(),
             adapter_kind: AdapterKind::DeepseekHarness,
             executable_path: executable.to_string_lossy().into_owned(),
             command_name: "dsh".into(),
@@ -6495,6 +6608,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "codex".to_string(),
@@ -6534,6 +6653,11 @@ mod slow_tests {
             .commit_discovered_managed_installation(
                 &mut database,
                 DiscoveredManagedInstallation {
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "codex".to_string(),
@@ -6666,6 +6790,14 @@ mod slow_tests {
                 .commit_verified_managed_installation(
                     &mut database,
                     VerifiedManagedInstallation {
+                        model_catalog_complete: true,
+                        executable_file_identity:
+                            crate::agent_runtime_adapter::observe_executable_file_identity(
+                                std::path::Path::new(
+                                    &(executable_path.to_string_lossy().into_owned()),
+                                ),
+                            )
+                            .ok(),
                         adapter_kind: kind,
                         executable_path: executable_path.to_string_lossy().into_owned(),
                         command_name: "codex".to_string(),
@@ -6974,6 +7106,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().into_owned())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable_path.to_string_lossy().into_owned(),
                     command_name: "codex".to_string(),
@@ -7467,6 +7605,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().into_owned())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable_path.to_string_lossy().into_owned(),
                     command_name: "codex".to_string(),
@@ -7773,6 +7917,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().into_owned())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable_path.to_string_lossy().into_owned(),
                     command_name: "codex".to_string(),
@@ -7898,7 +8048,7 @@ mod slow_tests {
             // later observation omits it, but never carry it to different bytes.
             for writer in ["command", "managed", "static"] {
                 let transaction = database.connection_mut().transaction().unwrap();
-                upsert_successful_capability_snapshot(&transaction, &installation_id, &ready)
+                upsert_successful_capability_snapshot(&transaction, &installation_id, &ready, true)
                     .unwrap();
                 transaction.commit().unwrap();
                 for changed_program in [false, true] {
@@ -7929,6 +8079,7 @@ mod slow_tests {
                                 &transaction,
                                 &installation_id,
                                 &next,
+                                true,
                             )
                             .unwrap();
                         } else {
@@ -7990,7 +8141,7 @@ mod slow_tests {
                     source: InstallationSource::InheritedPath,
                     entrypoint_locator_identity: None,
                 }
-                .verify()
+                .verify(None)
                 .is_err(),
                 "a newer file identity cannot certify an older content fingerprint"
             );
@@ -8005,7 +8156,7 @@ mod slow_tests {
                         source: InstallationSource::InheritedPath,
                         entrypoint_locator_identity: None,
                     }
-                    .verify()
+                    .verify(None)
                     .unwrap(),
                     None,
                 )
@@ -8408,6 +8559,12 @@ mod slow_tests {
                     .commit_verified_managed_installation(
                         &mut database,
                         VerifiedManagedInstallation {
+                            model_catalog_complete: true,
+                            executable_file_identity:
+                                crate::agent_runtime_adapter::observe_executable_file_identity(
+                                    std::path::Path::new(&(frozen.executable_path.clone())),
+                                )
+                                .ok(),
                             adapter_kind: kind,
                             executable_path: frozen.executable_path.clone(),
                             command_name: kind.command_name().into(),
@@ -8431,7 +8588,7 @@ mod slow_tests {
                             source: InstallationSource::InheritedPath,
                             entrypoint_locator_identity: None,
                         }
-                        .verify()
+                        .verify(None)
                         .unwrap(),
                         Some(&frozen.installation_id),
                     )
@@ -8552,6 +8709,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(original_path.to_string_lossy().into_owned())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: original_path.to_string_lossy().into_owned(),
                     command_name: "codex".to_string(),
@@ -8665,6 +8828,14 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(
+                                &(replacement_path.to_string_lossy().into_owned()),
+                            ),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: replacement_path.to_string_lossy().into_owned(),
                     command_name: "codex".to_string(),
@@ -8769,6 +8940,11 @@ mod slow_tests {
             .commit_discovered_managed_installation(
                 &mut database,
                 DiscoveredManagedInstallation {
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::QwenCode,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "qwen".to_string(),
@@ -8803,6 +8979,11 @@ mod slow_tests {
             .commit_discovered_managed_installation(
                 &mut database,
                 DiscoveredManagedInstallation {
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::QwenCode,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "qwen".to_string(),
@@ -8955,6 +9136,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::KiroCli,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "kiro-cli".to_string(),
@@ -8988,6 +9175,11 @@ mod slow_tests {
             .commit_discovered_managed_installation(
                 &mut database,
                 DiscoveredManagedInstallation {
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::KiroCli,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "kiro-cli".to_string(),
@@ -9062,6 +9254,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::KiroCli,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "kiro-cli".to_string(),
@@ -9114,6 +9312,11 @@ mod slow_tests {
             .commit_discovered_managed_installation(
                 &mut database,
                 DiscoveredManagedInstallation {
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.to_string_lossy().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::QwenCode,
                     executable_path: executable_path.to_string_lossy().to_string(),
                     command_name: "qwen".to_string(),
@@ -9498,6 +9701,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable_path.clone())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable_path.clone(),
                     command_name: "codex".to_string(),
@@ -9569,6 +9778,10 @@ mod slow_tests {
             .commit_discovered_managed_installation(
                 &mut database,
                 DiscoveredManagedInstallation {
+                    executable_file_identity: observe_executable_file_identity(Path::new(
+                        &executable_path,
+                    ))
+                    .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path,
                     command_name: "codex".to_string(),

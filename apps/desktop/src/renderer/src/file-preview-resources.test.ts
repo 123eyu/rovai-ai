@@ -792,12 +792,159 @@ describe('automatic file refresh', () => {
       expect(active(a).content).toMatchObject({ text: 'latest' })
     })
 
+    it.each(['Desktop', 'Web'] as const)('skips unchanged %s HTML without discarding an in-flight source read', async platform => {
+      const { owner, api, update } = fixture({ htmlInstances: 1 })
+      const a = await open(owner, 'a', 'same.html'), first = active(a)
+      const source = deferred<Awaited<ReturnType<FilePreviewApi['readText']>>>()
+      vi.mocked(api.readText).mockReturnValueOnce(source.promise)
+      const reading = a.actions.loadHtmlSource(first.id)
+      if (platform === 'Desktop') first.file!.contentVersion.fileId = 'device:file'
+      const original = vi.mocked(api.reload).getMockImplementation()!
+      let duplicate!: ResolvedFilePreview
+      vi.mocked(api.reload).mockImplementation(async request => {
+        const result = await original(request)
+        if (result.ok) {
+          duplicate = result.value
+          duplicate.contentVersion = first.file!.contentVersion
+          if (platform === 'Web') duplicate.contentGeneration = first.file!.contentGeneration
+        }
+        return result
+      })
+      const reserve = vi.spyOn(owner, 'reserveHtml')
+      update('a', [first.previewKey!]); await advance(1000)
+      expect(active(a)).toMatchObject({ file: first.file, content: first.content, isRefreshing: false, hasExternalUpdate: false, refreshError: null })
+      expect(active(a).candidate).toBeUndefined()
+      expect(api.prepareHtmlSite).toHaveBeenCalledTimes(1)
+      expect(reserve).not.toHaveBeenCalled()
+      expect(api.release).toHaveBeenCalledWith({ handleId: duplicate.handleId })
+      expect(api.release).not.toHaveBeenCalledWith({ handleId: first.file!.handleId })
+      source.resolve(textResult('<p>original source</p>')); await reading
+      expect(active(a).htmlSource?.text).toBe('<p>original source</p>')
+      expect(api.readText).toHaveBeenCalledTimes(1)
+      expect(active(a).requestGeneration).toBe(first.requestGeneration)
+    })
+
+    it.each(['digest', 'file identity', 'preview key'] as const)('loads again when the %s differs despite equal size and mtime', async change => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      if (change === 'file identity') first.file!.contentVersion.fileId = 'old-file'
+      const original = vi.mocked(api.reload).getMockImplementation()!
+      vi.mocked(api.reload).mockImplementation(async request => {
+        const result = await original(request)
+        if (result.ok) {
+          result.value.contentVersion = { ...first.file!.contentVersion }
+          if (change === 'file identity') result.value.contentVersion.fileId = 'replacement-file'
+          if (change === 'preview key') {
+            result.value.contentGeneration = first.file!.contentGeneration
+            result.value.previewKey = 'another-file'
+          }
+        }
+        return result
+      })
+      vi.mocked(api.readText).mockResolvedValueOnce(textResult('changed body'))
+      update('a', [first.previewKey!]); await advance()
+      expect(api.readText).toHaveBeenCalledTimes(2)
+      expect(active(a).content).toMatchObject({ text: 'changed body' })
+    })
+
+    it.each(['manual', 'error', 'released handle'] as const)('fully loads the same version for %s recovery', async entry => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      const original = vi.mocked(api.reload).getMockImplementation()!
+      const sameVersion = (file: ResolvedFilePreview) => {
+        file.contentVersion = first.file!.contentVersion
+        file.contentGeneration = first.file!.contentGeneration
+        return file
+      }
+      vi.mocked(api.reload).mockImplementation(async request => {
+        const result = await original(request)
+        if (result.ok) sameVersion(result.value)
+        return result
+      })
+      if (entry === 'error') {
+        vi.mocked(api.reload).mockResolvedValueOnce({ ok: false, error: { code: 'read_failed', message: 'failed', retryable: true } })
+        update('a', [first.previewKey!]); await advance()
+        expect(active(a).refreshError).toBeTruthy()
+      } else if (entry === 'released handle') {
+        a.evict(first.id, true, true)
+        expect(active(a).file).toBeNull()
+        expect(active(a).content).toBe(first.content)
+        const restore = vi.mocked(api.restore).getMockImplementation()!
+        vi.mocked(api.restore).mockImplementation(async request => {
+          const result = await restore(request)
+          if (result.ok && result.value.kind === 'file_preview') sameVersion(result.value.file)
+          return result
+        })
+      }
+      vi.mocked(api.readText).mockResolvedValueOnce(textResult('reloaded body'))
+      if (entry === 'manual') await a.actions.reload(first.id)
+      else { a.actions.hidePane(); a.actions.showPane() }
+      await advance()
+      expect(api.readText).toHaveBeenCalledTimes(2)
+      expect(active(a)).toMatchObject({ content: { text: 'reloaded body' }, isRefreshing: false, refreshError: null })
+    })
+
+    it('keeps a new notification arriving during an unchanged candidate check', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a'), first = active(a)
+      const original = vi.mocked(api.reload).getMockImplementation()!
+      const result = await original({ handleId: first.file!.handleId, reopenToken: first.file!.reopenToken, expectedGeneration: first.file!.contentGeneration })
+      if (!result.ok) throw new Error('candidate expected')
+      result.value.contentVersion = first.file!.contentVersion
+      result.value.contentGeneration = first.file!.contentGeneration
+      const pending = deferred<typeof result>()
+      vi.mocked(api.reload).mockReturnValueOnce(pending.promise)
+      update('a', [first.previewKey!]); await advance()
+      update('a', [first.previewKey!])
+      pending.resolve(result); await advance(0)
+      expect(active(a).hasExternalUpdate).toBe(true)
+      expect(api.readText).toHaveBeenCalledTimes(1)
+      vi.mocked(api.readText).mockResolvedValueOnce(textResult('actual later change'))
+      await advance()
+      expect(api.reload).toHaveBeenCalledTimes(2)
+      expect(active(a)).toMatchObject({ content: { text: 'actual later change' }, hasExternalUpdate: false })
+    })
+
+    it('prepares a slow HTML version once despite repeated notifications', async () => {
+      const { owner, api, update } = fixture()
+      const a = await open(owner, 'a', 'page.html'), first = active(a)
+      const original = vi.mocked(api.reload).getMockImplementation()!
+      let fresh: ResolvedFilePreview | undefined
+      vi.mocked(api.reload).mockImplementation(async request => {
+        const result = await original(request)
+        if (result.ok) {
+          fresh ??= result.value
+          result.value.contentVersion = fresh.contentVersion
+          result.value.contentGeneration = fresh.contentGeneration
+        }
+        return result
+      })
+      update('a', [first.previewKey!]); await advance()
+      const candidate = active(a).candidate!
+      update('a', [first.previewKey!]); await advance(2300)
+      expect(api.reload).toHaveBeenCalledTimes(1)
+      a.actions.completeHtmlRefresh(first.id, candidate.file.handleId)
+      a.actions.displayed(first.id, candidate.file.handleId)
+      await advance(1000)
+      expect(api.reload).toHaveBeenCalledTimes(2)
+      expect(api.prepareHtmlSite).toHaveBeenCalledTimes(2) // Initial page + one new version.
+      expect(active(a)).toMatchObject({ file: candidate.file, isRefreshing: false, hasExternalUpdate: false })
+      expect(active(a).candidate).toBeUndefined()
+      expect(api.release).toHaveBeenCalledWith({ handleId: 'handle-3' })
+    })
+
     it('waits for HTML readiness and merges changes while the candidate is loading', async () => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a', 'page.html'), first = active(a)
+      const source = deferred<Awaited<ReturnType<FilePreviewApi['readText']>>>()
+      vi.mocked(api.readText).mockReturnValueOnce(source.promise)
+      const reading = a.actions.loadHtmlSource(first.id)
       update('a', [first.previewKey!]); await advance()
       const candidate = active(a).candidate!
       expect(active(a).content).toBe(first.content)
+      source.resolve(textResult('<p>old source</p>')); await reading
+      expect(active(a).htmlSource).toBeUndefined()
+      expect(active(a).requestGeneration).toBe(first.requestGeneration + 1)
       update('a', [first.previewKey!]); await advance(1000)
       expect(api.reload).toHaveBeenCalledTimes(1)
       a.actions.completeHtmlRefresh(first.id, candidate.file.handleId); await advance(0)
@@ -854,13 +1001,14 @@ describe('automatic file refresh', () => {
       expect(api.reload).not.toHaveBeenCalled()
     })
 
-    it.each(['close', 'cool', 'dispose'] as const)('releases a late candidate after %s', async action => {
+    it.each(['close', 'evict', 'cool', 'dispose'] as const)('releases a late candidate after %s', async action => {
       const { owner, api, update } = fixture()
       const a = await open(owner, 'a'), first = active(a)
       const candidate = deferred<Awaited<ReturnType<FilePreviewApi['reload']>>>()
       vi.mocked(api.reload).mockReturnValueOnce(candidate.promise)
       update('a', [first.previewKey!]); await advance()
       if (action === 'close') a.actions.close(first.id)
+      else if (action === 'evict') a.evict(first.id)
       else if (action === 'cool') a.cool()
       else owner.dispose()
       candidate.resolve({ ok: true, value: { ...first.file!, handleId: 'late' } })

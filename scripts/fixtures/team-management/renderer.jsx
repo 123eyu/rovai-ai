@@ -17,14 +17,14 @@ import { initializeInterfaceLanguage, uiAttribute } from '../../../apps/desktop/
 import { DEFAULT_GENERAL_PREFERENCES } from '../../../apps/desktop/src/shared/general-preferences-model'
 
 const query = new URLSearchParams(location.search)
-initializeInterfaceLanguage({ interfaceLanguage: query.get('lang') === 'en' ? 'en' : 'zh-CN' })
+initializeInterfaceLanguage({ ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: query.get('lang') === 'en' ? 'en' : 'zh-CN', interfaceLanguage: query.get('lang') === 'en' ? 'en' : 'zh-CN' })
 document.documentElement.dataset.theme = query.get('theme') ?? 'day'
 document.documentElement.dataset.rovaiPlatform = 'darwin'
 const original = initialMembers()
 const agents = [...original, ...Array.from({length: 8}, (_, index) => ({...clone(original[index % original.length]), agentId: `extra-${index}`, displayName: ['小满','阿栖','北斗','星野','松果','小禾','麦芽','晚枫'][index], teamRole: ['交互设计','前端开发','架构设计','代码审查','自动化测试','文案设计','性能优化','发布验证'][index], avatarRef: null, memberOrder: index + 4}))]
 const makeTeam = (count, id, name) => ({ id, name, memberAgentIds: agents.slice(0, count).map(a => a.agentId), defaultLeadAgentId: agents[0].agentId, guidance: '回答保持简洁，先说明结论。\n交付前验证关键路径。', version: 1 })
 let library = query.has('empty') ? [] : [makeTeam(4, 'team-4', '日常开发'), makeTeam(6, 'team-6', '产品与设计'), makeTeam(12, 'team-12', '完整交付团队')]
-let preferences = { ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguage: query.get('lang') === 'en' ? 'en' : 'zh-CN', newConversationDefaults: { memberAgentIds: agents.slice(0,4).map(a=>a.agentId), defaultLeadAgentId: agents[0].agentId } }
+let preferences = { ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: query.get('lang') === 'en' ? 'en' : 'zh-CN', interfaceLanguage: query.get('lang') === 'en' ? 'en' : 'zh-CN', newConversationDefaults: { memberAgentIds: agents.slice(0,4).map(a=>a.agentId), defaultLeadAgentId: agents[0].agentId } }
 const events = new Set()
 const receipts = new Map()
 const audit = []
@@ -64,7 +64,7 @@ function Workbench() {
   const showDialog=team=>{setInitialTeam(team??null);setDialog(true)}
   const api=useMemo(()=>{
     const commit=patch=>{preferences={...preferences,...patch};setPrefs(preferences);return Promise.resolve(clone(preferences))}
-    return {get:async()=>clone(preferences),setNewConversationTeam:newConversationTeamId=>commit({newConversationTeamId}),setNewConversationDefaults:newConversationDefaults=>commit({newConversationDefaults,newConversationTeamId:null,newConversationDefaultsRequireConfirmation:false}),setOneClickNewConversationEnabled:oneClickNewConversationEnabled=>commit({oneClickNewConversationEnabled}),setInterfaceLanguage:interfaceLanguage=>commit({interfaceLanguage}),setStartupLocationMode:startupLocationMode=>commit({startupLocationMode}),setExecutionConsolePlacement:executionConsolePlacement=>commit({executionConsolePlacement}),setWorldMapEnabled:worldMapEnabled=>commit({worldMapEnabled})}
+    return {get:async()=>clone(preferences),setNewConversationTeam:newConversationTeamId=>commit({newConversationTeamId}),setNewConversationDefaults:newConversationDefaults=>commit({newConversationDefaults,newConversationTeamId:null,newConversationDefaultsRequireConfirmation:false}),setOneClickNewConversationEnabled:oneClickNewConversationEnabled=>commit({oneClickNewConversationEnabled}),getInterfaceLanguage:async()=>clone(preferences),onInterfaceLanguageChanged:()=>()=>{},setInterfaceLanguagePreference:interfaceLanguagePreference=>commit({interfaceLanguagePreference,interfaceLanguage:interfaceLanguagePreference==='system'?'en':interfaceLanguagePreference,languageRevision:preferences.languageRevision+1}),setStartupLocationMode:startupLocationMode=>commit({startupLocationMode}),setExecutionConsolePlacement:executionConsolePlacement=>commit({executionConsolePlacement}),setWorldMapEnabled:worldMapEnabled=>commit({worldMapEnabled})}
   },[])
   return <MobileLayoutProvider value={mobile}><NavigationShell browser platform="darwin" settings={view==='settings'} data-mobile-view={mobile?'members':undefined}>
     {!mobile&&<ThreadNavigation view={view} state="ready" navigation={navigation} activeThreadId={null} onNewConversation={()=>showDialog()} onTeams={()=>navigate('teams')} onMembers={()=>navigate('teams')} onMemory={()=>navigate('settings')} onSettings={()=>navigate('settings')} onSettingsBack={()=>navigate('teams')} settingsSection="general" onSettingsSectionChange={()=>{}} onOpenProject={()=>{}} onThread={()=>{}} onRename={()=>{}} onDelete={()=>{}} pendingMemoryCount={3}/>}

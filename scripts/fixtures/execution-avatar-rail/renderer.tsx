@@ -131,6 +131,7 @@ Object.assign(window, { rovai: {
 } })
 
 let configureNotificationFixture: (() => void) | null = null
+let configureFailureFixture: (() => void) | null = null
 let focusNotificationRun: ((requestId: number, runId: string) => void) | null = null
 let focusNotificationSubject: ((kind: 'task' | 'mission', requestId: number) => void) | null = null
 let notificationFixtureEnabled = false
@@ -157,6 +158,7 @@ function NotificationFixtureBridge(): null {
 
 Object.assign(window, { executionNotificationTest: {
   configureRight: () => configureNotificationFixture?.(),
+  configureFailure: () => configureFailureFixture?.(),
   openExecution: () => previewHarness?.openExecution(),
   hideExecution: () => previewHarness?.hidePane(),
   focusRun: (requestId: number, runId = 'run-agent-1') => focusNotificationRun?.(requestId, runId),
@@ -193,6 +195,8 @@ Object.assign(window, { executionNotificationTest: {
       viewportRect: rect(viewport),
       viewportHidden: viewport?.hidden ?? null,
       visibleRunIds: latestVisibleNotificationSources?.agentRunIds ?? [],
+      failureBubbleVisible: !!document.querySelector<HTMLElement>('[data-presence-run="silent-failure"]')?.checkVisibility(),
+      executionVisible: !!document.querySelector<HTMLElement>('.execution-drawer')?.checkVisibility(),
       visibleSourceReports: visibleNotificationSourceReports.map((sources) => sources.agentRunIds),
       presentedRequests: [...presentedNotificationRequests]
     }
@@ -202,8 +206,16 @@ Object.assign(window, { executionNotificationTest: {
 let configureInterruptionFixture: (() => void) | undefined
 Object.assign(window, { configureRunInterruption: () => configureInterruptionFixture?.() })
 
+let configureEmptyExecutionFixture: ((pending: boolean, placement: ExecutionConsolePlacement) => void) | undefined
+let rejectNextPlacement = false
+Object.assign(window, {
+  configureEmptyExecution: (pending = false, placement: ExecutionConsolePlacement = 'inspector') => configureEmptyExecutionFixture?.(pending, placement),
+  failNextExecutionPlacement: () => { rejectNextPlacement = true }
+})
+
 function Fixture(): React.JSX.Element {
   const [count, setCount] = useState(12)
+  const [pendingThread, setPendingThread] = useState(false)
   const [recipientCount, setRecipientCount] = useState(0)
   const [revision, setRevision] = useState(0)
   const [entryRunningCount, setEntryRunningCount] = useState<number | null>(null)
@@ -214,6 +226,7 @@ function Fixture(): React.JSX.Element {
   const [longTitleScenario, setLongTitleScenario] = useState(false)
   const [stoppedRuns, setStoppedRuns] = useState<string[]>([])
   const [interruptionScenario, setInterruptionScenario] = useState(false)
+  const [failureScenario, setFailureScenario] = useState(false)
   const [notificationFocus, setNotificationFocus] = useState<NotificationFocusTarget | null>(null)
   configureNotificationFixture = () => {
     notificationFixtureEnabled = true
@@ -223,6 +236,16 @@ function Fixture(): React.JSX.Element {
     latestVisibleNotificationSources = null
     visibleNotificationSourceReports.length = 0
     presentedNotificationRequests.length = 0
+  }
+  configureFailureFixture = () => {
+    notificationFixtureEnabled = true
+    setFailureScenario(true)
+    setCount(1)
+    setOpen(false)
+    setPlacement('right')
+    setNotificationFocus(null)
+    previewHarness?.hidePane()
+    latestVisibleNotificationSources = null
   }
   focusNotificationRun = (requestId, runId) => setNotificationFocus({
     requestId,
@@ -240,7 +263,25 @@ function Fixture(): React.JSX.Element {
     setRecipientCount(0)
     setOpen(false)
   }
+  configureEmptyExecutionFixture = (pending, placement) => {
+    notificationFixtureEnabled = false
+    setNotificationFocus(null)
+    previewHarness?.hidePane()
+    setCount(0)
+    setRecipientCount(0)
+    setEntryRunningCount(null)
+    setLongTitleScenario(false)
+    setInterruptionScenario(false)
+    setPendingThread(pending)
+    setPlacement(placement)
+    setOpen(false)
+  }
   const snapshot = snapshotFor(count, revision, recipientCount)
+  if (pendingThread) {
+    snapshot.thread.activationState = 'pending'
+    snapshot.messages = []
+    snapshot.tasks = []
+  }
   if (notificationFixtureEnabled && snapshot.agentRuns[0]) {
     snapshot.agentRuns.push({ ...snapshot.agentRuns[0], id: 'run-agent-1-history',
       status: 'succeeded', createdAt: '2026-08-30T04:00:00Z', endedAt: now })
@@ -292,6 +333,15 @@ function Fixture(): React.JSX.Element {
         presentationKind: 'operation_history', operationCount: 1 }],
       fileCount: 1, operationCount: 1, completedAt: now }]
   }
+  if (failureScenario) {
+    snapshot.agentRuns = [{ ...snapshot.agentRuns[0], id: 'silent-failure', status: 'failed',
+      invocationKind: 'batch', threadTurnId: null, conversationId: null, endedAt: now,
+      inputMessageIds: ['message-1'], anchorMessageId: 'message-1', executionEvidenceCount: 0 }]
+    snapshot.messages = snapshot.messages.slice(0, 1)
+    snapshot.executionEvidence = []
+    snapshot.tasks = []
+    snapshot.agentRunFileChanges = []
+  }
   return <FilePreviewProvider threadId={threadId} resolvedTheme={theme === 'night' ? 'night' : 'day'}>
     <NotificationFixtureBridge />
     <div className="app-shell app-shell-camp">
@@ -322,7 +372,11 @@ function Fixture(): React.JSX.Element {
         onSend={async () => {}} onChangeLead={async () => {}} onTasksChanged={async () => {}} onResolveApproval={() => {}}
         onStop={() => {}} worldMapEnabled={false} inspectorVisible={open} detailEntryHost={entryHost}
         onCancelAgentRun={async run => { setStoppedRuns(current => [...current, run.id]) }}
-        executionPlacement={placement} onExecutionPlacementChange={async value => { setPlacement(value); return value }}
+        executionPlacement={placement} onExecutionPlacementChange={async value => {
+          if (rejectNextPlacement) { rejectNextPlacement = false; throw new Error('位置保存失败（隔离验收）') }
+          setPlacement(value)
+          return value
+        }}
         onOpenInspector={() => setOpen(true)} onCloseInspector={() => setOpen(false)}
         notificationFocus={notificationFocus}
         onNotificationFocusPresented={(requestId) => {

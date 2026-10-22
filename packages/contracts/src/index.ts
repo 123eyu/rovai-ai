@@ -385,6 +385,7 @@ export interface RuntimeStartupConfiguration {
 }
 
 export interface RuntimeStartupSettings {
+  commonEnvironment?: { revision: number; environment: Record<string, string> }
   runtimeKind: AdapterKind
   revision: number
   configuration: RuntimeStartupConfiguration
@@ -513,6 +514,8 @@ export interface ProductRuntimeAvailability {
   lastAttemptedAt?: string | null
   lastSuccessfulProbeAt?: string | null
 }
+
+export type RuntimeStatus = Pick<HealthStatus, 'hostPlatform' | 'runtimeCatalog' | 'runtimePlatformAdmission' | 'runtimeAvailability' | 'searchEnvironment'>
 
 export interface HealthStatus {
   core: {
@@ -1359,6 +1362,8 @@ export interface ThreadMessageAttachmentView {
   byteSize: number | null
   previewKind: 'image' | 'none'
   availability: LocalAttachmentAvailability
+  /** Optional, display-only prefix (at most 160 Unicode code points) of generated pasted text. */
+  pastedTextPreview?: string
   /** Present only while an unsent local Composer owns this attachment. */
   sourcePath?: string
 }
@@ -1370,7 +1375,10 @@ export type LocalAttachmentAvailability =
   | 'unreadable'
   | 'kind_changed'
 
-export type LocalAttachmentSourceView = ThreadMessageAttachmentView
+export type LocalAttachmentSourceView = ThreadMessageAttachmentView & {
+  /** Main-authored hint for the local removal path; never grants deletion authority. */
+  generatedBy?: 'long_text_paste'
+}
 
 export type LocalAttachmentOwnerLocator =
   | { owner: 'composer'; threadId: string; attachmentRefId: string }
@@ -1423,7 +1431,7 @@ export interface MessageQuoteSnapshot {
   capturedAt: string
   sourceContentDigest: string
   /** Internal, immutable selection anchor. Never projected into model input. */
-  locator?: { projectionVersion: 1 | 2; startScalar: number; endScalar: number; projectionDigest: string }
+  locator?: { projectionVersion: 1 | 2 | 3; startScalar: number; endScalar: number; projectionDigest: string }
   snapshotDigest: string
 }
 
@@ -2570,6 +2578,31 @@ export interface ThreadMessagePage {
   messages: ThreadMessageView[]
 }
 
+export interface ThreadReplyPageParams {
+  threadId: string
+  messageId: string
+  sequence?: number
+  before?: boolean
+  limit?: number
+  runAnchorMessageIds?: string[]
+}
+
+/** One chronological page in the component defined solely by replyToThreadMessageId. */
+export interface ThreadReplyPage {
+  schemaVersion: 1
+  threadId: string
+  messageId: string
+  rootMessageId: string | null
+  throughGlobalSequence: number
+  sourceAvailable: boolean
+  replyCount: number
+  hasEarlier: boolean
+  hasLater: boolean
+  messages: ThreadMessageView[]
+  /** Requested current Run anchors that belong to this chain, including unloaded pages. */
+  runAnchorMessageIds: string[]
+}
+
 export interface ThreadMessageAroundSnapshot {
   schemaVersion: 1
   throughGlobalSequence: number
@@ -2589,6 +2622,7 @@ export interface ThreadMessageChange {
   throughGlobalSequence: number
 }
 export interface ThreadReadInvalidation {
+  notificationsChanged?: boolean
   tasksChanged?: boolean
   resync?: boolean
   messages?: ThreadMessageChange[]
@@ -2725,6 +2759,7 @@ export type NotificationSemantic =
   | 'turn_completed'
   | 'turn_failed'
   | 'turn_incomplete'
+  | 'run_stopped'
   | 'round_completed'
   | 'single_chat_reply'
   | 'mission_needs_you'
@@ -2828,7 +2863,7 @@ export interface NotificationEpisodeView {
 }
 
 export interface NotificationEpisodeInbox {
-  schemaVersion: 9
+  schemaVersion: 11
   throughChangeSequence: number
   unreadCount: number
   items: NotificationEpisodeView[]
@@ -2852,6 +2887,11 @@ export interface NotificationEpisodeChange {
   headsUpInvalidation: NotificationHeadsUpInvalidation | null
   changedAt: string
   episode: NotificationEpisodeView | null
+}
+
+export interface NotificationThreadInterruptions {
+  throughChangeSequence: number
+  threads: { threadId: string; hasUnreadInterruption: boolean }[]
 }
 
 export interface NotificationHeadsUpSignal {
@@ -2879,7 +2919,7 @@ export type NotificationHeadsUpInvalidation =
   }
 
 export interface NotificationEpisodeChangeBatch {
-  schemaVersion: 9
+  schemaVersion: 11
   requestedAfterChangeSequence: number
   nextChangeSequence: number
   throughChangeSequence: number
@@ -3292,10 +3332,12 @@ export interface NewConversationDefaults {
 }
 
 export type InterfaceLanguage = 'zh-CN' | 'en'
+export type InterfaceLanguagePreference = 'system' | InterfaceLanguage
 
-export interface GeneralPreferencesSnapshot {
-  schemaVersion: 6
-  interfaceLanguage: InterfaceLanguage
+/** Disk/browser representation. Resolved language and read status are never persisted. */
+export interface GeneralPreferencesStorage {
+  schemaVersion: 7
+  interfaceLanguagePreference: InterfaceLanguagePreference
   startupLocationMode: StartupLocationMode
   lastSettingsSection: SettingsSection
   executionConsolePlacement: ExecutionConsolePlacement
@@ -3304,6 +3346,23 @@ export interface GeneralPreferencesSnapshot {
   newConversationDefaultsRequireConfirmation: boolean
   oneClickNewConversationEnabled: boolean
   worldMapEnabled: boolean
+}
+
+export interface InterfaceLanguageSnapshot {
+  interfaceLanguagePreference: InterfaceLanguagePreference
+  interfaceLanguage: InterfaceLanguage
+  systemLanguage: InterfaceLanguage
+  languageRevision: number
+  readError: StructuredError | null
+}
+
+export interface GeneralPreferencesSnapshot extends GeneralPreferencesStorage, InterfaceLanguageSnapshot {}
+
+export interface InterfaceLanguageApi {
+  /** Local-only read and retry; never waits for the business service. */
+  getInterfaceLanguage(): Promise<InterfaceLanguageSnapshot>
+  setInterfaceLanguagePreference(preference: InterfaceLanguagePreference): Promise<GeneralPreferencesSnapshot>
+  onInterfaceLanguageChanged(listener: (snapshot: InterfaceLanguageSnapshot) => void): () => void
 }
 
 export interface DesktopStartupSnapshot {
@@ -3348,13 +3407,12 @@ export interface WindowResetResult {
 
 export interface DesktopSessionApi {
   getStartupSnapshot(): Promise<DesktopStartupSnapshot>
-  getInterfaceLanguage(): Promise<InterfaceLanguage>
+  getInterfaceLanguage(): Promise<InterfaceLanguageSnapshot>
   commitRestorableLocation(location: RestorableLocation): Promise<void>
 }
 
-export interface GeneralPreferencesApi {
+export interface GeneralPreferencesApi extends InterfaceLanguageApi {
   get(): Promise<GeneralPreferencesSnapshot>
-  setInterfaceLanguage(language: InterfaceLanguage): Promise<GeneralPreferencesSnapshot>
   setStartupLocationMode(mode: StartupLocationMode): Promise<GeneralPreferencesSnapshot>
   setLastSettingsSection(section: SettingsSection): Promise<GeneralPreferencesSnapshot>
   setExecutionConsolePlacement(placement: ExecutionConsolePlacement): Promise<GeneralPreferencesSnapshot>
@@ -3375,6 +3433,7 @@ export interface OnboardingRuntimeSelection {
 }
 
 export interface OnboardingProvisioningOperation {
+  interfaceLanguage: InterfaceLanguage
   memberCommandId: string
   runtimeCommandId: string
   campCommandId: string
@@ -3400,11 +3459,11 @@ export type OnboardingRuntimeCopyOutcome = 'applied' | 'skipped' | 'retry'
 
 export type OnboardingSnapshot =
   | {
-      schemaVersion: 3
+      schemaVersion: 4
       status: 'uninitialized'
     }
   | {
-      schemaVersion: 3
+      schemaVersion: 4
       status: 'in_progress'
       step: OnboardingStep
       selectedMemberRole: BuiltinMemberAvatarRole | null
@@ -3412,7 +3471,7 @@ export type OnboardingSnapshot =
       provisioning: OnboardingProvisioningOperation | null
     }
   | {
-      schemaVersion: 3
+      schemaVersion: 4
       status: 'completed'
       origin: 'onboarding' | 'runtime_deferred' | 'existing_installation'
       completedAt: string
@@ -3432,7 +3491,8 @@ export interface OnboardingApi {
   deferRuntimeSetup(): Promise<OnboardingSnapshot>
   beginProvisioning(
     selection: OnboardingRuntimeSelection,
-    runtimePermissions: AdapterPermissionConfig
+    runtimePermissions: AdapterPermissionConfig,
+    interfaceLanguage: InterfaceLanguage
   ): Promise<OnboardingSnapshot>
   recordProvisionedMember(agentId: string, version: number): Promise<OnboardingSnapshot>
   recordProvisionedRuntime(version: number): Promise<OnboardingSnapshot>
@@ -4155,6 +4215,7 @@ export type CoreMethod =
   | 'diagnostics.check'
   | 'monitoring.snapshot'
   | 'monitoring.execution'
+  | 'runtime.status.get'
   | 'runtime.discovery.rescan'
   | 'runtime.networkRecovery.wake'
   | 'runtime.subsystems.get'
@@ -4162,6 +4223,7 @@ export type CoreMethod =
   | 'runtime.product.ensure'
   | 'runtime.product.check'
   | 'runtime.startup.get'
+  | 'runtime.environment.get'
   | 'member.runtimeEnvironment.get'
   | 'runtime.environmentLegacy.list'
   | 'runtime.environmentLegacy.get'
@@ -4383,6 +4445,7 @@ export type CoreMethod =
   | 'thread.messages.page'
   | 'thread.messages.anchors'
   | 'thread.messages.anchorPreview'
+  | 'thread.messages.replies'
   | 'thread.messages.around'
   | 'thread.messages.find'
   | 'thread.messages.withdraw'
@@ -4402,9 +4465,11 @@ export type CoreMethod =
   | 'userAutomation.thread.send'
   | 'action.approvals.resolve'
   | 'notifications.inbox'
+  | 'notifications.threadInterruptions'
   | 'notifications.changesSince'
   | 'notifications.acknowledge'
   | 'notifications.acknowledgeVisibleSources'
+  | 'notifications.acknowledgeThreadInterruptions'
   | 'notifications.markAllRead'
   | 'notifications.clear'
   | 'notifications.preference.get'
@@ -4462,10 +4527,14 @@ export interface RovaiApi {
   memberAvatars: MemberAvatarsApi
   composerAttachments: {
     prepare(threadId: string, expectedRevision: number, file: File): Promise<LocalAttachmentSourceView>
+    /** Public Composer; generated in the canonical Host Thread output directory. */
+    preparePastedText?(threadId: string, file: File): Promise<LocalAttachmentSourceView>
+    /** After saving the draft without this ref. Main/Host decides whether the file is deletable. */
+    removePastedText?(threadId: string, attachmentRefId: string): Promise<'deleted' | 'retained'>
     preview(locator: LocalAttachmentOwnerLocator): Promise<AttachmentPreviewResult>
-    /** Desktop-local authority restore; absent on remote/browser adapters. */
+    /** Restore through the owning Main registry or verified Web upload receipts. */
     restore?(threadId: string, attachments: LocalAttachmentSourceView[]): Promise<LocalAttachmentSourceView[]>
-    /** Releases Desktop-local authority after remove, send, or Thread deletion. */
+    /** Releases draft recovery registration; never physically deletes files. */
     discard?(threadId: string, attachmentRefIds?: string[]): Promise<void>
     location?(locator: LocalAttachmentOwnerLocator): Promise<string | null>
   }

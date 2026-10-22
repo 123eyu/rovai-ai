@@ -118,6 +118,19 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
+Web 长粘贴扩展既有 Host HTTP 与浏览器适配/恢复 owners；schema 161→162 的 DDL 失败回滚
+无法由 HTTP 测试证明，新增一个复用 schema-only fixture 的迁移 owner。准入与最小命令见
+[Web 长粘贴实施记录](../versions/v1.72/web-pasted-text-implementation.md#验证归属)。
+
+通用环境配置扩展既有环境合并、启动设置事务、检测环境和 Renderer owner；仅 schema 160→161 的
+新增表事务增加独立 owner，覆盖无 key 升级、失败回滚和旧凭据保留。准入理由、fixture 边界及最小命令见
+[通用配置实施记录](../versions/v1.72/shared-environment-implementation.md#验证归属)。
+
+退出提醒沿用通知事务/Thread 确认及批量查询规模 owner；本次在原 owner 内覆盖 schema 160、
+手动停止退出候选及按 Thread 展示确认，删除随短亮接口退役的描述断言，不增加 Rust 测试函数。
+修复前失败输入、fixture 成本及最小命令见[中断注意力验收](../versions/v1.72/interruption-attention-validation.md#验证边界与-owner)。
+已存在的单聊终态、retention 和 Portal owner 原地扩展，不新增等价覆盖。
+
 Send 文件输入改动先运行 `cargo test -p rovai-core --bin rovai send_file_`，再运行
 `pnpm test:send-input-file`。后者构建当前 CLI，以隔离临时目录和本地 IPC 夹具验证请求传递、
 业务拒绝不降级、输入失败零 IPC、继承 stdin 不阻塞和 Unix FIFO/设备/权限拒绝；不启动 Core 或模型。
@@ -128,6 +141,29 @@ Core 的正文、寻址与发布合同继续由 `team_tool::tests` 拥有，真�
 测试总数不是质量指标，本仓库不设置“每个功能必须新增几项测试”或“每个 PR 最多新增几项测试”的
 固定配额。评审门槛是每项测试是否拥有清晰、唯一且值得长期维护的合同；相同覆盖应优先扩展既有
 owner，而不是继续增加平行 fixture 和断言。
+
+### 单项 Runtime 检查减重
+
+`runtime_check_environment::tests::minimax_check_and_catalog_keep_their_intent_and_complete_options`
+拥有 MiniMax 的新健康／完整目录分离边界：普通检查不随模型数切换、pending/active 同意图合并、首次
+目录回退、完整目录时间保留与失效后部分结果不参与参数过滤。原 Codex 失败夹具没有模型参数和目录成功
+写入，不能覆盖此回归，因此复用它的私有 Core/DB/Check Manager fixture 增加一个有真实协议进程的 owner；
+单纯测合并谓词无法证明第一次目录回退或持久化成功时间。表中 2／8 个模型分别执行检查先到／目录先到，
+不同重复请求用于证明合并与完整目录幂等，不是性能统计。最小命令：
+`cargo test -p rovai-core --features slow-tests --lib minimax_check_and_catalog`。
+
+其余扩展既有 health、Pi Host、ZCode transport、Adapter 和 Renderer 参数 owner。Grok 旧的“恢复必须执行
+成功”要求随普通检查的恢复演练一同退役，原协议进程测试改验 Grok/Kiro 当前模型与零重复设置；正式恢复
+错误归属、准确 Session ID、权限及模型设置的原 Host/transport 用例继续保留。Pi probe 的四次演练 RPC
+断言改为只验证初始 Session；ZCode 同一个内存协议夹具同时验证 probe 省略、正式 new/resume 保留两步。
+静态证据复用扩展原 Codex、Claude、Antigravity 进程 fixture，仍验证动态认证失败和模型失败，不能用缓存
+伪造成功。真实安装、账号和点击耗时另记在当前版本实施记录，不混入确定性测试。
+
+末尾文件复核继续扩展 `installed_catalog_discovery_runs_only_bounded_identity_commands` 的既有哈希计数：
+首次／升级的发现加末尾复核共一次，未变的重复发现加末尾复核零次，检查期间替换则拒收旧结果。
+Codex 原认证 fixture 同时拥有普通 Schema 有／无 Fast 字段时的进程计数：可信版本与普通静态证据有效时
+仅一个 app-server，Fast 专用 experimental 导出为零；普通导出顺带取得或同程序已有的正向证据保留。
+安装变化、超时归属、进程清理与 Fast 保存／实际参数映射继续运行原 owner，不另建计数或性能测试框架。
 
 ### 新增独立测试
 
@@ -695,14 +731,17 @@ RuntimeDefault 不得作为 `--model` 原生参数，显式模型仍须在 sessi
 
 ### Web 文件资源开销与一致性
 
-`rovai-web::resources::content::tests::bounded_scan_preserves_digest_unicode_and_same_metadata_changes` 拥有分块
-读取的有界保留、UTF-8 跨块、稀疏行号与新鲜摘要校验。修复前每页保留整份文件；原有纯分页 parser owner
-没有文件 I/O 或跨请求摘要事实的 seam，因此该独立 owner 使用单一临时文件与固定修改时间，避免 Core/数据库 fixture。
-最小命令为 `cargo test -p rovai-web resources::content::tests::`。
+`rovai-web::resources::content::tests::candidate_analysis_bounds_paging_and_preserves_other_digest_checks` 拥有候选完整
+分析、分页/定位的读取量与摘要次数、原始修改时间检查、UTF-8 跨块、长行及缩短/空文件的有效位置。
+计数和读取中变化注入只在既有文件夹具中启用。新约定只放宽同候选分页/定位，等大小等修改时间改写
+可以继续读取；新候选、完整正文和父 generation 的摘要验证保留。旧的分页摘要拒绝断言随该合同替换，
+没有删除测试 owner 或其他负向/边界 case。最小命令为 `cargo test -p rovai-web resources::content::tests::`。
 
-既有 `host-web.test.mjs` owner 扩展认证原始字节、相同大小/修改时间下的变化拒绝、上传取消/拒绝/重放清理与
-构建缓存边界。Node SQLite fixture 设置有界 busy timeout，避免与隔离 Host 的正常事务争抢造成偶发失败。
-`camp-adapter.test.ts` 和 `file-digest.test.ts` 分别验证空句柄轮询、Host 确认后的本地图片复用及浏览器摘要缓冲上限。
+既有 `host-web.test.mjs` owner 验证上述属性校验与 generation 接线，并保留认证字节、其他读取的摘要拒绝、
+上传取消/拒绝/重放清理与构建缓存边界。Node SQLite fixture 使用有界 busy timeout。
+`file-preview-service.test.ts` 在真实文件描述符上计数，验证紧接定位的分页只读正文，其他偏移和其他句柄仍定位。
+`file-preview-resources.test.ts` 验证同版本 HTML 只准备一次、摘要不同继续读取、手动/错误/无句柄恢复及新通知水位。
+`camp-adapter.test.ts` 和 `file-digest.test.ts` 继续验证通知接线、Host 确认后的本地图片复用及浏览器摘要缓冲上限。
 手机实际 Host 用例检查上传后无原图回传、刷新后恢复 Host 读取；Run 文案由既有执行组件场景验证。
 `node scripts/measure-host-web-resources.mjs` 对独立 Host 执行 20 MiB / 80 页固定工作量，断言内容与行号一致并记录计时；
 `--legacy-json` 可对旧 Host 记录 Base64 膨胀并核对解码后的原始字节。可用 `ROVAI_HOST_BIN` / `ROVAI_WEB_UI` 选择包内产物。
@@ -999,6 +1038,14 @@ Electron 夹具验证 Camp-local 草稿在业务投影刷新和重挂载后保�
 `camp-composer-local-store.test.ts` 验证续发目标只来自已接受的唯一非 Lead 路由，以及按 Camp 隔离、成功发送后
 替换和无效快照拒绝。历史 `test:composer-continuation` 夹具依赖已退出的 Core Draft/Pending 接口，不能作为
 当前发布门禁。
+
+公共/单聊输入历史复用上述 CampOpen 与 `single-chat-panel` Electron 夹具的 `--input-history` 模式：
+验证固定浏览列表、零历史请求、结构化预览、原草稿/Undo 保留、有效输入驱动发送及 pending 变化。
+最小命令为
+`node --test --test-concurrency=1 --test-name-pattern='input history' scripts/lib/camp-open-projection.test.mjs scripts/lib/single-chat-panel.test.mjs`。
+`input-history.test.ts` 覆盖独立内容提取、筛选、固定数组、导航边界和退出恢复。
+历史专用 Core 查询及两个 SQLite 测试随生产路径一起退役；消息读取与草稿保存继续由原 owner 覆盖。
+退役依据和验证命令见[实施记录](../versions/v1.72/input-history-implementation.md#验证归属)。
 
 ### Core 可选功能启动回归
 

@@ -4,7 +4,7 @@ contract: team-templates-v1
 status: accepted
 version: 1
 source_version: v1.72
-last_updated: 2026-10-19
+last_updated: 2026-10-22
 ---
 
 # Team Templates v1
@@ -55,9 +55,9 @@ Desktop IPC 和已认证 Web User 操作使用同一 Core 事务与命令回执�
 不覆盖 User 对同一 Team 修复后的重新确认。该复验也适用于独立 Custom 名册。
 删除当前默认 Team 同事务清空 Team ID、关闭一键创建、保留 Custom；已有 Thread 不变。
 
-Main 本机展示偏好 schema 升为 6；旧 schema 1–5 的默认配置迁移为 Custom，不自动创建 Team。
+Main 本机展示偏好 schema 升为 7；保留主线 schema 6 的语言偏好，旧 schema 1–6 的默认配置迁移为 Custom，不自动创建 Team。
 Core 首次读取旧 `new-conversation-preferences.json` 时导入 SQLite singleton，保留原文件；数据库已有值
 后不再导入，Desktop legacy initialize 也不能覆盖。损坏旧文件显式报错，不以空默认值覆盖它。
 
-Migration 209 / projection schema 159 创建 `team`、`creation_preferences`、`thread_team_bootstrap`，并
+Migration 213 / projection schema 163 创建 `team`、`creation_preferences`、`thread_team_bootstrap`，并
 扩展 Bootstrap v6 准入。沿用 data contract v1.72；失败事务回滚，旧输入与运行绑定不重写。

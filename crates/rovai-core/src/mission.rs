@@ -2440,6 +2440,7 @@ mod tests {
             kind: crate::local_attachment_source::LocalAttachmentKind::File,
             media_type: Some("text/html".into()),
             observed_byte_size: Some(19_823),
+            pasted_text_preview: None,
         };
         let message_id = Uuid::new_v4().to_string();
         let created_at = "2026-09-20T07:38:20Z";

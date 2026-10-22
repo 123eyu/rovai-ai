@@ -28,6 +28,6 @@ Team 保存、删除和 Thread 创建复用 Domain Command Gateway；CAS 版本�
 可编辑配置、动态上下文或 Agent 的 Team 管理接口。Bootstrap 版本和证据边界见
 [Bootstrap v6](../contracts/native-session-bootstrap-v6.md)。
 
-Migration 209 从 schema 158 升至 159，沿用 v1.72 Data Contract；新表与 Bootstrap 准入扩展整体提交，
+Migration 213 从主线 schema 162 升至 163，沿用 v1.72 Data Contract；新表与 Bootstrap 准入扩展整体提交，
 不清理绑定、不重写历史输入、不自动把旧默认队伍升级成 Team。真实模型回归和 UI 夹具验收的能力边界
 分别记录在[实施记录](../versions/v1.72/team-management-implementation.md)。

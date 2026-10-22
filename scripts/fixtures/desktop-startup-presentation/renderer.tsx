@@ -1,6 +1,7 @@
+import { DEFAULT_GENERAL_PREFERENCES } from '../../../apps/desktop/src/shared/general-preferences-model'
 import { shortcutDefaults } from '../../../apps/desktop/src/shared/shortcuts'
 import { EMPTY_SNAPSHOT, sanitizeSnapshot, registerNavigationProjects } from '../../../apps/desktop/src/shared/navigation-preferences-model'
-import type { NavigationSnapshot, NavigationPreferencesSnapshot } from '@contracts'
+import type { GeneralPreferencesSnapshot, NavigationSnapshot, NavigationPreferencesSnapshot, MissionRecord } from '@contracts'
 import type { ThreadCreationPreflight, CoreEvent, DesktopStartupSnapshot, HealthStatus, OnboardingSnapshot, RestorableLocation, RovaiApi, SupervisorSnapshot } from '@contracts'
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
@@ -9,6 +10,7 @@ import { desktopThreadClient } from '../../../apps/desktop/src/renderer/src/desk
 import { NewConversationDialog } from '../../../apps/desktop/src/renderer/src/NewConversationDialog'
 import { STARTUP_LOADING_EXIT_MS, StartupLoadingCanvas } from '../../../apps/desktop/src/renderer/src/StartupLoadingCanvas'
 import { DEFAULT_APPEARANCE } from '../../../apps/desktop/src/shared/appearance'
+import { initial as runFixture, run as runTemplate } from '../host-web-parity/data'
 import '../../../apps/desktop/src/renderer/src/styles.css'
 
 const threadId = 'rvcamp_01h47kvsy5fk1shh6w1g60eec0'
@@ -19,6 +21,8 @@ const calls: string[] = []
 const listeners = new Set<(snapshot: SupervisorSnapshot) => void>()
 const coreListeners = new Set<(event: CoreEvent) => void>()
 const navigationPreferenceListeners = new Set<(snapshot: NavigationPreferencesSnapshot) => void>()
+const languageListeners = new Set<(snapshot: GeneralPreferencesSnapshot) => void>()
+let localLanguage: GeneralPreferencesSnapshot = { ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: 'zh-CN', interfaceLanguage: 'zh-CN' }
 const responses = new Map<string, unknown>()
 const requestHandlers = new Map<string, (params: any) => unknown>()
 let now = 0
@@ -45,6 +49,7 @@ let root: Root | null = null
 let supervisor: SupervisorSnapshot
 let appearanceTheme: 'day' | 'night' = 'day'
 let captureNavigation: (theme: 'day' | 'night', collapsed: boolean, setup?: () => void) => Promise<unknown>
+let captureStoppedThread: (theme: 'day' | 'night') => Promise<void>
 
 function starting(): SupervisorSnapshot {
   return {
@@ -109,13 +114,23 @@ function api(path = ''): unknown {
         calls.push(path)
         return Promise.resolve(next)
       }
+      if (path === 'generalPreferences.onInterfaceLanguageChanged') {
+        languageListeners.add(args[0])
+        return () => languageListeners.delete(args[0])
+      }
+      if (path === 'generalPreferences.setInterfaceLanguagePreference') {
+        localLanguage = { ...localLanguage, interfaceLanguagePreference: args[0],
+          interfaceLanguage: args[0] === 'system' ? localLanguage.systemLanguage : args[0], languageRevision: localLanguage.languageRevision + 1 }
+        languageListeners.forEach(listener => listener(localLanguage))
+        return Promise.resolve(localLanguage)
+      }
       if (path.split('.').at(-1)?.startsWith('on')) return () => undefined
       if (path === 'supervisor.getSnapshot') return initialSupervisor.promise
       if (path === 'desktopSession.getStartupSnapshot') { calls.push(path); return localSession.promise }
-      if (path === 'desktopSession.getInterfaceLanguage') { calls.push(path); return Promise.resolve('zh-CN') }
+      if (path === 'generalPreferences.getInterfaceLanguage') { calls.push(path); return Promise.resolve(localLanguage) }
       if (path === 'currentUserProfile.get') return Promise.resolve({ displayName: '', avatarDataUrl: null })
       if (path === 'appearance.get') return Promise.resolve({ ...DEFAULT_APPEARANCE, resolvedTheme: appearanceTheme })
-      if (path === 'generalPreferences.get') return Promise.resolve({ schemaVersion: 4,
+      if (path === 'generalPreferences.get') return Promise.resolve({ ...localLanguage,
         startupLocationMode: 'last_location', lastSettingsSection: 'general', executionConsolePlacement: 'bottom',
         newConversationDefaults: null, newConversationDefaultsRequireConfirmation: false,
         oneClickNewConversationEnabled: false, worldMapEnabled: true, ...(responses.get(path) ?? {}) })
@@ -154,6 +169,8 @@ async function reset(target: RestorableLocation | null = { kind: 'camp', threadI
   listeners.clear()
   coreListeners.clear()
   navigationPreferenceListeners.clear()
+  languageListeners.clear()
+  localLanguage = { ...DEFAULT_GENERAL_PREFERENCES, interfaceLanguagePreference: 'zh-CN', interfaceLanguage: 'zh-CN' }
   responses.clear()
   requestHandlers.clear()
   calls.length = 0
@@ -168,8 +185,8 @@ async function reset(target: RestorableLocation | null = { kind: 'camp', threadI
   if (resolveSupervisor) initialSupervisor.resolve(supervisor)
   root = createRoot(document.getElementById('root')!)
   flushSync(() => root!.render(<App />))
-  check(document.querySelector('.startup-loading-canvas'),
-    'The first committed frame must show loading before any timer or IPC response')
+  check(document.querySelector('.language-bootstrap') && !document.querySelector('.startup-loading-canvas'),
+    'The first committed frame must wait for the local language before rendering localized startup content')
   await flush()
 }
 
@@ -225,7 +242,7 @@ function recoveryFrame(kind: string) {
 function noAuthority() {
   // Session state, interface language and preview retention are Main-owned
   // local reads; none enter Core authority before admission.
-  check(calls.every(call => ['desktopSession.getStartupSnapshot', 'desktopSession.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
+  check(calls.every(call => ['desktopSession.getStartupSnapshot', 'generalPreferences.getInterfaceLanguage', 'filePreview.updateRetention'].includes(call)), `Pre-ready authority calls: ${calls.join(', ')}`)
 }
 
 Object.assign(window, { startupTest: {
@@ -236,7 +253,7 @@ Object.assign(window, { startupTest: {
     const health: HealthStatus = { core: { ok: true, version: 'fixture', dataDir: '/isolated/fixture' }, database: { ok: true, path: '/isolated/fixture/rovai.sqlite' }, git: { installed: true, version: 'fixture' }, hostPlatform: 'macos-arm64', runtimeCatalog: [], runtimePlatformAdmission: [], runtimeAvailability: [], searchEnvironment: { generation: 1, createdAt: '2026-08-31T00:00:00Z', pathEntryCount: 0, shell: { status: 'unavailable', interactive: false, shellName: null, entryCount: 0, elapsedMillis: 0 } } }
     const boot = async (preferences: NavigationPreferencesSnapshot, navigation = emptyNavigation, setup?: () => void) => {
       await reset({ kind: 'quick_chat' })
-      responses.set('health.check', health)
+      responses.set('runtime.status.get', health)
       responses.set('members.list', [])
       responses.set('runtime.installations.list', [])
       responses.set('navigation.snapshot', navigation)
@@ -310,12 +327,13 @@ Object.assign(window, { startupTest: {
   },
 
   captureNavigation: (theme: 'day' | 'night', collapsed: boolean) => captureNavigation(theme, collapsed),
+  captureStoppedThread: (theme: 'day' | 'night') => captureStoppedThread(theme),
   async run() {
     const cases: string[] = []
     await reset(null, false)
     pageFrame('location', true)
     noAuthority()
-    cases.push('null initial snapshots show the brand canvas from the first frame')
+    cases.push('the local language resolves before null initial snapshots show the brand canvas')
 
     for (const target of [{ kind: 'camp', threadId }, { kind: 'members', agentId: null, tab: 'identity' },
       { kind: 'memory' }, { kind: 'quick_chat' }] as RestorableLocation[]) {
@@ -393,6 +411,19 @@ Object.assign(window, { startupTest: {
     check(!document.querySelector('.startup-loading-canvas, .bootstrap-shell'), 'Ready onboarding replaces the initial loading canvas')
     check(!calls.includes('threads.enter'), 'A fresh first-run flow must not enter an existing Camp')
     cases.push('first-run authority gate stays intact and ready onboarding replaces loading immediately')
+    const welcome = document.querySelector('.onboarding-welcome')
+    const languages = document.querySelectorAll<HTMLInputElement>('input[name="onboarding-language"]')
+    check(languages.length === 3, 'Onboarding exposes system, Simplified Chinese and English in the existing position')
+    document.querySelector<HTMLInputElement>('input[name="onboarding-language"][value="en"]')!.click()
+    await flush()
+    check(document.documentElement.lang === 'en' && document.querySelector('#onboarding-welcome-title')?.textContent === 'Welcome to Rovai',
+      'Manual English updates app-owned content and the page language')
+    document.querySelector<HTMLInputElement>('input[name="onboarding-language"][value="system"]')!.click()
+    await flush()
+    check(localLanguage.interfaceLanguagePreference === 'system' && document.querySelector<HTMLInputElement>('input[name="onboarding-language"][value="system"]')!.checked,
+      'Switching to system retains the preference even when the effective language stays English')
+    check(document.querySelector('.onboarding-welcome') === welcome, 'Changing language preserves the current component tree')
+    cases.push('Onboarding language choices update in place and distinguish system from its resolved language')
 
     await reset()
     await advance(350)
@@ -454,7 +485,7 @@ Object.assign(window, { startupTest: {
       searchEnvironment: { generation: 1, createdAt: '2026-08-31T00:00:00Z', pathEntryCount: 0,
         shell: { status: 'unavailable', interactive: false, shellName: null, entryCount: 0, elapsedMillis: 0 } }
     }
-    responses.set('health.check', health)
+    responses.set('runtime.status.get', health)
     responses.set('members.list', [])
     responses.set('runtime.installations.list', [])
     onboarding.resolve({ schemaVersion: 2, status: 'completed', origin: 'existing_installation',
@@ -466,28 +497,27 @@ Object.assign(window, { startupTest: {
     await flush()
     await advance(0)
     check(coreListeners.size > 0, 'The production App must subscribe to Core events')
-    for (const [events, memberReads] of [
-      [['runtime.availability.updated'], 0],
-      [['runtime.discovery.updated'], 1],
-      [['runtime.discovery.completed'], 1],
-      [['runtime.discovery.updated', 'runtime.availability.updated'], 1],
-      [['runtime.availability.updated', 'runtime.discovery.completed'], 1],
-      [['runtime.availability.updated'], 0]
+    for (const events of [
+      ['runtime.availability.updated'],
+      ['runtime.discovery.updated'],
+      ['runtime.discovery.completed'],
+      ['runtime.discovery.updated', 'runtime.availability.updated'],
+      ['runtime.availability.updated', 'runtime.discovery.completed'],
+      ['runtime.availability.updated']
     ] as const) {
       calls.length = 0
       for (const method of events) {
         coreListeners.forEach(listener => listener({ method, params: { runtimeKind: 'copilot-cli' } }))
       }
-      await advance(79)
-      check(!calls.includes('runtime.installations.list'), 'Runtime reads must wait for the shared debounce')
-      await advance(1)
-      check(calls.filter(call => call === 'health.check').length === 1, `${events}: refresh health once`)
+      await flush()
+      check(calls.filter(call => call === 'runtime.status.get').length === 1, `${events}: refresh Runtime status once`)
       check(calls.filter(call => call === 'runtime.installations.list').length === 1, `${events}: refresh installations once`)
-      check(calls.filter(call => call === 'members.list').length === memberReads, `${events}: incorrect member refresh scope`)
+      check(!calls.includes('members.list'), `${events}: Runtime status events must not reload members`)
     }
     cases.push('Runtime availability refreshes health and installations without reloading members')
-    cases.push('Runtime discovery retains full refresh across mixed debounce events')
+    cases.push('Runtime discovery coalesces same-tick events without reloading members')
 
+    await advance(STARTUP_LOADING_EXIT_MS)
     const authoritativeWorkspaceBeforeShutdown = document.querySelector('.authoritative-workspace')
     const appShellBeforeShutdown = document.querySelector('.app-shell')
     check(authoritativeWorkspaceBeforeShutdown && appShellBeforeShutdown,
@@ -515,7 +545,7 @@ Object.assign(window, { startupTest: {
     cases.push('planned shutdown retains the authoritative surface and safe-exit modal')
 
     await reset({ kind: 'quick_chat' })
-    responses.set('health.check', health)
+    responses.set('runtime.status.get', health)
     responses.set('members.list', [])
     responses.set('runtime.installations.list', [])
     responses.set('navigation.snapshot', { schemaVersion: 3, projects: [], quickChat: { recentThreads: [], totalCount: 0 } })
@@ -578,7 +608,7 @@ Object.assign(window, { startupTest: {
     const stamp = '2026-09-13T00:00:00Z'
     const coverage = { loadedCount: 0, totalCount: 0, omittedCount: 0, complete: true }
     const campProjection = (id: string) => ({
-      schemaVersion: 8, throughGlobalSequence: 0,
+      schemaVersion: 9, tasksEnabled: false, throughGlobalSequence: 0,
       thread: { id, title: '导航会话 ' + id, activationState: 'active', projectBindingKind: 'quick_chat',
         projectPath: '/fixture/quick-chat', defaultLeadAgentId: null, membershipGeneration: 1, version: 1, createdAt: stamp, updatedAt: stamp },
       members: [], membershipReconciliations: [], tasks: [], messages: [], messageDeliveries: [], turns: [],
@@ -626,6 +656,91 @@ Object.assign(window, { startupTest: {
       'Manual unread on the active Thread survives focus and navigation refresh')
     await clickNavigation('导航会话 A', '.camp-nav-open')
     check(manualUnread('A') === false, 'Explicit successful reopening clears the manual reminder')
+
+    let stoppedRun = { ...runTemplate, id: 'manual-stop-run', threadTurnId: null,
+      invocationKind: 'batch' as const, executionEvidenceCount: 0, executionEvidenceChangeSequence: 0 }
+    let stopReadUnavailable = false
+    campRequest = id => {
+      if (id === 'A' && stopReadUnavailable) throw new Error('Fixture stop read unavailable')
+      return id === 'A' ? { ...campProjection(id), members: runFixture.members, agentRuns: [stoppedRun] } : campProjection(id)
+    }
+    const reopenRunningThread = async () => {
+      stoppedRun = { ...stoppedRun, status: 'running', cancelRequestedAt: null, cancelReasonCode: null, endedAt: null }
+      await clickNavigation('导航会话 B', '.camp-nav-open')
+      await clickNavigation('导航会话 A', '.camp-nav-open')
+      await clickNavigation('会话', '.camp-conversation-view-controls button')
+      check(document.querySelector('.run-presence-stop'), 'The real Thread must offer its Run stop action')
+      check(!manualUnread('A'), 'A reopened Thread starts without a manual reminder')
+    }
+    const stopRun = async () => {
+      const stop = document.querySelector<HTMLButtonElement>('.run-presence-stop')!
+      stop.scrollIntoView({ block: 'center' })
+      await flush()
+      stop.click()
+      await advance(0); await flush()
+      const confirm = document.querySelector<HTMLButtonElement>('.run-presence-stop-confirmation .danger-button')
+      check(confirm && !confirm.disabled, 'Stop confirmation must be available: ' + JSON.stringify({
+        label: stop.getAttribute('aria-label'), disabled: stop.disabled, rect: stop.getBoundingClientRect().toJSON(),
+        popover: document.querySelector('.run-presence-stop-confirmation')?.textContent
+      }))
+      confirm.click(); await flush(); await flush()
+    }
+    const cancelResult = () => ({ status: 'applied', code: 'agent_run.cancelled', payload: {
+      agentRunId: stoppedRun.id, status: 'cancelled' } })
+    const settleStop = () => { stoppedRun = { ...stoppedRun, status: 'cancelled',
+      cancelRequestedAt: stamp, cancelReasonCode: 'user_requested_agent_run_stop', endedAt: stamp } }
+    const stopReply = deferred<unknown>()
+    requestHandlers.set('agentRuns.cancel', () => stopReply.promise)
+    await reopenRunningThread()
+    await stopRun()
+    check(!manualUnread('A'), 'A pending stop must not create a reminder')
+    await clickNavigation('导航会话 B', '.camp-nav-open')
+    settleStop(); stopReply.resolve(cancelResult()); await flush(); await flush()
+    check(!manualUnread('A') && !document.querySelector('[data-thread-id="A"] .camp-unread-dot') && !manualUnread('B'),
+      'A successful stop must not mark either Thread unread after navigation')
+    await clickNavigation('导航会话 A', '.camp-nav-open')
+    check(!manualUnread('A'), 'Reopening a stopped Thread preserves its normal read state')
+
+    await reopenRunningThread()
+    requestHandlers.set('agentRuns.cancel', () => { settleStop(); return cancelResult() })
+    await stopRun()
+    window.dispatchEvent(new Event('focus'))
+    for (const listener of coreListeners) listener({ method: 'navigation.invalidated', params: {} } as CoreEvent)
+    await advance(500); await flush()
+    check(!manualUnread('A') && !document.querySelector('[data-thread-id="A"] .camp-unread-dot'),
+      'A successful stop must not create a blue dot while the current Thread is focused and refreshed')
+
+    for (const result of [
+      { status: 'rejected', code: 'command.version_conflict', payload: {} },
+      { status: 'applied', code: 'agent_run.already_terminal', payload: { agentRunId: stoppedRun.id, status: 'succeeded' } }
+    ]) {
+      await reopenRunningThread()
+      requestHandlers.set('agentRuns.cancel', () => result)
+      await stopRun()
+      check(!manualUnread('A'), 'Rejected stops and already-terminal results must not create reminders')
+    }
+
+    await reopenRunningThread()
+    requestHandlers.set('agentRuns.cancel', () => {
+      settleStop(); stopReadUnavailable = true
+      throw new Error('Fixture lost stop receipt')
+    })
+    await stopRun()
+    check(!manualUnread('A'), 'An unknown stop outcome must not create a reminder before reconciliation')
+    const reminderWrites = calls.filter(call => call === 'navigationPreferences.setThreadReadState').length
+    stopReadUnavailable = false
+    for (const listener of coreListeners) listener({ method: 'agent_run.terminal', params: { threadId: 'A' } } as CoreEvent)
+    await flush(); await flush()
+    check(!manualUnread('A') && !document.querySelector('[data-thread-id="A"] .camp-unread-dot'),
+      'A later authoritative cancelled Run must not create a lost-receipt reminder')
+    for (const listener of coreListeners) listener({ method: 'agent_run.terminal', params: { threadId: 'A' } } as CoreEvent)
+    await flush(); await flush()
+    check(calls.filter(call => call === 'navigationPreferences.setThreadReadState').length === reminderWrites,
+      'Terminal refreshes must not save a stop reminder')
+    requestHandlers.delete('agentRuns.cancel')
+    campRequest = id => campProjection(id)
+    await clickNavigation('导航会话 A', '.camp-nav-open')
+    cases.push('User stops do not create a Thread unread reminder, including lost receipts and navigation races')
     await markUnread('A')
     cases.push('Manual unread survives automatic observation and clears only after an explicit successful open')
     const switchCallStart = calls.length
@@ -721,9 +836,83 @@ Object.assign(window, { startupTest: {
         const rect = document.querySelector(selector)!.getBoundingClientRect()
         return rect.y + rect.height / 2
       }
-      check(document.querySelectorAll('.camp-detail-entry').length === 3, 'The real Camp header keeps all three existing actions')
+      check(document.querySelectorAll('.camp-detail-entry').length === 2
+        && !document.querySelector('.camp-detail-entry[data-detail="tasks"]'),
+      'The real Camp header keeps its two actions while Tasks are disabled')
       return { control: center('.navigation-collapse-button'), title: center('.camp-topbar h1'), actions: center('.camp-detail-entry') }
     }
+
+    captureStoppedThread = async theme => {
+      await captureNavigation(theme, false)
+      campRequest = id => id === 'A'
+        ? { ...campProjection(id), members: runFixture.members, agentRuns: [stoppedRun] }
+        : campProjection(id)
+      requestHandlers.set('agentRuns.cancel', () => { settleStop(); return cancelResult() })
+      await reopenRunningThread()
+      await stopRun()
+      const dot = document.querySelector<HTMLElement>('[data-thread-id="A"] .camp-unread-dot')
+      check(!dot, 'The stopped Thread must not acquire an unread dot in ' + theme)
+      await flush()
+    }
+
+    // Use the real startup restore and workspace gates: the Thread is ready
+    // before missions.list, so selection/snapshot readiness alone cannot ACK.
+    const originalHasFocus = document.hasFocus.bind(document)
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true })
+    for (const outcome of ['loaded', 'failed'] as const) {
+      await reset({ kind: 'camp', threadId: 'A' })
+      for (const [method, response] of navigationResponses) responses.set(method, response)
+      for (const [method, handler] of navigationHandlers) requestHandlers.set(method, handler)
+      const mission: MissionRecord = { missionId: 'mission-attention', threadId: 'A', number: 1,
+        title: '恢复的使命', description: '', status: 'not_started', sourceMessageId: null,
+        projectPath: '/fixture/quick-chat', projectBindingKind: 'quick_chat', detailsVersion: 1,
+        tags: [], attachments: [], createdAt: stamp, updatedAt: stamp, memberAgentIds: [],
+        defaultLeadAgentId: null, runningAgentIds: [], startAvailable: false, hasUnread: false,
+        workspaceEverCreated: false, workspaceResourcesPresent: false, cleanupAvailable: false }
+      const projection = campProjection('A')
+      campRequest = id => id === 'A'
+        ? { ...projection, thread: { ...projection.thread, missionId: mission.missionId } }
+        : campProjection(id)
+      const missions = deferred<MissionRecord[]>()
+      requestHandlers.set('missions.list', () => missions.promise)
+      const task = { enabled: false, headsUpAfterSequence: 0, observedThroughChangeSequence: 10 }
+      responses.set('preferences.tasks.get', task)
+      responses.set('notifications.inbox', { schemaVersion: 11, throughChangeSequence: 10, unreadCount: 1, items: [], nextCursor: null })
+      responses.set('notifications.changesSince', { schemaVersion: 11, nextChangeSequence: 10,
+        resetRequired: false, hasMore: false, taskCapability: task, changes: [] })
+      let unread = true
+      const acknowledgements: unknown[] = []
+      requestHandlers.set('notifications.threadInterruptions', ({ threadIds }) => ({ throughChangeSequence: 10,
+        threads: threadIds.map(threadId => ({ threadId, hasUnreadInterruption: threadId === 'A' && unread })) }))
+      requestHandlers.set('notifications.acknowledgeThreadInterruptions', request => {
+        acknowledgements.push(request)
+        unread = false
+        return { commandId: request.commandId, status: 'applied', code: 'ok', payload: { resultingChangeSequence: 10 } }
+      })
+      onboarding.resolve({ schemaVersion: 2, status: 'completed', origin: 'existing_installation', completedAt: stamp,
+        selectedMemberRole: null, memberAgentId: null, quickChatThreadId: null })
+      publish({ runtimeMode: 'full_core', fullCoreState: 'ready', startupPhase: null, authorityState: { kind: 'current', origin: 'existing' },
+        capabilities: { ...supervisor.capabilities, authoritativeWorkspace: true, coreRequests: true } })
+      await flush(); await advance(0); await flush(); await advance(STARTUP_LOADING_EXIT_MS)
+      const placeholder = () => document.querySelector<HTMLElement>('.camp-content > .mission-section-empty')
+      check(placeholder()?.textContent?.includes('正在读取使命'), 'Mission restore must wait for the separate mission list')
+      check(!document.querySelector('.workspace-shell') && unread && acknowledgements.length === 0,
+        'Loading mission content cannot acknowledge its interruption')
+      if (outcome === 'failed') {
+        missions.reject(new Error('Mission list unavailable'))
+        await flush(); await flush()
+        check(placeholder()?.getAttribute('role') === 'alert' && !document.querySelector('.workspace-shell'),
+          'Mission failure must keep the workspace unmounted')
+        check(unread && acknowledgements.length === 0, 'Mission load failure must preserve the interruption')
+        requestHandlers.set('missions.list', () => [mission])
+        await clickNavigation('重试', '.camp-content > .mission-section-empty button')
+      } else missions.resolve([mission])
+      await flush(); await flush()
+      check(document.querySelector('.workspace-shell') && !unread && acknowledgements.length === 1,
+        'Only successfully displayed mission content acknowledges the observed interruption')
+    }
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: originalHasFocus })
+    cases.push('mission restore waits for actual content before interruption ACK, including load failure and retry')
 
     // Exercise the shared App with Web-style invalidation, including a refresh
     // already in flight when deletion is accepted and removal in another client.

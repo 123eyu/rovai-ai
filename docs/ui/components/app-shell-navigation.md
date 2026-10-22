@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-app-shell-navigation
 status: accepted
-last_updated: 2026-10-18
+last_updated: 2026-10-21
 ---
 
 # App Shell 与统一侧栏
@@ -59,8 +59,11 @@ Camp（包括快速对话）按最近一条已发布用户消息排序，桌面�
 
 Camp 行显示稳定标题和必要状态。右键、三点按钮、Shift+F10 / ContextMenu 键及触屏长按打开同一份菜单，
 提供置顶/取消置顶、标记未读/已读、重命名、复制会话 ID 和删除；复制只写稳定 Camp ID 原文。
+复制会话 ID、复制项目路径、重命名项目和从侧栏移除项目成功后不显示 Toast，也不增加替代提示；
+失败继续使用原有错误反馈。
 右键不打开 Camp 或折叠 Project。鼠标菜单靠点击位置，三点和键盘菜单靠行末入口，均限制在窗口内；
-Escape、点击外部、滚动或窗口失焦关闭。Camp 顶栏不得重复这些操作。
+Escape、点击外部、滚动或窗口失焦关闭。Escape 关闭时，在菜单释放焦点约束后恢复原 Project/Camp 行的 DOM focus，
+以便继续键盘操作；点击外部、选择命令、滚动或失焦关闭不执行该恢复。Camp 顶栏不得重复这些操作。
 Project 菜单提供 New Chat、置顶、重命名、Reveal in Finder（Windows 使用文件管理器文案）、复制项目路径、移除项目。
 Finder 定位真实目录，由 Desktop Main 校验存在后调用原生系统；目录失效提示重新选择。远程 Web 不提供原生定位项。
 Desktop 与宽屏 WebUI 的置顶 Camp 在标题左侧显示 17px 对话图标；置顶项目标题、置顶项目内 Camp、
@@ -75,8 +78,16 @@ Desktop 与宽屏 WebUI 的置顶 Camp 在标题左侧显示 17px 对话图标�
 
 显式标记未读属于本机提醒，当前打开的 Camp 也可以保留；聚焦、悬浮、背景刷新和 Run 结束不清除。
 显式成功打开完整会话或选择“标记已读”才清除提醒；打开失败或只显示缓存预览必须保留。
-标记已读只覆盖操作时已知的新回复，之后到达的回复仍产生蓝点；不得倒退或伪造 Core 的真实查看水位。
+标记已读覆盖操作时已知的新回复，并通过通知模块确认点击边界内的有效中断；之后到达的回复或中断仍产生蓝点。
+本机保存成功后才提交 Core 确认；Core 重试不重复清除本机提醒，不扩大观察范围。不得倒退或伪造真实查看水位。
 提醒随导航偏好持久化，Desktop 同步到其他窗口，Web 限定于当前主机与浏览器展示偏好。
+
+受控退出取消、启动恢复或运行期间确认执行丢失，由 Core 通知事件形成执行中断提醒；不写本机标记未读。
+手动停止不再产生蓝点或短亮，普通 command 进度不触发通知读取。
+重启读取持久提醒；前台成功打开正式 Thread 内容后确认当时观察范围，不要求具体执行产出可见。
+使命记录未就绪、缓存预览和打开失败不确认，侧栏是否展开不影响确认。已结束单聊退出候选并保留原未确认审计。
+蓝点合并回复、本机提醒与执行中断提醒三个来源；可访问名称分别描述真实组成，中断用“有未查看的执行中断”。
+精确范围与并发规则见 [Current User Attention v10](../../contracts/current-user-attention-v10.md)。
 
 自动生成的 Camp 标题不把开头连续的真实队员 Mention / 所有队员 Mention 当作标题内容；只保留
 首段正文开始后的文字，正文中后部的 Mention 和手写 `@文字` 继续作为普通标题文字。Camp 行不把
@@ -252,15 +263,15 @@ App 前台可见时使用约 20 秒低频安全刷新修复偶发丢失事件；
 
 ## 设置与返回
 
-“设置 → 通用”首行提供“界面语言”的“简体中文 / English”单选，选择后立即切换 App 自有导航、
+“设置 → 通用”首行提供“界面语言”的“跟随系统 / 简体中文 / English”单选，选择后立即切换 App 自有导航、
 页面文案、状态与无障碍名称，不增加说明小字、成功提示或确认弹窗。当前页面、滚动、未发送输入、
-正在执行的任务和 Run 保持原状；保存失败只在该行显示错误并恢复最近保存的语言。用户内容与已保存
-队员资料维持原文。字段和持久化边界见 [Interface Language v1](../../contracts/interface-language-v1.md)。
+正在执行的任务和 Run 保持原状；保存失败只在该行显示错误并恢复最近保存的偏好；该偏好为“跟随系统”时重新解析当前设备语言。用户内容与已保存
+队员资料维持原文。字段和持久化边界见 [Interface Language v2](../../contracts/interface-language-v2.md)。
 
 设置侧栏分三组：
 
 - 应用：通用、记忆、外观、提醒；
-- 能力：MCP、Skills、工具箱、智能体、远程连接、渠道；Desktop 与 Web 共用此顺序，独立 Server 隐藏渠道。
+- 能力：智能体、MCP、Skills、工具箱、远程连接、渠道；Desktop 与 Web 共用此顺序，独立 Server 隐藏渠道。
 - 支持：运行监控、诊断与修复、关于与更新。
 
 手机使用同一分类定义的分组总览与独立分类页，不显示设置搜索。总览和分类区分浏览器历史条目；
@@ -273,6 +284,9 @@ App 前台可见时使用约 20 秒低频安全刷新修复偶发丢失事件；
 “关于与更新”行显示同语义、非交互的 11px 状态，图标槽和状态的宽度规则分别归属，不能挤压或重叠。
 下载中同时显示动作与百分比；下载/安装失败显示失败状态，页面才提供对应重试操作。设置页面的局部构图见
 [`settings-workspace` surface brief](../../../apps/desktop/.impeccable/surfaces/settings-workspace.md)。
+
+启动设置有未保存的程序路径或通用环境配置时，左侧“返回 App”等应用内离开入口与页内返回复用同一个
+放弃确认。取消保留当前页面与草稿；确认后再导航。切换设置分类仍保留草稿，随后离开 App 设置也须确认。
 
 队员页继续显示普通全局侧栏和 Project / Camp 导航，不再用队员名册覆盖该槽位，也不提供独立的
 “返回对话 / 返回 App”控件。队员名册位于内容区左侧；用户通过全局侧栏切换页面或会话，所有切换
@@ -343,7 +357,7 @@ App Shell 在不抢夺焦点的全局浮层中短暂显示实际缩放比例，�
 
 ## Jump search and overlay closure
 
-⌘K / Ctrl+K opens the title/project search or exact lookup by a complete Camp ID, with a small “跳转到对话” title, neutral selected result and “↑ ↓ 选择　↵ 打开　Esc 关闭” footer. Search input has no focus underline or frame; arrows and Enter retain their behavior and respect IME composition. Closing sidebar menus, rename/delete/removal dialogs or settings does not force focus back to the entry button, including after pin mutations. Shared DOM focus for keyboard input and menu navigation remains available.
+⌘K / Ctrl+K opens the title/project search or exact lookup by a complete Camp ID, with a small “跳转到对话” title, neutral selected result and “↑ ↓ 选择　↵ 打开　Esc 关闭” footer. Search input has no focus underline or frame; arrows and Enter retain their behavior and respect IME composition. Closing sidebar menus, rename/delete/removal dialogs or settings does not force focus back to the entry button, including after pin mutations; Escape in Project/Camp menus follows the return-to-row rule above. Shared DOM focus for keyboard input and menu navigation remains available.
 
 ## Web 导航适配
 

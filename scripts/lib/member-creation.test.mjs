@@ -14,7 +14,8 @@ const source = join(root, 'scripts/fixtures/member-creation')
 for (const [name, entry] of [
   ['AI teammate creation uses the ordinary draft, send, navigation and member surfaces', 'main.cjs'],
   ['One-click conversation drafts survive switching, refresh and window recreation', 'pending-draft-main.cjs'],
-  ['Team creation preserves save receipts and late initial selection', 'team-creation-main.cjs']
+  ['Team creation preserves save receipts and late initial selection', 'team-creation-main.cjs'],
+  ['Runtime environment settings guard app navigation and preserve hidden drafts', 'environment-main.cjs']
 ]) test(name, { timeout: 180_000 }, async t => {
   if (!admitElectronIntegrationTest(t)) return
   const fixture = await mkdtemp(join(tmpdir(), 'rovai-member-creation-test-'))

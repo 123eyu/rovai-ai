@@ -35,8 +35,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         anyhow::ensure!(
-            matches!(classify_database_contract(&tx)?, DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version==158),
-            "Teams require schema 158"
+            matches!(classify_database_contract(&tx)?, DatabaseContractClassification::SupportedMigrationSource(ref m) if m.projection_schema_version==162),
+            "Teams require schema 162"
         );
         let old = schema(&tx, "table", "native_session_bootstrap_evidence")?;
         anyhow::ensure!(
@@ -74,8 +74,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
             );
             CREATE TRIGGER thread_team_bootstrap_immutable BEFORE UPDATE ON thread_team_bootstrap
                 BEGIN SELECT RAISE(ABORT, 'Thread startup text is immutable'); END;
-            INSERT INTO schema_migration VALUES(209,datetime('now'));
-            UPDATE rovai_data_contract SET projection_schema_version=159,updated_at=datetime('now') WHERE singleton=1;")?;
+            INSERT INTO schema_migration VALUES(213,datetime('now'));
+            UPDATE rovai_data_contract SET projection_schema_version=163,updated_at=datetime('now') WHERE singleton=1;")?;
         validate_migration_foreign_keys(
             &tx,
             &["native_session_bootstrap_evidence", "thread_team_bootstrap"],
@@ -100,7 +100,7 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
 pub(super) fn downgrade_for_test(c: &Connection) {
     if !c
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=209)",
+            "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=213)",
             [],
             |r| r.get::<_, bool>(0),
         )
@@ -130,8 +130,8 @@ pub(super) fn downgrade_for_test(c: &Connection) {
         WHEN NEW.contract_version IS NOT 'native_session_bootstrap_v5' OR NEW.bootstrap_formatter_version IS NOT 5
         BEGIN SELECT RAISE(ABORT, 'new Bootstrap evidence must use v5'); END;
         DROP TABLE thread_team_bootstrap; DROP TABLE creation_preferences; DROP TABLE team;
-        DELETE FROM schema_migration WHERE version=209;
-        UPDATE rovai_data_contract SET projection_schema_version=158 WHERE singleton=1;").unwrap();
+        DELETE FROM schema_migration WHERE version=213;
+        UPDATE rovai_data_contract SET projection_schema_version=162 WHERE singleton=1;").unwrap();
     tx.commit().unwrap();
     c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
 }

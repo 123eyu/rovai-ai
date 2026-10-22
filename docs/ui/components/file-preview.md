@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-file-preview
 status: accepted
-last_updated: 2026-10-18
+last_updated: 2026-10-22
 ---
 
 # Camp 文件预览区
@@ -18,6 +18,8 @@ last_updated: 2026-10-18
 - 会话消息中的文件链接若与逻辑前侧或后侧的正文文字（Unicode 字母或数字）直接相邻，则仅在对应侧使用
   `2px` 的 `margin-inline-start` / `margin-inline-end`；已有空白、标点、换行、段落边界或相邻文件链接不补。
   判断在既有消息解析与缓存内完成，支持跨加粗、斜体和行内代码取得相邻可见字符，不插入空格或改写消息与复制内容。
+  HTML 字面文字按 `rawHtmlPolicy` 参与判断：`text` 计入其可见字符，`drop` 跳过不可见节点；
+  HTML 块内的伪 Markdown 不会因间距计算而变为可访问文件引用。
 - inline-code 永远保持原生 `<code>`。`` `config.toml` ``、`` `src/App.tsx:20` ``、相对路径和绝对路径都不显示
   文件图标、不生成链接、不绑定点击，也不查询磁盘；代码块和混合正文同样保持原样。
 - 普通正文不扫描、不猜测本地路径。`src/App.tsx:20`、`/compact` 与 `docs/prototypes/demo/` 只有在显式 Markdown
@@ -305,7 +307,8 @@ unreadable 或 kind_changed，不写回历史，也不启动后台监控。
 全局 `--attention` 或品牌 `--ember`，Viewer 操作仍使用既有 attention 语义。刷新期间旧内容继续显示；失败显示
 “重新加载失败 / 重试”且不销毁仍可读的旧内容。句柄、Grant、token、watcher 和 generation 永远不是用户文案。
 失败后重复变化通知不触发重试，明确重试或重新显示才再尝试。分页按可见行号恢复，文件缩短时落到有效位置；
-HTML 沿用整页候选替换与滚动恢复。调度与生命周期见 [File Preview v22](../../contracts/file-preview-v22.md)。
+HTML 沿用整页候选替换与滚动恢复；自动检查确认同版本时保留现有页面，不重新准备正文或 HTML。
+手动刷新和错误/无句柄恢复继续完整加载。调度与生命周期见 [File Preview v23](../../contracts/file-preview-v23.md)。
 
 ## 平台
 
@@ -358,7 +361,7 @@ File Change 差异查看态不提供下载；磁盘上的普通 `.diff`／`.patc
 错误留在所属文件查看区，提供关闭提示；兼容旧 Host 的版本变化错误仍提供刷新，不使用全局 Toast。切换标签、会话或收起查看区后，
 隐藏面板及其反馈，迟到结果不激活旧文件或抢焦点；已经交给浏览器的下载继续进行。
 预览资源回收更换请求代次时同步清除临时下载反馈，保留正文或 HTML 页面也不残留“准备下载”。
-下载采用 [Host Web v7](../../contracts/host-web-v7.md) 的短期授权与原生下载，失败保留当前消息和预览。
+下载采用 [Host Web v8](../../contracts/host-web-v8.md) 的短期授权与原生下载，失败保留当前消息和预览。
 从已打开预览或原来源下载，均取得下载准入时的当前文件，不要求刷新旧预览；下载不替换正在展示的预览内容。
 预览读取自身的版本约束不变；无成功预览时仍按原来源申请，不增加下载确认或传输方式选择。
 

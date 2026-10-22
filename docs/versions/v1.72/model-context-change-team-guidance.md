@@ -152,3 +152,9 @@ one-click，已有 Thread 的材料继续保留。不得从删除后的 Team 或
 当前没有可证明固定模型快照的 Judge 配置，使用 `judge: null`。因此即使执行和规则通过，也仅记录
 真实执行证据，不能声明语义 Gate 通过。静态字节和真实任务报告分别保存；最终结论见实施记录。
 基线 checkout 为独立 `rovai-ai-team-baseline` / `9a5127ed8a26531808a61c62565c097cf498fd43`。
+
+## 2026-10-22 主线整合
+
+保留主线已确认的 Charter revision 25（含 native background policy），本次仍只叠加 R1 的可选
+TEAM_GUIDANCE。Bootstrap/formatter 为 v6/6、Binding compatibility 16；不重写旧输入或新增动态段。
+团队迁移顺延为 213 / schema 163，接在主线 212 / schema 162 后。此记录不改变 R1 的确认范围。

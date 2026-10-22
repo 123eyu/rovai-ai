@@ -1161,7 +1161,7 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
     if (!tab.file && !tab.content) { await reopen(tabId); return }
     const oldFile = tab.file
     const scope = scopeGenerationRef.current
-    const requestGeneration = tab.requestGeneration + 1
+    let requestGeneration = tab.requestGeneration
     refreshVersions.set(tabId, tab.externalUpdateVersion)
     setTabs(tabs => tabs.map(entry => entry.id !== tabId ? entry : { ...tab, requestGeneration, isRefreshing: true, refreshError: null, downloadState: undefined }))
     let candidate: ResolvedFilePreview | null = null
@@ -1190,6 +1190,23 @@ export function createFilePreviewSession(api: FilePreviewApi, threadId: string, 
       }
       if (!candidate) throw new Error(uiAttribute('无法重新取得文件，已保留当前预览。'))
       if (!current()) return
+      const version = oldFile?.contentVersion
+      if (visibleOnly && oldFile && tab.content && !tab.refreshError
+        && oldFile.previewKey === candidate.previewKey
+        && version?.size === candidate.contentVersion.size && version.mtimeMs === candidate.contentVersion.mtimeMs
+        && version.fileId === candidate.contentVersion.fileId
+        // Desktop supplies file identity; Web supplies its full digest as the generation.
+        && (version.fileId !== undefined || oldFile.contentGeneration === candidate.contentGeneration)) {
+        const changed = candidate.hasExternalUpdate
+        setTabs(tabs => tabs.map(entry => entry.id !== tabId || entry.kind !== 'file' ? entry : {
+          ...entry, isRefreshing: false,
+          hasExternalUpdate: changed || entry.externalUpdateVersion !== refreshVersions.get(tabId)
+        }))
+        return
+      }
+      // A version-only check must not invalidate reads of the retained content.
+      requestGeneration += 1
+      setTabs(tabs => tabs.map(entry => entry.id !== tabId ? entry : { ...entry, requestGeneration }))
       reservation = candidate.kind === 'html' ? await owner.reserveHtml(session, tabId) : () => undefined
       if (!reservation) throw new Error(uiAttribute('预览资源不足，旧预览已保留。'))
       const reading = current()?.reading ?? tab.reading

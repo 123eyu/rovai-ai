@@ -7,6 +7,7 @@ import { useThreadClient } from './camp-client'
 import { CurrentUserProfileEditor, CurrentUserRosterEntry } from './CurrentUserProfileEditor'
 import { readErrorMessage } from './error-message'
 import {
+  Activity,
   forwardRef,
   useCallback,
   useEffect,
@@ -24,7 +25,7 @@ import type {
   AdapterInstallation,
   AdapterKind,
   AgentProfile,
-  HealthStatus,
+  RuntimeStatus,
   HostPlatformKey,
   MemberRemovalPreview,
   ProductRuntimeAvailability,
@@ -44,7 +45,7 @@ import {
 } from './AppDialog'
 import { localizeExecutionEngineTerms } from './product-copy'
 import { SettingsPageHeader } from './SettingsPageHeader'
-import { RuntimeStartupSettings } from './RuntimeStartupSettings'
+import { RuntimeStartupSettings, type RuntimeStartupLeaveGuard } from './RuntimeStartupSettings'
 import { RuntimeInstallationGuide } from './RuntimeInstallationGuide'
 import { runtimeInstallGuide } from './runtime-install-guide'
 import { invalidateManagedAvatarObjectUrl } from './managed-avatar-cache'
@@ -108,6 +109,7 @@ type MembersViewProps = {
   onReload(): Promise<void>
   onProfileCommitted?(profile: AgentProfile): void
   onOpenRuntimeSettings(): void
+  onEditCommonEnvironment?(kind: AdapterKind, member: AgentProfile): void
   onCreateWithAI?(): Promise<boolean>
 }
 
@@ -479,6 +481,7 @@ const MemberEditor = forwardRef<
     onReload,
     onProfileCommitted,
     onOpenRuntimeSettings,
+    onEditCommonEnvironment,
     onStateChange,
     onApplyRuntime,
     onCreated,
@@ -838,6 +841,7 @@ const MemberEditor = forwardRef<
                 onClear={clearRuntime}
                 onReload={onReload}
                 onOpenRuntimeSettings={onOpenRuntimeSettings}
+                onEditCommonEnvironment={onEditCommonEnvironment}
                 onApplyToOthers={onApplyRuntime}
               />
             ) : (
@@ -1083,6 +1087,7 @@ export const MemberRuntimeForm = forwardRef<
     onClear(): Promise<void>
     onReload(): Promise<void>
     onOpenRuntimeSettings(): void
+    onEditCommonEnvironment?(kind: AdapterKind, member: AgentProfile): void
     onApplyToOthers?(agent: AgentProfile): void
   }
 >(function MemberRuntimeForm(
@@ -1100,6 +1105,7 @@ export const MemberRuntimeForm = forwardRef<
     onClear,
     onReload,
     onOpenRuntimeSettings,
+    onEditCommonEnvironment,
     onApplyToOthers
   },
   ref
@@ -1126,7 +1132,7 @@ export const MemberRuntimeForm = forwardRef<
   const submittingRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
   const currentStateKey = runtimeEditorStateKey({ selectedKind, draft })
-  const environment = useMemberEnvironment(agent.agentId, selectedKind, agent.version, draft?.model, hostPlatform === 'windows-x64')
+  const environment = useMemberEnvironment(agent.agentId, selectedKind, agent.version, draft?.model, hostPlatform === 'windows-x64', active)
   const dirty = currentStateKey !== baselineStateKey || environment.dirty
   const availability =
     runtimeAvailability.find((item) => item.runtimeKind === selectedKind) ??
@@ -1181,8 +1187,8 @@ export const MemberRuntimeForm = forwardRef<
   )
   const reportedVersion = availability?.reportedVersion?.trim() || null
 
-  const resetFromAgent = useCallback((): void => {
-    environment.reset()
+  const resetFromAgent = useCallback((resetEnvironment = true): void => {
+    if (resetEnvironment) environment.reset()
     const next = runtimeEditorState(agent, installations)
     setSelectedKind(next.selectedKind)
     setDraft(next.draft)
@@ -1219,7 +1225,7 @@ export const MemberRuntimeForm = forwardRef<
     if (disposition === 'unchanged') return
     persistedRuntimeKeyRef.current = nextPersistedKey
     if (disposition === 'saved_submission') {
-      resetFromAgent()
+      resetFromAgent(false)
       return
     }
     if (disposition === 'saved_submission_with_newer_draft') {
@@ -1371,7 +1377,7 @@ export const MemberRuntimeForm = forwardRef<
           />
         )}
 
-        {selectedKind && <MemberEnvironmentEditor environment={environment} disabled={(busy !== null || submitting) || !runtimeMutationAllowed}/> }
+        {selectedKind && <MemberEnvironmentEditor environment={environment} disabled={(busy !== null || submitting) || !runtimeMutationAllowed} onEditCommon={onEditCommonEnvironment ? () => onEditCommonEnvironment(selectedKind, agent) : undefined}/> }
 
         {conflict && (
           <div className="member-runtime-conflict" role="alert">
@@ -1380,7 +1386,7 @@ export const MemberRuntimeForm = forwardRef<
             <button
               className="quiet-button"
               type="button"
-              onClick={resetFromAgent}
+              onClick={() => resetFromAgent()}
             ><UiText zh={"重新读取已保存配置"} /></button>
           </div>
         )}
@@ -1413,7 +1419,7 @@ export const MemberRuntimeForm = forwardRef<
               className="member-editor-cancel"
               type="button"
               disabled={!dirty || (busy !== null || submitting)}
-              onClick={resetFromAgent}
+              onClick={() => resetFromAgent()}
             ><UiText zh={"放弃更改"} /></button>
             <button
               className="member-editor-primary member-editor-save"
@@ -1455,18 +1461,27 @@ function persistedRuntimeKey(agent: AgentProfile): string {
 
 export function RuntimeInstallationsPanel({
   health,
+  commonEnvironmentReturn,
+  active = true,
+  onLeaveGuardChange,
   onReload
 }: {
-  health: HealthStatus | null
+  health: RuntimeStatus | null
   installations: AdapterInstallation[]
+  commonEnvironmentReturn?: { kind: AdapterKind; memberName: string; onBack(): void }
+  active?: boolean
+  onLeaveGuardChange?(guard: RuntimeStartupLeaveGuard | null): void
   onReload(): Promise<void>
 }): React.JSX.Element {
   const client = useThreadClient()
-  const [settingsRuntime, setSettingsRuntime] = useState<AdapterKind | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
+  const [settingsRuntime, setSettingsRuntime] = useState<AdapterKind | null>(commonEnvironmentReturn?.kind ?? null)
+  const [checkingKinds, setCheckingKinds] = useState<Set<AdapterKind>>(new Set())
+  const pendingChecks = useRef(new Set<AdapterKind>())
+  const [rescanning, setRescanning] = useState(false)
+  const rescanPending = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<{ runtimeKind: AdapterKind; mode: 'install' | 'login' } | null>(null)
-  const [checkFeedback, setCheckFeedback] = useState<{ runtimeKind: AdapterKind; error: string } | null>(null)
+  const [checkFeedback, setCheckFeedback] = useState<Partial<Record<AdapterKind, string>>>({})
   const guideId = useId()
   const availability = health?.runtimeAvailability ?? []
   const hasEnabledRuntime =
@@ -1477,10 +1492,10 @@ export function RuntimeInstallationsPanel({
     ) ?? false
 
   const checkProduct = async (runtimeKind: AdapterKind): Promise<void> => {
-    if (busy !== null) return
-    setBusy(`check-${runtimeKind}`)
-    setError(null)
-    setCheckFeedback(null)
+    if (pendingChecks.current.has(runtimeKind)) return
+    pendingChecks.current.add(runtimeKind)
+    setCheckingKinds(new Set(pendingChecks.current))
+    setCheckFeedback(current => ({ ...current, [runtimeKind]: undefined }))
     try {
       try {
         const result = await requestProductRuntimeCheck(runtimeKind, client.request)
@@ -1490,14 +1505,17 @@ export function RuntimeInstallationsPanel({
         await onReload()
       }
     } catch (nextError) {
-      setCheckFeedback({ runtimeKind, error: errorMessage(nextError) })
+      setCheckFeedback(current => ({ ...current, [runtimeKind]: errorMessage(nextError) }))
     } finally {
-      setBusy(null)
+      pendingChecks.current.delete(runtimeKind)
+      setCheckingKinds(new Set(pendingChecks.current))
     }
   }
 
   const rescan = async (): Promise<void> => {
-    setBusy('rescan')
+    if (rescanPending.current) return
+    rescanPending.current = true
+    setRescanning(true)
     setError(null)
     try {
       await client.request('runtime.discovery.rescan', {
@@ -1507,15 +1525,17 @@ export function RuntimeInstallationsPanel({
     } catch (nextError) {
       setError(errorMessage(nextError))
     } finally {
-      setBusy(null)
+      rescanPending.current = false
+      setRescanning(false)
     }
   }
 
-  if (settingsRuntime) return <RuntimeStartupSettings key={settingsRuntime} runtimeKind={settingsRuntime} health={health}
-    onBack={() => setSettingsRuntime(null)} />
+  if (settingsRuntime) return <RuntimeStartupSettings key={settingsRuntime} runtimeKind={settingsRuntime} health={health} active={active} onLeaveGuardChange={onLeaveGuardChange}
+    backLabel={commonEnvironmentReturn ? uiAttribute('返回 {0} 的队员配置', commonEnvironmentReturn.memberName) : undefined}
+    onBack={() => { if (commonEnvironmentReturn) commonEnvironmentReturn.onBack(); else setSettingsRuntime(null); void onReload() }} />
 
   return (
-    <>
+    <Activity mode={active ? 'visible' : 'hidden'}>
       <SettingsPageHeader
         eyebrow="Settings / Agents"
         title={uiAttribute("智能体")}
@@ -1523,10 +1543,10 @@ export function RuntimeInstallationsPanel({
         aside={
           <button
             className="quiet-button"
-            disabled={busy !== null || (health !== null && !hasEnabledRuntime)}
+            disabled={rescanning || (health !== null && !hasEnabledRuntime)}
             onClick={() => void rescan()}
           >
-            {busy === 'rescan'
+            {rescanning
               ? uiAttribute("正在重新检测…")
               : health === null
                 ? uiAttribute("重新检测")
@@ -1566,10 +1586,12 @@ export function RuntimeInstallationsPanel({
             const mode = presentation.status === 'not_installed' ? 'install'
               : presentation.status === 'authentication_required' ? 'login' : null
             const isOpen = guide !== null && expanded?.runtimeKind === runtimeKind
-            const checking = busy === `check-${runtimeKind}`
-            const feedback = checkFeedback?.runtimeKind === runtimeKind ? (
+            // A stale server snapshot must not lock retry after this row's request
+            // settles. The badge still presents server state; Core coalesces checks.
+            const checking = checkingKinds.has(runtimeKind)
+            const feedback = checkFeedback[runtimeKind] ? (
               <p className="runtime-guide-feedback is-error" role="alert">
-                {checkFeedback.error}
+                {checkFeedback[runtimeKind]}
               </p>
             ) : null
             return (
@@ -1593,17 +1615,17 @@ export function RuntimeInstallationsPanel({
                   onClick={() => setExpanded(isOpen ? null : { runtimeKind, mode: mode ?? 'install' })}
                 >
                   {isOpen ? uiAttribute("收起") : mode === 'login' ? uiAttribute("登录指南") : uiAttribute("安装指南")}<DialogControlIcon name="chevron" />
-                </button> : <button type="button" className="quiet-button runtime-product-check" disabled={busy !== null || !allowed} onClick={() => void checkProduct(runtimeKind)}>
+                </button> : <button type="button" className="quiet-button runtime-product-check" disabled={checking || !allowed} onClick={() => void checkProduct(runtimeKind)}>
                   {checking
                     ? uiAttribute("正在检查…")
                     : allowed ? uiAttribute("检查状态") : uiAttribute("不可检查")}<DialogControlIcon name="refresh" />
                 </button>}
                 <button type="button" className="quiet-button runtime-product-settings" aria-label={uiAttribute("{0} 启动设置", String(adapterLabel(runtimeKind)))}
-                  title={uiAttribute("启动设置")} disabled={busy !== null || !allowed} onClick={() => setSettingsRuntime(runtimeKind)}><DialogControlIcon name="settings" /></button>
+                  title={uiAttribute("启动设置")} disabled={checking || !allowed} onClick={() => setSettingsRuntime(runtimeKind)}><DialogControlIcon name="settings" /></button>
                 {item?.failure && <RuntimeFailureNotice failure={item.failure} />}
                 {isOpen && guide && expanded ? <RuntimeInstallationGuide
                   id={`${guideId}-${runtimeKind}`} label={adapterLabel(runtimeKind)} guide={guide}
-                  mode={expanded.mode} busy={busy !== null} checking={checking} feedback={feedback}
+                  mode={expanded.mode} busy={checking} checking={checking} feedback={feedback}
                   onCheck={() => void checkProduct(runtimeKind)}
                 /> : feedback}
               </article>
@@ -1616,7 +1638,7 @@ export function RuntimeInstallationsPanel({
           </div>
         )}
       </section>
-    </>
+    </Activity>
   )
 }
 

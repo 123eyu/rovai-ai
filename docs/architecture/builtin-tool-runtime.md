@@ -3,7 +3,7 @@ document_type: architecture
 architecture: builtin-tool-runtime
 authority: builtin-tool-component-boundaries
 status: accepted
-last_updated: 2026-10-18
+last_updated: 2026-10-20
 ---
 
 # Built-in Tool Runtime Architecture
@@ -11,7 +11,7 @@ last_updated: 2026-10-18
 人类用户的主称呼、双别名、结构化搜索与冻结投影边界见 [User Naming v1](../contracts/user-naming-v1.md)。
 
 本文件说明 Rovai built-in operations 的长期组件结构。当前字段与版本以
-[Built-in Tool Transport v42](../contracts/builtin-tool-transport-v42.md)、
+[Built-in Tool Transport v43](../contracts/builtin-tool-transport-v43.md)、
 [Built-in Tool Agent Output Projection v1](../contracts/builtin-tool-agent-output-projection-v1.md)、
 [Camp History v14](../contracts/camp-history-v14.md)、
 [Durable Task v6](../contracts/durable-task-v6.md) 和
@@ -161,7 +161,7 @@ create/update 的 `avatarFile` 由 CLI 原样传入；Core 在 Run 认证后复�
 用冻结的 `execution_root` 解析相对路径，绝对路径原样保留。路径 helper 与 Agent 附件共用，
 头像继续直接导入 immutable asset，不创建附件记录或新增路径授权机制。
 内置素材与 managed 图片在授权 Run tmp 中物化，复用 lease 清理；每次 get 重验权限和重取文件。
-完整字段、裁切及错误见 [Transport v42](../contracts/builtin-tool-transport-v42.md)。
+完整字段、裁切及错误见 [Transport v43](../contracts/builtin-tool-transport-v43.md)。
 
 Mission read uses a distinct global read seam: every effective authenticated AgentRun may list all Missions or
 read one opaque internal `rvm_...` ID, including saved structured attachment paths. Omitted-ID `get` resolves only the
@@ -413,11 +413,14 @@ status 和 stdin 写入都不是 accepted evidence。Adapter 只接受带预期 
 
 Claude Code 的打印进程同时读写 stream-json。审批使用 stdout 的原生 can_use_tool 控制请求和
 stdin 的 control_response，进程所有权绑定 Run/epoch/Native Session，初始化成功后才发送任务。
-request_id 用于回复，tool_use_id 关联实际工具结果。Core 转换为既有 Action/Approval；Dock 的
+request_id 用于回复，tool_use_id 关联实际工具结果。普通执行权限转换为既有 Action/Approval；Dock 的
 允许一次回填原 input，拒绝回填 deny；原生建议允许且用户选择记忆时，原样回填所选 permission update，
 由 Claude 保存和匹配规则。响应 write/flush 完成才 ACK Runtime Delivery。
 
-控制通道仅保存待处理请求，完成、取消或断线后清理。普通工具展示状态仍由输出解析器拥有。
+正式启动禁用 AskUserQuestion；意外问卷在转换前 deny，拒绝过的问卷 ID 与不支持观察保留到本轮终态，
+用于一次回执和防止非空 final 掩盖未承接提问。普通待审批请求在完成、取消或断线后清理。
+具体问卷边界见 [Runtime Launch v67](../contracts/runtime-launch-and-verification-v67.md)。
+普通工具展示状态仍由输出解析器拥有。
 审批不经过 Built-in 业务 IPC、不按工具输入反查身份，也没有累计工具调用额度；用户原有 Hook
 由 Claude 原生配置处理。业务 `rovai send` 继续由现有 Run lease 认证。
 
@@ -707,11 +710,13 @@ Activity。命令文本、时间、cwd 或输出相似度不能建立关联。Sh
 系统不声称能够证明模型主观意图。
 
 - CLI 从 direct flags、JSON stdin/heredoc 或 `--input-file` 构造一个对象。Send 文件按
-  [Transport v42](../contracts/builtin-tool-transport-v42.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
+  [Transport v43](../contracts/builtin-tool-transport-v43.md)分流，只有正文文件可与除 `--body` 外的发送参数组合；
   完整请求文件和其他 operation 保持来源互斥。所有来源共用
   catalog canonical input Schema validator，只有通过后才加载 lease/context 并发送 IPC。`thread.read`
   直接发送 `messageId | thread | before | limit` 的合法组合，不补写模式或方向，也不接受旧字段。
-  Core 不感知输入来源，继续拥有默认 limit、cursor 与组合约束的权威校验；
+  Core 继续拥有默认 limit、cursor 与组合约束的权威校验。Send 的可选 `sendInputFilePath` 单独进入
+  内部 IPC 和现有执行 Evidence，作为文件卡片排除来源；业务输入对象和 Agent Output 保持。来源不用于
+  读取文件或扩展权限，没有来源时不推测；
 - CLI 参数或输入来源错误：Agent stdout 使用 `builtin_tool.invalid_input` + `fix_input`，退出码
   `2`。Schema failure 最多返回 4 条确定性字段 issue，顺序为 missing required、当前 mode 不允许、
   enum/const、type、numeric bounds、string/array bounds；合法 mode 只解释选中 branch。Issue 只含

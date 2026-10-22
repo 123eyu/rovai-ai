@@ -1,3 +1,4 @@
+import { isInterfaceLanguage } from '../shared/general-preferences-model'
 import { creationPreferences, withHostConversationPreferences } from '../shared/host-general-preferences'
 import { createHostChannelHandler } from './host-channels'
 import { FilePreviewFrameNavigation } from './file-preview/file-preview-navigation'
@@ -22,6 +23,7 @@ import {
   powerMonitor,
   protocol,
   screen,
+  systemPreferences,
   shell
 } from 'electron'
 import { isThreadId } from '@contracts'
@@ -85,7 +87,7 @@ import { RUNTIME_RENDERER_CORE_METHODS } from './runtime-core-methods'
 import {
   GeneralPreferencesStore,
   isExecutionConsolePlacement,
-  isInterfaceLanguage,
+  isInterfaceLanguagePreference,
   isNewConversationDefaults,
   isSettingsSection,
   isStartupLocationMode
@@ -117,7 +119,7 @@ import {
   revealDesktopAttachmentTarget,
   type DesktopAttachmentTarget
 } from './attachment-desktop'
-import { LocalComposerAttachmentRegistry } from './local-composer-attachments'
+import { createPastedTextAttachment, LocalComposerAttachmentRegistry } from './local-composer-attachments'
 import {
   prepareWindowsBootstrapRoot,
   prepareWindowsDataRoot,
@@ -327,6 +329,7 @@ const allowedMethods = new Set<CoreMethod>([
   'thread.messages.page',
   'thread.messages.anchors',
   'thread.messages.anchorPreview',
+  'thread.messages.replies',
   'thread.messages.around',
   'thread.messages.find',
   'agentRunEvidence.getContent',
@@ -345,9 +348,11 @@ const allowedMethods = new Set<CoreMethod>([
   'userAutomation.thread.send',
   'action.approvals.resolve',
   'notifications.inbox',
+  'notifications.threadInterruptions',
   'notifications.changesSince',
   'notifications.acknowledge',
   'notifications.acknowledgeVisibleSources',
+  'notifications.acknowledgeThreadInterruptions',
   'notifications.markAllRead',
   'notifications.clear',
   'notifications.preference.get',
@@ -995,7 +1000,7 @@ if (primaryInstance) void app.whenReady().then(async () => {
   await executionView.start().catch((error) => {
     console.warn('[rovai] Execution Web service did not start; channel execution remains available.', error)
   })
-  generalPreferences = GeneralPreferencesStore.defaults(generalPreferencesPath)
+  generalPreferences = GeneralPreferencesStore.defaults(generalPreferencesPath, () => app.getPreferredSystemLanguages())
   if (process.platform === 'win32') {
     windowsWindowClose = new WindowsWindowClose({
       preferences: new WindowClosePreferences(join(userDataPath, 'window-close.json')),
@@ -1020,6 +1025,16 @@ if (primaryInstance) void app.whenReady().then(async () => {
   publishAppearance()
   core.onEvent((event) => {
     channelSettings.handleCoreEvent(event)
+    const params = event.params as { reason?: unknown; threadId?: unknown } | null
+    if (event.method === 'navigation.invalidated'
+      && (params?.reason === 'camps.discardPending' || params?.reason === 'camp.deleted')
+      && typeof params.threadId === 'string') {
+      // This notification follows authoritative Thread deletion, including
+      // empty-Pending startup cleanup. No draft recovery responsibility remains.
+      void localComposerAttachments.discard(params.threadId).catch((error) => {
+        console.warn('Deleted Thread attachment registration cleanup failed', error)
+      })
+    }
     mainWindow?.webContents.send('rovai:event', event)
   })
   core.onSnapshot((snapshot) => {
@@ -1047,21 +1062,33 @@ if (primaryInstance) void app.whenReady().then(async () => {
   })
   removeRetiredLoginItemRegistration()
   void memberAvatars?.cleanupStaleTemporaryDirectories().catch(() => undefined)
+  const loadedGeneralPreferences = await GeneralPreferencesStore.load(generalPreferencesPath, () => app.getPreferredSystemLanguages())
   const [
-    loadedGeneralPreferences,
     loadedOnboarding,
     loadedRestorableLocations,
     loadedNavigationPreferences,
     loadedCurrentUserProfile
   ] = await Promise.all([
-    GeneralPreferencesStore.load(generalPreferencesPath),
-    OnboardingStore.load(onboardingPath),
+    OnboardingStore.load(onboardingPath, loadedGeneralPreferences.get().interfaceLanguage),
     RestorableLocationStore.load(restorableLocationPath),
     NavigationPreferencesStore.load(navigationPreferencesPath),
     CurrentUserProfileStore.load(currentUserProfilePath),
     shortcutPreferences.load()
   ])
   generalPreferences = loadedGeneralPreferences
+  generalPreferences.onInterfaceLanguageChanged(snapshot => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) window.webContents.send('rovai:interface-language-changed', snapshot)
+    }
+  })
+  const refreshLanguage = (): void => generalPreferences?.refreshInterfaceLanguage()
+  app.on('browser-window-focus', refreshLanguage)
+  app.on('activate', refreshLanguage)
+  powerMonitor.on('resume', refreshLanguage)
+  if (process.platform === 'darwin') {
+    const subscription = systemPreferences.subscribeLocalNotification('NSCurrentLocaleDidChangeNotification', refreshLanguage)
+    app.once('will-quit', () => systemPreferences.unsubscribeLocalNotification(subscription))
+  }
   onboarding = loadedOnboarding
   restorableLocations = loadedRestorableLocations
   navigationPreferences = loadedNavigationPreferences
@@ -1183,6 +1210,16 @@ ipcMain.handle('rovai:request', async (_event, method: CoreMethod, params?: unkn
     }
   }
   try {
+    if (method === 'thread.messages.send' && params && typeof params === 'object') {
+      const input = params as { threadId?: unknown; sourceAttachments?: unknown }
+      if (typeof input.threadId === 'string' && Array.isArray(input.sourceAttachments)) {
+        await localComposerAttachments.protectForSend(input.threadId, input.sourceAttachments.flatMap(source =>
+          source && typeof source.id === 'string' && typeof source.sourcePath === 'string'
+            ? [{ id: source.id, sourcePath: source.sourcePath }]
+            : []
+        ))
+      }
+    }
     const value = await core.request(method, params)
     if ((method === 'threads.delete' || method === 'threads.discardPending') && params && typeof params === 'object') {
       const command = (params as { command?: { threadId?: unknown } }).command
@@ -1413,7 +1450,7 @@ ipcMain.handle('rovai:desktop-session-get-startup', async (event) => {
 ipcMain.handle('rovai:desktop-session-get-interface-language', async (event) => {
   requireMainWindow(event.sender)
   await localStoresLoaded
-  return requireGeneralPreferences().get().interfaceLanguage
+  return requireGeneralPreferences().getInterfaceLanguage()
 })
 
 ipcMain.handle('rovai:desktop-session-commit-location', async (_event, location: unknown) => {
@@ -1446,9 +1483,10 @@ ipcMain.handle('rovai:shortcuts-recording', (event, recording) => {
   input.setRecording(recording)
 })
 
-ipcMain.handle('rovai:general-preferences-set-language', (_event, language: unknown) => {
-  if (!isInterfaceLanguage(language)) throw new Error('Unsupported interface language')
-  return hostGeneralPreferences().setInterfaceLanguage(language)
+ipcMain.handle('rovai:general-preferences-set-language', async (_event, preference: unknown) => {
+  if (!isInterfaceLanguagePreference(preference)) throw new Error('Unsupported interface language preference')
+  await localStoresLoaded
+  return hostGeneralPreferences().setInterfaceLanguagePreference(preference)
 })
 
 ipcMain.handle('rovai:general-preferences-set-startup', (_event, mode: unknown) => {
@@ -1613,9 +1651,11 @@ ipcMain.handle('rovai:onboarding-defer-runtime', () => {
 ipcMain.handle('rovai:onboarding-begin-provisioning', (
   _event,
   selection: unknown,
-  runtimePermissions: unknown
+  runtimePermissions: unknown,
+  interfaceLanguage: unknown
 ) => {
-  return requireOnboarding().beginProvisioning(selection, runtimePermissions)
+  if (!isInterfaceLanguage(interfaceLanguage)) throw new Error('Unsupported onboarding language')
+  return requireOnboarding().beginProvisioning(selection, runtimePermissions, interfaceLanguage)
 })
 
 ipcMain.handle('rovai:onboarding-record-member', (_event, agentId: unknown, version: unknown) => {
@@ -2084,6 +2124,31 @@ ipcMain.handle(
     } finally {
       if (rejected) await Promise.all(prepared.temporaryPaths.map(path => unlink(path).catch(() => undefined)))
     }
+  }
+)
+
+ipcMain.handle(
+  'rovai:composer-attachment-prepare-pasted-text',
+  async (_event, threadId: unknown, displayName: unknown, input: unknown) => {
+    const resolvedThreadId = requireIpcString(threadId, 'Thread ID')
+    const name = requireIpcString(displayName, '附件名称')
+    if (!name.endsWith('.txt') || Array.from(name).length > 120
+      || !(input instanceof Uint8Array) || input.byteLength > MAX_COMPOSER_ATTACHMENT_BYTES) {
+      throw new Error('附件无效或超过 25 MiB。')
+    }
+    const root = await core.request<string>('host.thread.attachmentOutputRoot', { threadId: resolvedThreadId })
+    return createPastedTextAttachment(localComposerAttachments, resolvedThreadId, root, name, input)
+  }
+)
+
+ipcMain.handle(
+  'rovai:composer-attachment-remove-pasted-text',
+  async (_event, threadId: unknown, attachmentRefId: unknown) => {
+    const resolvedThreadId = requireIpcString(threadId, 'Thread ID')
+    if (!isAttachmentId(attachmentRefId)) throw new Error('Composer 附件清理范围无效。')
+    return localComposerAttachments.removePastedText(resolvedThreadId, attachmentRefId, () =>
+      core.request<string>('host.thread.attachmentOutputRoot', { threadId: resolvedThreadId })
+    )
   }
 )
 

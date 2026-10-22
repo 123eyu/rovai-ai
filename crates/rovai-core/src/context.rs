@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 const BUILTIN_CLI_CHARTER: &str = include_str!("../resources/charter-rovai-cli.md");
 const SINGLE_CHAT_SESSION_CHARTER: &str = include_str!("../resources/charter-rovai-single-chat.md");
+const NATIVE_BACKGROUND_COMPLETION_RULE: &str = "Do not background required finite commands or native subagents. If a tool backgrounds them, collect results and complete authorized follow-up before your final response. Do not assume background completion will resume your work.";
 const SINGLE_CHAT_GUIDANCE: &str = include_str!("../resources/single-chat-guidance-v3.json");
 const CHANNEL_FILE_DELIVERY_GUIDANCE: &str = "This Thread is connected to an external channel. Local file paths and Runtime image previews are not delivered there; when the recipient needs the file itself, include `--file <path>` in the corresponding `rovai send` message.";
 // Historical ContextManifest v22-v25 rows remain readable after the v1.60
@@ -3182,8 +3183,25 @@ fn build_session_charter(
     has_active_file_delivery_binding: bool,
     is_mission: bool,
 ) -> Result<String> {
+    let with_completion_rule = |mut charter: String| -> Result<String> {
+        if matches!(
+            run_snapshot_adapter_kind(snapshot)?,
+            AdapterKind::ClaudeCodeCli | AdapterKind::CodebuddyCli
+        ) {
+            let authority = charter
+                .lines()
+                .find(|line| line.starts_with("- Follow current user instructions;"))
+                .context("Session Charter user instruction rule is missing")?;
+            let position = charter.find(authority).unwrap() + authority.len();
+            charter.insert_str(
+                position,
+                &format!("\n- {NATIVE_BACKGROUND_COMPLETION_RULE}"),
+            );
+        }
+        Ok(charter)
+    };
     if snapshot.invocation_kind == "single_chat" {
-        return Ok(SINGLE_CHAT_SESSION_CHARTER.trim().to_string());
+        return with_completion_rule(SINGLE_CHAT_SESSION_CHARTER.trim().to_string());
     }
     let file_guidance = if has_active_file_delivery_binding {
         format!("\n- {CHANNEL_FILE_DELIVERY_GUIDANCE}")
@@ -3195,7 +3213,7 @@ fn build_session_charter(
          - The User owns the Thread objective. The User or current Default Lead coordinates member responsibilities.\n\
          - Follow current user instructions; preserve existing user work. Prefer current evidence to Memory, history and cached context.\n\
          - Use `rovai thread read` only for needed, missing context. History boundaries do not prove reading or completion.";
-    Ok(format!(
+    with_completion_rule(format!(
         "Rovai-ai Session Charter\n\n{authority_guidance}\n\
          - When no work can proceed without another Agent's reply, end the Run and resume on reply. Do not poll history or execution status.\n\n{}{}{}",
         BUILTIN_CLI_CHARTER.trim(),
@@ -9511,6 +9529,12 @@ mod slow_tests {
             .commit_verified_managed_installation(
                 &mut database,
                 VerifiedManagedInstallation {
+                    model_catalog_complete: true,
+                    executable_file_identity:
+                        crate::agent_runtime_adapter::observe_executable_file_identity(
+                            std::path::Path::new(&(executable.display().to_string())),
+                        )
+                        .ok(),
                     adapter_kind: AdapterKind::CodexCli,
                     executable_path: executable.display().to_string(),
                     command_name: "codex".to_string(),
@@ -14878,10 +14902,22 @@ mod slow_tests {
         for adapter_kind in AdapterKind::ALL {
             snapshot.effective_config["runtimeAdapter"] = json!(adapter_kind.as_str());
             let other_charter = build_session_charter(&snapshot, false, false).unwrap();
-            assert_eq!(other_charter, charter, "{adapter_kind:?}");
+            let expected = if matches!(
+                adapter_kind,
+                AdapterKind::ClaudeCodeCli | AdapterKind::CodebuddyCli
+            ) {
+                charter.replacen(
+                    "\n- Use `rovai thread read`",
+                    &format!("\n- {NATIVE_BACKGROUND_COMPLETION_RULE}\n- Use `rovai thread read`"),
+                    1,
+                )
+            } else {
+                charter.clone()
+            };
+            assert_eq!(other_charter, expected, "{adapter_kind:?}");
             assert_eq!(
                 build_session_charter(&snapshot, true, false).unwrap(),
-                format!("{charter}\n- {CHANNEL_FILE_DELIVERY_GUIDANCE}"),
+                format!("{expected}\n- {CHANNEL_FILE_DELIVERY_GUIDANCE}"),
                 "{adapter_kind:?}"
             );
         }
@@ -15039,6 +15075,14 @@ mod slow_tests {
                 for mission in [false, true] {
                     snapshot.invocation_kind = "batch".into();
                     let common = build_session_charter(&snapshot, channel, mission).unwrap();
+                    assert_eq!(
+                        common.matches(NATIVE_BACKGROUND_COMPLETION_RULE).count(),
+                        usize::from(matches!(
+                            adapter,
+                            AdapterKind::ClaudeCodeCli | AdapterKind::CodebuddyCli
+                        )),
+                        "{adapter:?}/{channel}/{mission}"
+                    );
                     for invocation in ["direct", "a2a", "gather_completion"] {
                         snapshot.invocation_kind = invocation.into();
                         assert_eq!(
@@ -15064,9 +15108,31 @@ mod slow_tests {
             "
         );
         snapshot.invocation_kind = "single_chat".to_string();
-        for channel in [false, true] {
+        assert_eq!(
+            NATIVE_BACKGROUND_COMPLETION_RULE,
+            "Do not background required finite commands or native subagents. If a tool backgrounds them, collect results and complete authorized follow-up before your final response. Do not assume background completion will resume your work."
+        );
+        for (adapter, channel) in AdapterKind::ALL
+            .into_iter()
+            .flat_map(|adapter| [false, true].map(move |channel| (adapter, channel)))
+        {
+            snapshot.effective_config["runtimeAdapter"] = json!(adapter.as_str());
             let single_chat_charter = build_session_charter(&snapshot, channel, true).unwrap();
-            assert_eq!(single_chat_charter, SINGLE_CHAT_SESSION_CHARTER.trim());
+            let expected = if matches!(
+                adapter,
+                AdapterKind::ClaudeCodeCli | AdapterKind::CodebuddyCli
+            ) {
+                SINGLE_CHAT_SESSION_CHARTER.trim().replacen(
+                    "\n- Do not infer missing content;",
+                    &format!(
+                        "\n- {NATIVE_BACKGROUND_COMPLETION_RULE}\n- Do not infer missing content;"
+                    ),
+                    1,
+                )
+            } else {
+                SINGLE_CHAT_SESSION_CHARTER.trim().to_string()
+            };
+            assert_eq!(single_chat_charter, expected);
             assert!(!single_chat_charter.contains("Rovai Mission Contract"));
             assert!(!single_chat_charter.contains(CHANNEL_FILE_DELIVERY_GUIDANCE));
         }

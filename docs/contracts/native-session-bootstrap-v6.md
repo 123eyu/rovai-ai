@@ -4,7 +4,7 @@ contract: native-session-bootstrap-v6
 status: accepted
 version: 6
 source_version: v1.72
-last_updated: 2026-10-18
+last_updated: 2026-10-22
 ---
 
 # Native Session Bootstrap v6
@@ -38,7 +38,7 @@ Member Identity 仍按既有规则瞬时格式化，不为本功能增加身份�
 
 ## 版本轴
 
-Bootstrap contract `native_session_bootstrap_v6` / formatter **6**。Migration 209 保留旧 v3–v5 Evidence；
+Bootstrap contract `native_session_bootstrap_v6` / formatter **6**。Migration 213 保留旧 v3–v5 Evidence；
 旧 v5 和冻结 claim 恢复继续成立，v5 stable digest 计算不变，旧 Evidence 不倒填 Team 指引。
-现有 session charter **24**、binding compatibility **16**、Dynamic Manifest/formatter **40/42**、
+现有 session charter **25**、binding compatibility **16**、Dynamic Manifest/formatter **40/42**、
 Profile **15/16** 均不变；完整动态合同见 [ContextManifest v42](context-manifest-evidence-v42.md)。

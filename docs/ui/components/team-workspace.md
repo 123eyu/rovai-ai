@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: team-workspace-ui
 status: accepted
-last_updated: 2026-10-19
+last_updated: 2026-10-22
 ---
 
 # Team 工作区
@@ -12,7 +12,10 @@ last_updated: 2026-10-19
 空态沿用 MCP 引导，提供添加空白团队和显式从现有默认配置创建，迁移不自动生成团队。
 
 详情按名称、可选团队指引、队员行列表排列。指引默认两行预览，添加/编辑后展开；计数 1000 字，
-超限保存报错，不静默截断。名册通过多选下拉添加；超过八位候选提供搜索。
+超限保存报错，不静默截断。按确认的 V10，指引使用现有 workspace-surface-subtle 底色、10px 圆角，
+与名称和名册同宽；名册用细边框和圆角收拢，hover/focus 行使用同一语义底色。日夜主题只用现有 token，
+左侧列表沿用原样式。窄屏行操作换行，减少动态效果时取消行底色过渡。
+名册通过多选下拉添加；超过八位候选提供搜索。
 行操作以图标加文字平铺，hover/focus 显示 Make lead 与 Remove，触屏常驻；队长标记留在名字旁。
 不可用成员保持可见，可移除但不可设为新队长。
 

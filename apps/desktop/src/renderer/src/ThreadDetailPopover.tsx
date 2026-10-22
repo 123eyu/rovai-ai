@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useMobileLayout } from './MobileLayout'
@@ -6,6 +6,7 @@ import { MemberAvatar, type MemberAvatarProps } from './MemberAvatar'
 import { ExecutionIcon } from './ExecutionIcons'
 import { UiText, uiAttribute } from './interface-language'
 import { useThreadDetailCopy } from './camp-detail-copy'
+import { ThreadPanelCollapseButton, ThreadPanelDismissHint, useThreadPanelDismiss } from './ThreadPanelDismiss'
 
 export type ThreadDetailTab = 'execution' | 'tasks' | 'members'
 export type RunningThreadMember = Pick<MemberAvatarProps, 'agentId' | 'avatarRef' | 'displayName'>
@@ -26,16 +27,8 @@ function ThreadExecutionEntry({ members, executionCount, expanded, panelId, mobi
   mobile?: boolean
   onSelect(tab: ThreadDetailTab, trigger: HTMLButtonElement, keyboard: boolean): void
 }): React.JSX.Element {
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const tooltipRef = useRef<HTMLSpanElement>(null)
-  const tooltipId = useId()
-  const [hovered, setHovered] = useState(false)
-  const [focused, setFocused] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
   const [pageHidden, setPageHidden] = useState(false)
-  const [anchor, setAnchor] = useState({ top: 0, right: 12 })
   const running = members.length > 0
-  const showNames = !mobile && running && (hovered || focused) && !dismissed
   const avatarLimit = mobile ? 2 : 3
   const names = members.map(member => member.displayName).join('、')
   const description = running
@@ -49,21 +42,6 @@ function ThreadExecutionEntry({ members, executionCount, expanded, panelId, mobi
     document.addEventListener('visibilitychange', update)
     return () => document.removeEventListener('visibilitychange', update)
   }, [running])
-
-  useLayoutEffect(() => {
-    if (!showNames) return
-    const update = (): void => {
-      const rect = triggerRef.current?.getBoundingClientRect()
-      const width = tooltipRef.current?.offsetWidth ?? 0
-      if (rect) setAnchor({ top: rect.bottom + 6,
-        right: Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - width - 12)) })
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    if (triggerRef.current) observer.observe(triggerRef.current)
-    window.addEventListener('resize', update)
-    return () => { observer.disconnect(); window.removeEventListener('resize', update) }
-  }, [showNames, members.length, names])
 
   const face = <>
     {!mobile && <ThreadDetailIcon tab="execution" />}
@@ -85,40 +63,22 @@ function ThreadExecutionEntry({ members, executionCount, expanded, panelId, mobi
     </>}
   </>
 
-  return <>
-    <button
-      ref={triggerRef}
-      className="camp-detail-entry camp-execution-entry"
-      type="button"
-      data-detail="execution"
-      data-running={running}
-      aria-label={uiAttribute("执行，{0}", String(description))}
-      aria-expanded={expanded}
-      aria-pressed={mobile ? expanded : undefined}
-      aria-controls={panelId}
-      aria-haspopup={mobile ? undefined : 'dialog'}
-      aria-describedby={showNames ? tooltipId : undefined}
-      onPointerEnter={() => { setHovered(true); setDismissed(false) }}
-      onPointerLeave={() => setHovered(false)}
-      onFocus={() => { setFocused(true); setDismissed(false) }}
-      onBlur={() => setFocused(false)}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || !showNames) return
-        event.preventDefault()
-        event.stopPropagation()
-        setDismissed(true)
-      }}
-      onClick={(event) => {
-        setDismissed(true)
-        onSelect('execution', event.currentTarget, event.detail === 0)
-      }}
-    >
-      {mobile ? <span className="mobile-execution-face">{face}</span> : face}
-    </button>
-    {showNames && createPortal(<span ref={tooltipRef} id={tooltipId} role="tooltip" className="camp-execution-tooltip" style={anchor}>
-      {description}
-    </span>, document.body)}
-  </>
+  return <button
+    className="camp-detail-entry camp-execution-entry"
+    type="button"
+    data-detail="execution"
+    data-running={running}
+    aria-label={uiAttribute("执行，{0}", String(description))}
+    aria-expanded={expanded}
+    aria-pressed={mobile ? expanded : undefined}
+    aria-controls={panelId}
+    aria-haspopup={mobile ? undefined : 'dialog'}
+    onClick={(event) => {
+      onSelect('execution', event.currentTarget, event.detail === 0)
+    }}
+  >
+    {mobile ? <span className="mobile-execution-face">{face}</span> : face}
+  </button>
 }
 
 export function ThreadDetailEntries({
@@ -187,6 +147,8 @@ export function ThreadDetailEntries({
 }
 
 export function ThreadDetailPopover({
+  portalHost,
+  executionActions,
   entryHost,
   tasksEnabled = true,
   activeTab,
@@ -206,6 +168,8 @@ export function ThreadDetailPopover({
   onOpenMissionActivity,
   children
 }: {
+  portalHost?: HTMLElement | null
+  executionActions?: ReactNode
   entryHost?: HTMLElement | null
   tasksEnabled?: boolean
   activeTab: ThreadDetailTab
@@ -231,7 +195,7 @@ export function ThreadDetailPopover({
   const copy = useThreadDetailCopy()
   const panelId = useId()
   const panelRef = useRef<HTMLElement>(null)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const dismiss = useThreadPanelDismiss({ visible, panelRef, onClose })
   const focusPanelRef = useRef(false)
   const menuSelected = useRef(false)
   const secondary = singleChatVisible || (visible && activeTab !== 'execution')
@@ -242,30 +206,11 @@ export function ThreadDetailPopover({
     panelRef.current?.focus({ preventScroll: true })
   }, [visible, activeTab])
 
-  useEffect(() => {
-    if (!visible) return
-    // Keep this non-modal work surface stable while the user interacts elsewhere.
-    // Only the current entry, the close button, or Escape dismisses it.
-    const dismissOnEscape = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (document.querySelector('.app-dialog, [role="menu"][data-state="open"]')) return
-      // Tool results own their first Escape; the remaining execution surface closes here.
-      if (event.target instanceof Element && event.target.closest('.tool-call-result-scroll')) return
-      event.preventDefault()
-      onClose()
-      triggerRef.current?.focus({ preventScroll: true })
-    }
-    document.addEventListener('keydown', dismissOnEscape)
-    return () => {
-      document.removeEventListener('keydown', dismissOnEscape)
-    }
-  }, [visible, onClose])
-
   const entries = mobile ? <>
     <div className="mobile-camp-tabs" role="group" aria-label={uiAttribute("当前会话视图")} hidden={secondary}>
       <button type="button" aria-pressed={!visible} onClick={onClose}><UiText zh={"对话"} /></button>
       <ThreadExecutionEntry mobile members={runningMembers} executionCount={executionCount} expanded={executionExpanded} panelId={panelId}
-        onSelect={(tab, trigger) => { triggerRef.current = trigger; if (visible && activeTab === tab) onClose(); else onOpen(tab) }} />
+        onSelect={(tab) => { if (visible && activeTab === tab) onClose(); else onOpen(tab) }} />
     </div>
     <DropdownMenu.Root modal={false}>
       <DropdownMenu.Trigger asChild>
@@ -278,7 +223,6 @@ export function ThreadDetailPopover({
           onCloseAutoFocus={event => { if (menuSelected.current) event.preventDefault(); menuSelected.current = false }}>
           {(['members'] as const).map(tab => <DropdownMenu.Item key={tab} onSelect={() => {
             menuSelected.current = true
-            triggerRef.current = entryHost?.querySelector<HTMLButtonElement>('.mobile-camp-more') ?? null
             focusPanelRef.current = true
             onOpen(tab)
           }}><ThreadDetailIcon tab={tab} /><span>{copy[tab]}</span></DropdownMenu.Item>)}
@@ -288,7 +232,6 @@ export function ThreadDetailPopover({
           </DropdownMenu.Item>
           {tasksEnabled && <DropdownMenu.Item onSelect={() => {
             menuSelected.current = true
-            triggerRef.current = entryHost?.querySelector<HTMLButtonElement>('.mobile-camp-more') ?? null
             focusPanelRef.current = true
             onOpen('tasks')
           }}><ThreadDetailIcon tab="tasks" /><span>{copy.tasks}</span></DropdownMenu.Item>}
@@ -310,8 +253,7 @@ export function ThreadDetailPopover({
     executionCount={executionCount}
     taskCount={taskCount}
     memberCount={memberCount}
-    onSelect={(tab, trigger, keyboard) => {
-      triggerRef.current = trigger
+    onSelect={(tab, _trigger, keyboard) => {
       if (visible && activeTab === tab) {
         onClose()
         return
@@ -321,16 +263,7 @@ export function ThreadDetailPopover({
     }}
   />
 
-  return <>
-    {entryHost
-      ? createPortal(entries, mobile ? entryHost : primarySlot!)
-      : <div className="camp-detail-entry-fallback">{entries}</div>}
-    {!mobile && tasksEnabled && taskSlot && createPortal(<ThreadDetailEntries tasksOnly tasksEnabled
-      activeTab={activeTab} visible={visible} panelId={panelId} showExecution={false}
-      runningMembers={runningMembers} executionCount={executionCount} taskCount={taskCount} memberCount={memberCount}
-      onSelect={(tab, trigger, keyboard) => { triggerRef.current = trigger; focusPanelRef.current = keyboard; if (visible && activeTab === tab) onClose(); else onOpen(tab) }}
-    />, taskSlot)}
-    <aside
+  const panel = (<aside
       ref={panelRef}
       id={panelId}
       className="camp-detail-popover"
@@ -354,6 +287,7 @@ export function ThreadDetailPopover({
       <header className="camp-detail-heading">
         <ThreadDetailIcon tab={activeTab} />
         <strong id={`${panelId}-title`}>{copy[activeTab]}</strong>
+        {!mobile && activeTab === 'execution' && executionActions && <div className="camp-detail-heading-actions">{executionActions}</div>}
         {mobile && activeTab === 'execution' && onToggleMobileExecutionMaximized && <button
           className="mobile-execution-expand"
           type="button"
@@ -363,24 +297,23 @@ export function ThreadDetailPopover({
         ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={mobileExecutionMaximized
           ? 'M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5'
           : 'M9 4H4v5m11-5h5v5M4 15v5h5m6 0h5v-5'} /></svg></button>}
-        <button
-          className="camp-detail-collapse"
-          type="button"
-          aria-label={uiAttribute("收起会话详情")}
-          title={uiAttribute("收起 · Esc")}
-          onClick={() => {
-            onClose()
-            triggerRef.current?.focus({ preventScroll: true })
-          }}
-        >
-          {!mobile && <span><UiText zh={"收起"} /></span>}
-          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d={mobile ? 'm4 4 8 8m0-8-8 8' : 'm4 10 4-4 4 4'} /></svg>
-        </button>
+        <ThreadPanelCollapseButton label={uiAttribute("收起会话详情")} mobile={mobile} onDismiss={dismiss} />
       </header>
       {children}
       <footer className="camp-detail-footer">
-        <span className="camp-detail-dismiss-hint"><kbd>Esc</kbd><UiText zh={" 收起"} /></span>
+        <ThreadPanelDismissHint />
       </footer>
-    </aside>
+    </aside>)
+
+  return <>
+    {entryHost
+      ? createPortal(entries, mobile ? entryHost : primarySlot!)
+      : <div className="camp-detail-entry-fallback">{entries}</div>}
+    {!mobile && tasksEnabled && taskSlot && createPortal(<ThreadDetailEntries tasksOnly tasksEnabled
+      activeTab={activeTab} visible={visible} panelId={panelId} showExecution={false}
+      runningMembers={runningMembers} executionCount={executionCount} taskCount={taskCount} memberCount={memberCount}
+      onSelect={(tab, _trigger, keyboard) => { focusPanelRef.current = keyboard; if (visible && activeTab === tab) onClose(); else onOpen(tab) }}
+    />, taskSlot)}
+    {portalHost ? createPortal(panel, portalHost) : panel}
   </>
 }

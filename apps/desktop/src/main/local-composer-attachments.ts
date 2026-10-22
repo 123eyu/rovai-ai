@@ -387,7 +387,12 @@ export class LocalComposerAttachmentRegistry {
 
 export async function assertNoSymlinkParents(directory: string): Promise<void> {
   for (let path = directory; ; path = dirname(path)) {
-    const info = await lstat(path)
+    // Node lstat rejects a namespaced Windows drive root (\\?\C:\).
+    // Keep the namespace on every other component, including long paths.
+    const metadataPath = process.platform === 'win32' && /^\\\\\?\\[a-z]:\\$/iu.test(path)
+      ? path.slice(4)
+      : path
+    const info = await lstat(metadataPath)
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('附件目录已变化。')
     if (dirname(path) === path) break
   }

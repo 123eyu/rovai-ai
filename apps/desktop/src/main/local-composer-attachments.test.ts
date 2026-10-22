@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, truncate, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, truncate, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, toNamespacedPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createPastedTextAttachment, LocalComposerAttachmentRegistry } from './local-composer-attachments'
@@ -18,6 +18,42 @@ async function fixture(): Promise<{ root: string; registryPath: string }> {
 }
 
 describe('Local Composer attachment authority', () => {
+  it.skipIf(process.platform !== 'win32').each([false, true])(
+    'creates, restores and removes pasted text in a Windows namespaced root (long path: %s)',
+    async (longPath) => {
+      const { root, registryPath } = await fixture()
+      const directories = longPath ? Array.from({ length: 4 }, (_, i) => `附件-${i}-${'x'.repeat(65)}`) : []
+      const outputRoot = toNamespacedPath(join(root, ...directories))
+      await mkdir(outputRoot, { recursive: true })
+      const registry = new LocalComposerAttachmentRegistry(registryPath)
+      const text = ' \t\r\n' + '😀中'.repeat(10_001) + '\n  '
+      const attachment = await createPastedTextAttachment(
+        registry, 'thread-a', outputRoot, '粘贴内容-1.txt', Buffer.from(text, 'utf8')
+      )
+      expect(dirname(attachment.sourcePath!)).toBe(outputRoot)
+      expect(basename(attachment.sourcePath!)).toMatch(/^[0-9a-f-]{36}\.txt$/u)
+      expect(await readFile(attachment.sourcePath!, 'utf8')).toBe(text)
+      const restarted = new LocalComposerAttachmentRegistry(registryPath)
+      expect((await restarted.restore('thread-a', [attachment]))[0].availability).toBe('available')
+      expect(await restarted.removePastedText('thread-a', attachment.id, async () => outputRoot)).toBe('deleted')
+      await expect(readFile(attachment.sourcePath!)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  )
+
+  it('rejects a linked parent before writing pasted text', async () => {
+    const { root, registryPath } = await fixture()
+    const target = join(root, 'target')
+    await mkdir(join(target, 'output'), { recursive: true })
+    const link = join(root, 'linked')
+    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+    const outputRoot = toNamespacedPath(join(link, 'output'))
+    const registry = new LocalComposerAttachmentRegistry(registryPath)
+    await expect(createPastedTextAttachment(
+      registry, 'thread-a', outputRoot, 'paste.txt', Buffer.from('text')
+    )).rejects.toThrow('附件目录已变化。')
+    expect(await readdir(join(target, 'output'))).toEqual([])
+  })
+
   it('creates complete UTF-8 text in the supplied Thread root and restores its provenance after restart', async () => {
     const { root, registryPath } = await fixture()
     const registry = new LocalComposerAttachmentRegistry(registryPath)
@@ -25,7 +61,7 @@ describe('Local Composer attachment authority', () => {
     const attachment = await createPastedTextAttachment(
       registry, 'thread-a', root, '粘贴内容-1.txt', Buffer.from(text, 'utf8')
     )
-    expect(attachment.sourcePath).toMatch(/\/[0-9a-f-]{36}\.txt$/u)
+    expect(basename(attachment.sourcePath!)).toMatch(/^[0-9a-f-]{36}\.txt$/u)
     expect(await readFile(attachment.sourcePath!, 'utf8')).toBe(text)
     const restarted = new LocalComposerAttachmentRegistry(registryPath)
     expect((await restarted.restore('thread-a', [attachment]))[0]).toMatchObject({

@@ -26,6 +26,7 @@ pub(super) fn migrate(db: &mut Database) -> Result<()> {
         matches!(
             classify_database_contract(&tx)?,
             DatabaseContractClassification::Current(_)
+                | DatabaseContractClassification::SupportedMigrationSource(_)
         ),
         "Web pasted text schema admission failed"
     );
@@ -34,6 +35,7 @@ pub(super) fn migrate(db: &mut Database) -> Result<()> {
 }
 #[cfg(test)]
 pub(super) fn downgrade_for_test(c: &Connection) {
+    teams::downgrade_for_test(c);
     c.execute_batch("DROP TABLE IF EXISTS web_pasted_text_attachment; DELETE FROM schema_migration WHERE version=212; UPDATE rovai_data_contract SET projection_schema_version=161 WHERE projection_schema_version=162;").unwrap();
 }
 

@@ -40,6 +40,14 @@ pub enum Operation {
     TasksGet,
     #[serde(rename = "preferences.tasks.set")]
     TasksSet,
+    #[serde(rename = "teams.list")]
+    TeamsList,
+    #[serde(rename = "teams.save")]
+    TeamsSave,
+    #[serde(rename = "teams.delete")]
+    TeamsDelete,
+    #[serde(rename = "preferences.newConversation.setTeam")]
+    NewConversationSetTeam,
     #[serde(rename = "preferences.newConversation.get")]
     NewConversationGet,
     #[serde(rename = "preferences.newConversation.setDefaults")]
@@ -434,6 +442,10 @@ impl Operation {
         match self {
             Self::TasksGet => "preferences.tasks.get",
             Self::TasksSet => "preferences.tasks.set",
+            Self::TeamsList => "teams.list",
+            Self::TeamsSave => "teams.save",
+            Self::TeamsDelete => "teams.delete",
+            Self::NewConversationSetTeam => "preferences.newConversation.setTeam",
             Self::NewConversationGet => "preferences.newConversation.get",
             Self::NewConversationSetDefaults => "preferences.newConversation.setDefaults",
             Self::NewConversationSetOneClick => "preferences.newConversation.setOneClick",

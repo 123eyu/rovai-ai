@@ -6,7 +6,6 @@ import {
   type AppQuitPreparationResponse
 } from '../shared/app-lifecycle'
 import type {
-  NewConversationDefaults,
   AppearancePreferences,
   AppearanceSnapshot,
   AppUpdateSnapshot,
@@ -222,6 +221,9 @@ const api: RovaiApi = {
     setExecutionConsolePlacement(placement: ExecutionConsolePlacement) {
       return ipcRenderer.invoke('rovai:general-preferences-set-execution-placement', placement)
     },
+    setNewConversationTeam(teamId, enableOneClick = false) {
+      return ipcRenderer.invoke('rovai:general-preferences-set-team', teamId, enableOneClick)
+    },
     setNewConversationDefaults(defaults, enableOneClick = false) {
       return ipcRenderer.invoke('rovai:general-preferences-set-new-conversation-defaults', defaults, enableOneClick)
     },
@@ -231,8 +233,8 @@ const api: RovaiApi = {
     setWorldMapEnabled(enabled: boolean) {
       return ipcRenderer.invoke('rovai:general-preferences-set-world-map', enabled)
     },
-    invalidateNewConversationDefaults(expectedDefaults?: NewConversationDefaults | null) {
-      return ipcRenderer.invoke('rovai:general-preferences-invalidate-new-conversation-defaults', expectedDefaults)
+    invalidateNewConversationDefaults(expected) {
+      return ipcRenderer.invoke('rovai:general-preferences-invalidate-new-conversation-defaults', expected)
     }
   },
   channels: {

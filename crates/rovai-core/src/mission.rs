@@ -453,6 +453,7 @@ impl MissionService {
             let number = tx.last_insert_rowid();
             let camp_id = ThreadId::new();
             let created = create_camp_in_tx(tx, &envelope.actor, envelope.execution_epoch, &CreateThreadCommand {
+                team: None,
                 name: Some(input.title.trim().chars().take(80).collect()),
                 project_binding_kind: input.project_binding_kind, project_path: input.project_path.clone(),
                 member_agent_ids: members, default_lead_agent_id: input.default_lead_agent_id.clone(),

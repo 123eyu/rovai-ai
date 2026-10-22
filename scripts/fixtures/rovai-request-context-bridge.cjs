@@ -30,6 +30,7 @@ ipcMain.handle('rovai:host-web', (_event, operation, params) => operation === 't
   : { kind: 'value', value: { operation, params } })
 
 ipcMain.handle('rovai:general-preferences-set-new-conversation-defaults', (_event, defaults, enableOneClick) => ({ defaults, enableOneClick }))
+ipcMain.handle('rovai:general-preferences-invalidate-new-conversation-defaults', (_event, expected) => expected)
 ipcMain.handle('rovai:navigation-preferences-set-project-name', (_event, targetKey, name) => ({ targetKey, name }))
 ipcMain.handle('rovai:onboarding-prepare-runtime-copies', (_event, targets) => ({ targets }))
 ipcMain.handle('rovai:onboarding-record-runtime-copy', (_event, agentId, commandId, outcome) => ({ agentId, commandId, outcome }))
@@ -88,6 +89,7 @@ app.whenReady().then(async () => {
       const provisioning = await window.rovai.onboarding.beginProvisioning('language-agent', 'language-thread', 'en')
       const savedOnly = await window.rovai.generalPreferences.setNewConversationDefaults(defaults)
       const enabled = await window.rovai.generalPreferences.setNewConversationDefaults(defaults, true)
+      const invalidation = await window.rovai.generalPreferences.invalidateNewConversationDefaults({ expectedTeamId: 'team-A', expectedDefaults: defaults })
       const projectName = await window.rovai.navigationPreferences.setProjectName('directory:/fixture/frontend', '官网前端')
       const restoredName = await window.rovai.navigationPreferences.setProjectName('directory:/fixture/frontend', null)
       const copyPlan = await window.rovai.onboarding.prepareRuntimeCopies([{ agentId: 'agent-b', expectedVersion: 4 }])
@@ -126,7 +128,7 @@ app.whenReady().then(async () => {
           ))
         }
       }
-      return { value, failures, savedOnly, enabled, projectName, restoredName, hostWeb, hostWebFailure, copyPlan, copyResults, pasted, removedPaste, oversizedReads, oversizedError, boundaryReads,
+      return { value, failures, savedOnly, enabled, invalidation, projectName, restoredName, hostWeb, hostWebFailure, copyPlan, copyResults, pasted, removedPaste, oversizedReads, oversizedError, boundaryReads,
         initialLanguage, startupLanguage, manualLanguage, systemLanguage, languageEvents, provisioning }
     })()`)
     assert.deepEqual(observations.hostWeb, [
@@ -155,6 +157,7 @@ app.whenReady().then(async () => {
     const defaults = { memberAgentIds: ['agent-a'], defaultLeadAgentId: 'agent-a' }
     assert.deepEqual(observations.savedOnly, { defaults, enableOneClick: false })
     assert.deepEqual(observations.enabled, { defaults, enableOneClick: true })
+    assert.deepEqual(observations.invalidation, { expectedTeamId: 'team-A', expectedDefaults: defaults })
     assert.deepEqual(observations.projectName, { targetKey: 'directory:/fixture/frontend', name: '官网前端' })
     assert.deepEqual(observations.restoredName, { targetKey: 'directory:/fixture/frontend', name: null })
     assert.deepEqual(observations.copyPlan, { targets: [{ agentId: 'agent-b', expectedVersion: 4 }] })

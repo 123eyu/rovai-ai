@@ -3426,7 +3426,7 @@ describe('task event projections', () => {
       onReload: async () => undefined,
       onAppearanceChange: async (preferences: import('@contracts').AppearancePreferences) => ({ ...preferences, resolvedTheme: 'day' as const })
     }
-    const contentBySection: Record<NavigationSettingsSection, string> = {
+    const contentBySection: Record<Exclude<NavigationSettingsSection, 'memory'>, string> = {
       remote: '远程连接',
       general: '通用',
       skills: 'Skills',

@@ -13,6 +13,11 @@ User 的主称呼、结构化提及及冻结恢复见 [User Naming v1](user-nami
 本目录保存跨版本、字段级且可由测试直接验证的接口合同。[Version Decisions](../decisions/README.md)解释为什么选择某个边界，
 Architecture 解释组件如何组成，Version 概览记录交付范围；它们都不复制本目录的完整 wire shape。
 
+## Team 与启动指引
+
+- [Team Templates v1](team-templates-v1.md)：创建预设、独立 Custom 默认值、CAS 与旧偏好迁移。
+- [Native Session Bootstrap v6](native-session-bootstrap-v6.md)：唯一可选 TEAM_GUIDANCE、冻结文本和恢复边界。
+
 ## 会话 Task 能力（当前）
 
 - [Durable Task v6](durable-task-v6.md)

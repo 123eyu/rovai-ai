@@ -8,7 +8,7 @@ export function browserLanguages(): string[] {
 }
 
 /** A null scope is the unauthenticated, memory-only login preview. */
-export function browserGeneralPreferences(scope: string | null): GeneralPreferencesApi {
+export function browserGeneralPreferences(scope: string | null): Omit<GeneralPreferencesApi, 'setNewConversationTeam'> {
   const key = scope === null ? null : `rovai.presentation:${scope}:general`
   let stored = structuredClone(DEFAULT_STORED_GENERAL_PREFERENCES)
   let error: StructuredError | null = null
@@ -31,7 +31,7 @@ export function browserGeneralPreferences(scope: string | null): GeneralPreferen
         const parsed = raw === null ? structuredClone(DEFAULT_STORED_GENERAL_PREFERENCES) : parseGeneralPreferences(JSON.parse(raw))
         if (!parsed) throw new Error('Invalid preferences')
         // Shared creation choices belong to the Host, never this presentation record.
-        stored = { ...parsed, newConversationDefaults: null, newConversationDefaultsRequireConfirmation: false, oneClickNewConversationEnabled: false }
+        stored = { ...parsed, newConversationTeamId: null, newConversationDefaults: null, newConversationDefaultsRequireConfirmation: false, oneClickNewConversationEnabled: false }
         error = null
       } catch {
         error = { code: 'general_preferences_unreadable', message: '语言偏好暂时无法读取，原记录已保留。', retryable: true, details: {} }

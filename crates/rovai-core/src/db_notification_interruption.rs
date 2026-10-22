@@ -235,6 +235,8 @@ pub(super) fn assert_upgrade(db: &mut Database) {
     migrate(db).unwrap();
     migrate_exit_attention(db).unwrap();
     shared_environment::migrate(db).unwrap();
+    web_pasted_text::migrate(db).unwrap();
+    teams::migrate(db).unwrap();
     assert_eq!(
         before,
         public_history_claim_preserved_evidence_digest(db.connection()).unwrap()
@@ -298,6 +300,8 @@ pub(super) fn assert_exit_upgrade(db: &mut Database, run_id: &str) {
         .unwrap();
     migrate_exit_attention(db).unwrap();
     shared_environment::migrate(db).unwrap();
+    web_pasted_text::migrate(db).unwrap();
+    teams::migrate(db).unwrap();
     assert!(db.connection().query_row("SELECT acknowledged_at IS NULL FROM notification_occurrence_disposition WHERE occurrence_id=?1", [&occurrence], |r|r.get::<_,bool>(0)).unwrap());
     assert_eq!(
         before,

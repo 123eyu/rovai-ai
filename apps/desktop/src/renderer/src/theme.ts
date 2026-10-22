@@ -1,4 +1,4 @@
-import { DEFAULT_APPEARANCE } from '../../shared/appearance'
+import { DEFAULT_APPEARANCE, resolveThemeId } from '../../shared/appearance'
 import { APPEARANCE_READING_CHANGED } from './reduced-motion'
 import type { AppearanceSnapshot, ResolvedTheme, ThemePreference } from '@contracts'
 
@@ -25,6 +25,24 @@ export const THEME_OPTIONS: ReadonlyArray<{
     label: '夜间',
     englishLabel: 'Steel Night',
     description: ''
+  },
+  {
+    value: 'horizon',
+    label: '地平线',
+    englishLabel: 'Horizon',
+    description: ''
+  },
+  {
+    value: 'classic-red',
+    label: '经典红',
+    englishLabel: 'Classic Red',
+    description: ''
+  },
+  {
+    value: 'ember',
+    label: '余烬',
+    englishLabel: 'Ember',
+    description: ''
   }
 ]
 
@@ -50,6 +68,7 @@ export function applyAppearanceSnapshot(
   root.dataset.readingDensity = snapshot.readingDensity
   root.dataset.motionPreference = snapshot.motionPreference
   root.dataset.theme = snapshot.resolvedTheme
+  root.dataset.themeId = resolveThemeId(snapshot.preference, snapshot.resolvedTheme)
   root.style.colorScheme = snapshot.resolvedTheme === 'night' ? 'dark' : 'light'
   const currentReading = [`${snapshot.chatFontSize}px`, `${snapshot.documentFontSize}px`, `${snapshot.codeFontSize}px`, snapshot.readingDensity, snapshot.motionPreference].join(':')
   const view = root.ownerDocument?.defaultView

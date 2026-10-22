@@ -11,6 +11,13 @@ last_updated: 2026-10-22
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 三款新增主题（2026-10-22）
+
+User 确认在独立 worktree 实施地平线、经典红与余烬，保留原有三项偏好并缩小六项主题卡片。
+新增配色与明暗模式分离，消息、输入框与焦点行为继续使用生产实现，不带入原型专属交互。
+当前规则见[主题注册](../../ui/themes/README.md)，范围、验证与分支状态见[实施记录](theme-palettes-implementation.md)。
+不改变模型上下文、Core schema 或发布版本。
+
 ## Team 管理（2026-10-18）
 
 User 在 Team 设计 Thread sequence 29 确认开启 worktree 实施。当前范围为具名团队、General 的

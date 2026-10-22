@@ -7,7 +7,8 @@ import { createDesktopNavigation } from '../../../apps/desktop/src/renderer/src/
 import { ThreadNavigation } from '../../../apps/desktop/src/renderer/src/ThreadNavigation'
 import { AppHeader } from '../../../apps/desktop/src/renderer/src/AppHeader'
 import { AppearanceSettings } from '../../../apps/desktop/src/renderer/src/AppearanceSettings'
-import { DEFAULT_APPEARANCE } from '../../../apps/desktop/src/shared/appearance'
+import { DEFAULT_APPEARANCE, isThemePreference, resolveThemeMode } from '../../../apps/desktop/src/shared/appearance'
+import { applyAppearanceSnapshot } from '../../../apps/desktop/src/renderer/src/theme'
 import type { AgentProfile, AppearancePreferences, AppearanceSnapshot } from '@contracts'
 import { ThreadWorkspace, campConversationTimeline } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
@@ -52,12 +53,17 @@ function Glyph({ kind }: { kind: string }) {
 function Workbench() {
   const state = useSyncExternalStore(model.subscribe, model.get)
   useEffect(() => { if (params.has('replies')) model.showReplyCase(params.get('replies') === 'long') }, [])
-  const [theme, setTheme] = useState(params.get('theme') === 'night' ? 'night' : 'day')
   const [proposal, setProposal] = useState(params.get('baseline') !== '1')
   const [controls, setControls] = useState(params.get('pure') !== '1')
   const [info, setInfo] = useState(false)
   const [settings, setSettings] = useState(false)
-  const [appearance, setAppearance] = useState<AppearanceSnapshot>({ ...DEFAULT_APPEARANCE, resolvedTheme: theme as 'day' | 'night' })
+  const [appearance, setAppearance] = useState<AppearanceSnapshot>(() => {
+    const value = params.get('theme')
+    const preference = isThemePreference(value) ? value : 'day'
+    return { ...DEFAULT_APPEARANCE, preference, resolvedTheme: resolveThemeMode(preference, matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day') }
+  })
+  const theme = appearance.resolvedTheme
+  const setTheme = (value: 'day' | 'night') => setAppearance(current => ({ ...current, preference: value, resolvedTheme: value }))
   const [inspector, setInspector] = useState<any>(null)
   const [detailHost, setDetailHost] = useState<HTMLElement | null>(null)
   const [placement, setPlacement] = useState<any>('inspector')
@@ -79,12 +85,11 @@ function Workbench() {
     return nav
   }, [])
   const changeAppearance = async (preferences: AppearancePreferences): Promise<AppearanceSnapshot> => {
-    const next = { ...preferences, resolvedTheme: theme as 'day' | 'night' }
+    const next = { ...preferences, resolvedTheme: resolveThemeMode(preferences.preference, matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day') }
     setAppearance(next)
     return next
   }
-  useEffect(() => { document.documentElement.dataset.motionPreference = appearance.motionPreference }, [appearance.motionPreference])
-  useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
+  useEffect(() => { applyAppearanceSnapshot(document.documentElement, appearance) }, [appearance])
   useEffect(() => { document.documentElement.dataset.presence = proposal ? 'proposal' : 'baseline' }, [proposal])
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.altKey && e.key.toLowerCase() === 'd') { e.preventDefault(); setControls(x => !x) } }

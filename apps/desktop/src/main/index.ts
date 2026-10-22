@@ -60,7 +60,7 @@ import {
   resolvedTheme,
   themeBackground
 } from './appearance-preference'
-import { DEFAULT_APPEARANCE } from '../shared/appearance'
+import { DEFAULT_APPEARANCE, resolveThemeId } from '../shared/appearance'
 import {
   readWindowStateFile,
   resetWindowBounds,
@@ -747,7 +747,7 @@ function publishAppearance(): AppearanceSnapshot {
   const snapshot = appearanceSnapshot()
   const signature = JSON.stringify(snapshot)
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.setBackgroundColor(themeBackground(snapshot.resolvedTheme))
+    mainWindow.setBackgroundColor(themeBackground(resolveThemeId(snapshot.preference, snapshot.resolvedTheme)))
     applyWindowChromeAppearance(mainWindow, process.platform, snapshot.resolvedTheme)
   }
   if (signature !== lastAppearanceSignature) {
@@ -787,7 +787,8 @@ function createWindow(): void {
   if (!generalPreferences || !restorableLocations) {
     throw new Error('Desktop Shell preferences are not ready')
   }
-  const theme = appearanceSnapshot().resolvedTheme
+  const initialAppearance = appearanceSnapshot()
+  const theme = initialAppearance.resolvedTheme
   const windowStatePath = join(app.getPath('userData'), 'window-state.json')
   const displayAreas = screen.getAllDisplays().map((display) => display.workArea)
   const savedState = sanitizeWindowState(
@@ -808,7 +809,7 @@ function createWindow(): void {
     show: false,
     title: APP_NAME,
     ...windowChromeOptions(process.platform, theme),
-    backgroundColor: themeBackground(theme),
+    backgroundColor: themeBackground(resolveThemeId(initialAppearance.preference, theme)),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.js'),
       contextIsolation: true,

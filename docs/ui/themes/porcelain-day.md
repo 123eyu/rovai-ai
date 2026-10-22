@@ -29,6 +29,9 @@ Light. `color-scheme: light`.
 `canvas → rail/surface → raised/input` 形成主要层级。会话、Inspector 与 Quick Chat 主区使用
 独立语义 surface token，以便结构清楚而不依赖阴影。普通列表与消息保持平面。
 
+操作文字 Token `--conversation-action-ink: #2b2b2c` 保持原有动作文字与光标色；与实心动作底色分离，
+规则见[主题注册](README.md#配色与交互边界)。
+
 ## Complete semantic token assignments
 
 ### Surfaces, text and structure

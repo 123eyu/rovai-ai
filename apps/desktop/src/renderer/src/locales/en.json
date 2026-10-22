@@ -4087,5 +4087,8 @@
   "默认团队": "Default team",
   "默认配置": "Default configuration",
   "团队列表宽度": "Team list width",
-  "团队已更改或不可用，请重新选择。": "This team has changed or is unavailable. Select it again."
+  "团队已更改或不可用，请重新选择。": "This team has changed or is unavailable. Select it again.",
+  "地平线": "Horizon",
+  "经典红": "Classic Red",
+  "余烬": "Ember"
 }

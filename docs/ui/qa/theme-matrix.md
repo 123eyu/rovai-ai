@@ -2,12 +2,12 @@
 document_type: ui-qa-contract
 authority: renderer-theme-verification
 status: accepted
-last_updated: 2026-09-03
+last_updated: 2026-10-22
 ---
 
 # Renderer 主题覆盖矩阵
 
-Porcelain Day 与 Steel Night 必须在同一生产组件、数据和功能上逐项通过。主题不能通过隐藏功能、
+Porcelain Day、Steel Night、地平线、经典红与余烬必须在同一生产组件、数据和功能上逐项通过。主题不能通过隐藏功能、
 替换假数据或禁用状态来换取视觉一致。
 
 | Surface / state | Day | Night | 重点检查 |
@@ -38,7 +38,9 @@ Porcelain Day 与 Steel Night 必须在同一生产组件、数据和功能上�
 
 ## Automated and visual evidence
 
-自动化至少覆盖完整 Token、两主题对比度、偏好解析、首次绘制和同组件映射；真实 App 验收
+上表 Day/Night 是模式分组；每个分组中的所有已注册配色都须覆盖。
+
+自动化至少覆盖完整 Token、所有配色对比度、偏好解析、首次绘制和同组件映射；真实 App 验收
 补足排版、遮挡、焦点，以及 macOS 与 Windows Apps theme 的系统主题切换和截图。Windows WCO、原生 submenu、
 DPI、High Contrast、NVDA 与 IME 必须由真实客户端 OS 验收；固定 Windows Server CI 不替代。版本是否完成只由对应当前版本实施计划与
 可复现证据判断，本文 `accepted` 不代表某次实现自动完成。

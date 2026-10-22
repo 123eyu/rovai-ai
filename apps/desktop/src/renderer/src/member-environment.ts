@@ -1,7 +1,7 @@
 import type { AdapterKind, ModelSelection } from '@contracts'
 import { uiAttribute } from './interface-language'
 
-export const ENVIRONMENT_PLACEHOLDER = '{\n  "ANTHROPIC_BASE_URL": "https://api.anthropic.com",\n  "ANTHROPIC_API_KEY": "sk-ant-..."\n}'
+export const ENVIRONMENT_PLACEHOLDER = '{\n  "VARIABLE_NAME": "value"\n}'
 export type EnvironmentSnapshot = { revision: number; environment: Record<string, string> }
 export type MemberEnvironmentSnapshot = EnvironmentSnapshot & { inheritCommon?: boolean; common?: EnvironmentSnapshot }
 export type MemberEnvironmentEdit = { expectedRevision: number; json: string; inheritCommon?: boolean }

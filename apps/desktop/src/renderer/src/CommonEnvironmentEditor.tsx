@@ -3,10 +3,10 @@ import type { AdapterKind } from '@contracts'
 import { useThreadClient } from './camp-client'
 import { uiAttribute as t, useInterfaceLanguage } from './interface-language'
 import { readErrorMessage } from './error-message'
-import { COMMON_ENVIRONMENT_CHANGED, environmentText, parseMemberEnvironment, type EnvironmentSnapshot } from './member-environment'
+import { COMMON_ENVIRONMENT_CHANGED, ENVIRONMENT_PLACEHOLDER, environmentText, parseMemberEnvironment, type EnvironmentSnapshot } from './member-environment'
 import './member-environment.css'
 
-export function EnvironmentJson({ value, onChange, id, label, disabled, readOnly = false, error, placeholder = '{}' }: {
+export function EnvironmentJson({ value, onChange, id, label, disabled, readOnly = false, error, placeholder = ENVIRONMENT_PLACEHOLDER }: {
   value: string; onChange(value: string): void; id: string; label: string; disabled: boolean; readOnly?: boolean; error?: string; placeholder?: string
 }): React.JSX.Element {
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -25,11 +25,9 @@ export function EnvironmentJson({ value, onChange, id, label, disabled, readOnly
     observer.observe(el)
     return () => observer.disconnect()
   }, [value])
-  return <><textarea ref={ref} id={id} className="member-environment-json" value={value} onChange={e => onChange(e.target.value)}
-    aria-label={label} aria-invalid={!!error} aria-describedby={[error ? `${id}-error` : '', readOnly ? '' : `${id}-hint`].filter(Boolean).join(' ') || undefined} readOnly={readOnly} disabled={disabled}
+  return <textarea ref={ref} id={id} className="member-environment-json" value={value} onChange={e => onChange(e.target.value)}
+    aria-label={label} aria-invalid={!!error} aria-describedby={error ? `${id}-error` : undefined} readOnly={readOnly} disabled={disabled}
     placeholder={placeholder} rows={4} spellCheck={false} autoComplete="off"/>
-    {!readOnly && <p id={`${id}-hint`} className="environment-input-hint">{t('支持字符串、数字和布尔值，保存时统一转换为字符串。')}</p>}
-  </>
 }
 
 export function useCommonEnvironment(kind: AdapterKind, windows: boolean) {

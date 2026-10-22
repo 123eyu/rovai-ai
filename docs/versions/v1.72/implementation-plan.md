@@ -34,7 +34,7 @@ last_updated: 2026-10-22
 - `pnpm docs:test`、`pnpm docs:check` 与使用真实基线的 `pnpm docs:check:ci` 通过。
 - `pnpm test:rust:pr` 默认 workspace 回归通过：474 项通过、1 项既有 ignored；
   `cargo fmt --all --check` 与 `cargo check --workspace` 通过。未执行全量 extended/slow-tests。
-- 状态为 ready，保留独立 worktree 供后续 review；按用户偏好只推送分支，不创建 PR，日常 App 未安装此修复。
+- 已完成验证，进入 PR 与 main 合入流程；合入后清理独立 worktree。日常 App 未安装此修复。
 
 ## 操作提示精简（2026-10-21）
 

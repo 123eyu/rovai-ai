@@ -26,6 +26,8 @@ Team 是 User 维护的具名创建预设，不拥有已创建 Thread 的成员�
 
 Desktop IPC 和已认证 Web User 操作使用同一 Core 事务与命令回执；不向 Agent 内置工具开放 Team 编辑。
 应用层成功后发布 `teams.changed`，删除同时发布创建偏好失效事件。
+Web 既有 SSE 失效流仅为该事件附加 `teamsChanged: true`；Renderer 在此标记或 `resync`
+时重读团队列表，不因其他 Thread 的消息、运行输出或通知变化重读，不运输 Team 正文。
 
 ## 创建与独立默认配置
 

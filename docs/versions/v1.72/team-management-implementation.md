@@ -366,3 +366,26 @@ Web 长粘贴/通用环境/通知迁移链、首次绑定及 Single Chat 省略�
 
 完整上下文 Gate 保留之前的 **degraded**，本轮没有重跑模型评测，也不将 UI、单元或迁移验证
 写成语义 Gate 通过。用户本轮明确交付指令是此次合并与本机安装依据。
+
+## 合入后的局部状态修补（2026-10-22）
+
+基线 main `186d1cfcf0c0cfff342aa36282b35d75436613c5`，User sequence 64–65 要求核对并简单修复
+Web 无差别刷新和已保存快照降版本。两处均在生产 React 夹具复现：无关事件把一次待完成的
+团队读取扩大为 9 次；保存 v2 后放弃下一次草稿恢复了旧列表 v1。
+
+Web 沿现有 SSE/Task 标记增加 `teamsChanged`，服务端、解码、合批与 Hook 贯通；只在团队变化或
+resync 时刷新，保留请求代次和 loading。TeamWorkspace 在既有 select 入口比较同 ID 版本，
+不接受低于当前已确认 base 的列表副本；列表删除回退与待执行动作的 Team ID 保护保持原样。
+没有新增缓存、轮询、队列、模型字段或 Bootstrap 内容。
+
+验证归属沿用 Web 解码/重连单测、生产 Electron Team 创建夹具和真实 Host HTTP/SSE owner。
+React 新场景用受控 Promise 验证无关事件、定向刷新、重连、旧响应拒收，以及放弃草稿、
+点击当前行、新对话和复制保持 v2；显式载入 v3 与既有删除回退仍通过。Host seam 验证通知事件
+不附加 Team 标记，实际保存 Team 后收到定向失效，不新增 Rust 测试 owner 或数据库夹具。
+本轮不重跑模型协作，完整上下文 Gate 继续为 **degraded**。
+
+Host owner 同时对齐之前 Team 合入后的三处旧夹具预期：导入响应包含空 Team ID、可用 Custom
+不被失效通知禁用、导入完成后只读取 SQLite 而不重读损坏旧文件。这些只更新验收预期，
+不调整既有 Core 逻辑。定向 Web 47 项、生产 Electron 22 组、TypeScript 和构建通过；
+完整前端链使用 Vitest 2 workers，252 文件 / 2870 项通过、2 项既有跳过，后续 Node 357 通过、
+2 项平台跳过；Rust 默认 workspace 474 通过、1 项既有忽略。文档门禁与 Rust 格式检查通过。

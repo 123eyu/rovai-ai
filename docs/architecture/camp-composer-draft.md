@@ -3,7 +3,7 @@ document_type: architecture
 architecture: camp-composer-draft
 authority: desktop-local-public-camp-composer
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # Public Camp Composer
@@ -93,7 +93,8 @@ ID 匹配仍限定发送 Thread。此复用不延长所属 Thread 的寿命；�
 发送成功同样先保存新草稿，再释放恢复登记。仍有恢复或清理职责的生成登记不参与普通缓存裁剪。
 
 Web 复用上传回执，不调用 Electron Main。Host 接收时直写同一 Thread 输出目录；Core 原 SQLite
-仅记录生成文件的归属与单向保护，复用原数据库锁协调发布与异步删除。上传回执不等于本机草稿接纳，
+仅记录生成文件的归属与单向保护。附件操作锁协调发布与异步删除，空附件发送绕过；
+删除复用现有独立请求路径，数据库锁不跨文件系统等待。上传回执不等于本机草稿接纳，
 未知结果沿用现有上传恢复与显式重试；普通外部上传仍为原临时文件语义。
 
 普通弹窗的零消息 Active 不因清空而丢弃；一键 Pending 继续使用既有 presence、离开与启动清理，并补齐

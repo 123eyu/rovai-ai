@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: unified-rust-host
-last_updated: 2026-10-18
+last_updated: 2026-10-22
 ---
 
 # 统一 Rust Host
@@ -110,7 +110,8 @@ Public Composer 以成功上传回执授权恢复、预览与位置查询，adap
 Agent Managed 与 legacy 机制不变，不建对象存储、附件目录库或用户 Managed 资产。
 
 Web 公屏长粘贴单独使用既有 UploadTarget 分支，直接写入 Thread 输出目录的 UUID `.txt`。
-Core 原 SQLite 持久保存生成归属与单向发送保护，原数据库锁协调保护与异步 unlink；浏览器先保存草稿再请求清理。
+Core 原 SQLite 持久保存生成归属与单向发送保护，附件操作锁协调保护与异步 unlink；浏览器先保存草稿再请求清理。
+删除走现有独立请求路径，文件系统等待不占数据库锁或普通请求队列；空附件发送不取附件操作锁。
 不改变普通上传与私聊规则，不引入后台任务或额外存储服务，见 [Host Web v9](../contracts/host-web-v9.md)。
 
 资源读取按精确身份、owner locator 与作用域授权；路径规范化、符号链接和读取时变化不能逃逸授权。

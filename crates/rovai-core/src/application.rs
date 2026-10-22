@@ -500,6 +500,14 @@ fn installed_request_dispatch_test_barrier(token: &str) -> Result<RequestDispatc
 }
 
 #[cfg(test)]
+pub(crate) async fn wait_for_pasted_text_unlink_test_barrier(id: &str) {
+    if let Ok(barrier) = installed_request_dispatch_test_barrier(id) {
+        barrier.entered.notify_one();
+        barrier.release.notified().await;
+    }
+}
+
+#[cfg(test)]
 #[derive(Clone)]
 struct MissionGitReadTestBarrier {
     mission_id: String,
@@ -833,6 +841,7 @@ fn request_runs_outside_main_queue(method: &str) -> bool {
             | "runtime.modelCatalog.open"
             | "workspaces.inspect"
             | "camp.messages.send"
+            | "host.upload.removePastedText"
             | "camp.messages.withdraw"
             | "userAutomation.camp.send"
             | "automations.schedulerControl"
@@ -2418,6 +2427,8 @@ struct Core {
     execution_wake: crate::execution_wake::ExecutionWake,
     non_batch_retry_at: Mutex<Option<tokio::time::Instant>>,
     database: Arc<Mutex<Database>>,
+    // Always acquire before database; pure-text publication bypasses this guard.
+    pasted_text_operations: Mutex<()>,
     notification_interruption_reader: Mutex<NotificationInterruptionReader>,
     subsystems: CoreSubsystems,
     subsystem_initialization: Mutex<SubsystemInitialization>,
@@ -7917,8 +7928,8 @@ impl Core {
                     params.attachment_ref_ids.len() <= 10,
                     "too many attachment references"
                 );
-                let mut database = self.database.lock().await;
                 if request.method == "host.upload.discardPastedText" {
+                    let database = self.database.lock().await;
                     rovai_core::web_upload::discard_pasted_text(
                         &database,
                         &request.client,
@@ -7931,9 +7942,10 @@ impl Core {
                         params.attachment_ref_ids.len() == 1,
                         "one generated attachment required"
                     );
+                    let _attachments = self.pasted_text_operations.lock().await;
                     Ok(json!(
                         rovai_core::web_upload::remove_pasted_text(
-                            &mut database,
+                            &self.database,
                             &request.client,
                             &params.thread_id,
                             &params.attachment_ref_ids[0]
@@ -12287,6 +12299,11 @@ impl Core {
             }));
         }
         let execution = {
+            let _attachments = if envelope.payload.source_attachments.is_empty() {
+                None
+            } else {
+                Some(self.pasted_text_operations.lock().await)
+            };
             let mut database = self.database.lock().await;
             CollaborationService::default().send_user_camp_message(&mut database, &envelope)?
         };
@@ -19765,6 +19782,7 @@ async fn run_core(
             &database,
         )),
         database: Arc::new(Mutex::new(database)),
+        pasted_text_operations: Mutex::new(()),
         subsystems: CoreSubsystems::new(),
         subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
         removed_skill_project_roots,
@@ -28191,6 +28209,7 @@ mod tests {
                 NotificationInterruptionReader::for_database(&database),
             ),
             database: Arc::new(Mutex::new(database)),
+            pasted_text_operations: Mutex::new(()),
             automation_scheduler_control: RwLock::new(None),
             subsystems: CoreSubsystems::ready_for_test(),
             subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
@@ -32131,7 +32150,7 @@ done
         fs::create_dir_all(&data_dir).unwrap();
         let runtime_camp_files_root =
             rovai_core::storage_layout::server_runtime_root(&data_dir).unwrap();
-        let (camp_ids, repair_camp_id) = {
+        let (camp_ids, repair_camp_id, web_client, pasted_source) = {
             let attachment_views =
                 ThreadAttachmentViewStore::admit(&runtime_camp_files_root, &data_dir, &[]).unwrap();
             let mut database = Database::open_with_runtime_camp_files_root(
@@ -32174,7 +32193,23 @@ done
                     [],
                 )
                 .unwrap();
-            (camp_ids, repair_camp_id)
+            let editor = rovai_core::draft_client::resolve_editor(&database, None).unwrap();
+            let web_client =
+                rovai_core::draft_client::DraftClient::verified_web(&editor.client_id).unwrap();
+            let path = rovai_core::storage_layout::camp_attachment_output_root(
+                &runtime_camp_files_root,
+                &camp_ids[0],
+            )
+            .unwrap()
+            .join(format!("{token}.txt"));
+            fs::write(&path, "pasted text").unwrap();
+            database.connection().execute(
+                "INSERT INTO web_pasted_text_attachment(attachment_id,camp_id,client_id,source_path,entered_send_flow) VALUES(?1,?2,?3,?4,0)",
+                rusqlite::params![token, camp_ids[0], editor.client_id, path.to_str().unwrap()],
+            ).unwrap();
+            let source = json!({"id": token, "sourcePath": path, "displayName": "paste.txt",
+                "kind": "file", "mediaType": "text/plain", "observedByteSize": 11});
+            (camp_ids, repair_camp_id, web_client, source)
         };
         let (service, runner) = embedded(
             CoreConfig {
@@ -32196,9 +32231,13 @@ done
             .unwrap();
 
         let blocked_service = service.clone();
+        let blocked_token = token.clone();
         let blocked_request = tokio::spawn(async move {
             blocked_service
-                .request("test.requestDispatchBarrier", json!({ "token": token }))
+                .request(
+                    "test.requestDispatchBarrier",
+                    json!({ "token": blocked_token }),
+                )
                 .await
         });
         tokio::time::timeout(Duration::from_secs(5), barrier.entered.notified())
@@ -32397,6 +32436,73 @@ done
             )
             .await
             .unwrap();
+        // Reuse the same isolated Core and barrier at the actual unlink boundary.
+        // Unlike the earlier ordered wait, removal must release both the database
+        // and ordinary FIFO while retaining exclusion against attachment sends.
+        let removal_service = service.clone();
+        let removal_thread = camp_ids[0].clone();
+        let removal_id = token.clone();
+        let removal = tokio::spawn(async move {
+            removal_service
+                .request_for_editor(
+                    "host.upload.removePastedText",
+                    json!({"threadId": removal_thread, "attachmentRefIds": [removal_id]}),
+                    web_client,
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), barrier.entered.notified())
+            .await
+            .expect("removal should reach its controlled filesystem wait");
+        let source_send_service = service.clone();
+        let send_thread = camp_ids[1].clone();
+        let source_send = tokio::spawn(async move {
+            source_send_service
+                .request(
+                    "camp.messages.send",
+                    json!({
+                        "commandId": uuid::Uuid::new_v4().to_string(), "threadId": send_thread,
+                        "content": {"version": 2, "segments": []},
+                        "sourceAttachments": [pasted_source], "quotes": [], "execution": null,
+                    }),
+                )
+                .await
+        });
+        let unrelated_work = tokio::time::timeout(Duration::from_secs(5), async {
+            for (method, params) in [
+                ("camps.open", json!({"traceId": uuid::Uuid::new_v4().to_string(), "threadId": camp_ids[1]})),
+                ("members.list", json!({})), // the ordinary ordered request queue
+                ("camp.messages.send", json!({
+                    "commandId": uuid::Uuid::new_v4().to_string(), "threadId": camp_ids[1],
+                    "content": {"version": 2, "segments": [{"kind": "text", "text": "Still usable"}]},
+                    "sourceAttachments": [], "quotes": [], "execution": null,
+                })),
+            ] {
+                let reply = service.request(method, params).await.unwrap();
+                assert!(reply.error.is_none(), "{method}: {:?}", reply.error);
+                if method == "camp.messages.send" {
+                    assert_ne!(reply.result.unwrap()["commandResult"]["status"], "rejected");
+                }
+            }
+        }).await;
+        let source_waited_for_removal = !source_send.is_finished();
+        barrier.release.notify_one();
+        let removed = removal.await.unwrap().unwrap();
+        let sent_source = source_send.await.unwrap().unwrap();
+        assert!(
+            unrelated_work.is_ok(),
+            "unlink blocked unrelated database/FIFO/text-send work"
+        );
+        assert!(
+            source_waited_for_removal,
+            "attachment send bypassed the removal guard"
+        );
+        assert_eq!(removed.result, Some(json!("deleted")));
+        assert!(
+            sent_source.error.is_some()
+                || sent_source.result.unwrap()["commandResult"]["status"] == "rejected",
+            "publication must revalidate a source deleted before the send guard was acquired"
+        );
         drop(service);
         if tokio::time::timeout(Duration::from_secs(10), &mut runner_task)
             .await

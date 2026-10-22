@@ -287,6 +287,10 @@ pub fn pasted_text_root(
 fn validate_pasted_path(database: &Database, camp_id: &str, path: &str) -> Result<()> {
     let root =
         crate::storage_layout::resolve_attachment_output_root(database.connection(), camp_id)?;
+    validate_pasted_path_in_root(&root, path)
+}
+
+fn validate_pasted_path_in_root(root: &str, path: &str) -> Result<()> {
     let path = std::path::Path::new(path);
     ensure!(
         path.parent() == Some(std::path::Path::new(&root))
@@ -310,9 +314,10 @@ pub fn is_pasted_text(
     Ok(database.connection().query_row("SELECT EXISTS(SELECT 1 FROM web_pasted_text_attachment WHERE camp_id=?1 AND attachment_id=?2 AND client_id=?3)",params![camp_id,id,client.id()],|r|r.get(0))?)
 }
 
-/// The caller holds Core's existing database lock across this durable write and
-/// publication. Removal uses that same lock across its async unlink. There is no
-/// per-send association or reset on failed publication.
+/// The application holds its pasted-text operation guard before the database
+/// lock, through this durable write and publication. Removal shares that guard,
+/// but releases the database lock during unlink. Failed publication never resets
+/// protection and there is no per-send association.
 pub fn protect_for_send(
     database: &mut Database,
     sources: &[LocalAttachmentSourceRef],
@@ -330,8 +335,9 @@ pub fn protect_for_send(
 
 /// Only the originating verified editor can remove its generated draft file.
 /// No row means no deletion authority, even if an old upload receipt remains.
+/// The caller must hold the same pasted-text operation guard used by publication.
 pub async fn remove_pasted_text(
-    database: &mut Database,
+    database: &tokio::sync::Mutex<Database>,
     client: &DraftClient,
     camp_id: &str,
     id: &str,
@@ -339,19 +345,27 @@ pub async fn remove_pasted_text(
     ensure!(!client.is_desktop(), "verified Web editor required");
     crate::camp_id::ThreadId::parse(camp_id)?;
     uuid::Uuid::parse_str(id)?;
-    let entry:Option<(String,bool)>=database.connection().query_row("SELECT source_path,entered_send_flow FROM web_pasted_text_attachment WHERE camp_id=?1 AND attachment_id=?2 AND client_id=?3",params![camp_id,id,client.id()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    let (entry, root) = {
+        let database = database.lock().await;
+        let entry: Option<(String, bool)> = database.connection().query_row("SELECT source_path,entered_send_flow FROM web_pasted_text_attachment WHERE camp_id=?1 AND attachment_id=?2 AND client_id=?3",params![camp_id,id,client.id()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let root =
+            crate::storage_layout::resolve_attachment_output_root(database.connection(), camp_id)?;
+        (entry, root)
+    };
     let Some((path, protected)) = entry else {
         return Ok("retained");
     };
     if !protected {
-        validate_pasted_path(database, camp_id, &path)?;
+        validate_pasted_path_in_root(&root, &path)?;
+        #[cfg(test)]
+        crate::application::wait_for_pasted_text_unlink_test_barrier(id).await;
         match tokio::fs::remove_file(&path).await {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
     }
-    database.connection().execute(
+    database.lock().await.connection().execute(
         "DELETE FROM web_pasted_text_attachment WHERE attachment_id=?1 AND client_id=?2",
         params![id, client.id()],
     )?;

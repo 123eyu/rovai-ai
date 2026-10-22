@@ -109,7 +109,9 @@ Desktop 设置中开启的 Web 服务属于该 Desktop 实例，可以管理已�
 
 不传内部路径参数：默认使用当前账号 `~/.rovai-server`，其中包括 `rovai.sqlite`、`mcp.json`、`skills/`、
 `instances/<instance-key>/runtime-files/`、`logs/server.log` 及私有布局/令牌文件。自定义 `--data-dir` 后全部跟随，
-不会默认写回 Desktop 的 `~/.rovai`。`rovai-server paths` 只读显示推导路径。
+不会默认写回 Desktop 的 `~/.rovai`。公屏长粘贴生成的文本直写
+`<data-dir>/instances/<instance-key>/attachments/<threadId>/<UUID>.txt`；默认数据根为 `~/.rovai-server`。
+文件位于 Server 主机，普通外部上传仍沿用原临时文件规则。`rovai-server paths` 只读显示推导路径。
 不存在的根由 Host 初始化；既有根复用原数据，同根第二个 Host 拒绝启动。改参数选择另一实例，不搬迁旧数据。
 
 ## 旧预览数据的兼容入口

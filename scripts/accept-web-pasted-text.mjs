@@ -113,8 +113,45 @@ try {
   }
   await assert.rejects(readdir(threads[1].root),{code:'ENOENT'})
   assert.deepEqual(await readdir(threads[0].root),[])
-  assert.equal(browser.errors.length,0,browser.errors.join('\n'))
   evidence.pendingDeletedOnLeave=true; evidence.activePreserved=true
+  // Use the actual browser submit path, including verified editor authorization
+  // and successful local-draft cleanup. Built-in fixture members have no Runtime
+  // configured: publication is real, while no external model can be invoked.
+  const sentThread = threads[0]
+  const sentText = 'Browser attachment-only publication 😀\r\n' + '完整内容 '.repeat(2400)
+  await paste(sentText)
+  await browser.wait(`${card} !== null && ${remove} !== null`)
+  assert.equal(await browser.evaluate(`${editor}.innerText.trim()`), '')
+  const [sentName] = await waitFiles(sentThread.root, 1)
+  const sentPath = join(sentThread.root, sentName)
+  const sendButton = `[...document.querySelectorAll('.composer-primary-action.is-send')].find(e => e.getClientRects().length > 0)`
+  await browser.wait(`${sendButton} !== undefined && !${sendButton}.disabled`)
+  await browser.click(sendButton)
+  await browser.wait(`${card} === null && document.querySelector('[data-message-id] .attachment-card') !== null`)
+  const snapshot = await host.request('camps.open', { traceId: crypto.randomUUID(), threadId: sentThread.threadId })
+  const message = snapshot.messages.find(item => item.authorType === 'user' && item.attachments.length === 1)
+  assert.ok(message, 'browser submit must publish an attachment-only message')
+  assert.equal(message.body, '')
+  const download = () => browser.evaluate(`(async () => {
+    const response = await fetch('/api/v1/attachments', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer '+JSON.parse(sessionStorage.getItem('rovai.web.auth.v1')).token },
+      body: JSON.stringify(${JSON.stringify({ owner: 'message', threadId: sentThread.threadId, messageId: message.id, attachmentRefId: message.attachments[0].id })}) });
+    return { status: response.status, text: await response.text() };
+  })()`)
+  assert.deepEqual(await download(), { status: 200, text: sentText })
+  assert.equal(await readFile(sentPath, 'utf8'), sentText)
+  await browser.send('Page.reload')
+  await browser.wait(`document.querySelector('.unified-sidebar') !== null`)
+  await choose('active')
+  await browser.wait(`document.querySelector('[data-message-id] .attachment-card') !== null`)
+  assert.equal(await browser.evaluate(`${card} === null && ${editor}.innerText.trim() === ''`), true,
+    'successful send must not restore the old browser draft')
+  assert.deepEqual(await download(), { status: 200, text: sentText })
+  assert.equal(await readFile(sentPath, 'utf8'), sentText, 'send cleanup must preserve the published file')
+  await browser.capture(join(output, 'attachment-only-sent-reloaded.png'))
+  evidence.attachmentOnlySend = { browserSubmit: true, messageId: message.id, path: sentPath,
+    downloadable: true, reloadDraftEmpty: true, fileRetained: true }
+  assert.equal(browser.errors.length,0,browser.errors.join('\n'))
   await writeFile(join(output,'validation.json'),JSON.stringify(evidence,null,2)+'\n')
   console.log(JSON.stringify(evidence))
 } catch(error) {

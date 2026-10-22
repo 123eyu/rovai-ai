@@ -51,3 +51,34 @@ Active 文件移除后目录与会话保留；Pending 文件移除后为空，�
 先构建当前 worktree 的 Host/Core 与 Web；脚本不使用其他 worktree 的二进制。
 `ROVAI_WEB_PASTE_OUTPUT=<绝对证据目录> node scripts/accept-web-pasted-text.mjs` 可保留证据，
 测试数据、浏览器 profile 与该实例的输出目录在结束后清理。未指定输出目录时只保留隔离 fixture 供检查。
+
+
+## 删除等待隔离与浏览器发送补验（2026-10-22）
+
+复核基线 `6cd2a936a85f0bbceafc4a7b851921dbb7e3ebaa`：删除曾跨异步 unlink 持有 Core 数据库锁，
+且在普通 FIFO 请求处理器中等待。改为复用现有独立请求调度；Core 内仅增加一个附件操作互斥，
+发送与删除统一先取附件锁、再取数据库锁。空附件发送直接绕过附件锁。归属/路径读取和登记更新
+仍由数据库锁保护，路径校验与文件删除在锁外完成；删除失败继续保留登记，不增加状态或后台任务。
+
+扩展既有 `independent_reads_do_not_inherit_an_unrelated_non_database_wait` owner，复用同一隔离 Core、
+数据库与受控 barrier，在真实 unlink 前暂停：另一 Thread 的打开、普通顺序请求 `members.list` 和
+纯文字消息发布必须在释放 barrier 前完成；同时提交该待删文件的附件发送必须等待，并在删除后拒绝
+缺失来源。原先的独立读取/必要顺序修复断言保留，不新增平行 Rust fixture 或独立测试函数。
+该回归需要实际请求调度和共享数据库锁，纯函数测试不能覆盖。最小命令：
+`cargo test -p rovai-core --features slow-tests --lib independent_reads_do_not_inherit_an_unrelated_non_database_wait`。
+
+扩展原浏览器脚本：空正文仅粘贴附件，点击当前可见 Composer 的发送按钮，经真实 Web 身份校验发布；
+用该浏览器的认证 HTTP 请求下载消息附件并逐字核对，刷新后确认旧草稿不恢复、源文件仍完整。
+夹具默认成员没有配置 Runtime，验证真实消息发布与草稿收尾，不调用外部模型。按钮按可见面板定位，
+避免误选仍挂载的隐藏 Composer；未修改产品发送入口。
+
+单独 Server 的生成文本仍由现有 `ServerPaths` 推导：
+`<data-dir>/instances/<instance-key>/attachments/<threadId>/<UUID>.txt`；默认数据根 `~/.rovai-server`。
+本次不改变目录布局，浏览器正文和草稿清单仍在客户端本地。
+
+本次验证通过：上述延迟删除定向 owner；`pnpm test:rust:pr`（Core 428、CLI 31、Server 4、Web 11，
+既有 1 项 ignored）；实际 Host HTTP owner；更新后的真实浏览器脚本；`pnpm typecheck`、
+`pnpm build:web`、`cargo fmt --all --check`、`pnpm docs:test` 与以本次基线运行的 `pnpm docs:check:ci`。
+生产 Host 从当前 worktree 重新构建后运行 HTTP 与浏览器验收；Browser 的源文件 31,242 字节，
+发布后的下载、刷新空草稿和文件保留均确认。`rovai-server paths` 另以默认与 `/data/rovai` 自定义根只读核对。
+日常 App/Server 未安装、未重启；验收仍是同机浏览器经 HTTP 访问隔离 Host，不代表第二台设备测试。

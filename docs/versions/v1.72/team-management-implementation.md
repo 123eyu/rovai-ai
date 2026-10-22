@@ -2,7 +2,7 @@
 document_type: implementation-plan
 version: v1.72
 status: implemented-gate-failed
-last_updated: 2026-10-19
+last_updated: 2026-10-22
 ---
 
 # Team 管理实施记录
@@ -277,3 +277,65 @@ Team 模板修改后的「结论 / 风险 / 建议」没有替换会话副本；
 `evidence-summary.json`、`diagnose.mjs` / `post-observation-checks.json` 保留实际顺序、
 生产 claim / delivery 证据与事后诊断。分享包提供可核对的投影和工作文件，原数据库、构建产物
 及 Runtime 缓存留在隔离目录，不进入仓库。文档记录不替代这些原始观察。
+
+## 2026-10-22 三 Runtime 开发窗口实测
+
+按 Thread sequence 55 改用 Claude Code 负责实现与交付、Codex 独立审查、MiniMax Code 中途加入验收。
+使用 Team 分支 `9dffed15776731a2875984ef4222ee9051774772` 加下述三行 Desktop 修复，
+经 `pnpm dev` 启动真实 Main / preload / Renderer / Core；没有合并最新 main。
+Core SHA-256 为 `195271028b7376bb78f9b376753d1fab059fb26e13981b59d2f2f580e90265d0`。
+开发数据、Skill Library、MCP 和任务工作目录均位于本 Thread 附件的
+`team-management-validation/mixed-runtime-dev-20261022T081254/`，日常 App、名册与数据未修改。
+开发窗口及数据保留给 User 手工验收。
+
+真实窗口首次调用 `teams.list` / `teams.save` 被 Main 的 `renderer_core_method_unsupported` 拒绝。
+此前生产组件夹具使用模拟运输、Core 验证绕过 Desktop，因此未覆盖此遗漏。
+仅在 Main 原有方法白名单补入 `teams.list`、`teams.save`、`teams.delete`；没有扩大通配授权，
+没有修改 Team 模型、Bootstrap 或偏好协议。隔离窗口重启后，经实际 contextBridge/Core
+完成创建、列表读回、删除及删除后读回；内部 `core.shutdown` 仍被 Renderer 拒绝。
+`pnpm typecheck`、`runtime-core-methods.test.ts`、`pnpm test:desktop-bridge` 和
+`pnpm build:desktop` 通过。
+
+| 队员 / Runtime | 本机下发配置 | 观察 |
+| --- | --- | --- |
+| 交付负责人 / Claude Code 2.1.304 | `default` / medium；本机目录映射为 `gpt-6.1-sol[1m]` | 实现、交接、收取复核并最终汇总 |
+| 独立审查 / Codex CLI 0.163.0 | `gpt-6.1-sol` / medium | 首轮独立审查及新增测试的增量复核 |
+| 后加入验收 / MiniMax Code 0.6.12 | 本机 custom provider 的 `gpt-6` / thinking / medium | 只新增独立边界测试并交回负责人 |
+
+这是三种 CLI 的协作样本，不是 Claude、MiniMax、GPT 三家底层模型对照；沿用本机原生 provider，
+未改写认证或全局配置。8 个 Run 的实际 adapter 与分工一致；`runtime_observed_model_id` 均为空，
+只能证明冻结配置及本机目录映射，不能额外证明服务端实际模型身份。
+
+沿用上一节完整团队指引。先以两人 Team 创建 Thread，首轮结束后将保存 Team 的名册更新为三人，
+并通过真实成员加入命令让 MiniMax 加入已有 Thread。指引文本未改，Thread 仍使用创建时副本。
+任务在运行前明确字符串 value 必须 trim、公开测试不得追加，并提供 Git 基线
+`60a4e0852c653ff3472b5b502f721fe4bf5d51d9`；没有重跑上一轮样本或倒改其结果。
+每阶段预算 480 秒、8 个 Run 责任、6 次 accepted A2A，每阶段只投递一次。
+
+| 阶段 | Run / A2A | 全量测试 | 原功能、字符串 value、冻结文件检查 | 耗时 |
+| --- | --- | --- | --- | --- |
+| 实现与独立审查 | 3 / 2 | 10/10 | 7/7 通过 | 222.452 秒 |
+| 后加入者补测、增量审查与汇总 | 5 / 4 | 13/13 | 7/7 通过 | 181.245 秒 |
+
+8 个 Run 全部 succeeded，8 个 Runtime Input Delivery 全部 accepted，6 次 A2A 均完成；
+无未完成 Run 或投递。SQLite 使用 `mode=ro` 连同 WAL 读取，8 份 claim 的团队指引与创建快照一致，
+包括后加入的 MiniMax；8 份 Dynamic Payload 均无 TEAM_GUIDANCE 区块。
+三位队员的真实工具回执均含测试执行记录。最终仅修改一个实现文件并新增两个测试文件，
+冻结的公开测试、README、package.json 未变，Git 基线未改。
+
+协作可以闭环，且新人补充 Unicode 空白、内部空白保留、大小写与去重边界，没有重做实现。
+仍观察到负责人交接较长、重复列举约束，后半段又对新增测试发起独立审查；
+这说明完成闭环不等于沟通开销已经最小。本轮不修改指引、不增加机制、不择优重跑，
+也不把单一样本的约 6 分 44 秒与上一轮不同 Runtime、不同任务明确度的样本作性能比较。
+
+验收辅助脚本有两处在首次 verifier 执行前修正：遗漏 workspace 参数时使用固定夹具目录；
+字符串 value 专项输入补齐 README 要求的正常 actor/type 或 actorId/kind 字段。
+断言与预期输出未放宽，原脚本与更正时点保存在 `harness-note.json` 及对应前稿；
+UI 截图脚本也曾因后台 rAF 等待、选择器引号和带状态后缀的标题失败，随后改用已观察的按钮内容。
+这些是驱动修正，不是模型重试或产品修改。完整上下文 Gate 继续为 `degraded`。
+
+运行前计划 digest 为 `177b384cb46932e11ad7c2c0d7e25abbcb1a6d7b6a0bd55cacdce38c2f121c6e`，
+Desktop 三行补丁 digest 为 `79f6bc4ebd57668c1b8bc449f2dbd741fa9b11033c0ac15fd65c325ba08f9623`。
+同目录 `launch.json`、`plan.json`、`run-acceptance.mjs`、`results.json`、`evidence-summary.json`、
+`public-thread-evidence.json`、阶段测试日志、桥接回归及最终截图保存可复核证据。
+正式展示为团队「三 Runtime 协作验收」、会话「三 Runtime · 实现—复核—验收」。

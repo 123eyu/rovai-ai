@@ -250,6 +250,8 @@ const allowedMethods = new Set<CoreMethod>([
   'nativeSkills.list',
   'nativeSkills.read',
   'skills.candidates',
+  'threadReferences.list',
+  'threadReferences.resolve',
   'skills.content.read',
   'skills.deliveryGroups.list',
   'skills.import.inspect',

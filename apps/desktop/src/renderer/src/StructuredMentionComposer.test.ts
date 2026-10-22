@@ -148,7 +148,8 @@ describe('StructuredMentionComposer V2', () => {
       false, undefined, 0, () => undefined, () => undefined
     ))
     const failed = render(true)
-    expect(failed).toContain('role="alert">Refresh failed. Current display shows previous candidates. Please retry.')
+    expect(failed).toContain('role="alert"')
+    expect(failed).toContain('Refresh failed. Showing previous results.')
     expect(failed).not.toContain('Some sources are temporarily unavailable')
     expect(failed).toContain('aria-label="/analyze-agent-codebase, Project Skill, linked teammate: 新洛可"')
     expect(failed).not.toContain('，')

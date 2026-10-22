@@ -16,12 +16,15 @@ last_updated: 2026-10-22
 
 ## Design intent
 
-暖瓷白阅读区、浅米灰侧栏、燕麦色气泡与少量灰绿品牌点缀，保持明亮而可辨的暖色。
-User 在主题设计 Thread sequence 18 确认按第六版配色实施，同时明确不加入生产没有的聚焦效果或功能。
+以接近白色的阅读区、浅石灰侧栏和少量灰绿品牌点缀保留轻微暖感；执行台、输入框及浮层使用中性白，代码与证据使用中性灰。
+User 在主题设计 Thread sequence 20 指出第六版暖色铺得过满，尤其执行台泛暖；本次收敛大面积米黄色，
+保留地平线的暖色身份。沿用 sequence 18 的交互边界，不加入生产没有的聚焦效果或功能。
 
 ## Surface hierarchy and color responsibilities
 
-Canvas、rail、conversation、raised/input 通过明度和底色形成层次；消息气泡使用生产几何与同色边线。
+会话区 `#fdfcf9` 与侧栏 `#f3f1ec` 保留轻微暖感，气泡收敛为低饱和石灰色 `#f0efeb`。
+执行台通过 `--execution-surface: #ffffff` 与会话底色分离；详情、输入与浮层同为中性白，
+代码块 `#f5f6f5` 与 Evidence 使用近中性灰。消息气泡使用生产几何与同色边线。
 品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
 实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
 
@@ -35,55 +38,56 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--monitoring-output` | `#657f9b` |
 | `--monitoring-read` | `#698273` |
 | `--monitoring-write` | `#997b4d` |
-| `--settings-choice-line` | `#ded7ca` |
+| `--settings-choice-line` | `#dedfd9` |
 | `--settings-choice-selected-line` | `#8c9b7f` |
-| `--settings-choice-hover` | `#f5f1e9` |
-| `--settings-field-line` | `#c9c1b3` |
+| `--settings-choice-hover` | `#f5f5f2` |
+| `--settings-field-line` | `#c7cbc2` |
 | `--settings-switch-off` | `#8c939a` |
 | `--settings-switch-thumb` | `#fff` |
 | `--settings-select-arrow` | `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4.5 6.25 3.5 3.5 3.5-3.5' fill='none' stroke='%23616b74' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")` |
-| `--canvas` | `#ece8df` |
-| `--surface` | `#faf8f2` |
-| `--surface-raised` | `#fffdf8` |
-| `--surface-subtle` | `#f5f1e9` |
-| `--surface-muted` | `#eae5da` |
-| `--surface-selected` | `#e8e5db` |
-| `--surface-hover` | `#eee9df` |
-| `--surface-sunken` | `#eae5da` |
-| `--workspace-surface-subtle` | `#f5f1e9` |
-| `--workspace-surface-raised` | `#fffdf8` |
-| `--workspace-surface-hover` | `#eee9df` |
-| `--workspace-surface-selected` | `#e8e5db` |
-| `--workspace-line` | `#e2ddd2` |
-| `--workspace-line-strong` | `#c9c1b3` |
+| `--canvas` | `#f1f0ec` |
+| `--surface` | `#fbfbfa` |
+| `--surface-raised` | `#ffffff` |
+| `--surface-subtle` | `#f4f4f2` |
+| `--surface-muted` | `#eaeae7` |
+| `--surface-selected` | `#e9e9e4` |
+| `--surface-hover` | `#eeeeea` |
+| `--surface-sunken` | `#e9e9e6` |
+| `--workspace-surface-subtle` | `#f5f5f3` |
+| `--workspace-surface-raised` | `#ffffff` |
+| `--workspace-surface-hover` | `#eeeeec` |
+| `--workspace-surface-selected` | `#e9e9e4` |
+| `--workspace-line` | `#e2e3df` |
+| `--workspace-line-strong` | `#c7cac3` |
 | `--workspace-steel` | `#586e67` |
 | `--workspace-steel-ink` | `#435c52` |
 | `--workspace-attention-soft` | `#f4ecdf` |
-| `--workspace-faint` | `#6d685f` |
+| `--workspace-faint` | `#6b6e67` |
 | `--runtime-logo-surface` | `#ffffff` |
-| `--conversation-surface` | `#fcfaf5` |
-| `--conversation-user-message-surface` | `#f0ebe2` |
-| `--conversation-user-message-line` | `#f0ebe2` |
-| `--execution-running-surface` | `#f5f1e9` |
+| `--conversation-surface` | `#fdfcf9` |
+| `--conversation-user-message-surface` | `#f0efeb` |
+| `--conversation-user-message-line` | `#f0efeb` |
+| `--execution-running-surface` | `#f4f4f2` |
+| `--execution-surface` | `#ffffff` |
 | `--conversation-find-match` | `#f4e4c3` |
 | `--conversation-find-current` | `#edc66f` |
 | `--conversation-find-line` | `#bd8a38` |
-| `--inspector-surface` | `#fffdf8` |
-| `--conversation-inspector-line` | `#d6cfc1` |
-| `--home-surface` | `#fcfaf5` |
-| `--topbar` | `#fcfaf5` |
-| `--input` | `#fffdf8` |
-| `--ink` | `#302e2a` |
-| `--muted` | `#68635c` |
-| `--faint` | `#6d685f` |
-| `--line` | `#e2ddd2` |
+| `--inspector-surface` | `#ffffff` |
+| `--conversation-inspector-line` | `#d6d8d3` |
+| `--home-surface` | `#fdfcf9` |
+| `--topbar` | `#fdfcf9` |
+| `--input` | `#ffffff` |
+| `--ink` | `#30322f` |
+| `--muted` | `#666963` |
+| `--faint` | `#6b6e67` |
+| `--line` | `#e2e3de` |
 | `--resize-line` | `#777777` |
-| `--line-strong` | `#c9c1b3` |
-| `--control-line` | `#989083` |
-| `--new-camp-picker-surface` | `#fffdf8` |
-| `--new-camp-picker-soft` | `#f5f1e9` |
-| `--new-camp-picker-hover` | `#eee9df` |
-| `--new-camp-picker-line-strong` | `#928a7c` |
+| `--line-strong` | `#c6c9c2` |
+| `--control-line` | `#8b9187` |
+| `--new-camp-picker-surface` | `#ffffff` |
+| `--new-camp-picker-soft` | `#f5f5f3` |
+| `--new-camp-picker-hover` | `#efefec` |
+| `--new-camp-picker-line-strong` | `#8f948a` |
 | `--brand` | `#586e67` |
 | `--brand-hover` | `#43574f` |
 | `--brand-contrast` | `#ffffff` |
@@ -100,13 +104,13 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--memory-ink` | `#222222` |
 | `--memory-muted` | `#626262` |
 | `--memory-input-line` | `#dedede` |
-| `--neutral-selected` | `#e8e5db` |
-| `--neutral-hover` | `#eee9df` |
+| `--neutral-selected` | `#e9e9e4` |
+| `--neutral-hover` | `#eeeeea` |
 | `--conversation-action` | `#303733` |
 | `--conversation-action-ink` | `#303733` |
 | `--conversation-action-hover` | `#212723` |
 | `--conversation-action-contrast` | `#ffffff` |
-| `--conversation-control-line` | `#928a7c` |
+| `--conversation-control-line` | `#90958c` |
 | `--conversation-focus` | `#4f6256` |
 | `--conversation-focus-soft` | `rgba(79,98,86,.12)` |
 | `--conversation-route-accent` | `#8b918a` |
@@ -130,9 +134,9 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--aurora-soft` | `#e7f0ec` |
 | `--violet` | `#9082b4` |
 | `--violet-soft` | `#efebf6` |
-| `--rail` | `#f0ece3` |
-| `--rail-ink` | `#68635c` |
-| `--rail-line` | `#e2ddd2` |
+| `--rail` | `#f3f1ec` |
+| `--rail-ink` | `#656962` |
+| `--rail-line` | `#e0e1db` |
 | `--rail-logo` | `#586e67` |
 | `--ember` | `#b68c55` |
 | `--ember-soft` | `#f6ecd9` |
@@ -158,29 +162,29 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--shadow-dialog` | `var(--shadow-float)` |
 | `--shadow-card` | `none` |
 | `--approval-line` | `#d8bd87` |
-| `--inline-code-canvas` | `#e9e3d8` |
-| `--conversation-inline-code-canvas` | `#e9e3d8` |
-| `--dialog-field-label` | `#68635c` |
-| `--dialog-field-line` | `#d6cfc1` |
-| `--dialog-field-line-hover` | `#afa696` |
-| `--conversation-code-block-canvas` | `#faf7f0` |
-| `--conversation-code-line` | `#e2dbce` |
-| `--shell-result-canvas` | `#f5f1e9` |
-| `--code-block-canvas` | `#faf7f0` |
-| `--evidence-canvas` | `#f5f1e9` |
-| `--evidence-surface` | `#fffdf8` |
-| `--evidence-ink` | `#302e2a` |
-| `--evidence-muted` | `#68635c` |
-| `--evidence-line` | `#e2ddd2` |
+| `--inline-code-canvas` | `#ebeeec` |
+| `--conversation-inline-code-canvas` | `#ebeeec` |
+| `--dialog-field-label` | `#686b65` |
+| `--dialog-field-line` | `#d7d9d3` |
+| `--dialog-field-line-hover` | `#afb5ac` |
+| `--conversation-code-block-canvas` | `#f5f6f5` |
+| `--conversation-code-line` | `#dfe3e0` |
+| `--shell-result-canvas` | `#f0f2f0` |
+| `--code-block-canvas` | `#f5f6f5` |
+| `--evidence-canvas` | `#f4f5f4` |
+| `--evidence-surface` | `#ffffff` |
+| `--evidence-ink` | `#303532` |
+| `--evidence-muted` | `#666d68` |
+| `--evidence-line` | `#dce0dc` |
 | `--diff-add` | `#137333` |
 | `--diff-add-soft` | `#d9f1e2` |
 | `--diff-remove` | `#b3261e` |
 | `--diff-remove-soft` | `#f5dede` |
 | `--diff-hunk-soft` | `#f3f4f4` |
-| `--file-change-surface` | `#fffdf8` |
-| `--file-change-hover` | `#f5f1e9` |
-| `--file-change-selected` | `#e8e5db` |
-| `--file-change-selected-line` | `#d6cfc1` |
+| `--file-change-surface` | `#ffffff` |
+| `--file-change-hover` | `#f5f6f4` |
+| `--file-change-selected` | `#e9ede8` |
+| `--file-change-selected-line` | `#cfd5ce` |
 | `--file-change-add-soft` | `#ecf7f0` |
 | `--file-change-remove-soft` | `#fcf0ef` |
 | `--file-change-hunk` | `#f5f5f4` |

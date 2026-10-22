@@ -8,7 +8,7 @@ last_updated: 2026-10-22
 
 # 地平线、经典红与余烬实施
 
-User 在主题设计 Thread sequence 18 确认使用独立 worktree 实施第六版配色与六项紧凑选择器，
+User 最初在主题设计 Thread sequence 18 确认使用独立 worktree 实施第六版配色与六项紧凑选择器，
 并明确不加入生产没有的功能、输入框聚焦装饰或原型专属行为。
 
 ## Scope and decisions
@@ -39,6 +39,28 @@ User 在主题设计 Thread sequence 18 确认使用独立 worktree 实施第六
 完整 Windows/macOS 原生 UI、系统明暗切换、IME 与辅助技术矩阵未在本次浏览器 fixture 中实测；
 隔离 fixture 不启动 Core 或 Runtime，也不读写日常 App 数据。构建与单元测试不替代原生平台实测。
 
+## 地平线减暖修订（Thread sequence 20）
+
+User 指出实现稿的暖色面积过大、执行台比原稿更暖，要求重新调整。配色以低饱和石灰和轻暖白为主，
+执行台、输入与浮层收回中性白，代码和证据收回近中性灰；六项选择器与生产交互继续沿用。
+
+| 表面 | 上版 | 本次修订 |
+|---|---|---|
+| 会话阅读区 | `#fcfaf5` | `#fdfcf9` |
+| 侧栏 | `#f0ece3` | `#f3f1ec` |
+| 消息气泡 | `#f0ebe2` | `#f0efeb` |
+| 执行台 | 会话底色 `#fcfaf5` | 独立 `--execution-surface: #ffffff` |
+| 代码块 | `#faf7f0` | `#f5f6f5` |
+
+执行台的外壳、卡片、头像状态背板与滚动渐隐共用新语义 Token，覆盖浮层、底部与右侧位置。
+其余四套配色的既有 Token 值与实际执行台底色保持不变；手机执行台仍由既有 `--mobile-page` 覆盖。
+
+- 主题对比度、偏好与执行台布局回归：3 个文件、78 项通过。
+- `pnpm typecheck` 与 `pnpm build:desktop`：通过。
+- 生产组件浏览器预览：执行台三种位置的背景均为中性白，命令结果为中性灰；无横向溢出。
+- 截图覆盖浮层、底部与右侧，并保留上版浮层截图用于比较。
+- 通用文档测试、版本/决策门禁与以本次修订前提交为 base 的 CI 门禁通过；独立 HTML 默认进入地平线，浏览器无 warning/error。
+
 ## Worktree handoff
 
 - Work item: 三款新主题与六项紧凑选择器。
@@ -47,4 +69,4 @@ User 在主题设计 Thread sequence 18 确认使用独立 worktree 实施第六
 - Base: `origin/main` / `186d1cfcf0c0cfff342aa36282b35d75436613c5`
 - Governance: none；当前 User 已确认配色与实现，UI 合同随同提交。
 - Status: ready
-- Next: 提交并推送独立分支供 User 验收；保留 worktree。按 User 既有偏好不自动创建 PR。
+- Next: User 验收地平线修订稿；保留 worktree。按 User 既有偏好不自动创建 PR。

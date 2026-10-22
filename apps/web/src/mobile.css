@@ -4,6 +4,7 @@
   --mobile-page: #fff;
   --mobile-unread: var(--conversation-unread);
   --conversation-surface: var(--mobile-page);
+  --execution-surface: var(--mobile-page);
   --surface: var(--mobile-page);
   --home-surface: var(--mobile-page);
   --rail: var(--mobile-page);

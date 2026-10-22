@@ -65,6 +65,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--conversation-user-message-surface` | `#f5f5f4` |
 | `--conversation-user-message-line` | `#f5f5f4` |
 | `--execution-running-surface` | `#fafaf9` |
+| `--execution-surface` | `#ffffff` |
 | `--conversation-find-match` | `#f4e4c3` |
 | `--conversation-find-current` | `#edc66f` |
 | `--conversation-find-line` | `#bd8a38` |

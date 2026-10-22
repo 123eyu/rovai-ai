@@ -11,6 +11,15 @@ last_updated: 2026-10-22
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## TRAE ACP 错误详情（2026-10-22）
+
+TRAE CLI 0.209.1 使用字符串 `error.data`，原共享 Host 仅提取对象中的 `error.data.error`，
+导致 Provider 配额详情丢失，只留下 `Internal error`。本次兼容两种字符串格式，保持统一清洗、
+失败分类与输入防重放规则。合同见 [Runtime Launch v71](../../contracts/runtime-launch-and-verification-v71.md)，
+证据与验证见[实施记录](implementation-plan.md#trae-acp-错误详情2026-10-22)。
+同步 Contract、Architecture 与路由；不改变模型输入、数据库 schema、UI 或 Runtime 平台资格，不回填旧 Run。
+属于既有白名单规则的局部兼容修复，无需新增 Version Decision。
+
 ## 原生后台执行限制（2026-10-21）
 
 按 User 已确认的 33 词规则，为 Claude Code 复用已有私有 settings 与最终环境注入；

@@ -3,10 +3,38 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # v1.72 实施与验收
+
+## TRAE ACP 错误详情（2026-10-22）
+
+- 工作目录：同级 worktree `rovai-ai-trae-acp-error-detail`，分支 `rovai/trae-acp-error-detail`，
+  基线 `bdd13d20fa95178d5a8687392ab17435c2d75daa`；无需治理先行提交。
+- 只读核对同一原生 Session 的两次 `task_complete.error.message`，均包含个人配额耗尽详情；
+  Rovai 的持久 failure 与 input rejection 只保留 `ACP error -32603: Internal error`，详情在 Core 内已丢失。
+  不把这些私有 Session、Run ID、业务输入或原始日志提交到仓库。
+- 使用已安装 TRAE 0.209.1，在独立 `TRAE_HOME`、项目与临时目录中运行 ACP 探针；仅使用合成认证，
+  OS sandbox 禁止网络与日常目录写入。`session/new` 的原生错误为
+  `{code:-32603,message:"Internal error",data:"Trae CheckLogin failed before model fetch: …"}`。
+  这证明当前版本返回字符串 detail；没有重新调用真实模型，也未捕获历史配额失败的完整 ACP wire。
+- `AcpRpcError::from_response` 兼容字符串 `error.data` 与既有 `error.data.error`；复用统一脱敏、
+  去重与长度限制。共享 Prompt/RPC 路径保留详情；原生会话、输入接受判定、retryable 门禁及旧 Run 保持。
+- 扩展既有 `acp_rpc_error_keeps_only_allowlisted_bounded_fields` 的类型与清洗矩阵，
+  以及 `prompt_error_after_activity_keeps_input_accepted_while_early_rejection_does_not` 的
+  两种格式、activity 前后和 input rejection 详情；不新增、删除或停用 Rust 测试函数。
+
+验证：
+
+- 修复前新增字符串 case 失败：实际只有 `ACP error -32603: Internal error`；修复后解析 owner 通过。
+- 合成 ACP 进程 owner 的四种格式／activity 组合通过；统一 Runtime failure 的 5 项分类与清洗测试通过。
+- `pnpm typecheck`、`pnpm test` 通过：252 个 Vitest 文件、2857 项通过、2 项跳过；后续 Node 套件
+  357 项通过、2 项 Windows 专用验证跳过。
+- `pnpm docs:test`、`pnpm docs:check` 与使用真实基线的 `pnpm docs:check:ci` 通过。
+- `pnpm test:rust:pr` 默认 workspace 回归通过：474 项通过、1 项既有 ignored；
+  `cargo fmt --all --check` 与 `cargo check --workspace` 通过。未执行全量 extended/slow-tests。
+- 已完成验证，进入 PR 与 main 合入流程；合入后清理独立 worktree。日常 App 未安装此修复。
 
 ## 操作提示精简（2026-10-21）
 

@@ -1302,8 +1302,11 @@ impl AcpRpcError {
             .unwrap_or("ACP request failed")
             .to_string();
         let provider_detail = value
-            .pointer("/data/error")
-            .and_then(Value::as_str)
+            .get("data")
+            .and_then(|data| {
+                data.as_str()
+                    .or_else(|| data.get("error").and_then(Value::as_str))
+            })
             .and_then(|detail| sanitize_public_runtime_error(detail, &[]))
             .filter(|detail| detail != &message);
         Self {
@@ -9797,25 +9800,54 @@ mod tests {
             "ACP error -32603: Internal error: failed to call agent: Model usage has reached personal quota limit. Please check usage or contact administrator."
         );
 
-        let redacted_detail = AcpRpcError::from_response(&json!({
+        let string_detail = AcpRpcError::from_response(&json!({
             "code": -32603,
             "message": "Internal error",
-            "data": { "error": "provider failed with api_key=must-not-leak" }
+            "data": "Model usage has reached personal quota limit. Please check usage or contact administrator."
         }));
         assert_eq!(
-            redacted_detail.diagnostic(),
-            "ACP error -32603: Internal error: provider failed with api_key=[redacted]"
+            string_detail.diagnostic(),
+            "ACP error -32603: Internal error: Model usage has reached personal quota limit. Please check usage or contact administrator."
         );
 
-        let unlisted_detail = AcpRpcError::from_response(&json!({
-            "code": -32603,
-            "message": "Internal error",
-            "data": { "detail": "must remain private" }
-        }));
-        assert_eq!(
-            unlisted_detail.diagnostic(),
-            "ACP error -32603: Internal error"
-        );
+        for data in [
+            json!("provider failed with api_key=must-not-leak"),
+            json!({ "error": "provider failed with api_key=must-not-leak" }),
+        ] {
+            let redacted_detail = AcpRpcError::from_response(&json!({
+                "code": -32603,
+                "message": "Internal error",
+                "data": data
+            }));
+            assert_eq!(
+                redacted_detail.diagnostic(),
+                "ACP error -32603: Internal error: provider failed with api_key=[redacted]"
+            );
+        }
+
+        for data in [
+            json!({ "detail": "must remain private" }),
+            json!({ "error": { "message": "must remain private" } }),
+            json!({ "error": ["must remain private"] }),
+            json!(["must remain private"]),
+            json!(42),
+            json!(false),
+            Value::Null,
+            json!(" \n "),
+            json!("Internal error"),
+            json!({ "error": "Internal error" }),
+            json!("prompt: must remain private"),
+        ] {
+            let unlisted_detail = AcpRpcError::from_response(&json!({
+                "code": -32603,
+                "message": "Internal error",
+                "data": data
+            }));
+            assert_eq!(
+                unlisted_detail.diagnostic(),
+                "ACP error -32603: Internal error"
+            );
+        }
 
         for (message, expected) in [
             (
@@ -13123,15 +13155,34 @@ while IFS= read -r ignored; do :; done
 
     #[tokio::test]
     async fn prompt_error_after_activity_keeps_input_accepted_while_early_rejection_does_not() {
-        for (case_name, prompt_activity, error_code, expected_accepted) in [
+        for (case_name, prompt_activity, error_code, expected_accepted, string_data) in [
             (
                 "activity-before-error",
                 r#"printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-error","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"working"}}}}'"#,
                 -32603,
                 true,
+                false,
             ),
-            ("error-before-activity", ":", -32602, false),
+            ("error-before-activity", ":", -32602, false, false),
+            (
+                "activity-before-string-error",
+                r#"printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-error","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"working"}}}}'"#,
+                -32603,
+                true,
+                true,
+            ),
+            ("string-error-before-activity", ":", -32603, false, true),
         ] {
+            let provider_detail = if string_data {
+                "Model usage has reached personal quota limit. Please check usage or contact administrator."
+            } else {
+                "failed to call agent: Model usage has reached personal quota limit. Please check usage or contact administrator."
+            };
+            let error_data = if string_data {
+                json!(provider_detail)
+            } else {
+                json!({ "error": provider_detail })
+            };
             let root = std::env::temp_dir().join(format!(
                 "rovai-acp-prompt-error-{case_name}-{}",
                 uuid::Uuid::new_v4()
@@ -13148,7 +13199,7 @@ IFS= read -r session || exit 1
 printf '%s\n' '{{"jsonrpc":"2.0","id":2,"result":{{"modes":{{"currentModeId":"default","availableModes":[{{"id":"default","name":"Default"}}]}},"sessionId":"session-error","models":{{"currentModelId":"trae-default","availableModels":[{{"modelId":"trae-default","name":"TRAE Default"}}]}}}}}}'
 IFS= read -r prompt || exit 1
 {prompt_activity}
-printf '%s\n' '{{"jsonrpc":"2.0","id":3,"error":{{"code":{error_code},"message":"Internal error","data":{{"error":"failed to call agent: Model usage has reached personal quota limit. Please check usage or contact administrator."}}}}}}'
+printf '%s\n' '{{"jsonrpc":"2.0","id":3,"error":{{"code":{error_code},"message":"Internal error","data":{error_data}}}}}'
 while IFS= read -r ignored; do :; done
 "#,
                 ),
@@ -13203,6 +13254,8 @@ while IFS= read -r ignored; do :; done
                 .start_prompt(&format!("delivery-{case_name}"), "continue")
                 .await
                 .unwrap();
+            let expected_error =
+                format!("ACP error {error_code}: Internal error: {provider_detail}");
 
             if expected_accepted {
                 assert!(matches!(
@@ -13221,14 +13274,14 @@ while IFS= read -r ignored; do :; done
                     receiver.recv().await,
                     Some(AcpIncoming::InputNotAccepted {
                         native_prompt_id,
-                        native_error_code: Some(-32602),
+                        native_error_code: Some(native_error_code),
+                        error,
                         ..
                     }) if native_prompt_id == prompt_id
+                        && native_error_code == error_code
+                        && error == expected_error
                 ));
             }
-            let expected_error = format!(
-                "ACP error {error_code}: Internal error: failed to call agent: Model usage has reached personal quota limit. Please check usage or contact administrator."
-            );
             assert!(matches!(
                 receiver.recv().await,
                 Some(AcpIncoming::Message { message, .. })

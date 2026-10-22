@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-composer-atoms-and-structured-mentions
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # 结构化 Mention 与 Composer Atom
@@ -15,7 +15,7 @@ Composer 是结构化纯文本输入框，不是富文本、Markdown 或通用�
 `- list`、`[link](url)` 都保留为普通字符；不提供 heading、文本样式、代码、引用、列表、表格、链接、
 Markdown shortcut、HTML 富文本粘贴、Block 拖拽或协同文档编辑。
 
-普通文本与不可拆分 Atom 是仅有的业务 primitive。Member、All Members 和 Skill 共用同一种 Atom 交互与
+普通文本与不可拆分 Atom 是仅有的业务 primitive。Member、All Members、Skill、Thread Reference 和 Mission Reference 共用同一种 Atom 交互与
 DOM 形态，但 identity、候选来源、激活行为和发送校验保持强类型。
 
 ## Atom 呈现与身份
@@ -159,7 +159,7 @@ Member、All Members 或 Skill Atom 的内容优先按结构化粘贴。仅含�
 移除未进入发送流程的生成附件，先成功保存移除后的本机草稿，再等待异步删除并清登记。曾进入发送流程的
 文件只移除引用，保留到会话删除。清理失败用轻提示说明，允许继续编辑；外部文件和发送成功后的源文件不删除。
 发送成功后先保存新草稿，再释放旧登记，保存失败保留恢复能力。普通弹窗零消息 Active 不按 Pending 清理；
-一键 Pending 的附件仍在时不是空草稿。存储、保护和失败边界见 [Composer Draft v19](../../contracts/camp-composer-draft-v19.md)。
+一键 Pending 的附件仍在时不是空草稿。存储、保护和失败边界见 [Composer Draft v20](../../contracts/camp-composer-draft-v20.md)。
 
 不得从纯文本 `@Alice`、`/review-code` 或外部 HTML 的 `data-reference-id`、`data-atom-type`、`data-skill-id`
 猜测 identity。整条历史用户消息的专用复制入口继续保留文件链接原始 target，不因显示 label 丢失路径。
@@ -217,3 +217,19 @@ Agent 消息中的 Current User Mention 可为前缀，也可位于任意已解�
 改为富文本/Markdown编辑、全局角色 Toast、页面跳转、模态 Dialog、每 Atom React Root 或其他信息架构属于产品
 变更，必须同步更新本文、当前 Contracts/Architecture、Renderer 测试和真实 App 验收。历史原型只解释已确认的
 信息卡选型，不是生产真源：[Mention Popover 原型](https://github.com/murray17/rovai-ai/blob/0de773a75231038e384c03cd761fea56344a6e4f/docs/prototypes/mention-popover/README.md)。
+
+## 公开引用候选
+
+公开 `@` 面板为队员／对话／使命三个 30px 标签，不显示“全部”、标题或键盘操作说明。
+成员保持既有头像、角色、Runtime 和邀请图标。搜索包括会话外可邀请成员；模糊匹配按队员、对话、使命
+优先选择首个有结果的类别。等待期间只显示“搜索中…”，不逐个切换标签。手动切换固定本次 `@` 的类别；
+新一次触发重新自动选择。空结果仅“无匹配结果”。
+
+对话和使命候选为 32px 单行：既有无底色图标、左标题、右项目，两者独立省略。不显示时间、状态、编号、
+总数或最近条数提示。同名项仍按稳定 ID 选择。初始和每次追加最多 8 条；“加载更多”为无分隔线的弱文字，
+重复加载被禁止，追加保留滚动位置，结束隐藏。面板最高 min(482px,65vh)，内部滚动，超过 40 条窗口化；
+键盘当前项必须挂载且可见，50 条之后仍可选择。
+
+引用 Atom 共用现有输入法、撤销/重做、光标、删除、剪贴板与恢复机制，前置对应对话/使命图标。
+历史显示发布标题；详情按当前 ID 读取可用性并打开来源，不按同名绑定。不可用保留标签及移除/重选入口。
+私聊和使命描述不提供引用候选。内容与事务权威见 [Thread Reference v1](../../contracts/thread-reference-v1.md)。

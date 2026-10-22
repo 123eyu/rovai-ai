@@ -18,7 +18,8 @@ last_updated: 2026-10-23
 Provider 配置写入 Hermes 自己的原生配置与私有 `.env`，原文件已私有备份。Adapter 不在运行时借用 Pi 等其他 Home。
 
 代码 worktree：`../rovai-ai-hermes-runtime`；branch `rovai/hermes-runtime`；base
-`a995ebe079d2437872b694680b597abbdb6121ac`。尚未合入或安装 Rovai 日常 App。
+`a995ebe079d2437872b694680b597abbdb6121ac`，交付前已合入主线 `4dfd8c882e7b44f0309a5d2492c2ece03e657a76`。
+Hermes 分支尚未合入或安装 Rovai 日常 App。
 Migration 214 / schema 164 只扩展 Runtime 与 Skill group 闭集，不清空既有数据。
 
 ## 原方案评估与关键调整

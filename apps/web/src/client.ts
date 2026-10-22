@@ -184,6 +184,8 @@ export const WEB_OPERATIONS = [
   'nativeSkills.list',
   'nativeSkills.read',
   'skills.candidates',
+  'threadReferences.list',
+  'threadReferences.resolve',
   'skills.deliveryGroups.list',
   'mcp.config.get',
   'agentRunEvidence.list',

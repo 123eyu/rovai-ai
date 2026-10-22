@@ -29,7 +29,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [ContextManifest Evidence v40 / v42](context-manifest-evidence-v42.md)
 - [Context Delivery Profile v15 / v16](context-delivery-profile-v15.md)
 - [Run Facts v10](run-facts-v10.md)
-- [Camp Message Send v28](camp-message-send-v28.md)
+- [Camp Message Send v29](camp-message-send-v29.md)
+- [Thread Reference v1](thread-reference-v1.md)：对话/使命身份、用户目录、首次发布标题与弱引用正文投影。
 - [AgentRun Continuation v4](agent-run-continuation-v4.md)
 - [Camp Open Projection v30](camp-open-projection-v30.md)
 - [Notification Episode v12](notification-episode-v12.md)
@@ -91,7 +92,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Camp History v12（历史）](camp-history-v12.md)：mentions 统一，作者字段保留原始身份。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
-- [Camp History v14（当前）](camp-history-v14.md)：新 Run 实时目录、消息发送时间排序、撤回回退与独立正文边界；继承 v13 发送者输出。
+- [Camp History v15（当前）](camp-history-v15.md)：新 Run 实时目录、消息发送时间排序、撤回回退与独立正文边界；继承 v13 发送者输出。
 - [Camp History v13（历史）](camp-history-v13.md)：read/search 统一发送者，Agent Output 12；历史回执保持。
 
 ## 生命周期
@@ -550,7 +551,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Published Attachment View v2（历史）](camp-published-attachment-view-v2.md) | v1 root/journal/generation fence 不变；增加稳定 semantic catalog/receipt、可重建物理轴与无全局 DB 锁 copy phase |
 | [Camp Published Attachment View v1（历史）](camp-published-attachment-view-v1.md) | 实例/Camp 隔离 root、publication journal、ready catalog、generation、物理 Manifest receipt、quota、rebuild 与安全清理 |
 | [Camp Attachment v1（历史）](camp-attachment-v1.md) | 普通文件/目录联合、Core-owned 只读快照、限制、Draft 原子消费、Snapshot 29 与旧 Runtime Authority path |
-| [Camp Composer Draft v19（当前）](camp-composer-draft-v19.md) | Web 公屏长粘贴、浏览器草稿接纳、Host 生成文件存储与清理 |
+| [Camp Composer Draft v20（当前）](camp-composer-draft-v20.md) | Web 公屏长粘贴、浏览器草稿接纳、Host 生成文件存储与清理 |
 | [Camp Composer Draft v18（历史）](camp-composer-draft-v18.md) | 内部复制的纯正文也按单次长粘贴阈值附件化；仅恢复后仍含 Atom 的内容优先按结构化粘贴 |
 | [Camp Composer Draft v17（历史）](camp-composer-draft-v17.md) | Desktop 长粘贴生成文件、Thread 归属、单向发送保护与先保存后清理；不改变本机草稿权威 |
 | [Camp Composer Draft v16（历史）](camp-composer-draft-v16.md) | Active 与普通一键 Pending 的本机独立草稿、保存失败保护和首发送清空；同项目可多份 |

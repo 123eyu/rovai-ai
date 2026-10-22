@@ -10108,6 +10108,21 @@ impl Core {
                 .await??;
                 Ok(serde_json::to_value(content)?)
             }
+            "threadReferences.list" => {
+                let params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                Ok(serde_json::to_value(rovai_core::thread_reference::list(
+                    database.connection(),
+                    params,
+                )?)?)
+            }
+            "threadReferences.resolve" => {
+                let params = serde_json::from_value(request.params.clone())?;
+                let database = self.database.lock().await;
+                Ok(serde_json::to_value(
+                    rovai_core::thread_reference::resolve(database.connection(), params)?,
+                )?)
+            }
             "skills.candidates" => {
                 let params: ThreadSkillCandidatesParams =
                     serde_json::from_value(request.params.clone())?;

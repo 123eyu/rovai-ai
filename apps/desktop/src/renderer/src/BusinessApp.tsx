@@ -1,3 +1,4 @@
+import { ThreadReferencePreviewProvider } from './ThreadReferencePreview'
 import { useTeams } from './useTeams'
 import { TeamWorkspace, type TeamLeaveGuard } from './TeamWorkspace'
 import { MemoryChangeNotice } from './MemoryChangeNotice'
@@ -4388,6 +4389,14 @@ export function BusinessApp({
     <MobileLayoutProvider value={mobile}>
     <FilePreviewProvider api={environment.files} threadId={view === 'camp' ? activeThreadId : null} resolvedTheme={appearance.resolvedTheme}
       missionActivity={activeMission && view === 'camp' ? <MissionActivityDocument mission={activeMission} agents={agents} onSource={missionSource} onNotify={notify} onWorkspaceCleanupRequested={refreshMissionAfterWorkspaceCleanup}/> : null}>
+    <ThreadReferencePreviewProvider threadId={view === 'camp' ? activeThreadId : null} onOpen={async reference => {
+      if (reference.kind === 'thread') await activateThread(reference.id, { reconcileDefaultLead: false })
+      else {
+        const mission = await client.request<MissionRecord | null>('missions.get', { missionId: reference.id })
+        if (!mission) throw new Error('引用不可用')
+        await openMission(mission)
+      }
+    }}>
     <MissionInteractionProvider missions={missionList.missions} projects={displayNavigation?.projects ?? []} agents={agents} installations={installations} onChanged={refreshMission} onWorkspaceCleaned={refreshMissionAfterWorkspaceCleanup} onDeleted={onMissionDeleted} onOpen={mission => { void openMission(mission).catch(error => notifyError(missionError(error))) }} onError={notifyError}>
     <NavigationShell platform={client.platform} settings={view === 'settings' || view === 'memory'} navigation={desktopNavigation} nativeWindowControls={desktop?.windowControls} browser={!desktop} disabled={startupStatus !== 'resolved' || shuttingDown} className={view === 'camp' && !missionDrawer ? 'app-shell-camp' : ''} data-mobile-view={mobile ? view : undefined} data-mobile-settings-list={mobile && view === 'settings' && mobileSettingsList || undefined}>
       {!mobile && renderNavigation()}
@@ -4751,6 +4760,7 @@ export function BusinessApp({
     </NavigationShell>
     {startupStatus !== 'waiting' && <StartupLoadingCanvas visible={startupLoadingVisible} route={startupLoadingRoute} />}
     </MissionInteractionProvider>
+    </ThreadReferencePreviewProvider>
     </FilePreviewProvider>
     </MobileLayoutProvider>
     </ThreadInterruptionAttentionContext.Provider>

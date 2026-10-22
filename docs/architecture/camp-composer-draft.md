@@ -10,7 +10,7 @@ last_updated: 2026-10-22
 
 公开 Camp Composer 的内容权威是客户端本机、按 Camp 隔离的轻量状态。Active 与普通一键 Pending
 都保存本机快照；Core 仅为普通 Pending 保存客户端 presence，拥有侧栏可见性与清理保护。合同见
-[Camp Composer Draft v19](../contracts/camp-composer-draft-v19.md)。Single Chat 的私有 Draft/Pending 不在本架构范围。
+[Camp Composer Draft v20](../contracts/camp-composer-draft-v20.md)。Single Chat 的私有 Draft/Pending 不在本架构范围。
 
 ## 组件边界
 
@@ -99,7 +99,7 @@ Web 复用上传回执，不调用 Electron Main。Host 接收时直写同一 Th
 
 普通弹窗的零消息 Active 不因清空而丢弃；一键 Pending 继续使用既有 presence、离开与启动清理，并补齐
 输出目录删除。首次发布后身份与路径不变。不建立新的草稿事务、发送对账或垃圾回收框架；
-精确接口与负例由 [v19](../contracts/camp-composer-draft-v19.md) 拥有。
+精确接口与负例由 [v19](../contracts/camp-composer-draft-v20.md) 拥有。
 
 ## 撤回不是草稿恢复
 
@@ -111,3 +111,13 @@ Web 复用上传回执，不调用 Electron Main。Host 接收时直写同一 Th
 
 Migration 163 一次性删除旧 **Core** public Composer Draft、未公开 Pending 及编辑/恢复状态，且不提供 legacy recovery UI。
 新的本机 store 不读取这些旧行。删除本地引用不删除用户源文件；已发布消息和其附件不受影响。
+
+## 对话与使命参考
+
+[Thread Reference v1](../contracts/thread-reference-v1.md) 将本机引用选择、用户目录读取和正式发布分开。
+`thread_reference` 模块拥有 live 目录、目标校验及首次标题捕获；发布网关先完成命令回放判定，再在原事务
+中捕获标题并沿既有成员语义创建消息和 Delivery。不存在另一个引用清单或背景摘要 owner。
+
+公开 `@` picker 复用成员交互，完整目录搜索与游标分页不读取来源历史。选中 Atom 的可用性批量查询，
+不会改写其身份或产生草稿 dirty。消息段是发布权威，Context/Steer/History 使用同一个现有正文 projector
+输出定位链接；源删除与 owner 删除各走自身生命周期。取舍见 [V1.72-D58](../versions/v1.72/decisions.md#v1-72-d58)。

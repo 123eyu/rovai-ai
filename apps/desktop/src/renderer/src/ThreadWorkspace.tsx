@@ -1,3 +1,5 @@
+import { InlineThreadReference } from './ThreadReferencePreview'
+import { isReferenceAtom, isReferenceSegment, projectReference } from './thread-reference'
 import { ReplyDetails } from './ReplyDetails'
 import { ThreadReplyReader } from './thread-reply-reader'
 import { useTaskCapability } from './TaskCapabilityProvider'
@@ -1466,6 +1468,7 @@ export function structuredThreadContentPlainText(
   const names = new Map(members.map((member) => [member.agentId, member.displayName]))
   const parts = content.map((segment) => {
     if (segment.kind === 'text') return segment.text
+    if (isReferenceSegment(segment)) return projectReference(segment)
     if (segment.kind === 'all_members_mention') return '@所有队员'
     if (segment.kind === 'current_user_mention') return `@${currentUserName}`
     if (segment.kind === 'skill_mention') return `/${segment.nameAtSend}`
@@ -1507,6 +1510,7 @@ function structuredThreadContentMarkdownText(
   const names = new Map(members.map((member) => [member.agentId, member.displayName]))
   return content.map((segment) => {
     if (segment.kind === 'text') return segment.text
+    if (isReferenceSegment(segment)) return projectReference(segment)
     if (segment.kind === 'all_members_mention') return escapeMarkdownLiteral('@所有队员')
     if (segment.kind === 'member_mention') {
       return escapeMarkdownLiteral(`@${names.get(segment.agentId) ?? '不可用队员'}`)
@@ -4249,6 +4253,9 @@ export function ThreadWorkspace({
       if (!frozenDraft) throw new Error(uiAttribute('Composer Draft 尚未就绪。'))
       const currentSnapshot = activeSnapshotRef.current
       const routedDraft = materializeLocalContinuation(frozenDraft, currentSnapshot.members)
+      if (routedDraft.content.segments.some(segment => segment.kind === 'atom' && isReferenceAtom(segment.atom))
+        && !routedDraft.content.segments.some(segment => segment.kind === 'text' && segment.text.trim())
+        && !routedDraft.attachments.length) throw new Error(uiAttribute('请补充本轮内容'))
       // Flush can change recipients; keep the execution snapshot from this
       // submission so an ended target cannot turn into a successor's Steer.
       const submittedDeliveryPlans = deliveryPlans(snapshot, routedDraft, deliveryMode)
@@ -6430,6 +6437,7 @@ export function ThreadWorkspace({
             <StructuredMentionComposer
               ref={composerHandleRef}
               id="camp-message"
+              referenceScope={{ threadId: snapshot.thread.id, client }}
               draftIdentity={`${snapshot.thread.id}:composer`}
               inputHistory={() => threadInputHistory(visibleThreadMessages)}
               onEffectiveDocumentChange={content => {
@@ -10310,6 +10318,7 @@ export function StructuredMessageBody({
             </span>
           )
         }
+        if (isReferenceSegment(segment)) return <InlineThreadReference key={`reference-${index}`} segment={segment} />
         if (segment.kind === 'skill_mention') {
           return (
             <button

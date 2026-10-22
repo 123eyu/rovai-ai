@@ -43,6 +43,7 @@ export interface ComposerTypeaheadPluginProps {
 export interface ComposerTypeaheadOptionState {
   catalogStatus: 'loading' | 'ready' | 'error'
   optionCount: number
+  preventEmptySubmit?: boolean
 }
 
 export type ComposerTypeaheadEnterAction = 'pass' | 'consume' | 'select'
@@ -50,7 +51,7 @@ export type ComposerTypeaheadEnterAction = 'pass' | 'consume' | 'select'
 export function composerTypeaheadEnterAction(
   state: ComposerTypeaheadOptionState
 ): ComposerTypeaheadEnterAction {
-  if (state.catalogStatus === 'loading') return 'consume'
+  if (state.catalogStatus === 'loading' || state.preventEmptySubmit && !state.optionCount) return 'consume'
   if (state.catalogStatus === 'ready' && state.optionCount > 0) return 'select'
   return 'pass'
 }
@@ -208,11 +209,13 @@ export function ComposerTypeaheadPlugin({
     if (menu && selected?.id) {
       root.setAttribute('aria-activedescendant', selected.id)
       // Only scroll the list; scrollIntoView also moves clipped dialog/editor ancestors.
-      const scroller = menu.closest<HTMLElement>('.mention-menu') ?? menu
+      const scroller = menu.classList.contains('ref-options') ? menu : menu.closest<HTMLElement>('.mention-menu') ?? menu
       const bounds = selected.getBoundingClientRect()
       const top = scroller.getBoundingClientRect().top + scroller.clientTop
-      if (bounds.top < top) scroller.scrollTop += bounds.top - top
-      else if (bounds.bottom > top + scroller.clientHeight) scroller.scrollTop += bounds.bottom - top - scroller.clientHeight
+      if (menu.dataset.managedScroll !== 'true') {
+        if (bounds.top < top) scroller.scrollTop += bounds.top - top
+        else if (bounds.bottom > top + scroller.clientHeight) scroller.scrollTop += bounds.bottom - top - scroller.clientHeight
+      }
     } else {
       root.removeAttribute('aria-activedescendant')
     }

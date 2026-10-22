@@ -11,6 +11,13 @@ last_updated: 2026-10-22
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 对话与使命引用（2026-10-22）
+
+按 User R6 与 sequence 16 授权实施公开 `@队员/对话/使命` 和紧凑 Skills。参考只定位来源；正式标题由
+Core 首发事务捕获，正文沿既有 projector 输出链接，无 Context/Composer 版本兼容层、schema 迁移或自动摘要。
+当前合同见 [Thread Reference v1](../../contracts/thread-reference-v1.md)，取舍见 [V1.72-D58](decisions.md#v1-72-d58)，
+进度和验证见[实施记录](thread-reference-implementation.md)。更新 Contract、Architecture、UI 和导航；发布版本与 Runtime 平台资格不变。
+
 ## Team 管理（2026-10-18）
 
 User 在 Team 设计 Thread sequence 29 确认开启 worktree 实施。当前范围为具名团队、General 的

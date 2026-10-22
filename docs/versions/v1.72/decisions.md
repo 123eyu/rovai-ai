@@ -3,7 +3,7 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # v1.72 版本决定
@@ -1226,3 +1226,22 @@ User 要求不创建团队也能配置一键新建，且指引只作启动材料
 创建偏好从旧 JSON 只导入一次到 SQLite，使默认 Team 删除与回退可在一个事务完成。保留旧文件用于
 恢复，避免跨文件提交失败时出现已删 Team 仍被选中的状态。模型输入仅增加非空 TEAM_GUIDANCE 段，
 版本与确认见 [R1](model-context-change-team-guidance.md)。
+
+<a id="v1-72-d58"></a>
+## V1.72-D58：引用只定位公开来源，沿用正文和发布事务
+
+- 状态：accepted
+- 日期：2026-10-22
+- 当前权威：[Thread Reference v1](../../contracts/thread-reference-v1.md)、[Composer 架构](../../architecture/camp-composer-draft.md)
+
+### 背景与选择
+
+User 要求在既有输入框选择对话，并在交互迭代中加入使命；明确拒绝上下文版本兼容工程。
+Atom 按 ID 绑定，本机标签只展示；Core 首次发布捕获标题并保存在原消息段。来源弱引用，读取 live 内容，
+不复制全文或自动安排摘要。引用沿既有 body 输出定位链接，成员 mentions 与 Skill 语义保持原样。
+
+### 后果与替代方案
+
+不新增 references 数组、上下文块、Composer V3、serializer 版本或数据库表；不改变已冻结 Context Blob。
+命令回放先于目标读取，源删除不使合法消息失效。若未来需要发送时历史快照，须独立定义读取边界，不能
+用当前引用 ID/标题冒充。未选择标题重绑、自动解析普通文本、跨 Host ID 或引用引发执行的方案。

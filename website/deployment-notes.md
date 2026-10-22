@@ -1,5 +1,13 @@
 # Deployment documentation delivery notes
 
+## Desktop and Server 0.4.16 unified publication
+
+Desktop and Server share [v0.4.16](https://github.com/murray17/rovai-ai/releases/tag/v0.4.16), published at 2026-10-22T05:49:47Z from frozen main commit 11b138a6c4c8e4a0320d0369629eae88ff806d23. All five native release workflows passed on that source. All 16 assets matched their complete local hashes and GitHub digests; anonymous public downloads were checked before promoting the website or Server pointer. Ubuntu 22.04, Ubuntu 24.04 and Debian 12 exercised the same Linux archive, binding manifest SHA-256 9ee5e116b39533d533be17609c8b86ac534876ad9ec058161be48c041f33b789, with runtimeQualification: false.
+
+The official Desktop 0.4.15 baseline upgraded to 0.4.16 through an isolated native ShipIt installation. A separate packaged data upgrade moved schema 158 to 161 while retaining the message, Task and original send receipt without duplicate publication. The official Server 0.4.15 package also passed upgrade and complete stopped-backup rollback. Packaged About & Updates, Memory and all 13 real Host stop/restart recovery checks passed; ten representative captures were inspected. No daily App or user data was changed and no real model was called. The original reply browser driver clicked outside the viewport after synthetic scrolling; a private driver using native wheel input passed all 20 unchanged geometry, collapse, draft and navigation scenarios. This did not change the frozen application, CI, assertions or acceptance limits.
+
+The GitHub body removes only the leading product/version heading from the complete bilingual source. Bundled and manifest notes retain their exact source bytes. Current website labels, seven platform downloads, installation examples and deployment diagrams use 0.4.16; the legacy Server channel stays at 0.4.1. Historical versions, captures and MiniMax's v0.4.13 introduction boundary below are preserved.
+
 ## Desktop and Server 0.4.15 unified publication
 
 Desktop and Server share [v0.4.15](https://github.com/murray17/rovai-ai/releases/tag/v0.4.15), published at 2026-10-20T15:45:25Z from frozen main commit d37c821fbc93ecee853d7afae2f1de1783e22200. All 16 assets matched their complete local SHA-256 values and GitHub asset digests. Anonymous downloads were then checked concurrently: small files in full and the opening bytes of large files against the verified packages. The bundled date and actual publication both fall on October 20 in Asia/Shanghai. The Server pointer and website downloads are promoted only after public verification; the legacy channel remains 0.4.1.

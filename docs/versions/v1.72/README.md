@@ -6,10 +6,21 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 原生后台执行限制（2026-10-21）
+
+按 User 已确认的 33 词规则，为 Claude Code 复用已有私有 settings 与最终环境注入；
+CodeBuddy 按 2026-10-22 的收敛要求只注入三个最终子进程变量，原生同名 settings 仍按 CLI 自身规则生效。
+CodeBuddy 只更新 Host 策略摘要。普通／Single Chat 均覆盖，原生会话不迁移。
+完整前后文本、确认记录、验证与 worktree 交接见[独立说明](model-context-change-native-background-policy.md)，
+当前合同见 [Runtime Launch v70](../../contracts/runtime-launch-and-verification-v70.md)。按 User 最新指令只创建 PR，不合并。
+
+本项更新当前 Contract、Architecture、Context revision 与文档路由；不改变数据库 schema、发布版本、UI、
+Runtime Activity 或平台资格。属于局部启动策略，无需新增 Version Decision；正式模型质量 Gate 状态另记在独立说明。
 
 ## 智能体通用环境配置（2026-10-21）
 

@@ -5304,7 +5304,8 @@ body:has(.composer-image-attachment[data-context-open="true"]) .image-action-not
 .general-world-map-setting > input::after { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform 140ms ease, background-color 140ms ease; content: ""; }
 .general-world-map-setting > input:checked { border-color: var(--brand); background: var(--brand-soft); }
 .general-world-map-setting > input:checked::after { background: var(--brand); transform: translateX(14px); }
-.general-world-map-setting:has(input:disabled) { cursor: default; opacity: .68; }
+.general-world-map-setting:has(input:disabled) { cursor: default; }
+.general-world-map-setting:has(input:disabled):not([aria-busy="true"]) { opacity: .68; }
 .general-window-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 15px 17px; border-radius: 10px; background: var(--workspace-surface-raised); }
 .general-window-description { max-width: 720px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .general-window-row > .general-inline-status { grid-column: 1 / -1; }

@@ -249,8 +249,9 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     const legacyDefaults = { newConversationDefaults: { memberAgentIds: [profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId }, newConversationDefaultsRequireConfirmation: false, oneClickNewConversationEnabled: true }
     assert.equal((await call(first, defaultsMethod + 'get')).newConversationDefaults, null)
     await host.request(defaultsMethod + 'initialize', legacyDefaults)
-    assert.deepEqual(await call(first, defaultsMethod + 'get'), legacyDefaults)
-    assert.deepEqual(await call(second, defaultsMethod + 'get'), legacyDefaults)
+    const importedDefaults = { ...legacyDefaults, newConversationTeamId: null }
+    assert.deepEqual(await call(first, defaultsMethod + 'get'), importedDefaults)
+    assert.deepEqual(await call(second, defaultsMethod + 'get'), importedDefaults)
     const toggled = await call(first, defaultsMethod + 'setOneClick', { enabled: false })
     assert.equal(toggled.oneClickNewConversationEnabled, false)
     // Re-import after restart must never overwrite a choice made in Web.
@@ -261,8 +262,8 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
     assert.deepEqual(await host.request(defaultsMethod + 'get'), sharedDefaults)
     assert.deepEqual(await call(first, defaultsMethod + 'invalidate', { expectedDefaults: legacyDefaults.newConversationDefaults }), sharedDefaults)
     const invalidated = await call(first, defaultsMethod + 'invalidate', { expectedDefaults: nextTeam })
-    assert.equal(invalidated.newConversationDefaultsRequireConfirmation, true)
-    await assert.rejects(host.request(defaultsMethod + 'setOneClick', { enabled: true }))
+    assert.deepEqual(invalidated, sharedDefaults, 'a stale invalidation cannot disable an available Custom roster')
+    assert.deepEqual(await host.request(defaultsMethod + 'setOneClick', { enabled: true }), sharedDefaults)
     assert.deepEqual(await call(first, defaultsMethod + 'setDefaults', { defaults: nextTeam, enableOneClick: false }), sharedDefaults)
     for (const defaults of [{ ...nextTeam, defaultLeadAgentId: 'missing' }, { memberAgentIds: ['missing'], defaultLeadAgentId: 'missing' }, { memberAgentIds: [profiles[0].agentId, profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId }]) {
       await assert.rejects(host.request(defaultsMethod + 'setDefaults', { defaults, enableOneClick: false }))
@@ -492,6 +493,21 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
         assert.equal(next.done, false, 'notification invalidation must arrive on the existing stream')
         frames += new TextDecoder().decode(next.value)
       }
+      assert.ok(!frames.includes('"teamsChanged":true'), 'unrelated notification events do not invalidate Teams')
+    })())
+    const savedTeam = await call(first, 'teams.save', { commandId: crypto.randomUUID(), command: {
+      teamId: null, expectedVersion: null, name: 'Web SSE Team', guidance: '',
+      memberAgentIds: [profiles[0].agentId], defaultLeadAgentId: profiles[0].agentId
+    } })
+    assert.equal(savedTeam.status, 'applied', JSON.stringify(savedTeam))
+    await within((async () => {
+      let frames = ''
+      while (!frames.includes('"teamsChanged":true')) {
+        const next = await reader.read()
+        assert.equal(next.done, false, 'Team invalidation must arrive on the existing stream')
+        frames += new TextDecoder().decode(next.value)
+      }
+      assert.ok(!frames.includes('Web SSE Team'), 'SSE exposes invalidation, not private Team contents')
     })())
     const otherReaders = []
     for (const session of [first, second]) {
@@ -969,7 +985,8 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
       assert.deepEqual(await reopened.request(defaultsMethod + 'initialize', legacyDefaults), sharedDefaults)
       const path = join(dataDir, 'new-conversation-preferences.json')
       await writeFile(path, '{broken')
-      await assert.rejects(reopened.request(defaultsMethod + 'get'), 'corrupt preferences cannot masquerade as an empty team')
+      assert.deepEqual(await reopened.request(defaultsMethod + 'get'), sharedDefaults,
+        'once imported, the legacy file cannot replace the authoritative SQLite preferences')
     } finally { await reopened.close() }
     const disabled = launch([...coreDataDirectoryArguments(dataDir), '--skill-library-root', join(dataDir, 'skills'), '--mcp-config-path', join(dataDir, 'mcp.json')])
     try {

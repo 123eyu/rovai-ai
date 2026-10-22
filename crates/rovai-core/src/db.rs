@@ -42193,6 +42193,7 @@ mod tests {
     #[test]
     fn current_migration_state_admission_matrix() {
         let supported = [
+            ("v1.72/schema 161 before Web pasted text", "v1.72", 161, 211),
             (
                 "v1.72/schema 160 before shared environment",
                 "v1.72",
@@ -42304,7 +42305,7 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                211,
+                212,
             ),
             (
                 "v1.72/schema 152 before compact operations",
@@ -56100,6 +56101,7 @@ mod tests {
             &[
                 "runtime_common_environment",
                 "member_environment_inheritance",
+                "web_pasted_text_attachment",
             ],
             true,
         );
@@ -56109,7 +56111,7 @@ mod tests {
             &[
                 58, 59, 60, 61, 62, 67, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
                 102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205, 206, 207, 208, 209, 210,
-                211,
+                211, 212,
             ],
         );
         for table in [

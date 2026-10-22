@@ -8,6 +8,36 @@ last_updated: 2026-10-22
 
 # v1.72 实施与验收
 
+## 消息字面 HTML 与引用投影（2026-10-22）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-markdown-literal-text`；
+  分支 `rovai/markdown-literal-text`，基线 `8d236422c8225e14ff649e854acaf868fc1bbb4f`；Governance：none。
+- 聊天/单聊/执行台默认 `text`；更新日志、Markdown 文件和 Skill 阅读面显式 `drop`。
+  两种策略都不执行原始 HTML。raw 节点在可信 Mention 替换前文本化，避免内部 token 外露。
+- 执行说明判空与正文策略一致；引用新捕获使用 projectionVersion=3，Core HTML inline/block 与 Renderer
+  DOM 保持 Unicode scalar/空白一致。原 v2 对照集保留，v3 继承旧例并覆盖占位符、HTML 块、注释、
+  可执行形状的字面文本、代码/转义、自动链接和结构化 Mention。
+- 扩展原 Rust 纯投影和 SQLite capture owners；没有新增、删除或停用 Rust 测试函数。
+  修复前占位符为空、原始 HTML 选文无法匹配；最小命令为 `cargo test -p rovai-core --lib message_quote::tests::`。
+  SQLite seam 同时验证 v1/v2 冻结快照保留，UI owner 验证原生选文、v3 捕获与旧定位失败边界。
+- 此变更只影响显示及新用户主动选文的内部 locator，不改模型输入格式、选择/预算、上下文证据版本或
+  既有快照字节；引用仍按已有 plain_text 合同发送用户选中的文本，不触发核心模型上下文变更。
+  复用已有投影版本与兼容机制，无需新增 Version Decision、迁移或文档路由。
+
+验证：
+
+- `pnpm typecheck`、`pnpm build:desktop`、`pnpm docs:test`、`pnpm docs:check` 和使用真实基线的
+  `pnpm docs:check:ci` 通过；没有新增治理例外。
+- `pnpm test` 通过：252 个 Vitest 文件、2864 项通过、2 项既有跳过；后续 Node 套件
+  357 项通过、2 项 Windows 专用验证跳过。全量门禁发现主干 benchmark 产品合同仍断言旧 schema 161，
+  在未修改的主干复现后，将该测试期望同步为已存在的 162；没有修改生产 schema 或迁移。
+- `pnpm test:rust:pr` 默认 workspace 回归通过：474 项通过、1 项既有 ignored；
+  `cargo fmt --all --check` 通过。扩展原有 owner，没有新增 Rust 测试函数或运行真实模型。
+- `pnpm test:message-quotes` 隔离 Electron 验收通过；Core 与 Renderer 共用的 71 项 v3 对照覆盖
+  完整占位符路径、可见字面 HTML、可信 Mention、原生选文与新引用定位；旧 v1/v2 快照保持，
+  无法精确匹配当前正文时不伪造高亮。日间和夜间截图人工核对通过。
+- 已完成验证，进入 PR 与 main 合入流程；合入后清理独立 worktree。日常 App 未安装此修复。
+
 ## TRAE ACP 错误详情（2026-10-22）
 
 - 工作目录：同级 worktree `rovai-ai-trae-acp-error-detail`，分支 `rovai/trae-acp-error-detail`，

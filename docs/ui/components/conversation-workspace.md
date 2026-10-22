@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # Camp 会话工作区
@@ -1424,6 +1424,18 @@ Pending 行只展示正文，不展示附件或附件数量；纯附件摘要留
 或删除后，剩余队列继续推进。移回的消息需要用户再次发送才重新进入队列。
 
 上述持久化、双方 revision 与移回竞争只属于 [Pending Camp Input v4（历史）](../../contracts/pending-camp-input-v4.md)。
+
+## 原始 HTML 与字面文本
+
+公屏、单聊消息与执行过程说明的 `SafeMarkdown` 默认采用 `rawHtmlPolicy="text"`：
+`<threadId>`、`<UUID>`、HTML 标签、注释和 Runtime 普通文本中的标签均保留为可选择文字；
+不解析或执行原始 HTML。AST 在可信 Mention 替换之前完成 raw→text 转换，不泄露内部占位符，
+不从用户文字推断结构化身份。执行过程的可见性准入使用同一策略，只有标签的文本也可见。
+代码、转义、自动链接和已有 Markdown 格式保留现有语义；HTML 块内部仍是原始字面文本。
+
+`rawHtmlPolicy` 与布局 `mode` 独立。更新日志显式用 `drop` 保留语言元数据与全文回退语义；
+Markdown 文件和 Skill 阅读面也显式用 `drop`，保持既有阅读行为。策略不提供 HTML 执行分支。
+引用投影 v3 同步以上正文规则，原始消息、整条复制和旧引用快照不回写。
 
 ## 多段消息选文引用
 

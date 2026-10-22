@@ -13,7 +13,8 @@ import { MarkdownCodeFrame } from './MarkdownCodeFrame'
 import {
   fileReferenceSpacingClassName,
   visitMarkdownFileReferences,
-  type MarkdownNode
+  type MarkdownNode,
+  type RawHtmlPolicy
 } from './safe-markdown-model'
 import type { FilePreviewBinaryContent, FilePreviewOperationResult, ResolvedTheme } from '@contracts'
 import { UiText, uiAttribute } from './interface-language'
@@ -37,6 +38,22 @@ type InlineHtmlNode = {
   tagName?: string
   properties?: Record<string, string>
   children?: InlineHtmlNode[]
+}
+
+// Normalize raw nodes before trusted inline tokens are replaced. react-markdown's
+// own raw-to-text fallback runs after rehype plugins and would expose those tokens.
+// Neither policy parses HTML or creates elements from untrusted markup.
+function rehypeRawHtmlPolicy({ policy }: { policy: RawHtmlPolicy }): (tree: InlineHtmlNode) => void {
+  return (tree) => {
+    const visit = (parent: InlineHtmlNode): void => {
+      parent.children = parent.children?.flatMap((node) => {
+        if (node.type === 'raw') return policy === 'text' ? [{ type: 'text', value: node.value }] : []
+        visit(node)
+        return [node]
+      })
+    }
+    visit(tree)
+  }
 }
 
 function rehypeInlineContent({ tokens }: { tokens: string[] }): (tree: InlineHtmlNode) => void {
@@ -165,6 +182,7 @@ export function SafeMarkdown({
   leadingContent,
   inlineContent,
   inlineLeadingContent = true,
+  rawHtmlPolicy = 'text',
   mode = 'message',
   theme = 'day'
 }: {
@@ -180,6 +198,8 @@ export function SafeMarkdown({
   /** Collision-free placeholders generated from authoritative structured content. */
   inlineContent?: Readonly<Record<string, ReactNode>>
   inlineLeadingContent?: boolean
+  /** Literal markup in messages; metadata-oriented readers explicitly opt out. */
+  rawHtmlPolicy?: RawHtmlPolicy
   mode?: 'message' | 'document'
   theme?: ResolvedTheme
 }): JSX.Element {
@@ -234,7 +254,10 @@ export function SafeMarkdown({
           ...(fileReferencesEnabled ? [mode === 'message' ? remarkMessageFileLinks : remarkFileLinks] : []),
           [remarkLeadingContent, { enabled: hasLeadingContent, inline: inlineLeadingContent }]
         ]}
-        rehypePlugins={[[rehypeInlineContent, { tokens: JSON.parse(inlineContentKeys) as string[] }]]}
+        rehypePlugins={[
+          [rehypeRawHtmlPolicy, { policy: rawHtmlPolicy }],
+          [rehypeInlineContent, { tokens: JSON.parse(inlineContentKeys) as string[] }]
+        ]}
         skipHtml
         disallowedElements={[
           ...(!localImageUrl && !localImageContent ? ['img'] : []),
@@ -338,7 +361,7 @@ export function SafeMarkdown({
         {children}
       </Markdown>
     )
-  }, [children, fileReferencesEnabled, localImageUrl, localImageContent, hasLeadingContent, inlineLeadingContent, inlineContentKeys, mode, theme])
+  }, [children, fileReferencesEnabled, localImageUrl, localImageContent, hasLeadingContent, inlineLeadingContent, inlineContentKeys, rawHtmlPolicy, mode, theme])
 
   return (
     <LeadingMarkdownContentContext.Provider value={leadingContent}>

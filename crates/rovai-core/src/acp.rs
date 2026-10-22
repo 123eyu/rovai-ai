@@ -6858,6 +6858,9 @@ pub(crate) fn runtime_compatibility_digest(
     if frozen_runtime.adapter_kind == AdapterKind::CopilotCli {
         compatibility["nativeQuestionnairePolicy"] = json!("no-ask-user-v1");
     }
+    if frozen_runtime.adapter_kind == AdapterKind::CodebuddyCli {
+        compatibility["nativeBackgroundPolicy"] = json!("disabled-v1");
+    }
     if frozen_runtime.adapter_kind == AdapterKind::QwenCode {
         compatibility["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
     }
@@ -7229,6 +7232,12 @@ fn configure_runtime_command(
                     });
                 }
                 AdapterKind::CodebuddyCli => {
+                    // Apply launch defaults after env overlays; native settings
+                    // and any explicit overrides remain owned by CodeBuddy.
+                    command
+                        .env("CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS", "1")
+                        .env("CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED", "1")
+                        .env("CODEBUDDY_BASH_ASSISTANT_BUDGET_MS", "0");
                     // CodeBuddy resolves the launch model while creating an ACP
                     // Session. A custom provider cannot be selected later with
                     // session/set_model when session/new already rejected the
@@ -9318,6 +9327,12 @@ mod route_policy_tests {
         let abandoned = minimax.root.clone();
         drop(minimax);
         assert!(!abandoned.exists());
+
+        assert!(
+            prepare_private_host_config(&root, AdapterKind::CodebuddyCli)
+                .unwrap()
+                .is_none()
+        );
 
         assert!(
             prepare_private_host_config(&root, AdapterKind::CursorAgent)
@@ -11603,8 +11618,26 @@ done
         );
         session["models"]["currentModelId"] = Value::Null;
         assert!(codebuddy_context_model(&session).is_none());
-        let root = std::env::temp_dir();
+        let root =
+            std::env::temp_dir().join(format!("rovai-codebuddy-policy-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".codebuddy")).unwrap();
+        // Native settings, including parse errors, belong to the CLI. Launch
+        // preparation must not read or copy any of these files.
+        let native_paths = [
+            root.join("settings.json"),
+            root.join(".codebuddy/settings.json"),
+            root.join(".codebuddy/settings.local.json"),
+        ];
+        let native_text = "{native-settings-are-cli-owned";
+        for path in &native_paths {
+            std::fs::write(path, native_text).unwrap();
+        }
         let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
+        let policy = [
+            ("CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS", "1"),
+            ("CODEBUDDY_BASH_AUTO_BACKGROUND_DISABLED", "1"),
+            ("CODEBUDDY_BASH_ASSISTANT_BUDGET_MS", "0"),
+        ];
         for (source, model_id, expected) in [
             ("runtime_default", "codebuddy-cli://runtime-default", None),
             (
@@ -11613,33 +11646,75 @@ done
                 Some("custom-local:MiniMax-M3"),
             ),
         ] {
-            let mut runtime = frozen_kiro_runtime();
-            runtime.adapter_kind = AdapterKind::CodebuddyCli;
-            runtime.permissions.adapter_kind = AdapterKind::CodebuddyCli;
-            runtime.permissions.values = json!({"permission_mode":"bypassPermissions"});
-            runtime.model.source = source.to_string();
-            runtime.model.model_id = model_id.to_string();
-            let mut command = Command::new("/usr/bin/true");
-            configure_runtime_command(
-                &mut command,
-                &workspace,
-                PermissionSemantics::RuntimeManagedV2,
-                &runtime,
-                false,
-                &BTreeMap::new(),
-                &root,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-            let arguments = command.as_std().get_args().collect::<Vec<_>>();
-            let selected = arguments
-                .windows(2)
-                .find(|pair| pair[0] == "--model")
-                .map(|pair| pair[1].to_str().unwrap());
-            assert_eq!(selected, expected);
+            for with_mcp in [false, true] {
+                let mut runtime = frozen_kiro_runtime();
+                runtime.adapter_kind = AdapterKind::CodebuddyCli;
+                runtime.permissions.adapter_kind = AdapterKind::CodebuddyCli;
+                runtime.permissions.values = json!({"permission_mode":"bypassPermissions"});
+                runtime.model.source = source.to_string();
+                runtime.model.model_id = model_id.to_string();
+                let mut command = Command::new("/usr/bin/true");
+                command.env("CODEBUDDY_CONFIG_DIR", &root);
+                command.env("PROCESS_ONLY", "preserved");
+                for (key, _) in policy {
+                    command.env(key, "9");
+                }
+                let servers = if with_mcp {
+                    BTreeMap::from([(
+                        "fixture".into(),
+                        McpServerDefinition::StreamableHttp {
+                            url: "https://mcp.invalid/example".into(),
+                            headers: BTreeMap::new(),
+                        },
+                    )])
+                } else {
+                    BTreeMap::new()
+                };
+                let mcp = configure_runtime_command(
+                    &mut command,
+                    &workspace,
+                    PermissionSemantics::RuntimeManagedV2,
+                    &runtime,
+                    false,
+                    &servers,
+                    &root,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+                assert_eq!(
+                    mcp.is_some(),
+                    with_mcp,
+                    "policy precedes the MCP early return"
+                );
+                let arguments = command.as_std().get_args().collect::<Vec<_>>();
+                let selected = arguments
+                    .windows(2)
+                    .find(|pair| pair[0] == "--model")
+                    .map(|pair| pair[1].to_str().unwrap());
+                assert_eq!(selected, expected);
+                assert!(!arguments.iter().any(|arg| *arg == "--settings"));
+                assert!(!root.join("acp-host").exists());
+                for (key, value) in policy.into_iter().chain([("PROCESS_ONLY", "preserved")]) {
+                    assert_eq!(
+                        command
+                            .as_std()
+                            .get_envs()
+                            .find(|(name, _)| *name == key)
+                            .unwrap()
+                            .1
+                            .unwrap(),
+                        value
+                    );
+                }
+                for path in &native_paths {
+                    assert_eq!(std::fs::read_to_string(path).unwrap(), native_text);
+                }
+                drop(mcp);
+            }
         }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -15529,6 +15604,32 @@ while IFS= read -r ignored; do :; done
             &attachment_authorization,
         )
         .unwrap();
+        let mut old_inputs = json!({
+            "schemaVersion":4, "adapterKind":codebuddy.adapter_kind,
+            "hostConfigDigest":codebuddy.host_config_digest, "codebuddyLaunchModel":null,
+            "executionRoot":root.canonicalize().unwrap(), "workspace":workspace,
+            "permissionSemantics":PermissionSemantics::RuntimeManagedV2,
+            "builtinToolContractVersion":BUILTIN_TOOL_CONTRACT_VERSION,
+            "externalMcpServers":{}, "attachmentOutputRoot":attachment_authorization.output_root,
+        });
+        assert_ne!(
+            codebuddy_default,
+            canonical_json_digest(&old_inputs).unwrap()
+        );
+        old_inputs["nativeBackgroundPolicy"] = json!("disabled-v1");
+        assert_eq!(
+            codebuddy_default,
+            canonical_json_digest(&old_inputs).unwrap()
+        );
+        let unchanged = freeze_native_session_compatibility(codebuddy.clone(), &workspace).unwrap();
+        assert_eq!(
+            unchanged.binding_compatibility_digest,
+            codebuddy.binding_compatibility_digest
+        );
+        assert_eq!(
+            unchanged.native_session_compatibility_key,
+            codebuddy.native_session_compatibility_key
+        );
         codebuddy.model.source = "explicit".to_string();
         codebuddy.model.model_id = "provider:explicit-model".to_string();
         let codebuddy_explicit = runtime_compatibility_digest(

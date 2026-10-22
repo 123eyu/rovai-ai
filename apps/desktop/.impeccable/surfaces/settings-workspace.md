@@ -381,6 +381,7 @@ the Runtime catalog. Behavior is owned by [Runtime Launch v52](../../../../docs/
 智能体的启动设置在程序路径下提供紧凑 JSON 编辑器“通用环境变量”，沿用原保存和放弃操作。
 标题旁的 ? 支持 hover、键盘 focus 和触屏点击，说明为“用于在不同队员之间共享一些配置变量。”；Escape 可收起。
 不增加使用人数入口、继承/覆盖数量、模式选择器或密钥管理弹窗。所有值直接显示，不保留显示／隐藏密钥或 `<saved>` 标记。
-编辑说明为“支持字符串、数字和布尔值，保存时统一转换为字符串。”；输入不改写草稿，保存成功才展示字符串形式。
+不添加常驻编辑说明；空配置只显示 JSON placeholder `{ "VARIABLE_NAME": "value" }`，示例不写入草稿或保存值。
+输入不改写草稿，保存成功才展示字符串形式。
 由队员进入时使用具名返回入口，保留其草稿和位置；直接进入保留原返回。精确数据规则见
 [Runtime Launch v69](../../../../docs/contracts/runtime-launch-and-verification-v69.md)。

@@ -3688,7 +3688,6 @@
   "请填写 JSON 对象，例如 {\"ANTHROPIC_API_KEY\": \"...\"}。": "Enter a JSON object, for example {\"ANTHROPIC_API_KEY\": \"...\"}.",
   "变量「{0}」的值仅支持字符串、数字或布尔值。": "Variable “{0}” only supports a string, number or boolean value.",
   "变量「{0}」的数字无法安全表示，请改用字符串。": "The number for variable “{0}” cannot be represented safely. Use a string instead.",
-  "支持字符串、数字和布尔值，保存时统一转换为字符串。": "Supports strings, numbers and booleans. Values are converted to strings when saved.",
   "变量名重复：{0}": "Duplicate variable name: {0}",
   "变量名只能包含字母、数字和下划线，且不能以数字开头。": "Use letters, numbers and underscores for variable names. A name cannot start with a number.",
   "此变量由 Rovai 管理：{0}": "This variable is managed by Rovai: {0}",

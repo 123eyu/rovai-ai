@@ -218,5 +218,6 @@ Selected roster rows use a neutral surface and text without a left selection rai
 
 Environment values are directly visible in the existing JSON textarea, without a reveal control or an add-variable entry.
 Accept string, number and boolean values; preview and submit their string forms, preserve raw drafts until save succeeds.
-Use the concise hint “支持字符串、数字和布尔值，保存时统一转换为字符串。” and the existing save/discard flow.
+Keep the existing save/discard flow without a permanent input hint. An empty editor shows only the shared
+JSON placeholder `{ "VARIABLE_NAME": "value" }`; the example is not draft content or a saved value.
 The boundary is [Runtime Launch v69](../../../../docs/contracts/runtime-launch-and-verification-v69.md).

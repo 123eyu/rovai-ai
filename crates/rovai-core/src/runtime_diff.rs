@@ -174,6 +174,11 @@ fn admit_candidate(
                 && source_event_kind == "tool.updated.result"
                 && semantic_kind == "zcode_edit_patch"
         }
+        AdapterKind::HermesCli => {
+            protocol_family == "acp-v1"
+                && semantic_kind == "reported_mutation"
+                && source_event_kind == "session/update.tool_call_update.completed.patch"
+        }
         AdapterKind::CommandCodeCli if semantic_kind == "reported_mutation" => {
             protocol_family == "acp-v1"
                 && source_event_kind == "session/update.tool_call_update.completed.edit_file"

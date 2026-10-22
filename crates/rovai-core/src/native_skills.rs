@@ -554,6 +554,9 @@ fn user_roots(
                 );
             }
         }
+        AdapterKind::HermesCli => paths.push(
+            configured_root("HERMES_HOME", home.join(".hermes"), configuration).join("skills"),
+        ),
         AdapterKind::KiroCli => paths.push(home.join(".kiro/skills")),
         AdapterKind::QoderCli => {
             paths.push(
@@ -661,6 +664,7 @@ fn project_roots(adapter: AdapterKind, project: &Path) -> Vec<(&'static str, Pat
         AdapterKind::Pi => &[".pi/skills", ".agents/skills"],
         AdapterKind::OpencodeCli => &[".opencode/skills", ".agents/skills", ".claude/skills"],
         AdapterKind::CopilotCli => &[".github/skills", ".agents/skills", ".claude/skills"],
+        AdapterKind::HermesCli => &[],
         AdapterKind::KiroCli => &[".kiro/skills"],
         AdapterKind::QoderCli => &[".qoder/skills", ".agents/skills"],
         AdapterKind::CodebuddyCli => &[".codebuddy/skills"],

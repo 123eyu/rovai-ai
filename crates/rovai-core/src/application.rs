@@ -2494,6 +2494,7 @@ struct Core {
     cursor_agent: AcpCliRuntimeAdapter,
     kimi_code_cli: AcpCliRuntimeAdapter,
     minimax_code_cli: AcpCliRuntimeAdapter,
+    hermes_cli: AcpCliRuntimeAdapter,
     grok_build: AcpCliRuntimeAdapter,
     deepseek_harness: AcpCliRuntimeAdapter,
     cline_cli: AcpCliRuntimeAdapter,
@@ -2852,6 +2853,7 @@ fn runtime_display_name(kind: AdapterKind) -> &'static str {
         AdapterKind::CursorAgent => "Cursor Agent",
         AdapterKind::KimiCodeCli => "Kimi Code",
         AdapterKind::MinimaxCodeCli => "MiniMax Code",
+        AdapterKind::HermesCli => "Hermes Agent",
         AdapterKind::GrokBuild => "Grok Build",
         AdapterKind::DeepseekHarness => "DeepSeek Harness",
         AdapterKind::ClineCli => "Cline",
@@ -6055,6 +6057,13 @@ impl Core {
             return Some(AgentRunRuntime::Acp(runtime));
         }
         if let Some(runtime) = self
+            .hermes_cli
+            .get_agent_run(agent_run_id, execution_epoch)
+            .await
+        {
+            return Some(AgentRunRuntime::Acp(runtime));
+        }
+        if let Some(runtime) = self
             .zcode_app
             .get_agent_run(agent_run_id, execution_epoch)
             .await
@@ -6199,6 +6208,7 @@ impl Core {
             self.cursor_agent.shutdown_all(),
             self.kimi_code_cli.shutdown_all(),
             self.minimax_code_cli.shutdown_all(),
+            self.hermes_cli.shutdown_all(),
             self.grok_build.shutdown_all(),
             self.deepseek_harness.shutdown_all(),
             self.command_code_cli.shutdown_all(),
@@ -6225,6 +6235,7 @@ impl Core {
                 self.cursor_agent.shutdown_all(),
                 self.kimi_code_cli.shutdown_all(),
                 self.minimax_code_cli.shutdown_all(),
+                self.hermes_cli.shutdown_all(),
                 self.grok_build.shutdown_all(),
                 self.deepseek_harness.shutdown_all(),
                 self.command_code_cli.shutdown_all(),
@@ -6254,6 +6265,7 @@ impl Core {
             rovai_core::agent_profile::AdapterKind::CursorAgent => Some(&self.cursor_agent),
             rovai_core::agent_profile::AdapterKind::KimiCodeCli => Some(&self.kimi_code_cli),
             rovai_core::agent_profile::AdapterKind::MinimaxCodeCli => Some(&self.minimax_code_cli),
+            rovai_core::agent_profile::AdapterKind::HermesCli => Some(&self.hermes_cli),
             rovai_core::agent_profile::AdapterKind::GrokBuild => Some(&self.grok_build),
             AdapterKind::DeepseekHarness => Some(&self.deepseek_harness),
             AdapterKind::CommandCodeCli => Some(&self.command_code_cli),
@@ -12625,6 +12637,7 @@ impl Core {
             | rovai_core::agent_profile::AdapterKind::CursorAgent
             | rovai_core::agent_profile::AdapterKind::KimiCodeCli
             | rovai_core::agent_profile::AdapterKind::MinimaxCodeCli
+            | rovai_core::agent_profile::AdapterKind::HermesCli
             | rovai_core::agent_profile::AdapterKind::GrokBuild
             | rovai_core::agent_profile::AdapterKind::DeepseekHarness
             | rovai_core::agent_profile::AdapterKind::CommandCodeCli
@@ -18566,7 +18579,10 @@ impl Core {
             .context("failed to bind ACP Native Session")?;
         if matches!(
             execution.runtime.adapter_kind,
-            AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli | AdapterKind::ClineCli
+            AdapterKind::DeepseekHarness
+                | AdapterKind::CommandCodeCli
+                | AdapterKind::ClineCli
+                | AdapterKind::HermesCli
         ) {
             if bootstrap.native_binding_id != binding_credential.native_binding_id
                 || bootstrap.native_binding_generation
@@ -18958,6 +18974,7 @@ impl Core {
             | rovai_core::agent_profile::AdapterKind::CursorAgent
             | rovai_core::agent_profile::AdapterKind::KimiCodeCli
             | rovai_core::agent_profile::AdapterKind::MinimaxCodeCli
+            | rovai_core::agent_profile::AdapterKind::HermesCli
             | rovai_core::agent_profile::AdapterKind::GrokBuild
             | rovai_core::agent_profile::AdapterKind::DeepseekHarness
             | rovai_core::agent_profile::AdapterKind::CommandCodeCli
@@ -19962,6 +19979,15 @@ async fn run_core(
             runtime_fleet.clone(),
             compaction_detector_policies
                 .policy_for(AdapterKind::MinimaxCodeCli)
+                .unwrap_or(CompactionDetectorPolicy::Disabled),
+        ),
+        hermes_cli: AcpCliRuntimeAdapter::deferred(
+            rovai_core::agent_profile::AdapterKind::HermesCli,
+            acp_tx.clone(),
+            data_dir.join("runtime/hermes"),
+            runtime_fleet.clone(),
+            compaction_detector_policies
+                .policy_for(AdapterKind::HermesCli)
                 .unwrap_or(CompactionDetectorPolicy::Disabled),
         ),
         deepseek_harness: AcpCliRuntimeAdapter::deferred(
@@ -23142,6 +23168,13 @@ fn normalize_acp_event_with_completion(
                 payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
                     "sourceEventKind":"session/update.tool_call_update.completed", "semanticKind":"minimax_file_patch",
                     "entries":[{"path":path,"changeKind":"update","diff":patch}]});
+            }
+            if adapter_kind == AdapterKind::HermesCli
+                && public_status == "completed"
+                && let Some(entries) = crate::hermes::reported_patch(&update)
+            {
+                payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
+                    "sourceEventKind":"session/update.tool_call_update.completed.patch","semanticKind":"reported_mutation","entries":entries});
             }
             if adapter_kind == AdapterKind::CommandCodeCli
                 && public_status == "completed"
@@ -28379,6 +28412,15 @@ mod tests {
                 runtime_fleet.clone(),
                 compaction_detector_policies
                     .policy_for(AdapterKind::MinimaxCodeCli)
+                    .unwrap_or(CompactionDetectorPolicy::Disabled),
+            )?,
+            hermes_cli: AcpCliRuntimeAdapter::new(
+                AdapterKind::HermesCli,
+                acp_tx.clone(),
+                data_dir.join("runtime/hermes"),
+                runtime_fleet.clone(),
+                compaction_detector_policies
+                    .policy_for(AdapterKind::HermesCli)
                     .unwrap_or(CompactionDetectorPolicy::Disabled),
             )?,
             deepseek_harness: AcpCliRuntimeAdapter::new(
@@ -35276,7 +35318,7 @@ for line in sys.stdin:
             .into_iter()
             .filter(|adapter_kind| adapter_kind.uses_acp())
             .collect::<Vec<_>>();
-        assert_eq!(acp_adapters.len(), 14);
+        assert_eq!(acp_adapters.len(), 15);
         for adapter_kind in acp_adapters {
             let expected_output = format!("{} terminal output", adapter_kind.as_str());
             let (event_type, payload) = normalize_acp_event(

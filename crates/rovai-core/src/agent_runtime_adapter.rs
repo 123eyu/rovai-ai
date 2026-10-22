@@ -395,6 +395,7 @@ pub enum SkillDeliveryGroupKey {
     Cursor,
     Kimi,
     Minimax,
+    Hermes,
     Grok,
     Dsh,
     Cline,
@@ -403,7 +404,7 @@ pub enum SkillDeliveryGroupKey {
 }
 
 impl SkillDeliveryGroupKey {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Codex,
         Self::Pi,
         Self::Opencode,
@@ -418,6 +419,7 @@ impl SkillDeliveryGroupKey {
         Self::Cursor,
         Self::Kimi,
         Self::Minimax,
+        Self::Hermes,
         Self::Grok,
         Self::Dsh,
         Self::Cline,
@@ -441,6 +443,7 @@ impl SkillDeliveryGroupKey {
             Self::Cursor => "cursor",
             Self::Kimi => "kimi",
             Self::Minimax => "minimax",
+            Self::Hermes => "hermes",
             Self::Grok => "grok",
             Self::Dsh => "dsh",
             Self::Cline => "cline",
@@ -465,6 +468,7 @@ impl SkillDeliveryGroupKey {
             Self::Cursor => Path::new(".cursor/skills"),
             Self::Kimi => Path::new(".kimi-code/skills"),
             Self::Minimax => Path::new(".minimax/skills"),
+            Self::Hermes => Path::new(".hermes/skills"),
             Self::Grok => Path::new(".grok/skills"),
             Self::Dsh => Path::new(".dsh/skills"),
             Self::Cline => Path::new(".cline/skills"),
@@ -493,6 +497,7 @@ impl std::str::FromStr for SkillDeliveryGroupKey {
             "cursor" => Ok(Self::Cursor),
             "kimi" => Ok(Self::Kimi),
             "minimax" => Ok(Self::Minimax),
+            "hermes" => Ok(Self::Hermes),
             "grok" => Ok(Self::Grok),
             "dsh" => Ok(Self::Dsh),
             "cline" => Ok(Self::Cline),
@@ -777,6 +782,16 @@ impl AgentRuntimeAdapterRegistry {
                 RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
             )
         };
+        if kind == AdapterKind::HermesCli {
+            return match platform {
+                HostPlatformKey::MacosArm64 => RuntimePlatformAdmission::preview(
+                    kind,
+                    platform,
+                    RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
+                ),
+                _ => unqualified(),
+            };
+        }
         if kind == AdapterKind::MinimaxCodeCli {
             return match platform {
                 HostPlatformKey::MacosArm64 => RuntimePlatformAdmission::preview(
@@ -976,6 +991,7 @@ impl AgentRuntimeAdapterRegistry {
             AdapterKind::MinimaxCodeCli => {
                 json!({"permission_mode": "bypassPermissions", "mode":"default"})
             }
+            AdapterKind::HermesCli => json!({"permission_mode":"dont_ask"}),
             AdapterKind::KimiCodeCli => json!({
                 "permission_mode": "yolo",
             }),
@@ -1010,6 +1026,7 @@ impl AgentRuntimeAdapterRegistry {
             | AdapterKind::CursorAgent
             | AdapterKind::KimiCodeCli
             | AdapterKind::MinimaxCodeCli
+            | AdapterKind::HermesCli
             | AdapterKind::GrokBuild
             | AdapterKind::ZcodeApp
             | AdapterKind::DeepseekHarness
@@ -1069,6 +1086,10 @@ impl AgentRuntimeAdapterRegistry {
                 [SkillDeliveryGroupKey::Cursor],
                 SkillDiscoveryVerification::DocumentationOnly,
             ),
+            AdapterKind::HermesCli => native_skill_discovery(
+                [SkillDeliveryGroupKey::Hermes],
+                SkillDiscoveryVerification::DocumentationOnly,
+            ),
             AdapterKind::MinimaxCodeCli => native_skill_discovery(
                 [SkillDeliveryGroupKey::Minimax],
                 SkillDiscoveryVerification::Verified,
@@ -1099,6 +1120,7 @@ impl AgentRuntimeAdapterRegistry {
             | AdapterKind::TraeCnCli
             | AdapterKind::KimiCodeCli
             | AdapterKind::MinimaxCodeCli
+            | AdapterKind::HermesCli
             | AdapterKind::ZcodeApp
             | AdapterKind::DeepseekHarness
             | AdapterKind::ClineCli => additive_native_mcp_projection(McpSameNamePolicy::RovaiWins),
@@ -1158,6 +1180,9 @@ impl AgentRuntimeAdapterRegistry {
             AdapterKind::KimiCodeCli => {
                 acp_capability_snapshot(observation, kimi_permission_options())
             }
+            AdapterKind::HermesCli => {
+                acp_capability_snapshot(observation, hermes_permission_options())
+            }
             AdapterKind::MinimaxCodeCli => {
                 acp_capability_snapshot(observation, minimax_permission_options())
             }
@@ -1187,6 +1212,7 @@ impl AgentRuntimeAdapterRegistry {
             AdapterKind::TraeCnCli => trae_static_permission_options(),
             AdapterKind::CursorAgent => cursor_permission_options(),
             AdapterKind::KimiCodeCli => kimi_permission_options(),
+            AdapterKind::HermesCli => hermes_permission_options(),
             AdapterKind::MinimaxCodeCli => minimax_permission_options(),
             AdapterKind::GrokBuild => grok_permission_options(),
             AdapterKind::DeepseekHarness => dsh_permission_options(),
@@ -1211,6 +1237,8 @@ impl AgentRuntimeAdapterRegistry {
             && !crate::dsh::supported_version(reported_version.as_deref());
         let command_code_version_unsupported = kind == AdapterKind::CommandCodeCli
             && !crate::command_code_acp::supported_version(reported_version.as_deref());
+        let hermes_version_unsupported = kind == AdapterKind::HermesCli
+            && !crate::hermes::supported_version(reported_version.as_deref());
         let pi_version_unsupported =
             kind == AdapterKind::Pi && !pi_minimum_version_satisfied(reported_version.as_deref());
         Ok(AdapterCapabilitySnapshot {
@@ -1221,6 +1249,7 @@ impl AgentRuntimeAdapterRegistry {
                 || pi_version_unsupported
                 || dsh_version_unsupported
                 || command_code_version_unsupported
+                || hermes_version_unsupported
             {
                 "light_failed".to_string()
             } else {
@@ -1239,8 +1268,16 @@ impl AgentRuntimeAdapterRegistry {
             last_error: (grok_version_unsupported
                 || pi_version_unsupported
                 || dsh_version_unsupported
-                || command_code_version_unsupported)
-                .then(|| "runtime_version_below_minimum".to_string()),
+                || command_code_version_unsupported
+                || hermes_version_unsupported)
+                .then(|| {
+                    if hermes_version_unsupported {
+                        "runtime_version_unsupported"
+                    } else {
+                        "runtime_version_below_minimum"
+                    }
+                    .to_string()
+                }),
             native_session_compatibility_key: None,
         })
     }
@@ -2499,7 +2536,10 @@ fn acp_capability_snapshot(
             ]
         } else if matches!(
             adapter_kind,
-            AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli | AdapterKind::ClineCli
+            AdapterKind::DeepseekHarness
+                | AdapterKind::CommandCodeCli
+                | AdapterKind::ClineCli
+                | AdapterKind::HermesCli
         ) {
             &[
                 "acp.initialize",
@@ -3272,6 +3312,25 @@ fn cursor_permission_options() -> Vec<PermissionOptionDescriptor> {
             unsupported_reason: None,
         },
     ]
+}
+
+fn hermes_permission_options() -> Vec<PermissionOptionDescriptor> {
+    vec![PermissionOptionDescriptor {
+        key: "permission_mode".into(),
+        label: "File edit approval".into(),
+        description: "Hermes file edit policy. Command approvals remain native requests.".into(),
+        value_type: "enum".into(),
+        choices: ["default", "accept_edits", "dont_ask"]
+            .into_iter()
+            .map(|value| choice(value, value))
+            .collect(),
+        recommended_value: json!("default"),
+        scope: RuntimeOptionScope::Run,
+        risk: "elevated".into(),
+        supported: true,
+        required: true,
+        unsupported_reason: None,
+    }]
 }
 
 fn minimax_permission_options() -> Vec<PermissionOptionDescriptor> {
@@ -5345,6 +5404,11 @@ mod tests {
             &[SkillDeliveryGroupKey],
             SkillDiscoveryVerification,
         )] = &[
+            (
+                AdapterKind::HermesCli,
+                &[SkillDeliveryGroupKey::Hermes],
+                SkillDiscoveryVerification::DocumentationOnly,
+            ),
             (
                 AdapterKind::ClineCli,
                 &[SkillDeliveryGroupKey::Cline],

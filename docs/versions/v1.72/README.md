@@ -11,6 +11,16 @@ last_updated: 2026-10-22
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Hermes Runtime（2026-10-23）
+
+按 User 要求在独立 worktree 接入 Hermes，使用官方 0.22.4 的受管进程内 ACP；macOS arm64 首轮为 Preview。
+实现范围、真实模型验证、清单及与其他 Adapter 的差异见 [Hermes 记录](../../research/hermes-runtime/README.md)。
+当前规范为 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D59](decisions.md#v1-72-d59)。
+
+影响范围：新增 Adapter/原生启动与 Renderer 目录项；Migration 214 将 schema 163 扩展至 164；
+Context 仅新增 Adapter 到既有 ManagedSystemPrompt 映射，不改 B/P 字节、选择、Formatter/Manifest/Profile；
+文档路由与 runtime 文件片段证据同步。无发布版本变更、既有会话 clean break、领域词汇变更或其他平台资格晋升。
+
 ## Team 管理（2026-10-18）
 
 User 在 Team 设计 Thread sequence 29 确认开启 worktree 实施。当前范围为具名团队、General 的

@@ -1,10 +1,17 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-20
+last_updated: 2026-10-23
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-23 Hermes 初始接入
+
+官方 source install 0.22.4 / commit `4d04303818b61bf3aa09278af48356315515965b`，macOS arm64。
+真实 Sub2API `gpt-6.1-sol` 验证原生系统绑定、暖轮 Usage、精确冷恢复、压缩后指令、MCP 与 Skill；
+隔离 Core 验证公开 Send、文件操作和真实 patch 证据。完整结果与保留边界见
+[Hermes 验证记录](research/hermes-runtime/README.md)。平台为 Preview，不能等同其他平台或完整能力轴资格。
 
 ## 2026-10-20 ZCode 与 OpenCode V2 原生问卷禁用
 

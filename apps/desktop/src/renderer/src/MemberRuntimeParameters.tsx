@@ -235,6 +235,8 @@ function runtimeParametersFor(
           <PermissionSwitch {...props} fieldKey="auto_approve" label={uiAttribute("自动通过权限请求")} enabledValue="true" disabledValue="false" />
         </div>
       )
+    case 'hermes-cli':
+      return <div className="runtime-parameter-form">{modelFieldsFor('hermes-cli', props)}<PermissionSelect {...props} fieldKey="permission_mode" label={uiAttribute("文件编辑审批")} /></div>
     case 'minimax-code-cli':
       return <div className="runtime-parameter-form">{modelFieldsFor('minimax-code-cli', props)}<PermissionSelect {...props} fieldKey="mode" label={uiAttribute("执行模式")} /><PermissionSelect {...props} fieldKey="permission_mode" label={uiAttribute("权限模式")} /></div>
     case 'command-code-cli':
@@ -432,6 +434,7 @@ function modelFieldsFor(
     case 'kimi-code-cli':
     case 'grok-build':
     case 'zcode-app':
+    case 'hermes-cli':
     case 'cline-cli':
     case 'antigravity-app':
       return <ModelFields {...props} />

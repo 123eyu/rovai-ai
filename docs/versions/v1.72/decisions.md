@@ -1226,3 +1226,20 @@ User 要求不创建团队也能配置一键新建，且指引只作启动材料
 创建偏好从旧 JSON 只导入一次到 SQLite，使默认 Team 删除与回退可在一个事务完成。保留旧文件用于
 恢复，避免跨文件提交失败时出现已删 Team 仍被选中的状态。模型输入仅增加非空 TEAM_GUIDANCE 段，
 版本与确认见 [R1](model-context-change-team-guidance.md)。
+
+<a id="v1-72-d59"></a>
+
+## V1.72-D59：Hermes 使用精确版本的进程内 ACP，先按 arm64 Preview 接入
+
+- 状态：accepted
+- 日期：2026-10-23
+- 授权：User 在 Hermes Thread 的 2026-10-22 sequence 3 要求开启 worktree 直接接入、以其他 Adapter 为主要参考；sequence 4 允许真实 LLM 与原生 BYOK/Sub2API。以下为该授权下的实现取舍，不宣称跨平台资格确认。
+- 当前权威：[Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)、[Runtime Catalog](../../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、[平台准入](../../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
+
+默认 `hermes acp` 连接共享 Gateway；断开 viewer 无法保证执行者退出，且默认路径没有 Core B 的更新确认。
+选择同官方发行物仍提供的进程内 ACP SessionManager 与真实 AIAgent，使 Fleet 直接管理执行进程，保留原生
+模型、认证、工具和持久会话。拒绝只包装 viewer PID，也不另造聊天循环或修改安装源码。
+
+代价是依赖内部 Python seam，不能承诺任意 Hermes 升级兼容，因此以完整 source commit 和 dirty 检查限制范围。
+先接受 macOS arm64 产品 Preview，真实首轮、原生续聊/压缩/工具的证据按轴记录；其他平台和完整 Fleet/CLI/UI
+矩阵未完成时不晋升 Qualified。纯上游公开扩展若以后具备等价执行所有权和绑定门禁，可替换此 seam。

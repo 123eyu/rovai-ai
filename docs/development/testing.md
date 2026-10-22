@@ -118,6 +118,11 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
+Hermes 新增 launcher/执行身份与 native patch 两个纯函数 owner；其余恢复、Usage、目录闭集和数据库迁移
+均扩展原 owner。修复前失败、最低层选择、真实/受控证据和命令见
+[Hermes 测试归属](../research/hermes-runtime/README.md#rust-测试归属)。
+
+
 Web 长粘贴扩展既有 Host HTTP 与浏览器适配/恢复 owners；schema 161→162 的 DDL 失败回滚
 无法由 HTTP 测试证明，新增一个复用 schema-only fixture 的迁移 owner。准入与最小命令见
 [Web 长粘贴实施记录](../versions/v1.72/web-pasted-text-implementation.md#验证归属)。

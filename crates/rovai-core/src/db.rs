@@ -6,6 +6,8 @@ mod claim_context;
 mod compact_execution;
 #[path = "db_execution_storage.rs"]
 mod execution_storage;
+#[path = "db_hermes.rs"]
+mod hermes;
 #[path = "db_live_directory.rs"]
 mod live_directory;
 #[path = "db_member_creation.rs"]
@@ -495,7 +497,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 163;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 164;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -983,6 +985,7 @@ struct CurrentMigrationState {
     v211: bool,
     v212: bool,
     v213: bool,
+    v214: bool,
 }
 
 impl CurrentMigrationState {
@@ -1004,6 +1007,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v214 {
+            let mut previous = *self;
+            previous.v214 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 164
+                && self.v213
+                && previous.admits("v1.72", 163, classifier);
+        }
         if self.v213 {
             let mut previous = *self;
             previous.v213 = false;
@@ -3272,6 +3283,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
                         | 161
                         | 162
                         | 163
+                        | 164
                 )
         })
     {
@@ -3699,6 +3711,7 @@ pub(crate) fn classify_database_contract(
                 | 161
                 | 162
                 | 163
+                | 164
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3708,6 +3721,7 @@ pub(crate) fn classify_database_contract(
             |row| row.get(0),
         )?;
         let valid = completed
+            && (marker.projection_schema_version < 164 || hermes::schema_matches(connection)?)
             && (marker.projection_schema_version < 163 || teams::schema_matches(connection)?)
             && (marker.projection_schema_version < 162
                 || web_pasted_text::schema_matches(connection)?)
@@ -6006,7 +6020,8 @@ fn load_current_migration_state(
             EXISTS(SELECT 1 FROM schema_migration WHERE version=210),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=211),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=212),
-            EXISTS(SELECT 1 FROM schema_migration WHERE version=213)
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=213),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=214)
         "#,
         [],
         |row| {
@@ -6155,6 +6170,7 @@ fn load_current_migration_state(
                 v211: row.get(141)?,
                 v212: row.get(142)?,
                 v213: row.get(143)?,
+                v214: row.get(144)?,
             })
         },
     )
@@ -9453,6 +9469,9 @@ impl Database {
             if !self.schema_migration_applied(213)? {
                 migration_step!("migration_213", teams::migrate(self));
             }
+            if !self.schema_migration_applied(214)? {
+                migration_step!("migration_214", hermes::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -10316,6 +10335,9 @@ impl Database {
         }
         if !self.schema_migration_applied(213)? {
             migration_step!("migration_213", teams::migrate(self));
+        }
+        if !self.schema_migration_applied(214)? {
+            migration_step!("migration_214", hermes::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41803,6 +41825,14 @@ mod tests {
                 run_continuation::migrate as Migrate,
             ),
             (
+                214,
+                163,
+                false,
+                hermes::rewrite as Rewrite,
+                hermes::schema_matches as Matches,
+                hermes::migrate as Migrate,
+            ),
+            (
                 205,
                 154,
                 false,
@@ -41812,7 +41842,9 @@ mod tests {
             ),
         ] {
             let (mut database, directory) = crate::test_support::seeded_runtime_database();
-            if version == 205 {
+            if version == 214 {
+                // Keep the current schema, then exercise the same closed-set rollback below.
+            } else if version == 205 {
                 task_capability::downgrade_for_test(database.connection());
             } else {
                 user_anchors::downgrade_for_test(database.connection());
@@ -41840,12 +41872,12 @@ mod tests {
                     .unwrap();
                 Some((id, content))
             } else {
-                if version != 205 {
+                if !matches!(version, 205 | 214) {
                     mission_description::downgrade_for_test(database.connection());
                 }
                 None
             };
-            if !main_continuation && version != 205 {
+            if !main_continuation && !matches!(version, 205 | 214) {
                 run_continuation::downgrade_for_test(database.connection());
             }
             if version == 184 {
@@ -42115,6 +42147,7 @@ mod tests {
             v211: version >= 211,
             v212: version >= 212,
             v213: version >= 213,
+            v214: version >= 214,
         }
     }
 

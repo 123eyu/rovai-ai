@@ -149,7 +149,8 @@ pub const fn charter_delivery_mode_for_adapter(adapter_kind: AdapterKind) -> Cha
         AdapterKind::Pi
         | AdapterKind::DeepseekHarness
         | AdapterKind::CommandCodeCli
-        | AdapterKind::ClineCli => CharterDeliveryMode::ManagedSystemPrompt,
+        | AdapterKind::ClineCli
+        | AdapterKind::HermesCli => CharterDeliveryMode::ManagedSystemPrompt,
         AdapterKind::OpencodeCli
         | AdapterKind::CopilotCli
         | AdapterKind::AntigravityApp
@@ -8353,6 +8354,7 @@ mod tests {
                     | AdapterKind::DeepseekHarness
                     | AdapterKind::CommandCodeCli
                     | AdapterKind::ClineCli
+                    | AdapterKind::HermesCli
             ) {
                 CharterDeliveryMode::ManagedSystemPrompt
             } else {

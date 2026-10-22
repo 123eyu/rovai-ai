@@ -346,3 +346,10 @@ MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architectu
 
 环境 JSON 直接显示、标量转字符串与简化限制的理由：[V1.72-D56](../versions/v1.72/decisions.md#v1-72-d56)；
 当前规范：[Runtime Launch v71](../contracts/runtime-launch-and-verification-v71.md)。
+
+## Hermes 进程所有权
+
+当前规范：[Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)、
+[Runtime Catalog](../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、
+[平台准入](../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
+进程内 ACP、精确版本 fence 与初始 Preview 的理由见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)。

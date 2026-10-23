@@ -21,8 +21,10 @@ Run 队列、Replay Quarantine、CLI lease 与 Explicit Send。以下补充只�
 
 Host 使用同发行物的 `HermesACPAgent(SessionManager())` 与真实 `AIAgent`，不启动共享 Gateway。
 `_rovai/ready` 必须返回匹配的受管 revision、满足最低要求的版本和实际 child PID。Fleet 拥有这一执行进程及其树。
-公开 `hermes acp` 在已验版本默认构造无 SessionManager 的 Gateway viewer；不是协议不可用，而是
-该入口无法把实际执行者的生命周期交给 Fleet。受管入口继续使用 ACP；Python 覆盖仅存在于该子进程，
+公开 `hermes acp` 在已验版本默认构造无 SessionManager 的 Gateway viewer；仅拥有 viewer PID
+不足以拥有实际执行者。另行托管专用 Gateway 是可行的候选路线，已有
+[官方入口验证](../research/hermes-runtime/official-entry-validation.md)，但尚未替换本合同的进程与逐 Run 绑定实现。
+受管入口继续使用 ACP；Python 覆盖仅存在于该子进程，
 不修改安装源码。内部 API 变化由探测、绑定与真实执行失败显式暴露，不把最低版本策略误写成全部新版已验收。
 原生 Home、模型、认证、工具和 SessionDB 由 Hermes 负责；Adapter 不读取其他 Runtime Home 获取凭据。
 原生 `.env`、config、auth 及受管代码摘要参与兼容性；秘密只进入摘要，不作为公开配置或日志内容。

@@ -11,10 +11,16 @@ last_updated: 2026-10-23
 `4d04303818b61bf3aa09278af48356315515965b`；最低版本策略与新版/十四轴的实际资格分开。
 当前规范见 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)。
 
+2026-10-23 补充验证了公开 `hermes acp` 与专用官方 Gateway，见
+[官方入口实测与代价](official-entry-validation.md)。逐 Run 重启 Gateway 后精确恢复同一个 Session、
+刷新系统指令和终端环境已通过真实模型验证；因此不能把公开入口概括为“无法受管”。
+当前 PR 仍是进程内实现，切换路线尚需 Core 生命周期、逐 Run 绑定、事件映射与完整准入。
+
 ## 安装与交付范围
 
 本机已安装官方 CLI source distribution，入口 `~/.local/bin/hermes`。最初通过 Brew 安装的 0.22.2
-不满足接入要求，已解除它的链接，保留安装供回退。没有安装 Hermes Desktop，也没有启动共享 Gateway。
+不满足接入要求，已解除它的链接，保留安装供回退。没有安装 Hermes Desktop，也没有启动日常共享 Gateway；
+官方入口 Probe 仅启动隔离 Home 下的专用 Gateway，结束后已回收。
 用户允许真实模型与 BYOK，验收使用隔离 Hermes Home、Sub2API 与 `gpt-6.1-sol`；随后把同一授权的
 Provider 配置写入 Hermes 自己的原生配置与私有 `.env`，原文件已私有备份。Adapter 不在运行时借用 Pi 等其他 Home。
 
@@ -31,7 +37,8 @@ Migration 214 / schema 164 只扩展 Runtime 与 Skill group 闭集，不清空�
 这是继续使用 ACP。已验版本公开入口不传 SessionManager，`HermesACPAgent.__new__` 因而返回 Gateway viewer，
 没有公开的进程内开关；关闭该 viewer 不等于关闭真实执行者。受管覆盖只存在于 Fleet 拥有的 Python 子进程。
 
-实测发现并适配的差异：
+以下为所选**内部进程内 ACP 路径**实测发现并适配的差异；不能直接推定公开 Gateway ACP 也有相同行为。
+例如公开入口已实测精确拒绝不存在的会话，并将模型失败作为失败终态返回。
 
 - 原生 resume 对不存在的 ID 隐式新建，受管入口改为精确结构化拒绝；Core 仅对关联恢复目标执行已有恢复规则。
 - 原生通用 set_config_option 接受 model 却不真正切换；改调原生 set_session_model/resolver，返回并核对实际状态。
@@ -86,6 +93,7 @@ Migration 214 / schema 164 只扩展 Runtime 与 Skill group 闭集，不清空�
 
 - `scripts/smoke-hermes-native.mjs`：真实模型、模型 ACK、MCP/Skill、warm、结构化压缩、冷恢复和 assignment 拒绝。
 - `scripts/smoke-hermes-wire.mjs`：真实 native executor + 本地受控 Responses；B 的 system/developer 层、P 的普通输入、替换绑定、数值 delta、401 错误、零后台模型调用。
+- `scripts/smoke-hermes-official-acp.mjs`：未改写的官方 CLI + 专用 Gateway；受控模型、真实终端/文件、暖绑定缺口、断线取消、官方 RPC 替代能力与重启后同 Session 恢复。它是候选路线 Probe，不经过当前受管桥。
 - `scripts/smoke-hermes-core.mjs`：真实 Core + native executor + 真实模型；首条输入及时 ACK、同 Run 插话与修正后公开 Send、文件操作/差异入库、暖轮实际 terminal 取消及树清理。
 - `scripts/smoke-hermes-experience.mjs`：真实 native executor + 本地受控 Responses；命名端点 model ACK、effort 请求、禁用问卷、完整文件状态与边界、精确活动轮 redirect、错误模型详情。
 - `scripts/smoke-hermes-auto-compression.mjs`：真实模型，不改窗口/阈值、不调用主动压缩，通过正常文件读取达到阈值，验证压缩后及冷恢复的用户锚点和系统指令。

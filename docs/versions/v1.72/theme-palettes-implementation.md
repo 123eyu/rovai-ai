@@ -117,7 +117,8 @@ Logo 恢复 Steel `#526f88` 与 Ember `#d3a45f`。会话、执行台和队员浮
 同步经典红缩略图、Main 首帧背景和主题合同；没有主题专属组件选择器、额外聚焦装饰或新功能。
 
 - `pnpm typecheck`、`pnpm test`、`pnpm build:desktop` 通过。
-- Vitest：253 个文件、2921 项通过、2 项既有跳过；完整 Node 门禁通过。
+- 同步主线 PR #886 的撤回后重新编辑改动后，重新执行 typecheck、完整 `pnpm test` 和桌面构建，均通过。
+- Vitest：255 个文件、2947 项通过、2 项既有跳过；完整 Node 门禁通过。
 - `pnpm test:rust:pr`：475 项通过、1 项既有忽略。通过本机已安装的 Rust 1.98 工具链运行；
   `rust-objcopy` 因缺少 `libLLVM.dylib` 报告剥离调试信息警告，不影响构建和测试退出结果。
 - 主题合同的 188 项 Token 与实现逐项匹配，新增选中面的文字对比度纳入既有测试。
@@ -136,6 +137,7 @@ Logo 恢复 Steel `#526f88` 与 Ember `#d3a45f`。会话、执行台和队员浮
 - Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-classic-red`
 - Branch: `rovai/classic-red-soft-surfaces`
 - Base: `origin/main` / `984e82281ee57c5b33ac5ec320d1e4bf52e4cf4a`
+- Integrated main: `4fe005decd5eaf54b81265943f71e80a7014f75e`
 - Governance: none；User 已授权配色修订与 PR 合入，UI 合同随同提交。
 - Status: ready
 - Next: 按既有授权创建 PR，CI 通过后合入 main 并清理 worktree。

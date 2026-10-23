@@ -89,12 +89,28 @@ User 在 Thread sequence 27–28 确认其余效果并要求 PR 合入 main，�
 - 浏览器实测队员浮层和置顶摘要均为 `rgb(255, 255, 255)`，四位队员完整显示，无横向溢出；截图随 Thread 交付。
 - 通用文档测试、版本/决策门禁以及以最新 main 为 base 的 CI 文档门禁通过。
 
+## 地平线恢复 v7（Thread sequence 30）
+
+User 在 sequence 30 选择恢复 v7。此前三款主题与队员浮层修订已通过
+[PR #879](https://github.com/murray17/rovai-ai/pull/879) 合入 main。
+本次从该主线创建独立 worktree，将地平线完整配色恢复到 v7 对应提交
+`87b9245486aeb1b6031c2475c8726b4438cbbb17`，同步选择器缩略图、原生首帧画布色与主题合同。
+阅读区恢复 `#fdfcf9`、侧栏 `#f3f1ec`、气泡 `#f0efeb`、灰绿强调色 `#586e67`；
+执行台与队员浮层均继续为 `#ffffff`。其余主题、六项选择器、生产交互与消息几何没有改动。
+
+- 地平线 187 个 Token 与 v7 提交完全一致，主题合同逐项匹配；共享 CSS 的其余部分无变化。
+- `pnpm typecheck`、`pnpm test`、`pnpm build:desktop` 通过；Vitest 252 个文件、2886 项通过，2 项既有跳过。
+- `pnpm test:rust:pr`：475 项通过，1 项既有忽略。
+- `pnpm docs:test`、`pnpm docs:check` 与以本次 main 基线为 `DOCS_BASE_REF` 的 `pnpm docs:check:ci` 通过。
+- 生产组件浏览器预览确认地平线色值、六项主题选择器、白色队员浮层及执行台；无横向溢出或 warning/error。
+- 保存会话队员浮层、执行台和外观设置截图；隔离 fixture 不接入 Host/Core/Runtime，不改动日常 App 数据。
+
 ## Worktree handoff
 
-- Work item: 三款新主题与六项紧凑选择器。
-- Worktree: `/Users/murray.xue/.codex/worktrees/theme-horizon-red-ember/rovai-ai`
-- Branch: `rovai/theme-horizon-red-ember`
-- Base: `origin/main` / `186d1cfcf0c0cfff342aa36282b35d75436613c5`
-- Governance: none；User 已授权实施并明确原版参照，UI 合同随同提交。
+- Work item: 按 User sequence 30 恢复地平线 v7 配色。
+- Worktree: `/Users/murray.xue/.codex/worktrees/restore-horizon-v7/rovai-ai`
+- Branch: `rovai/restore-horizon-v7`
+- Base: `origin/main` / `4dcee9faecde07e06575e99e6221bd78f728b398`
+- Governance: none；User 已授权配色修订与 PR 合入，UI 合同随同提交。
 - Status: ready
-- Next: 按 User sequence 27 的明确授权创建 PR，检查通过后合入 main 并清理 worktree。
+- Next: 按既有授权创建 PR，CI 通过后合入 main 并清理 worktree。

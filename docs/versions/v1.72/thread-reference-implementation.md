@@ -108,6 +108,7 @@ User sequence 20 要求修复审查中确认的问题。修复分支 `rovai/thre
   固定刷新截止时间，最多一个读取与一个后续刷新；无关事件、连续事件和慢响应不会产生重复并发或永久推迟。
   新增界面回归发现监听目标原来来自持久化 document，现场新选入的引用可能不刷新；改为从既有
   onEffectiveDocumentChange 派生当前引用 ID，覆盖编辑、撤销与历史回看，不建立新的可编辑权威。
+  审阅补齐未保存 Web 编辑恢复的有效文档通知，恢复引用无需再编辑即可解析与响应删除。
 
 验证归属：扩展已有 `readable_projection_preserves_selected_text_without_markdown_wrappers`、
 `capture_fences_source_identity_and_keeps_literal_instruction_snapshots` 与

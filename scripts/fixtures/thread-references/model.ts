@@ -64,4 +64,11 @@ export const model = {
     return result
   }
 }
+if (new URLSearchParams(location.search).get('recover') === 'mission') {
+  const item = catalog.find(item => item.kind === 'mission')!
+  model.client.editingRecovery?.set(`${snapshot.thread.id}:composer`, {
+    base: { version: 2, segments: [] },
+    document: { version: 2, segments: [{ kind: 'atom', atom: { type: 'mission_reference', missionId: item.id, labelFallback: '旧恢复标题' } }] }
+  })
+}
 Object.assign(window, { __references: { model, catalog, snapshot, profiles, skills } })

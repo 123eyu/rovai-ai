@@ -190,6 +190,18 @@ try {
   await click('.ref-message-link')
   await wait("document.querySelector('.ref-unavailable-text')?.textContent==='引用不可用'")
   check('unavailable source retains the published reference and title',await browser.evaluate("document.querySelector('.ref-message-link').textContent==='登录改造' && document.querySelector('.ref-popover-title').textContent==='登录改造'"))
+  await browser.evaluate('localStorage.clear()')
+  await browser.send('Page.navigate', { url: pathToFileURL(join(output, 'thread-references.html')).href + '?recover=mission' })
+  await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]')?.textContent.includes('发布验收 1')")
+  check('unsaved Web recovery resolves its reference before any user edit', await browser.evaluate("window.__references.model.requests.some(r => r.method === 'threadReferences.resolve' && r.input.references.some(ref => ref.kind === 'mission'))"))
+  await browser.evaluate(`(() => {
+    const { model, catalog } = window.__references
+    const id = document.querySelector('#camp-message [data-composer-atom=mission_reference]').dataset.referenceId
+    catalog.splice(catalog.findIndex(item => item.id === id), 1)
+    model.invalidateReferences({ referencesChanged: true })
+  })()`)
+  await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]')?.dataset.availability === 'unavailable'")
+  check('restored references respond to Web deletion invalidation without an edit', true)
   check('no browser exceptions', browser.errors.length===0)
   await rm(join(output,'failure.json'),{force:true}); await rm(join(output,'failure.png'),{force:true})
   await writeFile(join(output,'verification.json'), JSON.stringify({checks,errors:browser.errors},null,2)+'\n')

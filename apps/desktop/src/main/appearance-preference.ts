@@ -105,5 +105,5 @@ export function resolvedTheme(shouldUseDarkColors: boolean): ResolvedTheme {
 }
 
 export function themeBackground(theme: ThemeId): string {
-  return { day: '#F2F4F1', night: '#0D1114', horizon: '#e7e4df', 'classic-red': '#efefef', ember: '#171717' }[theme]
+  return { day: '#F2F4F1', night: '#0D1114', horizon: '#f1f0ec', 'classic-red': '#efefef', ember: '#171717' }[theme]
 }

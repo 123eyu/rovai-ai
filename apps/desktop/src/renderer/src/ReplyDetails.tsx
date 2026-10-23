@@ -56,7 +56,8 @@ export function ReplyDetails({ state, reader, width, full, onWidth, onFull, onCl
   const splitter = useCollapsibleSplitter({ size: Math.min(width, maximum), collapsed: false,
     minimum: 360, maximum, direction: -1, disabled: full, scopeKey: snapshot.thread.id,
     scale: () => splitterScale(panel.current), capture: () => width,
-    onPreview: onWidth, onCommit: onWidth, onCancel: onWidth, onCollapse: onClose })
+    onPreview: onWidth, onCommit: onWidth, onCancel: onWidth,
+    onCollapse: before => { onWidth(before); onClose() } })
   const firstId = state.page?.messages[0]?.id
   useEffect(() => { scroll.current?.scrollTo({ top: 0 }) }, [firstId, state.messageId])
   const member = (id: string) => snapshot.members.find(value => value.agentId === id)

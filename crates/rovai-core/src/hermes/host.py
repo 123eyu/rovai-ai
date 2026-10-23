@@ -66,8 +66,18 @@ def native_file_fragments(name, result, inline, cwd):
             return None
         i += 2
         fragments, old, new, left_old, left_new, hunk = [], "", "", 0, 0, False
-        while i < len(lines) and not lines[i].startswith("--- "):
+        while i < len(lines):
             line = lines[i]
+            # A deletion of SQL's "-- heading" is itself "--- heading".
+            # File boundaries exist only after both hunk counts are exhausted.
+            if not left_old and not left_new:
+                if line.startswith("--- "):
+                    break
+                if line == "\n" and (hunk or new):
+                    i += 1
+                    if i == len(lines) or lines[i].startswith("--- "):
+                        break
+                    return None
             header = re.fullmatch(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?:[^\n]*)\n?", line)
             if header:
                 if left_old or left_new:
@@ -225,7 +235,8 @@ class Controller:
         self.efforts = []
         self.watermark = None
         self.failure = None
-        self.native_overlay = os.environ.get("HERMES_EPHEMERAL_SYSTEM_PROMPT", "")
+        from gateway.run_config_loaders import GatewayConfigLoadersMixin
+        self.native_overlay = GatewayConfigLoadersMixin._load_ephemeral_system_prompt()
         path = os.environ.get("ROVAI_HERMES_BOOTSTRAP_FILE")
         self.bootstrap = Path(path).read_text() if path else ""
         self.bootstrap_digest = hashlib.sha256(self.bootstrap.encode()).hexdigest()
@@ -316,6 +327,10 @@ class Controller:
         if attachable(existing):
             raise Rejected("Refusing to attach to an unowned Hermes Gateway")
         env = dict(os.environ)
+        # This supervisor launches once per Run, with no automatic respawn loop.
+        # Native daemon storm backoff otherwise mistakes consecutive Runs (and
+        # probe rebinds) for crashes and eventually exceeds our startup deadline.
+        env["HERMES_GATEWAY_MAX_STARTS"] = "0"
         env["HERMES_EPHEMERAL_SYSTEM_PROMPT"] = "\n\n".join(p for p in (self.native_overlay, self.bootstrap) if p)
         self.gateway = await asyncio.create_subprocess_exec(self.launcher, "--profile", "default", "gateway", "run", "--force", "--no-supervise", "--external-supervisor", env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, limit=4*1024*1024)
         self.task(self.stderr(self.gateway))
@@ -387,44 +402,76 @@ class Controller:
                 frame = await self.rpc.events.get()
                 if isinstance(frame, Exception):
                     raise frame
-                event = frame.get("params", {})
-                if event.get("session_id") != self.session:
-                    continue
-                if event.get("type") == "session.replay_gap":
-                    raise Rejected("Hermes event replay gap; execution evidence is incomplete")
-                active = self.active
-                if not active:
-                    continue
-                epoch, seq = event.get("replay_epoch"), event.get("seq", 0)
-                if epoch != active["epoch"]:
-                    raise Rejected("Hermes Gateway epoch changed during this Run")
-                if seq <= active["seq"]:
-                    continue
-                active["seq"] = seq
-                kind, aid = event.get("type"), event.get("admission_id")
-                if kind == "message.start":
-                    if active.get("admission") and active["admission"] != aid:
-                        raise Rejected("Unexpected second Hermes admission")
-                    if not aid or not isinstance(event.get("execution_generation"), int):
-                        raise Rejected("Hermes admission is missing its execution identity")
-                    active.update(admission=aid, generation=event["execution_generation"])
-                    active["started"].set()
-                if aid != active.get("admission") or not aid:
-                    continue
-                if event.get("execution_generation") != active.get("generation"):
-                    raise Rejected("Hermes execution generation changed")
-                if kind in ("tool.start", "tool.complete"):
-                    self.tool_update(kind, event.get("payload", {}))
-                elif kind == "message.complete":
-                    for call_id in list(active["tools"]):
-                        self.update({"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "failed"})
-                    active["tools"].clear()
-                    active["done"].set()
+                self.consume_event(frame.get("params", {}))
         except asyncio.CancelledError:
             raise
         except Exception:
             if not self.stopping:
                 await self.fail("Hermes Gateway event stream lost; refusing uncertain control")
+
+    def consume_event(self, event):
+        if event.get("session_id") != self.session:
+            return
+        if event.get("type") == "session.replay_gap":
+            raise Rejected("Hermes event replay gap; execution evidence is incomplete")
+        active = self.active
+        if not active:
+            return
+        epoch, seq = event.get("replay_epoch"), event.get("seq", 0)
+        if epoch != active["epoch"]:
+            raise Rejected("Hermes Gateway epoch changed during this Run")
+        if seq <= active["seq"]:
+            return
+        if seq != active["seq"] + 1:
+            raise Rejected("Hermes event sequence gap; execution evidence is incomplete")
+        kind, aid = event.get("type"), event.get("admission_id")
+        if kind == "message.start":
+            if active.get("admission") and active["admission"] != aid:
+                raise Rejected("Unexpected second Hermes admission")
+            if not aid or type(event.get("execution_generation")) is not int:
+                raise Rejected("Hermes admission is missing its execution identity")
+            active.update(admission=aid, generation=event["execution_generation"])
+            active["started"].set()
+        if aid and aid == active.get("admission"):
+            if event.get("execution_generation") != active.get("generation"):
+                raise Rejected("Hermes execution generation changed")
+            payload = event.get("payload", {})
+            if kind in ("tool.start", "tool.complete"):
+                self.tool_update(kind, payload)
+            elif kind == "session.usage":
+                active["usage"] = payload
+            elif kind == "message.complete":
+                for call_id in list(active["tools"]):
+                    self.update({"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "failed"})
+                active["tools"].clear()
+                active["done"].set()
+        active["seq"] = seq
+
+    async def drain_events(self, active):
+        # ACP and our Gateway reader have no cross-channel ordering. Replay the
+        # exact unread suffix before treating its response as a settled turn.
+        replay = await self.rpc.rpc("session.events.since", session_id=self.session,
+                                    replay_epoch=active["epoch"], last_sequence=active["seq"])
+        if replay.get("replay_epoch") != active["epoch"] or replay.get("truncated") or replay.get("snapshot_required"):
+            raise Rejected("Hermes event replay gap; execution evidence is incomplete")
+        for event in replay.get("events", []):
+            self.consume_event(event)
+        if active["seq"] < replay["last_sequence"]:
+            raise Rejected("Hermes event drain is incomplete")
+        if self.failure:
+            raise self.failure
+
+    @staticmethod
+    def usage_delta(stats, before):
+        usage = {}
+        for key, native_key in (("inputTokens", "input_tokens"), ("outputTokens", "output_tokens"), ("totalTokens", "total_tokens"), ("cachedReadTokens", "cache_read_tokens"), ("thoughtTokens", "reasoning_tokens")):
+            value = stats.get(native_key)
+            if type(value) is int and value >= 0:
+                baseline = before.get(native_key) or 0
+                usage[key] = value - (baseline if 0 <= baseline <= value else 0)
+        if "inputTokens" in usage:
+            usage["inputTokens"] += usage.get("cachedReadTokens", 0)
+        return usage
 
     def tool_update(self, kind, payload):
         from acp_adapter.tools import build_tool_complete, build_tool_start
@@ -496,45 +543,80 @@ class Controller:
         # baseline + one outgoing prompt make message.start an exact admission
         # witness. We never select 'the latest' snapshot after transport loss.
         self.prompt_pending = True
+        sent = False
         try:
             snapshot = await self.idle_snapshot()
             active = {"prompt": prompt_id, "epoch": snapshot["replay_epoch"], "seq": snapshot["last_sequence"], "started": asyncio.Event(), "done": asyncio.Event(), "tools": {}}
             self.active = active
             before = await self.rpc.rpc("session.stats", session_id=self.session)
             try:
+                sent = True
                 result = await self.native("session/prompt", params, timeout=None)
             except Rejected as error:
                 result = None
                 native_error = error
             else:
                 native_error = None
-            if active.get("admission"):
+            await self.drain_events(active)
+            if not active.get("admission"):
+                # Explicit native pre-submit cancellation/rejection and answered
+                # commands do not start a generation. Ordinary end_turn cannot
+                # borrow that exception (unknown slash words are ordinary text).
+                after = await self.idle_snapshot()
+                await self.drain_events(active)
+                if not active.get("admission") and after["execution_generation"] == snapshot["execution_generation"]:
+                    if native_error:
+                        raise native_error
+                    blocks = params.get("prompt", [])
+                    text = "\n".join(b.get("text", "") for b in blocks) if all(b.get("type") == "text" for b in blocks) else ""
+                    control = False
+                    if text.lstrip().startswith("/"):
+                        from acp_adapter.gateway_server import _slash_command
+                        control = _slash_command(text) is not None
+                    if result.get("stopReason") in ("cancelled", "refusal") or control:
+                        result.pop("usage", None)
+                        return result
+                if not active.get("admission"):
+                    raise Rejected("Hermes execution attribution is uncertain; no admission was observed")
+            try:
                 await asyncio.wait_for(active["done"].wait(), 15)
-                if self.failure:
-                    raise self.failure
-                receipt = await self.rpc.rpc("prompt.receipt", session_id=self.session, admission_id=active["admission"], include_result=True)
+            except asyncio.TimeoutError as error:
+                raise Rejected("Hermes evidence consumption is incomplete; execution outcome is uncertain") from error
+            if self.failure:
+                raise self.failure
+            receipt = await self.rpc.rpc("prompt.receipt", session_id=self.session, admission_id=active["admission"], include_result=True)
+            if (receipt.get("admission_id") != active["admission"] or receipt.get("ref", {}).get("session_id") != self.session
+                    or receipt.get("execution_generation") != active["generation"] or receipt.get("status") != "terminal"
+                    or receipt.get("outcome") not in ("completed", "failed", "cancelled", "interrupted")):
+                raise Rejected("Hermes terminal receipt does not match the observed execution")
+            usage = self.usage_delta(active.get("usage", {}), before)
+            if native_error or receipt["outcome"] == "failed":
+                from agent.redact import redact_sensitive_text
                 native_result = receipt.get("result") or {}
-                if native_error:
-                    from agent.redact import redact_sensitive_text
-                    detail = native_result.get("error") or native_result.get("final_response")
-                    if detail:
-                        raise Rejected("Hermes turn failed", data={"error": redact_sensitive_text(str(detail), force=True)[:4000]})
-            if native_error:
-                raise native_error
-            # Native usage is cumulative in one executor and may reset on rebuild.
-            # Each production controller executes only one Run; subtract only a
-            # comparable baseline when tests exercise multiple turns explicitly.
-            usage = result.get("usage")
-            if isinstance(usage, dict):
-                for key, native_key in (("inputTokens", "input_tokens"), ("outputTokens", "output_tokens"), ("totalTokens", "total_tokens"), ("cachedReadTokens", "cache_read_tokens"), ("thoughtTokens", "reasoning_tokens")):
-                    if isinstance(usage.get(key), int):
-                        baseline = before.get(native_key) or 0
-                        usage[key] -= baseline if baseline <= usage[key] else 0
-                # Hermes counts uncached input separately; Rovai's input total
-                # includes cached reads, like the other adapters.
-                if isinstance(usage.get("inputTokens"), int):
-                    usage["inputTokens"] += usage.get("cachedReadTokens") or 0
+                detail = native_result.get("error") or native_result.get("final_response") or str(native_error or "Hermes turn failed")
+                data = {"error": redact_sensitive_text(str(detail), force=True)[:4000],
+                        "rovaiHermesExecution": {"sessionId": self.session, "promptId": prompt_id,
+                        "admissionId": active["admission"], "executionGeneration": active["generation"], "usage": usage}}
+                raise Rejected("Hermes turn failed", data=data)
+            if usage:
+                result["usage"] = usage
+            else:
+                result.pop("usage", None)
             return result
+        except Exception as error:
+            # Only a verified receipt or an explicit protocol input rejection
+            # can settle acceptance. Transport/attribution loss must not make
+            # an ambiguously delivered input safely retryable in Core.
+            data = error.error.get("data") if isinstance(error, Rejected) else None
+            known = isinstance(error, Rejected) and (
+                error.error.get("code") in (-32600, -32602)
+                or isinstance(data, dict) and "rovaiHermesExecution" in data)
+            if sent and not known:
+                from agent.redact import redact_sensitive_text
+                raise Rejected("Hermes execution outcome is uncertain", data={
+                    "code": "HERMES_EXECUTION_UNCERTAIN", "sessionId": self.session, "promptId": prompt_id,
+                    "error": redact_sensitive_text(str(error), force=True)[:4000]}) from error
+            raise
         finally:
             self.active = None
             self.prompt_pending = False

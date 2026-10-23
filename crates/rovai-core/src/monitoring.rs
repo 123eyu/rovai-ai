@@ -3674,6 +3674,10 @@ pub fn parse_acp_usage_message(
     let usage = params
         .pointer(if adapter_kind == AdapterKind::CommandCodeCli {
             "/result/_meta/usage"
+        } else if adapter_kind == AdapterKind::HermesCli && params.get("error").is_some() {
+            // Validated against the pending ACP request before terminal routing;
+            // failure still fails the Run, with its known usage recorded once.
+            "/hermesExecution/usage"
         } else {
             "/result/usage"
         })
@@ -5174,6 +5178,19 @@ mod tests {
         assert_eq!(normalized.cache_read_tokens, Some(40));
         assert_eq!(normalized.cache_write_tokens, None);
         assert_eq!(normalized.output_tokens, Some(12));
+        let failed = parse_acp_usage_message(
+            AdapterKind::HermesCli,
+            Some("0.22.4"),
+            "rovai/acp_prompt_completed",
+            &json!({"sessionId":"hermes","promptId":"failed-turn","error":"API failed",
+                "hermesExecution":{"admissionId":"admission","executionGeneration":2,
+                    "usage":{"inputTokens":100,"outputTokens":12,"cachedReadTokens":40}}}),
+        );
+        assert_eq!(failed.len(), 1);
+        let failed = normalize_usage(&failed[0]).unwrap();
+        assert_eq!(failed.prompt_input_total_tokens, Some(100));
+        assert_eq!(failed.output_tokens, Some(12));
+        assert_eq!(failed.cache_write_tokens, None);
         let root_prompt = json!({"sessionId":"root", "promptId":"prompt-1", "result":{"usage":{
             "inputTokens":100,"cachedReadTokens":40,"cachedWriteTokens":20,
             "outputTokens":10,"thoughtTokens":5,"totalTokens":175}}});

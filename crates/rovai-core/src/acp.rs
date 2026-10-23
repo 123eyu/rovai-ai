@@ -2695,6 +2695,13 @@ impl AcpHost {
                 session_id,
                 prompt_id,
             } => {
+                let hermes_execution = (self.adapter_kind == AdapterKind::HermesCli)
+                    .then(|| {
+                        crate::hermes::failed_prompt_execution(&message, &session_id, &prompt_id)
+                    })
+                    .flatten();
+                let hermes_uncertain = self.adapter_kind == AdapterKind::HermesCli
+                    && crate::hermes::prompt_outcome_uncertain(&message, &session_id, &prompt_id);
                 // An undrained Qwen callback item has never crossed stdin.
                 let mut queued = self.qwen_steering.lock().await;
                 let ids: Vec<_> = queued
@@ -2792,7 +2799,8 @@ impl AcpHost {
                         }
                         (Err(_), Some(_))
                             if should_emit_input_disposition
-                                && active_prompt.prompt_activity_observed =>
+                                && (active_prompt.prompt_activity_observed
+                                    || hermes_execution.is_some()) =>
                         {
                             // A matching terminal response alone may be a pre-execution
                             // rejection. Prompt-scoped activity observed before that matching
@@ -2805,7 +2813,9 @@ impl AcpHost {
                                 &active_prompt,
                             ));
                         }
-                        (Err(error), Some(response_error)) if should_emit_input_disposition => {
+                        (Err(error), Some(response_error))
+                            if should_emit_input_disposition && !hermes_uncertain =>
+                        {
                             let _ = self.incoming.send(owner.input_not_accepted(
                                 self.adapter_kind,
                                 &self.host_instance_id,
@@ -2816,12 +2826,16 @@ impl AcpHost {
                         }
                         _ => {}
                     }
-                    let input_disposition =
-                        if native_response_succeeded || active_prompt.prompt_activity_observed {
-                            "accepted"
-                        } else {
-                            "not_accepted"
-                        };
+                    let input_disposition = if native_response_succeeded
+                        || active_prompt.prompt_activity_observed
+                        || hermes_execution.is_some()
+                    {
+                        "accepted"
+                    } else if hermes_uncertain {
+                        "unknown"
+                    } else {
+                        "not_accepted"
+                    };
                     if self.adapter_kind == AdapterKind::ClineCli && !cline_observations.is_empty()
                     {
                         for record in &cline_observations {
@@ -2856,6 +2870,7 @@ impl AcpHost {
                             "nativeErrorKind": response_error
                                 .as_ref()
                                 .and_then(|error| error.structured_code.as_deref()),
+                            "hermesExecution": hermes_execution,
                             "error": error
                         }),
                     };

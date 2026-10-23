@@ -39,9 +39,10 @@ const server = createServer(async (request,response)=>{
   }catch(error){wireError=error;response.writeHead(500);response.end()}
 })
 await new Promise(done=>server.listen(0,'127.0.0.1',done))
-await writeFile(join(home,'config.yaml'),JSON.stringify({model:{provider:'fixture',default:'fixture-model'},
+const config = {model:{provider:'fixture',default:'fixture-model'},
   providers:{fixture:{base_url:`http://127.0.0.1:${server.address().port}/v1`,api_key_env:'ROVAI_HERMES_FIXTURE_KEY',transport:'codex_responses',models:['fixture-model']}},
-  platform_toolsets:{acp:['terminal','no_mcp']},session_title:{enabled:false},agent:{max_turns:2}}),{mode:0o600})
+  platform_toolsets:{acp:['terminal','no_mcp']},session_title:{enabled:false},agent:{max_turns:2}}
+await writeFile(join(home,'config.yaml'),JSON.stringify(config),{mode:0o600})
 let client
 try{
   client=await openHermesAcp({executable:process.env.ROVAI_HERMES_BIN,script:resolve(import.meta.dirname,'../crates/rovai-core/src/hermes/host.py'),cwd:project,
@@ -74,11 +75,35 @@ try{
   await assert.rejects(prompt(),e=>e.rpcError?.code===-32000)
   releaseHeld();releaseHeld=null
   assert.equal((await active).stopReason,'end_turn')
+  const beforeControl = wire.length
+  assert.equal((await client.request('session/prompt',{sessionId,prompt:[{type:'text',text:'/help'}],_meta:{rovai:{promptId:'wire-control'}}})).stopReason,'end_turn')
+  assert.equal(wire.length,beforeControl,'Native control command unexpectedly submitted a model prompt')
   fail=true
   await assert.rejects(prompt(),e=>e.rpcError?.code===-32003)
+  fail=false
+  await client.close();client=null
+  const overlays = ['ENV-OVERLAY-663','CONFIG-OVERLAY-774','PERSONALITY-OVERLAY-885']
+  for(const [index, expected] of overlays.entries()) {
+    const variant = structuredClone(config)
+    variant.agent.system_prompt = overlays[1]
+    if(index!==1) {
+      variant.display = {personality:'controlled'}
+      variant.personalities = {controlled:{system_prompt:overlays[2],tone:'precise'}}
+    }
+    await writeFile(join(home,'config.yaml'),JSON.stringify(variant),{mode:0o600})
+    client=await openHermesAcp({executable:process.env.ROVAI_HERMES_BIN,script:resolve(import.meta.dirname,'../crates/rovai-core/src/hermes/host.py'),cwd:project,
+      env:{...process.env,HERMES_HOME:home,HERMES_EPHEMERAL_SYSTEM_PROMPT:index===0?overlays[0]:'',ROVAI_HERMES_FIXTURE_KEY:'controlled-fixture'}})
+    const sessionId=(await client.request('session/new',{cwd:project,mcpServers:[]})).sessionId
+    const bootstrap='OVERLAY-BOOTSTRAP-996'
+    await client.request('_rovai/bind',{sessionId,bootstrap,sha256:createHash('sha256').update(bootstrap).digest('hex')})
+    assert.equal((await client.request('session/prompt',{sessionId,prompt:[{type:'text',text:'Check overlay coexistence.'}],_meta:{rovai:{promptId:'overlay-'+index}}})).stopReason,'end_turn')
+    const body=wire.at(-1), system=(body.instructions??'')+JSON.stringify(body.input.filter(item=>['system','developer'].includes(item.role)))
+    for(const marker of [...overlays,bootstrap])assert.equal(system.split(marker).length-1,marker===expected||marker===bootstrap?1:0,'Native overlay precedence or multiplicity: '+marker)
+    await client.close();client=null
+  }
   if(wireError)throw wireError
   assert(wire.every(body => body.tools), 'Unowned background model request')
-  const result={systemBinding:true,ordinaryPayload:true,rebind:true,turnDelta:true,nativeFailure:true,busyRejected:true,requests:wire.length}
+  const result={systemBinding:true,ordinaryPayload:true,rebind:true,turnDelta:true,nativeFailure:true,busyRejected:true,unsubmittedControl:true,envOverlay:true,configOverlay:true,personalityOverlay:true,requests:wire.length}
   await writeFile(join(root,'summary.json'),JSON.stringify(result,null,2))
   console.log(root,JSON.stringify(result))
 }finally{releaseHeld?.();if(client)console.log('Cleanup:',await client.close());server.closeAllConnections();await new Promise(done=>server.close(done))}

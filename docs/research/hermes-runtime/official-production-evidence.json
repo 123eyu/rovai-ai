@@ -18,7 +18,11 @@
     "turnDelta": true,
     "nativeFailure": true,
     "busyRejected": true,
-    "requests": 4
+    "unsubmittedControl": true,
+    "envOverlay": true,
+    "configOverlay": true,
+    "personalityOverlay": true,
+    "requests": 7
   },
   "core": {
     "runtime": "hermes-cli",
@@ -140,7 +144,9 @@
       "CRLF",
       "failed-patch",
       "binary-refusal",
-      "large-unread-overwrite-refusal"
+      "large-unread-overwrite-refusal",
+      "update-two-text-files-native-blank-separator",
+      "multifile-sql-comment-deletion"
     ]
   },
   "imageEvaluation": {
@@ -165,13 +171,53 @@
     "Native file snippets are not full before/after states"
   ],
   "fixtures": {
-    "wire": "rovai-hermes-wire-x7VVSL",
-    "experience": "rovai-hermes-experience-zKX52V",
+    "wire": "rovai-hermes-wire-dsIDWL",
+    "experience": "rovai-hermes-experience-gUPMcr",
     "core": "rovai-hermes-core-dISqud"
   },
   "cleanup": {
     "privateCredentialHomesRemoved": true,
     "privateCoreDataRemoved": true,
     "rawWirePublished": false
+  },
+  "followupRegression": {
+    "controller": {
+      "tests": 4,
+      "passed": true,
+      "preFixFailed": true,
+      "delayedAdmissionDrained": true,
+      "lateLiveCopyDeduplicated": true,
+      "uncertainAttributionFails": true,
+      "replayGapFails": true,
+      "unsubmittedBranches": true
+    },
+    "failedUsage": {
+      "failed": true,
+      "input": 100,
+      "output": 10,
+      "cacheRead": 40,
+      "reasoning": 2,
+      "cost": null,
+      "countedOnce": true,
+      "requests": 2
+    },
+    "failedUsageFixture": "rovai-hermes-failed-usage-F6FEla",
+    "nativeDaemonStormBackoffDisabledForExternalOwner": true,
+    "nativeExecutorPatched": false,
+    "validation": {
+      "acpPassed": 67,
+      "acpIgnored": 2,
+      "monitoringPassed": 13,
+      "runtimeDiffPassed": 17,
+      "hermesPassed": 2,
+      "typecheck": true,
+      "pnpmTest": true,
+      "documentationGates": true
+    },
+    "cleanup": {
+      "privateCoreDataRemoved": true,
+      "dummyProviderHomesRemoved": true,
+      "rawWirePublished": false
+    }
   }
 }

@@ -24,6 +24,8 @@ Run 队列、Replay Quarantine、CLI lease 与 Explicit Send。以下补充只�
 全部停止，下次精确冷恢复原 Session。Fleet/ManagedProcess 拥有整棵树，Core 启动也恢复 binding 目录的
 owned-processes 记录。controller 独占 storage lock，并核对 Gateway 的 PID、Home 和 external supervisor；
 禁止连接日常共享 Gateway，只结束 viewer 不算结束执行。
+外部 supervisor 每次只启动一次、没有自动 respawn 循环；专用子进程通过官方
+`HERMES_GATEWAY_MAX_STARTS=0` 关闭守护进程的重启风暴退避，避免正常连续 Run 被延迟至启动超时。
 
 `_rovai/ready` 核对受管 revision、最低版本和 controller PID；Gateway 必须提供 durable admission、
 event replay、ACP edit policy 与 session MCP 能力。未知 launcher、缺失能力或实际不兼容须明确失败；
@@ -43,7 +45,10 @@ Skills 连接到原生路径，Run 内禁用隐式依赖下载。相对 Skills �
 存在未结算执行、待处理 admission 或 permission 时拒绝新 prompt。
 
 采用 ManagedSystemPrompt。Core prepared Bootstrap B 随 Run 启动写入私有文件，再由
-`HERMES_EPHEMERAL_SYSTEM_PROMPT` 传给新 Gateway，与原生 overlay 并存。`_rovai/bind` 核对 Session、
+`HERMES_EPHEMERAL_SYSTEM_PROMPT` 传给新 Gateway。注入前调用官方 resolver，遵循 env 优先、有效
+`display.personality` 次之、`agent.system_prompt` 回退的原生顺序，解析出的 overlay 与原样 B 各追加一次。
+不因 B 非空而遮蔽仅写在 config 的用户附加指令；不改变 Hermes 基础 system prompt。
+`_rovai/bind` 核对 Session、
 B 原文与 SHA-256，128 KiB 上限；空值、摘要不符和活动执行拒绝。ACK 匹配才发送 P；P 保持原始普通
 输入，不重拼 Profile、不提升 RUN_INPUT 权限，不把 B 写入用户 Home 或聊天历史。
 Probe 的晚绑定会重启 Gateway 并恢复同 Session；生产在启动时提供 B，不需要这次额外重启。
@@ -59,6 +64,12 @@ message.start admission 与 execution generation，再调用公开 `session.stee
 匹配才 ACK 接受；明确未投递、错轮、迟到和 idle 返回未接受。传输未知或不明结果不能伪造未送达。
 取消调用同一 generation 的 `session.interrupt`，不能打断后继轮。共享 Core 拥有 epoch 与输入账本；
 事件 epoch 变化、replay gap 或事件流失败不能编造成功终态。
+
+ACP 终态不证明 controller 已消费 Gateway 通道。收尾先按同 epoch/sequence 回放未消费后缀，与实时
+消费者共用去重投影；普通执行须已关联 admission、消费 message.complete 前的工具/文件证据，并核对
+同 Session/admission/generation 的 terminal receipt，才能释放 active。明确未提交的原生拒绝、取消或
+已答复控制命令在无新 generation、无待结算执行时单独收尾；普通 end_turn 缺少执行归属不能算成功。
+无法确认执行归属的错误标记 `HERMES_EXECUTION_UNCERTAIN`；Core 不把它声明为可安全重发的未接受输入。
 
 ## 模型、权限、Skills 与 MCP
 
@@ -89,13 +100,16 @@ raw input/result 和原生 inline diff，过滤 ACP 编辑预览与重复工具�
 receipt 的脱敏有界详情进入 JSON-RPC data.error，不把失败包装成 end_turn。
 
 文件证据只来自成功完成的 native result。patch 的实际 diff 或 write_file 的原生 inline diff 经成功、
-路径一致、完整 hunk 和大小检查后投影为 reported_mutation 片段。每工具最多 64 路径、diff 最多 2 MiB；
+路径一致、完整 hunk 和大小检查后投影为 reported_mutation 片段。解析先消费 hunk 剩余行数，再识别
+下一文件头和原生段间空行；删除 `-- heading` 产生的 `--- heading` 是内容行。每工具最多 64 路径、diff 最多 2 MiB；
 截断、NUL、未知路径、失败、no-change 不准入。禁止扫描磁盘/Git 补证，禁止升级为完整 before/after。
 显示层可能规范化 CRLF，不能证明缺失文件与空文件的区别；move/空文件没有文本片段时只保留操作和结果。
 历史 hermes_file_states 继续可读，当前入口不再生产它。
 
-原生 usage 是 Session 累计，按每 prompt 前后基线求差；cache read 计入输入总量。终态 usage 用于消耗
-账本，usage_update 保持上下文 gauge。缺失 cache write、费用或请求数保持未知。
+原生 usage 是 Session 累计，按每 prompt 前后基线求差；cache read 计入输入总量。仅同 admission/
+generation 的原生 usage 事件参与该 prompt 消耗，terminal receipt 确认归属。成功由 result.usage 传递；
+失败由受管错误中的精确执行证据传递，Core 核对 pending Session/prompt 后在同一终态入账一次，Run 仍失败。
+usage_update 保持上下文 gauge，不能替代消耗账本。缺失 cache write、费用或请求数保持未知。
 ACP 图片原样交给原生媒体流程；pixels/预解析选择及识图效果由 Hermes 配置和模型决定，不能仅凭
 image=true 宣称具体模型的识图验收通过。
 

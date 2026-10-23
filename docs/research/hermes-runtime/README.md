@@ -35,7 +35,8 @@ controller 仅借用发行物的连接、发现和纯格式化帮助函数，运
 Gateway；Core 也恢复 binding 目录的 owned-processes 记录。config/凭据/用户 Skills 保留原生来源，
 SessionDB/socket/锁独立；禁用隐式依赖同步、消息平台、cron 和脱离 Run 的后台模型调用。
 
-B 由 Core 已准备内容在启动时进入 ephemeral system overlay，SHA ACK 后发送普通 P；新进程刷新 CLI 环境。
+B 由 Core 已准备内容在启动时进入 ephemeral system overlay，注入前按官方 env/config/personality resolver
+保留原生附加指令；SHA ACK 后发送普通 P，新进程刷新 CLI 环境。
 公开 RPC 的 admission/generation 与 Core prompt ID 关联，提供精确 Steer/interrupt。MCP 使用原生 editor
 assignment，显式 mutation 验证全部发现并处理撤销；私有 config 排除 Rovai 同名服务，源配置不变。
 模型切换和 reasoning 以原生实际 ACK 为准，错误由对应 prompt receipt 保留原生脱敏详情。
@@ -79,8 +80,10 @@ magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `
 
 ## 复现与验收归属
 
-- `smoke-hermes-wire.mjs`：安装的官方执行器＋loopback Responses；系统层/普通输入、替换绑定、usage delta、错误与无后台模型调用。
-- `smoke-hermes-experience.mjs`：同一真实执行器，受控 Responses；reasoning、问卷排除、文件片段/失败边界、精确 Steer、错误模型详情、MCP 增改撤销/同名/失败。
+- `test-hermes-controller.py`：纯 controller 状态机/解析器；ACP 先返回、Gateway 队列未消费，回放补齐精确 admission/工具证据且不重复；缺归属、gap、错 epoch/generation 拒绝；原生两个 Update 的空行与 SQL 注释删除，残缺/错路径/NUL 拒绝。
+- `smoke-hermes-wire.mjs`：安装的官方执行器＋loopback Responses；系统层/普通输入、替换绑定、usage delta、错误、无 admission 的 `/help`，env/system prompt/personality 三种原生 overlay 各与 B 共存一次，无后台模型调用。
+- `smoke-hermes-experience.mjs`：同一真实执行器，受控 Responses；reasoning、问卷排除、文件片段/失败边界（包含两个普通 Update 和 SQL 注释删除）、精确 Steer、错误模型详情、MCP 增改撤销/同名/失败。
+- `smoke-hermes-failed-usage.mjs`：隔离生产 Core＋原生执行器＋loopback Responses，首调用产生 tool call 和已知 usage，第二次调用 401；断言 Run failed、一次 prompt 用量入账、费用未知。纯 controller 测试不能替代该持久化 seam。
 - `smoke-hermes-native.mjs`：真实模型、MCP/Skill、model ACK、暖轮和冷恢复、缺失 Session 与重复 Session 拒绝；`ROVAI_HERMES_SMOKE_IMAGE=1` 独立开启严格识图资格断言。
 - `smoke-hermes-auto-compression.mjs`：真实模型，保持原生窗口/阈值，正常文件读取触发自动压缩；验证压缩后和精确冷恢复的用户锚点及 B。
 - `smoke-hermes-core.mjs`：真实 Core＋模型，首条输入及时 ACK、同 Run Steer/公开 Send、runtimeDiff/context 入库、冷 Run 终端取消及回收；包含隔离 Core SIGKILL/重启恢复检查。
@@ -99,6 +102,16 @@ Rust 仍只有两个新 seam owner：launcher/identity 和成功原生文件证�
 扩展原有 `hermes::tests::native_patch_requires_a_successful_corroborated_complete_hunk` 与 runtime_diff owner，
 不增加平行重型 fixture。共享 ACP extended owners 67 passed / 2 ignored；迁移、目录闭集和索引继续走原 owner。
 自动检查、最终 Core 恢复结果与具体 fixture 摘要随 PR 验证栏记录。
+本次修复继续扩展 launcher/identity owner 的失败执行身份负例和 monitoring 原有稀疏 usage owner，
+没有增加 Rust 测试函数。最低验证命令为 `python3 scripts/test-hermes-controller.py`、
+`cargo test -p rovai-core --lib hermes::tests`、
+`cargo test -p rovai-core --features extended-tests --lib runtime_parsers_emit_sparse_usage_without_antigravity_inference`。
+受控 smoke 另需官方安装；真实 LLM 不参与上述四项确定性回归。
+本轮最终 wire fixture `rovai-hermes-wire-dsIDWL` 的三个 overlay 与 B 各出现一次；体验 fixture
+`rovai-hermes-experience-gUPMcr` 的两个普通 Update、SQL 注释删除和既有 MCP/Steer 矩阵通过。
+失败用量 fixture `rovai-hermes-failed-usage-F6FEla` 验证 Run failed，输入 100、输出 10、cache read 40、
+reasoning 2 仅入账一次，费用/cache write 未知。账本异步投影完成后核对持久值，不把 Run 终态出现当作
+账本队列已落盘。连续冷启动同时暴露原生 daemon storm 退避；专用外部 supervisor 关闭该退避后全组通过。
 
 官方生产路径最终 Core fixture `rovai-hermes-core-dISqud`：首轮同 Run Steer 成功，第二轮实际终端取消，
 第三轮终端运行中 SIGKILL 隔离 Core，重启后 Run 失败收敛且未自动增加 Run。第四轮显式输入恢复同一

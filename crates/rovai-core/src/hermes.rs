@@ -181,6 +181,41 @@ pub fn validate_ready(value: &Value, pid: Option<u32>) -> Result<()> {
     Ok(())
 }
 
+/// Only the owned controller's matching error response may carry failed-turn
+/// consumption. A context gauge or another execution is never a ledger source.
+pub fn failed_prompt_execution(message: &Value, session: &str, prompt: &str) -> Option<Value> {
+    let execution = message.pointer("/error/data/rovaiHermesExecution")?;
+    if execution["sessionId"].as_str()? != session
+        || execution["promptId"].as_str()? != prompt
+        || execution["admissionId"].as_str()?.is_empty()
+        || execution["admissionId"].as_str()?.len() > 256
+        || execution["executionGeneration"].as_u64()? == 0
+    {
+        return None;
+    }
+    let source = execution["usage"].as_object()?;
+    let mut usage = serde_json::Map::new();
+    for key in [
+        "inputTokens",
+        "outputTokens",
+        "cachedReadTokens",
+        "thoughtTokens",
+    ] {
+        if let Some(value) = source.get(key).and_then(Value::as_i64).filter(|n| *n >= 0) {
+            usage.insert(key.to_string(), json!(value));
+        }
+    }
+    Some(json!({"admissionId": execution["admissionId"],
+        "executionGeneration": execution["executionGeneration"], "usage": usage}))
+}
+
+pub fn prompt_outcome_uncertain(message: &Value, session: &str, prompt: &str) -> bool {
+    let data = &message["error"]["data"];
+    data["code"] == "HERMES_EXECUTION_UNCERTAIN"
+        && data["sessionId"].as_str() == Some(session)
+        && data["promptId"].as_str() == Some(prompt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +253,37 @@ mod tests {
             assert!(supported_version(Some(version)), "{version}");
         }
         assert!(!supported_version(None));
+        let error = json!({"error":{"data":{"rovaiHermesExecution":{
+            "sessionId":"session", "promptId":"prompt", "admissionId":"admission", "executionGeneration":2,
+            "usage":{"inputTokens":100,"outputTokens":10,"cachedReadTokens":40,"cost":9,"private":"secret"}}}}});
+        let execution = failed_prompt_execution(&error, "session", "prompt").unwrap();
+        assert_eq!(
+            execution["usage"],
+            json!({"inputTokens":100,"outputTokens":10,"cachedReadTokens":40})
+        );
+        assert!(failed_prompt_execution(&error, "other-session", "prompt").is_none());
+        assert!(failed_prompt_execution(&error, "session", "other-prompt").is_none());
+        let uncertain = json!({"error":{"data":{"code":"HERMES_EXECUTION_UNCERTAIN","sessionId":"session","promptId":"prompt"}}});
+        assert!(prompt_outcome_uncertain(&uncertain, "session", "prompt"));
+        assert!(!prompt_outcome_uncertain(
+            &uncertain,
+            "session",
+            "other-prompt"
+        ));
+        assert!(!prompt_outcome_uncertain(
+            &uncertain,
+            "other-session",
+            "prompt"
+        ));
+        assert!(!prompt_outcome_uncertain(&error, "session", "prompt"));
+        for (key, value) in [
+            ("admissionId", json!("")),
+            ("executionGeneration", json!(0)),
+        ] {
+            let mut invalid = error.clone();
+            invalid["error"]["data"]["rovaiHermesExecution"][key] = value;
+            assert!(failed_prompt_execution(&invalid, "session", "prompt").is_none());
+        }
     }
 
     // Actual native patch hunks are fragments, never proposed or full states.

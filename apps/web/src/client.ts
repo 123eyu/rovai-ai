@@ -281,7 +281,8 @@ const RECONCILABLE_COMMANDS = new Set<WebOperation>([
 ])
 
 export type ConnectionState = 'connecting' | 'live' | 'offline' | 'expired'
-type PendingCommand = { operation: WebOperation; params: unknown; resolve(value: unknown): void; reject(error: unknown): void }
+export type RequestResult<T> = { result: T; source: 'direct' | 'recovery' }
+type PendingCommand = { operation: WebOperation; params: unknown; resolve(value: unknown, source?: RequestResult<unknown>['source']): void; reject(error: unknown): void }
 export type UploadProgress = { id: string; name: string; phase: 'hashing' | 'transferring' | 'binding' | 'unknown' | 'received'; percent: number; cancelled: boolean }
 type UploadTarget = { kind: 'pasted_text' } | { kind: 'single_chat'; conversationId: string }
   | { kind: 'single_chat_pending'; conversationId: string; pendingInputId: string; editToken: string }
@@ -682,8 +683,13 @@ export class ConsoleClient {
   }
 
   async request<T>(operation: WebOperation, params: unknown = {}): Promise<T> {
+    return (await this.requestWithSource<T>(operation, params)).result
+  }
+
+  /** Client-only provenance; the RPC value and persisted command/receipt shape stay unchanged. */
+  async requestWithSource<T>(operation: WebOperation, params: unknown = {}): Promise<RequestResult<T>> {
     const commandId = params && typeof params === 'object' && 'commandId' in params ? params.commandId : undefined
-    if (!RECONCILABLE_COMMANDS.has(operation) || typeof commandId !== 'string') return this.#rpc<T>(operation, params)
+    if (!RECONCILABLE_COMMANDS.has(operation) || typeof commandId !== 'string') return { result: await this.#rpc<T>(operation, params), source: 'direct' }
     if (!this.authenticated) throw new SessionRequired()
     this.#assertConnected()
     if ([...this.#pending.values()].some(entry => entry.operation === operation)) throw new Error('同类操作的原提交仍待核对，请先核对原提交结果。')
@@ -691,8 +697,9 @@ export class ConsoleClient {
     // Keep the original request and promise alive through connection/session
     // loss. Shared production handlers retain their submitting state; no new ID
     // or automatic redispatch is manufactured by the Web adapter.
-    return new Promise<T>((resolve, reject) => {
-      const entry = { operation, params: structuredClone(params), resolve: (value: unknown) => resolve(value as T), reject }
+    return new Promise<RequestResult<T>>((resolve, reject) => {
+      const entry: PendingCommand = { operation, params: structuredClone(params),
+        resolve: (value, source = 'direct') => resolve({ result: value as T, source }), reject }
       this.#pending.set(commandId, entry)
       this.#notifyPending()
       void this.#dispatchCommand(commandId, entry)
@@ -702,7 +709,7 @@ export class ConsoleClient {
   async #dispatchCommand(commandId: string, entry: PendingCommand, preserveUnknown = false): Promise<void> {
     await this.#rpc(entry.operation, entry.params, preserveUnknown).then(value => {
         if (this.#pending.get(commandId) !== entry) return
-        this.#pending.delete(commandId); this.#notifyPending(); entry.resolve(value)
+        this.#pending.delete(commandId); this.#notifyPending(); entry.resolve(value, preserveUnknown ? 'recovery' : 'direct')
       }).catch(async error => {
         if (!preserveUnknown && (error instanceof ConnectionUnavailable || error instanceof HttpRequestError && ['operation_not_admitted', 'workspace_not_authorized', 'request_capacity'].includes(error.code))) {
           if (this.#pending.get(commandId) === entry) { this.#pending.delete(commandId); this.#notifyPending(); entry.reject(error) }
@@ -729,7 +736,7 @@ export class ConsoleClient {
       if (this.#pending.get(commandId) !== entry) return
       this.#pending.delete(commandId); this.#notifyPending()
       if (receipt.state === 'recorded' && receipt.error) entry.reject(new CoreRequestError(receipt.error.code, receipt.error.message))
-      else if (receipt.state === 'recorded') entry.resolve(receipt.result)
+      else if (receipt.state === 'recorded') entry.resolve(receipt.result, 'recovery')
       else entry.reject(error) // Explicit Core completion plus a successful absent-receipt lookup.
     } catch { this.#requireRecovery() /* Still unknown if reconciliation itself could not complete. */ }
   }
@@ -1004,7 +1011,7 @@ export class ConsoleClient {
         if (receipt.state === 'recorded' && this.#pending.get(id) === entry) {
           this.#pending.delete(id); this.#notifyPending()
           if (receipt.error) entry.reject(new CoreRequestError(receipt.error.code, receipt.error.message))
-          else entry.resolve(receipt.result)
+          else entry.resolve(receipt.result, 'recovery')
         }
       } catch { /* Unknown stays associated with its original commandId. */ }
     }

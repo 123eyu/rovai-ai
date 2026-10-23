@@ -100,12 +100,12 @@ const receipts = new Map<string, StoredCommandResult>()
 const withdrawal = new MessageWithdrawal({
   store: reeditStore,
   async request(request) {
-    if (receipts.has(request.commandId)) return receipts.get(request.commandId)!
+    if (receipts.has(request.commandId)) return { result: receipts.get(request.commandId)!, source: 'recovery' }
     await new Promise(resolve => setTimeout(resolve, 300))
     if (state.failure === 'failure') {
       change({ failure: null })
       const result = { status: 'rejected' } as StoredCommandResult
-      receipts.set(request.commandId, result); return result
+      receipts.set(request.commandId, result); return { result, source: 'direct' }
     }
     const failure = state.failure
     change({ messages: state.messages.map(m => m.id === request.command.messageId ? erased(m) : m), failure: null })
@@ -113,7 +113,7 @@ const withdrawal = new MessageWithdrawal({
     receipts.set(request.commandId, result)
     if (failure === 'ready-storage-failure') failReadyWrite = true
     if (failure === 'unknown') throw new Error('模拟回执丢失')
-    return result
+    return { result, source: 'direct' }
   },
   accepted() {},
   async refresh() { if (state.scenario === 'refresh-failure') throw new Error('模拟列表刷新失败') },

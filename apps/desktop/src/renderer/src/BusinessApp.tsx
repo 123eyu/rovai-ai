@@ -3952,7 +3952,8 @@ export function BusinessApp({
   withdrawalCallbacks.current = { refresh: refreshActiveThreadSnapshot, notify }
   const messageWithdrawal = useMemo(() => new MessageWithdrawal({
     store: reeditStore,
-    request: request => client.request<StoredCommandResult>('thread.messages.withdraw', request),
+    request: request => client.withdrawMessage ? client.withdrawMessage(request)
+      : client.request<StoredCommandResult>('thread.messages.withdraw', request).then(result => ({ result, source: 'direct' })),
     accepted: (_threadId, messageId) => {
       setOptimisticThreadMessages(current => current.filter(entry => entry.message.id !== messageId))
     },

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StoredCommandResult, ThreadMessageView } from '@contracts'
 import { composerDocumentFromText } from './composer-document'
 import { MessageReeditStore, messageReeditDocument, REEDIT_LIMITS, REEDIT_TTL_MS, type WithdrawalRequest } from './message-reedit-store'
-import { MessageWithdrawal } from './message-withdrawal'
+import { MessageWithdrawal, type WithdrawalResult } from './message-withdrawal'
 
 class MemoryStorage {
   data = new Map<string, string>()
@@ -123,7 +123,7 @@ describe('withdrawn message local recovery', () => {
     vi.setSystemTime(1_000_000)
     const storage = new MemoryStorage(), store = new MessageReeditStore('scope', storage)
     const target = Object.assign(new EventTarget(), { document: Object.assign(new EventTarget(), { visibilityState: 'visible' }) }) as unknown as Window
-    const changed = vi.fn(), unsubscribe = store.subscribe(changed)
+    const changed = vi.fn(), unsubscribe = store.subscribe('thread', 'message', changed)
     const stop = store.start(target)
     store.stage(command(), text)
     store.confirm(command())
@@ -149,11 +149,57 @@ describe('withdrawn message local recovery', () => {
     expect(explicit.segments[0]).toEqual({ kind: 'atom', atom: { type: 'member', agentId: 'member' } })
     expect(messageReeditDocument({ body: '引用内容', content: [{ kind: 'current_user_mention', userId: 'local_user' }] })).toBeNull()
   })
+  it('notifies only the affected message, stays quiet on unchanged sweeps, and expires automatically', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000_000)
+    const storage = new MemoryStorage(), store = new MessageReeditStore('scope', storage)
+    const target = Object.assign(new EventTarget(), { document: Object.assign(new EventTarget(), { visibilityState: 'visible' }) }) as unknown as Window
+    const changed = vi.fn(), unrelated = vi.fn()
+    const unsubscribe = store.subscribe('thread', 'message', changed)
+    const historicalRows = Array.from({ length: 150 }, (_, i) => store.subscribe('thread', `historical-${i}`, unrelated))
+    const stop = store.start(target)
+    store.stage(command(), text)
+    expect(changed).not.toHaveBeenCalled()
+    store.confirm(command())
+    expect(changed).toHaveBeenCalledTimes(1)
+    store.sweep(); store.sweep(); target.dispatchEvent(new Event('focus'))
+    expect(changed).toHaveBeenCalledTimes(1)
+    expect(unrelated).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(REEDIT_TTL_MS)
+    expect(storage.length).toBe(0)
+    expect(store.readReady('thread', 'message')).toBeNull()
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(unrelated).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    stop(); unsubscribe(); historicalRows.forEach(unsubscribe => unsubscribe())
+  })
+  it('routes another window’s write/deletion to its message, including storage.clear()', () => {
+    const f = fixture()
+    const target = Object.assign(new EventTarget(), { document: Object.assign(new EventTarget(), { visibilityState: 'visible' }) }) as unknown as Window
+    const changed = vi.fn(), unrelated = vi.fn()
+    const unsubscribe = f.store.subscribe('thread', 'message', changed)
+    const unsubscribeOther = f.store.subscribe('thread', 'historical', unrelated)
+    const stop = f.store.start(target)
+    const second = new MessageReeditStore('profile/owner', f.storage, f.now)
+    second.stage(command(), text); second.confirm(command())
+    const key = f.storage.key(0)!
+    target.dispatchEvent(Object.assign(new Event('storage'), { key }))
+    expect(changed).toHaveBeenCalledTimes(1)
+    expect(f.store.readReady('thread', 'message')).toEqual(text)
+    second.deleteThread('thread')
+    target.dispatchEvent(Object.assign(new Event('storage'), { key }))
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(f.store.readReady('thread', 'message')).toBeNull()
+    expect(unrelated).not.toHaveBeenCalled()
+    target.dispatchEvent(Object.assign(new Event('storage'), { key: null }))
+    expect(unrelated).toHaveBeenCalledOnce()
+    stop(); unsubscribe(); unsubscribeOther()
+  })
 })
 
 describe('withdrawal request integration', () => {
   function adapter(f = fixture()) {
-    const request = vi.fn(async (_request: WithdrawalRequest) => applied)
+    const request = vi.fn(async (_request: WithdrawalRequest): Promise<WithdrawalResult> => ({ result: applied, source: 'direct' }))
     const refresh = vi.fn(async (_threadId: string) => undefined), accepted = vi.fn(), notify = vi.fn()
     const withdrawal = new MessageWithdrawal({ store: f.store, request, refresh, accepted, notify, rejectionMessage: () => '业务拒绝' })
     return { ...f, withdrawal, request, refresh, accepted, notify }
@@ -170,7 +216,7 @@ describe('withdrawal request integration', () => {
     for (const phase of ['pending', 'ready']) {
       const f = adapter()
       if (phase === 'pending') f.storage.failWrites = true
-      else f.request.mockImplementationOnce(async () => { f.storage.failWrites = true; return applied })
+      else f.request.mockImplementationOnce(async () => { f.storage.failWrites = true; return { result: applied, source: 'direct' } })
       await expect(f.withdrawal.withdraw('thread', source)).resolves.toBeUndefined()
       expect(f.request).toHaveBeenCalledTimes(1)
       expect(f.accepted).toHaveBeenCalledOnce()
@@ -201,16 +247,63 @@ describe('withdrawal request integration', () => {
     f.advance(REEDIT_TTL_MS)
     expect(restarted.store.readReady('thread', 'message')).toBeNull()
   })
+  it.each(['storage failure', 'attachment only'])('reuses an unknown request without a text copy: %s', async kind => {
+    const f = adapter()
+    f.storage.failWrites = kind === 'storage failure'
+    const message = kind === 'attachment only' ? { ...source, body: '', content: [] } : source
+    f.request.mockRejectedValueOnce(new Error('response lost'))
+    await expect(f.withdrawal.withdraw('thread', message)).rejects.toThrow('尚未确认')
+    expect(f.store.pending()).toEqual([])
+    const original = f.request.mock.calls[0][0]
+    await f.withdrawal.withdraw('thread', { ...message, version: 99 })
+    expect(f.request.mock.calls[1][0]).toEqual(original)
+    expect(f.store.readReady('thread', 'message')).toBeNull()
+  })
+  it.each(['applied', 'rejected'] as const)('forgets the memory-only identity after a definitive %s result', async status => {
+    const f = adapter(), message = { ...source, body: '', content: [] }
+    f.request.mockRejectedValueOnce(new Error('response lost'))
+    await expect(f.withdrawal.withdraw('thread', message)).rejects.toThrow('尚未确认')
+    const original = f.request.mock.calls[0][0]
+    f.request.mockResolvedValueOnce({ result: { status } as StoredCommandResult, source: 'direct' })
+    await f.withdrawal.withdraw('thread', message).catch(() => undefined)
+    expect(f.request.mock.calls[1][0]).toEqual(original)
+    await f.withdrawal.withdraw('thread', { ...message, version: 2 })
+    expect(f.request.mock.calls[2][0].commandId).not.toBe(original.commandId)
+    expect(f.request.mock.calls[2][0].command.expectedVersion).toBe(2)
+  })
+  it('deduplicates an in-flight request even when saving the recovery copy fails', async () => {
+    const f = adapter()
+    f.storage.failWrites = true
+    let complete!: (value: WithdrawalResult) => void
+    f.request.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    const first = f.withdrawal.withdraw('thread', source)
+    const second = f.withdrawal.withdraw('thread', { ...source, version: 99 })
+    expect(second).toBe(first)
+    expect(f.request).toHaveBeenCalledOnce()
+    complete({ result: applied, source: 'direct' })
+    await first
+  })
+  it('keeps unknown request identity after copy expiry without recreating the expired body on retry', async () => {
+    const f = adapter()
+    f.request.mockRejectedValueOnce(new Error('response lost'))
+    await expect(f.withdrawal.withdraw('thread', source)).rejects.toThrow('尚未确认')
+    const original = f.request.mock.calls[0][0]
+    f.advance(REEDIT_TTL_MS); f.store.sweep()
+    await f.withdrawal.withdraw('thread', { ...source, version: 99 })
+    expect(f.request.mock.calls[1][0]).toEqual(original)
+    expect(f.store.readReady('thread', 'message')).toBeNull()
+    expect(f.storage.length).toBe(0)
+  })
   it('removes rejected copies and never restores text from a late callback after deletion', async () => {
     const f = adapter()
-    f.request.mockResolvedValueOnce({ status: 'rejected' } as StoredCommandResult)
+    f.request.mockResolvedValueOnce({ result: { status: 'rejected' } as StoredCommandResult, source: 'direct' })
     await expect(f.withdrawal.withdraw('thread', source)).rejects.toThrow('业务拒绝')
     expect(f.store.pending()).toEqual([])
-    let complete!: (value: StoredCommandResult) => void
+    let complete!: (value: WithdrawalResult) => void
     f.request.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
     const pending = f.withdrawal.withdraw('thread', source)
     f.store.deleteThread('thread')
-    complete(applied)
+    complete({ result: applied, source: 'direct' })
     await pending
     expect(f.storage.length).toBe(0)
     expect(f.store.readReady('thread', 'message')).toBeNull()

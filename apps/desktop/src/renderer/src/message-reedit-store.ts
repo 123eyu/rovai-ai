@@ -1,5 +1,5 @@
 import type { ComposerDocument, ThreadMessageView } from '@contracts'
-import { composerDocumentFromLegacyContent, composerDocumentFromText, parseComposerClipboardDocument } from './composer-document'
+import { composerDocumentFromLegacyContent, composerDocumentFromText, normalizeComposerDocument, validateComposerDocument } from './composer-document'
 
 export const REEDIT_TTL_MS = 120_000
 export const REEDIT_LIMITS = { recordBytes: 64 * 1024, totalBytes: 512 * 1024, records: 100 } as const
@@ -35,8 +35,7 @@ export function messageReeditDocument(message: Pick<ThreadMessageView, 'content'
 /** A bounded, best-effort client store. Limits are not reservations or cross-window transactions. */
 export class MessageReeditStore {
   private readonly prefix: string
-  private readonly listeners = new Set<() => void>()
-  private revision = 0
+  private readonly listeners = new Map<string, Set<() => void>>()
   private timer: ReturnType<typeof setTimeout> | null = null
   private running = false
 
@@ -46,11 +45,16 @@ export class MessageReeditStore {
     private readonly now: () => number = Date.now
   ) { this.prefix = `${PREFIX}${encodeURIComponent(scope)}:` }
 
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
+  subscribe(threadId: string, messageId: string, listener: () => void): () => void {
+    const key = this.key(threadId, messageId)
+    const listeners = this.listeners.get(key) ?? new Set()
+    listeners.add(listener)
+    this.listeners.set(key, listeners)
+    return () => {
+      listeners.delete(listener)
+      if (!listeners.size) this.listeners.delete(key)
+    }
   }
-  getSnapshot = (): number => this.revision
 
   private key(threadId: string, messageId: string, scope = this.scope): string {
     return `${PREFIX}${encodeURIComponent(scope)}:${encodeURIComponent(threadId)}:${encodeURIComponent(messageId)}`
@@ -71,8 +75,9 @@ export class MessageReeditStore {
         || !['pending', 'ready'].includes(r.state)
         || (r.state === 'pending' ? r.expiresAt !== null
           : !Number.isFinite(r.expiresAt) || r.expiresAt! <= 0 || r.expiresAt! > r.pendingExpiresAt + REEDIT_TTL_MS)) return null
-      const document = parseComposerClipboardDocument(JSON.stringify(r.document))
-      if (!document || !document.segments.length || document.segments.some(segment =>
+      if (!validateComposerDocument(r.document)) return null
+      const document = normalizeComposerDocument(r.document)
+      if (!document.segments.length || document.segments.some(segment =>
         segment.kind === 'atom' && !['member', 'all_members'].includes(segment.atom.type))) return null
       return { ...r, document }
     } catch { return null }
@@ -106,10 +111,12 @@ export class MessageReeditStore {
   }
   private remove(key: string): void {
     try { this.storage?.removeItem(key) } catch { /* Reads still reject expired/unreadable records. */ }
+    this.changed(key)
   }
-  private changed(): void {
-    ++this.revision
-    this.listeners.forEach(listener => listener())
+  private changed(key: string | null): void {
+    // Only storage.clear() needs a broadcast. Ordinary sweeps do not invalidate unrelated rows.
+    if (key === null) this.listeners.forEach(listeners => listeners.forEach(listener => listener()))
+    else this.listeners.get(key)?.forEach(listener => listener())
   }
   private write(record: ReeditRecord): boolean {
     try { this.storage!.setItem(this.key(record.request.command.threadId, record.request.command.messageId), JSON.stringify(record)); return true }
@@ -140,6 +147,7 @@ export class MessageReeditStore {
     const saved = this.write({ ...record, state: 'ready',
       expiresAt: recovered ? record.pendingExpiresAt : this.now() + REEDIT_TTL_MS })
     if (!saved) this.remove(this.key(threadId, messageId))
+    else this.changed(this.key(threadId, messageId))
     this.sweep()
     return saved
   }
@@ -168,12 +176,14 @@ export class MessageReeditStore {
       else next = Math.min(next, this.deadline(record))
     }
     if (this.running && Number.isFinite(next)) this.timer = setTimeout(this.sweep, Math.max(0, next - this.now()))
-    this.changed()
   }
   start(target: Window = window): () => void {
     this.running = true
     const storageChanged = (event: StorageEvent): void => {
-      if (event.key === null || event.key.startsWith(PREFIX)) this.sweep()
+      if (event.key === null || event.key.startsWith(PREFIX)) {
+        this.sweep()
+        this.changed(event.key)
+      }
     }
     const visible = (): void => { if (target.document.visibilityState === 'visible') this.sweep() }
     target.addEventListener('storage', storageChanged)

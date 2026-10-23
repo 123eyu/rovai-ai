@@ -97,7 +97,7 @@ cargo test -p rovai-core --lib thread_reference::
 
 User sequence 20 要求修复审查中确认的问题。修复分支 `rovai/thread-reference-fixes`，
 基线 `4dcee9faecde07e06575e99e6221bd78f728b398`，隔离 worktree 为
-`/Users/murray.xue/.codex/worktrees/thread-reference-fixes/rovai-ai`。
+`<worktree-root>/thread-reference-fixes/rovai-ai`。
 
 - 选文：带标点标题会使整条消息 DOM 映射失败，普通标题跨段选择会夹带隐藏链接。
   前端和 Core 只将结构化引用映射为真实标题，保留普通 Text、原始 bodyAtSelection 和旧快照。
@@ -106,6 +106,8 @@ User sequence 20 要求修复审查中确认的问题。修复分支 `rovai/thre
   空查询跳过字符匹配；保留现有排序与游标，不增加表、搜索服务或 Context 版本。
 - 刷新：只接收相关目录变化，Web 通过现有 SSE 传递 referencesChanged 布尔标记。
   固定刷新截止时间，最多一个读取与一个后续刷新；无关事件、连续事件和慢响应不会产生重复并发或永久推迟。
+  新增界面回归发现监听目标原来来自持久化 document，现场新选入的引用可能不刷新；改为从既有
+  onEffectiveDocumentChange 派生当前引用 ID，覆盖编辑、撤销与历史回看，不建立新的可编辑权威。
 
 验证归属：扩展已有 `readable_projection_preserves_selected_text_without_markdown_wrappers`、
 `capture_fences_source_identity_and_keeps_literal_instruction_snapshots` 与

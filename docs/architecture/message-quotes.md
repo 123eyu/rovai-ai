@@ -2,7 +2,7 @@
 document_type: architecture
 authority: message-quote-ownership-and-projection
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # 消息选文引用

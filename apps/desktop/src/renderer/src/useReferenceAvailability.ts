@@ -12,9 +12,12 @@ export function isReferenceDirectoryEvent(event: CoreEvent): boolean {
 
 const EMPTY = new Map<string, ReferenceCandidate | null>()
 
-export function useReferenceAvailability(scope: ReferenceScope | undefined, document: ComposerDocument) {
-  const identities = [...new Map(document.segments.flatMap(segment => segment.kind === 'atom' && isReferenceAtom(segment.atom)
+export function composerReferenceIdentities(document: ComposerDocument): ReferenceIdentity[] {
+  return [...new Map(document.segments.flatMap(segment => segment.kind === 'atom' && isReferenceAtom(segment.atom)
     ? [[referenceIdentity(segment.atom).id, referenceIdentity(segment.atom)] as const] : [])).values()]
+}
+
+export function useReferenceAvailability(scope: ReferenceScope | undefined, identities: ReferenceIdentity[]) {
   const key = JSON.stringify(identities)
   const [state, setState] = useState<{ scope: string; items: Map<string, ReferenceCandidate | null> }>({ scope: '', items: new Map() })
   useEffect(() => {

@@ -4,7 +4,7 @@ contract: message-quotes
 version: 1
 status: accepted
 authority: immutable-message-excerpts
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Message Quotes v1

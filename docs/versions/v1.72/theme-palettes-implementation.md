@@ -77,6 +77,18 @@ User 指出原版的对比色更合适，并在 sequence 25 提供 `rovai-theme-
 - 生产组件 fixture 构建通过；浏览器确认默认地平线、六项选择器与白色执行台，无横向溢出及 warning/error。
 - 保存独立 HTML、会话与外观设置截图；预览仅使用固定数据，不接入 Host 或 Runtime。
 
+## 队员浮层与合入验收（Thread sequence 27–28）
+
+User 在 Thread sequence 27–28 确认其余效果并要求 PR 合入 main，同时指出「队员」浮层底色不符。
+地平线的 `--inspector-surface` 收敛为 `#ffffff`，使浮层外壳、置顶摘要与队员列表使用同一中性白；
+不改变队员管理交互或其余配色。首帧原生窗口背景同步地平线当前画布色；主线新增的引用功能与翻译已合并保留。
+
+- 同步 `origin/main` 后的 `pnpm typecheck`、`pnpm build:desktop`、`pnpm test`、`pnpm test:rust:pr` 通过。
+- Vitest：252 个文件、2886 项通过，2 项既有跳过；完整 Node 门禁通过。
+- 首轮完整 Node 门禁中钉钉文件投递用例等待超时；该文件独立复验 73 项通过，随后完整门禁再次通过，没有改动该用例。
+- 浏览器实测队员浮层和置顶摘要均为 `rgb(255, 255, 255)`，四位队员完整显示，无横向溢出；截图随 Thread 交付。
+- 通用文档测试、版本/决策门禁以及以最新 main 为 base 的 CI 文档门禁通过。
+
 ## Worktree handoff
 
 - Work item: 三款新主题与六项紧凑选择器。
@@ -85,4 +97,4 @@ User 指出原版的对比色更合适，并在 sequence 25 提供 `rovai-theme-
 - Base: `origin/main` / `186d1cfcf0c0cfff342aa36282b35d75436613c5`
 - Governance: none；User 已授权实施并明确原版参照，UI 合同随同提交。
 - Status: ready
-- Next: User 验收地平线修订稿；保留 worktree。按 User 既有偏好不自动创建 PR。
+- Next: 按 User sequence 27 的明确授权创建 PR，检查通过后合入 main 并清理 worktree。

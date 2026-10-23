@@ -19,14 +19,14 @@ last_updated: 2026-10-23
 以暖瓷白阅读区、浅岩灰侧栏和 Steel 蓝灰强调色形成温和的冷暖与深浅对比。
 User 在主题设计 Thread sequence 25 明确参照 `rovai-theme-refined-v3.html` 中点击「看原版」后的地平线；
 配色直接来自该稿的 `baselineOptions.horizon.tokens`，而非精修版的灰绿配色。
-执行台沿用 sequence 20 减暖修订的中性白，避免大面积泛黄。
+执行台沿用 sequence 20 减暖修订的中性白；sequence 27–28 指出的队员浮层同样使用中性白，避免详情区域泛黄。
 沿用 sequence 18 的交互边界，不加入生产没有的聚焦效果或功能。
 
 ## Surface hierarchy and color responsibilities
 
 会话区 `#fcfbf7`、侧栏 `#eae7e1` 与气泡 `#eeeae2` 恢复参照稿的表面层次，
 强调色 `#4e6c7e` 与正文 `#252a2d` 保留蓝灰方向。
-执行台通过 `--execution-surface: #ffffff` 与会话底色分离；输入与浮层使用原稿的近白色 `#fffefb`，
+执行台与队员详情分别通过 `--execution-surface: #ffffff`、`--inspector-surface: #ffffff` 与会话底色分离；输入与通用浮层使用原稿的近白色 `#fffefb`，
 代码块 `#f0f1ed` 与 Evidence 使用原稿的低饱和灰色。消息气泡使用生产几何与同色边线。
 品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
 实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
@@ -75,7 +75,7 @@ User 在主题设计 Thread sequence 25 明确参照 `rovai-theme-refined-v3.htm
 | `--conversation-find-match` | `#f4e4c3` |
 | `--conversation-find-current` | `#edc66f` |
 | `--conversation-find-line` | `#bd8a38` |
-| `--inspector-surface` | `#f4f1eb` |
+| `--inspector-surface` | `#ffffff` |
 | `--conversation-inspector-line` | `#b9b7b2` |
 | `--home-surface` | `#fcfbf7` |
 | `--topbar` | `#f8f6f1` |

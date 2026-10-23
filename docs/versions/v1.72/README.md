@@ -11,6 +11,15 @@ last_updated: 2026-10-23
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 撤回消息两分钟重新编辑（2026-10-23）
+
+按 User 确认，以客户端 localStorage 短期副本支持重新编辑，Core 保持撤回原文擦除。
+正文及显式成员 @ 可回填；已有草稿先确认替换，默认队长显示前缀不带回。刷新不续期，
+副本到期不删除已回填的普通草稿；↑↓ 保持原有本轮固定内容规则。
+合同见 [Message Reedit v1](../../contracts/message-reedit-v1.md)，范围与验证见
+[实施记录](implementation-plan.md#撤回消息两分钟重新编辑2026-10-23)。更新 Architecture、UI 和文档路由；
+无 Core schema、命令协议、模型上下文或发布版本变化。局部可逆客户端功能，无需新增 Version Decision。
+
 ## 全界面分隔线快速松手（2026-10-23）
 
 按 User 确认的第二版交互稿，把可折叠分隔线统一为“到最小值停住、继续内推 64px、松手收起”，

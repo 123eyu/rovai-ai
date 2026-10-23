@@ -13,13 +13,13 @@ const root = await realpath(resolve(home, '..')), project = join(root, 'compress
 await mkdir(project, { recursive: true })
 const options = { executable: process.env.ROVAI_HERMES_BIN,
   script: resolve(import.meta.dirname, '../crates/rovai-core/src/hermes/host.py'), cwd: project,
-  env: { ...process.env, HERMES_HOME: home } }
+  env: { ...process.env, HERMES_HOME: home, ROVAI_HERMES_STORAGE: join(root, 'compression-storage') } }
 let client = await openHermesAcp(options)
 const bootstrap = 'You are running a compression acceptance. System identity code: HERMES-SYSTEM-7392. Follow the requested native file reads. Never run a manual compression command. Keep the user anchor through automatic compression.'
 const bind = sessionId => client.request('_rovai/bind', { sessionId, bootstrap, sha256: createHash('sha256').update(bootstrap).digest('hex') })
 async function prompt(sessionId, text) {
   const start = client.events.length
-  const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text }] }, 600000)
+  const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text }], _meta: { rovai: { promptId: crypto.randomUUID() } } }, 600000)
   assert.equal(result.stopReason, 'end_turn')
   const events = client.events.slice(start)
   const output = events.filter(e => e.params?.update?.sessionUpdate === 'agent_message_chunk')

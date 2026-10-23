@@ -2065,7 +2065,13 @@ async fn run_acp_probe_with_scope(
         command.args(["--permission-mode", "default"]);
     }
     if kind == AdapterKind::HermesCli {
-        crate::hermes::configure_command(&mut command, &probe_root).await?;
+        crate::hermes::configure_command(
+            &mut command,
+            &probe_root,
+            &probe_root.join("hermes-storage"),
+            None,
+        )
+        .await?;
     } else if kind == AdapterKind::DeepseekHarness {
         crate::dsh::configure_probe(&mut command, &probe_root)?;
     } else if kind == AdapterKind::OpencodeCli && catalog_only {
@@ -2143,10 +2149,11 @@ async fn run_acp_probe_with_scope(
             let mut initialize = read_rpc_result(lines, 1).await?;
             if kind == AdapterKind::HermesCli {
                 anyhow::ensure!(
-                    initialize
-                        .pointer("/agentInfo/version")
-                        .and_then(Value::as_str)
-                        == Some("0.22.4"),
+                    crate::hermes::supported_version(
+                        initialize
+                            .pointer("/agentInfo/version")
+                            .and_then(Value::as_str)
+                    ),
                     "Unsupported Hermes ACP version"
                 );
                 write_json_line(

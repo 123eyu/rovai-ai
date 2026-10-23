@@ -177,7 +177,11 @@ fn admit_candidate(
         AdapterKind::HermesCli => {
             protocol_family == "acp-v1"
                 && ((semantic_kind == "reported_mutation"
-                    && source_event_kind == "session/update.tool_call_update.completed.patch")
+                    && matches!(
+                        source_event_kind,
+                        "session/update.tool_call_update.completed.patch"
+                            | "session/update.tool_call_update.completed.file_result"
+                    ))
                     || (semantic_kind == "hermes_file_states"
                         && source_event_kind == "session/update.tool_call_update.completed"))
         }

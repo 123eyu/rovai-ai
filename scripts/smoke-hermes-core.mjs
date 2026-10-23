@@ -91,8 +91,8 @@ try {
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?').get(thread).n, 1, 'Steer created a successor')
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM runtime_input_delivery WHERE agent_run_id=? AND input_kind='steer' AND status='accepted'").get(run.id).n, 1, 'Core did not acknowledge targeted Steer')
     const evidence = db.prepare('SELECT kind, result_preview_json FROM agent_run_execution_evidence WHERE agent_run_id = ?').all(run.id ?? run.agentRunId)
-    assert(evidence.some(row => row.result_preview_json?.includes('hermes_file_states')), 'Verified native file states missing')
-    assert(evidence.some(row => JSON.parse(row.result_preview_json ?? '{}').runtimeFileOperation?.changeKind === 'add'), 'New file was not classified as Add')
+    assert(evidence.some(row => row.result_preview_json?.includes('reported_mutation')), 'Native file fragments missing')
+    assert(!evidence.some(row => row.result_preview_json?.includes('hermes_file_states')), 'Official display evidence was misclassified as full states')
     let context
     const contextDeadline = Date.now() + 5000
     while (Date.now() < contextDeadline) {

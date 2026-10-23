@@ -1856,6 +1856,8 @@ impl AcpHost {
             crate::hermes::configure_command(
                 &mut command,
                 private_config_root.context("Hermes private Host missing")?,
+                &private_runtime_dir.join("hermes-storage"),
+                startup_bootstrap,
             )
             .await?;
         }
@@ -6633,6 +6635,20 @@ impl AcpCliRuntimeAdapter {
         }
         #[cfg(target_os = "macos")]
         ManagedProcess::recover_descendants(&self.private_runtime_dir.join("owned-processes"))?;
+        #[cfg(target_os = "macos")]
+        if kind == AdapterKind::HermesCli {
+            let bindings = self.private_runtime_dir.join("hermes-bindings");
+            if bindings.is_dir() {
+                for binding in std::fs::read_dir(bindings)? {
+                    let binding = binding?;
+                    if binding.file_type()?.is_dir() {
+                        ManagedProcess::recover_descendants(
+                            &binding.path().join("owned-processes"),
+                        )?;
+                    }
+                }
+            }
+        }
         if matches!(
             kind,
             AdapterKind::CopilotCli
@@ -6695,7 +6711,17 @@ impl AcpCliRuntimeAdapter {
         let spawn_builtin_tool_factory = builtin_tool_factory.clone();
         let spawn_external_mcp_servers = external_mcp_servers.clone();
         let spawn_attachment_access_root = attachment_access_root.to_path_buf();
-        let spawn_private_runtime_dir = self.private_runtime_dir.clone();
+        let spawn_private_runtime_dir = if self.kind == AdapterKind::HermesCli {
+            // Native sessions survive controller teardown, but never share a
+            // Gateway owner/lock with another binding or the user's native CLI.
+            self.private_runtime_dir
+                .join("hermes-bindings")
+                .join(canonical_json_digest(
+                    &json!({"binding": native_binding_id}),
+                )?)
+        } else {
+            self.private_runtime_dir.clone()
+        };
         let spawn_startup_bootstrap = startup_bootstrap.map(str::to_owned);
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
@@ -6910,10 +6936,12 @@ impl AcpCliRuntimeAdapter {
 fn completed_run_release_disposition(adapter_kind: AdapterKind) -> FleetReleaseDisposition {
     if matches!(
         adapter_kind,
-        AdapterKind::KiroCli | AdapterKind::CursorAgent
+        AdapterKind::KiroCli | AdapterKind::CursorAgent | AdapterKind::HermesCli
     ) {
         // Kiro keeps a Native Session locked for the lifetime of its ACP
         // process. Cursor Host reuse remains outside the current contract.
+        // Hermes freezes Gateway environment per Run; cold-resume its private
+        // native session so the next Run receives fresh built-in credentials.
         FleetReleaseDisposition::Stop
     } else {
         FleetReleaseDisposition::Reusable

@@ -18278,7 +18278,7 @@ impl Core {
     ) -> Result<(String, Option<String>)> {
         if !matches!(
             execution.runtime.adapter_kind,
-            AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
+            AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli | AdapterKind::HermesCli
         ) {
             return Ok((digest, None));
         }
@@ -18294,8 +18294,11 @@ impl Core {
             canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))?;
         Ok((
             digest,
-            (execution.runtime.adapter_kind == AdapterKind::MinimaxCodeCli)
-                .then_some(bootstrap.payload),
+            matches!(
+                execution.runtime.adapter_kind,
+                AdapterKind::MinimaxCodeCli | AdapterKind::HermesCli
+            )
+            .then_some(bootstrap.payload),
         ))
     }
 
@@ -18390,7 +18393,7 @@ impl Core {
             binding_credential = self.prepare_builtin_tool_binding(execution, true).await?;
             if matches!(
                 execution.runtime.adapter_kind,
-                AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
+                AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli | AdapterKind::HermesCli
             ) {
                 let digest = acp::runtime_compatibility_digest(
                     &execution.runtime,
@@ -23190,7 +23193,7 @@ fn normalize_acp_event_with_completion(
                         "sourceEventKind":"session/update.tool_call_update.completed","semanticKind":"hermes_file_states","entries":entries});
                 } else if let Some(entries) = crate::hermes::reported_patch(&update) {
                     payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
-                        "sourceEventKind":"session/update.tool_call_update.completed.patch","semanticKind":"reported_mutation","entries":entries});
+                        "sourceEventKind":"session/update.tool_call_update.completed.file_result","semanticKind":"reported_mutation","entries":entries});
                 }
             }
             if adapter_kind == AdapterKind::CommandCodeCli

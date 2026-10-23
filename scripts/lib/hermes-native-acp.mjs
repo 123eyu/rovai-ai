@@ -1,5 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { join } from 'node:path'
+import { symlink } from 'node:fs/promises'
 
 // Hermes resolves the exact interpreter and boot environment. Replace only the
 // known entry point, retaining the official isolated bootstrap and native Home.
@@ -14,6 +16,13 @@ export function hermesManagedCommand(executable, script, env = process.env) {
 }
 
 export async function openHermesAcp({ executable, script, cwd, env }) {
+  if (env.ROVAI_HERMES_DEPENDENCY_HOME) {
+    await symlink(join(env.ROVAI_HERMES_DEPENDENCY_HOME, 'installs'), join(env.HERMES_HOME, 'installs'), 'dir')
+      .catch(error => { if (error.code !== 'EEXIST') throw error })
+  }
+  env = { ...env, ROVAI_HERMES_LAUNCHER: executable,
+    HERMES_DISABLE_LAZY_INSTALLS: '1',
+    ROVAI_HERMES_STORAGE: env.ROVAI_HERMES_STORAGE ?? join(env.HERMES_HOME, 'rovai-storage') }
   const [command, ...args] = hermesManagedCommand(executable, script, env)
   const child = spawn(command, args, { cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
   const events = [], pending = new Map()

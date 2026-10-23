@@ -33,7 +33,7 @@ async function bind(sessionId) {
 }
 async function prompt(sessionId, text) {
   const start = client.events.length
-  const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text }] })
+  const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text }], _meta: { rovai: { promptId: crypto.randomUUID() } } })
   assert.equal(result.stopReason, 'end_turn')
   const events = client.events.slice(start)
   const output = events.filter(m => m.params?.update?.sessionUpdate === 'agent_message_chunk')
@@ -56,11 +56,7 @@ try {
   const warm = await prompt(id, 'Return only the system code again.')
   assert(warm.output.includes('SYSTEM-CERULEAN-7832'))
   results.warmUsage = warm.result.usage
-  results.compaction = await client.request('_rovai/compact', { sessionId: id })
-  assert.equal(results.compaction.sessionId, id)
-  assert.equal(results.compaction.status, 'compressed')
-  const compressed = await prompt(id, 'Return only the system code after compression.')
-  assert(compressed.output.includes('SYSTEM-CERULEAN-7832'))
+  await assert.rejects(client.request('_rovai/compact', { sessionId: id }), error => error.rpcError?.code === -32601)
   assert.equal((await client.close()).code, 0)
   client = await openHermesAcp(options)
   await assert.rejects(client.request('session/resume', { sessionId: 'missing-hermes-target', cwd: project, mcpServers }),
@@ -71,7 +67,7 @@ try {
   assert(resumed.output.includes('MCP-COPPER-6842') && resumed.output.includes('SYSTEM-CERULEAN-7832'))
   results.coldResume = true
   await assert.rejects(client.request('session/new', { cwd: project, mcpServers: [] }),
-    error => error.rpcError?.code === -32004)
+    error => error.rpcError?.code === -32003)
   results.changedAssignmentRejected = true
   console.log(JSON.stringify(results, null, 2))
   await writeFile(join(root, 'native-summary.json'), JSON.stringify(results, null, 2))

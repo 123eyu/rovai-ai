@@ -47,7 +47,8 @@ try{
   client=await openHermesAcp({executable:process.env.ROVAI_HERMES_BIN,script:resolve(import.meta.dirname,'../crates/rovai-core/src/hermes/host.py'),cwd:project,
     env:{...process.env,HERMES_HOME:home,ROVAI_HERMES_FIXTURE_KEY:'controlled-fixture'}})
   const session=await client.request('session/new',{cwd:project,mcpServers:[]}), sessionId=session.sessionId
-  const prompt=()=>client.request('session/prompt',{sessionId,prompt:[{type:'text',text:'ORDINARY-PAYLOAD-552'}]})
+  let promptSequence=0
+  const prompt=()=>client.request('session/prompt',{sessionId,prompt:[{type:'text',text:'ORDINARY-PAYLOAD-552'}],_meta:{rovai:{promptId:`wire-${++promptSequence}`}}})
   await assert.rejects(prompt(),e=>e.rpcError?.code===-32002)
   for(const marker of ['BOOTSTRAP-ONE-771','BOOTSTRAP-TWO-882']){
     await assert.rejects(client.request('_rovai/bind',{sessionId,bootstrap:marker,sha256:'invalid'}),e=>e.rpcError?.code===-32602)

@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 use crate::{agent_profile::AdapterKind, command::canonical_json_digest};
 
-pub const REVISION: &str = "rovai-hermes-host-v2";
+pub const REVISION: &str = "rovai-hermes-host-v3";
 const HOST: &str = include_str!("hermes/host.py");
 const NATIVE_ENTRY: &str =
     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)";
@@ -83,9 +83,16 @@ fn managed_argv(mut argv: Vec<String>, script: &Path) -> Result<Vec<String>> {
 }
 
 /// Resolve through the selected launcher's official machine boundary. No shell
-/// parsing, interpreter search, dependency installation or foreign Home copying.
-pub async fn configure_command(command: &mut Command, root: &Path) -> Result<()> {
+/// parsing, interpreter search or dependency installation. The controller starts
+/// unmodified official CLI children in a binding-scoped private native Home.
+pub async fn configure_command(
+    command: &mut Command,
+    root: &Path,
+    storage: &Path,
+    bootstrap: Option<&str>,
+) -> Result<()> {
     let native = command.as_std();
+    let launcher = native.get_program().to_owned();
     ensure!(
         native.get_args().next().is_none(),
         "Hermes entry must be configured before arguments"
@@ -107,6 +114,7 @@ pub async fn configure_command(command: &mut Command, root: &Path) -> Result<()>
             resolver.env_remove(key);
         }
     }
+    resolver.env("HERMES_DISABLE_LAZY_INSTALLS", "1");
     if let Some(cwd) = &cwd {
         resolver.current_dir(cwd);
     }
@@ -142,6 +150,22 @@ pub async fn configure_command(command: &mut Command, root: &Path) -> Result<()>
     }
     if let Some(cwd) = cwd {
         managed.current_dir(cwd);
+    }
+    let storage = crate::platform::private_storage::prepare_private_directory(storage)?;
+    managed.env("ROVAI_HERMES_LAUNCHER", launcher);
+    managed.env("HERMES_DISABLE_LAZY_INSTALLS", "1");
+    managed.env("ROVAI_HERMES_STORAGE", storage);
+    if let Some(bootstrap) = bootstrap {
+        let path = root.join("bootstrap.txt");
+        fs::write(&path, bootstrap)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        }
+        managed.env("ROVAI_HERMES_BOOTSTRAP_FILE", path);
+    } else {
+        managed.env_remove("ROVAI_HERMES_BOOTSTRAP_FILE");
     }
     *command = managed;
     Ok(())
@@ -239,6 +263,26 @@ mod tests {
 /// fragments, never complete file states or a proposal inferred from arguments.
 pub fn reported_patch(update: &Value) -> Option<Value> {
     let output = &update["rawOutput"];
+    if update["status"] == "completed"
+        && output.get("error").is_none_or(Value::is_null)
+        && output["no_change"] != true
+        && ((update["rawInput"]["tool"] == "patch" && output["success"] == true)
+            || (update["rawInput"]["tool"] == "write_file" && output["verified"] == true))
+        && let Some(entries) = update
+            .pointer("/_meta/rovaiHermesMutation")
+            .and_then(Value::as_array)
+    {
+        let paths = output["files_modified"].as_array()?;
+        if !entries.is_empty()
+            && entries.len() <= 64
+            && entries.iter().all(|entry| {
+                entry["semantics"] == "reported_mutation" && paths.contains(&entry["path"])
+            })
+        {
+            return Some(json!(entries));
+        }
+        return None;
+    }
     if update["status"] != "completed"
         || update["rawInput"]["tool"] != "patch"
         || output["success"] != true

@@ -2,7 +2,6 @@
 // reasoning config, active redirect, questionnaire exclusion and provider errors.
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, writeFile, readFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -61,8 +60,6 @@ try {
   client = await openHermesAcp(options)
   const session = await client.request('session/new', { cwd: project, mcpServers: [] }), sessionId = session.sessionId
   await client.request('session/set_mode', { sessionId, modeId: 'dont_ask' })
-  const bootstrap = 'Run the requested integration fixture. Never ask a questionnaire.'
-  await client.request('_rovai/bind', { sessionId, bootstrap, sha256: createHash('sha256').update(bootstrap).digest('hex') })
   const prompt = id => client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'Execute the fixture.' }], _meta: { rovai: { promptId: id } } })
   const selected = await client.request('session/set_config_option', { sessionId, configId: 'model', value: 'custom:fixture:fixture-model' })
   assert.equal(selected.configOptions.find(o => o.id === 'model').currentValue, 'custom:fixture:fixture-model', 'Named custom endpoint identity did not round-trip')
@@ -151,7 +148,6 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     client = await openHermesAcp({ ...options, env: { ...options.env, ROVAI_HERMES_MCP_NAMES: JSON.stringify(code ? ['ownedproof'] : []) } })
     const servers = code ? [{ name: 'ownedproof', command: process.execPath, args: [fixture], env: [{ name: 'PROOF_CODE', value: code }] }] : []
     await client.request('session/load', { sessionId, cwd: project, mcpServers: servers })
-    await client.request('_rovai/bind', { sessionId, bootstrap, sha256: createHash('sha256').update(bootstrap).digest('hex') })
     const searchAt = client.events.length
     queue.push([{ name: 'tool_search', args: { queries: ['ownedproof'] } }])
     await prompt('mcp-schema-' + code)

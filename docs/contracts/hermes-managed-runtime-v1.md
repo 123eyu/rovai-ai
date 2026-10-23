@@ -44,20 +44,33 @@ Skills 连接到原生路径，Run 内禁用隐式依赖下载。相对 Skills �
 共享 Core 的目标丢失处理；不静默新建，不从错误文本猜测缺失。历史 replay 留在既有隔离阶段。
 存在未结算执行、待处理 admission 或 permission 时拒绝新 prompt。
 
-采用 ManagedSystemPrompt。Core prepared Bootstrap B 随 Run 启动写入私有文件，再由
-`HERMES_EPHEMERAL_SYSTEM_PROMPT` 传给新 Gateway。注入前调用官方 resolver，遵循 env 优先、有效
-`display.personality` 次之、`agent.system_prompt` 回退的原生顺序，解析出的 overlay 与原样 B 各追加一次。
-不因 B 非空而遮蔽仅写在 config 的用户附加指令；不改变 Hermes 基础 system prompt。
-`_rovai/bind` 核对 Session、
-B 原文与 SHA-256，128 KiB 上限；空值、摘要不符和活动执行拒绝。ACK 匹配才发送 P；P 保持原始普通
-输入，不重拼 Profile、不提升 RUN_INPUT 权限，不把 B 写入用户 Home 或聊天历史。
-Probe 的晚绑定会重启 Gateway 并恢复同 Session；生产在启动时提供 B，不需要这次额外重启。
+采用 Hermes 专属 `first_payload`：Core 为成员准备的完整 Bootstrap B 原样放在第一条实际普通任务
+P 前，使用 `[Rovai 协作规则]` 分隔，同一次 `session/prompt` 提交；不增加确认调用。
+规则变化使用“规则更新”块；原生压缩完成后的下一普通输入使用“规则恢复”块。准确字节见
+[已确认 R1](../versions/v1.72/model-context-change-hermes-first-input.md)。B/P 的内容来源、Formatter 和共享选择不变。
+这是 **user 层协作规则**，不提供 system/developer 层优先级。controller 不解析或覆盖 personality、
+agent.system_prompt、HERMES_EPHEMERAL_SYSTEM_PROMPT；这些值继续由原生 Gateway 自行解析。
 
-每 Run 冷启动同步更新 B 与 Built-in CLI lease；终端通过原生 env_passthrough 获得本 Run 的 ROVAI 环境。
-禁止暖 Gateway 只换 viewer 却保留旧 B/lease。不改变共享 B/P 文案、选择、Formatter、Manifest 或版本。
+“首次”按 Native Binding/generation 对应的原生 Session 和 `runtime_input_delivery.status=accepted`
+判断，进程重启不重复。完整 B 的 SHA-256 包含成员身份，下一普通输入接受后才推进已投递状态。
+Hermes envelope v1 在既有输入账本增加 nullable `hermes_rules_envelope_version`、`hermes_rules_digest`、
+`hermes_rules_delivery_kind`（initial/update/compaction_recovery/none）与 `hermes_runtime_payload_blob_id`。
+最终正文复用 Managed Blob 冻结，引用随 prepared 原子持久化，并进入原有 request digest；恢复原字节。
+prepared、dispatch、delivery_unknown 均不代替 accepted；未知原任务不得因补规则自动重放。
+此处是 Hermes 对“完整身份不进入 Delivery digest/Blob”的明确例外，其他 Runtime 保持原合同。
+
+官方 `post_compaction` Hook 只在私有 Home 配置，并只准入已提交、同 Session 的 `summarize`；
+原生 Session 旋转、失败、started、其他 kind 不猜测为当前 Session 的完成事件。
+通过既有 CLI observer、Host/relay lease、Binding/generation 与 outbox 去重产生 Redelivery Requirement。
+下一条尚未物化的普通输入附带一份当前 B 和本次 P；Steer 不携带规则，也不消费 Requirement。
+仅输入 accepted ACK 消费选定 revision，较晚完成事件保持 pending。**不保证当前 Run 内立即补回**，
+不额外创建 Run、提示词调用或重放旧任务。通知不可用时不能宣称已恢复。
+
 只依赖原生阈值自动压缩；`_rovai/compact` 返回不支持，不新增手动压缩按钮。
-`_rovai/session_info` 只读窗口、压缩次数与历史条数；尚未建立模型状态时窗口可未知。系统 overlay
-在 API 调用层生效，不因压缩丢失。
+`_rovai/session_info` 的窗口、次数与历史条数只是观测，不作为补发信号；protect_first_n 不是永久保留保证。
+每 Run 仍创建新的进程树并刷新 Built-in CLI lease，终端通过原生 env_passthrough 获得本 Run 的 ROVAI 环境。
+旧 managed_system_prompt Evidence 保留原义；既有 Session 下一条新普通任务带一次更新，旧冻结输入不重写。
+controller revision v4 删除 bootstrap 文件、system 注入、`_rovai/bind` 及仅用于重绑 B 的 Gateway 重启。
 
 Steer 携带 Session、Core prompt ID 与 input ID。controller 在 prompt 前取得 replay 基线，关联唯一
 message.start admission 与 execution generation，再调用公开 `session.steer`。只有 queued 且 generation
@@ -117,4 +130,4 @@ image=true 宣称具体模型的识图验收通过。
 
 macOS arm64 为 Preview，其他平台 Not Qualified。Ready 只证明当前安装/认证/协议探测。
 能力证据与限制见 [Hermes 验证记录](../research/hermes-runtime/README.md)。Migration 214 / projection
-schema 164 仅扩展 Runtime、Skill group 闭集，保留既有 Run、Binding、成员与历史。
+schema 164 扩展 Runtime、Skill group 闭集；Migration 215 / schema 165 仅增加 nullable Hermes 输入证据，保留既有 Run、Binding、成员、输入与历史。

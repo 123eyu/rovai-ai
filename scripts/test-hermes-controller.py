@@ -12,7 +12,7 @@ HOST = Path(__file__).resolve().parents[1] / "crates/rovai-core/src/hermes/host.
 spec = importlib.util.spec_from_file_location("hermes_controller", HOST)
 host = importlib.util.module_from_spec(spec)
 # Home preparation is outside these owners; loading the controller needs no
-# installed Hermes. Native resolver behavior is covered by the wire smoke.
+# installed Hermes. Native prompt precedence is covered by the wire smoke.
 with patch.dict(sys.modules, {"hermes_yaml": types.ModuleType("hermes_yaml")}):
     spec.loader.exec_module(host)
 
@@ -46,7 +46,7 @@ class PromptSettlement(unittest.IsolatedAsyncioTestCase):
 
     def setup_controller(self, *, admitted=True, stop="end_turn", error=None):
         c = host.Controller.__new__(host.Controller)
-        c.bound, c.active, c.prompt_pending, c.failure, c.session = True, None, False, None, "session"
+        c.active, c.prompt_pending, c.failure, c.session = None, False, None, "session"
         c.update = Mock()
         c.tool_update = Mock()
         snapshot = {"replay_epoch": "epoch", "last_sequence": 0, "execution_generation": 1}

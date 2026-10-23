@@ -9,7 +9,6 @@ import asyncio
 import contextlib
 import copy
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,8 +19,7 @@ import uuid
 
 import hermes_yaml as yaml
 
-REVISION = "rovai-hermes-host-v3"
-MAX_BOOTSTRAP_BYTES = 128 * 1024
+REVISION = "rovai-hermes-host-v4"
 
 
 def native_file_fragments(name, result, inline, cwd):
@@ -175,7 +173,9 @@ def prepare_home():
     if bundled.is_dir():
         platform_names.update(path.name for path in bundled.iterdir() if path.is_dir())
     config["platforms"] = {name: {"enabled": False} for name in platform_names}
-    config.setdefault("gateway", {}).update(multiplex_profiles=False, auto_resume=False)
+    # Native config accepts an empty YAML section (gateway: null).
+    config["gateway"] = config.get("gateway") or {}
+    config["gateway"].update(multiplex_profiles=False, auto_resume=False)
     config.setdefault("auxiliary", {}).setdefault("title_generation", {}).update(enabled=False, model_upgrade_enabled=False)
     config["auxiliary"].setdefault("background_review", {})["enabled"] = False
     config.setdefault("memory", {}).update(memory_enabled=False, user_profile_enabled=False)
@@ -209,6 +209,16 @@ def prepare_home():
         skills["external_dirs"] = [skill_path(p) for p in skills["external_dirs"]]
     if isinstance(skills.get("create_dir"), str) and skills["create_dir"].strip():
         skills["create_dir"] = skill_path(skills["create_dir"])
+    hook_command = os.environ.get("ROVAI_HERMES_COMPACTION_HOOK")
+    if hook_command:
+        from hermes_cli.plugins import VALID_HOOKS, SHELL_UNSUPPORTED_HOOKS
+        if "post_compaction" not in VALID_HOOKS or "post_compaction" in SHELL_UNSUPPORTED_HOOKS:
+            raise Rejected("Hermes post_compaction shell hook unavailable")
+        config.setdefault("hooks", {}).setdefault("post_compaction", []).append(
+            {"command": hook_command, "timeout": 5})
+        # Consent only this owned observer, never blanket-approve user hooks.
+        private_write(home / "shell-hooks-allowlist.json", json.dumps({"approvals": [
+            {"event": "post_compaction", "command": hook_command}]}))
     private_write(home / "config.yaml", yaml.safe_dump(config, allow_unicode=True))
     os.environ["HERMES_HOME"] = str(home)
     # Reuse the selected installation's prepared dependency environment. Starting
@@ -228,18 +238,12 @@ class Controller:
         self.pending = {}
         self.serial = 0
         self.session = self.attach = self.active = None
-        self.bound = False
         self.initialization = None
         self.reasoning = "runtime_default"
         self.models = {}
         self.efforts = []
         self.watermark = None
         self.failure = None
-        from gateway.run_config_loaders import GatewayConfigLoadersMixin
-        self.native_overlay = GatewayConfigLoadersMixin._load_ephemeral_system_prompt()
-        path = os.environ.get("ROVAI_HERMES_BOOTSTRAP_FILE")
-        self.bootstrap = Path(path).read_text() if path else ""
-        self.bootstrap_digest = hashlib.sha256(self.bootstrap.encode()).hexdigest()
         self.lifecycle = asyncio.Lock()
         self.stopping = False
         self.prompt_pending = False
@@ -331,7 +335,6 @@ class Controller:
         # Native daemon storm backoff otherwise mistakes consecutive Runs (and
         # probe rebinds) for crashes and eventually exceeds our startup deadline.
         env["HERMES_GATEWAY_MAX_STARTS"] = "0"
-        env["HERMES_EPHEMERAL_SYSTEM_PROMPT"] = "\n\n".join(p for p in (self.native_overlay, self.bootstrap) if p)
         self.gateway = await asyncio.create_subprocess_exec(self.launcher, "--profile", "default", "gateway", "run", "--force", "--no-supervise", "--external-supervisor", env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, limit=4*1024*1024)
         self.task(self.stderr(self.gateway))
         deadline = asyncio.get_running_loop().time() + 55
@@ -532,8 +535,6 @@ class Controller:
             raise Rejected("Hermes could not discover every assigned MCP server")
 
     async def prompt(self, params):
-        if not self.bound:
-            raise Rejected("Hermes Bootstrap is unbound", -32002)
         if self.active or self.prompt_pending:
             raise Rejected("Hermes Run is already active", -32000)
         prompt_id = params.get("_meta", {}).get("rovai", {}).get("promptId")
@@ -660,25 +661,6 @@ class Controller:
             return result
         if params.get("sessionId") != self.session or not self.session:
             raise Rejected("Unknown Hermes session", -32602)
-        if method == "_rovai/bind":
-            bootstrap = params.get("bootstrap")
-            if not isinstance(bootstrap, str) or not bootstrap.strip() or len(bootstrap.encode()) > MAX_BOOTSTRAP_BYTES or hashlib.sha256(bootstrap.encode()).hexdigest() != params.get("sha256"):
-                raise Rejected("Invalid Bootstrap size or digest", -32602)
-            if self.active:
-                raise Rejected("Cannot bind an active Hermes Run")
-            if bootstrap != self.bootstrap:
-                # Probe clients can bind after session/new. Production passes B
-                # at spawn and only verifies this ACK; no double cold start.
-                async with self.lifecycle:
-                    await self.stop()
-                    self.bootstrap = bootstrap
-                    await self.start()
-                    await self.native("session/load", self.attach)
-                    await self.idle_snapshot()
-                    if self.attach["mcpServers"]:
-                        await self.bind_mcp()
-            self.bound = True
-            return {"revision": REVISION, "sessionId": self.session, "sha256": params["sha256"]}
         if method == "session/prompt":
             return await self.prompt(params)
         if method in ("session/cancel", "_rovai/steer"):

@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 use crate::{agent_profile::AdapterKind, command::canonical_json_digest};
 
-pub const REVISION: &str = "rovai-hermes-host-v3";
+pub const REVISION: &str = "rovai-hermes-host-v4";
 const HOST: &str = include_str!("hermes/host.py");
 const NATIVE_ENTRY: &str =
     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)";
@@ -85,12 +85,7 @@ fn managed_argv(mut argv: Vec<String>, script: &Path) -> Result<Vec<String>> {
 /// Resolve through the selected launcher's official machine boundary. No shell
 /// parsing, interpreter search or dependency installation. The controller starts
 /// unmodified official CLI children in a binding-scoped private native Home.
-pub async fn configure_command(
-    command: &mut Command,
-    root: &Path,
-    storage: &Path,
-    bootstrap: Option<&str>,
-) -> Result<()> {
+pub async fn configure_command(command: &mut Command, root: &Path, storage: &Path) -> Result<()> {
     let native = command.as_std();
     let launcher = native.get_program().to_owned();
     ensure!(
@@ -155,18 +150,6 @@ pub async fn configure_command(
     managed.env("ROVAI_HERMES_LAUNCHER", launcher);
     managed.env("HERMES_DISABLE_LAZY_INSTALLS", "1");
     managed.env("ROVAI_HERMES_STORAGE", storage);
-    if let Some(bootstrap) = bootstrap {
-        let path = root.join("bootstrap.txt");
-        fs::write(&path, bootstrap)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-        }
-        managed.env("ROVAI_HERMES_BOOTSTRAP_FILE", path);
-    } else {
-        managed.env_remove("ROVAI_HERMES_BOOTSTRAP_FILE");
-    }
     *command = managed;
     Ok(())
 }

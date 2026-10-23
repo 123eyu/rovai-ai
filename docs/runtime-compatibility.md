@@ -6,6 +6,14 @@ last_updated: 2026-10-23
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-23 Hermes 首次输入规则
+
+当前 user 层规则投递与完成通知后的下一普通输入恢复，见
+[实施验证](versions/v1.72/hermes-first-input-implementation.md)。下节系统层压缩资格属于调整前路径，
+不能转移为首条 user 规则永久保留的保证。进程、取消、文件与 usage 的既有证据仍各自保留。
+本轮真实 Core 的 Steer/取消/Send 通过；强杀后的原生 admission 为 unknown，续轮被安全拒绝。
+该次崩溃续接不计通过，详见[脱敏记录](research/hermes-runtime/first-input-core-recovery-2026-10-23.json)。
+
 ## 2026-10-23 Hermes 初始接入
 
 官方 source install 0.22.4 / commit `4d04303818b61bf3aa09278af48356315515965b`，macOS arm64。

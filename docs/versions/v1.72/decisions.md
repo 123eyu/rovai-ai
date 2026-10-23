@@ -1264,3 +1264,21 @@ Steer/取消、reasoning/MCP mutation 和原生事件补充。controller 借用�
 代价是每 Run 冷启动成本、binding 独立 Home 和多进程回收；官方结果只足以提供文件片段，不能延续早期
 完整文件快照的能力宣称。保留 >=0.22.4，不锁 commit/dirty/上界，实际能力与协议仍探测核对。
 macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成不晋升 Qualified；已测版本与兼容策略分开。
+
+
+<a id="v1-72-d60"></a>
+## V1.72-D60：Hermes 规则随用户输入交付，原生提示词由 Hermes 解析
+
+- 状态：accepted
+- 日期：2026-10-23
+- 当前权威：[Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md#session-与输入)、[Bootstrap v6](../../contracts/native-session-bootstrap-v6.md#hermes-的-user-层投递例外)、[Bootstrap Redelivery](../../architecture/native-session-bootstrap-redelivery.md#hermes-完成通知与下一普通输入)。
+- 确认：[Hermes 首次输入 R1](model-context-change-hermes-first-input.md)，User sequence 31。
+
+原先 system overlay 注入要求 Rovai 复刻原生 env/config/personality 优先级，增加持续兼容责任。
+选择复用 Core 的 B、在首条实际普通用户输入前置规则，让 Hermes 自行拥有原生系统提示词；代价是 user 层
+规则没有 system/developer 优先级，并且需要按精确接受事实跟踪规则更新和冷恢复。
+
+0.22.4 原生 protect_first_n 在首次压缩后退化，不能证明无限次完整保留。使用官方 committed Hook
+及已有输入账本，在下一普通输入补发，不介入当前 Run 的原生模型循环。接受这段完整规则可见性空窗。
+未选择继续解析并拼接原生 system overlay，也未选择补丁原生压缩器或在每轮无条件重复 B。
+进程/CLI lease 生命周期仍按 D59，不由投递位置改变推导旧进程可跨 Run 复用。

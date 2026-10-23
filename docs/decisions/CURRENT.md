@@ -355,3 +355,8 @@ MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architectu
 [Runtime Catalog](../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、
 [平台准入](../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
 官方 ACP＋专用 Gateway、逐 Run 冷恢复、最低版本策略与 Preview 的理由见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)。
+
+Hermes 的首次/更新 user 层投递与完成通知后下一普通输入补发规范见
+[Hermes 输入合同](../contracts/hermes-managed-runtime-v1.md#session-与输入)和
+[Redelivery 架构](../architecture/native-session-bootstrap-redelivery.md#hermes-完成通知与下一普通输入)，理由见
+[V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。

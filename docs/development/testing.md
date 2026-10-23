@@ -1710,3 +1710,19 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 它拥有原生文件阅读、失败恢复、迟到响应、键盘导航、逐队员配置与 MCP 凭据编辑的 Electron 交互覆盖；
 完整范围见 [fixture 说明](../../scripts/fixtures/capability-workspace/README.md)。旧 `SkillSettings` 页面及仅服务
 旧导入／交付组的单元测试已退役。Core 的历史 Library、Revision、投影恢复与兼容测试继续拥有旧数据路径。
+
+
+## Hermes 首次输入与完成通知
+
+`context::slow_tests::hermes_rules_follow_accepted_inputs_and_freeze_compaction_revisions` 拥有 Hermes 完整 B
+摘要、接受状态和冻结最终输入的组合合同。旧共享 Bootstrap owner 的稳定摘要刻意不含身份，不能证明
+身份单独变化、prepared/unknown 去重及较晚 compaction revision 的行为；复用现有 Context fixture，
+不引入完整 Core/进程 fixture。覆盖首次、重复、身份更新、未知恢复、较早 ACK 不消费较晚通知。
+`db::hermes::rules_tests::rules_migration_preserves_data_and_rolls_back_with_receipt` 拥有 Migration 215
+新增 FK/nullable 字段与 receipt 的 DDL 原子性；现有 catalog owner 验证的是闭集表重建，不能替代它。
+使用既有 seeded database；旧 catalog owner 同步向下构造 schema 164，再执行原有 rollback 矩阵。
+
+最低命令：`cargo test -p rovai-core --features slow-tests,extended-tests --lib hermes`。
+原 compaction policy owner 扩充 Hermes completed kind 的正反例；原 CLI outbox owner 增加未完成、缺字段和旋转 Session 的拒绝，既有 lease fencing owner 保留。
+原生请求与生产 Core 的边界由 `scripts/smoke-hermes-first-input.mjs` 拥有，与已有 qualification helper
+共用隔离启动器；真实模型自动压缩单独记录，不把合成 usage 当作实际账单或模型效果。

@@ -605,6 +605,10 @@ revision 轮换。新 Session 才冻结新模板，既有 Evidence 保持原 byt
 既有 eligible Bootstrap boundary 原子读取，不进入 AgentRun Dynamic Context，不持久化 Identity
 Blob、snapshot、digest 或 history。身份编辑不轮换 Session，也不构造下一 Run 的 patch。
 
+Hermes 的运输/证据例外见 [Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)：
+完整 Core Bootstrap 在 user 层首次或更新输入中投递，完整 B digest 与最终正文 Managed Blob
+随既有输入账本冻结；接受回执决定去重，身份更新不新建 Session。此例外不改变其他 Runtime。
+
 public Context Formatter v28 的 `COLLABORATION_STATE` 投影 只描述 peers。Core 从 stable current
 ThreadMembers 中排除 `snapshot.agent_id`；away 和 leave-requested 关系保留到正式 `left`。每个 peer
 只含 Agent ID、Name、Team Role 和 Professional Responsibilities；Default Lead 只以

@@ -2069,7 +2069,6 @@ async fn run_acp_probe_with_scope(
             &mut command,
             &probe_root,
             &probe_root.join("hermes-storage"),
-            None,
         )
         .await?;
     } else if kind == AdapterKind::DeepseekHarness {

@@ -1,7 +1,6 @@
 // Opt-in acceptance against the installed native executor and a real model.
 // Supply a private, preconfigured Hermes Home. No secret discovery or copying.
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { mkdir, writeFile, realpath } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { openHermesAcp } from './lib/hermes-native-acp.mjs'
@@ -49,15 +48,12 @@ const options = { executable: process.env.ROVAI_HERMES_BIN,
   script: resolve(import.meta.dirname, '../crates/rovai-core/src/hermes/host.py'), cwd: project,
   env: { ...process.env, HERMES_HOME: home } }
 const mcpServers = [{ name: 'hermesproof', command: process.execPath, args: [fixture], env: [] }]
-const bootstrap = 'For the integration check, remember system code SYSTEM-CERULEAN-7832. Keep it across turns and compression.'
-const sha256 = createHash('sha256').update(bootstrap).digest('hex')
+const bootstrap = 'For the integration check, remember rules code RULES-CERULEAN-7832. Keep it across turns and compression.'
+let firstInput = true
 const results = {}
 let client = await openHermesAcp(options)
-async function bind(sessionId) {
-  const ack = await client.request('_rovai/bind', { sessionId, bootstrap, sha256 })
-  assert.equal(ack.sha256, sha256)
-}
 async function prompt(sessionId, text) {
+  if (firstInput) { text = `[Rovai 协作规则]\n${bootstrap}\n[/Rovai 协作规则]\n\n${text}`; firstInput = false }
   const start = client.events.length
   const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text }], _meta: { rovai: { promptId: crypto.randomUUID() } } })
   assert.equal(result.stopReason, 'end_turn')
@@ -72,15 +68,14 @@ try {
   await client.request('session/set_mode', { sessionId: id, modeId: 'dont_ask' })
   const model = await client.request('session/set_config_option', { sessionId: id, configId: 'model', value: session.models.currentModelId })
   assert.equal(model.configOptions[0].currentValue, session.models.currentModelId)
-  await bind(id)
-  const first = await prompt(id, 'Call the hermesproof MCP probe tool, then use skill_view to read rovai-hermes-proof. Reply with the MCP proof code, skill proof code, and the system code from your instructions.')
-  for (const marker of ['MCP-COPPER-6842','SKILL-INDIGO-3941','SYSTEM-CERULEAN-7832']) assert(first.output.includes(marker), `Missing ${marker}`)
+  const first = await prompt(id, 'Call the hermesproof MCP probe tool, then use skill_view to read rovai-hermes-proof. Reply with the MCP proof code, skill proof code, and the rules code from your instructions.')
+  for (const marker of ['MCP-COPPER-6842','SKILL-INDIGO-3941','RULES-CERULEAN-7832']) assert(first.output.includes(marker), `Missing ${marker}`)
   assert(first.events.some(m => m.params?.update?.rawInput?.tool === 'skill_view'))
   assert(first.events.some(m => m.params?.update?.rawInput?.tool?.includes('hermesproof')))
-  console.log('Native MCP, Skill and system binding passed')
+  console.log('Native MCP, Skill and first-input rules passed')
   results.nativeTools = { mcp: true, skill: true, modelAcknowledged: true, firstUsage: first.result.usage }
-  const warm = await prompt(id, 'Return only the system code again.')
-  assert(warm.output.includes('SYSTEM-CERULEAN-7832'))
+  const warm = await prompt(id, 'Return only the rules code again.')
+  assert(warm.output.includes('RULES-CERULEAN-7832'))
   results.warmUsage = warm.result.usage
   await assert.rejects(client.request('_rovai/compact', { sessionId: id }), error => error.rpcError?.code === -32601)
   assert.equal((await client.close()).code, 0)
@@ -88,9 +83,8 @@ try {
   await assert.rejects(client.request('session/resume', { sessionId: 'missing-hermes-target', cwd: project, mcpServers }),
     error => error.rpcError?.data?.code === 'HERMES_SESSION_NOT_FOUND')
   await client.request('session/resume', { sessionId: id, cwd: project, mcpServers })
-  await bind(id)
-  const resumed = await prompt(id, 'Return the MCP code from the earlier conversation and the current system code, without calling tools.')
-  assert(resumed.output.includes('MCP-COPPER-6842') && resumed.output.includes('SYSTEM-CERULEAN-7832'))
+  const resumed = await prompt(id, 'Return the MCP code from the earlier conversation and the current rules code, without calling tools.')
+  assert(resumed.output.includes('MCP-COPPER-6842') && resumed.output.includes('RULES-CERULEAN-7832'))
   results.coldResume = true
   // Vision is a separate opt-in qualification: native image transport can work
   // while the configured model/auxiliary route still misidentifies the pixels.

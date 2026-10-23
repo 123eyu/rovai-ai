@@ -1861,7 +1861,6 @@ impl AcpHost {
                 &mut command,
                 private_config_root.context("Hermes private Host missing")?,
                 &private_runtime_dir.join("hermes-storage"),
-                startup_bootstrap,
             )
             .await?;
         }
@@ -4912,24 +4911,6 @@ impl AcpRuntime {
         session_id: &str,
         bootstrap: &str,
     ) -> Result<()> {
-        if self.host.adapter_kind == AdapterKind::HermesCli {
-            use sha2::{Digest, Sha256};
-            let digest = format!("{:x}", Sha256::digest(bootstrap.as_bytes()));
-            let result = self
-                .host
-                .rpc(
-                    "_rovai/bind",
-                    json!({"sessionId": session_id, "bootstrap": bootstrap, "sha256": digest}),
-                )
-                .await?;
-            ensure!(
-                result["revision"] == crate::hermes::REVISION
-                    && result["sessionId"] == session_id
-                    && result["sha256"] == digest,
-                "Hermes Bootstrap binding acknowledgement mismatch"
-            );
-            return Ok(());
-        }
         if self.host.adapter_kind == AdapterKind::ClineCli {
             return crate::cline::bind_bootstrap(
                 self.host
@@ -7977,6 +7958,7 @@ fn configure_compaction_detector_command(
             | AdapterKind::QoderCli
             | AdapterKind::CodebuddyCli
             | AdapterKind::QwenCode
+            | AdapterKind::HermesCli
     ) {
         return Ok(None);
     }
@@ -8014,10 +7996,14 @@ fn configure_compaction_detector_command(
                 AdapterKind::CopilotCli => "preCompact",
                 AdapterKind::QoderCli | AdapterKind::QwenCode => "PostCompact",
                 AdapterKind::CodebuddyCli => "SessionStart",
+                AdapterKind::HermesCli => "post_compaction",
                 _ => unreachable!(),
             }),
         );
         match adapter_kind {
+            AdapterKind::HermesCli => {
+                command.env("ROVAI_HERMES_COMPACTION_HOOK", &hook_command);
+            }
             AdapterKind::CopilotCli => {
                 let plugin_root = root.join("copilot-plugin");
                 std::fs::create_dir_all(&plugin_root)?;

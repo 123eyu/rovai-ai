@@ -17,7 +17,9 @@ last_updated: 2026-10-23
 本机采用官方 source distribution，入口 `~/.local/bin/hermes`。早期 Brew 0.22.2 已解除链接并保留供回退；
 没有安装 Hermes Desktop，也没有连接日常共享 Gateway。独立 worktree 为 `../rovai-ai-hermes-runtime`，
 PR 为 [#878](https://github.com/murray17/rovai-ai/pull/878)，交付前合入主线并保留双方版本记录。
-当前分支尚未合入 main 或安装到 Rovai 日常 App。Migration 214 / schema 164 只扩展 Runtime/Skill 闭集。
+当前分支尚未合入 main 或安装到 Rovai 日常 App。Migration 214 / schema 164 扩展 Runtime/Skill 闭集；
+215 / schema 165 增加 Hermes nullable 输入证据。后续 user 层投递变更与本页既有系统层验收分开记录，
+见[首次输入实施验证](../../versions/v1.72/hermes-first-input-implementation.md)。
 
 验收使用隔离 dataDirectory、project、Skill Library、MCP 文件、Hermes Home 与 Built-in lease；不访问
 日常 Electron userData。真实模型按 User 授权使用 Hermes 自身的 Sub2API / gpt-6.1-sol 配置。
@@ -35,8 +37,9 @@ controller 仅借用发行物的连接、发现和纯格式化帮助函数，运
 Gateway；Core 也恢复 binding 目录的 owned-processes 记录。config/凭据/用户 Skills 保留原生来源，
 SessionDB/socket/锁独立；禁用隐式依赖同步、消息平台、cron 和脱离 Run 的后台模型调用。
 
-B 由 Core 已准备内容在启动时进入 ephemeral system overlay，注入前按官方 env/config/personality resolver
-保留原生附加指令；SHA ACK 后发送普通 P，新进程刷新 CLI 环境。
+B 由 Core 已准备内容前置到首次普通用户输入；接受后不重复，规则更新和完成压缩通知后的下一普通输入
+各携带一次当前规则。controller 不再解析或覆盖原生 system/personality/env overlay，新进程仍刷新 CLI 环境。
+user 层运输与完整输入账本例外见 [D60](../../versions/v1.72/decisions.md#v1-72-d60)。
 公开 RPC 的 admission/generation 与 Core prompt ID 关联，提供精确 Steer/interrupt。MCP 使用原生 editor
 assignment，显式 mutation 验证全部发现并处理撤销；私有 config 排除 Rovai 同名服务，源配置不变。
 模型切换和 reasoning 以原生实际 ACK 为准，错误由对应 prompt receipt 保留原生脱敏详情。
@@ -52,9 +55,9 @@ CRLF 显示被规范化，空文件/纯移动可能没有文本片段。没有�
 | --- | --- | --- |
 | Auth / Provider / Model | 原生配置和目录，命名 endpoint/model ACK，effort 设置进入真实请求 | 仅已测 Sub2API；OAuth refresh 并发矩阵未执行 |
 | Host / Fleet / LRU | 独占 Gateway/ACP 树，binding 持久 Home，正常退出和取消回收 | 未跑满 20 Host LRU / 30 分钟 TTL |
-| Native Session | 精确 cold resume、缺失 Session 结构化拒绝；Core SIGKILL 后恢复同 ID 并成功 Send | 不把冷进程当新 Session；完整跨平台矩阵未执行 |
-| Bootstrap / Context | 受控 wire 验证 B 系统层、P 普通输入、替换绑定与新环境；真实 Core CLI | 不改共享 B/P 文案、选择、Formatter 或版本 |
-| Compaction | 原生 272000 窗口、204000 阈值，正常文件读取触发，压缩后与冷恢复保留锚点/B | 不降阈值、不调用主动压缩；取消压缩矩阵未验收 |
+| Native Session | 精确 cold resume、缺失 Session 结构化拒绝；正常重启原 ID 不重复规则 | 强杀后原生 admission 为 unknown 时安全拒绝续轮，不能保证所有崩溃立即续接；见[本轮证据](first-input-core-recovery-2026-10-23.json) |
+| Bootstrap / Context | user 层首条、后继、冷恢复、身份更新与接受账本；原生 env/config/personality 各生效一次 | 不提供 system/developer 优先级；不改共享 B/P 文案和 Formatter |
+| Compaction | 原生 272000/204000 窗口/阈值，真实模型两次自动压缩与冷恢复请求观察；Core 验证通知→下一输入→ACK | 不承诺同 Run 立即恢复；历史/摘要可能仍含旧规则，补发不清理原生历史；取消压缩矩阵未验收 |
 | Skills | 原生 skill_view 实际读取，用户/受信项目索引规则保留 | `.agents` 用户目录需 opt-in；`.env` 独有目录变量的菜单索引不等价 |
 | External MCP | 实际 tool_search/describe/call，精确原 Session 增加、改配置、撤销，同名 Rovai 优先，坏服务拒绝 | HTTP/SSE/OAuth 全矩阵未执行；直接 tools 数组不是全部工具 |
 | Tool / Action / Output | 原生 raw input/result，成功文件片段和 Core runtimeDiff 入库，失败/空/移动/二进制/大文件边界 | 无完整 before/after 承诺；terminal 任意写入无自动全量 Diff |
@@ -81,11 +84,12 @@ magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `
 ## 复现与验收归属
 
 - `test-hermes-controller.py`：纯 controller 状态机/解析器；ACP 先返回、Gateway 队列未消费，回放补齐精确 admission/工具证据且不重复；缺归属、gap、错 epoch/generation 拒绝；原生两个 Update 的空行与 SQL 注释删除，残缺/错路径/NUL 拒绝。
-- `smoke-hermes-wire.mjs`：安装的官方执行器＋loopback Responses；系统层/普通输入、替换绑定、usage delta、错误、无 admission 的 `/help`，env/system prompt/personality 三种原生 overlay 各与 B 共存一次，无后台模型调用。
+- `smoke-hermes-wire.mjs`：安装的官方执行器＋loopback Responses；user 层规则/普通输入、规则更新、usage delta、错误、无 admission 的 `/help`，env/system prompt/personality 三种原生 overlay 各按原生优先级生效，B 仅在 user 层，无后台模型调用。
 - `smoke-hermes-experience.mjs`：同一真实执行器，受控 Responses；reasoning、问卷排除、文件片段/失败边界（包含两个普通 Update 和 SQL 注释删除）、精确 Steer、错误模型详情、MCP 增改撤销/同名/失败。
 - `smoke-hermes-failed-usage.mjs`：隔离生产 Core＋原生执行器＋loopback Responses，首调用产生 tool call 和已知 usage，第二次调用 401；断言 Run failed、一次 prompt 用量入账、费用未知。纯 controller 测试不能替代该持久化 seam。
 - `smoke-hermes-native.mjs`：真实模型、MCP/Skill、model ACK、暖轮和冷恢复、缺失 Session 与重复 Session 拒绝；`ROVAI_HERMES_SMOKE_IMAGE=1` 独立开启严格识图资格断言。
-- `smoke-hermes-auto-compression.mjs`：真实模型，保持原生窗口/阈值，正常文件读取触发自动压缩；验证压缩后和精确冷恢复的用户锚点及 B。
+- `smoke-hermes-auto-compression.mjs`：真实模型，保持原生窗口/阈值，正常文件读取触发自动压缩；以实际请求与完成 Hook 验证下一输入补发和冷恢复。
+- `smoke-hermes-first-input.mjs`：隔离生产 Core、官方 ACP/Gateway 与 loopback Provider，检查首条/后继/冷恢复/身份更新的原生请求、接受账本及自动压缩通知后的补发；`--compression` 使用测试窗口/尾部配置与合成 usage，单独记账。
 - `smoke-hermes-core.mjs`：真实 Core＋模型，首条输入及时 ACK、同 Run Steer/公开 Send、runtimeDiff/context 入库、冷 Run 终端取消及回收；包含隔离 Core SIGKILL/重启恢复检查。
 - `smoke-hermes-official-acp.mjs`：切换前不经过 controller 的官方入口对照 Probe，不替代生产 Core 验收。
 

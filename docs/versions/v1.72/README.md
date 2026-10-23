@@ -14,12 +14,15 @@ last_updated: 2026-10-23
 ## Hermes Runtime（2026-10-23）
 
 按 User 要求在独立 worktree 接入 Hermes，并切换到未修改的官方 ACP＋专用 Gateway；最低版本 0.22.4，
-每 Run 冷恢复原 Session 以更新 B 与 CLI lease，macOS arm64 为 Preview。
+每 Run 冷恢复原 Session 并刷新 CLI lease，macOS arm64 为 Preview。
 实现范围、真实模型验证、清单及与其他 Adapter 的差异见 [Hermes 记录](../../research/hermes-runtime/README.md)。
 当前规范为 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D59](decisions.md#v1-72-d59)。
+首次普通 user 输入携带规则与压缩后下一输入补发已按 [R1](model-context-change-hermes-first-input.md) 确认，
+当前实施与验证见 [Hermes 首次输入记录](hermes-first-input-implementation.md)，投递层取舍见 [D60](decisions.md#v1-72-d60)。
 
-影响范围：新增 Adapter/原生启动与 Renderer 目录项；Migration 214 将 schema 163 扩展至 164；
-Context 仅新增 Adapter 到既有 ManagedSystemPrompt 映射，不改 B/P 字节、选择、Formatter/Manifest/Profile；
+影响范围：新增 Adapter/原生启动与 Renderer 目录项；Migration 214 将 schema 163 扩展至 164，215 将其扩展至 165；
+Hermes 采用 user 层首次/更新/压缩恢复包装，完整 B 的接受证据与精确最终 Blob 进入既有输入账本；
+B/P 内部 Formatter/Manifest/Profile 与其他 Adapter 不变；
 文档路由与 runtime 文件片段证据同步。无发布版本变更、既有会话 clean break、领域词汇变更或其他平台资格晋升。
 
 官方入口增量已验证自动压缩、精确插话/取消、原生文件片段、MCP 增改撤销与失败拒绝。图片运输已验证，

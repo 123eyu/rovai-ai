@@ -6,6 +6,7 @@ import { useTaskCapability } from './TaskCapabilityProvider'
 import { RunInputRow, RunInputSourceContext } from './RunInputRow'
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
+import { SplitterFeedback } from './SplitterFeedback'
 import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
@@ -8111,11 +8112,11 @@ function ExecutionDrawer({
           aria-valuenow={accessibleHeight}
           aria-valuetext={uiAttribute("{0} 像素；上下方向键调整，Enter 恢复默认高度", String(accessibleHeight))}
           tabIndex={0}
-          title={uiAttribute("上下拖动调整，最矮处停留后继续向下拖动收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
+          title={uiAttribute("上下拖动调整，最矮处继续向下内推，松开收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
           {...heightSplitter.handlers}
           onKeyDown={handleResizeKeyDown}
           onDoubleClick={() => { heightSplitter.cancel(); resetPreferredHeight() }}
-        />
+        ><SplitterFeedback phase={heightSplitter.phase} target={heightSplitter.target} label={uiAttribute('松开收起执行详情')} /></div>
       )}
         <header className={`execution-drawer-header${overview ? ' is-overview' : ''}`}>
           <div className="execution-drawer-agent">

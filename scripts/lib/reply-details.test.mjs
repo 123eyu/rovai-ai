@@ -57,6 +57,34 @@ test('reply detail navigation reveals and retains the original after layout and 
       }
       return draft
     }
+    const splitterDraft = await open({ loaded: true })
+    const replyGeometry = () => b.evaluate(`(() => {
+      const h = document.querySelector('.reply-detail-resize'), r = h.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + 80), width: Number(h.getAttribute('aria-valuenow')) };
+    })()`)
+    const replyMouse = (type, point) => b.send('Input.dispatchMouseEvent', { type, x: point.x, y: point.y,
+      button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 })
+    let replyStart = await replyGeometry()
+    await replyMouse('mousePressed', replyStart)
+    await replyMouse('mouseReleased', { ...replyStart, x: replyStart.x + replyStart.width - 390 })
+    await b.wait('document.querySelector(".reply-detail-resize").getAttribute("aria-valuenow") === "390"')
+    replyStart = await replyGeometry()
+    await replyMouse('mousePressed', replyStart)
+    await replyMouse('mouseMoved', { ...replyStart, x: replyStart.x + replyStart.width - 280 })
+    await b.wait('document.querySelector(".splitter-feedback")?.textContent === "松开收起回复详情"')
+    await pause(400)
+    assert.equal((await replyGeometry()).width, 360, 'Holding beyond the threshold preserves the minimum')
+    await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+    await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+    await replyMouse('mouseReleased', replyStart)
+    assert.equal((await replyGeometry()).width, 390, 'Escape restores the previous reply width')
+    replyStart = await replyGeometry()
+    await replyMouse('mousePressed', replyStart)
+    await replyMouse('mouseReleased', { ...replyStart, x: replyStart.x + replyStart.width - 280 })
+    await b.wait('!document.querySelector(".reply-detail-panel")')
+    assert.equal(await b.evaluate('document.querySelector("[contenteditable=true]").textContent'), splitterDraft,
+      'Fast release closes the reply pane without changing the conversation draft')
+    results.push({ name: 'reply minimum, cancellation and final-coordinate release' })
     for (const scenario of [
       { width: 1920, full: false }, { width: 1440, full: true }, { width: 1040, full: false }
     ]) {

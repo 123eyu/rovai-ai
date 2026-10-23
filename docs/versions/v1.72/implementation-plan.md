@@ -4032,3 +4032,39 @@ worktree `rovai-ai-restore-agent-file-width`，基线 `c0f8a0df7309913f63f8e12c1
 `pnpm test:composer-input` 三项通过：既有生产夹具验证中英文、日夜主题、用户卡片 224px、
 Agent 列表 620px 上限及 200px 窄容器收缩，截图人工复核通过。验收使用隔离 Electron，无 Core 或真实 Runtime。
 基于上述基线运行通用文档门禁；源码布局评估与机械扫描未发现本次恢复的阻断问题。
+
+
+## 全界面分隔线快速松手（2026-10-23）
+
+User 在分隔线交互 Thread sequence 11 授权全界面实施、PR 到 main 并合并；独立 worktree
+`rovai-ai-splitter-release-consistency`，分支 `rovai/splitter-release-consistency`，基线 `e9cfbeac4`。
+
+共享 `useCollapsibleSplitter` 取消最小值停留计时。越过最小值 64px 立即进入可收起状态并显示短暂提示，
+按住时不自动收起；反向退出阈值取消意图。松手按最终指针坐标提交，未越过阈值保持最小值；
+确认收起后保留 160ms 动画，系统或 App 减少动态效果设置只省去动画。取消、失焦、捕获异常、
+容器或作用域变化恢复手势前状态，正常松手释放捕获不取消已接受的折叠。
+
+覆盖全局导航、队员／团队共用名册、文件／执行 Sidecar、回复详情、定时任务详情和底部执行详情。
+定时任务只在松手后 flush 草稿；失败保留草稿与最小宽度，取消后的迟到响应不得收起面板。
+MCP、原生 Skills、工具箱接入同一提交与取消逻辑，保持 240–560px 调宽范围和独立偏好，不新增折叠。
+修正 CSS zoom 的逻辑像素换算，并防止仅高度变化的 ResizeObserver 重置实时宽度。
+Mission 抽屉和 Diff 文件树已有最终指针提交与缩放换算，保留其全展开／只调宽语义。
+
+同步 DESIGN、当前 UI 页面、队员 surface brief 和中英文文案；属于 Renderer 局部交互收口，
+无 Core、模型上下文、数据库 schema、偏好格式或发布版本变更，无需新增 Version Decision。
+
+
+验证结果：
+
+- `pnpm typecheck`、`pnpm build:desktop` 通过；全量 Vitest 为 253 个文件、2,921 项通过、2 项既有 skip。
+  首次与构建并行时既有 `restorable-location` 文件读取测试触发 5s 超时；独立全量复验通过，未修改超时或业务代码。
+- 七个隔离 Electron owner 通过：`navigation-shell`、`member-editor`、`file-preview-layout`、
+  `automation-splitter`、`execution-avatar-rail`、`capability-workspace` 和 `reply-details`。
+  增加无 pointermove 的最终坐标提交、快速松手、按住不收起、反向取消、草稿保留与异步保存取消断言；
+  设置页覆盖 MCP／原生 Skills／工具箱独立偏好、CSS zoom、仅高度变化和失焦恢复。
+- 文件预览生产组件截图确认短暂“松开收起预览区”提示位置；Skills 阅读页及设置页保持原有视觉结构。
+  既有日夜主题、1040／1440／2560 尺寸、200% 缩放、键盘操作和减少动态效果检查随 owner 回归通过。
+- 回归同步修正 MCP 原生拖动夹具漏带按住标志的问题，以及文件预览 Night 色值断言：旧值已与
+  当前主题 token 不符，本次仅更新测试预期，未修改主题。
+- `pnpm docs:test`、`pnpm docs:check` 与以 `e9cfbeac4` 为 base 的 `pnpm docs:check:ci` 通过。
+  验收全部使用显式隔离 userData 与内存 bridge，无 Core、真实 Runtime 或日常 App 数据写入；未安装日常 App。

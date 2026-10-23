@@ -14,6 +14,7 @@ import {
 } from 'react'
 import { UiText, uiAttribute } from './interface-language'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
+import { SplitterFeedback } from './SplitterFeedback'
 
 const STORAGE_KEY = 'rovai-member-roster-width-v2'
 const LEGACY_STORAGE_KEY = 'rovai-member-roster-width-v1'
@@ -166,7 +167,7 @@ function MemberRosterSeparator({ dragging, setDragging, label }: {
       aria-valuetext={collapsed ? uiAttribute("已折叠，按右方向键展开") : uiAttribute("{0} 像素", String(width))}
       aria-controls={id}
       aria-describedby={helpId}
-      title={collapsed ? uiAttribute("向右拖动展开；双击恢复默认") : uiAttribute("拖动调整宽度，最窄处停留后继续向左拖动折叠；双击恢复默认")}
+      title={collapsed ? uiAttribute("向右拖动展开；双击恢复默认") : uiAttribute("拖动调整宽度，最窄处继续向左内推，松开折叠；双击恢复默认")}
       {...splitter.handlers}
       onDoubleClick={() => { if (!sorting) { splitter.cancel(); setWidth(DEFAULT_WIDTH) } }}
       onKeyDown={(event) => {
@@ -190,7 +191,8 @@ function MemberRosterSeparator({ dragging, setDragging, label }: {
         setWidth(next)
       }}
     >
-      <span className="member-roster-resize-hint" aria-hidden="true">{collapsed ? uiAttribute("已折叠") : `${width} px`}</span>
+      <SplitterFeedback phase={splitter.phase} target={splitter.target} label={uiAttribute('松开收起名册')} />
+      {splitter.phase !== 'detent' && splitter.phase !== 'armed' && <span className="member-roster-resize-hint" aria-hidden="true">{collapsed ? uiAttribute("已折叠") : `${width} px`}</span>}
       <span id={helpId} className="member-roster-sr-only"><UiText zh={"左右方向键调整；最窄时按左方向键折叠，右方向键展开，回车切换折叠，Home 恢复默认；Escape 取消拖动。"} /></span>
     </div>
   )

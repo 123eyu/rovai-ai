@@ -26,6 +26,7 @@ import {
 } from './file-preview-layout'
 import { UiText, uiAttribute } from './interface-language'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
+import { SplitterFeedback } from './SplitterFeedback'
 
 interface FilePreviewLayoutValue {
   threadId: string | null
@@ -226,7 +227,7 @@ export function FilePreviewResizeHandle({ onClose }: { onClose(): void }): React
 
   const atMinimum = splitter.phase === 'detent'
   const atConversationMinimum = layout.width >= maximum
-  const hint = atMinimum ? uiAttribute('已到最小宽度，继续拖动收起')
+  const hint = splitter.phase === 'armed' ? uiAttribute('松开收起预览区') : atMinimum ? uiAttribute('已到最小宽度，继续拖动收起')
     : atConversationMinimum ? uiAttribute("会话区已达最小宽度 {0}px", String(MIN_CONVERSATION_WIDTH))
       : uiAttribute("会话 {0}px · 文件 {1}px", String(Math.round(layout.availableWidth - layout.width)), String(Math.round(layout.width)))
 
@@ -269,9 +270,9 @@ export function FilePreviewResizeHandle({ onClose }: { onClose(): void }): React
     }}
   >
     <span className="file-preview-splitter-grip" aria-hidden="true" />
-    <span className="file-preview-splitter-tip" aria-hidden="true">{hint}</span>
-    <span className="sr-only" id={hintId}><UiText zh={"左右方向键调整 24px，按住 Shift 调整 80px；Home 最窄；Delete 或 Backspace 关闭；双击或 Enter 恢复默认比例；Escape 取消拖动。拖到最窄处先停留，继续向内拖动收起。"} /></span>
-    <span className="sr-only" role="status">{atMinimum ? uiAttribute('已到最小宽度，继续拖动收起') : ''}</span>
+    {splitter.phase !== 'detent' && splitter.phase !== 'armed' && <span className="file-preview-splitter-tip" aria-hidden="true">{hint}</span>}
+    <SplitterFeedback phase={splitter.phase} target={splitter.target} label={uiAttribute('松开收起预览区')} />
+    <span className="sr-only" id={hintId}><UiText zh={"左右方向键调整 24px，按住 Shift 调整 80px；Home 最窄；Delete 或 Backspace 关闭；双击或 Enter 恢复默认比例；Escape 取消拖动。拖到最窄处先停住，继续向内推 64 像素后松开收起，无需停留。"} /></span>
   </div>
   return shell ? createPortal(handle, shell) : handle
 }

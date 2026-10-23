@@ -13,14 +13,15 @@ use tokio::process::Command;
 
 use crate::{agent_profile::AdapterKind, command::canonical_json_digest};
 
-pub const REVISION: &str = "rovai-hermes-host-v1";
+pub const REVISION: &str = "rovai-hermes-host-v2";
 const HOST: &str = include_str!("hermes/host.py");
 const NATIVE_ENTRY: &str =
     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)";
 
 pub fn supported_version(version: Option<&str>) -> bool {
     version
-        .is_some_and(|version| version == "0.22.4" || version.starts_with("Hermes Agent v0.22.4 "))
+        .and_then(crate::agent_runtime_adapter::parse_reported_runtime_version)
+        .is_some_and(|(version, _)| version >= [0, 22, 4])
 }
 
 pub fn native_home() -> Result<PathBuf> {
@@ -67,7 +68,7 @@ fn managed_argv(mut argv: Vec<String>, script: &Path) -> Result<Vec<String>> {
             && argv[1] == "-I"
             && argv[2] == "-c"
             && argv[3].ends_with(NATIVE_ENTRY),
-        "Hermes installation-bound launcher is unsupported; install official Hermes 0.22.4"
+        "Hermes installation-bound launcher is unsupported; install official Hermes >= 0.22.4"
     );
     let prefix_len = argv[3].len() - NATIVE_ENTRY.len();
     argv[3].truncate(prefix_len);
@@ -149,7 +150,7 @@ pub async fn configure_command(command: &mut Command, root: &Path) -> Result<()>
 pub fn validate_ready(value: &Value, pid: Option<u32>) -> Result<()> {
     ensure!(
         value["revision"] == REVISION
-            && value["commit"] == "4d04303818b61bf3aa09278af48356315515965b"
+            && supported_version(value["version"].as_str())
             && pid.is_some_and(|pid| value["pid"] == pid),
         "Hermes managed host identity mismatch"
     );
@@ -179,11 +180,20 @@ mod tests {
             invalid[index] = "unexpected".into();
             assert!(managed_argv(invalid, Path::new("/private/host.py")).is_err());
         }
-        let ready = json!({"revision":REVISION,"pid":123,"commit":"4d04303818b61bf3aa09278af48356315515965b"});
+        let ready = json!({"revision":REVISION,"pid":123,"version":"0.22.4"});
         assert!(validate_ready(&ready, Some(123)).is_ok());
         assert!(validate_ready(&ready, Some(124)).is_err());
         assert!(validate_ready(&ready, None).is_err());
         assert!(!supported_version(Some("Hermes Agent v0.22.2")));
+        for version in [
+            "0.22.4",
+            "Hermes Agent v0.22.5 (new source)",
+            "0.23.0",
+            "1.0.0",
+        ] {
+            assert!(supported_version(Some(version)), "{version}");
+        }
+        assert!(!supported_version(None));
     }
 
     // Actual native patch hunks are fragments, never proposed or full states.

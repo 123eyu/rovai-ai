@@ -23184,12 +23184,14 @@ fn normalize_acp_event_with_completion(
                     "sourceEventKind":"session/update.tool_call_update.completed", "semanticKind":"minimax_file_patch",
                     "entries":[{"path":path,"changeKind":"update","diff":patch}]});
             }
-            if adapter_kind == AdapterKind::HermesCli
-                && public_status == "completed"
-                && let Some(entries) = crate::hermes::reported_patch(&update)
-            {
-                payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
-                    "sourceEventKind":"session/update.tool_call_update.completed.patch","semanticKind":"reported_mutation","entries":entries});
+            if adapter_kind == AdapterKind::HermesCli && public_status == "completed" {
+                if let Some(entries) = update.pointer("/_meta/rovaiHermesFileStates") {
+                    payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
+                        "sourceEventKind":"session/update.tool_call_update.completed","semanticKind":"hermes_file_states","entries":entries});
+                } else if let Some(entries) = crate::hermes::reported_patch(&update) {
+                    payload["runtimeDiff"] = json!({"adapterKind":adapter_kind.as_str(),"protocolFamily":"acp-v1",
+                        "sourceEventKind":"session/update.tool_call_update.completed.patch","semanticKind":"reported_mutation","entries":entries});
+                }
             }
             if adapter_kind == AdapterKind::CommandCodeCli
                 && public_status == "completed"

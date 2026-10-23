@@ -12,6 +12,9 @@ last_updated: 2026-10-23
 真实 Sub2API `gpt-6.1-sol` 验证原生系统绑定、暖轮 Usage、精确冷恢复、压缩后指令、MCP 与 Skill；
 隔离 Core 验证公开 Send、文件操作和真实 patch 证据。完整结果与保留边界见
 [Hermes 验证记录](research/hermes-runtime/README.md)。平台为 Preview，不能等同其他平台或完整能力轴资格。
+同日增量：兼容策略改为 >=0.22.4；原生 272000/204000 窗口/阈值自动压缩、压缩后与冷恢复连续性通过。
+完整文件状态覆盖 Add/Write/patch/删除/移动/空文件/CRLF；实际 Desktop 验证 effort 保存、错误模型原生详情、
+同一 Run 的 Steer ACK 与修正后 Send，Skills 区分用户与受信项目来源。新版本/其他平台未因最低版本策略自动取得资格。
 
 ## 2026-10-20 ZCode 与 OpenCode V2 原生问卷禁用
 

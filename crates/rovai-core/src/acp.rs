@@ -1851,7 +1851,7 @@ impl AcpHost {
         if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
             ensure!(
                 crate::hermes::supported_version(frozen_runtime.reported_version.as_deref()),
-                "Hermes 0.22.4 is required"
+                "Hermes >= 0.22.4 is required"
             );
             crate::hermes::configure_command(
                 &mut command,
@@ -3448,6 +3448,7 @@ impl AcpHost {
                         | AdapterKind::KiroCli
                         | AdapterKind::TraeCnCli
                         | AdapterKind::MinimaxCodeCli
+                        | AdapterKind::HermesCli
                 ) && !active_prompt.acceptance_emitted
                     && (matches!(
                         message
@@ -4312,15 +4313,16 @@ impl AcpHost {
         prepared: &AcpPreparedPrompt,
         text: &str,
     ) -> Result<()> {
+        let mut params = json!({"sessionId": session_id, "prompt": [{"type":"text", "text":text}]});
+        if self.adapter_kind == AdapterKind::HermesCli {
+            params["_meta"] = json!({"rovai":{"promptId":prepared.prompt_id}});
+        }
         if let Err(error) = self
             .send(json!({
                 "jsonrpc": "2.0",
                 "method": "session/prompt",
                 "id": prepared.request_id,
-                "params": {
-                    "sessionId": session_id,
-                    "prompt": [{"type": "text", "text": text}]
-                }
+                "params": params
             }))
             .await
         {
@@ -5799,6 +5801,10 @@ impl AcpRuntime {
                 "mcode/session/steer",
                 json!({"sessionId":session,"text":text,"clientRequestId":input_id}),
             ),
+            AdapterKind::HermesCli => (
+                "_rovai/steer",
+                json!({"sessionId":session,"text":text,"inputId":input_id,"expectedPromptId":expected_prompt}),
+            ),
             AdapterKind::GrokBuild => ("_x.ai/interject", json!({"sessionId":session,"text":text})),
             AdapterKind::TraeCnCli => (
                 "_session/steering",
@@ -5845,7 +5851,9 @@ impl AcpRuntime {
         );
         // Some transports cannot atomically bind to a native turn. Retire the
         // exact Host for every path so no leftover queue reaches a successor.
-        self.host.retire_after_steer.store(true, Ordering::Release);
+        if self.adapter_kind() != AdapterKind::HermesCli {
+            self.host.retire_after_steer.store(true, Ordering::Release);
+        }
         timeout(
             Duration::from_secs(10),
             self.host
@@ -5908,6 +5916,19 @@ impl AcpRuntime {
             && (result["mode"] != "steered" || result["turnId"].as_str().is_none_or(str::is_empty))
         {
             bail!("MiniMax Code did not confirm active Turn steering");
+        }
+        if self.adapter_kind() == AdapterKind::HermesCli {
+            ensure!(
+                result["inputId"] == input_id,
+                "Hermes steering receipt mismatch"
+            );
+            if result["accepted"] == false {
+                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
+            }
+            ensure!(
+                result["accepted"] == true && result["promptId"] == expected_prompt,
+                "Hermes did not confirm targeted steering"
+            );
         }
         if self.adapter_kind() == AdapterKind::ZcodeApp {
             if result["inputId"] != input_id || result["accepted"] != true {
@@ -9061,6 +9082,16 @@ fn reconcile_completed_action(
         corroborating_file_operation_path.as_deref(),
         completion.public_file_operation_path.as_deref(),
     )
+    .or_else(|| {
+        if adapter_kind != AdapterKind::HermesCli {
+            return None;
+        }
+        let states = update.pointer("/_meta/rovaiHermesFileStates")?.as_array()?;
+        let state = (states.len() == 1).then(|| &states[0])?;
+        (state["path"].as_str() == completion.public_file_operation_path.as_deref())
+            .then(|| state["changeKind"].as_str())
+            .flatten()
+    })
     .or_else(|| {
         (adapter_kind == AdapterKind::MinimaxCodeCli
             && update["name"] == "write"

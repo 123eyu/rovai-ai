@@ -1248,7 +1248,7 @@ Atom 按 ID 绑定，本机标签只展示；Core 首次发布捕获标题并保
 
 <a id="v1-72-d59"></a>
 
-## V1.72-D59：Hermes 使用精确版本的进程内 ACP，先按 arm64 Preview 接入
+## V1.72-D59：Hermes 使用进程内 ACP 与最低版本策略，先按 arm64 Preview 接入
 
 - 状态：accepted
 - 日期：2026-10-23
@@ -1259,6 +1259,7 @@ Atom 按 ID 绑定，本机标签只展示；Core 首次发布捕获标题并保
 选择同官方发行物仍提供的进程内 ACP SessionManager 与真实 AIAgent，使 Fleet 直接管理执行进程，保留原生
 模型、认证、工具和持久会话。拒绝只包装 viewer PID，也不另造聊天循环或修改安装源码。
 
-代价是依赖内部 Python seam，不能承诺任意 Hermes 升级兼容，因此以完整 source commit 和 dirty 检查限制范围。
+代价是依赖内部 Python seam。User 在同 Thread sequence 10 明确要求最低版本兼容，故采用 >=0.22.4，
+移除 commit/dirty/上界 fence；运行时仍校验受管 revision、真实 PID 与协议行为。兼容策略不等于每个新版已测试。
 先接受 macOS arm64 产品 Preview，真实首轮、原生续聊/压缩/工具的证据按轴记录；其他平台和完整 Fleet/CLI/UI
 矩阵未完成时不晋升 Qualified。纯上游公开扩展若以后具备等价执行所有权和绑定门禁，可替换此 seam。

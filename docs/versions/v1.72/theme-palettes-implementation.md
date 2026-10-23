@@ -3,7 +3,7 @@ document_type: implementation-record
 version: v1.72
 lifecycle: current
 authority: implementation-evidence
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # 地平线、经典红与余烬实施
@@ -61,12 +61,28 @@ User 指出实现稿的暖色面积过大、执行台比原稿更暖，要求重
 - 截图覆盖浮层、底部与右侧，并保留上版浮层截图用于比较。
 - 通用文档测试、版本/决策门禁与以本次修订前提交为 base 的 CI 门禁通过；独立 HTML 默认进入地平线，浏览器无 warning/error。
 
+## 地平线原版配色恢复（Thread sequence 24–25）
+
+User 指出原版的对比色更合适，并在 sequence 25 提供 `rovai-theme-refined-v3.html`，
+明确指向该稿「看原版」状态。该状态由 `baselineOptions.horizon.tokens` 拥有，
+不能仅把精修版的灰绿强调色替换为蓝灰后称为原版。
+
+本次恢复该参照的 89 个配色角色，包括暖瓷白阅读区 `#fcfbf7`、浅岩灰侧栏 `#eae7e1`、
+消息气泡 `#eeeae2`、Steel 蓝灰 `#4e6c7e` 与正文 `#252a2d`；
+生产新增的动作文字角色与原稿动作色一致。执行台继续使用 `--execution-surface: #ffffff`，
+保留先前针对执行台泛暖的修正。选择器缩略图与完整主题合同同步更新。
+其余主题、六项紧凑选择器布局、消息几何与聚焦行为均不变。
+
+- `theme-tokens.test.ts`：41 项通过，覆盖完整 Token 与对比度。
+- 生产组件 fixture 构建通过；浏览器确认默认地平线、六项选择器与白色执行台，无横向溢出及 warning/error。
+- 保存独立 HTML、会话与外观设置截图；预览仅使用固定数据，不接入 Host 或 Runtime。
+
 ## Worktree handoff
 
 - Work item: 三款新主题与六项紧凑选择器。
 - Worktree: `/Users/murray.xue/.codex/worktrees/theme-horizon-red-ember/rovai-ai`
 - Branch: `rovai/theme-horizon-red-ember`
 - Base: `origin/main` / `186d1cfcf0c0cfff342aa36282b35d75436613c5`
-- Governance: none；当前 User 已确认配色与实现，UI 合同随同提交。
+- Governance: none；User 已授权实施并明确原版参照，UI 合同随同提交。
 - Status: ready
 - Next: User 验收地平线修订稿；保留 worktree。按 User 既有偏好不自动创建 PR。

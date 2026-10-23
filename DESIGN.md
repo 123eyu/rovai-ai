@@ -50,7 +50,11 @@ use decoration to soften or obscure commands, diffs, approvals, errors or uncert
 - neutral surfaces with low-frequency Steel structure;
 - compact desktop density and stable information hierarchy;
 - identity, status, evidence and brand colors kept semantically separate;
-- one shared component and state matrix across both themes.
+- one shared component and state matrix across all themes.
+
+Horizon, Classic Red and Ember extend this same visual world through semantic palettes. They keep
+the production component tree and interactions, including the absence of decorative input focus effects.
+Their complete values and mode mappings live in the [theme registry](docs/ui/themes/README.md).
 
 ## Brand Mark
 
@@ -196,7 +200,7 @@ Rovai-specific interaction contracts are indexed in
 
 ### Do
 
-- **Do** keep the two themes on one component tree and one state matrix.
+- **Do** keep all themes on one component tree and one state matrix.
 - **Do** preserve readable evidence, uncertainty and the next user action.
 - **Do** combine state color with text, icon, shape or stable position.
 - **Do** use the established product terms “队员”, “记忆”, “智能体” and “快速对话”. “智能体” labels the selectable coding-agent product; “队员” labels its long-lived team identity.

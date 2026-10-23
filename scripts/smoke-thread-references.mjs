@@ -63,6 +63,54 @@ try {
   await browser.send('Page.reload')
   await wait(`performance.timeOrigin !== ${timeOrigin} && document.querySelector('#camp-message [data-composer-atom=thread_reference]')`)
   check('refresh restores the exact reference', await browser.evaluate("document.querySelector('#camp-message [data-composer-atom=thread_reference]').dataset.referenceId")===selected)
+  await pause(250)
+  const availability = await browser.evaluate(`(async () => {
+    const { model, catalog } = window.__references
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+    const count = () => model.requests.filter(r => r.method === 'threadReferences.resolve').length
+    const atom = () => document.querySelector('#camp-message [data-composer-atom=thread_reference]')
+    const target = catalog.find(item => item.id === atom().dataset.referenceId)
+    const original = target.title
+    const event = (reason, threadId = target.id) => model.emitReferenceEvent({ method: 'navigation.invalidated', params: { reason, threadId } })
+    let before = count()
+    for (let i = 0; i < 5; i++) {
+      model.emitReferenceEvent({ method: 'monitoring.changed', params: {} })
+      model.invalidateReferences({ messages: [] })
+      event('camps.rename', 'other-thread')
+      await pause(50)
+    }
+    await pause(180)
+    const unrelatedIgnored = count() === before
+    target.title = '改名后的引用'
+    const burst = setInterval(() => event('camps.rename'), 40)
+    await pause(260)
+    const refreshedDuringBurst = count() > before && atom().textContent.includes(target.title)
+    clearInterval(burst); await pause(250)
+    model.failResolve = true
+    model.invalidateReferences({ referencesChanged: true })
+    await pause(250)
+    const transportPreservesState = atom().dataset.availability === 'available'
+    model.failResolve = false
+    model.resolveDelay = 300
+    model.maxActiveResolves = 0
+    target.title = '较早结果'
+    event('camps.rename'); await pause(200)
+    target.title = '最终结果'
+    event('camps.rename')
+    await pause(800)
+    const noOverlapAndLatest = model.maxActiveResolves === 1 && atom().textContent.includes('最终结果')
+    model.resolveDelay = 0
+    catalog.splice(catalog.indexOf(target), 1)
+    model.invalidateReferences({ referencesChanged: true })
+    await pause(250)
+    const deletionRefreshed = atom().dataset.availability === 'unavailable'
+    target.title = original; catalog.push(target)
+    model.invalidateReferences({ resync: true })
+    await pause(250)
+    const resyncRecovered = atom().dataset.availability === 'available' && atom().textContent.includes(original)
+    return { unrelatedIgnored, refreshedDuringBurst, transportPreservesState, noOverlapAndLatest, deletionRefreshed, resyncRecovered }
+  })()`)
+  for (const [name, passed] of Object.entries(availability)) check('reference availability: ' + name, passed)
   await click('#camp-message'); await key('Enter')
   await wait("document.body.textContent.includes('请补充本轮内容')")
   check('reference-only input cannot publish', await browser.evaluate("window.__references.model.sent.length===0"))
@@ -83,6 +131,14 @@ try {
   await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]')")
   await pause(200)
   check('mission Atom uses a canonical mission ID', await browser.evaluate("/^rvm_[a-f0-9]{32}$/.test(document.querySelector('#camp-message [data-composer-atom=mission_reference]').dataset.referenceId)"))
+  await browser.evaluate(`(() => {
+    const { model, catalog } = window.__references
+    const id = document.querySelector('#camp-message [data-composer-atom=mission_reference]').dataset.referenceId
+    catalog.find(item => item.id === id).title = '队员修改后的使命'
+    model.emitReferenceEvent({ method: 'missions.invalidated', params: { reason: 'missions.agentUpdated', threadId: 'mission-owner' } })
+  })()`)
+  await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]').textContent.includes('队员修改后的使命')")
+  check('agent Mission updates refresh the reference label', true)
   await key('z','KeyZ',4)
   await wait("!document.querySelector('#camp-message [data-composer-atom=mission_reference]')")
   await key('Z','KeyZ',12)
@@ -134,6 +190,18 @@ try {
   await click('.ref-message-link')
   await wait("document.querySelector('.ref-unavailable-text')?.textContent==='引用不可用'")
   check('unavailable source retains the published reference and title',await browser.evaluate("document.querySelector('.ref-message-link').textContent==='登录改造' && document.querySelector('.ref-popover-title').textContent==='登录改造'"))
+  await browser.evaluate('localStorage.clear()')
+  await browser.send('Page.navigate', { url: pathToFileURL(join(output, 'thread-references.html')).href + '?recover=mission' })
+  await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]')?.textContent.includes('发布验收 1')")
+  check('unsaved Web recovery resolves its reference before any user edit', await browser.evaluate("window.__references.model.requests.some(r => r.method === 'threadReferences.resolve' && r.input.references.some(ref => ref.kind === 'mission'))"))
+  await browser.evaluate(`(() => {
+    const { model, catalog } = window.__references
+    const id = document.querySelector('#camp-message [data-composer-atom=mission_reference]').dataset.referenceId
+    catalog.splice(catalog.findIndex(item => item.id === id), 1)
+    model.invalidateReferences({ referencesChanged: true })
+  })()`)
+  await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]')?.dataset.availability === 'unavailable'")
+  check('restored references respond to Web deletion invalidation without an edit', true)
   check('no browser exceptions', browser.errors.length===0)
   await rm(join(output,'failure.json'),{force:true}); await rm(join(output,'failure.png'),{force:true})
   await writeFile(join(output,'verification.json'), JSON.stringify({checks,errors:browser.errors},null,2)+'\n')

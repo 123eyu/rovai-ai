@@ -1,5 +1,5 @@
 import { useReferencePicker, type ReferenceScope } from './useReferencePicker'
-import { useReferenceAvailability } from './useReferenceAvailability'
+import { composerReferenceIdentities, useReferenceAvailability } from './useReferenceAvailability'
 import { ThreadReferenceMenu } from './ThreadReferenceMenu'
 import { useReferencePreview } from './ThreadReferencePreview'
 import { fuzzyContains, isReferenceAtom, referenceAtom, referenceIdentity } from './thread-reference'
@@ -314,7 +314,8 @@ function ComposerBridge({
 }): JSX.Element {
   const [editor] = useLexicalComposerContext()
   const referencePreview = useReferencePreview()
-  const referenceAvailability = useReferenceAvailability(referenceScope, document)
+  const [referenceIdentities, setReferenceIdentities] = useState(() => composerReferenceIdentities(document))
+  const referenceAvailability = useReferenceAvailability(referenceScope, referenceIdentities)
   const onActivateReference = (node: ComposerAtomNode, trigger: HTMLElement): void => {
     const atom = node.getAtom()
     if (!isReferenceAtom(atom) || !referenceScope) return
@@ -442,7 +443,11 @@ function ComposerBridge({
       callbacks.current.onDocumentChange?.(local)
       recovery?.set(draftIdentity, { document: local, base: callbacks.current.getAuthoritativeDraft?.()?.content ?? authorityDocument.current })
     },
-    onEffectiveDocumentChange: (local: ComposerDocument) => callbacks.current.onEffectiveDocumentChange?.(local),
+    onEffectiveDocumentChange: (local: ComposerDocument) => {
+      const next = composerReferenceIdentities(local)
+      setReferenceIdentities(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+      callbacks.current.onEffectiveDocumentChange?.(local)
+    },
     onSaved: (_version: number, savedDocument: ComposerDocument) => {
       const pending = recovery?.get(draftIdentity) as { document?: ComposerDocument } | null
       if (pending?.document) recovery?.set(draftIdentity, { document: pending.document, base: savedDocument })

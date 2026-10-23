@@ -4,7 +4,7 @@ contract: thread-reference-v1
 status: accepted
 version: 1
 source_version: v1.72
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Thread Reference v1
@@ -52,7 +52,8 @@ Active 邀请沿用独立先加入命令；Pending 首发邀请、激活、发�
 Desktop 与已认证 Web 使用同一 Core 只读入口，不建立 AgentRun：
 
 - `threadReferences.list({threadId, kind: 'thread'|'mission', query?, cursor?})` 返回 `{items, nextCursor}`。
-  每页最多 8 条；按当前导航活动时间倒序、稳定 ID 升序。查询按标题顺序字符模糊匹配，空白忽略；
+  每页最多 8 条；按当前导航活动时间倒序、稳定 ID 升序。查询与标题统一 NFKC 后做 Unicode 默认小写转换，再按顺序字符模糊匹配；
+  查询忽略 Unicode White_Space 与 BOM，大小写转换不依赖系统语言；
   `%`、`_` 是字面搜索字符。游标绑定当前 Thread、类型、查询和最后排序键，不使用 OFFSET 或总数扫描。
 - `threadReferences.resolve({threadId, references:[{kind,id}]})` 最多 128 项，按输入顺序返回候选或 null。
   不可读、删除、错误类型和缺失目标统一为 null。
@@ -61,12 +62,21 @@ Desktop 与已认证 Web 使用同一 Core 只读入口，不建立 AgentRun：
 用户目录是 live 读取，且排除当前 Thread。搜索范围为完整目录，和前端已经加载的页数无关。
 既有 Agent `thread.list`、read/search 的权限与时间边界不变。
 
+草稿可用性只因目标改名、删除、使命内容更新或重新同步而刷新，不订阅运行输出等无关变化。
+Desktop 按现有目录事件筛选，已知 Thread ID 时忽略无关目标；使命更新事件没有目标 ID 时刷新使命引用。
+Web 的现有授权失效通知增加可选 `referencesChanged: true`，只传递失效标记，不暴露原始事件或正文；
+`resync` 继续覆盖重连和丢失事件。刷新合并为单个 150ms 定时任务，已有截止时间不被延后；
+读取期间最多登记一次后续刷新，传输失败保留既有可用性，不把失败当成来源删除。
+
 ## 正文投影与清理
 
 共用正文 projector 将每个引用位置输出为 `[转义标题](rovai://thread/<id>)` 或
 `[转义标题](rovai://mission/<id>)`。标题中的 ASCII Markdown 标点使用反斜线转义，
 空白与控制字符在正文标签中投影为空格；结构化字段仍保留真实标题。
 模型正文、Steer、历史读取、复制文本均使用已发布标题；不增加 RUN_INPUT 字段、references 数组或独立上下文块。
+用户消息选文按结构化类型投影：普通 Text 保留字面 Markdown，引用段使用可见的 `titleAtSend`，
+不把定位链接或转义包装带入新选文。前端标量位置与 Core 校验使用相同投影，`bodyAtSelection`
+继续校验原始消息正文；已有 quote 快照不重算，模型正文和 Context 格式不变。
 现有预算计算对实际投影字节计费。定位链接不代表模型已读取来源，也不是系统级 URI 协议注册。
 
 来源是弱引用：改名/删除不会级联改写 owner 消息或使已发布输入不能 claim；来源内容继续通过既有读取操作

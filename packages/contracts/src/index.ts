@@ -2647,6 +2647,7 @@ export interface ThreadMessageChange {
   throughGlobalSequence: number
 }
 export interface ThreadReadInvalidation {
+  referencesChanged?: boolean
   notificationsChanged?: boolean
   tasksChanged?: boolean
   teamsChanged?: boolean

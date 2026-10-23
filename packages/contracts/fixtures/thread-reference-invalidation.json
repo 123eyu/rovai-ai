@@ -103,5 +103,13 @@
       "reason": "camps.rename"
     },
     "expected": false
+  },
+  {
+    "method": "missions.invalidated",
+    "params": {
+      "reason": "missions.agentUpdated",
+      "threadId": "mission-owner"
+    },
+    "expected": true
   }
 ]

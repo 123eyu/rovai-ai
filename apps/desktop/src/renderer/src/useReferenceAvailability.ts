@@ -6,7 +6,7 @@ import { isReferenceAtom, referenceIdentity } from './thread-reference'
 /** Only directory identity/label changes affect a saved reference. Runtime output does not. */
 export function isReferenceDirectoryEvent(event: CoreEvent): boolean {
   const params = event.params && typeof event.params === 'object' ? event.params as Record<string, unknown> : {}
-  if (event.method === 'missions.invalidated') return params.reason === 'missions.update' || params.reason === 'missions.updateWithAttachments'
+  if (event.method === 'missions.invalidated') return params.reason === 'missions.update' || params.reason === 'missions.updateWithAttachments' || params.reason === 'missions.agentUpdated'
   return event.method === 'navigation.invalidated' && ['camps.rename', 'camps.delete_accepted', 'camp.deleted'].includes(String(params.reason))
 }
 

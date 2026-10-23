@@ -131,6 +131,14 @@ try {
   await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]')")
   await pause(200)
   check('mission Atom uses a canonical mission ID', await browser.evaluate("/^rvm_[a-f0-9]{32}$/.test(document.querySelector('#camp-message [data-composer-atom=mission_reference]').dataset.referenceId)"))
+  await browser.evaluate(`(() => {
+    const { model, catalog } = window.__references
+    const id = document.querySelector('#camp-message [data-composer-atom=mission_reference]').dataset.referenceId
+    catalog.find(item => item.id === id).title = '队员修改后的使命'
+    model.emitReferenceEvent({ method: 'missions.invalidated', params: { reason: 'missions.agentUpdated', threadId: 'mission-owner' } })
+  })()`)
+  await wait("document.querySelector('#camp-message [data-composer-atom=mission_reference]').textContent.includes('队员修改后的使命')")
+  check('agent Mission updates refresh the reference label', true)
   await key('z','KeyZ',4)
   await wait("!document.querySelector('#camp-message [data-composer-atom=mission_reference]')")
   await key('Z','KeyZ',12)

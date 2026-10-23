@@ -279,7 +279,7 @@ pub fn invalidates_directory(method: &str, params: &serde_json::Value) -> bool {
     match method {
         "missions.invalidated" => matches!(
             params["reason"].as_str(),
-            Some("missions.update" | "missions.updateWithAttachments")
+            Some("missions.update" | "missions.updateWithAttachments" | "missions.agentUpdated")
         ),
         "navigation.invalidated" => matches!(
             params["reason"].as_str(),

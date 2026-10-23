@@ -19,7 +19,7 @@ import uuid
 
 import hermes_yaml as yaml
 
-REVISION = "rovai-hermes-host-v5"
+REVISION = "rovai-hermes-host-v6"
 
 
 def native_file_fragments(name, result, inline, cwd):
@@ -120,6 +120,17 @@ class Rejected(Exception):
             self.error["data"] = data
 
 
+def session_state(snapshot):
+    if snapshot.get("prompts"):
+        return "approval"
+    if snapshot.get("running"):
+        return "running"
+    pending = snapshot.get("pending") or []
+    if any(row.get("status") != "unknown" for row in pending):
+        return "queued"
+    return "unknown" if pending else "idle"
+
+
 def private_write(path, content):
     temp = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -141,6 +152,28 @@ def prepare_home():
         raise Rejected("Hermes binding already has a live owner") from error
     home = root / "native-home"
     home.mkdir(mode=0o700, exist_ok=True)
+    # Installation/path/version changes update the executable, not the native
+    # Home/profile to which this binding belongs. Adopt pre-v6 storage from its
+    # existing native links, without moving or copying its session database.
+    origin = root / "native-source.json"
+    if origin.exists():
+        source = Path(json.loads(origin.read_text())["home"])
+    else:
+        if (home / "state.db").exists():
+            # If old storage has no source links, its saved configuration is
+            # the remaining evidence. Keep it instead of adopting another Home.
+            source = home
+            for name in ("skills", "auth.json", "installs"):
+                link = home / name
+                if link.is_symlink():
+                    original = link.readlink()
+                    # Resolve the source directory, not another user symlink
+                    # such as Home/installs pointing to a shared dependency cache.
+                    source = (original if original.is_absolute() else link.parent / original).parent.resolve()
+                    break
+        private_write(origin, json.dumps({"home": str(source), "profile": "default"}))
+    if not source.is_absolute():
+        raise Rejected("Hermes native Home must be absolute")
     config_path = source / "config.yaml"
     config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
     if not isinstance(config, dict):
@@ -188,12 +221,14 @@ def prepare_home():
     # A private Home must not seed a different user skill library. Native project
     # discovery and config.skills.external_dirs continue to resolve normally.
     for name in ("skills", "auth.json", "installs"):
+        if source == home:
+            break
         target, original = home / name, source / name
         if target.is_symlink() and target.readlink() != original:
             target.unlink()
         if original.exists() and not target.exists() and not target.is_symlink():
             target.symlink_to(original, target_is_directory=original.is_dir())
-    if (source / "auth.json").exists():
+    if source != home and (source / "auth.json").exists():
         # Hermes atomic writes preserve the auth symlink. Share its native lock
         # too, so refresh transactions coordinate with the user's CLI.
         auth_lock = home / "auth.lock"
@@ -214,8 +249,9 @@ def prepare_home():
         from hermes_cli.plugins import VALID_HOOKS, SHELL_UNSUPPORTED_HOOKS
         if "post_compaction" not in VALID_HOOKS or "post_compaction" in SHELL_UNSUPPORTED_HOOKS:
             raise Rejected("Hermes post_compaction shell hook unavailable")
-        config.setdefault("hooks", {}).setdefault("post_compaction", []).append(
-            {"command": hook_command, "timeout": 5})
+        hooks = config.setdefault("hooks", {}).setdefault("post_compaction", [])
+        if not any(hook.get("command") == hook_command for hook in hooks if isinstance(hook, dict)):
+            hooks.append({"command": hook_command, "timeout": 5})
         # Consent only this owned observer, never blanket-approve user hooks.
         private_write(home / "shell-hooks-allowlist.json", json.dumps({"approvals": [
             {"event": "post_compaction", "command": hook_command}]}))
@@ -247,6 +283,7 @@ class Controller:
         self.lifecycle = asyncio.Lock()
         self.stopping = False
         self.prompt_pending = False
+        self.gateway_reader = None
 
     def task(self, awaitable):
         task = asyncio.create_task(awaitable)
@@ -357,7 +394,7 @@ class Controller:
             await asyncio.sleep(.1)
         else:
             raise Rejected("Dedicated Hermes Gateway startup timed out")
-        self.task(self.gateway_events())
+        self.gateway_reader = self.task(self.gateway_events())
         self.acp = await asyncio.create_subprocess_exec(self.launcher, "--profile", "default", "acp", env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=4*1024*1024)
         self.task(self.stderr(self.acp))
         self.task(self.acp_events())
@@ -387,16 +424,47 @@ class Controller:
         self.acp = self.gateway = self.rpc = self.rpc_context = None
         self.stopping = False
 
-    async def snapshot(self):
-        snapshot = await self.rpc.rpc("session.resume", session_id=self.session)
-        if snapshot.get("session_id") != self.session:
+    async def read_snapshot(self, session):
+        # A disconnected read may reconnect to this exact, still-owned Gateway.
+        # Never retry a prompt/mutation or restart an executor to answer a read.
+        from hermes_cli.gateway_client import GatewayClientError, GatewayRPCError, connect_gateway
+        from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint
+        for attempt in range(2):
+            try:
+                snapshot = await self.rpc.rpc("session.resume", session_id=session)
+                break
+            except (GatewayClientError, ConnectionError, OSError) as error:
+                if (attempt or isinstance(error, GatewayRPCError)
+                        or self.active or self.prompt_pending):
+                    raise
+                found = await asyncio.to_thread(discover_gateway_endpoint, self.home)
+                lock = json.loads((self.home / "gateway.lock").read_text())
+                if (not self.gateway or self.gateway.returncode is not None or not attachable(found)
+                        or lock.get("pid") != self.gateway.pid
+                        or Path(lock.get("hermes_home", "")).resolve() != self.home
+                        or found.endpoint.supervisor != "external"):
+                    raise Rejected("Hermes Gateway is unavailable; original Session is preserved") from error
+                if self.gateway_reader:
+                    self.gateway_reader.cancel()
+                    await asyncio.gather(self.gateway_reader, return_exceptions=True)
+                with contextlib.suppress(Exception):
+                    await self.rpc_context.__aexit__(None, None, None)
+                self.rpc_context = connect_gateway(found.endpoint)
+                self.rpc = await self.rpc_context.__aenter__()
+                self.gateway_reader = self.task(self.gateway_events())
+        if snapshot.get("session_id") != session:
             raise Rejected("Native session identity mismatch")
         return snapshot
 
+    async def snapshot(self):
+        return await self.read_snapshot(self.session)
+
     async def idle_snapshot(self):
         snapshot = await self.snapshot()
-        if snapshot.get("running") or snapshot.get("pending") or snapshot.get("prompts"):
-            raise Rejected("Hermes session has unsettled execution; refusing a new turn")
+        state = session_state(snapshot)
+        if state != "idle":
+            raise Rejected("Hermes session restored; new input is blocked by native " + state,
+                           data={"code": "HERMES_SESSION_BLOCKED", "sessionId": self.session, "state": state})
         return snapshot
 
     async def recover_unknown(self, params):
@@ -407,16 +475,8 @@ class Controller:
         session = params.get("sessionId")
         if not isinstance(session, str) or not session:
             raise Rejected("Recovery requires an exact native session", -32602)
-        snapshot = await self.rpc.rpc("session.resume", session_id=session)
-        if snapshot.get("session_id") != session:
-            raise Rejected("Recovery session identity mismatch")
-        if snapshot.get("running") or snapshot.get("prompts"):
-            raise Rejected("Native execution or permission is still active")
+        snapshot = await self.read_snapshot(session)
         pending = snapshot.get("pending", [])
-        if any(row.get("status") != "unknown" for row in pending):
-            # Resolving a blocker may drain native queued work. This path never
-            # authorizes a queued task along with an acknowledgement.
-            raise Rejected("Native session has queued or active work; recovery refused")
 
         def receipt_identity(receipt, admission, generation=None):
             if (receipt.get("ref", {}).get("session_id") != session or receipt.get("admission_id") != admission
@@ -433,7 +493,11 @@ class Controller:
             for row in pending:
                 receipt = await self.rpc.rpc("prompt.receipt", session_id=session, admission_id=row["admission_id"])
                 receipts.append(receipt_identity(receipt, row["admission_id"], row["execution_generation"]))
-            return {"sessionId": session, "receipts": receipts}
+            return {"sessionId": session, "receipts": receipts, "state": session_state(snapshot)}
+        if snapshot.get("running") or snapshot.get("prompts") or any(row.get("status") != "unknown" for row in pending):
+            # Resolving a blocker may drain queued work. Only inspection is
+            # allowed while an execution/approval/queue still owns the Session.
+            raise Rejected("Native session has active, approval or queued work; discard refused")
         generation = params.get("executionGeneration")
         if type(generation) is not int or generation <= 0 or params.get("acknowledgeEffects") is not True:
             raise Rejected("Explicit acknowledgement of possible external effects is required", -32602)
@@ -451,7 +515,7 @@ class Controller:
         receipt = receipt_identity(resolved, admission, generation)
         if receipt["status"] != "terminal":
             raise Rejected("Native recovery outcome is uncertain; inspect the exact receipt again")
-        after = await self.rpc.rpc("session.resume", session_id=session)
+        after = await self.read_snapshot(session)
         if after.get("session_id") != session or after.get("running") or after.get("pending") or after.get("prompts"):
             raise Rejected("Native session is still unsettled after acknowledgement")
         return {"sessionId": session, "receipt": receipt, "resolved": True}
@@ -465,8 +529,12 @@ class Controller:
                 self.consume_event(frame.get("params", {}))
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
             if not self.stopping:
+                if not isinstance(error, Rejected) and not self.active and not self.prompt_pending:
+                    # No input is in flight. The next state read owns one
+                    # bounded reconnect; there is no execution to replay.
+                    return
                 await self.fail("Hermes Gateway event stream lost; refusing uncertain control")
 
     def consume_event(self, event):
@@ -700,7 +768,10 @@ class Controller:
             if self.session:
                 raise Rejected("Hermes controller already owns a session")
             try:
-                result = await self.native(method, params)
+                # Restore history/state first. MCP changes are an idle-only
+                # input preparation, not a condition for opening the Session.
+                native_params = params if method == "session/new" else dict(params, mcpServers=[])
+                result = await self.native(method, native_params)
             except Rejected as error:
                 if (error.error.get("data") or {}).get("details") == "not_found":
                     raise Rejected("Exact Hermes session is unavailable", -32001, {"code": "HERMES_SESSION_NOT_FOUND", "sessionId": params.get("sessionId")}) from error
@@ -708,8 +779,9 @@ class Controller:
             self.session = result.get("sessionId") or params.get("sessionId")
             self.attach = {"sessionId": self.session, "cwd": params["cwd"], "mcpServers": params.get("mcpServers", [])}
             self.models = result.get("models", {})
-            await self.idle_snapshot()
-            if method != "session/new" or self.attach["mcpServers"]:
+            snapshot = await self.snapshot()
+            state = session_state(snapshot)
+            if state == "idle" and (method != "session/new" or self.attach["mcpServers"]):
                 # ACP's empty list means "keep the other editor's servers".
                 # This controller is the exclusive owner: an empty assignment
                 # means revoke, through the public fenced mutation.
@@ -718,6 +790,7 @@ class Controller:
                 await self.bind_mcp()
             await self.refresh_efforts()
             result["configOptions"] = self.config_options()
+            result.setdefault("_meta", {})["rovaiHermesState"] = {"sessionId": self.session, "state": state}
             return result
         if params.get("sessionId") != self.session or not self.session:
             raise Rejected("Unknown Hermes session", -32602)
@@ -779,7 +852,7 @@ class Controller:
         if method == "_rovai/session_info":
             stats = await self.rpc.rpc("session.stats", session_id=self.session)
             snapshot = await self.snapshot()
-            return {"sessionId": self.session, "contextWindow": stats.get("context_length"), "compressionCount": stats.get("compression_count"), "historyMessages": snapshot.get("message_count")}
+            return {"sessionId": self.session, "contextWindow": stats.get("context_length"), "compressionCount": stats.get("compression_count"), "historyMessages": snapshot.get("message_count"), "state": session_state(snapshot)}
         if method == "_rovai/compact":
             raise Rejected("Rovai uses Hermes automatic threshold compaction only", -32601)
         return await self.native(method, params)

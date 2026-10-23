@@ -1849,10 +1849,9 @@ impl AcpHost {
             config.configure_command(&mut command)?;
         }
         if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
-            ensure!(
-                crate::hermes::supported_version(frozen_runtime.reported_version.as_deref()),
-                "Hermes >= 0.22.4 is required"
-            );
+            // The owned controller's ready handshake validates the selected
+            // installation's actual version. A stale/absent cache is not a
+            // reason to refuse restoration of its existing Session.
             command.env(
                 "ROVAI_HERMES_MCP_NAMES",
                 serde_json::to_string(&external_mcp_servers.keys().collect::<Vec<_>>())?,
@@ -4791,6 +4790,7 @@ fn history_restore_allowed(adapter_kind: AdapterKind) -> bool {
             | AdapterKind::MinimaxCodeCli
             | AdapterKind::CommandCodeCli
             | AdapterKind::ClineCli
+            | AdapterKind::HermesCli
     )
 }
 
@@ -5191,6 +5191,22 @@ impl AcpRuntime {
         self.host
             .remember_session(&session_id, session_result.as_ref())
             .await;
+        if self.host.adapter_kind == AdapterKind::HermesCli
+            && session_result
+                .as_ref()
+                .and_then(|result| {
+                    result
+                        .pointer("/_meta/rovaiHermesState/state")
+                        .and_then(Value::as_str)
+                })
+                .is_some_and(|state| state != "idle")
+        {
+            // Restoration succeeded. Keep history/session identity available;
+            // the separate input gate reports why a new task cannot start.
+            self.finish_session_attachment(&session_id, prebound_session)
+                .await?;
+            return Ok(session_id);
+        }
         if self.host.adapter_kind == AdapterKind::ClineCli
             && model_source == "runtime_default"
             && let Some(expected) = crate::cline::configured_native_model()?
@@ -5468,16 +5484,30 @@ impl AcpRuntime {
                 "Hermes did not acknowledge edit approval mode"
             );
         }
+        self.finish_session_attachment(&session_id, prebound_session)
+            .await?;
+        Ok(session_id)
+    }
+
+    async fn finish_session_attachment(
+        &self,
+        session_id: &str,
+        prebound_session: bool,
+    ) -> Result<()> {
         if prebound_session {
             self.host
-                .settle_loading_replay(&session_id, &self.owner)
+                .settle_loading_replay(session_id, &self.owner)
                 .await?;
         } else {
             self.host
-                .bind_session(&session_id, &self.owner, AcpSessionPhase::Ready)
+                .bind_session(session_id, &self.owner, AcpSessionPhase::Ready)
                 .await?;
         }
-        let previous_session_id = self.session_id.write().await.replace(session_id.clone());
+        let previous_session_id = self
+            .session_id
+            .write()
+            .await
+            .replace(session_id.to_string());
         if let Some(previous_session_id) = previous_session_id
             && previous_session_id != session_id
         {
@@ -5485,7 +5515,39 @@ impl AcpRuntime {
                 .unbind_session(&previous_session_id, &self.owner)
                 .await;
         }
-        Ok(session_id)
+        Ok(())
+    }
+
+    pub(crate) async fn ensure_hermes_input_ready(&self) -> Result<()> {
+        if self.host.adapter_kind != AdapterKind::HermesCli {
+            return Ok(());
+        }
+        let result = self.session_result.read().await;
+        let state = result
+            .as_ref()
+            .and_then(|result| result.pointer("/_meta/rovaiHermesState/state"))
+            .and_then(Value::as_str)
+            .context("Hermes restored no native execution state")?;
+        let message = match state {
+            "idle" => return Ok(()),
+            "running" => "原会话已恢复，原生任务仍在执行，暂不能提交新任务",
+            "approval" => "原会话已恢复，原生任务正在等待审批，暂不能提交新任务",
+            "queued" => "原会话已恢复，原生仍有待执行任务，暂不能提交新任务",
+            "unknown" => "原会话已恢复，但有一次执行的结果未知；需要明确处理该执行后才能提交新任务",
+            _ => "原会话已恢复，但原生执行状态尚无法确认",
+        };
+        Err(rovai_core::runtime_failure::RuntimeFailureError::new(
+            rovai_core::runtime_failure::RuntimeFailureView::new(
+                AdapterKind::HermesCli,
+                rovai_core::runtime_failure::RuntimeFailureOrigin::Runtime,
+                rovai_core::runtime_failure::RuntimeFailurePhase::Execution,
+                format!("hermes_session_{state}"),
+                message,
+                None,
+                false,
+            ),
+        )
+        .into())
     }
 
     pub async fn session_capabilities(&self) -> AcpSessionCapabilities {
@@ -6588,7 +6650,6 @@ fn trae_catalog_window(bytes: &[u8], selected: &str) -> Option<i64> {
 
 pub struct AcpCliRuntimeAdapter {
     kind: AdapterKind,
-    hermes_session_gate: Mutex<()>,
     runtimes: Mutex<HashMap<String, Arc<AcpRuntime>>>,
     incoming: mpsc::UnboundedSender<AcpIncoming>,
     private_runtime_dir: PathBuf,
@@ -6625,7 +6686,6 @@ impl AcpCliRuntimeAdapter {
     ) -> Self {
         Self {
             kind,
-            hermes_session_gate: Mutex::new(()),
             runtimes: Mutex::new(HashMap::new()),
             incoming,
             private_runtime_dir,
@@ -6686,11 +6746,6 @@ impl AcpCliRuntimeAdapter {
         runtime_compatibility_digest: &str,
         startup_bootstrap: Option<&str>,
     ) -> Result<Arc<AcpRuntime>> {
-        let _hermes_gate = if self.kind == AdapterKind::HermesCli {
-            Some(self.hermes_session_gate.lock().await)
-        } else {
-            None
-        };
         if frozen_runtime.adapter_kind != self.kind {
             bail!("ACP Runtime received an AgentRun for another Adapter");
         }
@@ -6835,7 +6890,6 @@ impl AcpCliRuntimeAdapter {
             self.kind == AdapterKind::HermesCli && runtime.adapter_kind == self.kind,
             "Recovery is only available for Hermes"
         );
-        let _gate = self.hermes_session_gate.lock().await;
         let operation = format!("hermes-recovery:{}", uuid::Uuid::new_v4());
         let private_dir =
             self.private_runtime_dir
@@ -7144,7 +7198,6 @@ pub(crate) fn freeze_native_session_compatibility(
             | AdapterKind::DeepseekHarness
             | AdapterKind::CommandCodeCli
             | AdapterKind::ClineCli
-            | AdapterKind::HermesCli
     ) {
         return Ok(frozen_runtime);
     }
@@ -7174,10 +7227,6 @@ pub(crate) fn freeze_native_session_compatibility(
         "model": &frozen_runtime.model,
         "permissions": &frozen_runtime.permissions,
     });
-    if adapter_kind == AdapterKind::HermesCli {
-        compatibility["hermesNativeConfigurationDigest"] =
-            json!(crate::hermes::native_configuration_digest()?);
-    }
     if adapter_kind == AdapterKind::DeepseekHarness {
         compatibility["dshNativeConfigurationDigest"] =
             json!(crate::dsh::native_configuration_digest(&execution_root)?);
@@ -15604,6 +15653,15 @@ while IFS= read -r ignored; do :; done
         assert_eq!(
             select_acp_session_continuation(
                 AdapterKind::CommandCodeCli,
+                false,
+                Some("session-1"),
+                load_only,
+            ),
+            AcpSessionContinuation::HistoryRestore
+        );
+        assert_eq!(
+            select_acp_session_continuation(
+                AdapterKind::HermesCli,
                 false,
                 Some("session-1"),
                 load_only,

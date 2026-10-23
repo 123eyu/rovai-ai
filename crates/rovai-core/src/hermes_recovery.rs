@@ -9,7 +9,7 @@ use crate::{
     runtime::{AgentRunWorkspace, PermissionSemantics},
 };
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -72,18 +72,17 @@ struct Target {
     permission_semantics: PermissionSemantics,
 }
 
-fn target(connection: &Connection, run: &str) -> Result<Target> {
+fn target(connection: &Transaction<'_>, run: &str) -> Result<Target> {
     let row = connection.query_row(
         "SELECT run.id,run.version,run.execution_epoch,run.camp_id,conversation.agent_id,
                 conversation.native_binding_id,conversation.native_binding_generation,conversation.native_session_id,
-                run.effective_config_json,run.workspace_json,run.permission_semantics
+                conversation.id,run.workspace_json,run.permission_semantics
          FROM agent_run AS run JOIN conversation ON conversation.id=run.conversation_id
          JOIN camp ON camp.id=run.camp_id
          JOIN camp_member AS member ON member.camp_id=run.camp_id AND member.agent_id=conversation.agent_id
          JOIN agent_profile AS profile ON profile.id=conversation.agent_id
          WHERE run.id=?1 AND run.status IN ('failed','cancelled') AND run.runtime_adapter_kind='hermes-cli'
            AND camp.deletion_operation_id IS NULL AND member.status='active' AND profile.profile_status='present'
-           AND conversation.native_adapter_installation_id=run.runtime_installation_id
            AND conversation.native_session_id IS NOT NULL AND conversation.native_binding_id IS NOT NULL
            AND EXISTS(SELECT 1 FROM runtime_input_delivery AS input WHERE input.agent_run_id=run.id
                AND input.native_binding_id=conversation.native_binding_id
@@ -98,22 +97,15 @@ fn target(connection: &Connection, run: &str) -> Result<Target> {
             native_binding_generation: row.get(6)?, native_session_id: row.get(7)?,
         }, row.get::<_,String>(8)?, row.get::<_,String>(9)?, row.get::<_,String>(10)?)),
     ).optional()?.context("Recovery requires a settled Hermes Run on its original binding with confirmed process cleanup; stop active work and inspect the original interrupted Run")?;
-    let effective: Value = serde_json::from_str(&row.1)?;
-    let mut runtime: FrozenAgentRuntimeConfig =
-        serde_json::from_value(effective["runtime"].clone())?;
+    // The old Run identifies the original Session/storage and execution, not
+    // the executable that must be used forever. Resolve today's selection just
+    // as a new ordinary input does; the live Host probes its actual capabilities.
+    let mut runtime =
+        crate::agent_profile::resolve_frozen_runtime(connection, &row.1, &row.0.agent_id)?
+            .map_err(|blocker| anyhow::anyhow!("{}: {}", blocker.code, blocker.payload))?;
     ensure!(
         runtime.adapter_kind == AdapterKind::HermesCli,
         "Hermes Runtime identity mismatch"
-    );
-    let installation_current: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM adapter_installation WHERE id=?1 AND adapter_kind='hermes-cli'
-          AND enabled=1 AND path_state='valid' AND executable_path=?2)",
-        params![runtime.installation_id, runtime.executable_path],
-        |row| row.get(0),
-    )?;
-    ensure!(
-        installation_current,
-        "The original Hermes installation is unavailable"
     );
     runtime.environment = Some(crate::member_environment::current_for_launch(
         connection,
@@ -161,7 +153,10 @@ impl Core {
         };
         let target = {
             let mut database = self.database.lock().await;
-            let target = target(database.connection(), &run)?;
+            let target = {
+                let transaction = database.connection_mut().transaction()?;
+                target(&transaction, &run)?
+            };
             if let Some(params) = &resolve {
                 ensure!(
                     target.scope == params.confirmation.scope,
@@ -198,15 +193,6 @@ impl Core {
         };
         self.subsystems
             .require(&super::runtime_subsystem_id(AdapterKind::HermesCli))?;
-        let executable = std::path::PathBuf::from(&target.runtime.executable_path);
-        let fingerprint = tokio::task::spawn_blocking(move || {
-            crate::agent_runtime_adapter::executable_fingerprint(&executable)
-        })
-        .await??;
-        ensure!(
-            fingerprint == target.runtime.executable_fingerprint,
-            "Hermes installation changed; refresh Runtime verification before recovery"
-        );
         let mut native_params = json!({"sessionId":target.scope.native_session_id});
         if let Some(params) = &resolve {
             native_params["admissionId"] = json!(params.confirmation.admission_id);
@@ -253,7 +239,7 @@ impl Core {
             .iter()
             .filter(|row| row["status"] == "unknown")
             .collect();
-        let confirmation = if unknown.len() == 1 {
+        let confirmation = if native["state"] == "unknown" && unknown.len() == 1 {
             Some(Confirmation {
                 scope: target.scope.clone(),
                 admission_id: unknown[0]["admission_id"]
@@ -269,7 +255,7 @@ impl Core {
         };
         Ok(
             json!({"scope":target.scope,"nativeReceipts":receipts,"confirmation":confirmation,
-            "state":if unknown.is_empty(){"idle"}else{"unknown"},"warning":WARNING,
+            "state":native["state"],"warning":WARNING,
             "taskReplayed":false,"originalRunUnchanged":true}),
         )
     }

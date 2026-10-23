@@ -130,6 +130,11 @@ native Session，读取先前文件并用更新 lease 成功 Send；两次公开
 [脱敏摘要](explicit-unknown-recovery-2026-10-23.json)。恢复入口只走 User Automation 的固定操作，
 不会将 Agent 的普通聊天输入当作未知执行确认，也不创建隐式业务 Run。
 
+原会话优先、安装与指纹变化、绑定并发和原生状态分离的后续收口见
+[可用性实施记录](../../versions/v1.72/hermes-first-input-implementation.md#原会话优先与可用性收口2026-10-24)与
+[v6 受控证据](availability-recovery-2026-10-24.json)。该批运行使用同一官方 0.22.4 和受控 Responses，
+不替代前述真实模型或压缩证据。
+
 - [官方 ACP](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp)与[Gateway local sessions](https://hermes-agent.nousresearch.com/docs/developer-guide/gateway-local-sessions)。
 - [官方配置](https://hermes-agent.nousresearch.com/docs/user-guide/configuration)与[Skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)。
 - [本次安装源码](https://github.com/NousResearch/hermes-agent/tree/4d04303818b61bf3aa09278af48356315515965b)：acp_adapter/gateway_server.py、gateway/session_local_mcp.py、agent/image_routing.py、gateway/run_inbound.py。

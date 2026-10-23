@@ -18387,6 +18387,10 @@ impl Core {
         if binding_credential.native_session_id.is_some()
             && session_continuation == acp::AcpSessionContinuation::New
         {
+            anyhow::ensure!(
+                execution.runtime.adapter_kind != AdapterKind::HermesCli,
+                "当前 Hermes 未提供原会话恢复能力；已保留原 Session，未创建替代会话"
+            );
             launch_permit.check_cancelled()?;
             {
                 let database = self.database.lock().await;
@@ -18481,6 +18485,7 @@ impl Core {
             Ok(session_id) => session_id,
             Err(error)
                 if resumable_session_id.is_some()
+                    && execution.runtime.adapter_kind != AdapterKind::HermesCli
                     && native_resume_failure(&error)
                         == NativeSessionResumeFailure::Incompatible =>
             {
@@ -18604,6 +18609,7 @@ impl Core {
         self.bind_prepared_native_session(execution, &binding_credential, &session_id)
             .await
             .context("failed to bind ACP Native Session")?;
+        runtime.ensure_hermes_input_ready().await?;
         if matches!(
             execution.runtime.adapter_kind,
             AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli | AdapterKind::ClineCli

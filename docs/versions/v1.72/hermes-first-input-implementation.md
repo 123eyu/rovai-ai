@@ -2,7 +2,7 @@
 document_type: implementation-plan
 version: v1.72
 authority: implementation-status
-last_updated: 2026-10-23
+last_updated: 2026-10-24
 ---
 
 # Hermes 首次输入规则实施与验证
@@ -107,3 +107,38 @@ controller v5 使用独立控制连接，不加载普通 ACP Session，不发送
 CI 的 fmt/check 不替代 Rust 单测。
 Controller 确定性回归 5 项、User Automation 定向测试 10 项与 TypeScript 检查通过。
 本次不重跑已记录的自动压缩矩阵，不把显式恢复当作同 Run 压缩恢复；未新增 Renderer 按钮或日常 App 安装验收。
+
+## 原会话优先与可用性收口（2026-10-24）
+
+按 User sequence 36 / [D62](decisions.md#v1-72-d62) 与共享同类 CLI Resume 规则对齐。原生 Session
+选择本来就不应按历史指纹拒绝；此次删除 Hermes 额外的 Session 配置冻结和维护入口旧安装相等门槛，
+保留实际启动的最低版本、原生能力和身份检查。正常任务及维护都使用当前选定安装，原 binding 的
+Home/profile/Session 保留，版本和指纹只影响必要探测与进程更新。controller revision 为 v6。
+
+历史恢复成功后先返回原生状态；Core 在投递前分别报告 running、approval、queued、unknown，模型、
+权限和 MCP 变更留在空闲时准备。实际缺失或无恢复能力仍保留目标并报错，Hermes 不走自动新 Session
+回退。没有输入在途时允许对同一专用 Gateway 的状态读取重连一次；不重启执行者、不重发业务请求。
+删除跨 Hermes Session 长锁，复用 Fleet 的 binding owner 与同 Home 文件锁。
+
+[本轮脱敏证据](../../research/hermes-runtime/availability-recovery-2026-10-24.json)对应
+`rovai-hermes-first-input-k58OJV`，生产 Core＋未修改官方 0.22.4＋loopback Responses 全链通过：
+
+- 原地修改 launcher 指纹后续聊；切换 launcher 路径并冷启动后续聊；启动 Home 改变后实际模型请求
+  仍使用原 Home 的 system prompt，首次规则不重复，身份更新仅一次。
+- Core 强杀留下 unknown 后，隔离 Core 安装夹具停用旧安装记录，选择新记录并加入过期 0.22.3 缓存，
+  再切换路径/指纹。检查与确认使用当前安装，原 Session/绑定和旧 Run 证据保留。未编辑原生 SessionDB。
+- unknown 时普通续聊的历史恢复成功，新 Run 以 `hermes_session_unknown` 失败且没有 dispatch。
+  检查和错误确认不消除 unknown；明确确认只处理精确执行，重启后同确认幂等，旧任务保持失败。
+- 处理后原 Session 新任务成功；旧业务动作一次，公开 Send 各一次，恢复过程零模型调用，强杀后代全部退出。
+  新安装的目录深检在普通续聊已经成功之后单独执行，Ready 不是续聊的前置条件。
+
+本轮普通 `cargo test --workspace -j 2 -- --test-threads=1`：**478 passed / 0 failed / 1 ignored**。
+三个既有 extended owners 分别覆盖安装/路径/版本/指纹漂移仍选择原 Session、Hermes load-only 恢复，
+以及不同 Hermes binding 同时进入启动、相同 binding 拒绝第二 owner。Python controller 8 项通过，
+包括状态分类、读取断线重连、固定 Home 和无 marker 旧存储接续。未增加 Rust 测试入口。
+
+首轮发现路径变化时已失效快照仍残留 system 能力，现已在发现阶段清除；其余先行夹具失败涉及取错
+上一失败 Run、SQLite 纳秒时间需 BigInt，以及把新安装未验证快照当成 Ready。原始失败目录和原因保留，
+不作为验收通过。实际执行版本只有 0.22.4，wrapper 与缓存变化不能冒充新版原生兼容性验收。
+读取重连和运行/审批/排队分类本轮只有确定性控制器证据；真实模型与自动压缩沿用上节分层记录，
+没有重跑或扩大平台资格。普通续聊不需要 CLI 维护；无法确认的 unknown 仍须用户明确处理，当前异常入口为 User CLI。

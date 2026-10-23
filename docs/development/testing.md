@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-17
+last_updated: 2026-10-24
 ---
 
 # 测试与 Smoke Test
@@ -130,6 +130,12 @@ Hermes 合入前补修继续扩展目录/Ready、catalog refresh 与 CLI help ow
 `smoke-hermes-core.mjs --force-unknown` 使用真实模型，同时强杀独占 Gateway 以确保原生无法落盘终态；
 默认仅强杀 Core 时允许原生已结算的空闲分支，不能把该分支记为 unknown 恢复通过。
 所有路径使用隔离 Home/data-dir/Skill Library/MCP；真实模型凭据副本验收后删除。
+
+Hermes 可用性收口扩展已有同类 CLI Resume、ACP continuation、Fleet 并行启动 owners，不新增 Rust
+测试入口。控制器矩阵覆盖恢复后分状态门禁、同 Gateway 读取断线重连、固定 Home 及旧存储来源接续。
+`smoke-hermes-first-input.mjs --availability` 在上述恢复链上增加入口指纹/路径变化、安装记录替换、
+过期版本缓存、启动 Home 变化与 unknown 时普通续聊；仅隔离 Core 的安装元数据使用升级夹具，
+不编辑原生 SessionDB，不把缓存或 wrapper 变化冒充另一原生版本的验收。
 
 
 Web 长粘贴扩展既有 Host HTTP 与浏览器适配/恢复 owners；schema 161→162 的 DDL 失败回滚

@@ -3,7 +3,7 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-22
+last_updated: 2026-10-24
 ---
 
 # v1.72 版本决定
@@ -1297,3 +1297,21 @@ macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成�
 
 代价是当前需用户普通终端操作，尚无专用聊天按钮。未选择自动放弃未知任务、重放原输入、编辑原生数据库，
 或自动换 Session 绕过。与既有“继续执行”产生独立 Run 的语义分开，不改其他 Adapter 或共享队列合同。
+
+<a id="v1-72-d62"></a>
+## V1.72-D62：Hermes 优先恢复原会话，执行门禁与恢复分开
+
+- 状态：accepted
+- 日期：2026-10-23
+- 授权：User sequence 36 要求按可用性处理版本、路径、安装记录与指纹漂移，取消全局长锁。
+- 当前权威：[Hermes Session 与输入](../../contracts/hermes-managed-runtime-v1.md#session-与输入)、[恢复架构](../../architecture/agent-run-recovery.md)。
+
+采用共享同类 CLI 的当前目标选择，旧 Run 的安装信息不永久绑定可执行文件。原 binding 的 Home/profile
+和 Session ID 继续保留；实际兼容性由当前选定 Runtime 验证。先恢复历史与状态，再按原生执行、审批、
+排队或 unknown 阻塞新输入。读取断线只重连原受管 Gateway；不重放业务输入、不自动换 Session。
+
+移除跨 Hermes 会话的长锁，复用调度 lane、Fleet owner 与同 Home 文件锁。不同成员/Session 不互相
+等待。用户维护入口只用于 D61 的异常确认，不能成为普通续聊的前置步骤。
+
+代价是实际缺失或不兼容的原生 Session 仍会如实失败，unknown 仍需用户明确处理；当前不新增聊天按钮。
+未选择以安装指纹永久封锁旧 Session，亦未选择通过新建 Session 掩盖原生阻塞。其他 Adapter 的回退策略不变。

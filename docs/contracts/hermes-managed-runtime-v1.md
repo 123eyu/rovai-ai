@@ -4,7 +4,7 @@ name: Hermes Managed Runtime
 version: v1
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-23
+last_updated: 2026-10-24
 ---
 
 # Hermes Managed Runtime v1
@@ -35,14 +35,29 @@ event replay、ACP edit policy 与 session MCP 能力。未知 launcher、缺失
 Skills 连接到原生路径，Run 内禁用隐式依赖下载。相对 Skills 配置仍以原生 Home 为基准，变量按原生 dotenv
 环境展开。私有 config 关闭消息平台、profile multiplex、auto-resume、cronjob、原生 memory 注入、
 后台 memory review 和标题模型调用。SessionDB、控制 socket 与 Gateway 锁不共享。
-原生配置/凭据与受管代码摘要参与兼容性；秘密不进入公开配置和日志，不借用其他 Runtime 的凭据。
+binding 首次创建时将原生来源 Home 与 `default` profile 记录在私有 `native-source.json`；后继 Run
+继续使用该来源和原 SessionDB。旧 binding 从已有原生链接接续来源；没有来源链接时保留私有 Home
+已存的配置，不猜测另一个来源。不迁移 Session 或复制原生数据库。
+启动环境里的 Home 变化不替换旧 binding 的来源。原生配置/凭据与受管代码摘要只参与进程兼容性；
+秘密不进入公开配置和日志，不借用其他 Runtime 的凭据。
+
+与共享同类 CLI 恢复规则一致，使用当前选定且可用的 Hermes。版本、入口路径、安装记录、指纹和配置
+变化触发必要的探测及新进程启动，不单独否定原 Session 的恢复资格。实际最低版本与能力由当前进程
+验证，缓存版本缺失或过期不构成额外拒绝理由。Hermes 不持有跨成员/Session 的长锁：Fleet 保护同一
+binding 的活动 owner，私有 storage lock 保护同一 Home；不同 binding 可以并发启动。
 
 ## Session 与输入
 
 `session/new` 返回原生 ID；`session/resume` / `session/load` 精确恢复。原生 not_found 映射为
-`-32001`、`data.code=HERMES_SESSION_NOT_FOUND` 和目标 `data.sessionId`，只有对应恢复请求可触发
-共享 Core 的目标丢失处理；不静默新建，不从错误文本猜测缺失。历史 replay 留在既有隔离阶段。
-存在未结算执行、待处理 admission 或 permission 时拒绝新 prompt。
+`-32001`、`data.code=HERMES_SESSION_NOT_FOUND` 和目标 `data.sessionId`，保留原目标并报告实际缺失；
+Hermes 不走共享 Core 的自动新 Session 回退，也不从错误文本猜测缺失。历史 replay 留在既有隔离阶段。
+先恢复历史并查询状态，再决定是否接受新输入。running、approval、queued、unknown 分别表示原会话
+已恢复但新输入被原生状态阻塞；不混同会话无法恢复。MCP 重绑、模型和权限变更只在空闲后准备。
+输入提交前仍复核 idle snapshot，不能用早先空闲快照保证之后一直空闲。
+
+没有本轮输入提交时，状态查询连接断开可对同一、身份已核实且仍存活的专用 Gateway 重连一次并重查。
+不重启执行者来重试读取，不重试业务输入或状态变更；本轮已提交后的断连仍按输入与事件证据收口。
+正常续聊自动走这些恢复步骤，不要求先执行用户维护 CLI。
 
 采用 Hermes 专属 `first_payload`：Core 为成员准备的完整 Bootstrap B 原样放在第一条实际普通任务
 P 前，使用 `[Rovai 协作规则]` 分隔，同一次 `session/prompt` 提交；不增加确认调用。
@@ -90,7 +105,7 @@ ACP 终态不证明 controller 已消费 Gateway 通道。收尾先按同 epoch/
 
 ## 用户明确处理未知执行
 
-controller revision v5 增加独立的用户维护入口。Core 已失败收口、旧进程清理确认后，用户可在普通终端执行：
+controller revision v6 保留独立的用户维护入口。Core 已失败收口、旧进程清理确认后，用户可在普通终端执行：
 
 ```sh
 rovai app agent-run hermes-inspect --agent-run-id <原中断任务ID> > hermes-inspection.json
@@ -101,11 +116,13 @@ rovai app agent-run hermes-discard --inspection-file hermes-inspection.json --ac
 App 必须已运行。首条只查询原会话 snapshot 与精确 `prompt.receipt`；返回执行身份与警告：
 **原任务可能已产生文件修改、公开消息或其他外部效果**。确认文件含 Run/version/epoch、Thread/member、
 当前 binding/generation、原生 Session/admission/execution generation；不含业务正文、凭据或原始历史。
-没有唯一 unknown 时不提供确认对象。Agent 受管进程继续禁止 `rovai app`，不开放 Built-in Tool 代确认。
+检查可以报告 idle、running、approval、queued、unknown；没有唯一且独立阻塞的 unknown 时不提供确认对象。
+Agent 受管进程继续禁止 `rovai app`，不开放 Built-in Tool 代确认。
 
 第二条须显式 acknowledgeEffects，Core 重验来源、绑定、成员及清理状态，先持久化用户意图，再启动
 Fleet 拥有的一次性控制进程。该进程复用原 binding 的持久 Home，不创建 Run、CLI lease、Session 或
-`session/prompt`，不通过普通恢复的 idle gate 投递 `/discard` 文本。普通任务的恢复检查保持不变。
+`session/prompt`，不通过普通输入 gate 投递 `/discard` 文本。入口同样解析当前选定的可用 Hermes，
+不要求继续使用旧 Run 的安装记录、路径或指纹；原 Run 只确定执行身份、binding 和存储归属。
 任何 running、permission、queued 或多个 unknown 均拒绝处理；不顺便释放另一个原生排队任务。
 
 确认后再次查询精确 receipt：已有 terminal 时只报告原生事实；仍为同一 unknown 时调用官方

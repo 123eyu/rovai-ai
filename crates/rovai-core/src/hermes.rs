@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 use crate::{agent_profile::AdapterKind, command::canonical_json_digest};
 
-pub const REVISION: &str = "rovai-hermes-host-v5";
+pub const REVISION: &str = "rovai-hermes-host-v6";
 const HOST: &str = include_str!("hermes/host.py");
 const NATIVE_ENTRY: &str =
     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)";

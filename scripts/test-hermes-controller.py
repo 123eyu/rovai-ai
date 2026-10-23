@@ -2,9 +2,12 @@
 import asyncio
 import difflib
 import importlib.util
+import json
+import os
 from pathlib import Path
 import sys
 import types
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -145,6 +148,7 @@ class PromptSettlement(unittest.IsolatedAsyncioTestCase):
                 async def rpc(method, **args):
                     self.assertEqual(args["session_id"], "session")
                     if method == "session.resume": return snapshot
+                    if method == "prompt.receipt" and args["admission_id"] == "other": return dict(receipt, admission_id="other")
                     self.assertEqual(args["admission_id"], "admission")
                     if method == "prompt.receipt": return receipt
                     self.assertEqual(method, "prompt.resolve_unknown")
@@ -154,6 +158,8 @@ class PromptSettlement(unittest.IsolatedAsyncioTestCase):
                     if case == "wrong_after": snapshot["session_id"] = "another"
                     return receipt
                 c.rpc = types.SimpleNamespace(rpc=AsyncMock(side_effect=rpc))
+                async def read_snapshot(session): return await rpc("session.resume", session_id=session)
+                c.read_snapshot = AsyncMock(side_effect=read_snapshot)
                 if case in ("inspect", "resolve", "terminal"):
                     result = await c.recover_unknown(params)
                     self.assertEqual(result["sessionId"], "session")
@@ -164,6 +170,102 @@ class PromptSettlement(unittest.IsolatedAsyncioTestCase):
                 calls = [call.args[0] for call in c.rpc.rpc.call_args_list]
                 self.assertEqual(calls.count("prompt.resolve_unknown"), int(case in ("resolve", "wrong_after")))
                 c.native.assert_not_called()
+
+                if case in ("queued", "running", "approval", "multiple"):
+                    inspected = await c.recover_unknown({"sessionId": "session"})
+                    self.assertEqual(inspected["state"], "unknown" if case == "multiple" else case)
+                    self.assertTrue(inspected["receipts"])
+                    c.native.assert_not_called()
+
+    async def test_restore_history_before_gating_new_input(self):
+        for state, extra in (("idle", {}), ("running", {"running": True}),
+                             ("approval", {"prompts": [{"id": "approval"}]}),
+                             ("unknown", {"pending": [{"status": "unknown"}]}),
+                             ("queued", {"pending": [{"status": "queued"}]})):
+            with self.subTest(state=state):
+                c = host.Controller.__new__(host.Controller)
+                c.session, c.active, c.prompt_pending = None, None, False
+                c.native = AsyncMock(return_value={"sessionId": "original", "models": {}})
+                c.read_snapshot = AsyncMock(return_value={"session_id": "original", **extra})
+                c.refresh_efforts, c.bind_mcp = AsyncMock(), AsyncMock()
+                c.config_options = Mock(return_value=[])
+                result = await c.dispatch("session/load", {"sessionId": "original", "cwd": "/p", "mcpServers": [{"name": "changed"}]})
+                self.assertEqual(result["sessionId"], "original")
+                self.assertEqual(result["_meta"]["rovaiHermesState"]["state"], state)
+                self.assertEqual(c.native.call_args.args[1]["mcpServers"], [])
+                self.assertEqual(c.bind_mcp.await_count, int(state == "idle"))
+                if state != "idle":
+                    with self.assertRaises(host.Rejected) as error:
+                        await c.idle_snapshot()
+                    self.assertEqual(error.exception.error["data"]["code"], "HERMES_SESSION_BLOCKED")
+                    self.assertEqual(error.exception.error["data"]["state"], state)
+                self.assertEqual([call.args[0] for call in c.native.call_args_list], ["session/load"])
+
+    async def test_disconnected_state_read_reconnects_without_prompt_or_executor_restart(self):
+        class ClientError(Exception): pass
+        class RpcError(ClientError): pass
+        for fault in ("disconnect", "native-error", "active", "other-owner"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                c = host.Controller.__new__(host.Controller)
+                c.home = Path(directory).resolve()
+                (c.home / "gateway.lock").write_text(json.dumps({"pid": 12 if fault != "other-owner" else 13, "hermes_home": directory}))
+                c.active, c.prompt_pending = ({"prompt": "accepted"} if fault == "active" else None), False
+                c.gateway = types.SimpleNamespace(pid=12, returncode=None)
+                c.gateway_reader = None
+                c.tasks = set()
+                c.gateway_events = AsyncMock()
+                c.native, c.stop, c.start = AsyncMock(), AsyncMock(), AsyncMock()
+                c.rpc = types.SimpleNamespace(rpc=AsyncMock(side_effect=RpcError() if fault == "native-error" else ClientError()))
+                c.rpc_context = types.SimpleNamespace(__aexit__=AsyncMock())
+                fresh = types.SimpleNamespace(rpc=AsyncMock(return_value={"session_id": "original"}))
+                connect = Mock(return_value=types.SimpleNamespace(__aenter__=AsyncMock(return_value=fresh)))
+                modules = {"hermes_cli.gateway_client": types.SimpleNamespace(GatewayClientError=ClientError, GatewayRPCError=RpcError, connect_gateway=connect),
+                           "hermes_cli.gateway_runtime": types.SimpleNamespace(attachable=lambda _: True,
+                           discover_gateway_endpoint=lambda _: types.SimpleNamespace(endpoint=types.SimpleNamespace(supervisor="external")))}
+                with patch.dict(sys.modules, modules):
+                    if fault == "disconnect":
+                        self.assertEqual(await c.read_snapshot("original"), {"session_id": "original"})
+                        self.assertEqual(connect.call_count, 1)
+                    else:
+                        with self.assertRaises(Exception): await c.read_snapshot("original")
+                        connect.assert_not_called()
+                c.native.assert_not_called(); c.stop.assert_not_called(); c.start.assert_not_called()
+                await asyncio.gather(*c.tasks)
+
+    def test_binding_keeps_native_home_when_launch_environment_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            first, second, storage = root / "first", root / "second", root / "storage"
+            first.mkdir(); second.mkdir()
+            dependencies = root / "dependencies"
+            dependencies.mkdir()
+            (first / "installs").symlink_to(dependencies, target_is_directory=True)
+            (first / "config.yaml").write_text('{"agent":{"system_prompt":"original-profile"}}')
+            (second / "config.yaml").write_text('{"agent":{"system_prompt":"different-profile"}}')
+            modules = {"dotenv": types.SimpleNamespace(dotenv_values=lambda _: {}),
+                       "hermes_cli": types.SimpleNamespace(__file__=str(root / "package/hermes_cli/__init__.py"))}
+            with patch.dict(sys.modules, modules), patch.object(host, "yaml", types.SimpleNamespace(safe_load=json.loads, safe_dump=lambda value, **_: json.dumps(value))):
+                for source in (first, second, second):
+                    with patch.dict(os.environ, {"HERMES_HOME": str(source), "ROVAI_HERMES_STORAGE": str(storage)}):
+                        home, lock = host.prepare_home()
+                        try:
+                            self.assertEqual(home, storage / "native-home")
+                            self.assertEqual(json.loads((home / "config.yaml").read_text())["agent"]["system_prompt"], "original-profile")
+                            self.assertEqual(json.loads((storage / "native-source.json").read_text()), {"home": str(first), "profile": "default"})
+                        finally: lock.close()
+                    # Legacy storage has no marker and can contain a symlink
+                    # to a Home whose installs is itself another symlink.
+                    (storage / "native-source.json").unlink()
+                    (home / "state.db").touch()
+                (home / "installs").unlink()
+                (home / "auth.json").write_text('{}')
+                with patch.dict(os.environ, {"HERMES_HOME": str(second), "ROVAI_HERMES_STORAGE": str(storage)}):
+                    home, lock = host.prepare_home()
+                    try:
+                        self.assertEqual(json.loads((home / "config.yaml").read_text())["agent"]["system_prompt"], "original-profile")
+                        self.assertEqual(json.loads((storage / "native-source.json").read_text())["home"], str(home))
+                        self.assertFalse((home / "auth.lock").is_symlink())
+                    finally: lock.close()
 
 
 if __name__ == "__main__":

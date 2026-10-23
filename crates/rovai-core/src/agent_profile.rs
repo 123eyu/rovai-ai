@@ -2304,18 +2304,23 @@ impl AgentProfileService {
         // contract. Startup discovery must not retain the old system guarantee.
         if entry.adapter_kind == AdapterKind::HermesCli {
             let capabilities = transaction.query_row(
-                "SELECT capabilities_json FROM adapter_capability_snapshot WHERE installation_id=?1 AND probe_status='ready'",
-                [&id], |row| row.get::<_, String>(0)).optional()?;
-            if let Some(raw) = capabilities {
+                "SELECT capabilities_json,probe_status FROM adapter_capability_snapshot WHERE installation_id=?1",
+                [&id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?))).optional()?;
+            if let Some((raw, status)) = capabilities {
                 let mut capabilities: Vec<String> = serde_json::from_str(&raw)?;
-                if !crate::agent_runtime_adapter::hermes_charter_capabilities_current(&capabilities)
+                let obsolete = |value: &String| {
+                    value == "context.charter.managed_system_prompt"
+                        || value == "context.compaction.native_system_prompt_preserved"
+                };
+                if capabilities.iter().any(obsolete)
+                    || (status == "ready"
+                        && !crate::agent_runtime_adapter::hermes_charter_capabilities_current(
+                            &capabilities,
+                        ))
                 {
-                    capabilities.retain(|value| {
-                        value != "context.charter.managed_system_prompt"
-                            && value != "context.compaction.native_system_prompt_preserved"
-                    });
+                    capabilities.retain(|value| !obsolete(value));
                     transaction.execute(
-                        "UPDATE adapter_capability_snapshot SET probe_status='installed_unverified',stale_at=?2,capabilities_json=?3 WHERE installation_id=?1",
+                        "UPDATE adapter_capability_snapshot SET probe_status=CASE WHEN probe_status='ready' THEN 'installed_unverified' ELSE probe_status END,stale_at=?2,capabilities_json=?3 WHERE installation_id=?1",
                         params![id, now, serde_json::to_string(&capabilities)?])?;
                 }
             }

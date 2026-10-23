@@ -1,7 +1,7 @@
 ---
 document_type: current-decision-navigation
 authority: current-authority-and-rationale-routing
-last_updated: 2026-10-22
+last_updated: 2026-10-24
 ---
 
 # 当前规范与决定理由导航
@@ -364,3 +364,7 @@ Hermes 的首次/更新 user 层投递与完成通知后下一普通输入补发
 用户明确处理原生 unknown 的规范见 [Hermes 恢复](../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)
 和 [User Automation](../contracts/user-automation-v6.md#hermes-显式恢复)，保留两层终态与官方精确接口的理由见
 [V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)。
+
+Hermes 的原会话优先、当前安装选择、恢复与新输入分离以及绑定级并发保护，当前规范见
+[Hermes 合同](../contracts/hermes-managed-runtime-v1.md#安装与进程)，理由见
+[V1.72-D62](../versions/v1.72/decisions.md#v1-72-d62)。

@@ -34,10 +34,12 @@ test('reply detail navigation reveals and retains the original after layout and 
       '--remote-debugging-port=0', ...(process.platform === 'linux' ? ['--no-sandbox'] : [])] })
     await b.send('Emulation.setFocusEmulationEnabled', { enabled: true })
     const click = selector => b.click(`document.querySelector(${JSON.stringify(selector)})`)
+    let scenarioNumber = 0
     const open = async ({ width = 1440, loaded = false, full = false, reduced = false, scrollAfterOpen = false, wrapped = false, grouped = false }) => {
       await b.send('Emulation.setDeviceMetricsOverride', { width, height: 920, deviceScaleFactor: 1, mobile: false })
-      await b.send('Page.navigate', { url: pathToFileURL(join(root, 'rovai-teammate-presence.html')).href + '?pure=1' })
-      await b.wait('!!window.__presence && !!document.querySelector("[contenteditable=true]")')
+      const search = `?pure=1&scenario=${++scenarioNumber}`
+      await b.send('Page.navigate', { url: pathToFileURL(join(root, 'rovai-teammate-presence.html')).href + search })
+      await b.wait(`location.search === ${JSON.stringify(search)} && !!window.__presence && !!document.querySelector("[contenteditable=true]")`)
       await b.evaluate(`__presence.showReplyCase(true, ${loaded}, ${wrapped}, ${grouped}); document.documentElement.dataset.motionPreference = '${reduced ? 'reduce' : 'full'}'`)
       await b.wait('!!document.querySelector("[data-message-id=long-120]")')
       await click('[contenteditable=true]')
@@ -71,9 +73,8 @@ test('reply detail navigation reveals and retains the original after layout and 
     replyStart = await replyGeometry()
     await replyMouse('mousePressed', replyStart)
     await replyMouse('mouseMoved', { ...replyStart, x: replyStart.x + replyStart.width - 280 })
-    await b.wait('document.querySelector(".splitter-feedback")?.textContent === "松开收起回复详情"')
-    await pause(400)
-    assert.equal((await replyGeometry()).width, 360, 'Holding beyond the threshold preserves the minimum')
+    await b.wait('document.querySelector(".reply-detail-resize")?.dataset.foldState === "collapsed"')
+    assert.equal((await replyGeometry()).width, 0, 'Further travel folds the detail while held')
     await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
     await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
     await replyMouse('mouseReleased', replyStart)

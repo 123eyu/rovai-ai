@@ -125,5 +125,3 @@
 .team-memory-review-shortcut svg { width:15px; height:15px; }
 .team-memory-count { margin-left:auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
 .settings-sidebar-menu button:has(>.team-memory-count) { grid-template-columns:22px minmax(0,1fr) auto; }
-.unified-sidebar .new-conversation-button { background:var(--conversation-action); color:var(--conversation-action-contrast); }
-.unified-sidebar .new-conversation-button:hover { background:var(--conversation-action-hover); }

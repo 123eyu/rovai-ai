@@ -21,6 +21,7 @@ import {
 } from './automation-workspace-model'
 import { UiText, uiAttribute } from './interface-language'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
+import { SplitterFeedback } from './SplitterFeedback'
 
 
 export type AutomationLeaveGuard = () => Promise<boolean>
@@ -583,7 +584,7 @@ export function AutomationWorkspace({
           </section>}
         </aside>
         {!overview && <>
-          <div className="automation-splitter" role="separator" tabIndex={0} aria-label={uiAttribute("调整任务列表宽度")} aria-orientation="vertical" aria-valuemin={AUTOMATION_MIN_LIST_WIDTH} aria-valuemax={Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7)} aria-valuenow={editorClosed ? Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7) : width} aria-valuetext={editorClosed ? uiAttribute("详情已收起，向左调整可重新打开") : uiAttribute("任务列表宽度 {0} 像素", String(width))} title={editorClosed ? uiAttribute("向左拖动打开任务页") : uiAttribute("拖动调整宽度，详情最窄处停留后继续向右拖动收起；Escape 取消拖动")}
+          <div className="automation-splitter" role="separator" tabIndex={0} aria-label={uiAttribute("调整任务列表宽度")} aria-orientation="vertical" aria-valuemin={AUTOMATION_MIN_LIST_WIDTH} aria-valuemax={Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7)} aria-valuenow={editorClosed ? Math.max(AUTOMATION_MIN_LIST_WIDTH, availableWidth - 7) : width} aria-valuetext={editorClosed ? uiAttribute("详情已收起，向左调整可重新打开") : uiAttribute("任务列表宽度 {0} 像素", String(width))} title={editorClosed ? uiAttribute("向左拖动打开任务页") : uiAttribute("拖动调整宽度，详情最窄处继续向右内推，松开收起；Escape 取消拖动")}
             {...splitter.handlers}
             onDoubleClick={() => { splitter.cancel(); setListWidth(AUTOMATION_DEFAULT_LIST_WIDTH); setEditorClosed(false) }}
             onKeyDown={(event) => {
@@ -592,7 +593,7 @@ export function AutomationWorkspace({
               else if (event.key === 'Home') { event.preventDefault(); setListWidth(AUTOMATION_MIN_LIST_WIDTH); setEditorClosed(false) }
               else if (event.key === 'End') { event.preventDefault(); void closeEditor() }
               else if (event.key === 'Enter') { event.preventDefault(); setEditorClosed(false); setListWidth(AUTOMATION_DEFAULT_LIST_WIDTH) }
-            }}><span /></div>
+            }}><span /><SplitterFeedback phase={splitter.phase} target={splitter.target} label={uiAttribute('松开收起任务详情')} /></div>
           <section className="automation-editor" aria-label={selectedId === 'new' ? uiAttribute("新建定时任务") : uiAttribute("定时任务详情")} hidden={editorClosed}>
             <header className="automation-editor-toolbar"><span>{selectedId === 'new' ? uiAttribute("新建") : uiAttribute("详情")}</span><small role="status">{selected ? saveLabel : ''}</small><button type="button" className="automation-icon-button" aria-label={uiAttribute("返回定时任务总览")} onClick={() => void showOverview()}><AutomationGlyph name="close" /></button></header>
             <AutomationEditor key={selectedId} draft={draft} onChange={setDraft} agents={agents} projects={projects} automation={selected} busy={busy !== null} onOpenThread={onOpenThread} onCreate={() => void create()} />

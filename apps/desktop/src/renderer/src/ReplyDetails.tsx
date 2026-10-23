@@ -6,6 +6,7 @@ import { CopyIcon } from './CopyIcon'
 import { RunPresenceOpen } from './ConversationRunPresence'
 import { conversationRunPresenceTimeline } from './conversation-run-presence'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
+import { SplitterFeedback } from './SplitterFeedback'
 import { uiAttribute, useInterfaceLanguage } from './interface-language'
 import type { LiveRuntimeEvent } from './ui-model'
 import type { ReplyReaderState, ThreadReplyReader } from './thread-reply-reader'
@@ -80,11 +81,11 @@ export function ReplyDetails({ state, reader, width, full, onWidth, onFull, onCl
       aria-label={uiAttribute('调整回复详情宽度')} aria-valuemin={360} aria-valuemax={Math.round(maximum)}
       aria-valuenow={Math.round(Math.min(width, maximum))} tabIndex={0} {...splitter.handlers}
       onKeyDown={event => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter'].includes(event.key)) return
+        if (splitter.active || !['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter'].includes(event.key)) return
         event.preventDefault()
         onWidth(event.key === 'Enter' ? Math.min(466, maximum) : event.key === 'Home' ? 360 : event.key === 'End' ? maximum
           : Math.max(360, Math.min(maximum, width + (event.key === 'ArrowLeft' ? 24 : -24))))
-      }} />
+      }}><SplitterFeedback phase={splitter.phase} target={splitter.target} label={uiAttribute('松开收起回复详情')} /></div>
     <header className="reply-detail-header">
       <strong id={titleId}>{uiAttribute('回复详情')}</strong>
       {state.page?.sourceAvailable && <span className="reply-detail-count">{uiAttribute('{0} 条回复', state.page.replyCount)}</span>}

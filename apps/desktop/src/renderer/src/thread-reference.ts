@@ -24,7 +24,7 @@ export function validReferenceAtom(value: Record<string, unknown>): value is Rec
 export function projectReference(value: ReferenceAtom | ReferenceSegment): string {
   const ref = referenceIdentity(value)
   const title = 'titleAtSend' in value ? value.titleAtSend : value.labelFallback ?? ref.id
-  const escaped = title.replace(/[\s\u0000-\u001f\u007f-\u009f]/gu, ' ')
+  const escaped = title.replace(/[\p{White_Space}\p{Cc}]/gu, ' ')
     .replace(/[!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~]/gu, '\\$&')
   return `[${escaped}](rovai://${ref.kind}/${ref.id})`
 }
@@ -32,9 +32,9 @@ export function referenceProject(item: ReferenceCandidate): string {
   return item.projectBindingKind === 'directory' ? item.projectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? item.projectPath : '快速对话'
 }
 export function fuzzyContains(value: string, query: string): boolean {
-  const text = value.normalize('NFKC').toLocaleLowerCase()
+  const text = value.normalize('NFKC').toLowerCase()
   let cursor = 0
-  for (const char of query.normalize('NFKC').toLocaleLowerCase().replace(/\s/gu, '')) {
+  for (const char of query.normalize('NFKC').toLowerCase().replace(/[\p{White_Space}\uFEFF]/gu, '')) {
     const found = text.indexOf(char, cursor)
     if (found < 0) return false
     cursor = found + char.length

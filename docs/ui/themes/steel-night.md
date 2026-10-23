@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: steel-night
 mode: dark
-last_updated: 2026-10-20
+last_updated: 2026-10-22
 ---
 
 # Steel Night
@@ -28,6 +28,9 @@ Dark. `color-scheme: dark`.
 
 最深 Canvas 承载 rail 和主 surface，raised/input 再上提一级。会话与 Inspector 使用相邻但可辨的
 石墨表面及强分隔线。普通内容保持平面，只有真正浮层使用更深阴影。
+
+操作文字 Token `--conversation-action-ink: #e5e5e7` 保持原有动作文字与光标色；与实心动作底色分离，
+规则见[主题注册](README.md#配色与交互边界)。
 
 ## Complete semantic token assignments
 
@@ -309,3 +312,5 @@ Run the Renderer theme-token tests and the shared [theme matrix](../qa/theme-mat
 first-paint system resolution and switching themes while Draft, focus, selection and overlays are active.
 
 Neutral workspace selection/hover tokens apply to teammate roster, Memory, Automation and jump search. Memory uses the achromatic `--memory-*` surface, input and text family, with the same neutral primary-action hierarchy. Add/revise actions use Memory ink on canvas (inverted at night); other workspaces reuse the conversation action family for neutral actions; Runtime configuration dropdowns retain their existing tokens; the shared sidebar retains the production theme on the Memory route. Memory neutral overrides are scoped to content, notices and dialog portals, never the global navigation. Focus tokens do not require an extra outline, halo or focused input border.
+
+执行台使用独立的 `--execution-surface` Token，值为 `#181d21`，与本主题既有会话底色一致。

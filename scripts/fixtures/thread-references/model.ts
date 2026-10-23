@@ -1,4 +1,4 @@
-import { isThreadId } from '@contracts'
+import { isThreadId, type CoreEvent, type ThreadReadInvalidation } from '@contracts'
 import { model as base, profiles, installations } from '../markdown-code-copy/model'
 import { fuzzyContains } from '../../../apps/desktop/src/renderer/src/thread-reference'
 import { composerDocumentToStructuredContent } from '../../../apps/desktop/src/renderer/src/composer-document'
@@ -19,9 +19,24 @@ const skills = ['ui-ux-pro-max', 'code-review', 'worktree', 'analyze-agent-codeb
   id: `native:${i}`, name, description: ['还原界面并完善交互', '审查实现与合同', '隔离开发环境', '分析模块边界'][i],
   source: i < 2 ? 'toolbox' : 'native', sourceScope: i % 2 ? 'project' : 'user', entryPath: `/fixture/${name}/SKILL.md`, memberIds: profiles.slice(0, 2).map(p => p.agentId)
 }))
+const referenceEvents = new Set<(event: CoreEvent) => void>()
+const referenceInvalidations = new Set<(change: ThreadReadInvalidation) => void>()
 export const model = {
   ...base, opened: [] as unknown[], requests: [] as unknown[], sent: [] as unknown[], delay: 250,
-  client: { ...base.client, request: async (method: string, input: any = {}): Promise<any> => {
+  resolveDelay: 0, failResolve: false, activeResolves: 0, maxActiveResolves: 0,
+  emitReferenceEvent(event: CoreEvent) { referenceEvents.forEach(listener => listener(event)) },
+  invalidateReferences(change: ThreadReadInvalidation) { referenceInvalidations.forEach(listener => listener(change)) },
+  client: { ...base.client,
+    onEvent(listener: (event: CoreEvent) => void) {
+      referenceEvents.add(listener)
+      const stop = base.client.onEvent?.(listener)
+      return () => { referenceEvents.delete(listener); stop?.() }
+    },
+    onInvalidated(listener: (change: ThreadReadInvalidation) => void) {
+      referenceInvalidations.add(listener)
+      return () => { referenceInvalidations.delete(listener) }
+    },
+    request: async (method: string, input: any = {}): Promise<any> => {
     model.requests.push({ method, input: structuredClone(input) })
     if (method === 'threadReferences.list') {
       await new Promise(resolve => setTimeout(resolve, model.delay))
@@ -29,7 +44,16 @@ export const model = {
       const offset = Number(input.cursor ?? 0)
       return { items: items.slice(offset, offset + 8), nextCursor: items.length > offset + 8 ? String(offset + 8) : null }
     }
-    if (method === 'threadReferences.resolve') return input.references.map((ref: any) => catalog.find(item => item.id === ref.id) ?? null)
+    if (method === 'threadReferences.resolve') {
+      model.activeResolves++
+      model.maxActiveResolves = Math.max(model.maxActiveResolves, model.activeResolves)
+      try {
+        const result = structuredClone(input.references.map((ref: any) => catalog.find(item => item.id === ref.id) ?? null))
+        await new Promise(resolve => setTimeout(resolve, model.resolveDelay))
+        if (model.failResolve) throw new Error('fixture transport unavailable')
+        return result
+      } finally { model.activeResolves-- }
+    }
     if (method === 'skills.candidates') return { skills, errors: [] }
     return base.client.request(method, input)
   } },
@@ -39,5 +63,12 @@ export const model = {
     base.get().snapshot.messages.at(-1).content = composerDocumentToStructuredContent(draft.content)
     return result
   }
+}
+if (new URLSearchParams(location.search).get('recover') === 'mission') {
+  const item = catalog.find(item => item.kind === 'mission')!
+  model.client.editingRecovery?.set(`${snapshot.thread.id}:composer`, {
+    base: { version: 2, segments: [] },
+    document: { version: 2, segments: [{ kind: 'atom', atom: { type: 'mission_reference', missionId: item.id, labelFallback: '旧恢复标题' } }] }
+  })
 }
 Object.assign(window, { __references: { model, catalog, snapshot, profiles, skills } })

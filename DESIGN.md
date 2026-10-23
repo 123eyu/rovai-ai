@@ -50,7 +50,11 @@ use decoration to soften or obscure commands, diffs, approvals, errors or uncert
 - neutral surfaces with low-frequency Steel structure;
 - compact desktop density and stable information hierarchy;
 - identity, status, evidence and brand colors kept semantically separate;
-- one shared component and state matrix across both themes.
+- one shared component and state matrix across all themes.
+
+Horizon, Classic Red and Ember extend this same visual world through semantic palettes. They keep
+the production component tree and interactions, including the absence of decorative input focus effects.
+Their complete values and mode mappings live in the [theme registry](docs/ui/themes/README.md).
 
 ## Brand Mark
 
@@ -110,8 +114,8 @@ macOS and Web settings use a fixed 270px rail without collapse, resize or histor
 macOS preserves an inherited collapsed rail with an expand button. Web settings always expand their categories
 and remove the native drag spacer above the brand; leaving settings restores the ordinary-page layout. Ordinary pages show back/forward
 beside the sidebar toggle while expanded, and only the expand button while collapsed.
-The global rail resizes from 200px to 420px within the window. Dragging to 200px pauses at the minimum; after a 180ms dwell, another 64px inward folds it
-to 0px over 160ms. Releasing at the stop keeps 200px. The window-chrome toggle also collapses
+The global rail resizes from 200px to 420px within the window. Dragging to 200px stops at the minimum; another 64px inward arms a fold.
+Releasing beyond that threshold folds to 0px over 160ms, without a dwell requirement. Releasing at the stop keeps 200px. The window-chrome toggle also collapses
 it completely, without an icon strip. Restore through the toggle,
 keyboard, or a drag from the left edge; retain the previous expanded width and mounted page state.
 The minimum supported window is `1040×700`; reference checks also cover `1440×920` and
@@ -162,9 +166,11 @@ without extra focus outlines or halos; higher contrast preferences restore the s
 - **Resizable boundaries:** navigation, member roster, file preview, MCP/Skills, Automation and execution-panel splitters
   share a single `1px` line. Hover and dragging change the entire boundary to neutral `--resize-line`,
   without a short grip or increased thickness. Invisible hit areas remain wider. Preserve keyboard resizing,
-  cancellation and reset. Collapsible panes share the 180ms minimum stop, 64px continuation and 160ms
-  fold; reduced motion skips the fold animation while retaining the intentional stop. Release before
-  folding keeps the minimum; release during a fold finishes it. Settings lists and Diff file trees
+  cancellation and reset. All resizing commits the final release coordinate, including fast gestures between frames,
+  with CSS zoom accounted for. Collapsible panes stop at their minimum; another 64px inward immediately shows
+  a transient release-to-fold hint. Holding never folds the pane. Releasing beyond the threshold folds over 160ms;
+  reversing out of it cancels the intent, and releasing inside it keeps the minimum. Reduced motion skips only
+  the fold animation. Cancellation restores the pre-gesture layout without saving a transient width. Settings lists and Diff file trees
   retain their minimum widths, and the Mission drawer retains its own full-expansion gesture. Collapse icons use an unfilled rounded window with an inner line near the corresponding
   edge when collapsed; the navigation control sits right of macOS traffic lights or left of Windows File.
 - **Containers:** prefer one open surface with dividers over card walls. A card is justified only
@@ -196,7 +202,7 @@ Rovai-specific interaction contracts are indexed in
 
 ### Do
 
-- **Do** keep the two themes on one component tree and one state matrix.
+- **Do** keep all themes on one component tree and one state matrix.
 - **Do** preserve readable evidence, uncertainty and the next user action.
 - **Do** combine state color with text, icon, shape or stable position.
 - **Do** use the established product terms “队员”, “记忆”, “智能体” and “快速对话”. “智能体” labels the selectable coding-agent product; “队员” labels its long-lived team identity.

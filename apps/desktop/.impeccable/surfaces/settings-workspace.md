@@ -1,5 +1,5 @@
 ---
-version: 21
+version: 22
 slug: "settings-workspace"
 primary_target: "apps/desktop/src/renderer/src/SettingsPageHeader.tsx"
 related_targets:
@@ -104,16 +104,17 @@ platform validation, binding and persistence semantics belong to
 
 ## 外观与提醒
 
-Appearance presents exactly “跟随系统 / 日间 / 夜间”, with resolved result and saved preference
-remaining distinguishable in the page header. The quiet theme surfaces describe Porcelain Day and
-Steel Night; switching preserves page state, focus and open overlays. Follow
+Appearance presents exactly “跟随系统 / 日间 / 夜间 / 地平线 / 经典红 / 余烬”, with resolved result and saved preference
+remaining distinguishable in the page header. The five palettes share the production component tree;
+switching preserves page state, focus and open overlays. Follow
 [`themes/README.md`](../../../../docs/ui/themes/README.md).
 
 Appearance follows the reviewed three-section composition: 界面主题, 文字与阅读, 显示与动效, on a
 centered 980px track. Theme choices are whole-card native radio labels, with a 16:9 UI thumbnail,
 Chinese/English name, selection outline and check mark. Follow-system uses a diagonal day/night split
 of the same synthetic workspace; day and night show their fixed palettes independently of the selected
-page theme. Preserve keyboard arrows and the global focus treatment without an extra card focus ring.
+page theme. Keep the six cards compact: six columns on the full track, three below 900px container width,
+and two below 420px. New palette thumbnails reuse the same workspace geometry. Preserve keyboard arrows and the global focus treatment without an extra card focus ring.
 
 The reading section places compact controls beside a bounded conversation/document/code preview.
 Conversation, document and code sizes default to 13/15/14px and accept integer values from 12–24px.

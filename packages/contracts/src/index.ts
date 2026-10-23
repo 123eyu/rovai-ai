@@ -2648,6 +2648,7 @@ export interface ThreadMessageChange {
   throughGlobalSequence: number
 }
 export interface ThreadReadInvalidation {
+  referencesChanged?: boolean
   notificationsChanged?: boolean
   tasksChanged?: boolean
   teamsChanged?: boolean
@@ -3067,7 +3068,9 @@ export interface SupervisorApi {
   onChanged(listener: (snapshot: SupervisorSnapshot) => void): () => void
 }
 
-export type ThemePreference = 'system' | 'day' | 'night'
+export type ThemeId = 'day' | 'night' | 'horizon' | 'classic-red' | 'ember'
+export type ThemePreference = 'system' | ThemeId
+/** Light/dark rendering mode, independent of the selected palette. */
 export type ResolvedTheme = 'day' | 'night'
 
 export interface AppearancePreferences {

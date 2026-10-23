@@ -32,11 +32,13 @@ All split boundaries, including the roster, highlight their full 1px line with `
 The roster shares the detail's workspace
 surface (white in Day), with a 1px divider separating the two reading planes. Its default width is 256px;
 expanded widths range from 192px to 360px and protect 400px for the detail when space permits.
-Dragging holds at 192px; a 180ms dwell plus 64px further inward folds to the 76px avatar rail
-over 160ms. Releasing at the stop retains the minimum; reduced motion omits the fold animation.
-Dragging a collapsed rail past 208px expands it. Escape, lost capture, blur or resizing the window
-restores the pre-gesture layout; mouseup during an accepted fold lets it finish.
-The 9px pointer target stays mounted through collapse so the gesture can reverse without losing capture.
+Dragging holds at 192px; another 64px inward immediately shows the release-to-fold hint.
+Releasing beyond that threshold folds to the 76px avatar rail over 160ms, without a dwell requirement.
+Holding never folds; reversing out of the threshold cancels the intent. Releasing at the stop retains
+192px, and reduced motion omits the fold animation. Fast release commits its final coordinate.
+Dragging a collapsed rail past 208px expands it. Escape, lost capture during dragging, blur or resizing
+the window restores the pre-gesture layout. Native capture release after mouseup lets the accepted fold finish.
+The 9px pointer target stays mounted through collapse and supports dragging open again.
 Expanding restores the useful width before the collapse gesture. Remember width and
 collapse locally, accepting the previous collapse-only preference; viewport clamping does not overwrite
 the chosen width. Double-click or Home restores 256px, arrows resize and collapse/expand at the boundary,

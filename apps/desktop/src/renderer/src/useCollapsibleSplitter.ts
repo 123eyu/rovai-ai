@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { prefersReducedMotion } from './reduced-motion'
 
-const DETENT_MS = 180
 const COLLAPSE_TRAVEL = 64
 const COLLAPSE_MS = 160
 
-type Phase = 'idle' | 'dragging' | 'detent' | 'preparing' | 'closing' | 'collapsed'
+export type SplitterPhase = 'idle' | 'dragging' | 'detent' | 'armed' | 'preparing' | 'closing' | 'collapsed'
 
 interface SplitterOptions<Snapshot> {
   size: number
@@ -24,7 +23,8 @@ interface SplitterOptions<Snapshot> {
   capture(): Snapshot
   onPreview(size: number): void
   onCommit(size: number): void
-  onCollapse(snapshot: Snapshot): void
+  /** Omit for a boundary that resizes without folding. */
+  onCollapse?(snapshot: Snapshot): void
   onCancel(snapshot: Snapshot): void
   onActiveChange?(active: boolean): void
   /** May paint below the expanded minimum without changing the saved preference. */
@@ -40,10 +40,8 @@ interface Gesture<Snapshot> {
   scale: number
   raw: number
   snapshot: Snapshot
-  phase: Phase
-  minimumAt: number | null
+  phase: SplitterPhase
   generation: number
-  blocked: boolean
   released: boolean
   moved: boolean
 }
@@ -56,20 +54,17 @@ export function splitterScale(element: HTMLElement | null, axis: 'x' | 'y' = 'x'
   return Number.isFinite(scale) && scale > 0 ? scale : 1
 }
 
-/** A minimum is a stable stop. Folding requires both dwell time and further inward travel. */
+/** Minimum widths are stable stops; further inward travel arms a fold committed on release. */
 export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapshot>) {
   const latest = useRef(options)
   latest.current = options
   const gesture = useRef<Gesture<Snapshot> | null>(null)
   const frame = useRef<number | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [phase, setPhase] = useState<Phase>('idle')
+  const [phase, setPhase] = useState<SplitterPhase>('idle')
 
   const clearPending = useCallback((): void => {
     if (frame.current !== null) cancelAnimationFrame(frame.current)
-    if (timer.current !== null) clearTimeout(timer.current)
     frame.current = null
-    timer.current = null
   }, [])
 
   const release = useCallback((): void => {
@@ -78,6 +73,7 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
     clearPending()
     if (!active) return
     active.generation++
+    delete active.target.dataset.foldState
     delete active.target.dataset.resizing
     if (active.target.hasPointerCapture(active.pointerId)) active.target.releasePointerCapture(active.pointerId)
     latest.current.onActiveChange?.(false)
@@ -91,8 +87,9 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
     release()
   }, [release])
 
-  const changePhase = (active: Gesture<Snapshot>, next: Phase): void => {
+  const changePhase = (active: Gesture<Snapshot>, next: SplitterPhase): void => {
     active.phase = next
+    active.target.dataset.foldState = next
     setPhase(next)
   }
 
@@ -106,7 +103,6 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
     catch { permitted = false }
     if (!current()) return
     if (!permitted) {
-      active.blocked = true
       changePhase(active, 'detent')
       if (active.released) {
         latest.current.onCommit(latest.current.minimum)
@@ -128,46 +124,29 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
       if (progress < 1) {
         frame.current = requestAnimationFrame(animate)
       } else {
-        active.minimumAt = null
         changePhase(active, 'collapsed')
-        o.onCollapse(active.snapshot)
-        // Some owners remove the handle when folded; persistent handles can reverse in the same gesture.
+        o.onCollapse?.(active.snapshot)
+        // Folding starts only on release, so native lost capture must not cancel the animation.
         if (active.released) release()
       }
     }
     frame.current = requestAnimationFrame(animate)
   }
 
-  const update = (active: Gesture<Snapshot>, now: number): void => {
+  const update = (active: Gesture<Snapshot>): void => {
     const o = latest.current
-    if (active.phase === 'preparing' || active.phase === 'closing') {
-      if (active.raw <= o.minimum + 8) return
-      active.generation++
-      clearPending()
-      active.minimumAt = null
-      changePhase(active, 'dragging')
-    }
     if (active.phase === 'collapsed') {
       if (active.raw < (o.expandAt ?? o.minimum)) return
       changePhase(active, 'dragging')
     }
     if (active.raw > o.minimum) {
-      active.minimumAt = null
-      active.blocked = false
       changePhase(active, 'dragging')
       o.onPreview(Math.min(o.maximum, active.raw))
       return
     }
-    if (active.minimumAt === null) active.minimumAt = now
-    changePhase(active, 'detent')
     o.onPreview(o.minimum)
-    if (active.blocked || active.raw > o.minimum - COLLAPSE_TRAVEL) return
-    const remaining = DETENT_MS - (now - active.minimumAt)
-    if (remaining <= 0) void collapse(active)
-    else timer.current = setTimeout(() => {
-      timer.current = null
-      if (gesture.current === active) update(active, performance.now())
-    }, remaining)
+    changePhase(active, !o.onCollapse ? 'dragging'
+      : active.raw <= o.minimum - COLLAPSE_TRAVEL ? 'armed' : 'detent')
   }
 
   const readPointer = (active: Gesture<Snapshot>, event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -200,6 +179,7 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
   return {
     active: phase !== 'idle',
     phase,
+    target: gesture.current?.target ?? null,
     cancel,
     handlers: {
       onPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -216,7 +196,7 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
           coordinate: o.axis === 'y' ? event.clientY : event.clientX,
           size, scale: Number.isFinite(scale) && scale > 0 ? scale : 1, raw: size,
           snapshot: o.capture(), phase: o.collapsed ? 'collapsed' : 'dragging',
-          minimumAt: null, generation: 0, blocked: false, released: false, moved: false
+          generation: 0, released: false, moved: false
         }
         gesture.current = active
         setPhase(active.phase)
@@ -228,34 +208,24 @@ export function useCollapsibleSplitter<Snapshot>(options: SplitterOptions<Snapsh
         readPointer(active, event)
         if (!active.moved) return
         event.preventDefault()
-        if (active.phase === 'preparing' || active.phase === 'closing') {
-          update(active, performance.now())
-          return
-        }
         clearPending()
-        frame.current = requestAnimationFrame(now => {
+        frame.current = requestAnimationFrame(() => {
           frame.current = null
-          if (gesture.current === active) update(active, now)
+          if (gesture.current === active) update(active)
         })
       },
       onPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
         const active = gesture.current
-        if (!active || active.pointerId !== event.pointerId) return
+        if (!active || active.pointerId !== event.pointerId || active.released) return
         readPointer(active, event)
         const o = latest.current
-        if (active.phase === 'preparing' || active.phase === 'closing') {
-          update(active, performance.now())
-          if (active.phase === 'preparing' || active.phase === 'closing') {
-            // Native pointerup releases capture; let an already accepted fold finish.
-            active.released = true
-            return
-          }
-        }
         if (!active.moved) { cancel(); return }
         const folded = active.phase === 'collapsed' && active.raw < (o.expandAt ?? o.minimum)
-        if (!folded && !active.blocked && active.minimumAt !== null
-          && performance.now() - active.minimumAt >= DETENT_MS && active.raw <= o.minimum - COLLAPSE_TRAVEL) {
+        // Commit the release coordinate even if the last pointermove has not painted.
+        // Clear intent must not depend on dwell time or a previous animation frame.
+        if (!folded && o.onCollapse && active.raw <= o.minimum - COLLAPSE_TRAVEL) {
           active.released = true
+          o.onPreview(o.minimum)
           void collapse(active)
           return
         }

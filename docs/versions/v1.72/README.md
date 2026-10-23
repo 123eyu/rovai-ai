@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -20,6 +20,23 @@ last_updated: 2026-10-22
 影响范围：新增 Adapter/原生启动与 Renderer 目录项；Migration 214 将 schema 163 扩展至 164；
 Context 仅新增 Adapter 到既有 ManagedSystemPrompt 映射，不改 B/P 字节、选择、Formatter/Manifest/Profile；
 文档路由与 runtime 文件片段证据同步。无发布版本变更、既有会话 clean break、领域词汇变更或其他平台资格晋升。
+
+## 全界面分隔线快速松手（2026-10-23）
+
+按 User 确认的第二版交互稿，把可折叠分隔线统一为“到最小值停住、继续内推 64px、松手收起”，
+移除必须停留的门槛，普通调宽也使用松手的最终位置。覆盖导航、队员／团队名册、文件／执行 Sidecar、
+回复详情、定时任务、底部执行面板；MCP、原生 Skills 与工具箱共用缩放、取消和最终位置提交，保留只调宽行为。
+当前规则见 [DESIGN](../../../DESIGN.md) 与各 [UI 页面](../../ui/README.md)，
+实施与验证见[分隔线实施记录](implementation-plan.md#全界面分隔线快速松手2026-10-23)。
+不改变 Core、模型上下文、数据库 schema、偏好格式或发布版本。
+
+## 三款新增主题（2026-10-22）
+
+User 确认在独立 worktree 实施地平线、经典红与余烬，保留原有三项偏好并缩小六项主题卡片。
+新增配色与明暗模式分离，消息、输入框与焦点行为继续使用生产实现，不带入原型专属交互。
+后续按 User 反馈降低地平线的大面积暖色，执行台改用独立中性白，保留会话与侧栏的轻微暖感。
+当前规则见[主题注册](../../ui/themes/README.md)，范围、验证与分支状态见[实施记录](theme-palettes-implementation.md)。
+不改变模型上下文、Core schema 或发布版本。
 
 ## 对话与使命引用（2026-10-22）
 

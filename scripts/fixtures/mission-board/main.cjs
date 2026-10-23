@@ -44,6 +44,12 @@ app.whenReady().then(async () => {
     await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0, deltaY: 1000 })
   }
   const settle = () => window.webContents.executeJavaScript('new Promise(resolve => setTimeout(resolve, 250))', true)
+  if (mode === 'splitters') {
+    await require('./splitters.cjs')({ window, waitFor, click, settle })
+    console.log(JSON.stringify({ ok: true, cases: ['Mission drawer and Diff tree settle final release, interruption, drag-click isolation and Escape'] }))
+    app.exit(0)
+    return
+  }
   if (mode === 'web-links') {
     try {
       await require('./web-links.cjs')({ window, userData, waitFor, click, settle })

@@ -8107,16 +8107,16 @@ function ExecutionDrawer({
           role="separator"
           aria-label={uiAttribute("调整执行详情高度")}
           aria-orientation="horizontal"
-          aria-valuemin={heightSplitter.phase === 'closing' ? 0 : accessibleBounds.min}
+          aria-valuemin={heightSplitter.active ? 0 : accessibleBounds.min}
           aria-valuemax={accessibleBounds.max}
           aria-valuenow={accessibleHeight}
           aria-valuetext={uiAttribute("{0} 像素；上下方向键调整，Enter 恢复默认高度", String(accessibleHeight))}
           tabIndex={0}
-          title={uiAttribute("上下拖动调整，最矮处继续向下内推，松开收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
+          title={uiAttribute("上下拖动调整，最矮处继续向下内推直接收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
           {...heightSplitter.handlers}
           onKeyDown={handleResizeKeyDown}
           onDoubleClick={() => { heightSplitter.cancel(); resetPreferredHeight() }}
-        ><SplitterFeedback phase={heightSplitter.phase} target={heightSplitter.target} label={uiAttribute('松开收起执行详情')} /></div>
+        ><SplitterFeedback phase={heightSplitter.phase} target={heightSplitter.target} label={uiAttribute('继续拖动收起执行详情')} /></div>
       )}
         <header className={`execution-drawer-header${overview ? ' is-overview' : ''}`}>
           <div className="execution-drawer-agent">

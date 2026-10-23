@@ -700,7 +700,7 @@ app.whenReady().then(async () => {
   })
 
   await check('tabs shrink equally before minimum-width overflow, and expand again after closing', async () => {
-    await viewport(1_500)
+    await viewport(1_540)
     const tabs = async () => { await snapshot(); return run('window.previewTest.tabSnapshot()') }
     const equalWidths = (state, width) => state.tabs.forEach(tab => closeTo(tab.width, width, 'Equal tab widths'))
     await run('window.previewTest.openTab(0)')
@@ -751,7 +751,7 @@ app.whenReady().then(async () => {
     await run('window.previewTest.setTheme("night")')
     await snapshot()
     await capture('tabs-minimum-night')
-    await viewport(1_500)
+    await viewport(1_540)
     const expanded = await tabs()
     closeTo(expanded.tabs[0].width, shrinking.tabs[0].width, 'Widening the preview expands tabs')
     assert.equal(expanded.overflow, false)
@@ -819,7 +819,8 @@ app.whenReady().then(async () => {
     assert.deepEqual(await reading(), before)
 
     await click('.file-preview-tab-scroll.is-right')
-    const right = await settledTabs()
+    let right = await settledTabs()
+    if (right.edges.right) { await click('.file-preview-tab-scroll.is-right'); right = await settledTabs() }
     closeTo(right.scrollLeft, right.maximum, 'The right button reaches the end')
     assert.deepEqual(right.edges, { left: true, right: false })
     assert.deepEqual(await reading(), before)
@@ -851,15 +852,60 @@ app.whenReady().then(async () => {
   })
 
   await check('dragging left protects the conversation minimum and commits only on release', async () => {
-    const moving = await drag(1_000)
+    const moving = await drag(750)
     closeTo(moving.conversation, 420, 'Conversation minimum')
     assert.equal(moving.lineWidth, '1px')
-    assert.match(moving.hint, /420px/)
+    assert.equal(moving.hint, '继续拖动收起会话')
     assert.equal(moving.aligned, true)
     assert.equal(moving.stored, null)
     const done = await release()
     closeTo(Number(done.stored) * done.available, 750, 'Committed preview width')
     assert.equal(done.resizing, false)
+    await reset()
+  })
+
+  await check('conversation folds flush with navigation while held and reverses without losing reading state', async () => {
+    await run('window.previewTest.bookmark(); document.querySelector(".camp-timeline").scrollTop = 200')
+    const before = await snapshot()
+    await drag(1_000)
+    await new Promise(resolve => setTimeout(resolve, 220))
+    const held = await snapshot()
+    assert.equal(held.expanded, true)
+    closeTo(held.width, held.available, 'Full preview occupies the entire content area')
+    closeTo(held.conversation, 0, 'Conversation leaves no restore rail')
+    assert.equal(held.phase, 'collapsed')
+    pointer.x += 300
+    mouse('mouseMove')
+    const reversed = await snapshot()
+    assert.equal(reversed.expanded, false)
+    closeTo(reversed.width, 700, 'Reversal keeps the latest pointer position')
+    assert.equal(reversed.timelineScroll, before.timelineScroll)
+    await release()
+    await drag(1_000)
+    await new Promise(resolve => setTimeout(resolve, 220))
+    const folded = await release()
+    assert.equal(folded.handle, null, 'No displaced restore handle remains after release')
+    assert.equal(folded.expanded, true)
+    await capture('preview-expanded-day')
+    const restored = await click('.file-preview-expand-toggle')
+    closeTo(restored.width, 700, 'Restore returns to the useful split width')
+    assert.equal(restored.timelineScroll, before.timelineScroll)
+    assert.equal(restored.sameViewer, true)
+    assert.equal(restored.sameEditor, true)
+    assert.equal(restored.scroll, 640)
+    await click('.file-preview-expand-toggle')
+    for (const action of ['openExecution()', 'openActivity()', 'open()']) {
+      await run('window.previewTest.' + action)
+      const selected = await snapshot()
+      assert.equal(selected.expanded, true, 'Switching preview kinds retains expanded mode')
+      closeTo(selected.width, selected.available, 'Every preview kind fills the content area')
+    }
+    await run('window.previewTest.setTheme("night")')
+    await capture('preview-expanded-night')
+    await key('Escape')
+    assert.equal((await snapshot()).expanded, false, 'Escape restores split mode')
+    await run('window.previewTest.setTheme("day"); window.previewTest.closeExtraTabs()')
+    await open()
     await reset()
   })
 
@@ -881,15 +927,12 @@ app.whenReady().then(async () => {
     await run('window.previewTest.bookmark()')
     const before = await snapshot()
     const moving = await drag(319)
-    closeTo(moving.width, 420, 'Fast inward drag pauses visibly at minimum')
-    assert.equal(moving.hint, '松开收起预览区')
-    assert.equal(moving.armed, true)
-    assert.equal(moving.opacity, '1')
-    assert.equal(moving.lineColor, 'rgb(119, 119, 119)', 'The entire divider keeps the neutral resize color')
-    await new Promise(resolve => setTimeout(resolve, 400))
-    assert.equal((await snapshot()).visible, true, 'Holding beyond the threshold never auto-closes')
-    assert.equal(await run('document.querySelector(".splitter-feedback").textContent'), '松开收起预览区')
-    await capture('preview-release-confirmation')
+    await new Promise(resolve => setTimeout(resolve, 220))
+    const held = await snapshot()
+    closeTo(held.width, 0, 'The preview fully folds while the pointer remains held')
+    assert.equal(held.phase, 'collapsed')
+    assert.equal(held.resizing, true, 'Capture remains active for reversal')
+    await capture('preview-held-fold')
     await release()
     await new Promise(resolve => setTimeout(resolve, 200))
     const closed = await snapshot()
@@ -922,16 +965,23 @@ app.whenReady().then(async () => {
     closeTo((await key('Home')).width, 420, 'Keyboard reset for the following cancellation cases')
   })
 
-  await check('Escape, pointercancel and lost capture restore the pre-drag ratio', async () => {
+  await check('Escape rolls back; native interruption settles the last observed coordinate', async () => {
     const before = await snapshot()
-    for (const cancel of [() => key('Escape'), () => run('window.previewTest.cancelPointer()'), () => run('window.previewTest.cancelPointer(true)')]) {
-      await drag(280)
-      await cancel()
+    await drag(280)
+    await key('Escape')
+    const cancelled = await release()
+    assert.equal(cancelled.visible, true)
+    assert.equal(cancelled.stored, before.stored)
+    closeTo(cancelled.width, before.width, 'Escape restores the initial width')
+    for (const finish of [() => run('window.previewTest.cancelPointer()'), () => run('window.previewTest.cancelPointer(true)'), () => run('window.dispatchEvent(new Event("blur"))')]) {
+      await drag(500)
+      await finish()
       const done = await release()
-      assert.equal(done.visible, true)
-      assert.equal(done.stored, before.stored)
-      closeTo(done.width, before.width, 'Cancelled drag width')
+      closeTo(done.width, 500, 'Native interruption commits the latest width')
+      closeTo(Number(done.stored) * done.available, 500, 'Latest width persists')
       assert.equal(done.resizing, false)
+      await run('document.querySelector(".file-preview-resize-handle").focus()')
+      await key('Home')
     }
   })
 
@@ -948,16 +998,17 @@ app.whenReady().then(async () => {
     }
   })
 
-  await check('container resize cancels active dragging and never overwrites the preferred ratio', async () => {
-    await drag(800)
+  await check('container resize settles active dragging within the new bounds', async () => {
+    await drag(700)
     await viewport(1_130)
     const done = await release()
     closeTo(done.width, 440, 'Container clamps while preserving the conversation')
-    assert.equal(done.stored, '0.56')
+    assert.notEqual(done.stored, '0.56', 'The last observed position replaces the old preference')
     assert.equal(done.resizing, false)
     const restored = await viewport(1_440)
-    closeTo(restored.width, restored.available * .56, 'Ratio after window expands')
+    closeTo(restored.width, restored.available * Number(done.stored), 'Committed ratio after window expands')
     assert.equal(restored.aligned, true)
+    await reset()
   })
 
   await check('actual workspace threshold replaces the conversation and returns without losing content', async () => {

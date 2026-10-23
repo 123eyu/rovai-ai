@@ -67,7 +67,7 @@ describe('ComposerDraftSync', () => {
     expect(effective).toHaveBeenLastCalledWith(recovered)
     expect(persist).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(350)
-    expect(persist).toHaveBeenCalledWith(recovered)
+    expect(persist).toHaveBeenCalledWith(recovered, { localVersion: 1 })
     unregister(); sync.destroy()
   })
 

@@ -43,8 +43,13 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(base ? draftOf(base) : blank())
   const frozen = busy || pending.current !== null
   const selected = base && teams.find(team => team.id === base.id)
-  const changedElsewhere = base && (!selected || selected.version !== base.version)
-  const select = (team: Team | null): void => { baseRef.current = team; setBase(team); setDraft(team ? draftOf(team) : null); setDetail(Boolean(team)); setError(null); setSaved(false); setGuidanceOpen(false) }
+  const changedElsewhere = base && (!selected || selected.version > base.version)
+  const select = (team: Team | null): void => {
+    // A pending/stale list cannot replace a newer, confirmed save receipt.
+    const current = baseRef.current
+    if (current && team?.id === current.id && team.version < current.version) team = current
+    baseRef.current = team; setBase(team); setDraft(team ? draftOf(team) : null); setDetail(Boolean(team)); setError(null); setSaved(false); setGuidanceOpen(false)
+  }
   const create = (roster?: NewConversationDefaults): void => { baseRef.current = null; setBase(null); setDraft({ ...blank(), ...roster }); setDetail(true); setError(null); setSaved(false); setGuidanceOpen(false); requestAnimationFrame(() => nameInput.current?.focus()) }
   const change = (patch: Partial<Draft>): void => { if (!frozen) { setDraft(current => current && ({ ...current, ...patch })); setError(null); setSaved(false) } }
 

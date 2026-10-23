@@ -85,17 +85,23 @@ export function ComposerTypeaheadPlugin({
     }
   } }), [editor])
   const selectedIndexRef = useRef(selectedIndex)
+  const dismissedMatch = useRef<ComposerTriggerMatch | null>(null)
   const memberOnlyRef = useRef(memberOnly)
   memberOnlyRef.current = memberOnly
   const findMatch = useCallback(() => {
     const found = $findComposerTriggerMatch(editor)
+    if (found && composerTriggerMatchesEqual(dismissedMatch.current, found)) return null
+    dismissedMatch.current = null
     return memberOnlyRef.current && found?.kind !== 'member' ? null : found
   }, [editor])
   const current = useRef({ match, optionCount, getOptionState, onMatchChange, onSelect })
   current.current = { match, optionCount, getOptionState, onMatchChange, onSelect }
   selectedIndexRef.current = selectedIndex
 
-  const close = useCallback(() => current.current.onMatchChange(null), [])
+  const close = useCallback(() => {
+    dismissedMatch.current = current.current.match
+    current.current.onMatchChange(null)
+  }, [])
   const selectIndex = useCallback((index: number) => {
     const state = current.current
     if (editor.isComposing()) return
@@ -208,11 +214,13 @@ export function ComposerTypeaheadPlugin({
     if (menu && selected?.id) {
       root.setAttribute('aria-activedescendant', selected.id)
       // Only scroll the list; scrollIntoView also moves clipped dialog/editor ancestors.
-      const scroller = menu.closest<HTMLElement>('.mention-menu') ?? menu
+      const scroller = menu.classList.contains('ref-options') ? menu : menu.closest<HTMLElement>('.mention-menu') ?? menu
       const bounds = selected.getBoundingClientRect()
       const top = scroller.getBoundingClientRect().top + scroller.clientTop
-      if (bounds.top < top) scroller.scrollTop += bounds.top - top
-      else if (bounds.bottom > top + scroller.clientHeight) scroller.scrollTop += bounds.bottom - top - scroller.clientHeight
+      if (menu.dataset.managedScroll !== 'true') {
+        if (bounds.top < top) scroller.scrollTop += bounds.top - top
+        else if (bounds.bottom > top + scroller.clientHeight) scroller.scrollTop += bounds.bottom - top - scroller.clientHeight
+      }
     } else {
       root.removeAttribute('aria-activedescendant')
     }

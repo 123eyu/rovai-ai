@@ -105,12 +105,37 @@ User 在 sequence 30 选择恢复 v7。此前三款主题与队员浮层修订�
 - 生产组件浏览器预览确认地平线色值、六项主题选择器、白色队员浮层及执行台；无横向溢出或 warning/error。
 - 保存会话队员浮层、执行台和外观设置截图；隔离 fixture 不接入 Host/Core/Runtime，不改动日常 App 数据。
 
+## 经典红 A「轻红侧栏」（Thread sequence 32–40）
+
+User 要求经典红通过区域配色呈现，避免红色导航文字、改色 Logo 和鲜红选中块，
+并在 sequence 40 选择 A「轻红侧栏」。本次使用该稿的 56 项配色赋值，其中 44 项改变既有值：
+侧栏 `#f8f5f6`、选中面 `#eee4e6`、中性动作文字 `#373437`、实心动作 `#ce3e4e`，
+Logo 恢复 Steel `#526f88` 与 Ember `#d3a45f`。会话、执行台和队员浮层保持白底，消息继续使用生产气泡。
+
+外观选项增加 `--settings-choice-selected-surface` 语义 Token，以复现 A 的轻红选中面。
+其余四套配色取各自原有 `--home-surface` 值，既有 Token 均未变化，包括地平线 v7。
+同步经典红缩略图、Main 首帧背景和主题合同；没有主题专属组件选择器、额外聚焦装饰或新功能。
+
+- `pnpm typecheck`、`pnpm test`、`pnpm build:desktop` 通过。
+- Vitest：253 个文件、2921 项通过、2 项既有跳过；完整 Node 门禁通过。
+- `pnpm test:rust:pr`：475 项通过、1 项既有忽略。通过本机已安装的 Rust 1.98 工具链运行；
+  `rust-objcopy` 因缺少 `libLLVM.dylib` 报告剥离调试信息警告，不影响构建和测试退出结果。
+- 主题合同的 188 项 Token 与实现逐项匹配，新增选中面的文字对比度纳入既有测试。
+- `pnpm docs:test`、`pnpm docs:check` 与以本次 main 基线为 `DOCS_BASE_REF` 的 `pnpm docs:check:ci` 通过。
+- 当前源码的生产组件浏览器 fixture：六项主题切换通过，其他主题的选中面保持原色；切回会话后草稿保留。
+- 经典红队员浮层、执行台与 Composer 均为白色，消息气泡为 `#f5f4f4`；输入框聚焦前后边线与阴影一致。
+- 1512×772、1440×920 和 1040×700 无整页横向溢出；最小窗口主题卡片为三列、六项完整可达。
+- 已保存会话、队员浮层、执行台、外观页及最小窗口截图；浏览器无 warning/error，临时 viewport 已恢复。
+
+本次视觉验收使用固定数据，不启动 Host/Core/Runtime，也不读写日常 App 数据。
+未重复原生 Windows/macOS 系统明暗切换、IME 与辅助技术验收；此配色修订不改变这些入口。
+
 ## Worktree handoff
 
-- Work item: 按 User sequence 30 恢复地平线 v7 配色。
-- Worktree: `/Users/murray.xue/.codex/worktrees/restore-horizon-v7/rovai-ai`
-- Branch: `rovai/restore-horizon-v7`
-- Base: `origin/main` / `4dcee9faecde07e06575e99e6221bd78f728b398`
+- Work item: 按 User sequence 40 实施经典红 A「轻红侧栏」。
+- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-classic-red`
+- Branch: `rovai/classic-red-soft-surfaces`
+- Base: `origin/main` / `984e82281ee57c5b33ac5ec320d1e4bf52e4cf4a`
 - Governance: none；User 已授权配色修订与 PR 合入，UI 合同随同提交。
 - Status: ready
 - Next: 按既有授权创建 PR，CI 通过后合入 main 并清理 worktree。

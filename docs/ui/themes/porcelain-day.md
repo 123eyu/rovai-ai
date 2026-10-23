@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: porcelain-day
 mode: light
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Porcelain Day
@@ -64,6 +64,7 @@ Light. `color-scheme: light`.
 | `--inspector-surface` | `#ffffff` |
 | `--conversation-inspector-line` | `#c7cfd6` |
 | `--home-surface` | `#ffffff` |
+| `--settings-choice-selected-surface` | `#ffffff` |
 | `--topbar` | `#fbfbfa` |
 | `--input` | `#ffffff` |
 | `--ink` | `#171b20` |

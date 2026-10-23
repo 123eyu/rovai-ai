@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: classic-red
 mode: light
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # 经典红
@@ -16,14 +16,18 @@ last_updated: 2026-10-22
 
 ## Design intent
 
-纯白阅读区、浅灰气泡与朱砂红品牌和动作色；不引入蓝底覆盖。
-User 在主题设计 Thread sequence 18 确认按第六版配色实施，同时明确不加入生产没有的聚焦效果或功能。
+纯白阅读区、浅灰气泡与轻红侧栏，樱桃红用于实心主操作和选中勾；导航与操作文字使用中性深灰，
+Logo 保留 Steel 与 Ember 原色。User 在主题设计 Thread sequence 40 选择 A「轻红侧栏」，
+通过区域底色体现经典红，避免红字和大面积鲜红选中块。
+继续遵守 sequence 18 的交互边界，不加入生产没有的聚焦效果或功能。
 
 ## Surface hierarchy and color responsibilities
 
 Canvas、rail、conversation、raised/input 通过明度和底色形成层次；消息气泡使用生产几何与同色边线。
 品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
 实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
+侧栏为 `#f8f5f6`，选中区域为低饱和灰红 `#eee4e6`；会话、输入、执行台与队员浮层保持白色。
+外观选项选中面由 `--settings-choice-selected-surface` 拥有，沿用生产 radio、尺寸和焦点行为。
 
 ## Complete semantic token assignments
 
@@ -36,35 +40,35 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--monitoring-read` | `#698273` |
 | `--monitoring-write` | `#997b4d` |
 | `--settings-choice-line` | `#e1e1e1` |
-| `--settings-choice-selected-line` | `#b66b65` |
-| `--settings-choice-hover` | `#faf8f7` |
+| `--settings-choice-selected-line` | `#c75b68` |
+| `--settings-choice-hover` | `#fcf6f7` |
 | `--settings-field-line` | `#cdcdcd` |
 | `--settings-switch-off` | `#8c939a` |
 | `--settings-switch-thumb` | `#fff` |
 | `--settings-select-arrow` | `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4.5 6.25 3.5 3.5 3.5-3.5' fill='none' stroke='%23616b74' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")` |
-| `--canvas` | `#efefef` |
-| `--surface` | `#fbfbfb` |
+| `--canvas` | `#f1f0f1` |
+| `--surface` | `#fcfbfc` |
 | `--surface-raised` | `#ffffff` |
-| `--surface-subtle` | `#f6f6f6` |
-| `--surface-muted` | `#eeeeee` |
-| `--surface-selected` | `#eaeaea` |
-| `--surface-hover` | `#f0f0f0` |
-| `--surface-sunken` | `#e8e8e6` |
+| `--surface-subtle` | `#f7f6f6` |
+| `--surface-muted` | `#f0ebec` |
+| `--surface-selected` | `#eee4e6` |
+| `--surface-hover` | `#f2ebed` |
+| `--surface-sunken` | `#eae7e8` |
 | `--workspace-surface-subtle` | `#f7f7f7` |
 | `--workspace-surface-raised` | `#ffffff` |
-| `--workspace-surface-hover` | `#f0f0f0` |
-| `--workspace-surface-selected` | `#f4eeee` |
-| `--workspace-line` | `#e5e5e5` |
-| `--workspace-line-strong` | `#c9c9c9` |
-| `--workspace-steel` | `#a35b55` |
-| `--workspace-steel-ink` | `#98443e` |
+| `--workspace-surface-hover` | `#f2f1f2` |
+| `--workspace-surface-selected` | `#eceaeb` |
+| `--workspace-line` | `#e6e4e5` |
+| `--workspace-line-strong` | `#c8c4c6` |
+| `--workspace-steel` | `#6c686a` |
+| `--workspace-steel-ink` | `#3b383a` |
 | `--workspace-attention-soft` | `#f4ecdf` |
-| `--workspace-faint` | `#727272` |
+| `--workspace-faint` | `#696567` |
 | `--runtime-logo-surface` | `#ffffff` |
 | `--conversation-surface` | `#ffffff` |
-| `--conversation-user-message-surface` | `#f5f5f4` |
-| `--conversation-user-message-line` | `#f5f5f4` |
-| `--execution-running-surface` | `#fafaf9` |
+| `--conversation-user-message-surface` | `#f5f4f4` |
+| `--conversation-user-message-line` | `#f5f4f4` |
+| `--execution-running-surface` | `#f7f6f6` |
 | `--execution-surface` | `#ffffff` |
 | `--conversation-find-match` | `#f4e4c3` |
 | `--conversation-find-current` | `#edc66f` |
@@ -72,24 +76,25 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--inspector-surface` | `#ffffff` |
 | `--conversation-inspector-line` | `#d6d6d2` |
 | `--home-surface` | `#ffffff` |
+| `--settings-choice-selected-surface` | `#eee4e6` |
 | `--topbar` | `#ffffff` |
 | `--input` | `#ffffff` |
-| `--ink` | `#292929` |
-| `--muted` | `#656565` |
-| `--faint` | `#727272` |
-| `--line` | `#e6e6e6` |
+| `--ink` | `#2b292c` |
+| `--muted` | `#656165` |
+| `--faint` | `#696567` |
+| `--line` | `#e7e3e5` |
 | `--resize-line` | `#777777` |
-| `--line-strong` | `#c9c9c9` |
-| `--control-line` | `#969696` |
+| `--line-strong` | `#c8c4c6` |
+| `--control-line` | `#948f92` |
 | `--new-camp-picker-surface` | `#ffffff` |
 | `--new-camp-picker-soft` | `#f4f4f4` |
 | `--new-camp-picker-hover` | `#efefef` |
 | `--new-camp-picker-line-strong` | `#909090` |
-| `--brand` | `#b74743` |
-| `--brand-hover` | `#9d3835` |
+| `--brand` | `#ce3e4e` |
+| `--brand-hover` | `#b83242` |
 | `--brand-contrast` | `#ffffff` |
-| `--brand-soft` | `#f8eeec` |
-| `--brand-ink` | `#a23d39` |
+| `--brand-soft` | `#faedef` |
+| `--brand-ink` | `#373437` |
 | `--memory-rail` | `#f3f3f3` |
 | `--memory-overlay` | `rgba(24, 24, 24, .42)` |
 | `--memory-canvas` | `#ffffff` |
@@ -101,15 +106,15 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--memory-ink` | `#222222` |
 | `--memory-muted` | `#626262` |
 | `--memory-input-line` | `#dedede` |
-| `--neutral-selected` | `#ececec` |
-| `--neutral-hover` | `#eeeeee` |
-| `--conversation-action` | `#b74743` |
-| `--conversation-action-ink` | `#a23d39` |
-| `--conversation-action-hover` | `#9d3835` |
+| `--neutral-selected` | `#eee4e6` |
+| `--neutral-hover` | `#f4edef` |
+| `--conversation-action` | `#ce3e4e` |
+| `--conversation-action-ink` | `#373437` |
+| `--conversation-action-hover` | `#b83242` |
 | `--conversation-action-contrast` | `#ffffff` |
-| `--conversation-control-line` | `#949494` |
-| `--conversation-focus` | `#b74743` |
-| `--conversation-focus-soft` | `rgba(79,98,86,.12)` |
+| `--conversation-control-line` | `#948f92` |
+| `--conversation-focus` | `#373437` |
+| `--conversation-focus-soft` | `rgba(55,52,55,.12)` |
 | `--conversation-route-accent` | `#8d8d8d` |
 | `--conversation-unread` | `#1683ff` |
 | `--update-progress-fill` | `#2879e8` |
@@ -131,11 +136,11 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--aurora-soft` | `#e7f0ec` |
 | `--violet` | `#9082b4` |
 | `--violet-soft` | `#efebf6` |
-| `--rail` | `#f5f5f5` |
-| `--rail-ink` | `#636363` |
-| `--rail-line` | `#e7e7e7` |
-| `--rail-logo` | `#b74743` |
-| `--ember` | `#bb8461` |
+| `--rail` | `#f8f5f6` |
+| `--rail-ink` | `#625e62` |
+| `--rail-line` | `#e7e1e4` |
+| `--rail-logo` | `#526f88` |
+| `--ember` | `#d3a45f` |
 | `--ember-soft` | `#f6eddf` |
 | `--success` | `#3e775c` |
 | `--success-soft` | `#e7f1ea` |
@@ -151,8 +156,8 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--info-contrast` | `#ffffff` |
 | `--neutral` | `#5f6678` |
 | `--neutral-soft` | `#ecefe9` |
-| `--focus` | `#b74743` |
-| `--focus-soft` | `rgba(183,71,67,.12)` |
+| `--focus` | `#373437` |
+| `--focus-soft` | `rgba(55,52,55,.12)` |
 | `--overlay` | `rgba(28, 32, 43, 0.42)` |
 | `--shadow-float` | `0 18px 56px rgba(38,30,28,.13)` |
 | `--shadow-menu` | `var(--shadow-float)` |

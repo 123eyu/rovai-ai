@@ -119,3 +119,45 @@ User sequence 20 要求修复审查中确认的问题。修复分支 `rovai/thre
 
 本次没有真实模型调用。旧原生会话是否会正确调用历史工具仍需单独验收，不能由投影测试代替；
 大目录扫描性能仍是观测项，本次未引入索引或搜索基础设施。
+
+### 修复验证结果
+
+- `pnpm typecheck`、`pnpm test` 与 `pnpm build:desktop` 通过。最终 Vitest 为 253 文件、
+  2921 项通过、2 项既有 skip；Node 回归为 357 项通过、2 项平台 skip。
+- Core quote projection/capture 与真实 SQLite 目录 owner 通过；CLI 31、Host 4、Web 11 项通过。
+  生产消息选文 Electron 验收通过。
+  合入最新主线主题后重新构建生产 UI，引用菜单及恢复脚本 36 项全部通过，无浏览器异常。
+- `node --test scripts/lib/host-web.test.mjs` 2 项通过，包括真实 SSE 引用改名标记、
+  无关通知不触发引用刷新及既有 Host 生命周期。
+- `pnpm docs:test`、`pnpm docs:check`（随 pnpm test）、指定 base 的 `docs:check:ci` 通过。
+- 完整 Rust Core 两次均为 428 通过、1 既有 ignore、1 失败：
+  `runtime_probe_process::tests::successful_leader_with_stdio_holding_descendant_finishes_bounded`
+  在 500ms stdio cleanup 等待超时。该项和整个 probe 模块定向运行通过；再切换到未修改的
+  主线 `8456f3d0a3886771b8ce7569e231ad5d862ed68f` 构建并运行同一 owner，复现完全相同的
+  `runtime_probe_stdout_cleanup_timed_out`。运行层相关源码没有 diff。此项为独立既有波动，
+  不宣称全量 Rust 通过，也没有修改实现、放宽限时或永久跳过该测试。
+
+复现新增边界：
+
+```bash
+cargo test -p rovai-core --lib message_quote::tests
+cargo test -p rovai-core --lib thread_reference::tests
+pnpm exec vitest run apps/desktop/src/renderer/src/thread-reference.test.ts apps/desktop/src/renderer/src/composer-draft-sync.test.ts
+node --test scripts/lib/message-quotes.test.mjs
+node scripts/fixtures/thread-references/build.mjs /tmp/rovai-reference-fixes-ui
+node scripts/smoke-thread-references.mjs /tmp/rovai-reference-fixes-ui
+node --test scripts/lib/host-web.test.mjs
+```
+
+### 修复审阅 — Standards
+
+初审发现新文档中的个人绝对路径，复审发现未保存 Web 编辑恢复缺少有效文档回调；
+两项均修复并独立复核。无遗留标准问题；最高 P3 已关闭。
+
+### 修复审阅 — Spec
+
+发现恢复内容中的新引用未进入可用性监听；补齐恢复回调及真实 Composer 验收后独立复核通过。
+无遗留需求问题；最高 P3 已关闭。现场编辑引用监听遗漏由主流程浏览器验收发现并修复。
+
+交付 PR：[#881](https://github.com/murray17/rovai-ai/pull/881)。修复不包含真实模型读取行为验收或
+大目录耗时结论；这两项仍保持前述验证边界。

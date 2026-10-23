@@ -1164,3 +1164,10 @@ User 进一步确认保留 App 运行期间的 Run 异常退出提醒，统一�
 不恢复短亮或逐 command 读取。具体场景与验证见下述实施记录。
 
 取舍见 [V1.72-D55](decisions.md#v1-72-d55)，实施验证见[退出提醒验收](interruption-attention-validation.md)。
+
+## 队员拼音检索（2026-10-23）
+
+公屏、Pending 草稿与使命描述中的队员名字/角色增加拼音匹配，包含普通空格容错；
+对话/使命标题及 Skill 保留原文检索，分类、身份、邀请和发送流程沿用既有机制。
+当前规则见[结构化 Mention](../../ui/components/structured-mentions.md#member-typeahead)，
+实现、分层验收及当前基线体积对照见[队员拼音检索验收](member-pinyin-search-validation.md)。

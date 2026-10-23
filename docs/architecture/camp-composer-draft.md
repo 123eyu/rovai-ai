@@ -3,7 +3,7 @@ document_type: architecture
 architecture: camp-composer-draft
 authority: desktop-local-public-camp-composer
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Public Camp Composer
@@ -101,11 +101,27 @@ Web 复用上传回执，不调用 Electron Main。Host 接收时直写同一 Th
 输出目录删除。首次发布后身份与路径不变。不建立新的草稿事务、发送对账或垃圾回收框架；
 精确接口与负例由 [v19](../contracts/camp-composer-draft-v20.md) 拥有。
 
-## 撤回不是草稿恢复
+## 撤回与短期重新编辑
 
 发送后的本地 Principal 消息在首次目标 claim 前可以撤回。撤回操作针对已发布 CampMessage，原子取消 waiting Delivery
-并擦除受控原文；它不会把内容放回 Composer，也不是 Undo Send/草稿恢复。首次 claim 后撤回资格永久关闭。
+并擦除受控原文；撤回本身不会把内容放回 Composer。首次 claim 后撤回资格永久关闭。
 输入历史不另行监听撤回；本轮已提取内容仍可由 User 回填，下一轮依据最新消息数据，重新发送算新提交。
+
+[Message Reedit v1](../contracts/message-reedit-v1.md) 另行拥有两分钟内的客户端文字回填。
+`MessageReeditStore` 在独立 localStorage 命名空间保存有界 pending / ready 副本，统一读取校验和应用级清理；
+`MessageWithdrawal` 只适配原撤回命令与回放，将命令结果、副本写入、列表刷新分开处理。
+`ThreadWorkspace` 负责蓝色无下划线入口及已有草稿的替换确认，最终回填前再次读取有效副本。
+
+Web 的原请求 Promise 可以由回执补查完成。`ConsoleClient.requestWithSource` 将直接响应与恢复来源
+作为客户端结果元数据交给撤回适配器；补查、Core 错误后的回执核对及显式重放均使用 pending 剩余窗口。
+该元数据不进入 Core 请求、回执或持久化格式，普通 `request` 仍返回原结果值。
+撤回适配器同时在实例内保留未知请求的原命令参数，供无正文或副本保存失败后的显式重试使用；
+明确成功／拒绝才移除，不保留正文、不跨重启承诺恢复、不单独启动后台重试。
+存储通知按消息 key 分发，无变化清理不广播；入口资格仍实时读取校验，不能用通知替代有效期判定。
+
+只恢复正文与原文明示的成员 @，不携带默认队长显示前缀或撤回消息的附件／引用／回复关系。
+回填后由原有本机草稿协调器拥有，副本到期不影响草稿。Core 不保存恢复字段，不新增表、命令或上下文通路。
+每个前端实例最多一个清理定时器；其他窗口通过 storage 更新，容量与并发保证限于合同中的最佳努力边界。
 
 ## 升级
 

@@ -53,6 +53,7 @@
     "test:message-quotes": "node --test scripts/lib/message-quotes.test.mjs",
     "test:message-anchors": "node --test scripts/lib/message-anchors.test.mjs",
     "test:composer-input": "node --test --test-concurrency=1 scripts/lib/structured-mention-composer.test.mjs scripts/lib/composer-invitations.test.mjs",
+    "test:message-reedit-ui": "tsc --noEmit -p scripts/fixtures/message-reedit/tsconfig.json && node --test scripts/lib/message-reedit-ui.test.mjs",
     "test:startup-presentation": "node --test scripts/lib/desktop-startup-presentation.test.mjs",
     "test:shortcut-settings": "tsc --noEmit -p scripts/fixtures/shortcut-settings/tsconfig.json && node --test scripts/lib/shortcut-settings.test.mjs",
     "test:navigation-shell": "node --test scripts/lib/navigation-shell.test.mjs",

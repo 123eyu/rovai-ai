@@ -494,6 +494,7 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
         frames += new TextDecoder().decode(next.value)
       }
       assert.ok(!frames.includes('"teamsChanged":true'), 'unrelated notification events do not invalidate Teams')
+      assert.ok(!frames.includes('"referencesChanged":true'), 'unrelated events do not refresh references')
     })())
     const savedTeam = await call(first, 'teams.save', { commandId: crypto.randomUUID(), command: {
       teamId: null, expectedVersion: null, name: 'Web SSE Team', guidance: '',
@@ -508,6 +509,19 @@ test('Desktop and Web share one Core while listener failure, revocation and stop
         frames += new TextDecoder().decode(next.value)
       }
       assert.ok(!frames.includes('Web SSE Team'), 'SSE exposes invalidation, not private Team contents')
+    })())
+    const referenceSource = (await call(first, 'camps.open', { threadId, traceId: crypto.randomUUID() })).thread
+    assert.equal((await call(first, 'camps.rename', { commandId: crypto.randomUUID(), command: {
+      threadId, expectedVersion: referenceSource.version, title: 'Reference source renamed'
+    } })).status, 'applied')
+    await within((async () => {
+      let frames = ''
+      while (!frames.includes('"referencesChanged":true')) {
+        const next = await reader.read()
+        assert.equal(next.done, false, 'reference rename invalidation must arrive on the existing stream')
+        frames += new TextDecoder().decode(next.value)
+      }
+      assert.ok(!frames.includes('Reference source renamed') && !frames.includes('camps.rename'), 'SSE carries only the reference invalidation bit')
     })())
     const otherReaders = []
     for (const session of [first, second]) {

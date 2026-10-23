@@ -4,7 +4,7 @@ import type { ReferenceCandidate, ReferenceIdentity } from '@contracts'
 import { useThreadClient } from './camp-client'
 import { MissionIcon } from './MissionIcon'
 import { NavigationIcon } from './NavigationIcon'
-import { referenceIdentity, referenceProject, type ReferenceSegment } from './thread-reference'
+import { projectReference, referenceIdentity, referenceProject, type ReferenceSegment } from './thread-reference'
 import { uiAttribute } from './interface-language'
 import './thread-reference.css'
 
@@ -73,7 +73,8 @@ export function InlineThreadReference({ segment }: { segment: ReferenceSegment }
   const reference = referenceIdentity(segment)
   const icon = reference.kind === 'mission' ? <MissionIcon /> : <NavigationIcon name="messages" />
   return show ? <button className="message-mention-token ref-message-link" type="button" data-reference-id={reference.id}
+    data-quote-reference-source={projectReference(segment)}
     onClick={event => { if (!window.getSelection()?.toString()) show({ reference, title: segment.titleAtSend, trigger: event.currentTarget }) }}>
     {icon}{segment.titleAtSend}
-  </button> : <span className="message-mention-token ref-message-link">{icon}{segment.titleAtSend}</span>
+  </button> : <span className="message-mention-token ref-message-link" data-quote-reference-source={projectReference(segment)}>{icon}{segment.titleAtSend}</span>
 }

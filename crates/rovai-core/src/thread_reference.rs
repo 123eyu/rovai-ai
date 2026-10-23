@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, functions::FunctionFlags, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::{
     camp_content::StructuredThreadMessageSegment as Segment, camp_id::ThreadId,
@@ -173,9 +174,22 @@ pub fn resolve(
 #[derive(Serialize, Deserialize)]
 struct Cursor(String, ReferenceKind, String, String, String);
 
+fn normalize_search(value: &str) -> String {
+    value.nfkc().collect::<String>().to_lowercase()
+}
+
+fn fuzzy_contains(title: &str, query: &str) -> bool {
+    let normalized = normalize_search(title);
+    let mut title = normalized.chars();
+    query.chars().all(|wanted| title.any(|c| c == wanted))
+}
+
 pub fn list(connection: &Connection, params: ListParams) -> Result<ReferencePage> {
     validate_scope(connection, &params.thread_id)?;
-    let query = params.query.trim().to_lowercase();
+    let query: String = normalize_search(&params.query)
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{feff}')
+        .collect();
     ensure!(query.chars().count() <= 128, "Search query is too long");
     let cursor: Option<Cursor> = params
         .cursor
@@ -190,14 +204,19 @@ pub fn list(connection: &Connection, params: ListParams) -> Result<ReferencePage
             "Reference cursor does not match search"
         );
     }
-    let mut pattern = String::from("%");
-    for c in query.chars().filter(|c| !c.is_whitespace()) {
-        if matches!(c, '%' | '_' | '\\') {
-            pattern.push('\\');
-        }
-        pattern.push(c);
-        pattern.push('%');
-    }
+    // SQLite lower() is ASCII-only. Both sides must use the same Unicode rules as
+    // the picker; this scalar function preserves keyset paging and literal %/_ searches.
+    connection.create_scalar_function(
+        "rovai_reference_match",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            Ok(fuzzy_contains(
+                &ctx.get::<String>(0)?,
+                &ctx.get::<String>(1)?,
+            ))
+        },
+    )?;
     let (id, title, join, visible) = match params.kind {
         ReferenceKind::Thread => (
             "c.id",
@@ -209,14 +228,14 @@ pub fn list(connection: &Connection, params: ListParams) -> Result<ReferencePage
     };
     let activity = "COALESCE(c.navigation_activity_at,c.created_at)";
     let sql = format!(
-        "SELECT {id},{title},c.project_binding_kind,c.project_path,{activity} FROM camp c {join} WHERE c.id<>?1 AND c.deletion_operation_id IS NULL {visible} AND lower({title}) LIKE ?2 ESCAPE '\\' AND (?3 IS NULL OR {activity}<?3 OR ({activity}=?3 AND {id}>?4)) ORDER BY {activity} DESC,{id} LIMIT 9"
+        "SELECT {id},{title},c.project_binding_kind,c.project_path,{activity} FROM camp c {join} WHERE c.id<>?1 AND c.deletion_operation_id IS NULL {visible} AND (?2='' OR rovai_reference_match({title},?2)) AND (?3 IS NULL OR {activity}<?3 OR ({activity}=?3 AND {id}>?4)) ORDER BY {activity} DESC,{id} LIMIT 9"
     );
     let mut statement = connection.prepare(&sql)?;
     let mut rows = statement
         .query_map(
             params![
                 params.thread_id,
-                pattern,
+                query,
                 cursor.as_ref().map(|c| &c.3),
                 cursor.as_ref().map(|c| &c.4)
             ],
@@ -252,6 +271,22 @@ pub fn list(connection: &Connection, params: ListParams) -> Result<ReferencePage
         items: rows.into_iter().map(|(item, _)| item).collect(),
         next_cursor,
     })
+}
+
+/// Sanitized Web invalidation uses the same directory events as the Desktop picker.
+/// No message bodies, raw events, or private Mission data cross that transport.
+pub fn invalidates_directory(method: &str, params: &serde_json::Value) -> bool {
+    match method {
+        "missions.invalidated" => matches!(
+            params["reason"].as_str(),
+            Some("missions.update" | "missions.updateWithAttachments")
+        ),
+        "navigation.invalidated" => matches!(
+            params["reason"].as_str(),
+            Some("camps.rename" | "camps.delete_accepted" | "camp.deleted")
+        ),
+        _ => false,
+    }
 }
 
 pub fn contains_reference(content: &[Segment]) -> bool {
@@ -316,6 +351,17 @@ mod tests {
     fn directory_search_pages_all_matches_and_retains_only_public_targets() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE camp(id TEXT PRIMARY KEY,title TEXT,project_binding_kind TEXT,project_path TEXT,deletion_operation_id TEXT,activation_state TEXT,navigation_activity_at TEXT,created_at TEXT); CREATE TABLE mission(id TEXT PRIMARY KEY,camp_id TEXT,title TEXT);").unwrap();
+        let invalidations: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../packages/contracts/fixtures/thread-reference-invalidation.json"
+        ))
+        .unwrap();
+        for event in invalidations {
+            assert_eq!(
+                invalidates_directory(event["method"].as_str().unwrap(), &event["params"]),
+                event["expected"].as_bool().unwrap(),
+                "{event}"
+            );
+        }
         let current = ThreadId::new().to_string();
         let insert = |id: &str, title: &str| {
             connection.execute("INSERT INTO camp VALUES (?1,?2,'directory','/project',NULL,'active','2026-10-22','2026-10-22')", params![id,title]).unwrap();
@@ -413,6 +459,63 @@ mod tests {
             .len(),
             1
         );
+
+        // Exercise the production SQL for both directories using the same Unicode
+        // matrix as the picker/fixture. SQLite's built-in lower() fails these cases.
+        let search_cases: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../packages/contracts/fixtures/thread-reference-search.json"
+        ))
+        .unwrap();
+        for case in search_cases {
+            let title = case["title"].as_str().unwrap();
+            connection
+                .execute(
+                    "UPDATE camp SET title=?1 WHERE id=?2",
+                    params![title, literal],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "UPDATE mission SET title=?1 WHERE id=?2",
+                    params![title, mission_id],
+                )
+                .unwrap();
+            for (kind, id) in [
+                (ReferenceKind::Thread, &literal),
+                (ReferenceKind::Mission, &mission_id),
+            ] {
+                let mut cursor = None;
+                let mut found = false;
+                loop {
+                    let page = list(
+                        &connection,
+                        ListParams {
+                            thread_id: current.clone(),
+                            kind,
+                            query: case["query"].as_str().unwrap().into(),
+                            cursor,
+                        },
+                    )
+                    .unwrap();
+                    found |= page.items.iter().any(|item| &item.id == id);
+                    cursor = page.next_cursor;
+                    if cursor.is_none() {
+                        break;
+                    }
+                }
+                assert_eq!(
+                    found,
+                    case["expected"].as_bool().unwrap(),
+                    "{kind:?}: {case}"
+                );
+            }
+        }
+        connection
+            .execute(
+                "UPDATE mission SET title='登录\n使命' WHERE id=?1",
+                [&mission_id],
+            )
+            .unwrap();
 
         let mut content = vec![
             Segment::MissionReference {

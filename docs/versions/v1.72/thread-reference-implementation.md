@@ -34,7 +34,7 @@ structured_content_json 拥有，无 schema 迁移、全文快照或强引用。
 - 路径：`/Users/murray.xue/.codex/worktrees/thread-mission-references/rovai-ai`
 - 基线：`186d1cfcf0c0cfff342aa36282b35d75436613c5`（origin/main）
 - 前置治理提交：不适用；已确认交互与授权随本次实施记录交付。
-- 状态：ready。实现、独立审阅与本机验证完成；后续：PR/CI、合并并同步主线。
+- 状态：已通过 PR #877 合入 main（`4dfd8c8`），原 worktree 与本地任务分支已清理。
 - 环境：worktree 私有 node_modules / target，所有 SQLite 与浏览器验证使用隔离 fixture，未启动日常 App/Runtime。
 
 ## 验证记录
@@ -92,3 +92,27 @@ cargo test -p rovai-core --features slow-tests --lib active_inputs_preserve_init
 cargo test -p rovai-core --features slow-tests --lib generated_camp_name_removes_only_the_leading_structured_mention_block
 cargo test -p rovai-core --lib thread_reference::
 ```
+
+## 2026-10-23 定向修复
+
+User sequence 20 要求修复审查中确认的问题。修复分支 `rovai/thread-reference-fixes`，
+基线 `4dcee9faecde07e06575e99e6221bd78f728b398`，隔离 worktree 为
+`/Users/murray.xue/.codex/worktrees/thread-reference-fixes/rovai-ai`。
+
+- 选文：带标点标题会使整条消息 DOM 映射失败，普通标题跨段选择会夹带隐藏链接。
+  前端和 Core 只将结构化引用映射为真实标题，保留普通 Text、原始 bodyAtSelection 和旧快照。
+- 搜索：SQLite lower() 与 Rust/前端的 Unicode 转换不一致，完整 État、全角 ＡＰＩ 会漏检。
+  Core 使用已有 SQLite 标量函数能力执行 NFKC + 默认 Unicode 小写的顺序字符匹配，前端使用同一规则。
+  空查询跳过字符匹配；保留现有排序与游标，不增加表、搜索服务或 Context 版本。
+- 刷新：只接收相关目录变化，Web 通过现有 SSE 传递 referencesChanged 布尔标记。
+  固定刷新截止时间，最多一个读取与一个后续刷新；无关事件、连续事件和慢响应不会产生重复并发或永久推迟。
+
+验证归属：扩展已有 `readable_projection_preserves_selected_text_without_markdown_wrappers`、
+`capture_fences_source_identity_and_keeps_literal_instruction_snapshots` 与
+`directory_search_pages_all_matches_and_retains_only_public_targets`，没有新增 Rust test owner。
+前者复用纯投影及最小内存 SQLite；目录 owner 使用真实 SQL 对 Thread/Mission 运行同一 Unicode fixture。
+生产消息组件的浏览器 golden 与 Core 共用引用标题、Unicode 标量、普通 Text 和选区用例；
+已有引用菜单验收增加无关事件、持续事件、慢读取、失败、删除及 resync；已有 Host HTTP owner验证真实 SSE。
+
+本次没有真实模型调用。旧原生会话是否会正确调用历史工具仍需单独验收，不能由投影测试代替；
+大目录扫描性能仍是观测项，本次未引入索引或搜索基础设施。

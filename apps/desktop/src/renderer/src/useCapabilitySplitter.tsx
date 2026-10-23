@@ -62,7 +62,7 @@ export function useCapabilitySplitter(storageKey: string, controls: string, enab
       // CSS zoom affects pointer coordinates, not the layout's width budget.
       const next = root.current?.clientWidth ?? 0
       if (!initial && next === available.current) return
-      splitter.cancel()
+      splitter.finish()
       available.current = next
       setBounds({ compact: next < 620, maximum: capabilityListWidth(560, next) })
       setWidth(preferred.current ?? defaultCapabilityWidth(window.innerWidth), false)

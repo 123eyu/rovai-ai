@@ -60,13 +60,14 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
   })
   const [viewport, setViewport] = useState(() => typeof window === 'undefined' ? 1440 : window.innerWidth)
   const [resizing, setResizing] = useState(false)
+  const [heldFold, setHeldFold] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [chromeSlot, setChromeSlot] = useState<HTMLElement | null>(null)
   const handle = useRef<HTMLDivElement>(null)
   const maximum = navigationMaxWidth(viewport)
   const fixedSettings = mobile || settings && (browser || platform === 'darwin')
   // Web settings always expose their categories; ordinary-page layout stays saved.
-  const collapsed = layout.collapsed && !mobile && !(browser && settings)
+  const collapsed = (heldFold || layout.collapsed) && !mobile && !(browser && settings)
   const width = collapsed ? 0 : fixedSettings ? NAVIGATION_DEFAULT_WIDTH : clampNavigationWidth(layout.width, maximum)
   const paintWidth = (value: number): void => {
     handle.current?.closest<HTMLElement>('.navigation-shell')?.style.setProperty('--rail-width', `${value}px`)
@@ -83,6 +84,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
     onPreview: previewWidth,
     onCommit: previewWidth,
     onCollapseFrame: paintWidth,
+    onFoldPreview: edge => setHeldFold(edge === 'minimum'),
     onCollapse: before => { paintWidth(0); setLayout({ ...before, collapsed: true }) },
     onCancel: before => { paintWidth(before.collapsed ? 0 : clampNavigationWidth(before.width, maximum)); setLayout(before) },
     onActiveChange: setResizing
@@ -134,7 +136,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
           <div ref={handle} className="navigation-resize-handle" role="separator" tabIndex={disabled ? -1 : 0} aria-disabled={disabled || undefined}
             aria-label={uiAttribute("导航侧栏宽度")} aria-orientation="vertical" aria-valuemin={0} aria-valuemax={maximum} aria-valuenow={width}
             aria-valuetext={layout.collapsed ? uiAttribute("已完全收起") : uiAttribute("{0} 像素", String(width))} aria-controls="global-navigation" aria-describedby="navigation-resize-help"
-            title={uiAttribute("拖动调宽，最窄处继续向左内推，松开收起；双击复位；右键选择宽度")}
+            title={uiAttribute("拖动调宽，最窄处继续向左内推直接收起；双击复位；右键选择宽度")}
             {...splitter.handlers}
             onDoubleClick={() => { if (!disabled) resizeTo(NAVIGATION_DEFAULT_WIDTH) }}
             onContextMenu={event => { event.preventDefault(); if (!disabled) setMenuOpen(true) }}
@@ -150,7 +152,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
                 default: return
               }
               event.preventDefault()
-            }}><SplitterFeedback phase={splitter.phase} target={splitter.target} label={uiAttribute('松开收起侧栏')} /></div>
+            }}><SplitterFeedback phase={splitter.phase} target={splitter.target} label={uiAttribute('继续拖动收起侧栏')} /></div>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal><DropdownMenu.Content className="sidebar-action-menu" side="right" sideOffset={4} collisionPadding={8}>
           {[[200, '紧凑宽度'], [270, '默认宽度'], [360, '宽侧栏']].map(([value, text]) => <DropdownMenu.Item key={value} className="sidebar-action-menu-item" onSelect={() => resizeTo(Number(value))}>{uiAttribute(String(text))}</DropdownMenu.Item>)}
@@ -158,7 +160,7 @@ export function NavigationShell({ platform, disabled = false, settings = false, 
           <DropdownMenu.Item className="sidebar-action-menu-item" onSelect={toggle}>{label}</DropdownMenu.Item>
         </DropdownMenu.Content></DropdownMenu.Portal>
       </DropdownMenu.Root>}
-      {!fixedSettings && <span id="navigation-resize-help" className="sr-only"><UiText zh={"方向键调宽，Shift 加速，Home 最窄，End 最宽，Enter 折叠，空格选择宽度。拖到 200 像素先停住，继续向左内推 64 像素后松开收起，无需停留；从左边缘拖出恢复。Escape 取消拖拽。"} /></span>}
+      {!fixedSettings && <span id="navigation-resize-help" className="sr-only"><UiText zh={"方向键调宽，Shift 加速，Home 最窄，End 最宽，Enter 折叠，空格选择宽度。拖到 200 像素先停住，继续向左内推 64 像素直接收起，无需松手或停留；按住反向拉回 24 像素可恢复；从左边缘拖出恢复。Escape 取消拖拽。"} /></span>}
       {/* Electron applies drag regions in DOM order; keep this no-drag control after the sidebar and topbar drag regions. */}
       {!browser && platform === 'win32' ? chromeSlot && createPortal(control, chromeSlot) : <div className={browser ? "navigation-browser-control" : "navigation-macos-control"}>{control}</div>}
     </div>

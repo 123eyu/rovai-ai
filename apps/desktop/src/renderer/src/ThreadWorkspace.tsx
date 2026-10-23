@@ -7,6 +7,8 @@ import { RunInputRow, RunInputSourceContext } from './RunInputRow'
 import { useShortcutAction, useShortcuts } from './ShortcutProvider'
 import { splitterScale, useCollapsibleSplitter } from './useCollapsibleSplitter'
 import { SplitterFeedback } from './SplitterFeedback'
+import { MessageReeditButton } from './MessageReeditButton'
+import type { MessageReeditStore } from './message-reedit-store'
 import { groupExecutionEventsByRunId } from './execution-events'
 export { groupExecutionEventsByRunId } from './execution-events'
 import { ContinueAgentRunButton } from './ContinueAgentRunButton'
@@ -1650,6 +1652,7 @@ export function ThreadWorkspace({
   busy,
   onSend,
   onWithdrawMessage,
+  reeditStore,
   onReconcileDelivery,
   onPendingDraftPersisted,
   onPendingThreadLeave,
@@ -1712,6 +1715,7 @@ export function ThreadWorkspace({
   busy: boolean
   onSend(draft: ThreadComposerDraftView, deliveryMode?: 'start' | 'steer', steerTargets?: Array<{agentRunId: string; executionEpoch: number}>): Promise<ThreadMessageSendReceipt | void>
   onWithdrawMessage?(message: ThreadMessageView): Promise<void>
+  reeditStore?: MessageReeditStore
   onReconcileDelivery?(deliveryId: string): Promise<string>
   onPendingDraftPersisted?(): void
   onPendingThreadLeave?(draft: ThreadComposerDraftView): Promise<void>
@@ -1870,9 +1874,13 @@ export function ThreadWorkspace({
   useEffect(() => setDeliveryMode('steer'), [snapshot.thread.id])
   const [withdrawingMessageId, setWithdrawingMessageId] = useState<string | null>(null)
   const [withdrawalError, setWithdrawalError] = useState<string | null>(null)
+  const [reeditMessageId, setReeditMessageId] = useState<string | null>(null)
+  const [reeditError, setReeditError] = useState<string | null>(null)
   useEffect(() => {
     setWithdrawalMessage(null)
     setWithdrawalError(null)
+    setReeditMessageId(null)
+    setReeditError(null)
   }, [snapshot.thread.id])
   const [starterNotice, setStarterNotice] = useState<string | null>(null)
   const [mentionPopover, setMentionPopover] = useState<MentionPopoverRequest | null>(null)
@@ -4654,6 +4662,37 @@ export function ThreadWorkspace({
     if (announceDraft) setStarterNotice(uiAttribute('内容已填入，可编辑后发送。'))
   }
 
+  const restoreWithdrawnText = (messageId: string): void => {
+    const document = reeditStore?.readReady(snapshot.thread.id, messageId)
+    if (!document) {
+      const message = uiAttribute('重新编辑已过期，当前草稿已保留。')
+      if (reeditMessageId) setReeditError(message)
+      else onNotify(message)
+      return
+    }
+    if (composerInteractionDisabled || busy || composerDraft?.threadId !== snapshot.thread.id) return
+    const handle = composerHandleRef.current
+    if (!handle) return
+    handle.adoptHistoryPreview()
+    handle.setDocument(document, 'end')
+    setReeditMessageId(null)
+    setReeditError(null)
+    requestAnimationFrame(() => { if (draftThreadId.current === snapshot.thread.id) handle.focus('end') })
+  }
+  const requestReedit = (messageId: string): void => {
+    if (composerInteractionDisabled || busy) return
+    if (!reeditStore?.readReady(snapshot.thread.id, messageId)) { restoreWithdrawnText(messageId); return }
+    const visible = composerHandleRef.current?.getDocument()
+    const original = draftCoordinator.getCurrentDraft()
+    const hasText = (document: ComposerDocument | undefined): boolean => Boolean(document?.segments.some(segment =>
+      segment.kind === 'atom' || segment.text.length > 0))
+    if (hasText(visible) || hasText(original?.content) || original?.attachments.length || original?.quotes.length
+      || original?.replyIntent || preparingAttachments.length || failedAttachments.length) {
+      setReeditError(null)
+      setReeditMessageId(messageId)
+    } else restoreWithdrawnText(messageId)
+  }
+
   const selectInspectorTab = (tab: ThreadInspectorTab): void => {
     if (controlledInspectorTab === undefined) setLocalInspectorTab(tab)
     onInspectorTabChange?.(tab)
@@ -5572,6 +5611,9 @@ export function ThreadWorkspace({
                         aria-label={uiAttribute("你撤回了第{0}条消息", String(campMessage.sequence))}
                       >
                         <span><UiText zh={"你撤回了一条消息"} /></span>
+                        {reeditStore && <MessageReeditButton store={reeditStore} threadId={snapshot.thread.id}
+                          messageId={campMessage.id} disabled={composerInteractionDisabled || busy}
+                          onSelect={() => requestReedit(campMessage.id)} />}
                         <time>{messageClockTime(campMessage.createdAt)}</time>
                       </div>
                     )
@@ -6654,6 +6696,22 @@ export function ThreadWorkspace({
         executionPreviewHost
       )}
       {executionDrawerPortal && createPortal(executionDrawer, executionDrawerPortal)}
+      <Dialog.Root open={reeditMessageId !== null} onOpenChange={open => {
+        if (!open) { setReeditMessageId(null); setReeditError(null) }
+      }}>
+        <Dialog.Portal><Dialog.Overlay className="dialog-overlay app-dialog-overlay" />
+          <AppDialogContent className="message-reedit-dialog" width="compact" onCloseAutoFocus={event => event.preventDefault()}>
+            <AppDialogHeader title={uiAttribute('替换当前输入文字？')}
+              description={uiAttribute('将填入撤回消息的正文，当前输入文字会被替换。')} />
+            {reeditError && <AppDialogBody><p className="message-withdraw-error" role="alert">{reeditError}</p></AppDialogBody>}
+            <AppDialogFooter>
+              <button className="quiet-button" type="button" onClick={() => { setReeditMessageId(null); setReeditError(null) }}><UiText zh="取消" /></button>
+              <button className="primary-button conversation-primary-action" type="button" disabled={composerInteractionDisabled || busy}
+                onClick={() => { if (reeditMessageId) restoreWithdrawnText(reeditMessageId) }}><UiText zh="替换文字" /></button>
+            </AppDialogFooter>
+          </AppDialogContent>
+        </Dialog.Portal>
+      </Dialog.Root>
       <Dialog.Root
         open={withdrawalMessage !== null}
         onOpenChange={(open) => {
@@ -8107,16 +8165,16 @@ function ExecutionDrawer({
           role="separator"
           aria-label={uiAttribute("调整执行详情高度")}
           aria-orientation="horizontal"
-          aria-valuemin={heightSplitter.phase === 'closing' ? 0 : accessibleBounds.min}
+          aria-valuemin={heightSplitter.active ? 0 : accessibleBounds.min}
           aria-valuemax={accessibleBounds.max}
           aria-valuenow={accessibleHeight}
           aria-valuetext={uiAttribute("{0} 像素；上下方向键调整，Enter 恢复默认高度", String(accessibleHeight))}
           tabIndex={0}
-          title={uiAttribute("上下拖动调整，最矮处继续向下内推，松开收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
+          title={uiAttribute("上下拖动调整，最矮处继续向下内推直接收起；Enter 恢复默认高度；Delete 收起；Escape 取消拖动")}
           {...heightSplitter.handlers}
           onKeyDown={handleResizeKeyDown}
           onDoubleClick={() => { heightSplitter.cancel(); resetPreferredHeight() }}
-        ><SplitterFeedback phase={heightSplitter.phase} target={heightSplitter.target} label={uiAttribute('松开收起执行详情')} /></div>
+        ><SplitterFeedback phase={heightSplitter.phase} target={heightSplitter.target} label={uiAttribute('继续拖动收起执行详情')} /></div>
       )}
         <header className={`execution-drawer-header${overview ? ' is-overview' : ''}`}>
           <div className="execution-drawer-agent">

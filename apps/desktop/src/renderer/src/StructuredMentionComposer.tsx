@@ -57,7 +57,7 @@ import {
   type ComposerExtensionRuntime
 } from './RovaiComposerExtension'
 import type { ComposerSkillOption } from './composer-skill-picker'
-import { $replaceEditorWithComposerDocument } from './composer-editor-state'
+import { $replaceEditorWithComposerDocument, $rootToComposerDocument } from './composer-editor-state'
 import {
   $replaceComposerTriggerWithAtom,
   type ComposerTriggerMatch
@@ -101,6 +101,7 @@ export type StructuredMentionOption =
   | { kind: 'back_to_camp' }
 
 export interface StructuredMentionComposerHandle {
+  getDocument(): ComposerDocument
   flush(): Promise<ComposerFlushResult<ThreadComposerDraftView>>
   adoptHistoryPreview(): void
   cancelHistoryPreview(): void
@@ -590,6 +591,7 @@ function ComposerBridge({
   }, [disabled, editor, ready])
 
   useImperativeHandle(forwardedRef, () => ({
+    getDocument: () => editor.getEditorState().read($rootToComposerDocument),
     adoptHistoryPreview() {
       historyNavigationRef.current?.adopt()
       syncRef.current?.adoptHistoryPreview()

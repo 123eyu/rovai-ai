@@ -250,3 +250,7 @@ atomically; failures retain the draft for correction/retry. A successful save do
 Mission reading renders the same blue inline names and a basic member-profile popover; unavailable references
 retain their ID and are visually unavailable. Creation dismissal retains structured content alongside the existing
 draft. Editing keeps its revision conflict behavior. Day/Night and narrow layouts share this implementation.
+
+### Resize settlement
+
+The Mission drawer retains its immediate full-expansion gesture at the left edge. Its ordinary resize and the Diff file tree commit the final pointer-up position, including a release without a final move event. Native pointer interruption, blur and width changes settle the last observed position; only Escape rolls the gesture back. Drag-generated clicks cannot trigger double-click reset or expansion. The Diff tree keeps its minimum width and does not fold.

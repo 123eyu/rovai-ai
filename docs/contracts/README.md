@@ -1,7 +1,7 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # 长期接口合同
@@ -62,6 +62,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 - [Navigation Read v1（当前）](navigation-read-v1.md)：单会话、单分组、完整摘要快照，观察水位内已读确认与局部失效。
 - [Input History v1（当前）](input-history-v1.md)：公共/单聊从现有消息生成本轮固定内容、同步导航与草稿预览。
+- [Message Reedit v1（当前）](message-reedit-v1.md)：客户端两分钟撤回文字副本、原命令回放、容量与清理、确认回填。
 
 ## Mission
 

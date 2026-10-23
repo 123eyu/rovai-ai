@@ -79,6 +79,7 @@ User 在主题设计 Thread sequence 30 选择恢复 `rovai-horizon-refined-v7.h
 | `--inspector-surface` | `#ffffff` |
 | `--conversation-inspector-line` | `#d6d8d3` |
 | `--home-surface` | `#fdfcf9` |
+| `--settings-choice-selected-surface` | `#fdfcf9` |
 | `--topbar` | `#fdfcf9` |
 | `--input` | `#ffffff` |
 | `--ink` | `#30322f` |

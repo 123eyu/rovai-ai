@@ -114,8 +114,7 @@ macOS and Web settings use a fixed 270px rail without collapse, resize or histor
 macOS preserves an inherited collapsed rail with an expand button. Web settings always expand their categories
 and remove the native drag spacer above the brand; leaving settings restores the ordinary-page layout. Ordinary pages show back/forward
 beside the sidebar toggle while expanded, and only the expand button while collapsed.
-The global rail resizes from 200px to 420px within the window. Dragging to 200px stops at the minimum; another 64px inward arms a fold.
-Releasing beyond that threshold folds to 0px over 160ms, without a dwell requirement. Releasing at the stop keeps 200px. The window-chrome toggle also collapses
+The global rail resizes from 200px to 420px within the window. Dragging to 200px stops at the minimum; another 64px inward folds to 0px over 160ms while held, without a dwell or release requirement. Releasing at the stop keeps 200px. The window-chrome toggle also collapses
 it completely, without an icon strip. Restore through the toggle,
 keyboard, or a drag from the left edge; retain the previous expanded width and mounted page state.
 The minimum supported window is `1040×700`; reference checks also cover `1440×920` and
@@ -167,12 +166,17 @@ without extra focus outlines or halos; higher contrast preferences restore the s
   share a single `1px` line. Hover and dragging change the entire boundary to neutral `--resize-line`,
   without a short grip or increased thickness. Invisible hit areas remain wider. Preserve keyboard resizing,
   cancellation and reset. All resizing commits the final release coordinate, including fast gestures between frames,
-  with CSS zoom accounted for. Collapsible panes stop at their minimum; another 64px inward immediately shows
-  a transient release-to-fold hint. Holding never folds the pane. Releasing beyond the threshold folds over 160ms;
-  reversing out of it cancels the intent, and releasing inside it keeps the minimum. Reduced motion skips only
-  the fold animation. Cancellation restores the pre-gesture layout without saving a transient width. Settings lists and Diff file trees
+  with CSS zoom accounted for. Collapsible panes stop at their minimum; another 64px inward crosses
+  the spatial stop followed by a 160ms fold while the pointer remains held. Reversing by 24px reopens within the same gesture;
+  releasing inside the detent keeps the minimum. Reduced motion skips the fold animation. Escape restores the pre-gesture
+  layout; native pointer interruption, blur and container resize settle the latest observed coordinate. Scope changes discard obsolete gestures.
+  A drag-generated click never resets width, while a fresh stationary double-click still resets it. Settings lists and Diff file trees
   retain their minimum widths, and the Mission drawer retains its own full-expansion gesture. Collapse icons use an unfilled rounded window with an inner line near the corresponding
   edge when collapsed; the navigation control sits right of macOS traffic lights or left of Windows File.
+- **Preview expansion:** file, execution and activity share a quiet 28px header control, with a 15px two-corner glyph
+  (top-right and bottom-left, no arrows). Expanding removes the conversation completely, flush with the navigation boundary;
+  no restore strip remains after release. Restore through the same button or Escape. Tabs, new output and completion preserve
+  the mode, mounted content, drafts and reading positions. Compact layouts retain their existing return control.
 - **Containers:** prefer one open surface with dividers over card walls. A card is justified only
   when it represents a bounded object, decision or independent state.
 - **Dialogs and Popovers:** one raised neutral surface with a 1px structural boundary and no colored

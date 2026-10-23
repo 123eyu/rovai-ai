@@ -2,7 +2,7 @@
 document_type: ui-theme-index
 authority: renderer-theme-routing
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Renderer 主题
@@ -96,3 +96,5 @@ Main 原子保存 schema-v2 偏好，并串行处理连续更新。schema-v1 主
 
 主题选择沿用整卡原生 radio、缩略图、名称与选中勾；980px 内容轨道为六列紧凑卡片，
 容器不超过 900px 时三列，不超过 420px 时两列。不加入原型专属键盘/聚焦行为。
+`--settings-choice-selected-surface` 拥有外观选项的选中底色；经典红使用淡灰红区域色，
+其余配色保持各自原有 `--home-surface` 色值。选中边线继续由 `--settings-choice-selected-line` 拥有。

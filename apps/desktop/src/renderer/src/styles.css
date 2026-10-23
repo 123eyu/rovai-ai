@@ -1250,8 +1250,26 @@ html[data-rovai-platform="win32"] .bootstrap-shell-brand { padding-left: 20px; }
   border-bottom: 0;
   background: var(--conversation-surface);
 }
-.camp-topbar.has-file-preview { --file-preview-tabs-end-padding: 112px; }
+.camp-topbar.has-file-preview { --file-preview-tabs-end-padding: 148px; }
 .camp-topbar:not(.has-file-preview) .topbar-conversation-context { padding-right: 58px; }
+
+.file-preview-expand-toggle { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; color: var(--faint); background: transparent; cursor: pointer; }
+.file-preview-expand-toggle svg { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+.file-preview-expand-toggle:hover:not(:disabled), .file-preview-expand-toggle:focus-visible { color: var(--ink); background: var(--neutral-hover); }
+.file-preview-expand-toggle:focus-visible { outline: 1px solid var(--control-line); outline-offset: 1px; }
+.file-preview-expand-toggle:disabled { cursor: default; }
+.camp-topbar.has-file-preview.file-preview-expanded { grid-template-columns: minmax(160px, 260px) minmax(0, 1fr); }
+.camp-topbar.file-preview-expanded .topbar-conversation-context { display: flex; }
+.camp-topbar.file-preview-expanded .camp-detail-entry-host { display: none; }
+.camp-topbar.file-preview-expanded .file-preview-tabs { border-left: 0; }
+.workspace-grid.file-preview-open.inspector-collapsed.file-preview-expanded { grid-template-columns: minmax(0, 1fr); }
+.workspace-grid.file-preview-expanded .timeline-pane, .workspace-grid.file-preview-expanded .conversation-controls { display: none; }
+.workspace-grid.file-preview-expanded .file-preview-pane { grid-column: 1; border-left: 0; }
+.camp-topbar.has-file-preview.file-preview-folded, .workspace-grid.file-preview-open.inspector-collapsed.file-preview-folded { grid-template-columns: minmax(0, 1fr); }
+.file-preview-folded .file-preview-tabs, .file-preview-folded .file-preview-pane { display: none; }
+.workspace-grid.is-file-preview-resizing .timeline-pane, .workspace-grid.is-file-preview-resizing .conversation-controls { min-width: 0; overflow: hidden; }
+.file-preview-resize-handle.is-conversation-collapsed { opacity: 0; pointer-events: none; }
+
 .file-preview-toggle-group { position: absolute; top: 5px; right: 6px; display: flex; height: 28px; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .file-preview-toggle-divider { width: 1px; height: 18px; flex: 0 0 1px; background: var(--line-strong); }
 .file-preview-toggle { display: grid; width: 28px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
@@ -3667,6 +3685,12 @@ button.camp-world-map-live-caption { cursor: pointer; font: inherit; }
   font-size: 10.5px;
 }
 .withdrawn-message-event time { font: 9.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.message-reedit-action { display: inline-flex; align-items: center; min-height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--resource-link); font: inherit; text-decoration: none; cursor: pointer; }
+.message-reedit-action:hover { color: var(--resource-link-hover); text-decoration: none; }
+.message-reedit-action:active { background: var(--surface-hover); }
+.message-reedit-action:focus-visible { outline: 1px solid var(--control-line); outline-offset: 2px; }
+.message-reedit-action:disabled { opacity: .6; cursor: default; }
+html[data-mobile-web=true] .message-reedit-action { min-height: 44px; }
 .copy-feedback {
   position: absolute;
   width: 1px;

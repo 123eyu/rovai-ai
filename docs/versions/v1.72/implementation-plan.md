@@ -3,10 +3,38 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # v1.72 实施与验收
+
+## 撤回消息两分钟重新编辑（2026-10-23）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-withdraw-reedit`；
+  分支 `rovai/withdraw-reedit`，基线 `984e82281ee57c5b33ac5ec320d1e4bf52e4cf4a`；Governance：none。
+- `MessageReeditStore` 拥有逐条本机副本、pending / ready 固定有效期、容量保护和每前端实例一个清理器。
+  读取／回放按 scope 隔离；清理可回收旧 scope 的过期副本，不删除普通草稿或提前淘汰有效副本。
+- `MessageWithdrawal` 保存原命令与参数并复用已有回放；请求未知保留 pending，业务拒绝删除，
+  正常成功与列表刷新分开处理。存储失败不阻止撤回，不增加通用命令队列或重试平台。
+- 正式消息区提供蓝色无下划线入口；已有草稿先确认替换，最终回填再读有效期。只恢复正文和显式成员 @，
+  保留当前附件／引用／回复元数据；默认显示 @ 不带回。撤回与到期不主动结束 ↑↓ 历史预览。
+- [Message Reedit v1](../../contracts/message-reedit-v1.md) 固定客户端合同；Core、数据库、原撤回命令、
+  模型上下文保持原状。交互稿 v4 直接构建正式恢复模块和组件，仅使用合成 transport 与独立存储。
+- 容量为最佳努力占用限制，不预留普通草稿配额；多窗口不新增锁、跨窗口事务或全局调度服务。
+
+验证与交付状态：
+
+- `pnpm typecheck`、`pnpm build:desktop` 通过；后者包含 Web 构建。
+- `pnpm test` 通过：254 个 Vitest 文件、2934 项通过、2 项既有跳过；后续 Node 套件
+  358 项通过、2 项 Windows 专用验证跳过；包含文档与 Skill 通用门禁。
+- `pnpm test:message-reedit-ui` 通过夹具类型检查及 11 组真实组件交互：确认取消／替换、
+  回填后普通草稿与到期分离、默认／显式 @、重启不续期、弹窗跨期、两阶段存储失败、
+  撤回成功但刷新失败、拒绝与未知回执、历史浏览保留／接管、实际同源第二窗口通知和日夜主题。
+  已人工核对截图；仅使用隔离 Chrome 和合成 transport，没有启动日常 App、Core 或真实 Runtime。
+- `pnpm test:rust:pr` 默认 workspace 475 项通过、1 项既有 ignored；未修改 Rust 或测试 owner。
+- `pnpm docs:test`、`pnpm docs:check` 与以本节真实基线执行的 `pnpm docs:check:ci` 通过，无治理例外。
+- 工作树状态 `ready`；交付功能分支和由正式组件构建的 HTML v4，保留 worktree 等待后续评审。
+  按 User 既有偏好只推送分支，不自动创建 PR 或安装日常 App。
 
 ## 字面 HTML 间距与遍历收尾（2026-10-22）
 

@@ -1,4 +1,6 @@
 import { ThreadReferencePreviewProvider } from './ThreadReferencePreview'
+import { MessageReeditStore } from './message-reedit-store'
+import { MessageWithdrawal } from './message-withdrawal'
 import { useTeams } from './useTeams'
 import { TeamWorkspace, type TeamLeaveGuard } from './TeamWorkspace'
 import { MemoryChangeNotice } from './MemoryChangeNotice'
@@ -1014,6 +1016,8 @@ export function BusinessApp({
   const taskCapabilityRef = useRef(taskCapability.enabled)
   taskCapabilityRef.current = taskCapability.enabled
   const { client, preferences: uiPreferences, desktop } = environment
+  const reeditStore = useMemo(() => new MessageReeditStore(client.reeditScope ?? '',
+    client.reeditScope ? undefined : null), [client])
   const userAnchorNavigationFor = useThreadUserAnchorCache(client)
   const interfaceLanguage = useInterfaceLanguage()
   const onboardingLanguageRequest = useRef(0)
@@ -3819,6 +3823,7 @@ export function BusinessApp({
   }
 
   function hideAcceptedThreadDeletion(threadId: string): void {
+    reeditStore.deleteThread(threadId)
     deletingThreadIdsRef.current.add(threadId)
     const currentNavigation = navigationSnapshotRef.current
     if (currentNavigation) {
@@ -3943,20 +3948,30 @@ export function BusinessApp({
     }
   }
 
-  const withdrawThreadMessage = async (message: ThreadMessageView): Promise<void> => {
+  const withdrawalCallbacks = useRef({ refresh: refreshActiveThreadSnapshot, notify })
+  withdrawalCallbacks.current = { refresh: refreshActiveThreadSnapshot, notify }
+  const messageWithdrawal = useMemo(() => new MessageWithdrawal({
+    store: reeditStore,
+    request: request => client.request<StoredCommandResult>('thread.messages.withdraw', request),
+    accepted: (_threadId, messageId) => {
+      setOptimisticThreadMessages(current => current.filter(entry => entry.message.id !== messageId))
+    },
+    refresh: threadId => withdrawalCallbacks.current.refresh(threadId),
+    notify: message => withdrawalCallbacks.current.notify(message),
+    rejectionMessage: commandFailureMessage
+  }), [client, reeditStore])
+  useEffect(() => {
+    const stop = reeditStore.start()
+    messageWithdrawal.recoverPending()
+    const recover = (): void => { reeditStore.sweep(); messageWithdrawal.recoverPending() }
+    window.addEventListener('online', recover)
+    window.addEventListener('focus', recover)
+    const unsubscribe = client.onInvalidated?.(recover)
+    return () => { stop(); unsubscribe?.(); window.removeEventListener('online', recover); window.removeEventListener('focus', recover) }
+  }, [client, reeditStore, messageWithdrawal])
+  const withdrawThreadMessage = (message: ThreadMessageView): Promise<void> => {
     const threadId = activeThreadIdRef.current
-    if (!threadId || message.id.startsWith('optimistic:') || !message.canWithdraw) return
-    const result = await client.request<StoredCommandResult>('thread.messages.withdraw', {
-      commandId: newCommandId(),
-      command: {
-        threadId,
-        messageId: message.id,
-        expectedVersion: message.version
-      }
-    })
-    if (result.status === 'rejected') throw new Error(commandFailureMessage(result))
-    setOptimisticThreadMessages((current) => current.filter((entry) => entry.message.id !== message.id))
-    await refreshActiveThreadSnapshot(threadId)
+    return threadId ? messageWithdrawal.withdraw(threadId, message) : Promise.resolve()
   }
 
   const resolveActionApproval = async (
@@ -4484,6 +4499,7 @@ export function BusinessApp({
               return result.status
             }}
             onWithdrawMessage={withdrawThreadMessage}
+            reeditStore={reeditStore}
             onPendingDraftPersisted={refreshPendingThreadNavigation}
             onPendingThreadLeave={settlePendingThreadOnLeave}
             onThreadLeaveGuardChange={registerThreadLeaveGuard}

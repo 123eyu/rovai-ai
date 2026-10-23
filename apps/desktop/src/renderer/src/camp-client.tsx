@@ -20,6 +20,8 @@ export type ThreadClient = Pick<RovaiApi,
     }>
   }
   editingRecovery?: EditingRecovery
+  /** Stable local profile/Host/Owner scope; absence disables withdrawn-text persistence. */
+  reeditScope?: string
   /** Explicit resource/platform dependencies of the shared management pages. */
   exportMonitoring: (filter: import('@contracts').MonitoringFilter) => Promise<{ exported: boolean; path?: string }>
   revealMonitoringExport: RovaiApi['revealMonitoringExport'] | null

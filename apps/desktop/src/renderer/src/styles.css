@@ -3685,6 +3685,12 @@ button.camp-world-map-live-caption { cursor: pointer; font: inherit; }
   font-size: 10.5px;
 }
 .withdrawn-message-event time { font: 9.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.message-reedit-action { display: inline-flex; align-items: center; min-height: 28px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--resource-link); font: inherit; text-decoration: none; cursor: pointer; }
+.message-reedit-action:hover { color: var(--resource-link-hover); text-decoration: none; }
+.message-reedit-action:active { background: var(--surface-hover); }
+.message-reedit-action:focus-visible { outline: 1px solid var(--control-line); outline-offset: 2px; }
+.message-reedit-action:disabled { opacity: .6; cursor: default; }
+html[data-mobile-web=true] .message-reedit-action { min-height: 44px; }
 .copy-feedback {
   position: absolute;
   width: 1px;

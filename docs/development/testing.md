@@ -126,7 +126,7 @@ Hermes 合入前补修继续扩展目录/Ready、catalog refresh 与 CLI help ow
 普通映射测试修复前实际失败；平台证据摘要随兼容性文档修订同步更新，不跳过原 hash 断言。
 `python3 scripts/test-hermes-controller.py` 增加精确 unknown 处理的纯状态机矩阵；
 `smoke-hermes-first-input.mjs --recovery` 使用生产 Core 和官方 Hermes、loopback Responses，验证
-强杀、只读检查、显式确认、错误身份、丢失回复后的重试、同 Session 新任务、零重复 Send 与旧 Ready 升级。
+强杀、只读检查、显式确认、错误身份、重启后重试同一确认、同 Session 新任务、零重复 Send 与旧 Ready 升级。
 `smoke-hermes-core.mjs --force-unknown` 使用真实模型，同时强杀独占 Gateway 以确保原生无法落盘终态；
 默认仅强杀 Core 时允许原生已结算的空闲分支，不能把该分支记为 unknown 恢复通过。
 所有路径使用隔离 Home/data-dir/Skill Library/MCP；真实模型凭据副本验收后删除。

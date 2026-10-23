@@ -94,6 +94,7 @@ controller revision v5 增加独立的用户维护入口。Core 已失败收口�
 
 ```sh
 rovai app agent-run hermes-inspect --agent-run-id <原中断任务ID> > hermes-inspection.json
+cat hermes-inspection.json
 rovai app agent-run hermes-discard --inspection-file hermes-inspection.json --acknowledge-effects
 ```
 

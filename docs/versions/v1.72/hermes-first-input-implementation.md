@@ -100,7 +100,10 @@ controller v5 使用独立控制连接，不加载普通 ACP Session，不发送
 后续 `--force-unknown` 明确同时强杀独占 Gateway，避免把原生正常结算路径冒充未知执行处理。
 这批验收的凭据/config 副本已清理，源 Home 未改，保留脱敏摘要和隔离执行证据。
 
-普通 Rust 全量回归在最终代码上单独运行；首次执行发现兼容性文档证据 hash 过期（431 passed / 1 failed / 1 ignored），
-按实际文档更新 hash 后重跑，不跳过原断言。最终结果随本节追加，CI fmt/check 不替代 Rust 单测。
+普通 Rust 全量回归单独执行；首次发现兼容性文档证据 hash 过期（431 passed / 1 failed / 1 ignored），
+按实际文档更新 hash 后重跑，不跳过原断言。补修与主线合并提交 `2cdadec68` 的
+`cargo test --workspace -j 2 -- --test-threads=1` 为 **478 passed / 0 failed / 1 ignored**；
+最后将缓存校验严格限定为 Hermes，最终提交的同命令复核结果记录在 [PR #878](https://github.com/murray17/rovai-ai/pull/878)。
+CI 的 fmt/check 不替代 Rust 单测。
 Controller 确定性回归 5 项、User Automation 定向测试 10 项与 TypeScript 检查通过。
 本次不重跑已记录的自动压缩矩阵，不把显式恢复当作同 Run 压缩恢复；未新增 Renderer 按钮或日常 App 安装验收。

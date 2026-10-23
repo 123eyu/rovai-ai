@@ -119,6 +119,52 @@ class PromptSettlement(unittest.IsolatedAsyncioTestCase):
         self.assertIs(caught.exception, rejected)
         self.assertFalse(any(call.args[0] == "prompt.receipt" for call in c.rpc.rpc.call_args_list))
 
+    async def test_unknown_recovery_is_exact_explicit_control_without_prompt(self):
+        for case in ("inspect", "resolve", "terminal", "no_ack", "wrong_generation", "wrong_session",
+                     "queued", "running", "approval", "multiple", "wrong_after"):
+            with self.subTest(case=case):
+                c = host.Controller.__new__(host.Controller)
+                c.session, c.active, c.prompt_pending = None, None, False
+                c.native = AsyncMock()
+                receipt = {"ref": {"session_id": "session"}, "admission_id": "admission",
+                           "execution_generation": 2, "status": "unknown", "outcome": None}
+                snapshot = {"session_id": "session", "pending": [receipt]}
+                params = {"sessionId": "session", "admissionId": "admission",
+                          "executionGeneration": 2, "acknowledgeEffects": True}
+                if case == "inspect": params = {"sessionId": "session"}
+                if case == "no_ack": params["acknowledgeEffects"] = False
+                if case == "wrong_generation": params["executionGeneration"] = 3
+                if case == "wrong_session": receipt["ref"]["session_id"] = "another"
+                if case == "queued": receipt["status"] = "queued"
+                if case == "running": snapshot["running"] = True
+                if case == "approval": snapshot["prompts"] = [{"id": "permission"}]
+                if case == "multiple": snapshot["pending"] = [receipt, dict(receipt, admission_id="other")]
+                if case == "terminal":
+                    receipt.update(status="terminal", outcome="completed")
+                    snapshot["pending"] = []
+                async def rpc(method, **args):
+                    self.assertEqual(args["session_id"], "session")
+                    if method == "session.resume": return snapshot
+                    self.assertEqual(args["admission_id"], "admission")
+                    if method == "prompt.receipt": return receipt
+                    self.assertEqual(method, "prompt.resolve_unknown")
+                    self.assertEqual(args["execution_generation"], 2)
+                    receipt.update(status="terminal", outcome="interrupted")
+                    snapshot["pending"] = []
+                    if case == "wrong_after": snapshot["session_id"] = "another"
+                    return receipt
+                c.rpc = types.SimpleNamespace(rpc=AsyncMock(side_effect=rpc))
+                if case in ("inspect", "resolve", "terminal"):
+                    result = await c.recover_unknown(params)
+                    self.assertEqual(result["sessionId"], "session")
+                    if case == "inspect": self.assertEqual(result["receipts"][0]["status"], "unknown")
+                    else: self.assertEqual(result["receipt"]["status"], "terminal")
+                else:
+                    with self.assertRaises(host.Rejected): await c.recover_unknown(params)
+                calls = [call.args[0] for call in c.rpc.rpc.call_args_list]
+                self.assertEqual(calls.count("prompt.resolve_unknown"), int(case in ("resolve", "wrong_after")))
+                c.native.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

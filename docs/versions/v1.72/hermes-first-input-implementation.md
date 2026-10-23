@@ -11,7 +11,7 @@ last_updated: 2026-10-23
 Core 继续拥有完整 B；Hermes 在首次、更新或可靠完成通知后的下一普通输入携带一份规则。
 官方 ACP/Gateway 与逐 Run lease 不变；原生 system/personality/环境变量不再被 Adapter 解析或覆盖。
 
-Migration 215 / schema 165 保留旧记录，仅增加 nullable 输入证据；controller revision v4，Hermes
+Migration 215 / schema 165 保留旧记录，仅增加 nullable 输入证据；初次交付 controller revision v4（下节补修升至 v5），Hermes
 outer envelope v1；共享 Bootstrap v6、Charter 25、Dynamic 40/42 与 Profile 15/16 不变。
 历史 system Evidence 不改写。prepared/unknown 不消费规则或补发 revision，也不自动重放旧业务任务。
 
@@ -70,3 +70,37 @@ CLI hook 1、catalog migration 1、迁移准入矩阵 1、数据库打开准入 
 
 复现入口：`scripts/smoke-hermes-first-input.mjs --compression` 与 `--compression --unprotected`；
 真实模型使用 `scripts/smoke-hermes-auto-compression.mjs`。均声明独立 Home、data-dir、Skill Library 与 MCP。
+
+## 合入前补修与显式恢复
+
+按 User sequence 34 / [D61](decisions.md#v1-72-d61) 实施，保持 FirstPayload。生产 Ready 能力独立声明
+`context.charter.first_payload`、`context.compaction.signal_driven`、`context.compaction.best_effort`，
+移除 Hermes 的两个旧 system 保证；模型、effort、权限和 session.load 保留。
+普通目录映射测试修复前实际失败，现已改正。静态发现使旧 Ready 变为 installed_unverified；
+深检缓存也拒绝旧合同，运行检查后回到新 Ready，不为刷新能力而轮换原生 binding。
+
+新增用户 CLI 查询和明确确认入口，合同见 [Hermes Managed Runtime](../../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)。
+Core 持久记录精确 Run/binding/admission/generation 的用户同意，再调用官方 `prompt.resolve_unknown`；
+controller v5 使用独立控制连接，不加载普通 ACP Session，不发送任务。确认结果未知时重用同一检查文件，
+先查询精确 receipt；同一个 commandId 不可更换确认目标。原 Run、输入和公开发送证据均不改为成功。
+维护 Host 仍由 Fleet 回收；复用逐 Run 的原始 Session 存储，不复用旧 CLI lease。
+
+[受控与真实恢复摘要](../../research/hermes-runtime/explicit-unknown-recovery-2026-10-23.json)分开保存：
+
+- `rovai-hermes-first-input-566fmf`：官方原生执行＋loopback Responses，六阶段覆盖首次、后继、冷恢复及旧 Ready
+  升级、规则更新、Core 强杀和显式处理后的新任务。错误 binding/generation、缺少确认和 commandId 换目标均拒绝；
+  检查不消除 unknown，恢复零模型调用、零额外业务 Run，Core 再重启后的同确认重试幂等，旧任务失败且执行一次。
+- `rovai-hermes-core-h3UHnB`：生产 Core/CLI＋真实 Sub2API `gpt-6.1-sol`。同 Run Steer、文件证据、公开 Send 和
+  真实终端取消通过；同时强杀专用 Gateway 与 Core，明确得到 unknown；用户确认后原 Session 的新任务成功，
+  旧任务仍失败、旧输入未重放、公开 marker 各一次，受管进程全部退出。
+
+三个先行尝试保留为诊断：旧 Ready 升级首次未命中静态发现分支，现已修正；一次 Host 启动身份校验遇到
+`try_lock` 读 PID 的竞争，改为只在 Hermes Ready 校验处等待 child 锁，保留 PID/revision/version 校验；
+一次仅强杀 Core 的真实模型运行已经由原生结算为空闲，不计入 unknown 恢复通过。
+后续 `--force-unknown` 明确同时强杀独占 Gateway，避免把原生正常结算路径冒充未知执行处理。
+这批验收的凭据/config 副本已清理，源 Home 未改，保留脱敏摘要和隔离执行证据。
+
+普通 Rust 全量回归在最终代码上单独运行；首次执行发现兼容性文档证据 hash 过期（431 passed / 1 failed / 1 ignored），
+按实际文档更新 hash 后重跑，不跳过原断言。最终结果随本节追加，CI fmt/check 不替代 Rust 单测。
+Controller 确定性回归 5 项、User Automation 定向测试 10 项与 TypeScript 检查通过。
+本次不重跑已记录的自动压缩矩阵，不把显式恢复当作同 Run 压缩恢复；未新增 Renderer 按钮或日常 App 安装验收。

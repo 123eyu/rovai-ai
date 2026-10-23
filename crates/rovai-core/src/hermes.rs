@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 use crate::{agent_profile::AdapterKind, command::canonical_json_digest};
 
-pub const REVISION: &str = "rovai-hermes-host-v4";
+pub const REVISION: &str = "rovai-hermes-host-v5";
 const HOST: &str = include_str!("hermes/host.py");
 const NATIVE_ENTRY: &str =
     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)";
@@ -159,7 +159,11 @@ pub fn validate_ready(value: &Value, pid: Option<u32>) -> Result<()> {
         value["revision"] == REVISION
             && supported_version(value["version"].as_str())
             && pid.is_some_and(|pid| value["pid"] == pid),
-        "Hermes managed host identity mismatch"
+        "Hermes managed host identity mismatch (revision={}, version={}, pid={}, expectedPid={:?})",
+        value["revision"],
+        value["version"],
+        value["pid"],
+        pid
     );
     Ok(())
 }

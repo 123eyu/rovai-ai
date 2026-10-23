@@ -7,11 +7,13 @@ import { mkdtemp, mkdir, writeFile, readFile, realpath, symlink } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { startQualificationCore } from './lib/qualification-core.mjs'
+import { startQualificationCore, descendantsOf, processTable, waitForProcessesToExit } from './lib/qualification-core.mjs'
 import { createConfiguredCampAndSend, composerDocumentForAddress } from './lib/create-configured-camp.mjs'
 
 assert(process.env.ROVAI_HERMES_BIN)
 const compression = process.argv.includes('--compression')
+const recovery = process.argv.includes('--recovery')
+assert(!(compression && recovery), 'Use separate fixtures for compaction and crash recovery')
 const protectFirst = process.argv.includes('--unprotected') ? 0 : 3
 const repository = resolve(import.meta.dirname, '..')
 const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-hermes-first-input-')))
@@ -49,7 +51,8 @@ const server = createServer(async(request,response)=>{
     roundCall++
     if(roundCall===1){
       respond(response,body,{id:crypto.randomUUID(),type:'function_call',call_id:crypto.randomUUID(),name:'terminal',
-        arguments:JSON.stringify({command:`rovai send --public-only --body HERMES_RULES_PHASE_${phase}`}),status:'completed'},compression&&[3,4].includes(phase)?60000:100)
+        arguments:JSON.stringify({command:`rovai send --public-only --body HERMES_RULES_PHASE_${phase}`
+          +(recovery&&phase===4?'; echo hit >> crash.count; echo $$ > crash.pid; sleep 120':'')}),status:'completed'},compression&&[3,4].includes(phase)?60000:100)
     }else{respond(response,body,message('Done.'))}
   }catch(error){wireError=error;response.writeHead(500);response.end()}
 })
@@ -76,9 +79,30 @@ try{
   assert.equal((await core.request('members.runtime.set',{commandId:crypto.randomUUID(),command:{agentId:'agent_2',expectedVersion:member.version,adapterKind:'hermes-cli',model:installation.memberRuntimeDefaults.model,permissions:installation.memberRuntimeDefaults.permissions}})).status,'applied')
   let thread, nativeId, previousRequested=0
   database=new DatabaseSync(join(data,'rovai.sqlite'),{readOnly:true})
-  for(phase=0;phase<(compression?7:4);phase++){
+  let recoveryEvidence
+  for(phase=0;phase<(compression?7:recovery?6:4);phase++){
     roundCall=0
-    if(phase===2||phase===6){await core.stop();core=startQualificationCore(coreOptions);await core.request('health.check')}
+    if(phase===2||phase===6){
+      await core.stop()
+      if(recovery&&phase===2){
+        // Disposable Core fixture only: recreate the old Ready snapshot, then
+        // exercise ordinary startup discovery and dispatch refresh.
+        const upgrade=new DatabaseSync(join(data,'rovai.sqlite'))
+        try{const old=installation.snapshot.capabilities.filter(c=>!c.startsWith('context.charter.')&&!c.startsWith('context.compaction.'))
+          old.push('context.charter.managed_system_prompt','context.compaction.native_system_prompt_preserved')
+          upgrade.prepare('UPDATE adapter_capability_snapshot SET capabilities_json=? WHERE installation_id=?').run(JSON.stringify(old),installation.id)
+        }finally{upgrade.close()}
+      }
+      core=startQualificationCore(coreOptions);await core.request('health.check')
+      if(recovery&&phase===2){
+        await waitFor(async()=>!(await core.request('runtime.status.get')).runtimeAvailability.some(row=>row.runtimeKind==='hermes-cli'&&row.discovery.discoveryStatus==='detecting'))
+        const stale=(await core.request('runtime.installations.list')).find(row=>row.id===installation.id)
+        assert.equal(stale.snapshot.probeStatus,'installed_unverified','Old Ready must be invalidated even when native program bytes are unchanged')
+        assert(!stale.snapshot.capabilities.includes('context.charter.managed_system_prompt'))
+        await core.request('runtime.product.check',{runtimeKind:'hermes-cli'})
+        await waitFor(async()=>{const row=(await core.request('runtime.installations.list')).find(row=>row.id===installation.id);return row?.snapshot?.probeStatus==='ready'})
+      }
+    }
     if(phase===3){
       member=await core.request('members.get',{agentId:'agent_2'})
       assert.equal((await core.request('members.update',{commandId:crypto.randomUUID(),command:{agentId:'agent_2',expectedVersion:member.version,
@@ -89,6 +113,47 @@ try{
     const sent=phase===0?await createConfiguredCampAndSend(core.request,{commandId:crypto.randomUUID(),name:'Hermes first-input acceptance',purpose:'User-layer rules and exact acceptance',body,memberAgentIds:['agent_2'],defaultLeadAgentId:'agent_2',workspace:{projectPath:project}}):await core.request('thread.messages.send',{commandId:crypto.randomUUID(),threadId:thread,
       content:composerDocumentForAddress({mode:'explicit',agentIds:['agent_2']},body),sourceAttachments:[],quotes:[],replyToThreadMessageId:null,deliveryMode:'start',execution:{taskId:null,purpose:'Rules acceptance',completionRole:'required'}})
     if(phase===0)thread=sent.payload.threadId??sent.payload.campId
+    if(recovery&&phase===4){
+      await waitFor(()=>readFile(join(project,'crash.pid'),'utf8').catch(()=>false))
+      const crash=sql('SELECT id,status FROM agent_run WHERE camp_id=? ORDER BY rowid DESC LIMIT 1',thread)
+      assert.equal(crash.status,'running')
+      const owned=descendantsOf(await processTable(),core.pid), requestsBefore=wire.length
+      process.kill(core.pid,'SIGKILL');await core.stop(1000)
+      core=startQualificationCore(coreOptions);await core.request('health.check')
+      assert.deepEqual(await waitForProcessesToExit(owned,30000),[])
+      await waitFor(()=>sql('SELECT status FROM agent_run WHERE id=?',crash.id).status==='failed')
+      assert.equal(sql('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?',thread).n,5)
+      const inspect=await core.request('agentRuns.hermesRecovery.inspect',{agentRunId:crash.id})
+      assert.equal(inspect.state,'unknown');assert(inspect.warning.includes('外部效果'));assert(inspect.confirmation)
+      assert.equal(inspect.scope.nativeSessionId,nativeId)
+      const resolution={commandId:crypto.randomUUID(),confirmation:inspect.confirmation,acknowledgeEffects:true}
+      await assert.rejects(core.request('agentRuns.hermesRecovery.resolve',{...resolution,acknowledgeEffects:false}))
+      const stale=structuredClone(resolution);stale.confirmation.scope.nativeBindingGeneration++
+      await assert.rejects(core.request('agentRuns.hermesRecovery.resolve',stale))
+      const wrong=structuredClone(resolution);wrong.commandId=crypto.randomUUID();wrong.confirmation.executionGeneration++
+      await assert.rejects(core.request('agentRuns.hermesRecovery.resolve',wrong))
+      await assert.rejects(core.request('agentRuns.hermesRecovery.resolve',{...resolution,commandId:wrong.commandId}),
+        'A commandId may not authorize a changed target after the first attempt')
+      const again=await core.request('agentRuns.hermesRecovery.inspect',{agentRunId:crash.id})
+      assert.deepEqual(again.confirmation,inspect.confirmation,'Read-only inspection or stale discard changed the unknown execution')
+      const resolved=await core.request('agentRuns.hermesRecovery.resolve',resolution)
+      assert.equal(resolved.status,'applied');assert.equal(resolved.payload.nativeReceipt.status,'terminal')
+      assert.equal(resolved.payload.nativeReceipt.outcome,'interrupted')
+      // Simulate losing the first reply, then retry the exact user intent after
+      // Core restart. Native receipts, not rerunning the task, settle uncertainty.
+      await core.stop();core=startQualificationCore(coreOptions);await core.request('health.check')
+      const reconciled=await core.request('agentRuns.hermesRecovery.resolve',resolution)
+      assert.deepEqual(reconciled,resolved)
+      assert.equal(wire.length,requestsBefore,'Maintenance invoked the model')
+      assert.equal(sql('SELECT status FROM agent_run WHERE id=?',crash.id).status,'failed')
+      assert.equal(sql('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?',thread).n,5)
+      assert.equal(await readFile(join(project,'crash.count'),'utf8'),'hit\n')
+      recoveryEvidence={inspectionPreservedUnknown:true,staleGenerationRejected:true,explicitResolution:true,
+        originalRunFailed:true,noModelCall:true,noReplay:true,retryAfterRestart:true,processesReaped:true}
+      results.push({phase,run:crash.id,kind:'none',status:'failed'})
+      console.log('Explicit crash recovery:',JSON.stringify(recoveryEvidence))
+      continue
+    }
     const run=await waitFor(()=>{const row=sql('SELECT id,status FROM agent_run WHERE camp_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1',thread);return row&&['succeeded','failed','cancelled'].includes(row.status)&&!results.some(r=>r.run===row.id)&&row})
     assert.equal(run.status,'succeeded',JSON.stringify(run))
     const delivery=sql('SELECT * FROM runtime_input_delivery WHERE agent_run_id=? AND input_kind=\'start\'',run.id)
@@ -113,7 +178,14 @@ try{
     console.log('Phase:',JSON.stringify(results.at(-1)))
   }
   if(compression){assert(summaries>=2,'Two native automatic summaries not observed');assert(results.at(-1).acknowledged>=2,'Completed native hooks did not trigger accepted recovery');assert.equal(results.at(-1).kind,'none','Post-compaction cold resume duplicated accepted rules');assert.equal(previousRequested,0)}
-  const summary={version:installation.snapshot.reportedVersion,compression,protectFirst,syntheticProvider:true,nativeSessionUnchanged:true,summaries,results}
+  if(recovery){
+    for(const n of [4,5])assert.equal(sql("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body=?",thread,`HERMES_RULES_PHASE_${n}`).n,1)
+    const refreshed=JSON.parse(sql('SELECT capabilities_json FROM adapter_capability_snapshot WHERE installation_id=?',installation.id).capabilities_json)
+    for(const c of ['context.charter.first_payload','context.compaction.signal_driven','context.compaction.best_effort','session.set_config_option','structured_permission_request'])assert(refreshed.includes(c))
+    for(const c of ['context.charter.managed_system_prompt','context.compaction.native_system_prompt_preserved'])assert(!refreshed.includes(c))
+    recoveryEvidence.legacyReadySnapshotRefreshed=true;recoveryEvidence.noDuplicateSend=true
+  }
+  const summary={version:installation.snapshot.reportedVersion,compression,protectFirst,syntheticProvider:true,nativeSessionUnchanged:true,summaries,results,recovery:recoveryEvidence}
   await writeFile(join(root,'summary.json'),JSON.stringify(summary,null,2))
   console.log('Hermes first-input acceptance passed:',root)
 }catch(error){console.error(error);throw error}finally{

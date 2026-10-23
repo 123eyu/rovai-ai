@@ -10,6 +10,7 @@ import { createConfiguredCampAndSend, composerDocumentForAddress } from './lib/c
 
 assert(process.env.ROVAI_HERMES_SMOKE_HOME, 'Set ROVAI_HERMES_SMOKE_HOME to a private acceptance Home')
 assert(process.env.ROVAI_HERMES_BIN, 'Select an official Hermes >= 0.22.4 launcher')
+const forceUnknown = process.argv.includes('--force-unknown')
 const repository = resolve(import.meta.dirname, '..')
 const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-hermes-core-')))
 const data = join(root, 'data'), project = join(root, 'project')
@@ -170,7 +171,17 @@ try {
   assert(crashPid, 'Crash worker did not start')
   const crashRun = query('SELECT id,status FROM agent_run WHERE camp_id=? ORDER BY rowid DESC LIMIT 1', thread)
   assert.equal(crashRun.status, 'running')
-  descendants = [...new Set([...descendants, ...descendantsOf(await processTable(), core.pid), crashPid])]
+  const crashTree = await processTable()
+  const crashDescendants = descendantsOf(crashTree, core.pid)
+  descendants = [...new Set([...descendants, ...crashDescendants, crashPid])]
+  if (forceUnknown) {
+    // Remove the owner's chance to commit an interrupted receipt after Core
+    // EOF. This explicitly tests lost native settlement, not a graceful stop.
+    const gateway = crashTree.find(row => crashDescendants.includes(row.pid)
+      && row.command.includes('gateway run --force --no-supervise --external-supervisor'))
+    assert(gateway, 'Dedicated native Gateway not found in the owned tree')
+    process.kill(gateway.pid,'SIGKILL')
+  }
   process.kill(core.pid, 'SIGKILL')
   await core.stop(1000)
   core = startQualificationCore(coreOptions)
@@ -178,6 +189,19 @@ try {
   assert.deepEqual(await waitForProcessesToExit(descendants, 30000), [], 'Crash recovery left an owned Gateway or terminal alive')
   assert.equal(query('SELECT status FROM agent_run WHERE id=?', crashRun.id).status, 'failed')
   assert.equal(query('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?', thread).n, 3, 'Accepted crash input was replayed automatically')
+  const inspection = await core.request('agentRuns.hermesRecovery.inspect', {agentRunId:crashRun.id})
+  assert(['unknown','idle'].includes(inspection.state))
+  if(forceUnknown)assert.equal(inspection.state,'unknown')
+  assert.equal(inspection.scope.nativeSessionId,nativeId)
+  if(inspection.state==='unknown'){
+    assert(inspection.confirmation)
+    const resolution = await core.request('agentRuns.hermesRecovery.resolve', {
+      commandId:crypto.randomUUID(),confirmation:inspection.confirmation,acknowledgeEffects:true
+    })
+    assert.equal(resolution.status,'applied')
+    assert.equal(resolution.payload.nativeReceipt.outcome,'interrupted')
+  }
+  assert.equal(query('SELECT status FROM agent_run WHERE id=?',crashRun.id).status,'failed')
   await send('The isolated Core has restarted. Do not repeat prior cancelled or interrupted commands. Read hermes-proof.txt, then use `rovai send --public-only` to publish HERMES_CORE_RESTART_ACCEPTED and the verified file contents. Send exactly once, without addressing another agent.')
   const restartDeadline = Date.now() + 180000
   let resumed
@@ -190,7 +214,9 @@ try {
   assert.equal(query('SELECT native_session_id FROM conversation WHERE camp_id=? AND agent_id=?', thread, 'agent_2').native_session_id, nativeId, 'Core restart replaced the native Session')
   assert.equal(query("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body LIKE '%HERMES_CORE_RESTART_ACCEPTED%'", thread).n, 1)
   assert.equal(query("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body LIKE '%HERMES_CORE_STEER_ACCEPTED%'", thread).n, 1)
-  await writeFile(join(root, 'recovery-summary.json'), JSON.stringify({ nativeId, sameSession: true, acceptedCrashInputReplayed: false, duplicateSend: false, crashRun: crashRun.id, resumedRun: resumed.id, remainingPids: [] }, null, 2))
+  await writeFile(join(root, 'recovery-summary.json'), JSON.stringify({ nativeId, sameSession: true, forceUnknown,
+    nativeStateAfterCrash:inspection.state,explicitNativeResolution:inspection.state==='unknown',originalRunStillFailed:true,
+    acceptedCrashInputReplayed: false, duplicateSend: false, crashRun: crashRun.id, resumedRun: resumed.id, remainingPids: [] }, null, 2))
   console.log('Core crash, owned-tree recovery, exact Session and renewed CLI lease passed')
 } catch (error) {
   console.error(error.message)

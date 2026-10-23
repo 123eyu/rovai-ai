@@ -2276,10 +2276,32 @@ pub fn trae_machine_ready_capabilities(
     capabilities
 }
 
+pub(crate) fn hermes_charter_capabilities_current(capabilities: &[String]) -> bool {
+    [
+        "context.charter.first_payload",
+        "context.compaction.signal_driven",
+        "context.compaction.best_effort",
+    ]
+    .iter()
+    .all(|value| capabilities.iter().any(|item| item == value))
+        && ![
+            "context.charter.managed_system_prompt",
+            "context.compaction.native_system_prompt_preserved",
+        ]
+        .iter()
+        .any(|value| capabilities.iter().any(|item| item == value))
+}
+
 pub fn validate_machine_ready_snapshot(
     adapter_kind: AdapterKind,
     snapshot: &AdapterCapabilitySnapshot,
 ) -> Result<()> {
+    if adapter_kind == AdapterKind::HermesCli && snapshot.probe_status == "ready" {
+        anyhow::ensure!(
+            hermes_charter_capabilities_current(&snapshot.capabilities),
+            "Hermes Ready evidence predates user-layer rules; refresh the Runtime check"
+        );
+    }
     if adapter_kind == AdapterKind::DeepseekHarness && snapshot.probe_status == "ready" {
         if !crate::dsh::supported_version(snapshot.reported_version.as_deref())
             || snapshot
@@ -2534,12 +2556,22 @@ fn acp_capability_snapshot(
                 "session.new",
                 "context.charter.first_payload",
             ]
+        } else if adapter_kind == AdapterKind::HermesCli {
+            &[
+                "acp.initialize",
+                "session.new",
+                "session.prompt",
+                "session.cancel",
+                "session.update",
+                "session.set_config_option",
+                "structured_permission_request",
+                "context.charter.first_payload",
+                "context.compaction.signal_driven",
+                "context.compaction.best_effort",
+            ]
         } else if matches!(
             adapter_kind,
-            AdapterKind::DeepseekHarness
-                | AdapterKind::CommandCodeCli
-                | AdapterKind::ClineCli
-                | AdapterKind::HermesCli
+            AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli | AdapterKind::ClineCli
         ) {
             &[
                 "acp.initialize",
@@ -4011,6 +4043,44 @@ mod tests {
 
     #[test]
     fn grouped_acp_models_keep_opaque_provider_routes_and_reject_empty_catalogs() {
+        let hermes = AgentRuntimeAdapterRegistry::default().acp_capability_snapshot(AcpProbeObservation {
+            adapter_kind: AdapterKind::HermesCli,
+            reported_version: Some("0.22.4".into()),
+            executable_fingerprint: Some("sha256:hermes".into()),
+            authentication_status: "authenticated".into(), probe_status: "ready".into(),
+            capabilities: vec![], initialize_result: Some(json!({"agentCapabilities":{"loadSession":true}})),
+            session_result: Some(json!({"sessionId":"native", "configOptions":[
+                {"id":"model","currentValue":"route/model","options":[{"value":"route/model","name":"Model"}]},
+                {"id":"reasoning_effort","currentValue":"high","options":[{"value":"high"},{"value":"low"}]}
+            ]})), attempted_at: "2026-10-23T00:00:00Z".into(), last_error: None,
+        }).unwrap();
+        validate_machine_ready_snapshot(AdapterKind::HermesCli, &hermes).unwrap();
+        for capability in [
+            "context.charter.first_payload",
+            "context.compaction.signal_driven",
+            "context.compaction.best_effort",
+            "session.set_config_option",
+            "structured_permission_request",
+            "session.load",
+        ] {
+            assert!(hermes.capabilities.iter().any(|value| value == capability));
+        }
+        assert_eq!(hermes.permission_options, hermes_permission_options());
+        assert!(hermes.models.iter().any(|model| {
+            model
+                .options
+                .iter()
+                .any(|option| option.key == "reasoning_effort")
+        }));
+        for old in [
+            "context.charter.managed_system_prompt",
+            "context.compaction.native_system_prompt_preserved",
+        ] {
+            assert!(!hermes.capabilities.iter().any(|value| value == old));
+            let mut legacy = hermes.clone();
+            legacy.capabilities.push(old.into());
+            assert!(validate_machine_ready_snapshot(AdapterKind::HermesCli, &legacy).is_err());
+        }
         let mini = json!({"configOptions":[
             {"id":"model","type":"select","currentValue":"m:provider:model:u","options":[{"value":"m:provider:model:u","name":"Model"},{"value":"m:provider:other:v:fast","name":"Other"}]},
             {"id":"thinkingEffort","type":"select","currentValue":"high","options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}

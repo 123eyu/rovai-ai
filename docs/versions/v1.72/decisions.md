@@ -1282,3 +1282,18 @@ macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成�
 及已有输入账本，在下一普通输入补发，不介入当前 Run 的原生模型循环。接受这段完整规则可见性空窗。
 未选择继续解析并拼接原生 system overlay，也未选择补丁原生压缩器或在每轮无条件重复 B。
 进程/CLI lease 生命周期仍按 D59，不由投递位置改变推导旧进程可跨 Run 复用。
+
+<a id="v1-72-d61"></a>
+## V1.72-D61：Hermes 未知执行由用户明确处理，原生与 Rovai 终态分别保留
+
+- 状态：accepted
+- 日期：2026-10-23
+- 授权：User sequence 34 要求修正能力残留，并提供官方精确 unknown 恢复操作；不返回 system 注入。
+- 当前权威：[Hermes 未知执行](../../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)、[恢复架构](../../architecture/agent-run-recovery.md)、[User Automation](../../contracts/user-automation-v6.md#hermes-显式恢复)。
+
+强杀后 Core 失败收口不能消除原生 unknown admission，普通恢复门禁又先于聊天输入，故 `/discard`
+文本不能充当可靠出口。选择用户 CLI 的检查／明确确认操作，用官方精确 receipt 与 resolve_unknown
+解除原会话阻塞，保留旧任务失败和副作用证据；下一任务仍由用户另行提交。
+
+代价是当前需用户普通终端操作，尚无专用聊天按钮。未选择自动放弃未知任务、重放原输入、编辑原生数据库，
+或自动换 Session 绕过。与既有“继续执行”产生独立 Run 的语义分开，不改其他 Adapter 或共享队列合同。

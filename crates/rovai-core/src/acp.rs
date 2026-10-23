@@ -2136,8 +2136,12 @@ impl AcpHost {
                 }
                 if host.adapter_kind == AdapterKind::HermesCli {
                     let ready = host.rpc("_rovai/ready", json!({})).await;
+                    // The exit watcher briefly holds this mutex. try_lock via
+                    // pid() can report None for a live child and spuriously
+                    // reject an otherwise exact Ready response.
+                    let pid = host.child.lock().await.id();
                     let verified =
-                        ready.and_then(|value| crate::hermes::validate_ready(&value, host.pid()));
+                        ready.and_then(|value| crate::hermes::validate_ready(&value, pid));
                     if let Err(error) = verified {
                         host.shutdown().await;
                         return Err(error);
@@ -6584,6 +6588,7 @@ fn trae_catalog_window(bytes: &[u8], selected: &str) -> Option<i64> {
 
 pub struct AcpCliRuntimeAdapter {
     kind: AdapterKind,
+    hermes_session_gate: Mutex<()>,
     runtimes: Mutex<HashMap<String, Arc<AcpRuntime>>>,
     incoming: mpsc::UnboundedSender<AcpIncoming>,
     private_runtime_dir: PathBuf,
@@ -6620,6 +6625,7 @@ impl AcpCliRuntimeAdapter {
     ) -> Self {
         Self {
             kind,
+            hermes_session_gate: Mutex::new(()),
             runtimes: Mutex::new(HashMap::new()),
             incoming,
             private_runtime_dir,
@@ -6680,6 +6686,11 @@ impl AcpCliRuntimeAdapter {
         runtime_compatibility_digest: &str,
         startup_bootstrap: Option<&str>,
     ) -> Result<Arc<AcpRuntime>> {
+        let _hermes_gate = if self.kind == AdapterKind::HermesCli {
+            Some(self.hermes_session_gate.lock().await)
+        } else {
+            None
+        };
         if frozen_runtime.adapter_kind != self.kind {
             bail!("ACP Runtime received an AgentRun for another Adapter");
         }
@@ -6808,6 +6819,83 @@ impl AcpCliRuntimeAdapter {
             .await
             .insert(agent_run_id.to_string(), runtime.clone());
         Ok(runtime)
+    }
+
+    /// User-owned maintenance uses the existing Fleet/process owner, with no
+    /// Run, CLI lease, session/prompt, model configuration or business input.
+    pub(crate) async fn recover_hermes_session(
+        &self,
+        scope: &crate::application::hermes_recovery::RecoveryScope,
+        workspace: &AgentRunWorkspace,
+        permission_semantics: PermissionSemantics,
+        runtime: FrozenAgentRuntimeConfig,
+        params: Value,
+    ) -> Result<Value> {
+        ensure!(
+            self.kind == AdapterKind::HermesCli && runtime.adapter_kind == self.kind,
+            "Recovery is only available for Hermes"
+        );
+        let _gate = self.hermes_session_gate.lock().await;
+        let operation = format!("hermes-recovery:{}", uuid::Uuid::new_v4());
+        let private_dir =
+            self.private_runtime_dir
+                .join("hermes-bindings")
+                .join(canonical_json_digest(
+                    &json!({"binding": scope.native_binding_id}),
+                )?);
+        ensure!(
+            private_dir
+                .join("hermes-storage/native-home/state.db")
+                .is_file(),
+            "The original Hermes session storage is unavailable"
+        );
+        let incoming = self.incoming.clone();
+        let workspace = workspace.clone();
+        let lease = self
+            .fleet
+            .acquire(
+                FleetAcquireRequest {
+                    agent_run_id: operation.clone(),
+                    execution_epoch: 0,
+                    adapter_kind: self.kind,
+                    compatibility: RuntimeCompatibilityKey::member_session(
+                        &scope.camp_id,
+                        &scope.agent_id,
+                        Some(&scope.native_binding_id),
+                        &operation,
+                    ),
+                },
+                move || async move {
+                    let host = AcpHost::spawn(
+                        workspace.path(),
+                        &workspace,
+                        permission_semantics,
+                        &runtime,
+                        incoming,
+                        None,
+                        CompactionDetectorPolicy::Disabled,
+                        false,
+                        &BTreeMap::new(),
+                        &private_dir,
+                        None,
+                        None,
+                    )
+                    .await?;
+                    Ok(RuntimeProcessHost::Acp(host))
+                },
+            )
+            .await?;
+        let host = lease.host.into_acp()?;
+        let result = host.rpc("_rovai/recover_unknown", params).await;
+        let cleanup = self
+            .fleet
+            .release_with_outcome(&operation, 0, FleetReleaseDisposition::Stop)
+            .await;
+        ensure!(
+            matches!(cleanup, crate::runtime_fleet::FleetReleaseOutcome::Reaped),
+            "Hermes recovery cleanup is not confirmed; inspect again before continuing"
+        );
+        result
     }
 
     pub async fn get_agent_run(

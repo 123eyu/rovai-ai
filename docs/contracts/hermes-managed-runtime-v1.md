@@ -71,6 +71,10 @@ prepared、dispatch、delivery_unknown 均不代替 accepted；未知原任务�
 每 Run 仍创建新的进程树并刷新 Built-in CLI lease，终端通过原生 env_passthrough 获得本 Run 的 ROVAI 环境。
 旧 managed_system_prompt Evidence 保留原义；既有 Session 下一条新普通任务带一次更新，旧冻结输入不重写。
 controller revision v4 删除 bootstrap 文件、system 注入、`_rovai/bind` 及仅用于重绑 B 的 Gateway 重启。
+Ready 能力声明为 `context.charter.first_payload`、`context.compaction.signal_driven` 与
+`context.compaction.best_effort`；不宣称 managed system 或 native system 保留。模型配置与结构化权限能力保留。
+旧 Ready 快照在发现／检测入口失效为 installed_unverified，移除旧保证；下一次显式检测重新生成能力。
+不因为 controller 升级而轮换原生 Session，也不把静态发现当成重新验证通过。
 
 Steer 携带 Session、Core prompt ID 与 input ID。controller 在 prompt 前取得 replay 基线，关联唯一
 message.start admission 与 execution generation，再调用公开 `session.steer`。只有 queued 且 generation
@@ -83,6 +87,35 @@ ACP 终态不证明 controller 已消费 Gateway 通道。收尾先按同 epoch/
 同 Session/admission/generation 的 terminal receipt，才能释放 active。明确未提交的原生拒绝、取消或
 已答复控制命令在无新 generation、无待结算执行时单独收尾；普通 end_turn 缺少执行归属不能算成功。
 无法确认执行归属的错误标记 `HERMES_EXECUTION_UNCERTAIN`；Core 不把它声明为可安全重发的未接受输入。
+
+## 用户明确处理未知执行
+
+controller revision v5 增加独立的用户维护入口。Core 已失败收口、旧进程清理确认后，用户可在普通终端执行：
+
+```sh
+rovai app agent-run hermes-inspect --agent-run-id <原中断任务ID> > hermes-inspection.json
+rovai app agent-run hermes-discard --inspection-file hermes-inspection.json --acknowledge-effects
+```
+
+App 必须已运行。首条只查询原会话 snapshot 与精确 `prompt.receipt`；返回执行身份与警告：
+**原任务可能已产生文件修改、公开消息或其他外部效果**。确认文件含 Run/version/epoch、Thread/member、
+当前 binding/generation、原生 Session/admission/execution generation；不含业务正文、凭据或原始历史。
+没有唯一 unknown 时不提供确认对象。Agent 受管进程继续禁止 `rovai app`，不开放 Built-in Tool 代确认。
+
+第二条须显式 acknowledgeEffects，Core 重验来源、绑定、成员及清理状态，先持久化用户意图，再启动
+Fleet 拥有的一次性控制进程。该进程复用原 binding 的持久 Home，不创建 Run、CLI lease、Session 或
+`session/prompt`，不通过普通恢复的 idle gate 投递 `/discard` 文本。普通任务的恢复检查保持不变。
+任何 running、permission、queued 或多个 unknown 均拒绝处理；不顺便释放另一个原生排队任务。
+
+确认后再次查询精确 receipt：已有 terminal 时只报告原生事实；仍为同一 unknown 时调用官方
+`prompt.resolve_unknown(session_id, admission_id, execution_generation)`，再核对 terminal receipt
+与空闲 Session。官方可能保存同 owner 已捕获的结果，或把丢失执行标为 interrupted；Rovai 不伪造
+completed，不把旧 Run 改为成功。用户意图和原生结果分别写入既有 Command 账本，历史输入与效果证据保留。
+响应未知时复用原确认文件，按相同身份重查／幂等处理，不能生成新任务或挑选“最新 admission”替代。
+
+进程树回收确认后，用户可在原 Thread 发送一条**新的任务**，沿普通路径恢复原 Session 和新的 CLI lease。
+此操作不点击“继续执行”、不创建 continuation Delivery，也不改其他 Runtime 的共享 continuation 会话选择。
+当前产品入口为 User CLI，没有新增聊天按钮；普通聊天文本 `/discard` 不能替代它。
 
 ## 模型、权限、Skills 与 MCP
 

@@ -360,3 +360,7 @@ Hermes 的首次/更新 user 层投递与完成通知后下一普通输入补发
 [Hermes 输入合同](../contracts/hermes-managed-runtime-v1.md#session-与输入)和
 [Redelivery 架构](../architecture/native-session-bootstrap-redelivery.md#hermes-完成通知与下一普通输入)，理由见
 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。
+
+用户明确处理原生 unknown 的规范见 [Hermes 恢复](../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)
+和 [User Automation](../contracts/user-automation-v6.md#hermes-显式恢复)，保留两层终态与官方精确接口的理由见
+[V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)。

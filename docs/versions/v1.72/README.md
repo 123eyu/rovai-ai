@@ -19,6 +19,8 @@ last_updated: 2026-10-23
 当前规范为 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D59](decisions.md#v1-72-d59)。
 首次普通 user 输入携带规则与压缩后下一输入补发已按 [R1](model-context-change-hermes-first-input.md) 确认，
 当前实施与验证见 [Hermes 首次输入记录](hermes-first-input-implementation.md)，投递层取舍见 [D60](decisions.md#v1-72-d60)。
+合入前补齐 Ready 分类、旧探测失效和普通 Rust 回归，并增加用户显式处理原生 unknown 的维护入口；
+合同与边界见 [未知执行恢复](../../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)，理由见 [D61](decisions.md#v1-72-d61)。
 
 影响范围：新增 Adapter/原生启动与 Renderer 目录项；Migration 214 将 schema 163 扩展至 164，215 将其扩展至 165；
 Hermes 采用 user 层首次/更新/压缩恢复包装，完整 B 的接受证据与精确最终 Blob 进入既有输入账本；

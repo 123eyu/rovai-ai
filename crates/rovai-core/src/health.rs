@@ -4045,6 +4045,7 @@ for line in sys.stdin:
     #[test]
     fn catalog_refresh_requires_current_full_acp_evidence() {
         for kind in [
+            AdapterKind::HermesCli,
             AdapterKind::OpencodeCli,
             AdapterKind::CopilotCli,
             AdapterKind::KiroCli,
@@ -4087,6 +4088,13 @@ for line in sys.stdin:
                     !catalog_refresh_evidence_current(kind, &invalid),
                     "{kind:?}: {invalidation}"
                 );
+            }
+            if kind == AdapterKind::HermesCli {
+                let mut legacy = snapshot;
+                legacy
+                    .capabilities
+                    .push("context.charter.managed_system_prompt".into());
+                assert!(!catalog_refresh_evidence_current(kind, &legacy));
             }
         }
     }

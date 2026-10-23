@@ -19,7 +19,7 @@ import uuid
 
 import hermes_yaml as yaml
 
-REVISION = "rovai-hermes-host-v4"
+REVISION = "rovai-hermes-host-v5"
 
 
 def native_file_fragments(name, result, inline, cwd):
@@ -399,6 +399,63 @@ class Controller:
             raise Rejected("Hermes session has unsettled execution; refusing a new turn")
         return snapshot
 
+    async def recover_unknown(self, params):
+        # A control-only connection: never load an ACP viewer, configure a
+        # session, or submit a prompt to get past the normal idle admission gate.
+        if self.session or self.active or self.prompt_pending:
+            raise Rejected("Recovery requires a fresh controller")
+        session = params.get("sessionId")
+        if not isinstance(session, str) or not session:
+            raise Rejected("Recovery requires an exact native session", -32602)
+        snapshot = await self.rpc.rpc("session.resume", session_id=session)
+        if snapshot.get("session_id") != session:
+            raise Rejected("Recovery session identity mismatch")
+        if snapshot.get("running") or snapshot.get("prompts"):
+            raise Rejected("Native execution or permission is still active")
+        pending = snapshot.get("pending", [])
+        if any(row.get("status") != "unknown" for row in pending):
+            # Resolving a blocker may drain native queued work. This path never
+            # authorizes a queued task along with an acknowledgement.
+            raise Rejected("Native session has queued or active work; recovery refused")
+
+        def receipt_identity(receipt, admission, generation=None):
+            if (receipt.get("ref", {}).get("session_id") != session or receipt.get("admission_id") != admission
+                    or type(receipt.get("execution_generation")) is not int
+                    or receipt["execution_generation"] <= 0
+                    or (generation is not None and receipt["execution_generation"] != generation)):
+                raise Rejected("Recovery receipt identity mismatch")
+            return {"session_id": session, **{key: receipt.get(key) for key in
+                    ("admission_id", "execution_generation", "status", "outcome")}}
+
+        admission = params.get("admissionId")
+        if admission is None:
+            receipts = []
+            for row in pending:
+                receipt = await self.rpc.rpc("prompt.receipt", session_id=session, admission_id=row["admission_id"])
+                receipts.append(receipt_identity(receipt, row["admission_id"], row["execution_generation"]))
+            return {"sessionId": session, "receipts": receipts}
+        generation = params.get("executionGeneration")
+        if type(generation) is not int or generation <= 0 or params.get("acknowledgeEffects") is not True:
+            raise Rejected("Explicit acknowledgement of possible external effects is required", -32602)
+        receipt = receipt_identity(await self.rpc.rpc("prompt.receipt", session_id=session, admission_id=admission), admission, generation)
+        if receipt["status"] == "terminal":
+            if pending:
+                raise Rejected("Another native admission is pending; inspect again")
+            # Includes an uncertain response to a previous resolve. Query the
+            # durable receipt; do not issue another mutation or replay input.
+            return {"sessionId": session, "receipt": receipt, "resolved": False}
+        if receipt["status"] != "unknown" or len(pending) != 1 or pending[0].get("admission_id") != admission:
+            raise Rejected("Unknown execution changed; inspect the session again")
+        resolved = await self.rpc.rpc("prompt.resolve_unknown", session_id=session,
+                                      admission_id=admission, execution_generation=generation)
+        receipt = receipt_identity(resolved, admission, generation)
+        if receipt["status"] != "terminal":
+            raise Rejected("Native recovery outcome is uncertain; inspect the exact receipt again")
+        after = await self.rpc.rpc("session.resume", session_id=session)
+        if after.get("session_id") != session or after.get("running") or after.get("pending") or after.get("prompts"):
+            raise Rejected("Native session is still unsettled after acknowledgement")
+        return {"sessionId": session, "receipt": receipt, "resolved": True}
+
     async def gateway_events(self):
         try:
             while True:
@@ -636,6 +693,9 @@ class Controller:
                 result = await self.native(method, params)
                 self.initialization = params
                 return result
+        if method == "_rovai/recover_unknown":
+            async with self.lifecycle:
+                return await self.recover_unknown(params)
         if method in ("session/new", "session/load", "session/resume"):
             if self.session:
                 raise Rejected("Hermes controller already owns a session")

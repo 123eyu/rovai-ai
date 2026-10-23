@@ -8498,7 +8498,6 @@ mod tests {
                     | AdapterKind::DeepseekHarness
                     | AdapterKind::CommandCodeCli
                     | AdapterKind::ClineCli
-                    | AdapterKind::HermesCli
             ) {
                 CharterDeliveryMode::ManagedSystemPrompt
             } else {

@@ -6,13 +6,25 @@ last_updated: 2026-10-23
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-23 Hermes 显式 unknown 恢复补修
+
+Ready 目录已与 FirstPayload 对齐：首条 user 规则、signal-driven/best-effort 压缩连续性，移除旧 system
+注入与原生永久保留声明。旧 Ready 快照在发现阶段失效，显式重新检查后保留模型参数和权限能力。
+生产 Core 与官方 0.22.4 的受控验收通过旧快照升级、Core 强杀、精确检查/确认、跨重启幂等与原 Session 新任务。
+真实 Sub2API `gpt-6.1-sol` 验收通过强杀 Gateway/Core 后的 unknown 显式处理；原 Run 保持失败，
+旧输入不重放，原 Session 接受新任务，没有重复公开 Send，受管后代全部回收。
+入口为用户 CLI `hermes-inspect` / `hermes-discard --acknowledge-effects`，未新增聊天恢复按钮。
+证据与失败尝试分别记录在[脱敏恢复摘要](research/hermes-runtime/explicit-unknown-recovery-2026-10-23.json)
+和[实施验证](versions/v1.72/hermes-first-input-implementation.md#合入前补修与显式恢复)。Hermes 仍为 Preview。
+
 ## 2026-10-23 Hermes 首次输入规则
 
 当前 user 层规则投递与完成通知后的下一普通输入恢复，见
 [实施验证](versions/v1.72/hermes-first-input-implementation.md)。下节系统层压缩资格属于调整前路径，
 不能转移为首条 user 规则永久保留的保证。进程、取消、文件与 usage 的既有证据仍各自保留。
-本轮真实 Core 的 Steer/取消/Send 通过；强杀后的原生 admission 为 unknown，续轮被安全拒绝。
-该次崩溃续接不计通过，详见[脱敏记录](research/hermes-runtime/first-input-core-recovery-2026-10-23.json)。
+该阶段真实 Core 的 Steer/取消/Send 通过；强杀后的原生 admission 为 unknown，续轮被安全拒绝。
+该次崩溃续接仍不计通过，保留[原始脱敏记录](research/hermes-runtime/first-input-core-recovery-2026-10-23.json)；
+后续显式恢复验证独立记录于上节，不改写这次失败。
 
 ## 2026-10-23 Hermes 初始接入
 

@@ -16,6 +16,8 @@ pub use transport::{
 #[path = "core_subsystems.rs"]
 mod core_subsystems;
 use crate::{acp, antigravity, builtin_tool_runtime, claude, codex, health, pi, runtime_fleet};
+#[path = "hermes_recovery.rs"]
+pub(crate) mod hermes_recovery;
 #[path = "runtime_check_environment.rs"]
 mod runtime_check_environment;
 #[path = "startup_settings.rs"]
@@ -11280,6 +11282,10 @@ impl Core {
                 }
                 Ok(serde_json::to_value(execution.result)?)
             }
+            "agentRuns.hermesRecovery.inspect" | "agentRuns.hermesRecovery.resolve" => {
+                self.handle_hermes_recovery(&request.method, request.params.clone())
+                    .await
+            }
             "agentRuns.continue" => {
                 let params: UserCommandParams<crate::run_continuation::ContinueAgentRunCommand> =
                     serde_json::from_value(request.params.clone())?;
@@ -12587,6 +12593,11 @@ impl Core {
                 snapshot.probe_status == "ready"
                     && snapshot.stale_at.is_none()
                     && snapshot.last_successful_probe_at.is_some()
+                    && rovai_core::agent_runtime_adapter::validate_machine_ready_snapshot(
+                        adapter_kind,
+                        snapshot,
+                    )
+                    .is_ok()
             })
             .map(|snapshot| snapshot.capabilities.as_slice())
             .unwrap_or_default();

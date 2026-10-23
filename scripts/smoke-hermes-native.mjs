@@ -5,6 +5,32 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile, realpath } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { openHermesAcp } from './lib/hermes-native-acp.mjs'
+import { deflateSync } from 'node:zlib'
+
+// Generated opaque RGB PNG. The prompt contains no color answers; this probes
+// actual model vision over official ACP instead of trusting advertised support.
+function imageFixture() {
+  const crc = bytes => {
+    let value = 0xffffffff
+    for (const byte of bytes) {
+      value ^= byte
+      for (let bit = 0; bit < 8; bit++) value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0)
+    }
+    return (value ^ 0xffffffff) >>> 0
+  }
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]), prefix = Buffer.alloc(4), suffix = Buffer.alloc(4)
+    prefix.writeUInt32BE(data.length); suffix.writeUInt32BE(crc(body))
+    return Buffer.concat([prefix, body, suffix])
+  }
+  const header = Buffer.alloc(13); header.writeUInt32BE(128); header.writeUInt32BE(128, 4); header[8] = 8; header[9] = 2
+  const pixels = Buffer.alloc(128 * (1 + 128 * 3)), colors = [[0,255,255],[255,0,255],[255,255,0],[0,0,255]]
+  for (let y=0; y<128; y++) for (let x=0; x<128; x++) {
+    const color = colors[(y>=64?2:0)+(x>=64?1:0)]
+    color.forEach((value, n) => { pixels[y*385+1+x*3+n]=value })
+  }
+  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',deflateSync(pixels)),chunk('IEND',Buffer.alloc(0))])
+}
 
 const home = process.env.ROVAI_HERMES_SMOKE_HOME
 assert(home && process.env.ROVAI_HERMES_BIN, 'Set the private Home and official executable')
@@ -66,9 +92,24 @@ try {
   const resumed = await prompt(id, 'Return the MCP code from the earlier conversation and the current system code, without calling tools.')
   assert(resumed.output.includes('MCP-COPPER-6842') && resumed.output.includes('SYSTEM-CERULEAN-7832'))
   results.coldResume = true
+  // Vision is a separate opt-in qualification: native image transport can work
+  // while the configured model/auxiliary route still misidentifies the pixels.
+  if (process.env.ROVAI_HERMES_SMOKE_IMAGE === '1') {
+    const imageStart = client.events.length
+    const imageResult = await client.request('session/prompt', { sessionId: id,
+      prompt: [{ type: 'text', text: 'Look at the attached image. Name the four quadrant colors in reading order: top-left, top-right, bottom-left, bottom-right. Use English, no tools, no guesses from history.' },
+        { type: 'image', mimeType: 'image/png', data: imageFixture().toString('base64') }], _meta: { rovai: { promptId: crypto.randomUUID() } } })
+    assert.equal(imageResult.stopReason, 'end_turn')
+    const imageText = client.events.slice(imageStart).filter(m => m.params?.update?.sessionUpdate === 'agent_message_chunk')
+      .map(m => m.params.update.content?.text ?? '').join('').toLowerCase()
+    results.nativeImage = { correctlyIdentified: /cyan[\s\S]*(?:magenta|fuchsia)[\s\S]*yellow[\s\S]*blue/.test(imageText), response: imageText }
+    assert(results.nativeImage.correctlyIdentified, `Native image content was not correctly identified: ${imageText}`)
+  }
   await assert.rejects(client.request('session/new', { cwd: project, mcpServers: [] }),
     error => error.rpcError?.code === -32003)
   results.changedAssignmentRejected = true
   console.log(JSON.stringify(results, null, 2))
+} finally {
   await writeFile(join(root, 'native-summary.json'), JSON.stringify(results, null, 2))
-} finally { console.log('Cleanup:', await client.close()) }
+  console.log('Cleanup:', await client.close())
+}

@@ -256,6 +256,19 @@ mod tests {
             invalid.pointer_mut(parent).unwrap()[key] = value;
             assert!(reported_patch(&invalid).is_none(), "{pointer}");
         }
+        let mut official = json!({"status":"completed", "rawInput":{"tool":"write_file"},
+            "rawOutput":{"verified":true,"files_modified":["/project/a.txt"]},
+            "_meta":{"rovaiHermesMutation":[{"semantics":"reported_mutation","path":"/project/a.txt",
+                "fragments":[{"oldText":"old\n","newText":"new\n"}]}]}});
+        assert_eq!(
+            reported_patch(&official).unwrap()[0]["semantics"],
+            "reported_mutation"
+        );
+        official["_meta"]["rovaiHermesMutation"][0]["path"] = json!("/project/unrelated.txt");
+        assert!(reported_patch(&official).is_none());
+        official["_meta"]["rovaiHermesMutation"][0]["path"] = json!("/project/a.txt");
+        official["status"] = json!("failed");
+        assert!(reported_patch(&official).is_none());
     }
 }
 

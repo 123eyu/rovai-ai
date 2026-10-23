@@ -15,9 +15,10 @@ const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-hermes-core-')))
 const data = join(root, 'data'), project = join(root, 'project')
 await mkdir(project)
 await writeFile(join(root, 'mcp.json'), '{}')
-const core = startQualificationCore({ coreExecutable: join(repository, 'target/debug/rovai-core'),
+const coreOptions = { coreExecutable: join(repository, 'target/debug/rovai-core'),
   dataDirectory: data, workingDirectory: repository, runtimeCacheDirectory: join(root, 'cache'),
-  mcpConfigPath: join(root, 'mcp.json'), environmentOverrides: { HERMES_HOME: process.env.ROVAI_HERMES_SMOKE_HOME } })
+  mcpConfigPath: join(root, 'mcp.json'), environmentOverrides: { HERMES_HOME: process.env.ROVAI_HERMES_SMOKE_HOME } }
+let core = startQualificationCore(coreOptions)
 console.log('Isolated fixture:', root)
 let descendants = []
 try {
@@ -78,6 +79,14 @@ try {
   const runUntil = Date.now() + 240000
   while (Date.now() < runUntil) {
     const snapshot = await core.request('camps.snapshot', { threadId: thread })
+    for (const approval of snapshot.approvals.filter(row => row.status === 'pending')) {
+      // Native command approval remains real. Reject discretionary scripts and
+      // let the model finish with the explicitly requested file/CLI tools.
+      const denied = await core.request('action.approvals.resolve', { commandId: crypto.randomUUID(),
+        threadId: thread, approvalId: approval.id, expectedVersion: approval.version,
+        optionId: 'deny', reason: 'Use only the requested acceptance commands; extra scripts are unnecessary.' })
+      assert.notEqual((denied.commandResult ?? denied).status, 'rejected', JSON.stringify(denied))
+    }
     run = snapshot.agentRuns.find(item => item.inputMessageIds?.includes(sent.payload.threadMessageId) || item.anchorMessageId === sent.payload.threadMessageId)
     if (run && ['succeeded', 'failed', 'cancelled'].includes(run.status)) break
     await new Promise(resolve => setTimeout(resolve, 300))
@@ -106,7 +115,7 @@ try {
     await writeFile(join(root, 'summary.json'), JSON.stringify({ runtime: 'hermes-cli', version: installation.snapshot.reportedVersion,
       thread, run: run.id ?? run.agentRunId, evidenceCount: evidence.length, patch: true, sameRunSteer: true }, null, 2))
   } finally { db.close() }
-  // A second real Run exercises the current Built-in lease on a warm Session,
+  // A second real Run cold-loads the same native Session with a fresh lease,
   // followed by cancellation while its actual native terminal is still running.
   const sentCancel = await core.request('thread.messages.send', { commandId: crypto.randomUUID(), threadId: thread,
     content: composerDocumentForAddress({ mode:'explicit', agentIds:['agent_2'] },
@@ -136,7 +145,53 @@ try {
   }
   assert.equal(cancelRun.status,'cancelled')
   assert.deepEqual(await waitForProcessesToExit([terminalPid], 10000), [], 'Cancelled native terminal survived')
-  console.log('Warm cancellation passed:', cancelRun.id)
+  console.log('Cold continuation cancellation passed:', cancelRun.id)
+  const query = (sql, ...args) => {
+    const db = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
+    try { return db.prepare(sql).get(...args) } finally { db.close() }
+  }
+  const nativeId = query('SELECT native_session_id FROM conversation WHERE camp_id=? AND agent_id=?', thread, 'agent_2').native_session_id
+  assert(nativeId)
+  const send = async body => {
+    const sent = await core.request('thread.messages.send', { commandId: crypto.randomUUID(), threadId: thread,
+      content: composerDocumentForAddress({ mode: 'explicit', agentIds: ['agent_2'] }, body), sourceAttachments: [], quotes: [], replyToThreadMessageId: null,
+      execution: { taskId: null, purpose: 'Hermes recovery acceptance', completionRole: 'required' } })
+    const result = sent.commandResult ?? sent
+    assert(['applied', 'accepted'].includes(result.status), JSON.stringify(result))
+    return result
+  }
+  await send('Crash recovery acceptance: call terminal once in the foreground with command `echo $$ > crash.pid; sleep 120`. Do not send a message or call another tool. The harness will terminate its isolated Core.')
+  let crashPid
+  const crashDeadline = Date.now() + 90000
+  while (Date.now() < crashDeadline && !crashPid) {
+    crashPid = await readFile(join(project, 'crash.pid'), 'utf8').then(Number).catch(() => null)
+    if (!crashPid) await new Promise(done => setTimeout(done, 100))
+  }
+  assert(crashPid, 'Crash worker did not start')
+  const crashRun = query('SELECT id,status FROM agent_run WHERE camp_id=? ORDER BY rowid DESC LIMIT 1', thread)
+  assert.equal(crashRun.status, 'running')
+  descendants = [...new Set([...descendants, ...descendantsOf(await processTable(), core.pid), crashPid])]
+  process.kill(core.pid, 'SIGKILL')
+  await core.stop(1000)
+  core = startQualificationCore(coreOptions)
+  await core.request('health.check')
+  assert.deepEqual(await waitForProcessesToExit(descendants, 30000), [], 'Crash recovery left an owned Gateway or terminal alive')
+  assert.equal(query('SELECT status FROM agent_run WHERE id=?', crashRun.id).status, 'failed')
+  assert.equal(query('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?', thread).n, 3, 'Accepted crash input was replayed automatically')
+  await send('The isolated Core has restarted. Do not repeat prior cancelled or interrupted commands. Read hermes-proof.txt, then use `rovai send --public-only` to publish HERMES_CORE_RESTART_ACCEPTED and the verified file contents. Send exactly once, without addressing another agent.')
+  const restartDeadline = Date.now() + 180000
+  let resumed
+  while (Date.now() < restartDeadline) {
+    resumed = query('SELECT id,status,last_error_code FROM agent_run WHERE camp_id=? ORDER BY rowid DESC LIMIT 1', thread)
+    if (resumed.id !== crashRun.id && ['succeeded', 'failed', 'cancelled'].includes(resumed.status)) break
+    await new Promise(done => setTimeout(done, 200))
+  }
+  assert.equal(resumed.status, 'succeeded', JSON.stringify(resumed))
+  assert.equal(query('SELECT native_session_id FROM conversation WHERE camp_id=? AND agent_id=?', thread, 'agent_2').native_session_id, nativeId, 'Core restart replaced the native Session')
+  assert.equal(query("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body LIKE '%HERMES_CORE_RESTART_ACCEPTED%'", thread).n, 1)
+  assert.equal(query("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body LIKE '%HERMES_CORE_STEER_ACCEPTED%'", thread).n, 1)
+  await writeFile(join(root, 'recovery-summary.json'), JSON.stringify({ nativeId, sameSession: true, acceptedCrashInputReplayed: false, duplicateSend: false, crashRun: crashRun.id, resumedRun: resumed.id, remainingPids: [] }, null, 2))
+  console.log('Core crash, owned-tree recovery, exact Session and renewed CLI lease passed')
 } catch (error) {
   console.error(error.message)
   process.exitCode = 1

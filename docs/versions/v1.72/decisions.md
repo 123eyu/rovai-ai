@@ -1248,18 +1248,19 @@ Atom 按 ID 绑定，本机标签只展示；Core 首次发布捕获标题并保
 
 <a id="v1-72-d59"></a>
 
-## V1.72-D59：Hermes 使用进程内 ACP 与最低版本策略，先按 arm64 Preview 接入
+## V1.72-D59：Hermes 使用官方 ACP 与专用 Gateway，逐 Run 冷恢复并保持最低版本策略
 
 - 状态：accepted
 - 日期：2026-10-23
-- 授权：User 在 Hermes Thread 的 2026-10-22 sequence 3 要求开启 worktree 直接接入、以其他 Adapter 为主要参考；sequence 4 允许真实 LLM 与原生 BYOK/Sub2API。以下为该授权下的实现取舍，不宣称跨平台资格确认。
+- 授权：User 在 Hermes Thread 的 2026-10-22 sequence 3 要求开启 worktree 接入；sequence 4 允许真实 LLM 与原生 BYOK/Sub2API；sequence 10 要求最低版本策略；2026-10-23 sequence 18 在官方入口验证后要求开始切换。不宣称跨平台资格确认。
 - 当前权威：[Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)、[Runtime Catalog](../../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、[平台准入](../../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
 
-默认 `hermes acp` 连接共享 Gateway；断开 viewer 无法保证执行者退出，且默认路径没有 Core B 的更新确认。
-选择同官方发行物仍提供的进程内 ACP SessionManager 与真实 AIAgent，使 Fleet 直接管理执行进程，保留原生
-模型、认证、工具和持久会话。拒绝只包装 viewer PID，也不另造聊天循环或修改安装源码。
+只包装官方 ACP viewer 不能保证执行者退出，暖 Gateway 也会保留旧 B 与终端环境。
+官方入口 Probe 已证明专用 Gateway 每 Run 重启后能恢复原 Session、刷新 B 和 CLI 环境。因此本轮取代早期
+进程内 SessionManager/AIAgent 覆盖，选择 Fleet 拥有的官方 ACP＋专用 Gateway，以公开 RPC 完成精确
+Steer/取消、reasoning/MCP mutation 和原生事件补充。controller 借用发行物的传输及纯格式化帮助函数，
+不修改服务端执行器、聊天循环或安装源码。
 
-代价是依赖内部 Python seam。User 在同 Thread sequence 10 明确要求最低版本兼容，故采用 >=0.22.4，
-移除 commit/dirty/上界 fence；运行时仍校验受管 revision、真实 PID 与协议行为。兼容策略不等于每个新版已测试。
-先接受 macOS arm64 产品 Preview，真实首轮、原生续聊/压缩/工具的证据按轴记录；其他平台和完整 Fleet/CLI/UI
-矩阵未完成时不晋升 Qualified。纯上游公开扩展若以后具备等价执行所有权和绑定门禁，可替换此 seam。
+代价是每 Run 冷启动成本、binding 独立 Home 和多进程回收；官方结果只足以提供文件片段，不能延续早期
+完整文件快照的能力宣称。保留 >=0.22.4，不锁 commit/dirty/上界，实际能力与协议仍探测核对。
+macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成不晋升 Qualified；已测版本与兼容策略分开。

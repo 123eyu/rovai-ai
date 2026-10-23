@@ -6,144 +6,109 @@ last_updated: 2026-10-23
 
 # Hermes 接入与验证
 
-已在 `rovai/hermes-runtime` 实现官方 Hermes **0.22.4** 的 macOS arm64 Preview。
-兼容策略为 **>=0.22.4**，无 commit、dirty 或版本上界 fence。实际已验安装的 source commit 为
-`4d04303818b61bf3aa09278af48356315515965b`；最低版本策略与新版/十四轴的实际资格分开。
-当前规范见 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)。
+`rovai/hermes-runtime` 已切换到**未修改的官方 ACP＋专用官方 Gateway**。macOS arm64 仍为 Preview，
+兼容策略为 **>=0.22.4**，没有 commit、dirty 或上界 fence。实际验证安装是 0.22.4，source commit
+`4d04303818b61bf3aa09278af48356315515965b`。规范见 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)，
+取舍见 [V1.72-D59](../../versions/v1.72/decisions.md#v1-72-d59)。最低版本策略不代表所有新版/平台取得资格。
+本次官方生产入口的 [脱敏证据摘要](official-production-evidence.json) 单独记录通过项和识图失败，不混用早期进程内结果。
 
-2026-10-23 补充验证了公开 `hermes acp` 与专用官方 Gateway，见
-[官方入口实测与代价](official-entry-validation.md)。逐 Run 重启 Gateway 后精确恢复同一个 Session、
-刷新系统指令和终端环境已通过真实模型验证；因此不能把公开入口概括为“无法受管”。
-当前 PR 仍是进程内实现，切换路线尚需 Core 生命周期、逐 Run 绑定、事件映射与完整准入。
+## 交付与执行边界
 
-## 安装与交付范围
+本机采用官方 source distribution，入口 `~/.local/bin/hermes`。早期 Brew 0.22.2 已解除链接并保留供回退；
+没有安装 Hermes Desktop，也没有连接日常共享 Gateway。独立 worktree 为 `../rovai-ai-hermes-runtime`，
+PR 为 [#878](https://github.com/murray17/rovai-ai/pull/878)，交付前合入主线并保留双方版本记录。
+当前分支尚未合入 main 或安装到 Rovai 日常 App。Migration 214 / schema 164 只扩展 Runtime/Skill 闭集。
 
-本机已安装官方 CLI source distribution，入口 `~/.local/bin/hermes`。最初通过 Brew 安装的 0.22.2
-不满足接入要求，已解除它的链接，保留安装供回退。没有安装 Hermes Desktop，也没有启动日常共享 Gateway；
-官方入口 Probe 仅启动隔离 Home 下的专用 Gateway，结束后已回收。
-用户允许真实模型与 BYOK，验收使用隔离 Hermes Home、Sub2API 与 `gpt-6.1-sol`；随后把同一授权的
-Provider 配置写入 Hermes 自己的原生配置与私有 `.env`，原文件已私有备份。Adapter 不在运行时借用 Pi 等其他 Home。
+验收使用隔离 dataDirectory、project、Skill Library、MCP 文件、Hermes Home 与 Built-in lease；不访问
+日常 Electron userData。真实模型按 User 授权使用 Hermes 自身的 Sub2API / gpt-6.1-sol 配置。
+Adapter 不借用其他 Runtime 凭据；临时凭据与原始 wire 不进入仓库或交付证据。
 
-代码 worktree：`../rovai-ai-hermes-runtime`；branch `rovai/hermes-runtime`；base
-`a995ebe079d2437872b694680b597abbdb6121ac`，交付前已合入主线 `4dfd8c882e7b44f0309a5d2492c2ece03e657a76`。
-Hermes 分支尚未合入或安装 Rovai 日常 App。
-Migration 214 / schema 164 只扩展 Runtime 与 Skill group 闭集，不清空既有数据。
+## 官方路径的边界
 
-## 原方案评估与关键调整
+[切换前 Probe](official-entry-validation.md) 已证明：官方 ACP viewer 本身不拥有执行者；专用 Gateway
+可以受管，但暖 Gateway 会继续使用旧系统指令和终端 lease 环境。生产因此采用 binding 独立持久 Home，
+每 Run 新建 Gateway＋ACP＋controller，结束回收，下一轮精确冷恢复原 Session。Probe 测得冷重建约 5.5 秒，
+这不是所有机器和模型的延迟保证。持久 Session 不因每 Run 的进程重建而新建。
 
-原方案识别的 Gateway 所有权、Bootstrap 确认、精确恢复和观测诚实性都成立。
-采用同官方发行物保留的 `HermesACPAgent(SessionManager())` + 真实 `AIAgent`，避免只拥有 viewer PID。
-由官方 `--print-runtime-command` 解析安装绑定的 Python/bootstrap；只替换最终入口，不另写聊天循环或修改原生源码。
-这是继续使用 ACP。已验版本公开入口不传 SessionManager，`HermesACPAgent.__new__` 因而返回 Gateway viewer，
-没有公开的进程内开关；关闭该 viewer 不等于关闭真实执行者。受管覆盖只存在于 Fleet 拥有的 Python 子进程。
+controller 仅借用发行物的连接、发现和纯格式化帮助函数，运行公开 CLI/RPC，不构造 Agent、不覆盖工具，
+不修改 installed Python 源码。它核对 storage lock、Gateway PID/Home/external-supervisor，拒绝附着其他
+Gateway；Core 也恢复 binding 目录的 owned-processes 记录。config/凭据/用户 Skills 保留原生来源，
+SessionDB/socket/锁独立；禁用隐式依赖同步、消息平台、cron 和脱离 Run 的后台模型调用。
 
-以下为所选**内部进程内 ACP 路径**实测发现并适配的差异；不能直接推定公开 Gateway ACP 也有相同行为。
-例如公开入口已实测精确拒绝不存在的会话，并将模型失败作为失败终态返回。
+B 由 Core 已准备内容在启动时进入 ephemeral system overlay，SHA ACK 后发送普通 P；新进程刷新 CLI 环境。
+公开 RPC 的 admission/generation 与 Core prompt ID 关联，提供精确 Steer/interrupt。MCP 使用原生 editor
+assignment，显式 mutation 验证全部发现并处理撤销；私有 config 排除 Rovai 同名服务，源配置不变。
+模型切换和 reasoning 以原生实际 ACK 为准，错误由对应 prompt receipt 保留原生脱敏详情。
 
-- 原生 resume 对不存在的 ID 隐式新建，受管入口改为精确结构化拒绝；Core 仅对关联恢复目标执行已有恢复规则。
-- 原生通用 set_config_option 接受 model 却不真正切换；改调原生 set_session_model/resolver，返回并核对实际状态。
-- 原生 ACP 文件 diff 包含编辑预览，原生 display 快照还会混淆缺失/读取失败及规范化换行。
-  改在实际文件 executor 边界采集完整、有限的状态，以 atomic write 原生 verified hash 核对新内容；
-  其他无法观测的 backend 仍只接纳成功 patch 的实际完整 hunks，并明确表示为片段。
-- 命名 BYOK endpoint 在 AIAgent 中被归一成 custom；保留原生 resolver 传给构造器的 provider，
-  交给原生 catalog 生成确认值，避免选择 Sub2API 后得到不同的含糊 model ID。
-- 原生 token result 是 Session 累计；桥在真实 turn 前后求差，避免暖轮重复计费。费用、cache write 等缺失值仍未知。
-- 原生 MCP 先连接的同名服务会被复用；在任何 AIAgent 构造前合并进程内 assignment，保证 Rovai 同名优先。
-- 原生 ACP 会把部分执行异常包装成 end_turn；受管入口用实际执行结果和保守失败标记拒绝假成功。
-- 原生后台标题会额外发起模型请求，脱离 Run usage/terminal；受管进程关闭此调用，Thread 标题仍由 Rovai 拥有。
+官方 ACP 不提供原方案的完整文件快照。当前使用 Gateway 完成事件的原生 patch/inline diff，验证成功、
+路径、完整 hunk 和限制后持久化 reported_mutation。新增、覆盖、patch、删除和多文件都有实际片段证据；
+CRLF 显示被规范化，空文件/纯移动可能没有文本片段。没有扫描磁盘/Git 补证，也没有把预览、失败或截断
+内容升级为完整 before/after。历史完整状态仍可读，早期进程内验收不算新路径的完整状态资格。
 
-## 能力清单
+## 能力与证据
 
-| 能力轴 | 当前实现与证据 | 保留边界 |
+| 能力轴 | 官方路径验证 | 保留边界 |
 | --- | --- | --- |
-| Auth / Provider / Model | 原生 Home、resolver、目录和实际选择 ACK；Sub2API 实测；成员页 effort | Provider/模型会按原生规则处理强度；无未经验证的 Fast 开关 |
-| Host / Fleet / LRU | Fleet 拥有实际 Python executor；Core 退出检查后代清理 | 未跑满 20 Host LRU 与 30 分钟 TTL 完整矩阵 |
-| Native Session / Continuation | 原生 SessionDB 精确 cold resume、missing target 拒绝；Core 暖续轮 | Core 重启、Eviction 后恢复完整矩阵未执行 |
-| Bootstrap / Context | Core 既有 ManagedSystemPrompt；SHA ACK 后才送 P；真实会话隔离 | 不改共享 B/P 文案、选择、Formatter 或版本 |
-| Compaction | 真实模型、原生 272000 窗口 / 204000 阈值，正常读取触发自动压缩，连续与冷恢复均保留指令/锚点 | 不调用主动压缩；没有产品手动压缩按钮；取消压缩矩阵未验收 |
-| Skills | 用户 Home、create_dir、external_dirs、禁用项与受信最近 Git 根的 .hermes/.agents 索引；真实 skill_view | 用户 ~/.agents 是 opt-in；设置页不混入项目来源；不从候选存在推定已加载，保留 DocumentationOnly 资格 |
-| External MCP | 真实工具调用；原生同名冲突时 Rovai 优先；同 Host assignment 变更拒绝 | 未跑全部 HTTP/SSE/OAuth/增删组合 |
-| Tool / Action / Command Output | Core 真实 CLI、Add/覆盖/patch 与持久 full_before_after；原生删除、移动、多文件、CRLF、空文件及失败边界受控验收 | 二进制/超限/不可读/远端不伪造完整状态；terminal 任意写入无自动全量 Diff |
-| Narration / Final / Missing-Send | Explicit SendOnly、共享缺失发送恢复；Core 实际 public Send | 全部异常后的恢复组合未穷举 |
-| Permission / Workspace | 原生 edit mode ACK；命令审批保留；read-only 无法保证时拒绝启动 | 没有 OS sandbox；问卷不自动代答 |
-| Built-in CLI | 真实 terminal 环境继承、rovai --help、send --public-only 与服务端回执 | 不是全部 30 个 CLI 操作验收 |
-| Usage / Cache / Cost | 真实暖轮数值；受控端点两轮各 100 input / 10 output / 40 cache read / 2 reasoning | 无费用和 cache write；不估算未报告数量 |
-| Retry / Queue / Cancel / Cleanup | Core 队列；真实暖轮终端取消、cancelled 收敛及子进程退出；401/错误模型原生详情 | crash/LRU/TTL/多会话竞态完整矩阵未验收 |
-| Steer | 原生 redirect + 精确 prompt/input ID ACK；首条活动输入提前确认，沿 Core 投递账本 | 迟到或错轮不接受；不以并发 session/prompt 偷排下一轮 |
-| Ready / Version / Platform | native >=0.22.4、受管 revision 与真实 PID ACK | 仅 macOS arm64 Preview，其他平台 Not Qualified |
+| Auth / Provider / Model | 原生配置和目录，命名 endpoint/model ACK，effort 设置进入真实请求 | 仅已测 Sub2API；OAuth refresh 并发矩阵未执行 |
+| Host / Fleet / LRU | 独占 Gateway/ACP 树，binding 持久 Home，正常退出和取消回收 | 未跑满 20 Host LRU / 30 分钟 TTL |
+| Native Session | 精确 cold resume、缺失 Session 结构化拒绝；Core SIGKILL 后恢复同 ID 并成功 Send | 不把冷进程当新 Session；完整跨平台矩阵未执行 |
+| Bootstrap / Context | 受控 wire 验证 B 系统层、P 普通输入、替换绑定与新环境；真实 Core CLI | 不改共享 B/P 文案、选择、Formatter 或版本 |
+| Compaction | 原生 272000 窗口、204000 阈值，正常文件读取触发，压缩后与冷恢复保留锚点/B | 不降阈值、不调用主动压缩；取消压缩矩阵未验收 |
+| Skills | 原生 skill_view 实际读取，用户/受信项目索引规则保留 | `.agents` 用户目录需 opt-in；`.env` 独有目录变量的菜单索引不等价 |
+| External MCP | 实际 tool_search/describe/call，精确原 Session 增加、改配置、撤销，同名 Rovai 优先，坏服务拒绝 | HTTP/SSE/OAuth 全矩阵未执行；直接 tools 数组不是全部工具 |
+| Tool / Action / Output | 原生 raw input/result，成功文件片段和 Core runtimeDiff 入库，失败/空/移动/二进制/大文件边界 | 无完整 before/after 承诺；terminal 任意写入无自动全量 Diff |
+| Narration / Final / Missing-Send | 共享 Explicit SendOnly；实际公开 Send 及修正后唯一 marker | 异常恢复全部组合未穷举 |
+| Permission / Workspace | 原生 edit policy ACK；命令审批经 ACP/Core 保留；clarify 不出现在模型工具列表 | 无 OS sandbox；read-only 无法保证则拒绝 |
+| Built-in CLI | 真 terminal 的 rovai --help / send，冷 Run 更新 lease | 非全部 CLI 操作验收 |
+| Usage / Cache / Cost | Session 累计转 prompt delta；cache read 计入 input；真实暖轮、受控数值与 context gauge | 无原生费用/cache write 时保持未知 |
+| Queue / Cancel / Cleanup | 真实终端取消；Core SIGKILL/重启清理全部已记录后代，已接受输入不重放，无重复 Send | 完整 LRU/TTL/多会话竞态矩阵未完成 |
+| Steer | 原生 queued＋精确 generation ACK，同一 Core Run 接受修正并实际 Send；错轮/迟到拒绝 | 未知运输不重发；不用并发 prompt 排后继轮 |
+| Image | 图片 bytes 到达官方 Gateway 原生缓存，未被 controller 改写 | 本次模型识图不通过，不能从 ACP image=true 推定结果质量 |
+| Ready / Version / Platform | >=0.22.4、受管 revision/PID、官方能力探测 | macOS arm64 Preview；其余平台 Not Qualified |
 
-## 与其他智能体的差异
+## 图片与 Skills 的额外评估
 
-| 对比项 | Hermes | Rovai 现有接入对照 |
-| --- | --- | --- |
-| 执行入口 | 官方包内的内部进程内 ACP，最低版本策略 | 多数 ACP Adapter 直接使用公开 CLI；Hermes 内部 seam 的升级维护成本更高 |
-| 系统输入 | 复用 ManagedSystemPrompt，native ephemeral overlay + 每 Run 绑定 ACK | 与 Pi/DSH 的受管系统层思路接近；不是 first_payload，也不改成项目身份文件 |
-| 会话恢复 | 额外拦截上游隐式新建，精确缺失码交给 Core | 复用其他 Adapter 的 exact-target、replay quarantine 与恢复流程 |
-| 模型选项 | 原生 catalog/resolver；模型切换须桥接确认，成员 effort 覆盖原生默认 | 复用已有推理强度控件；Fast 不照搬 Codex/Pi 的服务档位 |
-| 权限 | 文件编辑 mode 与命令审批分开 | 不把 dont_ask 描述成全局 bypass 或只读 sandbox |
-| MCP | 构造前进程内 additive overlay；assignment 改变就新 Host | 与已有 additive/Rovai-wins 合同一致，接入点不同 |
-| 文件差异 | bounded 原生 executor 完整状态；无法取得时保留真实 patch 片段 | UI 使用同一 Diff 视图；证据来源与 Codex fileChange、DSH 输出、Pi patch 不同 |
-| 活动输入 | 受管私有方法调用原生 redirect，锁定目标轮 | 与其他 Runtime 使用同一插话 UI/账本；传输方法及原生执行中断行为不同 |
-| Usage | 原生 Session 累计转 turn delta；保留缺失值 | 不从 usage_update 上下文 gauge 反推消耗，也不承诺其他 Runtime 的费用覆盖 |
+四色 PNG 的原生缓存已目视确认与发送内容一致。默认 auto 模式走 Hermes vision 预解析，错误描述为单色
+magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `agent.image_input_mode: native` 后，主模型
+识别出 cyan/magenta/yellow，但将蓝色象限误判为 white。因此图片运输成立，当前 Provider/模型组合的
+识图准确性未通过；保留独立严格图像断言，不把失败改成通过。产品配置继续尊重原生模式，不全局强制 native。
 
-## 验证与复现
+原生 `.env` 的 Skills 路径变量可进入运行时 dotenv 环境；Rust 菜单索引目前仅展开启动环境变量，不能从
+这次运行时调整推定菜单完全等价。直接路径、`~`、启动环境变量、create/external、信任和禁用规则已有 owner
+覆盖；真实 skill_view 证明实际加载。用户 `~/.agents/skills` 需显式 external_dirs，项目 `.agents` 需受信最近 Git 根。
 
-所有真实 Core 运行使用隔离 `dataDirectory`、project、Skill Library、MCP 文件与 Built-in lease，未打开日常 userData。
-凭据不进入仓库、日志或证据包。原始私有 wire 留在临时 fixture，仅提交脱敏结果。
+## 复现与验收归属
 
-- `scripts/smoke-hermes-native.mjs`：真实模型、模型 ACK、MCP/Skill、warm、结构化压缩、冷恢复和 assignment 拒绝。
-- `scripts/smoke-hermes-wire.mjs`：真实 native executor + 本地受控 Responses；B 的 system/developer 层、P 的普通输入、替换绑定、数值 delta、401 错误、零后台模型调用。
-- `scripts/smoke-hermes-official-acp.mjs`：未改写的官方 CLI + 专用 Gateway；受控模型、真实终端/文件、暖绑定缺口、断线取消、官方 RPC 替代能力与重启后同 Session 恢复。它是候选路线 Probe，不经过当前受管桥。
-- `scripts/smoke-hermes-core.mjs`：真实 Core + native executor + 真实模型；首条输入及时 ACK、同 Run 插话与修正后公开 Send、文件操作/差异入库、暖轮实际 terminal 取消及树清理。
-- `scripts/smoke-hermes-experience.mjs`：真实 native executor + 本地受控 Responses；命名端点 model ACK、effort 请求、禁用问卷、完整文件状态与边界、精确活动轮 redirect、错误模型详情。
-- `scripts/smoke-hermes-auto-compression.mjs`：真实模型，不改窗口/阈值、不调用主动压缩，通过正常文件读取达到阈值，验证压缩后及冷恢复的用户锚点和系统指令。
+- `smoke-hermes-wire.mjs`：安装的官方执行器＋loopback Responses；系统层/普通输入、替换绑定、usage delta、错误与无后台模型调用。
+- `smoke-hermes-experience.mjs`：同一真实执行器，受控 Responses；reasoning、问卷排除、文件片段/失败边界、精确 Steer、错误模型详情、MCP 增改撤销/同名/失败。
+- `smoke-hermes-native.mjs`：真实模型、MCP/Skill、model ACK、暖轮和冷恢复、缺失 Session 与重复 Session 拒绝；`ROVAI_HERMES_SMOKE_IMAGE=1` 独立开启严格识图资格断言。
+- `smoke-hermes-auto-compression.mjs`：真实模型，保持原生窗口/阈值，正常文件读取触发自动压缩；验证压缩后和精确冷恢复的用户锚点及 B。
+- `smoke-hermes-core.mjs`：真实 Core＋模型，首条输入及时 ACK、同 Run Steer/公开 Send、runtimeDiff/context 入库、冷 Run 终端取消及回收；包含隔离 Core SIGKILL/重启恢复检查。
+- `smoke-hermes-official-acp.mjs`：切换前不经过 controller 的官方入口对照 Probe，不替代生产 Core 验收。
 
-运行 native/Core smoke 时设置 `ROVAI_HERMES_BIN` 与 `ROVAI_HERMES_SMOKE_HOME`，后者必须是专用、已配置的
-验收 Home；脚本不寻找或复制密钥。wire smoke 仅需 executable，自建 dummy 凭据与 loopback 服务。
+以上脚本位于 `scripts/`。native/Core/压缩脚本要求 `ROVAI_HERMES_BIN` 和专用已配置的
+`ROVAI_HERMES_SMOKE_HOME`，不发现或复制密钥。受控脚本使用 dummy key；可用
+`ROVAI_HERMES_DEPENDENCY_HOME` 复用选中安装的已准备依赖，不让 fixture 隐式安装。
 
-早期主动压缩只证明原生结构化压缩与连续性，不能作为阈值验收。后续真实自动压缩保持窗口 272000、
-阈值 204000，三轮正常读取后 compressionCount 从 0 变为 1；用户锚点和系统指令在压缩后、关闭进程后
-精确冷恢复均保留。轮次 Usage 是调用累计量，不把它当作当前上下文占用。
-真实 Core 持久化完整文件差异并区分 Add/Write，独立 usage_update 上下文 gauge 入库；公开发送、
-后继 `sleep 120` 在终端实际启动后取消、Core cancelled 与进程消失均通过。
-Core smoke 额外断言初始输入在活动期已确认、Steer 的 accepted 记录仍属于同一 Run、总 Run 数没有增加，
-最终只公开发送修正后的 marker；此次 UI 发现的投递确认问题已形成可重复回归检查。
-
-原生配置支持 `agent.reasoning_effort` 与 `agent.reasoning_overrides`；配置词表含 none/minimal/low/medium/high/xhigh/max/ultra，
-受管会话选项来自原生 route 支持列表，本次 Sub2API 路径列表止于 max；不把配置词表全部当作每个模型的有效能力。
-显式 `agent.disabled_toolsets: [clarify]` 即使在自定义 ACP toolset 重启 clarify 时，也能使实际模型工具列表不再包含问卷。
-默认 ACP toolset 本就排除该工具，受管桥不靠伪造答案关闭问卷。
-
-隔离 `pnpm dev` 的实际 Renderer 验收：成员页下拉选择 low 并保存；真实错误模型返回 HTTP 400，
-点击“查看原因”显示含 `invalid-hermes-model` 的原生详情；原生用户 Skill 列表仅含本地与 external 来源，
-Thread 候选额外含受信项目 `.agents`。Steer 点击后补充输入的 accepted 记录与原 Run ID 一致，
-该 Run 最终仅公开发送修正后的 `HERMES_THIRD_STEER`，没有另开下一轮发送旧 marker。
-第一次 UI 验收揭示首条输入未及时 ACK、插话退回后继队列，已通过接入既有活动确认路径修正；
-最终判据同时要求原 Run ID、原 input/steer 账本与该 Run 的实际 Send，不能仅靠界面标签或新消息判断成功。
-
-Skills 路径的变量展开目前读取 Runtime 启动环境；仅定义在原生 `.env` 而未进入该环境的目录变量
-尚未验证，避免把该场景宣称为完整原生索引等价。直接路径、`~`、启动环境变量及原生信任/禁用规则已有覆盖。
-
-自动检查结果在 PR 验证栏记录；默认 Rust 库测试首次找出 6 个新目录闭集/平台映射遗漏，已补齐原 owner，
-不删除失败断言或降低其他 Runtime 资格。既有 ACP extended owners 67 passed / 2 ignored；数据库迁移 owner 通过。
+旧路径的 Renderer 验证保留为 UI 证据：effort 保存、原生错误详情、用户/项目 Skill 区分，以及首条输入 ACK
+修复后同一 Run Steer。切换未改这些共享 UI，不将旧路径的私有 executor 或完整文件快照结果迁移为新路径证据。
 
 ## Rust 测试归属
 
-新增两个最低成本 owner，仅覆盖新 seam：`hermes::tests::managed_entry_requires_the_known_native_launcher_and_execution_identity`
-拒绝 bootstrap/解释器形状或执行 PID 错配；`native_patch_requires_a_successful_corroborated_complete_hunk` 拒绝预览、失败、
-错路径、截断与多文件，并保留 CRLF/无末尾换行。已有 ACP 传输 owner 无法证明此 Hermes 特有 launcher 或 native patch 格式。
+Rust 仍只有两个新 seam owner：launcher/identity 和成功原生文件证据。官方 file_result 及路径/失败拒绝
+扩展原有 `hermes::tests::native_patch_requires_a_successful_corroborated_complete_hunk` 与 runtime_diff owner，
+不增加平行重型 fixture。共享 ACP extended owners 67 passed / 2 ignored；迁移、目录闭集和索引继续走原 owner。
+自动检查、最终 Core 恢复结果与具体 fixture 摘要随 PR 验证栏记录。
 
-扩展既有 restore error、ACP diff、monitoring parser、catalog/platform/activity/skill/context 闭集及迁移 owner。
-本次 follow-up 在已有完整状态 owner 增加缺失/空文件、删除、CRLF、无末尾换行与拒绝边界，在现有 Skill root
-owner 增加 external/create/trust/disable 更新，在已有 Steer 准入 owner 增加 Hermes 最低版本与活动输入闭集。
-Migration owner 覆盖 receipt、数据/触发器/FK 保留和失败回滚，不新增平行 SQLite fixture。
-最小命令：`cargo test -p rovai-core --lib hermes::tests`；共享 seam 用
-`cargo test -p rovai-core --features extended-tests --lib acp::tests` 和 `runtime_catalog_migrations`。
+官方生产路径最终 Core fixture `rovai-hermes-core-dISqud`：首轮同 Run Steer 成功，第二轮实际终端取消，
+第三轮终端运行中 SIGKILL 隔离 Core，重启后 Run 失败收敛且未自动增加 Run。第四轮显式输入恢复同一
+native Session，读取先前文件并用更新 lease 成功 Send；两次公开 marker 各一条，受管后代全部退出。
+原生 MCP/Skill/冷恢复最终 smoke 通过；体验 fixture `rovai-hermes-experience-zKX52V` 包含新增服务、
+修改凭据、撤销、同名优先与坏服务显式拒绝，全部通过。图片资格失败独立记录于上节。
 
 ## 来源
 
-- [官方安装方式](https://hermes-agent.nousresearch.com/docs/getting-started/installation)：source installer、CLI 入口与可选浏览器工具。
-- [官方配置](https://hermes-agent.nousresearch.com/docs/user-guide/configuration)：原生 reasoning 与 toolset 设置。
-- [官方 Skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)：外部目录与项目发现。
-- [已验证源码](https://github.com/NousResearch/hermes-agent/tree/4d04303818b61bf3aa09278af48356315515965b)：`acp_adapter/server.py`、`session.py`、`agent/turn_context.py`、`title_generator.py`、`tools/mcp_tool_discovery.py`。
-- Logo 来自同 commit 的 `website/static/img/apple-touch-icon.png`，只作既有 Runtime 产品标识。
+- [官方 ACP](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp)与[Gateway local sessions](https://hermes-agent.nousresearch.com/docs/developer-guide/gateway-local-sessions)。
+- [官方配置](https://hermes-agent.nousresearch.com/docs/user-guide/configuration)与[Skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)。
+- [本次安装源码](https://github.com/NousResearch/hermes-agent/tree/4d04303818b61bf3aa09278af48356315515965b)：acp_adapter/gateway_server.py、gateway/session_local_mcp.py、agent/image_routing.py、gateway/run_inbound.py。
+- Logo 来源仍为同 commit 的 website/static/img/apple-touch-icon.png，仅作 Runtime 产品标识。

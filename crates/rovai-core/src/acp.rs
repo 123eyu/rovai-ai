@@ -1853,6 +1853,10 @@ impl AcpHost {
                 crate::hermes::supported_version(frozen_runtime.reported_version.as_deref()),
                 "Hermes >= 0.22.4 is required"
             );
+            command.env(
+                "ROVAI_HERMES_MCP_NAMES",
+                serde_json::to_string(&external_mcp_servers.keys().collect::<Vec<_>>())?,
+            );
             crate::hermes::configure_command(
                 &mut command,
                 private_config_root.context("Hermes private Host missing")?,

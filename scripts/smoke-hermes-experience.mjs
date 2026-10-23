@@ -49,15 +49,16 @@ await new Promise(done => server.listen(0, '127.0.0.1', done))
 await writeFile(join(home, 'config.yaml'), JSON.stringify({ model: { provider: 'fixture', default: 'fixture-model' },
   providers: { fixture: { base_url: `http://127.0.0.1:${server.address().port}/v1`, api_key_env: 'ROVAI_HERMES_FIXTURE_KEY',
     transport: 'codex_responses', models: ['fixture-model'] } },
-  platform_toolsets: { acp: ['file', 'terminal', 'clarify', 'no_mcp'] },
+  platform_toolsets: { acp: ['file', 'terminal', 'clarify'] },
   agent: { max_turns: 20, disabled_toolsets: ['clarify'], reasoning_effort: 'low' },
   session_title: { enabled: false }, compression: { enabled: false } }), { mode: 0o600 })
 let client
 console.log('Isolated fixture:', root)
+const options = { executable: process.env.ROVAI_HERMES_BIN,
+  script: resolve(import.meta.dirname, '../crates/rovai-core/src/hermes/host.py'), cwd: project,
+  env: { ...process.env, HERMES_HOME: home, ROVAI_HERMES_FIXTURE_KEY: 'controlled-fixture' } }
 try {
-  client = await openHermesAcp({ executable: process.env.ROVAI_HERMES_BIN,
-    script: resolve(import.meta.dirname, '../crates/rovai-core/src/hermes/host.py'), cwd: project,
-    env: { ...process.env, HERMES_HOME: home, ROVAI_HERMES_FIXTURE_KEY: 'controlled-fixture' } })
+  client = await openHermesAcp(options)
   const session = await client.request('session/new', { cwd: project, mcpServers: [] }), sessionId = session.sessionId
   await client.request('session/set_mode', { sessionId, modeId: 'dont_ask' })
   const bootstrap = 'Run the requested integration fixture. Never ask a questionnaire.'
@@ -119,11 +120,54 @@ try {
   assert.equal((await client.request('_rovai/steer', { sessionId, inputId: 'late', expectedPromptId: 'steer-turn', text: 'NEVER' })).accepted, false)
   fail = true
   await assert.rejects(prompt('error-turn'), error => error.rpcError?.code === -32003 && /invalid-hermes-model/.test(error.rpcError?.data?.error))
+  fail = false
+  await client.close()
+  const fixture = join(root, 'mcp.mjs')
+  await writeFile(fixture, `import {createInterface} from 'node:readline';
+createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.id===undefined)return;
+const result=m.method==='initialize'?{protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'owned-proof',version:'1'}}:
+m.method==='tools/list'?{tools:[{name:'proof',description:'Controlled proof tool',inputSchema:{type:'object',properties:{}}}]}:
+m.method==='tools/call'?{content:[{type:'text',text:process.env.PROOF_CODE}]}:{};
+process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
+  for (const code of ['FIRST', 'CHANGED', null]) {
+    const config = JSON.parse(await readFile(join(home, 'config.yaml'), 'utf8'))
+    config.mcp_servers = code ? { ownedproof: { command: process.execPath, args: [fixture], env: { PROOF_CODE: 'NATIVE_SHOULD_NOT_RUN' } } } : {}
+    config.platform_toolsets.acp = ['file', 'terminal', 'clarify', ...(code ? ['mcp-ownedproof'] : [])]
+    await writeFile(join(home, 'config.yaml'), JSON.stringify(config), { mode: 0o600 })
+    client = await openHermesAcp({ ...options, env: { ...options.env, ROVAI_HERMES_MCP_NAMES: JSON.stringify(code ? ['ownedproof'] : []) } })
+    const servers = code ? [{ name: 'ownedproof', command: process.execPath, args: [fixture], env: [{ name: 'PROOF_CODE', value: code }] }] : []
+    await client.request('session/load', { sessionId, cwd: project, mcpServers: servers })
+    await client.request('_rovai/bind', { sessionId, bootstrap, sha256: createHash('sha256').update(bootstrap).digest('hex') })
+    const searchAt = client.events.length
+    queue.push([{ name: 'tool_search', args: { queries: ['ownedproof'] } }])
+    await prompt('mcp-schema-' + code)
+    const searchResult = client.events.slice(searchAt).filter(event => event.params?.update?.rawInput?.tool === 'tool_search')
+      .map(event => JSON.stringify(event.params.update.rawOutput ?? null)).join('\n')
+    const toolName = searchResult.match(/mcp__editor_ownedproof_[a-z0-9]+__proof/)?.[0]
+    assert.equal(Boolean(toolName), Boolean(code), `MCP ${code} did not match the native tool search: ${searchResult}`)
+    if (toolName) {
+      const at = client.events.length
+      queue.push([{ name: 'tool_describe', args: { names: [toolName] } }],
+        [{ name: 'tool_call', args: { calls: [{ name: toolName, arguments: {} }] } }])
+      await prompt('mcp-call-' + code)
+      assert(client.events.slice(at).some(event => JSON.stringify(event.params?.update?.rawOutput ?? null).includes(code)), 'Native MCP invoked stale credentials/configuration')
+      assert(!client.events.slice(at).some(event => JSON.stringify(event.params?.update?.rawOutput ?? null).includes('NATIVE_SHOULD_NOT_RUN')), 'Native same-name MCP displaced the Rovai assignment')
+    }
+    await client.close()
+    client = null
+  }
+  client = await openHermesAcp(options)
+  await assert.rejects(client.request('session/load', { sessionId, cwd: project,
+    mcpServers: [{ name: 'broken', command: join(root, 'missing-mcp'), args: [], env: [] }] }),
+    error => error.rpcError?.code === -32003 && /could not discover/.test(error.message))
+  await client.close(); client = null
+  console.log('Exact Session MCP add, changed specification and removal passed')
   if (wireError) throw wireError
-  const summary = { fileStates: states, edgeStates: edges, reasoning: true, questionnaireDisabled: true, steer: true, nativeErrorDetail: true }
+  const summary = { nativeFragments: states, edgeFragments: edges, reasoning: true, questionnaireDisabled: true, steer: true, nativeErrorDetail: true, mcpAddChangeRemove: true, mcpRovaiWins: true, mcpUnavailableRejected: true }
   await writeFile(join(root, 'summary.json'), JSON.stringify(summary, null, 2))
   console.log('Experience acceptance passed:', root)
 } catch (error) {
+  await writeFile(join(root, 'wire.json'), JSON.stringify(wire, null, 2), { mode: 0o600 })
   await writeFile(join(root, 'events.json'), JSON.stringify(client?.events ?? [], null, 2))
   await writeFile(join(root, 'stderr.log'), client?.stderr ?? '')
   throw error

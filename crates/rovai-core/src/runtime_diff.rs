@@ -1714,6 +1714,14 @@ mod tests {
         );
         assert_eq!(admitted.entries[0].diff, "-old\n+new\n-second\n+changed\n");
         assert!(!admitted.evidence_entries.to_string().contains("PRIVATE"));
+        let mut hermes = payload.clone();
+        hermes["runtimeDiff"]["adapterKind"] = json!("hermes-cli");
+        hermes["runtimeDiff"]["sourceEventKind"] =
+            json!("session/update.tool_call_update.completed.file_result");
+        let hermes = admit_runtime_diff(&hermes, Path::new("/repo"), Some("hermes-cli"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(hermes.evidence_entries, admitted.evidence_entries);
         let mut legacy = payload.clone();
         legacy["runtimeDiff"]["protocolFamily"] = json!("cline-hub-v1");
         assert!(

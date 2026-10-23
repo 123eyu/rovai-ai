@@ -13,8 +13,15 @@ last_updated: 2026-10-23
 隔离 Core 验证公开 Send、文件操作和真实 patch 证据。完整结果与保留边界见
 [Hermes 验证记录](research/hermes-runtime/README.md)。平台为 Preview，不能等同其他平台或完整能力轴资格。
 同日增量：兼容策略改为 >=0.22.4；原生 272000/204000 窗口/阈值自动压缩、压缩后与冷恢复连续性通过。
-完整文件状态覆盖 Add/Write/patch/删除/移动/空文件/CRLF；实际 Desktop 验证 effort 保存、错误模型原生详情、
+早期进程内路径的完整文件状态与 Desktop 验证已完成，Desktop 覆盖 effort 保存、错误模型原生详情、
 同一 Run 的 Steer ACK 与修正后 Send，Skills 区分用户与受信项目来源。新版本/其他平台未因最低版本策略自动取得资格。
+
+同日官方入口切换：未修改的官方 ACP＋专用 Gateway，每 Run 精确冷恢复并更新 B/CLI lease；原生阈值
+自动压缩、精确 Steer/取消、错误与 turn usage、MCP 增改撤销/同名优先/发现失败拒绝通过。文件证据现为
+原生成功结果的 reported_mutation 片段，早期完整快照资格不转移到新路径。图片 bytes 到达原生媒体缓存，
+但本次 Sub2API 模型在 auto 预解析与 native pixels 模式均未正确识别四色图，识图准确性不记通过。
+生产 Core 的强杀/重启验收也通过：受管 Gateway/终端全部回收，已接受输入不自动重放，显式下一轮精确
+恢复同一原生 Session 并使用新 CLI lease 发送，没有重复公开消息。
 
 ## 2026-10-20 ZCode 与 OpenCode V2 原生问卷禁用
 

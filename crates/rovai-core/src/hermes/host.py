@@ -138,6 +138,18 @@ def prepare_home():
     if not isinstance(config, dict):
         raise Rejected("Hermes native configuration must be a mapping")
     config = copy.deepcopy(config)
+    assigned = json.loads(os.environ.get("ROVAI_HERMES_MCP_NAMES", "[]"))
+    if not isinstance(assigned, list) or not all(isinstance(name, str) for name in assigned):
+        raise Rejected("Invalid managed MCP assignment names")
+    # Native editor servers have their own namespace. Remove same-named profile
+    # entries before Gateway discovery so Rovai's assignment actually wins.
+    for name in assigned:
+        if isinstance(config.get("mcp_servers"), dict):
+            config["mcp_servers"].pop(name, None)
+    acp_toolsets = (config.get("platform_toolsets") or {}).get("acp")
+    if isinstance(acp_toolsets, list):
+        shadowed = set(assigned) | {"mcp-" + name for name in assigned}
+        config["platform_toolsets"]["acp"] = [name for name in acp_toolsets if name not in shadowed]
     # Configuration, credentials and user skills remain native inputs; session
     # databases, control sockets, cron state and Gateway locks are never shared.
     from dotenv import dotenv_values
@@ -466,6 +478,12 @@ class Controller:
         snapshot = await self.idle_snapshot()
         return await self.rpc.rpc("session.mutate", session_id=self.session, operation=operation, payload=payload, expected_revision=snapshot["revision"], expected_generation=snapshot["execution_generation"], request_id=uuid.uuid4().hex)
 
+    async def bind_mcp(self):
+        servers = self.attach["mcpServers"]
+        result = await self.mutate("editor_mcp", {"mcp_servers": servers})
+        if sorted(result.get("mcp_servers", [])) != sorted(server["name"] for server in servers):
+            raise Rejected("Hermes could not discover every assigned MCP server")
+
     async def prompt(self, params):
         if not self.bound:
             raise Rejected("Hermes Bootstrap is unbound", -32002)
@@ -548,11 +566,13 @@ class Controller:
             self.attach = {"sessionId": self.session, "cwd": params["cwd"], "mcpServers": params.get("mcpServers", [])}
             self.models = result.get("models", {})
             await self.idle_snapshot()
-            if method != "session/new" and not self.attach["mcpServers"]:
+            if method != "session/new" or self.attach["mcpServers"]:
                 # ACP's empty list means "keep the other editor's servers".
                 # This controller is the exclusive owner: an empty assignment
                 # means revoke, through the public fenced mutation.
-                await self.mutate("editor_mcp", {"mcp_servers": []})
+                # Nonempty assignments also verify native partial discovery;
+                # silently dropping an assigned server is not a successful bind.
+                await self.bind_mcp()
             await self.refresh_efforts()
             result["configOptions"] = self.config_options()
             return result
@@ -573,6 +593,8 @@ class Controller:
                     await self.start()
                     await self.native("session/load", self.attach)
                     await self.idle_snapshot()
+                    if self.attach["mcpServers"]:
+                        await self.bind_mcp()
             self.bound = True
             return {"revision": REVISION, "sessionId": self.session, "sha256": params["sha256"]}
         if method == "session/prompt":

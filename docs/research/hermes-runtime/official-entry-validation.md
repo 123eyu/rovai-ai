@@ -14,7 +14,8 @@ last_updated: 2026-10-23
 这不等于直接把当前 launcher 改成 `hermes acp` 就完成接入。官方 ACP 暖会话没有暴露当前 Rovai 所需的
 逐 Run 系统输入/CLI 环境重绑定；公开 Gateway RPC 也只在创建时绑定该环境。
 **目前实测可行的无原生源码覆盖路线，是按执行所有权隔离 Gateway，每 Run 重启并冷恢复原 Session，
-再补齐必要的 Gateway RPC 与事件映射。** 当前 PR 保留既有进程内实现，尚未切换。
+再补齐必要的 Gateway RPC 与事件映射。** 本文记录切换前 Probe；后续 User sequence 18 已授权切换，
+当前生产实现与增量验收见 [Hermes 接入记录](README.md)及[当前合同](../../contracts/hermes-managed-runtime-v1.md)。
 
 ## 测试边界
 

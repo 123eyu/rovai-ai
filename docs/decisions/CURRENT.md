@@ -354,4 +354,4 @@ MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architectu
 当前规范：[Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)、
 [Runtime Catalog](../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、
 [平台准入](../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
-进程内 ACP、精确版本 fence 与初始 Preview 的理由见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)。
+官方 ACP＋专用 Gateway、逐 Run 冷恢复、最低版本策略与 Preview 的理由见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)。

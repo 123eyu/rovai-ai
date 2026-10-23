@@ -828,12 +828,14 @@ ACP Session 累计费用仅作 Session gauge，不冒充 Run 费用。Skills 只
 ## Hermes 受管 ACP
 
 Hermes Agent 以 `hermes-cli` 进入产品闭集，macOS arm64 为 Preview，其余平台不准入。
-官方 0.22.4 默认 ACP 是共享 Gateway viewer；Rovai 使用同发行物保留的进程内 ACP 和真实 AIAgent，
-使 Fleet 拥有真正执行者。原生 Home/认证/模型/工具/SessionDB 保留，受管桥只拥有绑定、恢复拒绝、
-模型与权限确认、MCP overlay、精确活动轮 Steer、失败和观测适配。版本仅设最低 0.22.4；
+Rovai 运行未修改的官方 ACP 与专用官方 Gateway，Fleet 拥有 controller、viewer 和实际执行树。
+每个 binding 的私有持久 Home 保存原生 Session；每 Run 冷启动 Gateway 并精确恢复，更新 B 与 CLI lease。
+原生认证、模型、工具和 SessionDB 继续由 Hermes 负责；controller 只拥有运输、绑定确认、公开 RPC
+精确 Steer/取消、模型/权限/MCP 确认及事件适配，不覆盖原生 Agent 或工具执行器。版本仅设最低 0.22.4；
 不锁 commit 或版本上界，实际接口不兼容须由探测/执行明确失败，已测试版本与兼容策略分开记录。
 
 系统输入复用 ManagedSystemPrompt，普通输入、Core 队列、CLI lease 和共享 replay 隔离沿现有主路径；
-不向用户 Home 写入成员身份，不创建后台 Gateway。字段、限制与失败条件见
+不向用户 Home 写入成员身份，不连接日常共享 Gateway。文件差异保留原生成功结果的片段，不宣称完整状态。
+字段、限制与失败条件见
 [Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)，取舍见
 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)。

@@ -1491,12 +1491,6 @@ owner 继续拥有指标数量保留与 127/128 升级；默认 workspace 与字
 拥有 Node hook 的 A/B 绑定及缺失/摘要/预算负例，已纳入 `pnpm test`。
 
 
-Command Code 原生配置指纹回归由
-`command_code_acp::tests::native_configuration_tracks_scoped_mod_sources_without_hashing_history` 拥有。
-新增此默认 Rust owner 的原因是没有既有测试覆盖其官方 Mod scope：同一嵌套 cwd 下，用户相对路径、
-项目相对路径、自动发现 Mod 和本地 source 的正文变化必须使配置不兼容，而 Session 历史追加必须不改变
-配置指纹；非法 settings 必须拒绝。这是保留 Host/Native Binding 的跨文件行为门禁，不是枚举快照测试。
-
 真实 App 拒绝审批暴露 Cline 在执行前只发送 `tool_call_update.pending → failed`，缺少 `tool_call` 时
 原配对器会退出读取，Run 停在 waiting。新增最低层纯状态 owner
 `acp::tests::paired_tools_accept_permission_only_denial_without_crossing_session_or_prompt`：拥有权限提案的

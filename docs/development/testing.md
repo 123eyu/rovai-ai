@@ -1720,7 +1720,8 @@ HOME 镜像和原生文件合并）已删除。同模块现有 owner 替换为 `
 既有成员配置写入 owner 扩展并更名为
 `runtime_configuration_writes_preserve_startups_and_retire_changed_command_hosts`：保留原 Codex 启动中写入
 边界，新增实际 dispatcher 的 MCP 分配/撤销与冲突拒绝，证明显式操作才退役 Command Host。
-保留取消/终态 owner，不新增等价 Rust 测试。真实控制面继续使用既有 ignored
+终态矩阵移除基线已失效的 14 个 Adapter 固定计数（实际为 15），改验非空后继续遍历全部 Adapter；
+目录数量仍由 Registry owner 拥有。保留取消/终态 owner，不新增等价 Rust 测试。真实控制面继续使用既有 ignored
 `isolated_command_code_acp_bootstrap_gate_and_resident_sessions`，基线更新到 1.88、BYOK 选模改为成功。
 
 最小命令：`cargo test -p rovai-core --features slow-tests --lib`，分别过滤上述 owner 与 `command_code`；

@@ -31,6 +31,10 @@ pending/stdin/取消/退出的锁顺序。
 | 恢复预检 | 仅完整原生目录确认精确 ID/cwd | 1.88 静默接受缺失 ID，因此该差异仍有真实依据 |
 | stdio cwd | 现有 argv 包装，不生成脚本 | ACP stdio 无 cwd 字段带来的必要适配 |
 | env/header | 一次 wire 转义，服务器得到原解析值 | 1.88 在 ACP 后仍做变量展开，不能当作通用 ACP 行为推广 |
+| 编辑工具事件 | 保留 matched-fragment 到 reported mutation 的窄转换 | 与其他 Runtime 的事件归一化职责相同；原生 old/new 字符串不能误报为整文件 diff |
+
+Command 专属模块净减少 398 行，额外删除 health 中 44 行名称探测/解析。仍保留的恢复确认、Mod binding、
+wire 适配和编辑事件转换都有原生协议差异依据；没有把它们扩展成生命周期管理层。
 
 没有为共享一个小 Mod 新建资源缓存，没有专属锁、进程池、配置快照、文件监听器或回收队列。
 Bootstrap 冻结内容、system/user 角色及证据轴未变，因而无需新增模型上下文 revision。

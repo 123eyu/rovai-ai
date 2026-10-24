@@ -24,12 +24,16 @@ last_updated: 2026-10-24
 按 [D62](decisions.md#v1-72-d62) 使用当前选定 Hermes 恢复原 Home/profile/Session；安装与指纹变化不否定
 恢复资格，历史恢复与新输入门禁分开，移除 Hermes 全局长锁。验证边界见 [实施记录](hermes-first-input-implementation.md)。
 
+按 [D63](decisions.md#v1-72-d63) 进一步删除普通消息代理和逐轮双通道对账，改由共享 ACP 直接使用官方
+终态、工具和取消。增强 Diff/参数/用量缺失保持未知，原生 reasoning 配置不由 Rovai 接管。
+当前代码与回归边界见[简化实施记录](hermes-first-input-implementation.md#官方-acp-直连简化2026-10-24)。
+
 影响范围：新增 Adapter/原生启动与 Renderer 目录项；Migration 214 将 schema 163 扩展至 164，215 将其扩展至 165；
 Hermes 采用 user 层首次/更新/压缩恢复包装，完整 B 的接受证据与精确最终 Blob 进入既有输入账本；
 B/P 内部 Formatter/Manifest/Profile 与其他 Adapter 不变；
-文档路由与 runtime 文件片段证据同步。无发布版本变更、既有会话 clean break、领域词汇变更或其他平台资格晋升。
+文档路由与能力降级说明同步。无发布版本变更、既有会话 clean break、领域词汇变更或其他平台资格晋升。
 
-官方入口增量已验证自动压缩、精确插话/取消、原生文件片段、MCP 增改撤销与失败拒绝。图片运输已验证，
+当前受控官方入口已验证自动压缩、插话/取消、原生工具执行、并发、MCP 增改撤销与失败拒绝。图片运输已验证，
 当前模型的识图准确性未通过；原生 `.env` 独有 Skills 路径变量的菜单索引仍有限制。具体准入不由 Ready 代替。
 
 ## 撤回消息两分钟重新编辑（2026-10-23）

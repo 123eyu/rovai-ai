@@ -2108,7 +2108,6 @@ async fn run_acp_probe_with_scope(
     } else {
         30
     });
-    let process_pid = process.pid();
     let result = {
         let (stdin, lines) = process.split_io()?;
         let exchange = async {
@@ -2155,13 +2154,6 @@ async fn run_acp_probe_with_scope(
                     ),
                     "Unsupported Hermes ACP version"
                 );
-                write_json_line(
-                    stdin,
-                    &json!({"jsonrpc":"2.0", "id":20, "method":"_rovai/ready", "params":{}}),
-                )
-                .await?;
-                let ready = read_rpc_result(lines, 20).await?;
-                crate::hermes::validate_ready(&ready, process_pid)?;
             }
             if let Some(preparation) = &model_preparation {
                 crate::dsh::annotate_session(&mut initialize, preparation);
@@ -2993,7 +2985,10 @@ fn acp_observed_capabilities(
             .into_iter()
             .map(str::to_string),
         );
-        if !matches!(kind, AdapterKind::KiroCli | AdapterKind::GrokBuild) {
+        if !matches!(
+            kind,
+            AdapterKind::KiroCli | AdapterKind::GrokBuild | AdapterKind::HermesCli
+        ) {
             capabilities.push("session.set_config_option".to_string());
         }
     }
@@ -3006,6 +3001,12 @@ fn acp_observed_capabilities(
     ) {
         capabilities.retain(|capability| capability != "workspace.additional_roots");
     }
+    if kind == AdapterKind::HermesCli && session.is_some() {
+        capabilities.extend([
+            "session.set_model".to_string(),
+            "session.set_mode".to_string(),
+        ]);
+    }
     if kind == AdapterKind::DeepseekHarness {
         if let Some(session) = session
             && crate::agent_runtime_adapter::acp_model_catalog_from_session(session).is_ok()
@@ -3017,9 +3018,26 @@ fn acp_observed_capabilities(
 }
 
 fn acp_required_capabilities(kind: AdapterKind) -> Vec<String> {
+    if kind == AdapterKind::HermesCli {
+        return [
+            "acp.initialize",
+            "session.new",
+            "session.prompt",
+            "session.cancel",
+            "session.update",
+            "session.load",
+            "session.set_model",
+            "session.set_mode",
+            "structured_permission_request",
+            "mcp.additive_per_run",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    }
     if matches!(
         kind,
-        AdapterKind::CommandCodeCli | AdapterKind::MinimaxCodeCli | AdapterKind::HermesCli
+        AdapterKind::CommandCodeCli | AdapterKind::MinimaxCodeCli
     ) {
         return [
             "acp.initialize",
@@ -3112,7 +3130,10 @@ fn acp_required_capabilities(kind: AdapterKind) -> Vec<String> {
     .into_iter()
     .map(str::to_string)
     .collect::<Vec<_>>();
-    if !matches!(kind, AdapterKind::KiroCli | AdapterKind::GrokBuild) {
+    if !matches!(
+        kind,
+        AdapterKind::KiroCli | AdapterKind::GrokBuild | AdapterKind::HermesCli
+    ) {
         capabilities.push("session.set_config_option".to_string());
     }
     capabilities

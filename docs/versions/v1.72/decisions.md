@@ -1315,3 +1315,22 @@ macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成�
 
 代价是实际缺失或不兼容的原生 Session 仍会如实失败，unknown 仍需用户明确处理；当前不新增聊天按钮。
 未选择以安装指纹永久封锁旧 Session，亦未选择通过新建 Session 掩盖原生阻塞。其他 Adapter 的回退策略不变。
+
+
+<a id="v1-72-d63"></a>
+## V1.72-D63：Hermes 普通交互直连官方 ACP，增强观测不决定任务终态
+
+- 状态：accepted
+- 日期：2026-10-24
+- 授权：User sequence 38 明确要求以可用性、原生兼容与低维护成本简化 Hermes 接入。
+- 当前权威：[Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)、[Runtime Catalog](../../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)。
+
+D59/D62 的控制器重复了官方 ACP 已有的 admission、事件回放与终态处理，并要求额外事件通道完整，
+使补充观测丢失也能破坏明确成功。选择共享 ACP 直接使用官方协议；启动器只准备 Home/进程，移除消息
+转发、工具过滤与重建、连续序号回放、逐 prompt receipt 成功门禁、额外文件锁及内部 reasoning 依赖。
+只在官方 ACP 的实际缺口保留按需 MCP 撤销、Steer 与已有 unknown 操作。
+
+代价是结构化 Diff、完整工具参数和可归属的 prompt 用量可能缺失；如实降级，不模拟上游没提供的保证。
+失败/取消照原生处理，中断未知不重放，错误 Session/请求不串联。沿用 FirstPayload、官方完成 Hook 的
+下一普通输入补发、原生能力关闭策略、逐 Run 冷启动、共享 Fleet/队列/Send/CLI lease。
+未选择扩大 Gateway/Fleet、恢复或证据框架，也不为内部实验分支持续维持私有接口兼容。

@@ -16,19 +16,22 @@ Run 队列、Replay Quarantine、CLI lease 与 Explicit Send。以下补充只�
 
 最低支持官方 source install **0.22.4**，不按 commit、dirty 状态或版本上界锁死。
 `ROVAI_HERMES_BIN` 与通用启动设置选择入口。通过官方 `--print-runtime-command` 保留安装绑定的
-绝对解释器、`-I` 与 bootstrap，只替换最终入口为 Core 私有 controller。不修改安装源码，不构造或覆盖
+绝对解释器、`-I` 与 bootstrap，只替换最终入口为私有进程启动器。不修改安装源码，不构造或覆盖
 原生 Agent、SessionManager 和工具执行器。实际执行入口为未改写的 `hermes --profile default acp`
 与 `hermes --profile default gateway run --force --no-supervise --external-supervisor`。
 
-每个 binding 拥有私有持久 Hermes Home；每 Run 新建独占 Gateway、ACP viewer 和 controller，结束后
-全部停止，下次精确冷恢复原 Session。Fleet/ManagedProcess 拥有整棵树，Core 启动也恢复 binding 目录的
-owned-processes 记录。controller 独占 storage lock，并核对 Gateway 的 PID、Home 和 external supervisor；
-禁止连接日常共享 Gateway，只结束 viewer 不算结束执行。
-外部 supervisor 每次只启动一次、没有自动 respawn 循环；专用子进程通过官方
-`HERMES_GATEWAY_MAX_STARTS=0` 关闭守护进程的重启风暴退避，避免正常连续 Run 被延迟至启动超时。
+普通链路为 **共享 ACP 客户端 → 官方 hermes acp → 官方 Gateway**。启动器准备私有 Home、启动
+专用 Gateway，然后在同一进程直接运行官方 ACP，继承 stdin/stdout；不读写、转发或过滤普通 ACP 消息。
+每个 binding 保有持久原生 Home，每 Run 冷启动，结束后由 Fleet/ManagedProcess 回收整棵执行树。
+Core 启动沿既有 owned-processes 记录清理遗留进程。只退出 ACP viewer 不算结束实际执行。
 
-`_rovai/ready` 核对受管 revision、最低版本和 controller PID；Gateway 必须提供 durable admission、
-event replay、ACP edit policy 与 session MCP 能力。未知 launcher、缺失能力或实际不兼容须明确失败；
+同 Binding 的执行与维护复用共享调度 lane、Fleet owner 和原生 Gateway 所有权；不再持有 Hermes
+全局锁或额外 storage flock。启动器仅连接自己刚启动、PID/Home/external supervisor 匹配的 Gateway，
+不接管日常共享 Gateway。每 Run 只启动一次，不自动 respawn；专用子进程通过官方
+`HERMES_GATEWAY_MAX_STARTS=0` 避免把正常逐 Run 启动误判为守护进程重启风暴。
+
+最低版本由官方 ACP initialize 验证。删除 `_rovai/ready`、控制器 PID/revision 握手、补充事件能力的
+统一门禁。必要接口按实际调用的原生结果处理，不要求每轮取得额外 receipt、连续事件序号或完整工具证据。
 最低版本策略不等于所有新版已验收。
 
 私有 Home 使用选中原生 Home 的 config、`.env`、auth 与 Skills。auth 及其锁、已准备 installs、用户
@@ -38,32 +41,31 @@ Skills 连接到原生路径，Run 内禁用隐式依赖下载。相对 Skills �
 binding 首次创建时将原生来源 Home 与 `default` profile 记录在私有 `native-source.json`；后继 Run
 继续使用该来源和原 SessionDB。旧 binding 从已有原生链接接续来源；没有来源链接时保留私有 Home
 已存的配置，不猜测另一个来源。不迁移 Session 或复制原生数据库。
-启动环境里的 Home 变化不替换旧 binding 的来源。原生配置/凭据与受管代码摘要只参与进程兼容性；
+启动环境里的 Home 变化不替换旧 binding 的来源。受管代码摘要只参与进程兼容性，删除原生配置/凭据摘要门槛；
 秘密不进入公开配置和日志，不借用其他 Runtime 的凭据。
 
 与共享同类 CLI 恢复规则一致，使用当前选定且可用的 Hermes。版本、入口路径、安装记录、指纹和配置
 变化触发必要的探测及新进程启动，不单独否定原 Session 的恢复资格。实际最低版本与能力由当前进程
 验证，缓存版本缺失或过期不构成额外拒绝理由。Hermes 不持有跨成员/Session 的长锁：Fleet 保护同一
-binding 的活动 owner，私有 storage lock 保护同一 Home；不同 binding 可以并发启动。
+binding 的活动 owner，原生 Gateway 保护实际 Home；不同 binding 可以并发启动。
 
 ## Session 与输入
 
-`session/new` 返回原生 ID；`session/resume` / `session/load` 精确恢复。原生 not_found 映射为
-`-32001`、`data.code=HERMES_SESSION_NOT_FOUND` 和目标 `data.sessionId`，保留原目标并报告实际缺失；
-Hermes 不走共享 Core 的自动新 Session 回退，也不从错误文本猜测缺失。历史 replay 留在既有隔离阶段。
-先恢复历史并查询状态，再决定是否接受新输入。running、approval、queued、unknown 分别表示原会话
-已恢复但新输入被原生状态阻塞；不混同会话无法恢复。MCP 重绑、模型和权限变更只在空闲后准备。
-输入提交前仍复核 idle snapshot，不能用早先空闲快照保证之后一直空闲。
+官方 `session/new` 返回原生 ID；`session/resume` / `session/load` 精确恢复，历史 replay 留在共享
+隔离阶段。原生精确 `data.details=not_found` 只在对应恢复请求上识别为目标缺失；不重新包装私有错误码，
+Hermes 不走自动新 Session 回退。旧安装的路径、版本、指纹和普通配置不单独阻止尝试恢复。
 
-没有本轮输入提交时，状态查询连接断开可对同一、身份已核实且仍存活的专用 Gateway 重连一次并重查。
-不重启执行者来重试读取，不重试业务输入或状态变更；本轮已提交后的断连仍按输入与事件证据收口。
-正常续聊自动走这些恢复步骤，不要求先执行用户维护 CLI。
+恢复历史与新任务准备分开。恢复时先传空 MCP 列表保持原生既有 assignment，再通过一次官方控制调用
+查询状态并在 idle 时应用当前 assignment（含显式撤销）。running、approval、queued、unknown 分别
+表示恢复成功后有原生阻塞；模型和权限修改随后使用官方 ACP。提交与取消的在途状态、原生 admission、
+重连及事件回放由官方 ACP 处理，Rovai 不再另建一套逐 prompt 状态。每 Run 冷启动本身重新连接原存储；
+不能用重连自动重发已接受或结果未知的业务输入。正常续聊不要求用户运行维护 CLI。
 
 采用 Hermes 专属 `first_payload`：Core 为成员准备的完整 Bootstrap B 原样放在第一条实际普通任务
 P 前，使用 `[Rovai 协作规则]` 分隔，同一次 `session/prompt` 提交；不增加确认调用。
 规则变化使用“规则更新”块；原生压缩完成后的下一普通输入使用“规则恢复”块。准确字节见
 [已确认 R1](../versions/v1.72/model-context-change-hermes-first-input.md)。B/P 的内容来源、Formatter 和共享选择不变。
-这是 **user 层协作规则**，不提供 system/developer 层优先级。controller 不解析或覆盖 personality、
+这是 **user 层协作规则**，不提供 system/developer 层优先级。启动器不解析或覆盖 personality、
 agent.system_prompt、HERMES_EPHEMERAL_SYSTEM_PROMPT；这些值继续由原生 Gateway 自行解析。
 
 “首次”按 Native Binding/generation 对应的原生 Session 和 `runtime_input_delivery.status=accepted`
@@ -81,31 +83,25 @@ prepared、dispatch、delivery_unknown 均不代替 accepted；未知原任务�
 仅输入 accepted ACK 消费选定 revision，较晚完成事件保持 pending。**不保证当前 Run 内立即补回**，
 不额外创建 Run、提示词调用或重放旧任务。通知不可用时不能宣称已恢复。
 
-只依赖原生阈值自动压缩；`_rovai/compact` 返回不支持，不新增手动压缩按钮。
-`_rovai/session_info` 的窗口、次数与历史条数只是观测，不作为补发信号；protect_first_n 不是永久保留保证。
-每 Run 仍创建新的进程树并刷新 Built-in CLI lease，终端通过原生 env_passthrough 获得本 Run 的 ROVAI 环境。
-旧 managed_system_prompt Evidence 保留原义；既有 Session 下一条新普通任务带一次更新，旧冻结输入不重写。
-controller revision v4 删除 bootstrap 文件、system 注入、`_rovai/bind` 及仅用于重绑 B 的 Gateway 重启。
-Ready 能力声明为 `context.charter.first_payload`、`context.compaction.signal_driven` 与
-`context.compaction.best_effort`；不宣称 managed system 或 native system 保留。模型配置与结构化权限能力保留。
-旧 Ready 快照在发现／检测入口失效为 installed_unverified，移除旧保证；下一次显式检测重新生成能力。
-不因为 controller 升级而轮换原生 Session，也不把静态发现当成重新验证通过。
+只依赖原生阈值自动压缩，不新增手动压缩按钮；删除 `_rovai/compact` 和 `_rovai/session_info` 私有接口。
+原生 `usage_update` 可提供上下文 gauge，不作为压缩完成信号；protect_first_n 不是永久保留保证。
+每 Run 创建新进程树并刷新 Built-in CLI lease，终端通过原生 env_passthrough 获得当前 ROVAI 环境。
+旧 managed_system_prompt Evidence 保留原义；旧冻结输入不重写。
 
-Steer 携带 Session、Core prompt ID 与 input ID。controller 在 prompt 前取得 replay 基线，关联唯一
-message.start admission 与 execution generation，再调用公开 `session.steer`。只有 queued 且 generation
-匹配才 ACK 接受；明确未投递、错轮、迟到和 idle 返回未接受。传输未知或不明结果不能伪造未送达。
-取消调用同一 generation 的 `session.interrupt`，不能打断后继轮。共享 Core 拥有 epoch 与输入账本；
-事件 epoch 变化、replay gap 或事件流失败不能编造成功终态。
+Ready 声明 `context.charter.first_payload`、`context.compaction.signal_driven`、
+`context.compaction.best_effort`、`session.set_model`、`session.set_mode` 与结构化权限。
+不宣称 managed system、native system 保留或受管 reasoning 配置。旧 Ready 在现有发现/检测入口失效并
+重新探测；不因此轮换原 Session，也不把静态发现当成验证通过。
 
-ACP 终态不证明 controller 已消费 Gateway 通道。收尾先按同 epoch/sequence 回放未消费后缀，与实时
-消费者共用去重投影；普通执行须已关联 admission、消费 message.complete 前的工具/文件证据，并核对
-同 Session/admission/generation 的 terminal receipt，才能释放 active。明确未提交的原生拒绝、取消或
-已答复控制命令在无新 generation、无待结算执行时单独收尾；普通 end_turn 缺少执行归属不能算成功。
-无法确认执行归属的错误标记 `HERMES_EXECUTION_UNCERTAIN`；Core 不把它声明为可安全重发的未接受输入。
+ACP 没有同轮插话方法，故保留按需 `session.steer`。共享 ACP ingress fence 先确认精确 Run/Session/prompt
+仍活动，再读取当前原生 generation 并提交一次 generation 约束的 Steer；只有 queued 且 generation 匹配
+才接受。原生明确未投递时才允许共享队列后继处理，未知响应不重试。正常取消直接用官方 `session/cancel`。
+不为 Steer 长期开启第二条 Gateway 事件流。
+取消响应可能早于原生提交；若没有本轮执行活动，接受账本保持未知而不是把规则记为已接受，任务终态仍为取消。
 
 ## 用户明确处理未知执行
 
-controller revision v6 保留独立的用户维护入口。Core 已失败收口、旧进程清理确认后，用户可在普通终端执行：
+保留已有用户维护入口，不扩展另一套恢复框架。Core 已失败收口、旧进程清理确认后，用户可在普通终端执行：
 
 ```sh
 rovai app agent-run hermes-inspect --agent-run-id <原中断任务ID> > hermes-inspection.json
@@ -137,14 +133,13 @@ completed，不把旧 Run 改为成功。用户意图和原生结果分别写入
 
 ## 模型、权限、Skills 与 MCP
 
-目录来自官方 ACP model state。model 设置调用 `session/set_model`，重新读取并核对实际选择。
-reasoning_effort 选项来自原生 `route_supported_efforts`，设置调用 revision/generation 约束的
-`session.mutate(reasoning)` 并核对 ACK。runtime_default 跟随原生配置，显式值只作用于 Session；
-模型按原生能力处理强度，不制造 Fast 开关，未知 config ID 拒绝。
+目录来自官方 ACP model state，模型选择直接用 `session/set_model`。官方 ACP 没有受管 reasoning
+设置能力，本轮删除原生内部 `route_supported_efforts` 依赖与 reasoning mutation，沿用 Hermes 自身配置。
+不以通用 `set_config_option` 空 ACK 冒充参数已生效，不制造 Fast 开关。
 
-`default / accept_edits / dont_ask` 是文件编辑策略，设置后核对 session.info。它不代替命令审批，也不是
-OS sandbox；CoreEnforced read-only 工作区拒绝启动。私有 config 强制禁用 clarify toolset，从模型工具
-列表排除问卷，不自动代答。
+`default / accept_edits / dont_ask` 是官方文件编辑策略，通过 `session/set_mode` 设置并接收官方 ACK。
+它不代替命令审批，也不是 OS sandbox；CoreEnforced read-only 工作区仍拒绝启动。权限请求与响应直接
+走共享 ACP。私有 config 继续关闭 clarify toolset，避免问卷代答。
 
 Skills 索引遵循原生 Home 的 skills、create_dir、external_dirs 与禁用列表。`~/.agents/skills` 必须显式
 加入 external_dirs；最近 Git 根的 `.hermes/skills`、`.agents/skills` 只在 project discovery 开启且该根
@@ -153,29 +148,33 @@ Skills 索引遵循原生 Home 的 skills、create_dir、external_dirs 与禁用
 
 MCP 使用官方 ACP editor assignment 与公开 `session.mutate(editor_mcp)`；后者核对实际发现的 server
 名称，原生 partial discovery 不能静默当作全部成功。空 assignment 显式撤销，因为原生 ACP load 空列表
-本意是保留。变更/撤销沿 Core compatibility 创建新 Host，恢复原 Session 后重绑。一个 controller
-仅接纳一个 Session。Gateway 启动前从私有 config 排除 Rovai assignment 同名的原生 MCP，其他原生服务
+本意是保留。变更/撤销随新 Run 的 Host 冷启动，恢复原 Session 后重绑。Gateway 启动前从私有 config 排除 Rovai assignment 同名的原生 MCP，其他原生服务
 保留，源 config 不变。工具可能经 tool_search/tool_describe/tool_call 延迟发现，不能只检查直接 tools 数组。
 
 ## 结果与观测
 
-官方 ACP 保留模型内容和 permission 传输；公开 Gateway 的精确 admission/generation 事件补齐工具
-raw input/result 和原生 inline diff，过滤 ACP 编辑预览与重复工具更新。原生错误终态和对应 prompt
-receipt 的脱敏有界详情进入 JSON-RPC data.error，不把失败包装成 end_turn。
+普通请求以官方 ACP 的相关响应为准，共享客户端校验请求与 Session 归属：
 
-文件证据只来自成功完成的 native result。patch 的实际 diff 或 write_file 的原生 inline diff 经成功、
-路径一致、完整 hunk 和大小检查后投影为 reported_mutation 片段。解析先消费 hunk 剩余行数，再识别
-下一文件头和原生段间空行；删除 `-- heading` 产生的 `--- heading` 是内容行。每工具最多 64 路径、diff 最多 2 MiB；
-截断、NUL、未知路径、失败、no-change 不准入。禁止扫描磁盘/Git 补证，禁止升级为完整 before/after。
-显示层可能规范化 CRLF，不能证明缺失文件与空文件的区别；move/空文件没有文本片段时只保留操作和结果。
-历史 hermes_file_states 继续可读，当前入口不再生产它。
+| 原生结果 | Core 处理 |
+| --- | --- |
+| 明确成功，补充详情缺失 | 正常结束；缺失详情保持未知 |
+| 明确失败或取消 | 保留原生终态与已有输出 |
+| 连接中断或无法确认执行结果 | 保留未知，不自动重放 |
+| 不属于当前 Session/请求 | 不错误关联到当前任务 |
 
-原生 usage 是 Session 累计，按每 prompt 前后基线求差；cache read 计入输入总量。仅同 admission/
-generation 的原生 usage 事件参与该 prompt 消耗，terminal receipt 确认归属。成功由 result.usage 传递；
-失败由受管错误中的精确执行证据传递，Core 核对 pending Session/prompt 后在同一终态入账一次，Run 仍失败。
-usage_update 保持上下文 gauge，不能替代消耗账本。缺失 cache write、费用或请求数保持未知。
-ACP 图片原样交给原生媒体流程；pixels/预解析选择及识图效果由 Hermes 配置和模型决定，不能仅凭
-image=true 宣称具体模型的识图验收通过。
+公开 Send、任务结算和输入去重继续遵守共享产品规则。模型自然语言不作为成功证明。
+删除额外 Gateway 工具/用量事件订阅、序号连续性检查、逐轮 replay/receipt 对账及 rawInput/rawOutput 重建。
+官方 tool_call/tool_call_update 原样进入共享活动投影，不过滤后再模拟另一套事件。原生失败错误不会变成 end_turn；
+已接受活动或明确 `admitted_turn_failed` 不声明为可安全重试的未接受输入。其他不明错误保留不确定性。
+
+官方编辑 Diff 可能只是预览或片段，不能声明完整文件状态；现有工具结果文本、位置与操作记录按原生实际
+字段显示。删除 Hermes 专用 patch 解析、私有 mutation/file-state 接口和完整 Diff 承诺。原生缺少参数、
+文件片段或结果细节时保持缺失，不扫描磁盘补证，不使明确成功的任务失败。既有持久化证据仍可读。
+
+官方 PromptResponse.usage 是 Session 累计值，不能作为本 prompt 的 delta 入账。删除逐 prompt 的
+stats/事件/receipt 增强采集后，当前 Hermes 任务消耗（含失败前已知但 ACP 未单独报告的用量）保持未知；
+不估算费用，也不把上下文 usage_update 当消耗。以后只有原生提供可可靠归属的计数时才恢复该能力。
+ACP 图片继续交给原生媒体流程，具体识图质量由模型与 Hermes 配置决定。
 
 ## 准入
 

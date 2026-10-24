@@ -3674,10 +3674,6 @@ pub fn parse_acp_usage_message(
     let usage = params
         .pointer(if adapter_kind == AdapterKind::CommandCodeCli {
             "/result/_meta/usage"
-        } else if adapter_kind == AdapterKind::HermesCli && params.get("error").is_some() {
-            // Validated against the pending ACP request before terminal routing;
-            // failure still fails the Run, with its known usage recorded once.
-            "/hermesExecution/usage"
         } else {
             "/result/usage"
         })
@@ -3707,17 +3703,8 @@ pub fn parse_acp_usage_message(
                 },
             )
         }
-        AdapterKind::HermesCli => (
-            "hermes-managed-acp-prompt-usage-v1",
-            RuntimeInputSemantics::CacheInclusiveTotal,
-            RuntimeUsageFields {
-                input_tokens: integer_at_any(usage, &["/inputTokens"]),
-                output_tokens: integer_at_any(usage, &["/outputTokens"]),
-                cache_read_input_tokens: integer_at_any(usage, &["/cachedReadTokens"]),
-                reasoning_output_tokens: integer_at_any(usage, &["/thoughtTokens"]),
-                ..Default::default()
-            },
-        ),
+        // Official Hermes ACP reports Session counters, not a prompt delta.
+        // Without a native per-prompt baseline, consumption remains unknown.
         AdapterKind::CommandCodeCli => (
             "command-code-acp-prompt-usage-v1",
             RuntimeInputSemantics::CacheInclusiveTotal,
@@ -5172,12 +5159,10 @@ mod tests {
             &json!({"sessionId":"hermes","promptId":"turn-2",
             "result":{"usage":{"inputTokens":100,"outputTokens":12,"cachedReadTokens":40,"thoughtTokens":2}}}),
         );
-        assert_eq!(hermes.len(), 1);
-        let normalized = normalize_usage(&hermes[0]).unwrap();
-        assert_eq!(normalized.prompt_input_total_tokens, Some(100));
-        assert_eq!(normalized.cache_read_tokens, Some(40));
-        assert_eq!(normalized.cache_write_tokens, None);
-        assert_eq!(normalized.output_tokens, Some(12));
+        assert!(
+            hermes.is_empty(),
+            "Session counters cannot be charged as this prompt's usage"
+        );
         let failed = parse_acp_usage_message(
             AdapterKind::HermesCli,
             Some("0.22.4"),
@@ -5186,11 +5171,10 @@ mod tests {
                 "hermesExecution":{"admissionId":"admission","executionGeneration":2,
                     "usage":{"inputTokens":100,"outputTokens":12,"cachedReadTokens":40}}}),
         );
-        assert_eq!(failed.len(), 1);
-        let failed = normalize_usage(&failed[0]).unwrap();
-        assert_eq!(failed.prompt_input_total_tokens, Some(100));
-        assert_eq!(failed.output_tokens, Some(12));
-        assert_eq!(failed.cache_write_tokens, None);
+        assert!(
+            failed.is_empty(),
+            "Official ACP supplies no failed-turn usage delta"
+        );
         let root_prompt = json!({"sessionId":"root", "promptId":"prompt-1", "result":{"usage":{
             "inputTokens":100,"cachedReadTokens":40,"cachedWriteTokens":20,
             "outputTokens":10,"thoughtTokens":5,"totalTokens":175}}});

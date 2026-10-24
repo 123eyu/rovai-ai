@@ -142,3 +142,45 @@ Home/profile/Session 保留，版本和指纹只影响必要探测与进程更�
 不作为验收通过。实际执行版本只有 0.22.4，wrapper 与缓存变化不能冒充新版原生兼容性验收。
 读取重连和运行/审批/排队分类本轮只有确定性控制器证据；真实模型与自动压缩沿用上节分层记录，
 没有重跑或扩大平台资格。普通续聊不需要 CLI 维护；无法确认的 unknown 仍须用户明确处理，当前异常入口为 User CLI。
+
+
+## 官方 ACP 直连简化（2026-10-24）
+
+按 User sequence 38 和 [D63](decisions.md#v1-72-d63)，controller v7 改为启动器：原生 ACP 直接拥有协议
+管道，删除消息转发、工具事件过滤/重建、额外 Gateway 订阅、连续序号 replay、逐 prompt receipt 门禁、
+私有 Diff 解析、reasoning mutation、`_rovai/*` Hermes 协议和额外 storage flock。配置/凭据摘要不再参与
+Hermes 进程兼容性。保留原 Home、SessionDB、原生能力关闭策略、FirstPayload、完成 Hook 和共享 Fleet/lease。
+
+按需控制只处理 ACP 缺口：恢复后的完整 MCP assignment（包含空列表撤销）、同轮 Steer、已有 unknown
+检查/明确处理。原生模型和权限直接使用 set_model/set_mode，失败保留 native details。旧 Ready 通过现有
+发现入口失效并重探；本次没有新数据库迁移、新恢复框架或其他 Adapter 的行为切换。
+
+明确降级：不再承诺完整工具参数、结构化 Files Changed/Diff、单 prompt 消耗或受管 reasoning effort。
+官方 ACP 的 Session usage 不能当本轮 delta；失败之前的用量若 ACP 未独立报告，也保留未知。已有文件
+修改、原生成功/失败/取消与公开 Send 不因这些详情缺失而改变。
+
+本轮使用 macOS arm64 上未修改的官方 Hermes 0.22.4、loopback Responses 和新建隔离 Core/Home/Skills/MCP；
+没有使用日常 userData，也没有调用真实付费模型。已完成：
+
+| 既有验收入口 | fixture 后缀 | 结果 |
+| --- | --- | --- |
+| wire | `aWXwAP` | user 规则/更新、原生终态、env/config/personality 各一次、控制命令无模型调用 |
+| experience | `aMneR9` | 文件实际写入/多文件更新、缺少增强信息仍成功、原生 reasoning、Steer、取消后续聊、两 Binding 并发、MCP 增改撤销 |
+| first-input --availability | `wYbiyD` | 当前安装/指纹/路径/Home 变化仍原 Session；强杀无重放，明确解除 unknown 后原 Session 新任务，公开 Send 无重复 |
+| first-input --compression --unprotected | `oHOuwd` | 首条/后继/冷恢复/规则变化；两次原生完成 Hook，下一普通输入补发，末次冷恢复不重复 |
+| first-input（普通模式） | `eF68S0` | 四轮生产 Core 均 succeeded，补充 token/费用字段明确为空；首条/后继/冷恢复/规则更新正常 |
+| failed-usage | `l63c2G` | 第一调用有用量和真实工具、第二调用失败；Run failed、无重放、缺失 prompt 消耗不虚构 |
+
+迁移中先后发现并修正了旧探测能力要求、按需控制的 Home/socket 来源和 Steer 原生 queued 字段；最终
+通过使用新 fixture。体验脚本的 MCP 撤销断言也改为检查本次 tool result，避免把保留历史中的旧结果
+误当成当前仍可调用。旧失败 fixture 不计通过。
+取消接受边界同时补齐：未观察到本轮活动的 cancelled 响应不独自确认 FirstPayload 接受；保留原生取消终态，不重放任务。
+
+Rust 原生 patch 独立 owner 随其生产职责退役；launcher、目录/Ready、稀疏 usage、runtime_diff、恢复与
+Fleet 复用现有 owner。Python 启动器/控制测试 5 项通过；普通 Rust workspace 为 477 passed / 0 failed / 1 ignored，
+ACP extended 为 67 passed / 0 failed / 2 ignored，runtime_diff 17 项、稀疏 usage/目录/launcher 各 1 项通过。
+文档单测 10 项、当前检查及相对 main 的治理检查通过。runtime_diff 首次定向回归发现一处旧私有片段
+成功断言，按已退役合同改验拒绝后 17 项全过；未跳过失败测试。此前 controller 阶段的通过不替代本轮结果。
+
+保留 Preview；本轮不扩展 warm 协议、专用聊天恢复按钮或其他平台资格。真实模型识图、所有历史版本和
+所有边角组合不作为本轮简化的已完成宣称。

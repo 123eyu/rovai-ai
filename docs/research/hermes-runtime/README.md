@@ -1,7 +1,7 @@
 ---
 document_type: research-note
 authority: non-normative
-last_updated: 2026-10-23
+last_updated: 2026-10-24
 ---
 
 # Hermes 接入与验证
@@ -9,8 +9,9 @@ last_updated: 2026-10-23
 `rovai/hermes-runtime` 已切换到**未修改的官方 ACP＋专用官方 Gateway**。macOS arm64 仍为 Preview，
 兼容策略为 **>=0.22.4**，没有 commit、dirty 或上界 fence。实际验证安装是 0.22.4，source commit
 `4d04303818b61bf3aa09278af48356315515965b`。规范见 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)，
-取舍见 [V1.72-D59](../../versions/v1.72/decisions.md#v1-72-d59)。最低版本策略不代表所有新版/平台取得资格。
-本次官方生产入口的 [脱敏证据摘要](official-production-evidence.json) 单独记录通过项和识图失败，不混用早期进程内结果。
+当前简化取舍见 [V1.72-D63](../../versions/v1.72/decisions.md#v1-72-d63)。最低版本策略不代表所有新版/平台取得资格。
+当前直接 ACP 的验证见[最新实施记录](../../versions/v1.72/hermes-first-input-implementation.md#官方-acp-直连简化2026-10-24)。
+[此前脱敏证据](official-production-evidence.json) 属于删除代理前的实现，不用其中的 Diff/usage/reasoning 结果证明新路径。
 
 ## 交付与执行边界
 
@@ -27,29 +28,16 @@ Adapter 不借用其他 Runtime 凭据；临时凭据与原始 wire 不进入仓
 
 ## 官方路径的边界
 
-[切换前 Probe](official-entry-validation.md) 已证明：官方 ACP viewer 本身不拥有执行者；专用 Gateway
-可以受管，但暖 Gateway 会继续使用旧系统指令和终端 lease 环境。生产因此采用 binding 独立持久 Home，
-每 Run 新建 Gateway＋ACP＋controller，结束回收，下一轮精确冷恢复原 Session。Probe 测得冷重建约 5.5 秒，
-这不是所有机器和模型的延迟保证。持久 Session 不因每 Run 的进程重建而新建。
+共享 ACP 客户端直接连接官方 ACP；启动器只准备 binding 私有 Home 和专用 Gateway，并运行原生入口。
+逐 Run 冷启动、Fleet 树回收和原 Session 冷恢复保留。删除普通消息代理、第二条工具事件流、逐轮 replay/
+receipt 门禁、storage flock、原生配置摘要和 reasoning 内部 API。Gateway 启动仍验证实际进程归属。
 
-controller 仅借用发行物的连接、发现和纯格式化帮助函数，运行公开 CLI/RPC，不构造 Agent、不覆盖工具，
-不修改 installed Python 源码。它核对 storage lock、Gateway PID/Home/external-supervisor，拒绝附着其他
-Gateway；Core 也恢复 binding 目录的 owned-processes 记录。config/凭据/用户 Skills 保留原生来源，
-SessionDB/socket/锁独立；禁用隐式依赖同步、消息平台、cron 和脱离 Run 的后台模型调用。
+FirstPayload 与官方 post_compaction 通知后的下一普通输入补发保持不变，原生 system/personality/env
+继续由 Hermes 解析。原生模型和权限设置直接用 ACP，MCP 撤销、Steer 和 unknown 处理才按需调用公开 RPC。
+官方明确成功不以补充详情为前提；工具内容按原生字段显示，完整 Diff、参数、prompt 用量缺失则为未知。
+已有证据可读，删除旧私有文件证据的生产与准入分支。旧路径的数值账单和受管 effort 不再作为当前能力宣称。
 
-B 由 Core 已准备内容前置到首次普通用户输入；接受后不重复，规则更新和完成压缩通知后的下一普通输入
-各携带一次当前规则。controller 不再解析或覆盖原生 system/personality/env overlay，新进程仍刷新 CLI 环境。
-user 层运输与完整输入账本例外见 [D60](../../versions/v1.72/decisions.md#v1-72-d60)。
-公开 RPC 的 admission/generation 与 Core prompt ID 关联，提供精确 Steer/interrupt。MCP 使用原生 editor
-assignment，显式 mutation 验证全部发现并处理撤销；私有 config 排除 Rovai 同名服务，源配置不变。
-模型切换和 reasoning 以原生实际 ACK 为准，错误由对应 prompt receipt 保留原生脱敏详情。
-
-官方 ACP 不提供原方案的完整文件快照。当前使用 Gateway 完成事件的原生 patch/inline diff，验证成功、
-路径、完整 hunk 和限制后持久化 reported_mutation。新增、覆盖、patch、删除和多文件都有实际片段证据；
-CRLF 显示被规范化，空文件/纯移动可能没有文本片段。没有扫描磁盘/Git 补证，也没有把预览、失败或截断
-内容升级为完整 before/after。历史完整状态仍可读，早期进程内验收不算新路径的完整状态资格。
-
-## 能力与证据
+## 此前实现的能力与证据（历史记录）
 
 | 能力轴 | 官方路径验证 | 保留边界 |
 | --- | --- | --- |
@@ -83,15 +71,13 @@ magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `
 
 ## 复现与验收归属
 
-- `test-hermes-controller.py`：纯 controller 状态机/解析器；ACP 先返回、Gateway 队列未消费，回放补齐精确 admission/工具证据且不重复；缺归属、gap、错 epoch/generation 拒绝；原生两个 Update 的空行与 SQL 注释删除，残缺/错路径/NUL 拒绝；unknown 查询/明确确认、已终态只查、错误身份、运行/审批/排队/多 unknown 及恢复后不一致矩阵。
-- `smoke-hermes-wire.mjs`：安装的官方执行器＋loopback Responses；user 层规则/普通输入、规则更新、usage delta、错误、无 admission 的 `/help`，env/system prompt/personality 三种原生 overlay 各按原生优先级生效，B 仅在 user 层，无后台模型调用。
-- `smoke-hermes-experience.mjs`：同一真实执行器，受控 Responses；reasoning、问卷排除、文件片段/失败边界（包含两个普通 Update 和 SQL 注释删除）、精确 Steer、错误模型详情、MCP 增改撤销/同名/失败。
-- `smoke-hermes-failed-usage.mjs`：隔离生产 Core＋原生执行器＋loopback Responses，首调用产生 tool call 和已知 usage，第二次调用 401；断言 Run failed、一次 prompt 用量入账、费用未知。纯 controller 测试不能替代该持久化 seam。
-- `smoke-hermes-native.mjs`：真实模型、MCP/Skill、model ACK、暖轮和冷恢复、缺失 Session 与重复 Session 拒绝；`ROVAI_HERMES_SMOKE_IMAGE=1` 独立开启严格识图资格断言。
-- `smoke-hermes-auto-compression.mjs`：真实模型，保持原生窗口/阈值，正常文件读取触发自动压缩；以实际请求与完成 Hook 验证下一输入补发和冷恢复。
-- `smoke-hermes-first-input.mjs`：隔离生产 Core、官方 ACP/Gateway 与 loopback Provider，检查首条/后继/冷恢复/身份更新的原生请求、接受账本及自动压缩通知后的补发；`--compression` 使用测试窗口/尾部配置与合成 usage，单独记账；`--recovery` 验证强杀后的用户明确恢复及旧 Ready 快照失效／重新检测，不与压缩混用。
-- `smoke-hermes-core.mjs`：真实 Core＋模型，首条输入及时 ACK、同 Run Steer/公开 Send、runtimeDiff/context 入库、冷 Run 终端取消及回收；包含隔离 Core SIGKILL/重启恢复检查，`--force-unknown` 另强杀独占 Gateway，确保验收原生未落盘终态后的显式处理。
-- `smoke-hermes-official-acp.mjs`：切换前不经过 controller 的官方入口对照 Probe，不替代生产 Core 验收。
+- `test-hermes-controller.py`：启动器直接交出 ACP 管道；仅测现存的原生状态/MCP、Steer generation、unknown 精确确认与 Home 保留。旧双通道对账和 Diff 解析测试随职责删除。
+- `smoke-hermes-wire.mjs`：官方执行器＋loopback Responses，验证 user 层规则、原生终态、无额外模型调用，以及 env/config/personality 的原生优先级。
+- `smoke-hermes-experience.mjs`：官方原生工具真实修改文件，稀疏通知不影响成功；原生 reasoning 配置、问卷排除、Steer、取消、不同 Binding 并发、MCP 增改撤销/同名/失败。
+- `smoke-hermes-failed-usage.mjs`：生产 Core＋官方执行器，第一轮有用量和工具、第二轮失败；Run 保持 failed、无自动重放，不把缺失的 prompt delta 或 Session 总数记为消费。
+- `smoke-hermes-first-input.mjs`：生产 Core、实际原生请求与接受账本；普通后继/冷恢复/规则更新。`--compression --unprotected` 验证两次完成 Hook 后下一输入补发；`--availability` 验证入口/安装/指纹/Home 漂移、强杀不重放、明确处理 unknown 后同 Session 新任务。
+- `smoke-hermes-native.mjs` / `smoke-hermes-core.mjs` / `smoke-hermes-auto-compression.mjs`：可选真实模型验证。已移除旧私有接口和增强 Diff 强制断言；此次未重跑真实付费模型，不将旧路径的通过计为新路径通过。
+- `smoke-hermes-official-acp.mjs`：历史官方入口对照 Probe。
 
 以上脚本位于 `scripts/`。native/Core/压缩脚本要求 `ROVAI_HERMES_BIN` 和专用已配置的
 `ROVAI_HERMES_SMOKE_HOME`，不发现或复制密钥。受控脚本使用 dummy key；可用
@@ -102,15 +88,18 @@ magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `
 
 ## Rust 测试归属
 
-Rust 仍只有两个新 seam owner：launcher/identity 和成功原生文件证据。官方 file_result 及路径/失败拒绝
-扩展原有 `hermes::tests::native_patch_requires_a_successful_corroborated_complete_hunk` 与 runtime_diff owner，
-不增加平行重型 fixture。共享 ACP extended owners 67 passed / 2 ignored；迁移、目录闭集和索引继续走原 owner。
-自动检查、最终 Core 恢复结果与具体 fixture 摘要随 PR 验证栏记录。
-本次修复继续扩展 launcher/identity owner 的失败执行身份负例和 monitoring 原有稀疏 usage owner，
-没有增加 Rust 测试函数。最低验证命令为 `python3 scripts/test-hermes-controller.py`、
-`cargo test -p rovai-core --lib hermes::tests`、
+当前只保留 launcher/原生错误识别的独立纯函数 owner。删除
+`hermes::tests::native_patch_requires_a_successful_corroborated_complete_hunk`，因为其唯一拥有的
+私有文件解析职责已退役，不再承诺同一行为；不是为通过测试而关闭现行合同。runtime_diff 原 owner
+改验旧私有 dialect 不再准入，既有证据投影合同保留；monitoring 稀疏 owner 改验 Session 总数及失败缺失
+不会被记为本 prompt 消耗。目录/Ready、恢复和 Fleet 继续扩展现有 owner，不增加平行数据库 fixture。
+
+最低验证：`python3 scripts/test-hermes-controller.py`、`cargo test -p rovai-core --lib hermes::tests`、
 `cargo test -p rovai-core --features extended-tests --lib runtime_parsers_emit_sparse_usage_without_antigravity_inference`。
-受控 smoke 另需官方安装；真实 LLM 不参与上述四项确定性回归。
+普通 workspace 回归与最新 smoke 结果见[当前实施记录](../../versions/v1.72/hermes-first-input-implementation.md#官方-acp-直连简化2026-10-24)。
+
+以下为简化前的历史验证，不能替代当前实现验证：
+
 本轮最终 wire fixture `rovai-hermes-wire-dsIDWL` 的三个 overlay 与 B 各出现一次；体验 fixture
 `rovai-hermes-experience-gUPMcr` 的两个普通 Update、SQL 注释删除和既有 MCP/Steer 矩阵通过。
 失败用量 fixture `rovai-hermes-failed-usage-F6FEla` 验证 Run failed，输入 100、输出 10、cache read 40、

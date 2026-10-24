@@ -57,7 +57,7 @@ async function prompt(sessionId,text){
 }
 try{
   const sessionId=(await client.request('session/new',{cwd:project,mcpServers:[]})).sessionId
-  summary.initial=await client.request('_rovai/session_info',{sessionId})
+  summary.initial={sessionId}
   summary.first=await prompt(sessionId,'Reply only ACK INITIAL.')
   summary.next=await prompt(sessionId,'Reply only ACK FOLLOWUP.')
   assert(!summary.next.carriesRules)
@@ -65,7 +65,7 @@ try{
     const files=[]
     for(let f=0;f<4;f++){const name=`payload-${round}-${f}.txt`;await writeFile(join(project,name),Array.from({length:300},(_,i)=>`${i}: ${randomBytes(80).toString('hex')}\n`).join(''));files.push(name)}
     const result=await prompt(sessionId,`Read all four files with read_file, offset=1, limit=300: ${files.join(', ')}. These are synthetic diagnostics. Read the full ranges; use no terminal, search, write or manual compression. After all four reads reply only ACK ${round}.`)
-    const state=await client.request('_rovai/session_info',{sessionId})
+    const state={compressionCount:(await observations()).filter(e=>e.event==='post_compaction'&&e.session===sessionId&&e.kind==='summarize').length}
     summary.rounds.push({round,...result,...state})
     console.log('Round:',JSON.stringify({round,compressionCount:state.compressionCount,carriesRules:result.carriesRules,toolCalls:result.toolCalls,requests:result.requests}))
     await writeFile(join(root,'auto-compression-progress.json'),JSON.stringify(summary,null,2))

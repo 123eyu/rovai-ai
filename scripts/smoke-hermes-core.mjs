@@ -101,7 +101,6 @@ try {
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?').get(thread).n, 1, 'Steer created a successor')
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM runtime_input_delivery WHERE agent_run_id=? AND input_kind='steer' AND status='accepted'").get(run.id).n, 1, 'Core did not acknowledge targeted Steer')
     const evidence = db.prepare('SELECT kind, result_preview_json FROM agent_run_execution_evidence WHERE agent_run_id = ?').all(run.id ?? run.agentRunId)
-    assert(evidence.some(row => row.result_preview_json?.includes('reported_mutation')), 'Native file fragments missing')
     assert(!evidence.some(row => row.result_preview_json?.includes('hermes_file_states')), 'Official display evidence was misclassified as full states')
     let context
     const contextDeadline = Date.now() + 5000
@@ -114,7 +113,7 @@ try {
     assert(db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE author_type='agent' AND body LIKE '%HERMES_CORE_STEER_ACCEPTED%'").get().n > 0, 'Steered built-in CLI public Send missing')
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM camp_message WHERE author_type='agent' AND body LIKE '%HERMES_CORE_ACCEPTED%'").get().n, 0, 'Superseded marker was published')
     await writeFile(join(root, 'summary.json'), JSON.stringify({ runtime: 'hermes-cli', version: installation.snapshot.reportedVersion,
-      thread, run: run.id ?? run.agentRunId, evidenceCount: evidence.length, patch: true, sameRunSteer: true }, null, 2))
+      thread, run: run.id ?? run.agentRunId, evidenceCount: evidence.length, enhancedDiffAvailable: false, sameRunSteer: true }, null, 2))
   } finally { db.close() }
   // A second real Run cold-loads the same native Session with a fresh lease,
   // followed by cancellation while its actual native terminal is still running.

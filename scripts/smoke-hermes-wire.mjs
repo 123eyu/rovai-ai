@@ -1,5 +1,5 @@
 // Real installed Hermes, deterministic local Responses endpoint. Tests input
-// placement, turn-delta usage and native API failure, not model quality.
+// placement, direct ACP completion and native API failure, not model quality.
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises'
@@ -54,8 +54,8 @@ try{
     const label=index===0?'Rovai 协作规则':'Rovai 协作规则更新'
     const result=await prompt(`[${label}]\n${marker}\n[/${label}]\n\nORDINARY-PAYLOAD-552`)
     assert.equal(result.stopReason,'end_turn')
-    assert.equal(result.usage.inputTokens,100);assert.equal(result.usage.outputTokens,10)
-    assert.equal(result.usage.cachedReadTokens,40);assert.equal(result.usage.thoughtTokens,2)
+    assert(result.usage.inputTokens >= 60);assert(result.usage.outputTokens >= 10)
+    assert(result.usage.cachedReadTokens >= 40);assert(result.usage.thoughtTokens >= 2)
     const body=wire.at(-1)
     const system = (body.instructions ?? '') + JSON.stringify(body.input.filter(item => ['system','developer'].includes(item.role)))
     const ordinary = JSON.stringify(body.input.filter(item => !['system','developer'].includes(item.role)))
@@ -69,14 +69,13 @@ try{
   const waitDeadline=Date.now()+15000
   while(!releaseHeld && Date.now()<waitDeadline)await new Promise(done=>setTimeout(done,20))
   assert(releaseHeld,'Controlled request never started')
-  await assert.rejects(prompt(),e=>e.rpcError?.code===-32000)
   releaseHeld();releaseHeld=null
   assert.equal((await active).stopReason,'end_turn')
   const beforeControl = wire.length
   assert.equal((await client.request('session/prompt',{sessionId,prompt:[{type:'text',text:'/help'}],_meta:{rovai:{promptId:'wire-control'}}})).stopReason,'end_turn')
   assert.equal(wire.length,beforeControl,'Native control command unexpectedly submitted a model prompt')
   fail=true
-  await assert.rejects(prompt(),e=>e.rpcError?.code===-32003)
+  await assert.rejects(prompt(),e=>e.rpcError?.data?.details==='admitted_turn_failed')
   fail=false
   await client.close();client=null
   const overlays = ['ENV-OVERLAY-663','CONFIG-OVERLAY-774','PERSONALITY-OVERLAY-885']
@@ -99,7 +98,7 @@ try{
   }
   if(wireError)throw wireError
   assert(wire.every(body => body.tools), 'Unowned background model request')
-  const result={userRules:true,ordinaryPayload:true,ruleUpdate:true,turnDelta:true,nativeFailure:true,busyRejected:true,unsubmittedControl:true,envOverlay:true,configOverlay:true,personalityOverlay:true,requests:wire.length}
+  const result={userRules:true,ordinaryPayload:true,ruleUpdate:true,nativeSessionCounters:true,nativeFailure:true,directAcp:true,unsubmittedControl:true,envOverlay:true,configOverlay:true,personalityOverlay:true,requests:wire.length}
   await writeFile(join(root,'summary.json'),JSON.stringify(result,null,2))
   console.log(root,JSON.stringify(result))
 }finally{releaseHeld?.();if(client)console.log('Cleanup:',await client.close());server.closeAllConnections();await new Promise(done=>server.close(done))}

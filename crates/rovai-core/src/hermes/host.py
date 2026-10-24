@@ -1,123 +1,28 @@
-"""Owned transport for unmodified ``hermes acp`` and ``hermes gateway run``.
+"""Launch the official ACP server with an owned, binding-scoped Gateway.
 
-No native executor, session manager or tool is patched. Each controller owns one
-private Gateway for one Run; its binding-scoped Home preserves native sessions.
+ACP stdin/stdout belong to Hermes itself: no forwarding, event reconstruction,
+per-prompt receipts or supplementary observations participate in settlement.
+The one-shot control entry only fills gaps in the official ACP surface.
 """
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import copy
-import fcntl
 import json
 import os
 from pathlib import Path
-import re
+import runpy
 import signal
+import subprocess
 import sys
+import time
 import uuid
 
 import hermes_yaml as yaml
 
-REVISION = "rovai-hermes-host-v6"
-
-
-def native_file_fragments(name, result, inline, cwd):
-    """Completed native snippets, never complete file states or disk snapshots.
-
-    Raw patch hunks retain their bytes. Display-only write diffs lose newline
-    provenance, so they remain reported fragments and cannot prove Add/Delete.
-    Reject truncated displays, unknown paths and incomplete hunk counts.
-    """
-    if not isinstance(result, dict) or result.get("error") or result.get("no_change"):
-        return None
-    if not (name == "patch" and result.get("success") is True or
-            name == "write_file" and result.get("verified") is True):
-        return None
-    paths = set(result.get("files_modified") or [])
-    created, deleted = set(result.get("files_created") or []), set(result.get("files_deleted") or [])
-    if not paths or len(paths) > 64 or not all(isinstance(p, str) and os.path.isabs(p) for p in paths):
-        return None
-    raw = result.get("diff") if name == "patch" else None
-    if not isinstance(raw, str):
-        if not isinstance(inline, str):
-            return None
-        lines = re.sub(r"\x1b\[[0-9;]*[mK]", "", inline).splitlines()
-        headers = {}
-        for path in paths:
-            for label in (path, os.path.relpath(path, cwd)):
-                headers[f"a/{label} → b/{label}"] = f"--- a/{path}\n+++ b/{path}\n"
-        start = next((i for i, line in enumerate(lines) if line in headers), None)
-        if start is None:
-            return None
-        raw = "".join(headers.get(line, line + "\n") for line in lines[start:])
-    if len(raw.encode()) > 2 * 1024 * 1024 or "\0" in raw:
-        return None
-    lines = raw.splitlines(keepends=True)
-    entries, i = [], 0
-    while i < len(lines):
-        if i + 1 >= len(lines) or not lines[i].startswith("--- ") or not lines[i + 1].startswith("+++ "):
-            return None
-        old_path, new_path = lines[i][4:].rstrip("\n"), lines[i+1][4:].rstrip("\n")
-        path = new_path[2:] if new_path.startswith("b/") else old_path[2:] if old_path.startswith("a/") else None
-        if path not in paths or (old_path != f"a/{path}" and not (old_path == "/dev/null" and path in created)) or (new_path != f"b/{path}" and not (new_path == "/dev/null" and path in deleted)):
-            return None
-        i += 2
-        fragments, old, new, left_old, left_new, hunk = [], "", "", 0, 0, False
-        while i < len(lines):
-            line = lines[i]
-            # A deletion of SQL's "-- heading" is itself "--- heading".
-            # File boundaries exist only after both hunk counts are exhausted.
-            if not left_old and not left_new:
-                if line.startswith("--- "):
-                    break
-                if line == "\n" and (hunk or new):
-                    i += 1
-                    if i == len(lines) or lines[i].startswith("--- "):
-                        break
-                    return None
-            header = re.fullmatch(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?:[^\n]*)\n?", line)
-            if header:
-                if left_old or left_new:
-                    return None
-                if old != new:
-                    fragments.append({"oldText": old, "newText": new})
-                old, new = "", ""
-                left_old, left_new = int(header[2] or 1), int(header[4] or 1)
-                hunk = True
-            elif not hunk and old_path == "/dev/null" and line.startswith("+"):
-                # Hermes Add File result emits the applied added lines without @@.
-                new += line[1:]
-            elif hunk and line.startswith("-") and left_old > 0:
-                old += line[1:]
-                left_old -= 1
-            elif hunk and line.startswith("+") and left_new > 0:
-                new += line[1:]
-                left_new -= 1
-            elif hunk and line.startswith(" ") and left_old > 0 and left_new > 0:
-                left_old -= 1
-                left_new -= 1
-                if old != new:
-                    fragments.append({"oldText": old, "newText": new})
-                old, new = "", ""
-            else:
-                return None
-            i += 1
-        if left_old or left_new:
-            return None
-        if old != new:
-            fragments.append({"oldText": old, "newText": new})
-        if fragments:
-            entries.append({"semantics": "reported_mutation", "path": path, "fragments": fragments})
-    return entries or None
-
 
 class Rejected(Exception):
-    def __init__(self, message, code=-32003, data=None):
-        super().__init__(message)
-        self.error = {"code": code, "message": message}
-        if data is not None:
-            self.error["data"] = data
+    pass
 
 
 def session_state(snapshot):
@@ -145,11 +50,6 @@ def prepare_home():
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     if root == source or source in root.parents and root.name == "profiles":
         raise Rejected("Hermes managed storage must be independent of native Home")
-    lock = open(root / ".rovai-owner.lock", "a")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as error:
-        raise Rejected("Hermes binding already has a live owner") from error
     home = root / "native-home"
     home.mkdir(mode=0o700, exist_ok=True)
     # Installation/path/version changes update the executable, not the native
@@ -262,219 +162,53 @@ def prepare_home():
     os.environ["HERMES_DISABLE_LAZY_INSTALLS"] = "1"
     os.environ["GATEWAY_MULTIPLEX_PROFILES"] = "false"
     os.environ.pop("HERMES_PROFILE", None)
-    return home, lock
+    return home
 
 
-class Controller:
-    def __init__(self, home):
-        self.home = home
-        self.launcher = os.environ["ROVAI_HERMES_LAUNCHER"]
-        self.gateway = self.acp = self.rpc = self.rpc_context = None
-        self.tasks = set()
-        self.pending = {}
-        self.serial = 0
-        self.session = self.attach = self.active = None
-        self.initialization = None
-        self.reasoning = "runtime_default"
-        self.models = {}
-        self.efforts = []
-        self.watermark = None
-        self.failure = None
-        self.lifecycle = asyncio.Lock()
-        self.stopping = False
-        self.prompt_pending = False
-        self.gateway_reader = None
-
-    def task(self, awaitable):
-        task = asyncio.create_task(awaitable)
-        self.tasks.add(task)
-        task.add_done_callback(self.tasks.discard)
-        return task
-
-    def emit(self, value):
-        print(json.dumps({"jsonrpc": "2.0", **value}, ensure_ascii=False), flush=True)
-
-    def update(self, value):
-        self.emit({"method": "session/update", "params": {"sessionId": self.session, "update": value}})
-
-    async def fail(self, message):
-        self.failure = Rejected(message)
-        for future in list(self.pending.values()):
-            if not future.done():
-                future.set_exception(self.failure)
-        if self.active:
-            self.active["started"].set()
-            self.active["done"].set()
-
-    async def native(self, method, params, timeout=60):
-        if self.failure:
-            raise self.failure
-        self.serial += 1
-        ident = self.serial
-        future = asyncio.get_running_loop().create_future()
-        self.pending[ident] = future
-        try:
-            self.acp.stdin.write((json.dumps({"jsonrpc": "2.0", "id": ident, "method": method, "params": params}) + "\n").encode())
-            await self.acp.stdin.drain()
-            return await asyncio.wait_for(future, timeout) if timeout else await future
-        finally:
-            self.pending.pop(ident, None)
-
-    async def acp_events(self):
-        try:
-            while line := await self.acp.stdout.readline():
-                message = json.loads(line)
-                if "method" not in message:
-                    future = self.pending.get(message.get("id"))
-                    if future and not future.done():
-                        if "error" in message:
-                            error = message["error"]
-                            future.set_exception(Rejected(error.get("message", "Hermes ACP failed"), error.get("code", -32603), error.get("data")))
-                        else:
-                            future.set_result(message.get("result", {}))
-                elif "id" in message:
-                    # Client requests (including native approvals) retain their
-                    # native ID behind a namespace, separate from Core requests.
-                    message["id"] = "hermes-client:" + json.dumps(message["id"])
-                    self.emit(message)
-                else:
-                    update = message.get("params", {}).get("update", {})
-                    kind = update.get("sessionUpdate")
-                    # RPC carries successful result/args omitted by ACP's editor
-                    # projection. Do not duplicate those bubbles or proposed diff.
-                    if kind in ("tool_call", "tool_call_update"):
-                        if str(update.get("toolCallId", "")).startswith("model-confirm-"):
-                            self.emit(message)
-                    else:
-                        self.emit(message)
-            if not self.stopping:
-                await self.fail("Official Hermes ACP exited unexpectedly")
-        except Exception:
-            if not self.stopping:
-                await self.fail("Official Hermes ACP transport failed")
-
-    async def stderr(self, process):
-        # stderr never becomes protocol output; native logging already redacts
-        # provider errors. Preserve a bounded line, never credentials/config dumps.
-        from agent.redact import redact_sensitive_text
-        while line := await process.stderr.readline():
-            sys.stderr.write(redact_sensitive_text(line.decode(errors="replace"), force=True)[:4000])
-            sys.stderr.flush()
-
-    async def start(self):
-        from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint
-        from hermes_cli.gateway_client import connect_gateway
-        existing = await asyncio.to_thread(discover_gateway_endpoint, self.home)
-        if attachable(existing):
-            raise Rejected("Refusing to attach to an unowned Hermes Gateway")
-        env = dict(os.environ)
-        # This supervisor launches once per Run, with no automatic respawn loop.
-        # Native daemon storm backoff otherwise mistakes consecutive Runs (and
-        # probe rebinds) for crashes and eventually exceeds our startup deadline.
-        env["HERMES_GATEWAY_MAX_STARTS"] = "0"
-        self.gateway = await asyncio.create_subprocess_exec(self.launcher, "--profile", "default", "gateway", "run", "--force", "--no-supervise", "--external-supervisor", env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, limit=4*1024*1024)
-        self.task(self.stderr(self.gateway))
-        deadline = asyncio.get_running_loop().time() + 55
-        while asyncio.get_running_loop().time() < deadline:
-            if self.gateway.returncode is not None:
-                raise Rejected("Dedicated Hermes Gateway exited during startup")
-            found = await asyncio.to_thread(discover_gateway_endpoint, self.home)
-            if attachable(found):
-                lock = json.loads((self.home / "gateway.lock").read_text())
-                if lock.get("pid") != self.gateway.pid or Path(lock.get("hermes_home", "")).resolve() != self.home or found.endpoint.supervisor != "external":
-                    raise Rejected("Dedicated Hermes Gateway ownership mismatch")
-                self.rpc_context = connect_gateway(found.endpoint)
-                self.rpc = await self.rpc_context.__aenter__()
-                descriptor = await self.rpc.rpc("runtime.describe")
-                required = {"durable-admission-v1", "event-replay-v1", "acp-editor-policy-v1", "acp-session-mcp-v1"}
-                missing = required - set(descriptor.get("capabilities", []))
-                if missing:
-                    raise Rejected("Hermes Gateway is missing required capabilities: " + ", ".join(sorted(missing)))
-                break
-            await asyncio.sleep(.1)
-        else:
-            raise Rejected("Dedicated Hermes Gateway startup timed out")
-        self.gateway_reader = self.task(self.gateway_events())
-        self.acp = await asyncio.create_subprocess_exec(self.launcher, "--profile", "default", "acp", env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=4*1024*1024)
-        self.task(self.stderr(self.acp))
-        self.task(self.acp_events())
-        if self.initialization is not None:
-            await self.native("initialize", self.initialization)
-
-    async def stop(self):
-        self.stopping = True
-        if self.acp and self.acp.returncode is None:
-            self.acp.terminate()
-        if self.rpc_context:
-            with contextlib.suppress(Exception):
-                await self.rpc_context.__aexit__(None, None, None)
-        if self.gateway and self.gateway.returncode is None:
-            self.gateway.terminate()
-        for process in (self.acp, self.gateway):
-            if process and process.returncode is None:
-                try:
-                    await asyncio.wait_for(process.wait(), 5)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
-        for task in list(self.tasks):
-            if task is not asyncio.current_task():
-                task.cancel()
-        await asyncio.gather(*(t for t in self.tasks if t is not asyncio.current_task()), return_exceptions=True)
-        self.acp = self.gateway = self.rpc = self.rpc_context = None
-        self.stopping = False
+class Control:
+    def __init__(self, rpc):
+        self.rpc = rpc
 
     async def read_snapshot(self, session):
-        # A disconnected read may reconnect to this exact, still-owned Gateway.
-        # Never retry a prompt/mutation or restart an executor to answer a read.
-        from hermes_cli.gateway_client import GatewayClientError, GatewayRPCError, connect_gateway
-        from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint
-        for attempt in range(2):
-            try:
-                snapshot = await self.rpc.rpc("session.resume", session_id=session)
-                break
-            except (GatewayClientError, ConnectionError, OSError) as error:
-                if (attempt or isinstance(error, GatewayRPCError)
-                        or self.active or self.prompt_pending):
-                    raise
-                found = await asyncio.to_thread(discover_gateway_endpoint, self.home)
-                lock = json.loads((self.home / "gateway.lock").read_text())
-                if (not self.gateway or self.gateway.returncode is not None or not attachable(found)
-                        or lock.get("pid") != self.gateway.pid
-                        or Path(lock.get("hermes_home", "")).resolve() != self.home
-                        or found.endpoint.supervisor != "external"):
-                    raise Rejected("Hermes Gateway is unavailable; original Session is preserved") from error
-                if self.gateway_reader:
-                    self.gateway_reader.cancel()
-                    await asyncio.gather(self.gateway_reader, return_exceptions=True)
-                with contextlib.suppress(Exception):
-                    await self.rpc_context.__aexit__(None, None, None)
-                self.rpc_context = connect_gateway(found.endpoint)
-                self.rpc = await self.rpc_context.__aenter__()
-                self.gateway_reader = self.task(self.gateway_events())
+        snapshot = await self.rpc.rpc("session.resume", session_id=session)
         if snapshot.get("session_id") != session:
             raise Rejected("Native session identity mismatch")
         return snapshot
 
-    async def snapshot(self):
-        return await self.read_snapshot(self.session)
-
-    async def idle_snapshot(self):
-        snapshot = await self.snapshot()
+    async def prepare_session(self, params):
+        session = params["sessionId"]
+        snapshot = await self.read_snapshot(session)
         state = session_state(snapshot)
-        if state != "idle":
-            raise Rejected("Hermes session restored; new input is blocked by native " + state,
-                           data={"code": "HERMES_SESSION_BLOCKED", "sessionId": self.session, "state": state})
-        return snapshot
+        if state == "idle":
+            # Official ACP interprets an empty list as 'keep existing servers'.
+            # The binding owns the assignment, including explicit revocation.
+            servers = params["mcpServers"]
+            result = await self.rpc.rpc("session.mutate", session_id=session,
+                operation="editor_mcp", payload={"mcp_servers": servers},
+                expected_revision=snapshot["revision"],
+                expected_generation=snapshot["execution_generation"], request_id=uuid.uuid4().hex)
+            if sorted(result.get("mcp_servers", [])) != sorted(server["name"] for server in servers):
+                raise Rejected("Hermes could not discover every assigned MCP server")
+        return {"sessionId": session, "state": state}
+
+    async def steer(self, params):
+        session = params["sessionId"]
+        snapshot = await self.read_snapshot(session)
+        if not snapshot.get("running"):
+            return {"accepted": False}
+        result = await self.rpc.rpc("session.steer", session_id=session,
+            execution_generation=snapshot["execution_generation"], text=params["text"])
+        # Never retry a mutation whose response was lost.
+        if result.get("status") == "rejected" and result.get("delivered") is False:
+            return {"accepted": False}
+        if result.get("status") != "queued" or result.get("execution_generation") != snapshot["execution_generation"]:
+            raise Rejected("Hermes steering outcome is unknown")
+        return {"accepted": True}
 
     async def recover_unknown(self, params):
-        # A control-only connection: never load an ACP viewer, configure a
-        # session, or submit a prompt to get past the normal idle admission gate.
-        if self.session or self.active or self.prompt_pending:
-            raise Rejected("Recovery requires a fresh controller")
         session = params.get("sessionId")
         if not isinstance(session, str) or not session:
-            raise Rejected("Recovery requires an exact native session", -32602)
+            raise Rejected("Recovery requires an exact native session")
         snapshot = await self.read_snapshot(session)
         pending = snapshot.get("pending", [])
 
@@ -500,7 +234,7 @@ class Controller:
             raise Rejected("Native session has active, approval or queued work; discard refused")
         generation = params.get("executionGeneration")
         if type(generation) is not int or generation <= 0 or params.get("acknowledgeEffects") is not True:
-            raise Rejected("Explicit acknowledgement of possible external effects is required", -32602)
+            raise Rejected("Explicit acknowledgement of possible external effects is required")
         receipt = receipt_identity(await self.rpc.rpc("prompt.receipt", session_id=session, admission_id=admission), admission, generation)
         if receipt["status"] == "terminal":
             if pending:
@@ -520,391 +254,77 @@ class Controller:
             raise Rejected("Native session is still unsettled after acknowledgement")
         return {"sessionId": session, "receipt": receipt, "resolved": True}
 
-    async def gateway_events(self):
-        try:
-            while True:
-                frame = await self.rpc.events.get()
-                if isinstance(frame, Exception):
-                    raise frame
-                self.consume_event(frame.get("params", {}))
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            if not self.stopping:
-                if not isinstance(error, Rejected) and not self.active and not self.prompt_pending:
-                    # No input is in flight. The next state read owns one
-                    # bounded reconnect; there is no execution to replay.
-                    return
-                await self.fail("Hermes Gateway event stream lost; refusing uncertain control")
 
-    def consume_event(self, event):
-        if event.get("session_id") != self.session:
-            return
-        if event.get("type") == "session.replay_gap":
-            raise Rejected("Hermes event replay gap; execution evidence is incomplete")
-        active = self.active
-        if not active:
-            return
-        epoch, seq = event.get("replay_epoch"), event.get("seq", 0)
-        if epoch != active["epoch"]:
-            raise Rejected("Hermes Gateway epoch changed during this Run")
-        if seq <= active["seq"]:
-            return
-        if seq != active["seq"] + 1:
-            raise Rejected("Hermes event sequence gap; execution evidence is incomplete")
-        kind, aid = event.get("type"), event.get("admission_id")
-        if kind == "message.start":
-            if active.get("admission") and active["admission"] != aid:
-                raise Rejected("Unexpected second Hermes admission")
-            if not aid or type(event.get("execution_generation")) is not int:
-                raise Rejected("Hermes admission is missing its execution identity")
-            active.update(admission=aid, generation=event["execution_generation"])
-            active["started"].set()
-        if aid and aid == active.get("admission"):
-            if event.get("execution_generation") != active.get("generation"):
-                raise Rejected("Hermes execution generation changed")
-            payload = event.get("payload", {})
-            if kind in ("tool.start", "tool.complete"):
-                self.tool_update(kind, payload)
-            elif kind == "session.usage":
-                active["usage"] = payload
-            elif kind == "message.complete":
-                for call_id in list(active["tools"]):
-                    self.update({"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "failed"})
-                active["tools"].clear()
-                active["done"].set()
-        active["seq"] = seq
-
-    async def drain_events(self, active):
-        # ACP and our Gateway reader have no cross-channel ordering. Replay the
-        # exact unread suffix before treating its response as a settled turn.
-        replay = await self.rpc.rpc("session.events.since", session_id=self.session,
-                                    replay_epoch=active["epoch"], last_sequence=active["seq"])
-        if replay.get("replay_epoch") != active["epoch"] or replay.get("truncated") or replay.get("snapshot_required"):
-            raise Rejected("Hermes event replay gap; execution evidence is incomplete")
-        for event in replay.get("events", []):
-            self.consume_event(event)
-        if active["seq"] < replay["last_sequence"]:
-            raise Rejected("Hermes event drain is incomplete")
-        if self.failure:
-            raise self.failure
-
-    @staticmethod
-    def usage_delta(stats, before):
-        usage = {}
-        for key, native_key in (("inputTokens", "input_tokens"), ("outputTokens", "output_tokens"), ("totalTokens", "total_tokens"), ("cachedReadTokens", "cache_read_tokens"), ("thoughtTokens", "reasoning_tokens")):
-            value = stats.get(native_key)
-            if type(value) is int and value >= 0:
-                baseline = before.get(native_key) or 0
-                usage[key] = value - (baseline if 0 <= baseline <= value else 0)
-        if "inputTokens" in usage:
-            usage["inputTokens"] += usage.get("cachedReadTokens", 0)
-        return usage
-
-    def tool_update(self, kind, payload):
-        from acp_adapter.tools import build_tool_complete, build_tool_start
-        call_id = payload.get("tool_call_id")
-        name = payload.get("tool_name") or payload.get("name")
-        args = payload.get("args") or {}
-        if not call_id or not name or not isinstance(args, dict):
-            raise Rejected("Invalid native tool event")
-        if kind == "tool.start":
-            update = build_tool_start(call_id, name, args)
-            self.active["tools"][call_id] = (name, args)
-        else:
-            self.active["tools"].pop(call_id, None)
-            result = payload.get("result")
-            update = build_tool_complete(call_id, name, result if isinstance(result, str) else None, function_args=args, is_error=payload.get("is_error") is True)
-        value = update.model_dump(by_alias=True, exclude_none=True)
-        value["rawInput"] = dict(args, tool=name)
-        value["content"] = [block for block in value.get("content", []) if block.get("type") != "diff"]
-        if kind == "tool.complete":
-            result = payload.get("result")
-            if isinstance(result, str) and len(result.encode()) <= 2*1024*1024:
-                try:
-                    result = json.loads(result)
-                except ValueError:
-                    pass
-                value["rawOutput"] = result
-                if isinstance(result, dict) and result.get("resolved_path"):
-                    value["locations"] = [{"path": result["resolved_path"]}]
-            # Native display snippets are useful to inspect, but are NOT full
-            # before/after evidence. Preserve them as text, never ACP diff blocks.
-            inline = payload.get("inline_diff")
-            fragments = native_file_fragments(name, result, inline, self.attach["cwd"])
-            if fragments:
-                value["_meta"] = {"rovaiHermesMutation": fragments}
-            if isinstance(inline, str) and len(inline) <= 128*1024:
-                inline = re.sub(r"\x1b\[[0-9;]*[mK]", "", inline)
-                value.setdefault("content", []).append({"type": "content", "content": {"type": "text", "text": inline}})
-        self.update(value)
-
-    def config_options(self):
-        models = self.models
-        return [{"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": models.get("currentModelId", ""), "options": [{"value": item["modelId"], "name": item["name"]} for item in models.get("availableModels", [])]},
-                {"id": "reasoning_effort", "name": "Reasoning effort", "type": "select", "category": "thought_level", "currentValue": self.reasoning, "options": [{"value": value, "name": value} for value in ["runtime_default", *self.efforts]]}]
-
-    async def refresh_efforts(self):
-        from agent.reasoning_effort import route_supported_efforts
-        info = await self.rpc.rpc("session.info", session_id=self.session)
-        self.efforts = list(route_supported_efforts(info.get("provider"), info.get("model"), info.get("api_mode")))
-
-    async def mutate(self, operation, payload):
-        snapshot = await self.idle_snapshot()
-        return await self.rpc.rpc("session.mutate", session_id=self.session, operation=operation, payload=payload, expected_revision=snapshot["revision"], expected_generation=snapshot["execution_generation"], request_id=uuid.uuid4().hex)
-
-    async def bind_mcp(self):
-        servers = self.attach["mcpServers"]
-        result = await self.mutate("editor_mcp", {"mcp_servers": servers})
-        if sorted(result.get("mcp_servers", [])) != sorted(server["name"] for server in servers):
-            raise Rejected("Hermes could not discover every assigned MCP server")
-
-    async def prompt(self, params):
-        if self.active or self.prompt_pending:
-            raise Rejected("Hermes Run is already active", -32000)
-        prompt_id = params.get("_meta", {}).get("rovai", {}).get("promptId")
-        if not prompt_id:
-            raise Rejected("Hermes prompt requires a Core execution identity", -32602)
-        # Exclusively owned Home + one session + no pending admission + subscribed
-        # baseline + one outgoing prompt make message.start an exact admission
-        # witness. We never select 'the latest' snapshot after transport loss.
-        self.prompt_pending = True
-        sent = False
-        try:
-            snapshot = await self.idle_snapshot()
-            active = {"prompt": prompt_id, "epoch": snapshot["replay_epoch"], "seq": snapshot["last_sequence"], "started": asyncio.Event(), "done": asyncio.Event(), "tools": {}}
-            self.active = active
-            before = await self.rpc.rpc("session.stats", session_id=self.session)
-            try:
-                sent = True
-                result = await self.native("session/prompt", params, timeout=None)
-            except Rejected as error:
-                result = None
-                native_error = error
-            else:
-                native_error = None
-            await self.drain_events(active)
-            if not active.get("admission"):
-                # Explicit native pre-submit cancellation/rejection and answered
-                # commands do not start a generation. Ordinary end_turn cannot
-                # borrow that exception (unknown slash words are ordinary text).
-                after = await self.idle_snapshot()
-                await self.drain_events(active)
-                if not active.get("admission") and after["execution_generation"] == snapshot["execution_generation"]:
-                    if native_error:
-                        raise native_error
-                    blocks = params.get("prompt", [])
-                    text = "\n".join(b.get("text", "") for b in blocks) if all(b.get("type") == "text" for b in blocks) else ""
-                    control = False
-                    if text.lstrip().startswith("/"):
-                        from acp_adapter.gateway_server import _slash_command
-                        control = _slash_command(text) is not None
-                    if result.get("stopReason") in ("cancelled", "refusal") or control:
-                        result.pop("usage", None)
-                        return result
-                if not active.get("admission"):
-                    raise Rejected("Hermes execution attribution is uncertain; no admission was observed")
-            try:
-                await asyncio.wait_for(active["done"].wait(), 15)
-            except asyncio.TimeoutError as error:
-                raise Rejected("Hermes evidence consumption is incomplete; execution outcome is uncertain") from error
-            if self.failure:
-                raise self.failure
-            receipt = await self.rpc.rpc("prompt.receipt", session_id=self.session, admission_id=active["admission"], include_result=True)
-            if (receipt.get("admission_id") != active["admission"] or receipt.get("ref", {}).get("session_id") != self.session
-                    or receipt.get("execution_generation") != active["generation"] or receipt.get("status") != "terminal"
-                    or receipt.get("outcome") not in ("completed", "failed", "cancelled", "interrupted")):
-                raise Rejected("Hermes terminal receipt does not match the observed execution")
-            usage = self.usage_delta(active.get("usage", {}), before)
-            if native_error or receipt["outcome"] == "failed":
-                from agent.redact import redact_sensitive_text
-                native_result = receipt.get("result") or {}
-                detail = native_result.get("error") or native_result.get("final_response") or str(native_error or "Hermes turn failed")
-                data = {"error": redact_sensitive_text(str(detail), force=True)[:4000],
-                        "rovaiHermesExecution": {"sessionId": self.session, "promptId": prompt_id,
-                        "admissionId": active["admission"], "executionGeneration": active["generation"], "usage": usage}}
-                raise Rejected("Hermes turn failed", data=data)
-            if usage:
-                result["usage"] = usage
-            else:
-                result.pop("usage", None)
-            return result
-        except Exception as error:
-            # Only a verified receipt or an explicit protocol input rejection
-            # can settle acceptance. Transport/attribution loss must not make
-            # an ambiguously delivered input safely retryable in Core.
-            data = error.error.get("data") if isinstance(error, Rejected) else None
-            known = isinstance(error, Rejected) and (
-                error.error.get("code") in (-32600, -32602)
-                or isinstance(data, dict) and "rovaiHermesExecution" in data)
-            if sent and not known:
-                from agent.redact import redact_sensitive_text
-                raise Rejected("Hermes execution outcome is uncertain", data={
-                    "code": "HERMES_EXECUTION_UNCERTAIN", "sessionId": self.session, "promptId": prompt_id,
-                    "error": redact_sensitive_text(str(error), force=True)[:4000]}) from error
-            raise
-        finally:
-            self.active = None
-            self.prompt_pending = False
-
-    async def dispatch(self, method, params):
-        if method == "_rovai/ready":
-            from hermes_cli.version_info import get_version_info
-            version = get_version_info().derived_version
-            match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
-            if not match or tuple(map(int, match.groups())) < (0,22,4):
-                raise Rejected("Rovai requires Hermes >= 0.22.4")
-            return {"revision": REVISION, "pid": os.getpid(), "version": version}
-        if method == "initialize":
-            async with self.lifecycle:
-                await self.start()
-                result = await self.native(method, params)
-                self.initialization = params
-                return result
-        if method == "_rovai/recover_unknown":
-            async with self.lifecycle:
-                return await self.recover_unknown(params)
-        if method in ("session/new", "session/load", "session/resume"):
-            if self.session:
-                raise Rejected("Hermes controller already owns a session")
-            try:
-                # Restore history/state first. MCP changes are an idle-only
-                # input preparation, not a condition for opening the Session.
-                native_params = params if method == "session/new" else dict(params, mcpServers=[])
-                result = await self.native(method, native_params)
-            except Rejected as error:
-                if (error.error.get("data") or {}).get("details") == "not_found":
-                    raise Rejected("Exact Hermes session is unavailable", -32001, {"code": "HERMES_SESSION_NOT_FOUND", "sessionId": params.get("sessionId")}) from error
-                raise
-            self.session = result.get("sessionId") or params.get("sessionId")
-            self.attach = {"sessionId": self.session, "cwd": params["cwd"], "mcpServers": params.get("mcpServers", [])}
-            self.models = result.get("models", {})
-            snapshot = await self.snapshot()
-            state = session_state(snapshot)
-            if state == "idle" and (method != "session/new" or self.attach["mcpServers"]):
-                # ACP's empty list means "keep the other editor's servers".
-                # This controller is the exclusive owner: an empty assignment
-                # means revoke, through the public fenced mutation.
-                # Nonempty assignments also verify native partial discovery;
-                # silently dropping an assigned server is not a successful bind.
-                await self.bind_mcp()
-            await self.refresh_efforts()
-            result["configOptions"] = self.config_options()
-            result.setdefault("_meta", {})["rovaiHermesState"] = {"sessionId": self.session, "state": state}
-            return result
-        if params.get("sessionId") != self.session or not self.session:
-            raise Rejected("Unknown Hermes session", -32602)
-        if method == "session/prompt":
-            return await self.prompt(params)
-        if method in ("session/cancel", "_rovai/steer"):
-            active = self.active
-            accepted = False
-            if active and not self.failure and not active["done"].is_set():
-                if method == "session/cancel" or active["prompt"] == params.get("expectedPromptId"):
-                    await asyncio.wait_for(active["started"].wait(), 10)
-                    if active.get("admission") and not self.failure and not active["done"].is_set():
-                        try:
-                            value = await self.rpc.rpc("session.interrupt" if method == "session/cancel" else "session.steer", session_id=self.session, execution_generation=active["generation"], **({"text": params["text"]} if method != "session/cancel" else {}))
-                            if method == "_rovai/steer":
-                                accepted = (value.get("status") == "queued" and
-                                            value.get("execution_generation") == active["generation"])
-                                if not accepted and not (value.get("status") == "rejected" and value.get("delivered") is False):
-                                    raise Rejected("Hermes steering outcome is uncertain; input must not be resent")
-                            else:
-                                accepted = (value.get("session_id") == self.session and
-                                            value.get("execution_generation") == active["generation"])
-                        except Exception as error:
-                            if str(error) not in ("stale_generation", "not_running"):
-                                raise
-            return {"accepted": bool(accepted), "inputId": params.get("inputId"), "promptId": params.get("expectedPromptId")}
-        if method == "session/set_mode":
-            await self.idle_snapshot()
-            result = await self.native(method, params)
-            info = await self.rpc.rpc("session.info", session_id=self.session)
-            from acp_adapter.modes import MODE_TO_EDIT_APPROVAL_POLICY
-            if info.get("edit_approval_policy") != MODE_TO_EDIT_APPROVAL_POLICY.get(params.get("modeId")):
-                raise Rejected("Hermes did not apply edit approval policy")
-            result["_meta"] = {"rovai": {"revision": REVISION, "sessionId": self.session, "modeId": params["modeId"]}}
-            return result
-        if method == "session/set_config_option":
-            if self.active:
-                raise Rejected("Hermes Run is active")
-            value = params.get("value")
-            if params.get("configId") == "model":
-                await self.native("session/set_model", {"sessionId": self.session, "modelId": value})
-                # Reload native fields to acknowledge the actual route, never a
-                # generic config-option ACK (upstream ignores that option).
-                loaded = await self.native("session/load", self.attach)
-                self.models = loaded.get("models", {})
-                if self.models.get("currentModelId") != value:
-                    raise Rejected("Hermes model route did not match the requested selection")
-                await self.refresh_efforts()
-            elif params.get("configId") == "reasoning_effort":
-                if value not in ["runtime_default", *self.efforts]:
-                    raise Rejected("Unsupported native reasoning effort", -32602)
-                result = await self.mutate("reasoning", {"effort": None if value == "runtime_default" else value})
-                if result.get("effort") != (None if value == "runtime_default" else value):
-                    raise Rejected("Hermes did not acknowledge reasoning effort")
-                self.reasoning = value
-            else:
-                raise Rejected("Unsupported Hermes configuration option", -32602)
-            return {"configOptions": self.config_options()}
-        if method == "_rovai/session_info":
-            stats = await self.rpc.rpc("session.stats", session_id=self.session)
-            snapshot = await self.snapshot()
-            return {"sessionId": self.session, "contextWindow": stats.get("context_length"), "compressionCount": stats.get("compression_count"), "historyMessages": snapshot.get("message_count"), "state": session_state(snapshot)}
-        if method == "_rovai/compact":
-            raise Rejected("Rovai uses Hermes automatic threshold compaction only", -32601)
-        return await self.native(method, params)
-
-    async def handle(self, request):
-        if "method" not in request:
-            ident = request.get("id")
-            if isinstance(ident, str) and ident.startswith("hermes-client:"):
-                request["id"] = json.loads(ident[len("hermes-client:"):])
-                self.acp.stdin.write((json.dumps(request) + "\n").encode())
-                await self.acp.stdin.drain()
-            return
-        try:
-            result = await self.dispatch(request["method"], request.get("params", {}))
-            response = {"result": result}
-        except Rejected as error:
-            response = {"error": error.error}
-        except Exception as error:
-            from agent.redact import redact_sensitive_text
-            response = {"error": {"code": -32603, "message": "Hermes transport request failed", "data": {"error": redact_sensitive_text(str(error), force=True)[:4000]}}}
-        if "id" in request:
-            self.emit({"id": request["id"], **response})
+async def control_request(request):
+    home = Path(os.environ["ROVAI_HERMES_STORAGE"]).resolve() / "native-home"
+    # The official client also reads its socket sidecar from native Home.
+    os.environ["HERMES_HOME"] = str(home)
+    os.environ.pop("HERMES_PROFILE", None)
+    from hermes_cli.gateway_client import connect_gateway
+    from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint
+    found = await asyncio.to_thread(discover_gateway_endpoint, home)
+    if not attachable(found):
+        raise Rejected("Hermes Gateway is unavailable; the original Session is preserved")
+    operations = {"prepare_session": Control.prepare_session,
+                  "recover_unknown": Control.recover_unknown, "steer": Control.steer}
+    operation = operations.get(request.get("operation"))
+    if operation is None:
+        raise Rejected("Unsupported Hermes control operation")
+    async with connect_gateway(found.endpoint) as rpc:
+        return await operation(Control(rpc), request["params"])
 
 
-async def serve():
-    home, lock = prepare_home()
-    controller = Controller(home)
-    reader = asyncio.StreamReader(limit=4*1024*1024)
-    loop = asyncio.get_running_loop()
-    transport, _ = await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
-    requests = set()
-    stopped = asyncio.Event()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stopped.set)
-    async def consume():
-        while line := await reader.readline():
-            task = asyncio.create_task(controller.handle(json.loads(line)))
-            requests.add(task)
-            task.add_done_callback(requests.discard)
-        stopped.set()
-    consumer = asyncio.create_task(consume())
+def serve():
+    from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint
+    home = prepare_home()
+    if attachable(discover_gateway_endpoint(home)):
+        raise Rejected("Hermes binding already has a live Gateway")
+    env = dict(os.environ, HERMES_GATEWAY_MAX_STARTS="0")
+    gateway = subprocess.Popen([os.environ["ROVAI_HERMES_LAUNCHER"], "--profile", "default",
+        "gateway", "run", "--force", "--no-supervise", "--external-supervisor"],
+        env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     try:
-        await stopped.wait()
+        deadline = time.monotonic() + 55
+        while time.monotonic() < deadline:
+            if gateway.poll() is not None:
+                raise Rejected("Dedicated Hermes Gateway exited during startup")
+            found = discover_gateway_endpoint(home)
+            if attachable(found):
+                lock = json.loads((home / "gateway.lock").read_text())
+                if (lock.get("pid") != gateway.pid
+                        or Path(lock.get("hermes_home", "")).resolve() != home
+                        or found.endpoint.supervisor != "external"):
+                    raise Rejected("Dedicated Hermes Gateway ownership mismatch")
+                break
+            time.sleep(.1)
+        else:
+            raise Rejected("Dedicated Hermes Gateway startup timed out")
+        # The installation's own ACP implementation reads/writes the inherited
+        # protocol pipes directly. Do not intercept even one ordinary message.
+        sys.argv = ["hermes", "--profile", "default", "acp"]
+        runpy.run_module("hermes_cli.main", run_name="__main__", alter_sys=True)
     finally:
-        transport.close()
-        consumer.cancel()
-        for task in requests:
-            task.cancel()
-        await asyncio.gather(*requests, return_exceptions=True)
-        await controller.stop()
-        lock.close()
+        if gateway.poll() is None:
+            gateway.terminate()
+            try:
+                gateway.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                gateway.kill()
+                gateway.wait()
 
 
 if __name__ == "__main__":
-    asyncio.run(serve())
+    if os.environ.get("ROVAI_HERMES_CONTROL") == "1":
+        try:
+            result = asyncio.run(control_request(json.load(sys.stdin)))
+            print(json.dumps({"result": result}), flush=True)
+        except Exception as error:
+            from agent.redact import redact_sensitive_text
+            print(json.dumps({"error": redact_sensitive_text(str(error), force=True)[:4000]}), flush=True)
+            sys.exit(1)
+    else:
+        def stop(_signum, _frame):
+            raise SystemExit(0)
+        signal.signal(signal.SIGTERM, stop)
+        signal.signal(signal.SIGINT, stop)
+        serve()

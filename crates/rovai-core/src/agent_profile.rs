@@ -2314,7 +2314,7 @@ impl AgentProfileService {
                 };
                 if capabilities.iter().any(obsolete)
                     || (status == "ready"
-                        && !crate::agent_runtime_adapter::hermes_charter_capabilities_current(
+                        && !crate::agent_runtime_adapter::hermes_capabilities_current(
                             &capabilities,
                         ))
                 {
@@ -2443,9 +2443,7 @@ impl AgentProfileService {
                     .as_deref()
                     .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
                     .is_some_and(|capabilities| {
-                        crate::agent_runtime_adapter::hermes_charter_capabilities_current(
-                            &capabilities,
-                        )
+                        crate::agent_runtime_adapter::hermes_capabilities_current(&capabilities)
                     });
             let snapshot_compatibility_changed = compatibility_changed
                 || snapshot_fingerprint.as_deref() != next_fingerprint

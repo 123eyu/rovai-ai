@@ -1,5 +1,6 @@
 // Isolated production Core + unmodified native Hermes + controlled Responses.
-// First model call has known usage and a real tool; the next call fails.
+// First model call has usage and a real tool; the next fails. Official ACP does
+// not expose that prompt delta: preserve failure and leave consumption unknown.
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtemp, mkdir, writeFile, realpath, symlink } from 'node:fs/promises'
@@ -92,24 +93,22 @@ try {
   while (Date.now() < finished) {
     run = database.prepare('SELECT id,status FROM agent_run WHERE camp_id=? ORDER BY created_at DESC LIMIT 1').get(thread)
     usage = run && database.prepare('SELECT * FROM runtime_usage_run_summary WHERE agent_run_id=?').get(run.id)
-    // Monitoring persists on its own queue; observe the settled Run AND its
-    // numeric ledger, then assert exact counts (wrong counts must not be hidden).
-    if (run?.status === 'failed' && usage?.prompt_input_total_tokens != null) break
+    if (run?.status === 'failed') break
     if (run && ['succeeded', 'cancelled'].includes(run.status)) break
     await new Promise(done => setTimeout(done, 100))
   }
   if (wireError) throw wireError
   assert.equal(requests, 2)
   assert.equal(run?.status, 'failed')
-  assert.equal(usage?.prompt_input_total_tokens, 100)
-  assert.equal(usage.output_tokens, 10); assert.equal(usage.cache_read_tokens, 40)
-  assert.equal(usage.reasoning_output_tokens, 2)
-  assert.equal(usage.cache_write_tokens, null); assert.equal(usage.cost_amount_decimal, null)
+  for (const field of ['prompt_input_total_tokens', 'output_tokens', 'cache_read_tokens',
+    'reasoning_output_tokens', 'cache_write_tokens', 'cost_amount_decimal']) {
+    assert.equal(usage?.[field] ?? null, null, `Unreported prompt consumption was fabricated: ${field}`)
+  }
   assert.equal(database.prepare('SELECT COUNT(*) AS n FROM agent_run WHERE camp_id=?').get(thread).n, 1)
-  assert.equal(database.prepare("SELECT COUNT(*) AS n FROM runtime_usage_checkpoint WHERE agent_run_id=? AND source_kind LIKE '%hermes-managed-acp-prompt-usage%'").get(run.id).n, 1)
-  const result = { failed: true, input: 100, output: 10, cacheRead: 40, reasoning: 2, cost: null, countedOnce: true, requests }
+  assert.equal(database.prepare("SELECT COUNT(*) AS n FROM runtime_usage_checkpoint WHERE agent_run_id=? AND source_kind LIKE '%hermes%'").get(run.id).n, 0)
+  const result = { failed: true, usageUnknown: true, noReplay: true, requests }
   await writeFile(join(root, 'summary.json'), JSON.stringify(result, null, 2))
-  console.log('Failed Run retained exact known usage:', JSON.stringify(result))
+  console.log('Native failure preserved with unknown prompt consumption:', JSON.stringify(result))
 } finally {
   database?.close()
   if (core) {

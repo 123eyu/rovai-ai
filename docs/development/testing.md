@@ -118,25 +118,18 @@ cargo test -p rovai-core --lib --features extended-tests runtime_catalog_migrati
 
 ## Rust 测试准入与退役门槛
 
-Hermes 新增 launcher/执行身份与 native patch 两个纯函数 owner；其余恢复、Usage、目录闭集和数据库迁移
-均扩展原 owner。修复前失败、最低层选择、真实/受控证据和命令见
-[Hermes 测试归属](../research/hermes-runtime/README.md#rust-测试归属)。
+Hermes 当前仅保留 launcher/官方错误边界的独立纯函数 owner；恢复、稀疏 Usage、目录/Ready、探测刷新与
+数据库迁移继续扩展原 owner。直接 ACP 简化删除私有 native patch 解析职责及其唯一 Rust owner，
+不是跳过现行合同；runtime_diff 原 owner 改验退役 dialect 不再准入，历史证据投影保持可读。
+退役理由与最低层选择见[Hermes 测试归属](../research/hermes-runtime/README.md#rust-测试归属)。
 
-Hermes 合入前补修继续扩展目录/Ready、catalog refresh 与 CLI help owners，不增加 Rust fixture。
-普通映射测试修复前实际失败；平台证据摘要随兼容性文档修订同步更新，不跳过原 hash 断言。
-`python3 scripts/test-hermes-controller.py` 增加精确 unknown 处理的纯状态机矩阵；
-`smoke-hermes-first-input.mjs --recovery` 使用生产 Core 和官方 Hermes、loopback Responses，验证
-强杀、只读检查、显式确认、错误身份、重启后重试同一确认、同 Session 新任务、零重复 Send 与旧 Ready 升级。
-`smoke-hermes-core.mjs --force-unknown` 使用真实模型，同时强杀独占 Gateway 以确保原生无法落盘终态；
-默认仅强杀 Core 时允许原生已结算的空闲分支，不能把该分支记为 unknown 恢复通过。
-所有路径使用隔离 Home/data-dir/Skill Library/MCP；真实模型凭据副本验收后删除。
-
-Hermes 可用性收口扩展已有同类 CLI Resume、ACP continuation、Fleet 并行启动 owners，不新增 Rust
-测试入口。控制器矩阵覆盖恢复后分状态门禁、同 Gateway 读取断线重连、固定 Home 及旧存储来源接续。
-`smoke-hermes-first-input.mjs --availability` 在上述恢复链上增加入口指纹/路径变化、安装记录替换、
-过期版本缓存、启动 Home 变化与 unknown 时普通续聊；仅隔离 Core 的安装元数据使用升级夹具，
-不编辑原生 SessionDB，不把缓存或 wrapper 变化冒充另一原生版本的验收。
-
+`python3 scripts/test-hermes-controller.py` 覆盖现存启动器和小范围官方控制。生产 Core 的
+`smoke-hermes-first-input.mjs --availability` 复用隔离 Home/data-dir/Skill Library/MCP，验证当前安装恢复
+原 Session、未知任务不重放、明确解除阻塞后新任务；`--compression --unprotected` 单独验证多次自动压缩。
+`smoke-hermes-experience.mjs` 验证普通工具、停止、独立 Binding 并发，以及缺少增强详情仍成功。
+失败回合不提供独立 usage delta 时保持未知；`smoke-hermes-failed-usage.mjs` 验证失败与不虚构消费。
+受控 Provider 使用 dummy key，实际运行未修改的官方执行器；不能等同真实付费模型验收。最新结果见
+[实施记录](../versions/v1.72/hermes-first-input-implementation.md#官方-acp-直连简化2026-10-24)。
 
 Web 长粘贴扩展既有 Host HTTP 与浏览器适配/恢复 owners；schema 161→162 的 DDL 失败回滚
 无法由 HTTP 测试证明，新增一个复用 schema-only fixture 的迁移 owner。准入与最小命令见

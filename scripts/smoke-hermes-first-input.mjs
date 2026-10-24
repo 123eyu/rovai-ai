@@ -215,6 +215,8 @@ try{
     }
     const run=await waitFor(()=>{const row=sql('SELECT id,status FROM agent_run WHERE camp_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1',thread);return row&&['succeeded','failed','cancelled'].includes(row.status)&&!results.some(r=>r.run===row.id)&&row})
     assert.equal(run.status,'succeeded',JSON.stringify(run))
+    const usage=sql('SELECT prompt_input_total_tokens,output_tokens,cost_amount_decimal FROM runtime_usage_run_summary WHERE agent_run_id=?',run.id)
+    for(const field of ['prompt_input_total_tokens','output_tokens','cost_amount_decimal'])assert.equal(usage?.[field]??null,null,'Supplementary usage missing must not fabricate consumption or prevent success')
     const delivery=sql('SELECT * FROM runtime_input_delivery WHERE agent_run_id=? AND input_kind=\'start\'',run.id)
     const binding=sql('SELECT native_session_id FROM conversation WHERE camp_id=? AND agent_id=?',thread,'agent_2')
     nativeId??=binding.native_session_id;assert.equal(binding.native_session_id,nativeId)
@@ -252,11 +254,11 @@ try{
       await waitFor(async()=>{const row=(await core.request('runtime.installations.list')).find(row=>row.id===selectedInstallationId);return row?.snapshot?.probeStatus==='ready'})
     }
     const refreshed=JSON.parse(sql('SELECT capabilities_json FROM adapter_capability_snapshot WHERE installation_id=?',selectedInstallationId).capabilities_json)
-    for(const c of ['context.charter.first_payload','context.compaction.signal_driven','context.compaction.best_effort','session.set_config_option','structured_permission_request'])assert(refreshed.includes(c),c)
+    for(const c of ['context.charter.first_payload','context.compaction.signal_driven','context.compaction.best_effort','session.set_model','session.set_mode','structured_permission_request'])assert(refreshed.includes(c),c)
     for(const c of ['context.charter.managed_system_prompt','context.compaction.native_system_prompt_preserved'])assert(!refreshed.includes(c))
     recoveryEvidence.legacyReadySnapshotRefreshed=true;recoveryEvidence.noDuplicateSend=true
   }
-  const summary={version:installation.snapshot.reportedVersion,compression,protectFirst,syntheticProvider:true,nativeSessionUnchanged:true,summaries,results,recovery:recoveryEvidence,availability:availabilityEvidence}
+  const summary={version:installation.snapshot.reportedVersion,compression,protectFirst,syntheticProvider:true,successWithoutEnhancedUsage:true,nativeSessionUnchanged:true,summaries,results,recovery:recoveryEvidence,availability:availabilityEvidence}
   await writeFile(join(root,'summary.json'),JSON.stringify(summary,null,2))
   console.log('Hermes first-input acceptance passed:',root)
 }catch(error){console.error(error);throw error}finally{

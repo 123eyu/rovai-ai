@@ -2276,8 +2276,10 @@ pub fn trae_machine_ready_capabilities(
     capabilities
 }
 
-pub(crate) fn hermes_charter_capabilities_current(capabilities: &[String]) -> bool {
+pub(crate) fn hermes_capabilities_current(capabilities: &[String]) -> bool {
     [
+        "session.set_model",
+        "session.set_mode",
         "context.charter.first_payload",
         "context.compaction.signal_driven",
         "context.compaction.best_effort",
@@ -2285,6 +2287,7 @@ pub(crate) fn hermes_charter_capabilities_current(capabilities: &[String]) -> bo
     .iter()
     .all(|value| capabilities.iter().any(|item| item == value))
         && ![
+            "session.set_config_option",
             "context.charter.managed_system_prompt",
             "context.compaction.native_system_prompt_preserved",
         ]
@@ -2298,8 +2301,8 @@ pub fn validate_machine_ready_snapshot(
 ) -> Result<()> {
     if adapter_kind == AdapterKind::HermesCli && snapshot.probe_status == "ready" {
         anyhow::ensure!(
-            hermes_charter_capabilities_current(&snapshot.capabilities),
-            "Hermes Ready evidence predates user-layer rules; refresh the Runtime check"
+            hermes_capabilities_current(&snapshot.capabilities),
+            "Hermes Ready evidence predates the direct ACP contract; refresh the Runtime check"
         );
     }
     if adapter_kind == AdapterKind::DeepseekHarness && snapshot.probe_status == "ready" {
@@ -2563,7 +2566,8 @@ fn acp_capability_snapshot(
                 "session.prompt",
                 "session.cancel",
                 "session.update",
-                "session.set_config_option",
+                "session.set_model",
+                "session.set_mode",
                 "structured_permission_request",
                 "context.charter.first_payload",
                 "context.compaction.signal_driven",
@@ -4049,29 +4053,30 @@ mod tests {
             executable_fingerprint: Some("sha256:hermes".into()),
             authentication_status: "authenticated".into(), probe_status: "ready".into(),
             capabilities: vec![], initialize_result: Some(json!({"agentCapabilities":{"loadSession":true}})),
-            session_result: Some(json!({"sessionId":"native", "configOptions":[
-                {"id":"model","currentValue":"route/model","options":[{"value":"route/model","name":"Model"}]},
-                {"id":"reasoning_effort","currentValue":"high","options":[{"value":"high"},{"value":"low"}]}
-            ]})), attempted_at: "2026-10-23T00:00:00Z".into(), last_error: None,
+            session_result: Some(json!({"sessionId":"native", "models":{
+                "currentModelId":"route/model", "availableModels":[{"modelId":"route/model","name":"Model"}]}
+            })), attempted_at: "2026-10-23T00:00:00Z".into(), last_error: None,
         }).unwrap();
         validate_machine_ready_snapshot(AdapterKind::HermesCli, &hermes).unwrap();
         for capability in [
             "context.charter.first_payload",
             "context.compaction.signal_driven",
             "context.compaction.best_effort",
-            "session.set_config_option",
+            "session.set_model",
+            "session.set_mode",
             "structured_permission_request",
             "session.load",
         ] {
             assert!(hermes.capabilities.iter().any(|value| value == capability));
         }
         assert_eq!(hermes.permission_options, hermes_permission_options());
-        assert!(hermes.models.iter().any(|model| {
-            model
-                .options
+        assert!(hermes.models.iter().all(|model| model.options.is_empty()));
+        assert!(
+            !hermes
+                .capabilities
                 .iter()
-                .any(|option| option.key == "reasoning_effort")
-        }));
+                .any(|capability| capability == "session.set_config_option")
+        );
         for old in [
             "context.charter.managed_system_prompt",
             "context.compaction.native_system_prompt_preserved",

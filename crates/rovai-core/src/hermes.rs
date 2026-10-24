@@ -3,17 +3,12 @@
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Stdio,
-    time::Duration,
-};
+use std::{fs, path::Path, process::Stdio, time::Duration};
 use tokio::process::Command;
 
-use crate::{agent_profile::AdapterKind, command::canonical_json_digest};
+use crate::command::canonical_json_digest;
 
-pub const REVISION: &str = "rovai-hermes-host-v6";
+pub const REVISION: &str = "rovai-hermes-host-v7";
 const HOST: &str = include_str!("hermes/host.py");
 const NATIVE_ENTRY: &str =
     "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)";
@@ -24,41 +19,10 @@ pub fn supported_version(version: Option<&str>) -> bool {
         .is_some_and(|(version, _)| version >= [0, 22, 4])
 }
 
-pub fn native_home() -> Result<PathBuf> {
-    let home = crate::runtime_discovery::runtime_environment_variable(
-        AdapterKind::HermesCli,
-        "HERMES_HOME",
+pub fn implementation_digest() -> Result<String> {
+    canonical_json_digest(
+        &json!({"revision": REVISION, "host": format!("{:x}", Sha256::digest(HOST))}),
     )
-    .filter(|value| !value.is_empty())
-    .map(PathBuf::from)
-    .or_else(|| {
-        crate::runtime_discovery::runtime_home_directory(AdapterKind::HermesCli)
-            .map(|home| home.join(".hermes"))
-    })
-    .context("Hermes native Home unavailable")?;
-    ensure!(home.is_absolute(), "Hermes Home must be absolute");
-    Ok(home)
-}
-
-pub fn native_configuration_digest() -> Result<String> {
-    let home = native_home()?;
-    let mut inputs = vec![
-        json!({"revision": REVISION, "host": format!("{:x}", Sha256::digest(HOST)), "home": home}),
-    ];
-    for name in [
-        "config.yaml",
-        ".env",
-        "auth.json",
-        "hermes-agent/install-stamp.json",
-    ] {
-        let digest = match fs::read(home.join(name)) {
-            Ok(bytes) => Some(format!("{:x}", Sha256::digest(bytes))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => anyhow::bail!("hermes_native_configuration_unreadable"),
-        };
-        inputs.push(json!({"name": name, "sha256": digest}));
-    }
-    canonical_json_digest(&json!(inputs))
 }
 
 fn managed_argv(mut argv: Vec<String>, script: &Path) -> Result<Vec<String>> {
@@ -83,8 +47,8 @@ fn managed_argv(mut argv: Vec<String>, script: &Path) -> Result<Vec<String>> {
 }
 
 /// Resolve through the selected launcher's official machine boundary. No shell
-/// parsing, interpreter search or dependency installation. The controller starts
-/// unmodified official CLI children in a binding-scoped private native Home.
+/// parsing, interpreter search or dependency installation. The launcher starts
+/// the unmodified official ACP and Gateway in a binding-scoped private native Home.
 pub async fn configure_command(command: &mut Command, root: &Path, storage: &Path) -> Result<()> {
     let native = command.as_std();
     let launcher = native.get_program().to_owned();
@@ -154,61 +118,63 @@ pub async fn configure_command(command: &mut Command, root: &Path, storage: &Pat
     Ok(())
 }
 
-pub fn validate_ready(value: &Value, pid: Option<u32>) -> Result<()> {
+/// A bounded, one-shot official control operation. This connection never observes
+/// ordinary prompt events or decides their terminal outcome.
+pub async fn control(
+    spec: &crate::managed_process::ManagedProcessLaunchSpec,
+    operation: &str,
+    params: Value,
+) -> Result<Value> {
+    let mut command = Command::new(spec.application());
+    command
+        .args(spec.arguments())
+        .current_dir(spec.working_directory())
+        .env_clear()
+        .envs(spec.environment())
+        .env("ROVAI_HERMES_CONTROL", "1");
+    let input = serde_json::to_vec(&json!({"operation": operation, "params": params}))?;
+    let output = crate::runtime_probe_process::run_bounded_command_with_input(
+        &mut command,
+        Some(&input),
+        crate::runtime_probe_process::ProbeCommandLimits::new(Duration::from_secs(45)),
+    )
+    .await?;
     ensure!(
-        value["revision"] == REVISION
-            && supported_version(value["version"].as_str())
-            && pid.is_some_and(|pid| value["pid"] == pid),
-        "Hermes managed host identity mismatch (revision={}, version={}, pid={}, expectedPid={:?})",
-        value["revision"],
-        value["version"],
-        value["pid"],
-        pid
+        !output.stdout.truncated,
+        "Hermes control response was truncated"
     );
-    Ok(())
+    let value: Value = serde_json::from_slice(&output.stdout.bytes)
+        .context("Hermes control response is unavailable")?;
+    if let Some(error) = value.get("error").and_then(Value::as_str) {
+        anyhow::bail!("Hermes control: {error}");
+    }
+    ensure!(output.status.success(), "Hermes control failed");
+    value
+        .get("result")
+        .cloned()
+        .context("Hermes control returned no result")
 }
 
-/// Only the owned controller's matching error response may carry failed-turn
-/// consumption. A context gauge or another execution is never a ledger source.
-pub fn failed_prompt_execution(message: &Value, session: &str, prompt: &str) -> Option<Value> {
-    let execution = message.pointer("/error/data/rovaiHermesExecution")?;
-    if execution["sessionId"].as_str()? != session
-        || execution["promptId"].as_str()? != prompt
-        || execution["admissionId"].as_str()?.is_empty()
-        || execution["admissionId"].as_str()?.len() > 256
-        || execution["executionGeneration"].as_u64()? == 0
-    {
-        return None;
-    }
-    let source = execution["usage"].as_object()?;
-    let mut usage = serde_json::Map::new();
-    for key in [
-        "inputTokens",
-        "outputTokens",
-        "cachedReadTokens",
-        "thoughtTokens",
-    ] {
-        if let Some(value) = source.get(key).and_then(Value::as_i64).filter(|n| *n >= 0) {
-            usage.insert(key.to_string(), json!(value));
-        }
-    }
-    Some(json!({"admissionId": execution["admissionId"],
-        "executionGeneration": execution["executionGeneration"], "usage": usage}))
-}
-
-pub fn prompt_outcome_uncertain(message: &Value, session: &str, prompt: &str) -> bool {
-    let data = &message["error"]["data"];
-    data["code"] == "HERMES_EXECUTION_UNCERTAIN"
-        && data["sessionId"].as_str() == Some(session)
-        && data["promptId"].as_str() == Some(prompt)
+/// A cancellation can precede submit; a transport error can follow admission.
+/// Neither proves that an otherwise unobserved input was accepted or rejected.
+/// The shared ACP client matches the response and keeps its terminal outcome.
+pub fn input_acceptance_uncertain(message: &Value) -> bool {
+    message
+        .pointer("/result/stopReason")
+        .and_then(Value::as_str)
+        == Some("cancelled")
+        || message.get("error").is_some()
+            && !matches!(message["error"]["code"].as_i64(), Some(-32600 | -32602))
+            && message
+                .pointer("/error/data/details")
+                .and_then(Value::as_str)
+                != Some("admitted_turn_failed")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Owns the new internal-API boundary. Existing ACP transport tests cannot
-    // detect substitution of the installation's bootstrap or another process.
     #[test]
     fn managed_entry_requires_the_known_native_launcher_and_execution_identity() {
         let argv = vec![
@@ -226,10 +192,6 @@ mod tests {
             invalid[index] = "unexpected".into();
             assert!(managed_argv(invalid, Path::new("/private/host.py")).is_err());
         }
-        let ready = json!({"revision":REVISION,"pid":123,"version":"0.22.4"});
-        assert!(validate_ready(&ready, Some(123)).is_ok());
-        assert!(validate_ready(&ready, Some(124)).is_err());
-        assert!(validate_ready(&ready, None).is_err());
         assert!(!supported_version(Some("Hermes Agent v0.22.2")));
         for version in [
             "0.22.4",
@@ -240,194 +202,21 @@ mod tests {
             assert!(supported_version(Some(version)), "{version}");
         }
         assert!(!supported_version(None));
-        let error = json!({"error":{"data":{"rovaiHermesExecution":{
-            "sessionId":"session", "promptId":"prompt", "admissionId":"admission", "executionGeneration":2,
-            "usage":{"inputTokens":100,"outputTokens":10,"cachedReadTokens":40,"cost":9,"private":"secret"}}}}});
-        let execution = failed_prompt_execution(&error, "session", "prompt").unwrap();
-        assert_eq!(
-            execution["usage"],
-            json!({"inputTokens":100,"outputTokens":10,"cachedReadTokens":40})
-        );
-        assert!(failed_prompt_execution(&error, "other-session", "prompt").is_none());
-        assert!(failed_prompt_execution(&error, "session", "other-prompt").is_none());
-        let uncertain = json!({"error":{"data":{"code":"HERMES_EXECUTION_UNCERTAIN","sessionId":"session","promptId":"prompt"}}});
-        assert!(prompt_outcome_uncertain(&uncertain, "session", "prompt"));
-        assert!(!prompt_outcome_uncertain(
-            &uncertain,
-            "session",
-            "other-prompt"
+        // Missing supplementary observations cannot invalidate official success.
+        assert!(!input_acceptance_uncertain(
+            &json!({"result":{"stopReason":"end_turn"}})
         ));
-        assert!(!prompt_outcome_uncertain(
-            &uncertain,
-            "other-session",
-            "prompt"
+        assert!(input_acceptance_uncertain(
+            &json!({"result":{"stopReason":"cancelled"}})
         ));
-        assert!(!prompt_outcome_uncertain(&error, "session", "prompt"));
-        for (key, value) in [
-            ("admissionId", json!("")),
-            ("executionGeneration", json!(0)),
-        ] {
-            let mut invalid = error.clone();
-            invalid["error"]["data"]["rovaiHermesExecution"][key] = value;
-            assert!(failed_prompt_execution(&invalid, "session", "prompt").is_none());
-        }
+        assert!(!input_acceptance_uncertain(
+            &json!({"error":{"code":-32602}})
+        ));
+        assert!(!input_acceptance_uncertain(
+            &json!({"error":{"code":-32603,"data":{"details":"admitted_turn_failed"}}})
+        ));
+        assert!(input_acceptance_uncertain(
+            &json!({"error":{"code":-32603,"data":{"details":"connection_lost"}}})
+        ));
     }
-
-    // Actual native patch hunks are fragments, never proposed or full states.
-    #[test]
-    fn native_patch_requires_a_successful_corroborated_complete_hunk() {
-        let update = json!({"status":"completed","rawInput":{"tool":"patch"},"rawOutput":{
-            "success":true,"files_modified":["/project/a.txt"],"resolved_path":"/project/a.txt",
-            "diff":"--- a//project/a.txt\n+++ b//project/a.txt\n@@ -1,3 +1,3 @@\n head\n-old\n+new\n tail\n"}});
-        let result = reported_patch(&update).unwrap();
-        assert_eq!(result[0]["semantics"], "reported_mutation");
-        assert_eq!(
-            result[0]["fragments"],
-            json!([{"oldText":"old\n","newText":"new\n"}])
-        );
-        let mut no_newline = update.clone();
-        no_newline["rawOutput"]["diff"] =
-            json!("--- a//project/a.txt\n+++ b//project/a.txt\n@@ -1 +1 @@\n-old\r\n+new");
-        assert_eq!(
-            reported_patch(&no_newline).unwrap()[0]["fragments"],
-            json!([{"oldText":"old\r\n","newText":"new"}])
-        );
-        for (pointer, value) in [
-            ("/status", json!("failed")),
-            ("/rawInput/tool", json!("write_file")),
-            ("/rawOutput/success", json!(false)),
-            ("/rawOutput/no_change", json!(true)),
-            ("/rawOutput/files_modified", json!(["/project/other.txt"])),
-            ("/rawOutput/files_created", json!(["/project/a.txt"])),
-            (
-                "/rawOutput/diff",
-                json!("--- a//project/a.txt\n+++ b//project/a.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n"),
-            ),
-        ] {
-            let mut invalid = update.clone();
-            let (parent, key) = pointer.rsplit_once('/').unwrap();
-            invalid.pointer_mut(parent).unwrap()[key] = value;
-            assert!(reported_patch(&invalid).is_none(), "{pointer}");
-        }
-        let mut official = json!({"status":"completed", "rawInput":{"tool":"write_file"},
-            "rawOutput":{"verified":true,"files_modified":["/project/a.txt"]},
-            "_meta":{"rovaiHermesMutation":[{"semantics":"reported_mutation","path":"/project/a.txt",
-                "fragments":[{"oldText":"old\n","newText":"new\n"}]}]}});
-        assert_eq!(
-            reported_patch(&official).unwrap()[0]["semantics"],
-            "reported_mutation"
-        );
-        official["_meta"]["rovaiHermesMutation"][0]["path"] = json!("/project/unrelated.txt");
-        assert!(reported_patch(&official).is_none());
-        official["_meta"]["rovaiHermesMutation"][0]["path"] = json!("/project/a.txt");
-        official["status"] = json!("failed");
-        assert!(reported_patch(&official).is_none());
-    }
-}
-
-/// Native patch results contain actual applied hunks. Keep them as reported
-/// fragments, never complete file states or a proposal inferred from arguments.
-pub fn reported_patch(update: &Value) -> Option<Value> {
-    let output = &update["rawOutput"];
-    if update["status"] == "completed"
-        && output.get("error").is_none_or(Value::is_null)
-        && output["no_change"] != true
-        && ((update["rawInput"]["tool"] == "patch" && output["success"] == true)
-            || (update["rawInput"]["tool"] == "write_file" && output["verified"] == true))
-        && let Some(entries) = update
-            .pointer("/_meta/rovaiHermesMutation")
-            .and_then(Value::as_array)
-    {
-        let paths = output["files_modified"].as_array()?;
-        if !entries.is_empty()
-            && entries.len() <= 64
-            && entries.iter().all(|entry| {
-                entry["semantics"] == "reported_mutation" && paths.contains(&entry["path"])
-            })
-        {
-            return Some(json!(entries));
-        }
-        return None;
-    }
-    if update["status"] != "completed"
-        || update["rawInput"]["tool"] != "patch"
-        || output["success"] != true
-        || output["no_change"] == true
-        || ["files_created", "files_deleted"]
-            .iter()
-            .any(|k| output[k].as_array().is_some_and(|v| !v.is_empty()))
-    {
-        return None;
-    }
-    let files = output["files_modified"].as_array()?;
-    if files.len() != 1 {
-        return None;
-    }
-    let path = files[0].as_str()?;
-    if output["resolved_path"].as_str() != Some(path) {
-        return None;
-    }
-    let patch = output["diff"].as_str()?;
-    if patch.len() > 2 * 1024 * 1024 || patch.contains('\0') {
-        return None;
-    }
-    let mut lines = patch.split_inclusive('\n');
-    if lines.next()? != format!("--- a/{path}\n") || lines.next()? != format!("+++ b/{path}\n") {
-        return None;
-    }
-    let mut fragments = Vec::new();
-    let (mut old, mut new) = (String::new(), String::new());
-    let (mut left_old, mut left_new) = (0usize, 0usize);
-    let mut hunk = false;
-    fn flush(fragments: &mut Vec<Value>, old: &mut String, new: &mut String) {
-        if old != new {
-            fragments.push(json!({"oldText":old, "newText":new}));
-        }
-        old.clear();
-        new.clear();
-    }
-    fn count(range: &str, prefix: char) -> Option<usize> {
-        let range = range.strip_prefix(prefix)?;
-        let (start, count) = range.split_once(',').unwrap_or((range, "1"));
-        start.parse::<usize>().ok()?;
-        count.parse().ok()
-    }
-    for line in lines {
-        if line.starts_with("@@ ") {
-            if left_old != 0 || left_new != 0 {
-                return None;
-            }
-            flush(&mut fragments, &mut old, &mut new);
-            let header: Vec<_> = line.split_whitespace().collect();
-            if header.len() < 4 || header[3] != "@@" {
-                return None;
-            }
-            left_old = count(header[1], '-')?;
-            left_new = count(header[2], '+')?;
-            hunk = true;
-        } else if !hunk {
-            return None;
-        } else if let Some(text) = line.strip_prefix('-') {
-            left_old = left_old.checked_sub(1)?;
-            old.push_str(text);
-        } else if let Some(text) = line.strip_prefix('+') {
-            left_new = left_new.checked_sub(1)?;
-            new.push_str(text);
-        } else if line.starts_with(' ') {
-            left_old = left_old.checked_sub(1)?;
-            left_new = left_new.checked_sub(1)?;
-            flush(&mut fragments, &mut old, &mut new);
-        } else {
-            return None;
-        }
-        if fragments.len() > 1024 {
-            return None;
-        }
-    }
-    if !hunk || left_old != 0 || left_new != 0 {
-        return None;
-    }
-    flush(&mut fragments, &mut old, &mut new);
-    (!fragments.is_empty())
-        .then(|| json!([{"semantics":"reported_mutation", "path":path, "fragments":fragments}]))
 }

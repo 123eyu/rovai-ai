@@ -174,17 +174,7 @@ fn admit_candidate(
                 && source_event_kind == "tool.updated.result"
                 && semantic_kind == "zcode_edit_patch"
         }
-        AdapterKind::HermesCli => {
-            protocol_family == "acp-v1"
-                && ((semantic_kind == "reported_mutation"
-                    && matches!(
-                        source_event_kind,
-                        "session/update.tool_call_update.completed.patch"
-                            | "session/update.tool_call_update.completed.file_result"
-                    ))
-                    || (semantic_kind == "hermes_file_states"
-                        && source_event_kind == "session/update.tool_call_update.completed"))
-        }
+        AdapterKind::HermesCli => false,
         AdapterKind::CommandCodeCli if semantic_kind == "reported_mutation" => {
             protocol_family == "acp-v1"
                 && source_event_kind == "session/update.tool_call_update.completed.edit_file"
@@ -335,48 +325,6 @@ fn admit_candidate(
                     "update" => return Err("runtime_diff_content_invalid"),
                     _ => return Err("runtime_diff_change_kind_invalid"),
                 }
-            }
-            "hermes_file_states" => {
-                let before = raw.get("oldText").ok_or("runtime_diff_content_invalid")?;
-                let after = raw.get("newText").ok_or("runtime_diff_content_invalid")?;
-                if (!before.is_string() && !before.is_null())
-                    || (!after.is_string() && !after.is_null())
-                {
-                    return Err("runtime_diff_content_invalid");
-                }
-                let (before, after) = (before.as_str(), after.as_str());
-                if before == after {
-                    return Err("runtime_diff_no_changes");
-                }
-                let actual_kind = if before.is_none() {
-                    "add"
-                } else if after.is_none() {
-                    "delete"
-                } else {
-                    "update"
-                };
-                if change_kind != actual_kind {
-                    return Err("runtime_diff_change_kind_invalid");
-                }
-                if [before, after]
-                    .into_iter()
-                    .flatten()
-                    .any(|text| text.len() > MAX_SINGLE_DIFF_BYTES || text.contains('\0'))
-                {
-                    return Err("runtime_diff_item_limit");
-                }
-                (
-                    unified_diff_from_complete_states(&path, before, after)
-                        .ok_or("runtime_diff_content_invalid")?,
-                    serde_json::to_value(FullBeforeAfterEvidenceEntry {
-                        semantics: "full_before_after".to_string(),
-                        path: path.clone(),
-                        change_kind: change_kind.clone(),
-                        before: before.map(str::to_string),
-                        after: after.map(str::to_string),
-                    })
-                    .map_err(|_| "runtime_diff_entries_invalid")?,
-                )
             }
             "complete_before_after" => {
                 let old_text = match raw.get("oldText") {
@@ -1718,10 +1666,12 @@ mod tests {
         hermes["runtimeDiff"]["adapterKind"] = json!("hermes-cli");
         hermes["runtimeDiff"]["sourceEventKind"] =
             json!("session/update.tool_call_update.completed.file_result");
-        let hermes = admit_runtime_diff(&hermes, Path::new("/repo"), Some("hermes-cli"))
-            .unwrap()
-            .unwrap();
-        assert_eq!(hermes.evidence_entries, admitted.evidence_entries);
+        assert!(
+            admit_runtime_diff(&hermes, Path::new("/repo"), Some("hermes-cli"))
+                .unwrap()
+                .is_err(),
+            "Retired private Hermes fragments are not current native evidence"
+        );
         let mut legacy = payload.clone();
         legacy["runtimeDiff"]["protocolFamily"] = json!("cline-hub-v1");
         assert!(
@@ -1861,63 +1811,20 @@ mod tests {
                 .diff
                 .contains("-before\n+after")
         );
-        // Hermes reports verified executor states, including missing vs empty.
-        // Keep that distinction through persistence and later Diff reconstruction.
-        for (kind, before, after) in [
-            ("add", None, Some("")),
-            ("add", None, Some("中文\n")),
-            ("delete", Some(""), None),
-            ("delete", Some("old\r\n"), None),
-            ("update", Some("old\r\n"), Some("new\r\n")),
-            ("update", Some("old\n"), Some("")),
-            ("update", Some("same\n"), Some("same")),
-        ] {
-            let payload = json!({"runtimeDiff": {
-                "adapterKind":"hermes-cli", "protocolFamily":"acp-v1",
-                "sourceEventKind":"session/update.tool_call_update.completed",
-                "semanticKind":"hermes_file_states", "entries":[{
-                    "path":"中文 space.txt", "changeKind":kind, "oldText":before, "newText":after
-                }]
-            }});
-            let admitted = admit_runtime_diff(&payload, Path::new("/repo"), Some("hermes-cli"))
+        // Native Hermes ACP diffs are display snippets, not complete states.
+        // The retired private evidence dialect is no longer admitted.
+        let unsupported = json!({"runtimeDiff": {
+            "adapterKind":"hermes-cli", "protocolFamily":"acp-v1",
+            "sourceEventKind":"session/update.tool_call_update.completed",
+            "semanticKind":"hermes_file_states", "entries":[{
+                "path":"file.txt", "changeKind":"update", "oldText":"before", "newText":"after"
+            }]
+        }});
+        assert!(
+            admit_runtime_diff(&unsupported, Path::new("/repo"), Some("hermes-cli"))
                 .unwrap()
-                .unwrap();
-            assert_eq!(admitted.evidence_entries[0]["before"], json!(before));
-            assert_eq!(admitted.evidence_entries[0]["after"], json!(after));
-            let reconstructed = projection_from_evidence(
-                &json!({"runtimeDiff":{
-                    "schemaVersion": COMMAND_DIFF_SCHEMA_VERSION, "status":"available",
-                    "semanticKind":"hermes_file_states", "entries":admitted.evidence_entries
-                }}),
-                "hermes-states",
-            )
-            .unwrap();
-            assert_eq!(reconstructed.entries.unwrap()[0].change_kind, kind);
-            let mut mismatch = payload.clone();
-            mismatch["runtimeDiff"]["entries"][0]["changeKind"] =
-                json!(if kind == "add" { "delete" } else { "add" });
-            assert!(
-                admit_runtime_diff(&mismatch, Path::new("/repo"), Some("hermes-cli"))
-                    .unwrap()
-                    .is_err()
-            );
-        }
-        for entry in [
-            json!({"path":"a", "changeKind":"update", "oldText":"same", "newText":"same"}),
-            json!({"path":"a", "changeKind":"add", "newText":"missing-before"}),
-            json!({"path":"a", "changeKind":"add", "oldText":null, "newText":"binary\u{0000}"}),
-        ] {
-            let payload = json!({"runtimeDiff": {
-                "adapterKind":"hermes-cli", "protocolFamily":"acp-v1",
-                "sourceEventKind":"session/update.tool_call_update.completed",
-                "semanticKind":"hermes_file_states", "entries":[entry]
-            }});
-            assert!(
-                admit_runtime_diff(&payload, Path::new("/repo"), Some("hermes-cli"))
-                    .unwrap()
-                    .is_err()
-            );
-        }
+                .is_err()
+        );
     }
 
     #[test]

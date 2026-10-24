@@ -1,8 +1,8 @@
 // Installed Hermes + deterministic model endpoint. Real native file operations,
-// reasoning config, active redirect, questionnaire exclusion and provider errors.
+// native reasoning, steering, cancellation, concurrency and sparse observations.
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, mkdir, writeFile, readFile, realpath } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, realpath, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { openHermesAcp } from './lib/hermes-native-acp.mjs'
@@ -61,76 +61,64 @@ try {
   const session = await client.request('session/new', { cwd: project, mcpServers: [] }), sessionId = session.sessionId
   await client.request('session/set_mode', { sessionId, modeId: 'dont_ask' })
   const prompt = id => client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'Execute the fixture.' }], _meta: { rovai: { promptId: id } } })
-  const selected = await client.request('session/set_config_option', { sessionId, configId: 'model', value: 'custom:fixture:fixture-model' })
-  assert.equal(selected.configOptions.find(o => o.id === 'model').currentValue, 'custom:fixture:fixture-model', 'Named custom endpoint identity did not round-trip')
-  const effort = await client.request('session/set_config_option', { sessionId, configId: 'reasoning_effort', value: 'high' })
-  assert.equal(effort.configOptions.find(o => o.id === 'reasoning_effort').currentValue, 'high')
+  await client.request('session/set_model', { sessionId, modelId: 'custom:fixture:fixture-model' })
+  assert.equal((await client.request('session/load', {sessionId, cwd: project, mcpServers: []})).models.currentModelId, 'custom:fixture:fixture-model')
   const path = join(project, '中文 space.txt'), second = join(project, 'second.txt')
   queue.push([{ name: 'write_file', args: { path, content: 'alpha\n' } }],
     [{ name: 'write_file', args: { path, content: 'beta\n' } }],
     [{ name: 'patch', args: { path, old_string: 'beta', new_string: 'gamma' } }],
     [{ name: 'patch', args: { mode: 'patch', patch: `*** Begin Patch\n*** Add File: ${second}\n+two\n*** Delete File: ${path}\n*** End Patch` } }])
   assert.equal((await prompt('file-turn')).stopReason, 'end_turn')
-  const mutations = events => events.flatMap(m => m.params?.update?._meta?.rovaiHermesMutation ?? [])
-  const states = mutations(client.events)
-  const hasFragment = (entries, path, oldText, newText) => entries.some(s => s.path === path && s.semantics === 'reported_mutation' && s.fragments.some(f => f.oldText === oldText && f.newText === newText))
-  assert(hasFragment(states, path, '', 'alpha\n'), 'New-file native fragment missing')
-  assert(hasFragment(states, path, 'alpha\n', 'beta\n'), 'Overwrite native fragment missing')
-  assert(hasFragment(states, path, 'beta\n', 'gamma\n'), 'Patch native fragment missing')
-  assert(hasFragment(states, path, 'gamma\n', ''), 'Delete native fragment missing')
-  assert(hasFragment(states, second, '', 'two\n'), 'Multi-file native fragment missing')
-  assert(!client.events.some(m => m.params?.update?._meta?.rovaiHermesFileStates), 'Display diff incorrectly promoted to full states')
-  assert(wire.every(body => body.tools.every(tool => !/ask_user|clarify/.test(tool.name ?? ''))), 'Disabled questionnaire advertised')
-  assert(wire.some(body => body.reasoning?.effort === 'high'), 'Native reasoning effort absent from wire')
-  assert(!JSON.stringify(wire).includes('rovaiHermesMutation'), 'Evidence leaked into model history')
+  assert.equal(await readFile(second, 'utf8'), 'two')
+  await assert.rejects(access(path))
+  assert(client.events.some(m => m.params?.update?.sessionUpdate === 'tool_call'))
+  assert(client.events.some(m => m.params?.update?.status === 'completed'))
+  assert(!client.events.some(m => m.params?.update?._meta?.rovaiHermesMutation))
+  assert(wire.every(body => body.tools.every(tool => !/ask_user|clarify/.test(tool.name ?? ''))))
+  assert(wire.some(body => body.reasoning?.effort === 'low'), 'Native reasoning configuration lost')
   const sql = join(project, 'headings.sql'), ordinary = join(project, 'ordinary.txt')
   await writeFile(sql, '-- heading\nold\n'); await writeFile(ordinary, 'before\n')
-  const multiStart = client.events.length
   queue.push([{ name: 'patch', args: { mode: 'patch', patch: `*** Begin Patch\n*** Update File: ${sql}\n@@\n -- heading\n-old\n+new\n*** Update File: ${ordinary}\n@@\n-before\n+after\n*** End Patch` } }])
   assert.equal((await prompt('two-updates')).stopReason, 'end_turn')
-  const multi = mutations(client.events.slice(multiStart))
-  assert(hasFragment(multi, sql, 'old\n', 'new\n'))
-  assert(hasFragment(multi, ordinary, 'before\n', 'after\n'), 'Native blank separator dropped Update A + Update B')
-  const sqlStart = client.events.length
+  assert.equal(await readFile(sql, 'utf8'), '-- heading\nnew\n')
+  assert.equal(await readFile(ordinary, 'utf8'), 'after\n')
   queue.push([{ name: 'patch', args: { mode: 'patch', patch: `*** Begin Patch\n*** Update File: ${sql}\n@@\n--- heading\n new\n*** Update File: ${ordinary}\n@@\n-after\n+final\n*** End Patch` } }])
   assert.equal((await prompt('sql-header-deletion')).stopReason, 'end_turn')
-  const sqlChanges = mutations(client.events.slice(sqlStart))
-  assert(hasFragment(sqlChanges, sql, '-- heading\n', ''), 'SQL comment deletion mistaken for next file header')
-  assert(hasFragment(sqlChanges, ordinary, 'after\n', 'final\n'))
-  const empty = join(project, 'empty.txt'), crlf = join(project, 'crlf.txt'), moved = join(project, 'moved.txt')
-  const binary = join(project, 'binary.dat'), large = join(project, 'large.txt')
-  await writeFile(crlf, 'old\r\n'); await writeFile(binary, Buffer.from([0, 1, 2])); await writeFile(large, 'x'.repeat(1024 * 1024 + 1))
-  const edgeStart = client.events.length
-  queue.push([{ name: 'read_file', args: { path: crlf } }], [{ name: 'write_file', args: { path: empty, content: '' } },
-    { name: 'write_file', args: { path: crlf, content: 'new\n' } }],
-    [{ name: 'write_file', args: { path: empty, content: '' } }],
-    [{ name: 'patch', args: { path: crlf, old_string: 'not-present', new_string: 'NEVER' } }],
-    [{ name: 'patch', args: { mode: 'patch', patch: `*** Begin Patch\n*** Move File: ${second} -> ${moved}\n*** End Patch` } }],
-    [{ name: 'write_file', args: { path: binary, content: 'text' } }, { name: 'write_file', args: { path: large, content: 'small' } }])
-  assert.equal((await prompt('file-edges')).stopReason, 'end_turn')
-  const edgeEvents = client.events.slice(edgeStart), edges = mutations(edgeEvents)
-  assert.equal(edges.filter(s => s.path === empty).length, 0, 'Empty display invented missing-file/full-state evidence')
-  assert(hasFragment(edges, crlf, 'old\n', 'new\n'), 'Native rendered fragment missing')
-  assert.equal(await readFile(crlf, 'utf8'), 'new\r\n')
-  assert(!edgeEvents.some(m => m.params?.update?._meta?.rovaiHermesFileStates), 'Binary, large, empty or move operations invented full states')
-  assert(!edgeEvents.some(m => m.params?.update?.status === 'failed' && m.params.update._meta?.rovaiHermesMutation), 'Failed patch produced successful evidence')
-  assert.equal(await readFile(moved, 'utf8'), 'two', 'Native move did not complete')
-  console.log('Native file fragments, reasoning and questionnaire exclusion passed')
+  assert.equal(await readFile(sql, 'utf8'), 'new\n')
+  assert.equal(await readFile(ordinary, 'utf8'), 'final\n')
+  console.log('Native tools succeed with sparse ACP observations; native reasoning retained')
   hold = true
   const active = prompt('steer-turn')
   active.catch(() => {}) // Preserve the original assertion if cleanup closes a pending prompt.
   const deadline = Date.now() + 15000
   while (!release && Date.now() < deadline) await new Promise(done => setTimeout(done, 20))
   assert(release, 'Model request did not start')
-  assert.equal((await client.request('_rovai/steer', { sessionId, inputId: 'wrong', expectedPromptId: 'other', text: 'NEVER' })).accepted, false)
-  const steer = await client.request('_rovai/steer', { sessionId, inputId: 'input-1', expectedPromptId: 'steer-turn', text: 'STEER-MARKER-8302' })
+  const steer = await client.control('steer', { sessionId, text: 'STEER-MARKER-8302' })
   assert.equal(steer.accepted, true, JSON.stringify(steer))
   release(); release = null
   assert.equal((await active).stopReason, 'end_turn')
   assert(JSON.stringify(wire.at(-1)).includes('STEER-MARKER-8302'), 'Native redirect never reached model')
-  assert.equal((await client.request('_rovai/steer', { sessionId, inputId: 'late', expectedPromptId: 'steer-turn', text: 'NEVER' })).accepted, false)
+  assert.equal((await client.control('steer', { sessionId, text: 'NEVER' })).accepted, false)
+  hold = true
+  const stopping = prompt('cancel-turn')
+  stopping.catch(() => {})
+  const cancelDeadline = Date.now() + 15000
+  while (!release && Date.now() < cancelDeadline) await new Promise(done => setTimeout(done, 20))
+  assert(release)
+  // A second binding must finish while the first binding is still active.
+  const parallel = await openHermesAcp({ ...options, env: { ...options.env, ROVAI_HERMES_STORAGE: join(root, 'parallel') } })
+  try {
+    const other = (await parallel.request('session/new', {cwd: project, mcpServers: []})).sessionId
+    assert.notEqual(other, sessionId)
+    assert.equal((await parallel.request('session/prompt', {sessionId: other, prompt: [{type: 'text', text: 'Independent task'}]})).stopReason, 'end_turn')
+    assert(release, 'First binding must still be held during independent work')
+  } finally { await parallel.close() }
+  client.notify('session/cancel', {sessionId})
+  assert.equal((await stopping).stopReason, 'cancelled')
+  release(); release = null
+  assert.equal((await prompt('after-cancel')).stopReason, 'end_turn')
   fail = true
-  await assert.rejects(prompt('error-turn'), error => error.rpcError?.code === -32003 && /invalid-hermes-model/.test(error.rpcError?.data?.error))
+  await assert.rejects(prompt('error-turn'), error => error.rpcError?.data?.details === 'admitted_turn_failed')
   fail = false
   await client.close()
   const fixture = join(root, 'mcp.mjs')
@@ -147,33 +135,31 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await writeFile(join(home, 'config.yaml'), JSON.stringify(config), { mode: 0o600 })
     client = await openHermesAcp({ ...options, env: { ...options.env, ROVAI_HERMES_MCP_NAMES: JSON.stringify(code ? ['ownedproof'] : []) } })
     const servers = code ? [{ name: 'ownedproof', command: process.execPath, args: [fixture], env: [{ name: 'PROOF_CODE', value: code }] }] : []
-    await client.request('session/load', { sessionId, cwd: project, mcpServers: servers })
-    const searchAt = client.events.length
+    await client.request('session/load', { sessionId, cwd: project, mcpServers: [] })
+    assert.equal((await client.control('prepare_session', {sessionId, mcpServers: servers})).state, 'idle')
     queue.push([{ name: 'tool_search', args: { queries: ['ownedproof'] } }])
     await prompt('mcp-schema-' + code)
-    const searchResult = client.events.slice(searchAt).filter(event => event.params?.update?.rawInput?.tool === 'tool_search')
-      .map(event => JSON.stringify(event.params.update.rawOutput ?? null)).join('\n')
+    const searchResult = JSON.stringify(wire.at(-1).input.filter(item => item.type === 'function_call_output').at(-1))
     const toolName = searchResult.match(/mcp__editor_ownedproof_[a-z0-9]+__proof/)?.[0]
     assert.equal(Boolean(toolName), Boolean(code), `MCP ${code} did not match the native tool search: ${searchResult}`)
     if (toolName) {
-      const at = client.events.length
       queue.push([{ name: 'tool_describe', args: { names: [toolName] } }],
         [{ name: 'tool_call', args: { calls: [{ name: toolName, arguments: {} }] } }])
       await prompt('mcp-call-' + code)
-      assert(client.events.slice(at).some(event => JSON.stringify(event.params?.update?.rawOutput ?? null).includes(code)), 'Native MCP invoked stale credentials/configuration')
-      assert(!client.events.slice(at).some(event => JSON.stringify(event.params?.update?.rawOutput ?? null).includes('NATIVE_SHOULD_NOT_RUN')), 'Native same-name MCP displaced the Rovai assignment')
+      assert(JSON.stringify(wire.at(-1).input.filter(item => item.type === 'function_call_output').at(-1)).includes(code), 'Native MCP invoked stale credentials/configuration')
+      assert(!JSON.stringify(wire.at(-1).input).includes('NATIVE_SHOULD_NOT_RUN'), 'Native same-name MCP displaced the Rovai assignment')
     }
     await client.close()
     client = null
   }
   client = await openHermesAcp(options)
-  await assert.rejects(client.request('session/load', { sessionId, cwd: project,
-    mcpServers: [{ name: 'broken', command: join(root, 'missing-mcp'), args: [], env: [] }] }),
-    error => error.rpcError?.code === -32003 && /could not discover/.test(error.message))
+  await client.request('session/load', {sessionId, cwd: project, mcpServers: []})
+  await assert.rejects(client.control('prepare_session', { sessionId,
+    mcpServers: [{ name: 'broken', command: join(root, 'missing-mcp'), args: [], env: [] }] }), /could not discover/)
   await client.close(); client = null
   console.log('Exact Session MCP add, changed specification and removal passed')
   if (wireError) throw wireError
-  const summary = { nativeFragments: states, edgeFragments: edges, reasoning: true, questionnaireDisabled: true, steer: true, nativeErrorDetail: true, mcpAddChangeRemove: true, mcpRovaiWins: true, mcpUnavailableRejected: true }
+  const summary = {nativeTools: true, successWithoutEnhancedDetails: true, nativeReasoning: true, questionnaireDisabled: true, steer: true, cancel: true, concurrency: true, nativeFailure: true, mcpAddChangeRemove: true, mcpRovaiWins: true, mcpUnavailableRejected: true}
   await writeFile(join(root, 'summary.json'), JSON.stringify(summary, null, 2))
   console.log('Experience acceptance passed:', root)
 } catch (error) {

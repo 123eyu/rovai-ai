@@ -368,3 +368,7 @@ Hermes 的首次/更新 user 层投递与完成通知后下一普通输入补发
 Hermes 的原会话优先、当前安装选择、恢复与新输入分离以及绑定级并发保护，当前规范见
 [Hermes 合同](../contracts/hermes-managed-runtime-v1.md#安装与进程)，理由见
 [V1.72-D62](../versions/v1.72/decisions.md#v1-72-d62)。
+
+Hermes 普通协议直连、增强观测降级与控制器收缩的当前规范见
+[Hermes 结果与观测](../contracts/hermes-managed-runtime-v1.md#结果与观测)，理由见
+[V1.72-D63](../versions/v1.72/decisions.md#v1-72-d63)。

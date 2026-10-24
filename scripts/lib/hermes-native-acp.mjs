@@ -53,6 +53,19 @@ export async function openHermesAcp({ executable, script, cwd, env }) {
       pending.set(next, { resolve, reject, timer })
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: next, method, params }) + '\n')
     })
+  }, control(operation, params) {
+    return new Promise((resolve, reject) => {
+      const helper = spawn(command, args, { cwd, env: { ...env, ROVAI_HERMES_CONTROL: '1' }, stdio: ['pipe', 'pipe', 'pipe'] })
+      let output = '', errors = ''
+      helper.stdout.on('data', chunk => { output += chunk }); helper.stderr.on('data', chunk => { errors = (errors + chunk).slice(-4000) })
+      const timer = setTimeout(() => helper.kill('SIGKILL'), 45000)
+      helper.on('error', reject)
+      helper.on('close', code => { clearTimeout(timer); try {
+        const value = JSON.parse(output)
+        if (code || value.error) reject(new Error(value.error ?? errors)); else resolve(value.result)
+      } catch (error) { reject(error) } })
+      helper.stdin.end(JSON.stringify({ operation, params }))
+    })
   }, notify(method, params) { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n') }, async close() {
     child.stdin.end()
     const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL') } catch {} }, 3000)

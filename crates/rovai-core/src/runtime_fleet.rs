@@ -750,7 +750,7 @@ impl FleetState {
             );
         }
 
-        // Hermes has one Gateway/storage lock per native binding. Reserve that
+        // Hermes has one native Gateway per binding. Reserve that
         // actual shared resource while spawning, executing and stopping; an
         // unrelated binding never waits on the other Host's I/O.
         if request.adapter_kind == AdapterKind::HermesCli

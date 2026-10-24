@@ -75,10 +75,25 @@ def prepare_home():
     if not source.is_absolute():
         raise Rejected("Hermes native Home must be absolute")
     config_path = source / "config.yaml"
-    config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else None
+    except yaml.YAMLError:
+        # Parser messages can quote credential-bearing source lines.
+        raise Rejected(f"Hermes native configuration has invalid YAML: {config_path}") from None
+    if config is None:
+        config = {}
     if not isinstance(config, dict):
-        raise Rejected("Hermes native configuration must be a mapping")
+        raise Rejected(f"Hermes native configuration must be a mapping or null: {config_path}")
     config = copy.deepcopy(config)
+
+    def section(parent, key):
+        value = parent.get(key)
+        if value is None:
+            value = parent[key] = {}
+        if not isinstance(value, dict):
+            raise Rejected(f"Hermes native configuration section '{key}' must be a mapping or null")
+        return value
+
     assigned = json.loads(os.environ.get("ROVAI_HERMES_MCP_NAMES", "[]"))
     if not isinstance(assigned, list) or not all(isinstance(name, str) for name in assigned):
         raise Rejected("Invalid managed MCP assignment names")
@@ -106,17 +121,26 @@ def prepare_home():
     if bundled.is_dir():
         platform_names.update(path.name for path in bundled.iterdir() if path.is_dir())
     config["platforms"] = {name: {"enabled": False} for name in platform_names}
-    # Native config accepts an empty YAML section (gateway: null).
-    config["gateway"] = config.get("gateway") or {}
-    config["gateway"].update(multiplex_profiles=False, auto_resume=False)
-    config.setdefault("auxiliary", {}).setdefault("title_generation", {}).update(enabled=False, model_upgrade_enabled=False)
-    config["auxiliary"].setdefault("background_review", {})["enabled"] = False
-    config.setdefault("memory", {}).update(memory_enabled=False, user_profile_enabled=False)
-    disabled = config.setdefault("agent", {}).setdefault("disabled_toolsets", [])
+    # Normalize only sections we actually edit; Hermes resolves native defaults.
+    section(config, "gateway").update(multiplex_profiles=False, auto_resume=False)
+    auxiliary = section(config, "auxiliary")
+    section(auxiliary, "title_generation").update(enabled=False, model_upgrade_enabled=False)
+    section(auxiliary, "background_review")["enabled"] = False
+    section(config, "memory").update(memory_enabled=False, user_profile_enabled=False)
+    agent = section(config, "agent")
+    disabled = agent.get("disabled_toolsets")
+    if disabled is None:
+        disabled = agent["disabled_toolsets"] = []
+    elif isinstance(disabled, str):
+        # Native config also accepts a scalar name or a quoted list here.
+        from agent.skill_utils import parse_config_string_list
+        disabled = agent["disabled_toolsets"] = parse_config_string_list(disabled)
+    if not isinstance(disabled, list):
+        raise Rejected("Hermes native agent.disabled_toolsets must be a list, string or null")
     for name in ("clarify", "cronjob"):
         if name not in disabled:
             disabled.append(name)
-    terminal = config.setdefault("terminal", {})
+    terminal = section(config, "terminal")
     terminal["env_passthrough"] = sorted(set(terminal.get("env_passthrough") or []) | {k for k in os.environ if k.startswith("ROVAI_")})
     # A private Home must not seed a different user skill library. Native project
     # discovery and config.skills.external_dirs continue to resolve normally.
@@ -136,7 +160,7 @@ def prepare_home():
             auth_lock.unlink()
         if not auth_lock.exists() and not auth_lock.is_symlink():
             auth_lock.symlink_to(source / "auth.lock")
-    skills = config.setdefault("skills", {})
+    skills = section(config, "skills")
     def skill_path(value):
         path = Path(os.path.expandvars(value)).expanduser()
         return str(path if path.is_absolute() else source / path)
@@ -148,7 +172,12 @@ def prepare_home():
     if hook_command:
         # Use the official configuration hook. Missing optional observations
         # must not add a second, internal-API startup eligibility gate.
-        hooks = config.setdefault("hooks", {}).setdefault("post_compaction", [])
+        hook_config = section(config, "hooks")
+        hooks = hook_config.get("post_compaction")
+        if hooks is None:
+            hooks = hook_config["post_compaction"] = []
+        if not isinstance(hooks, list):
+            raise Rejected("Hermes native hooks.post_compaction must be a list or null")
         if not any(hook.get("command") == hook_command for hook in hooks if isinstance(hook, dict)):
             hooks.append({"command": hook_command, "timeout": 5})
         # Consent only this owned observer, never blanket-approve user hooks.
@@ -178,6 +207,7 @@ class Control:
         session = params["sessionId"]
         snapshot = await self.read_snapshot(session)
         state = session_state(snapshot)
+        prepared = {"sessionId": session, "state": state}
         if state == "idle":
             # Official ACP interprets an empty list as 'keep existing servers'.
             # The binding owns the assignment, including explicit revocation.
@@ -186,9 +216,15 @@ class Control:
                 operation="editor_mcp", payload={"mcp_servers": servers},
                 expected_revision=snapshot["revision"],
                 expected_generation=snapshot["execution_generation"], request_id=uuid.uuid4().hex)
-            if sorted(result.get("mcp_servers", [])) != sorted(server["name"] for server in servers):
-                raise Rejected("Hermes could not discover every assigned MCP server")
-        return {"sessionId": session, "state": state}
+            discovered = result.get("mcp_servers") if isinstance(result, dict) else None
+            requested = {server["name"] for server in servers}
+            if (not isinstance(discovered, list) or not all(isinstance(name, str) for name in discovered)
+                    or not set(discovered).issubset(requested)):
+                raise Rejected("Hermes returned an invalid MCP discovery result; assignment is unconfirmed")
+            missing = sorted(requested - set(discovered))
+            if missing:
+                prepared["missingMcpServers"] = missing
+        return prepared
 
     async def steer(self, params):
         session = params["sessionId"]

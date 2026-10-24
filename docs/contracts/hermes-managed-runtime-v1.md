@@ -38,6 +38,9 @@ Core 启动沿既有 owned-processes 记录清理遗留进程。只退出 ACP vi
 Skills 连接到原生路径，Run 内禁用隐式依赖下载。相对 Skills 配置仍以原生 Home 为基准，变量按原生 dotenv
 环境展开。私有 config 关闭消息平台、profile multiplex、auto-resume、cronjob、原生 memory 注入、
 后台 memory review 和标题模型调用。SessionDB、控制 socket 与 Gateway 锁不共享。
+配置保留稀疏的原始 YAML 副本，不展开整份原生默认值。文件缺失、空白、只有注释或显式 null 均按空配置；
+仅在需要改写的配置节兼容缺失/null，保留其他字段与变量表达式，源文件不写回。语法错误和错误的顶层类型
+明确报错；追加禁用工具和压缩 Hook 时保留已有条目且不重复追加。
 binding 首次创建时将原生来源 Home 与 `default` profile 记录在私有 `native-source.json`；后继 Run
 继续使用该来源和原 SessionDB。旧 binding 从已有原生链接接续来源；没有来源链接时保留私有 Home
 已存的配置，不猜测另一个来源。不迁移 Session 或复制原生数据库。
@@ -146,10 +149,18 @@ Skills 索引遵循原生 Home 的 skills、create_dir、external_dirs 与禁用
 受信时采集。设置页仅用户来源，Thread 候选可含受信项目来源；保留路径身份，不把索引存在当成实际加载。
 仅在原生 `.env` 定义的目录变量尚无 Rust 索引等价保证。
 
-MCP 使用官方 ACP editor assignment 与公开 `session.mutate(editor_mcp)`；后者核对实际发现的 server
-名称，原生 partial discovery 不能静默当作全部成功。空 assignment 显式撤销，因为原生 ACP load 空列表
-本意是保留。变更/撤销随新 Run 的 Host 冷启动，恢复原 Session 后重绑。Gateway 启动前从私有 config 排除 Rovai assignment 同名的原生 MCP，其他原生服务
-保留，源 config 不变。工具可能经 tool_search/tool_describe/tool_call 延迟发现，不能只检查直接 tools 数组。
+新 Session 的 MCP 只随官方 ACP `session/new` 绑定，不在创建后重复发现。冷恢复先恢复历史，再读取一次
+完整状态快照；idle 时用该快照的 revision/generation 提交一次 `session.mutate(editor_mcp)`，其他执行状态
+暂不修改。每 Run 冷 Gateway 需要重建凭据与连接，不能因持久分配列表未变而跳过。空 assignment 通过
+显式 mutation 撤销，因为原生 ACP load 的空列表本意是保留。
+
+原生操作正常返回的已发现服务子集可继续使用，缺失服务通过现有诊断告警；全部外部 MCP 都不可用时，
+仍允许原生工具和普通对话。保留用户分配，同轮不自动重试发现。新建优先呈现原生日志，恢复的结构化结果
+可报告缺失名称；不为展示再发一次发现。RPC 断线、异常返回、状态冲突及未确认的撤销仍报错，不能当作
+部分发现失败，也不能把缺失返回字段当作已撤销。快照只在紧接着的操作内传递，不建立状态缓存或轮询。
+
+Gateway 启动前从私有 config 排除 Rovai assignment 同名的原生 MCP，其他原生服务保留，源 config 不变。
+工具可能经 tool_search/tool_describe/tool_call 延迟发现，不能只检查直接 tools 数组。
 
 ## 结果与观测
 

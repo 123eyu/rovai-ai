@@ -184,3 +184,26 @@ ACP extended 为 67 passed / 0 failed / 2 ignored，runtime_diff 17 项、稀疏
 
 保留 Preview；本轮不扩展 warm 协议、专用聊天恢复按钮或其他平台资格。真实模型识图、所有历史版本和
 所有边角组合不作为本轮简化的已完成宣称。
+
+## 稀疏配置与 MCP 部分可用性（2026-10-24）
+
+按 User sequence 40 在直连版本上补齐两处边界：`prepare_home()` 接受缺失/空白/注释/null 配置，
+只对实际改写的节与追加列表兼容 null；保留未知字段、原生表达式和源文件，不载入完整默认配置。
+原生允许的 disabled_toolsets 字符串形式交给原生小函数解析后追加关闭项，已有条目和 Hook 不重复。
+
+恢复时 MCP mutation 正常返回部分或空发现集合，保留成功服务并沿现有 HostDiagnostic 报告缺失名称，
+允许普通对话与原生工具继续。RPC 断线、状态冲突、异常结构与未确认撤销仍报错，不循环重连。
+新建只随 `session/new` 绑定；冷恢复仍先恢复历史，再以一次快照的 revision/generation 执行一次 mutation。
+这两条调用路径、直接官方 set_mode、删除 refresh_efforts/session_info 重复读取，已在直连简化中完成，
+本次没有恢复旧 controller 或添加缓存、锁、轮询与新的恢复系统。
+
+Python 既有入口 6 项通过，覆盖空配置/空节、错误类型/语法边界、源文件不变与重复准备、部分/全部失败、
+空列表撤销、异常返回及 running/approval/queued/unknown 不改分配；调用计数只统计受管控制主动发起的
+一次 resume 与至多一次 mutation，不包含官方 ACP 自己的必要查询。workspace check、fmt、既有 ACP
+诊断脱敏用例及文档治理检查通过。本次没有新增 Rust 测试入口；上节完整 Rust 结果属于此前提交。
+
+隔离官方 Hermes 0.22.4 + loopback Responses 的既有 experience 流程通过，最终 fixture 为
+`rovai-hermes-experience-kXKqO4`。真实 YAML 空节可启动；新 Session 同时分配一个可用/一个失败的 MCP，
+成功工具和普通对话可用；同 Session 冷恢复保留历史、重新连接相同分配、更新凭据、从有效分配明确清空后
+旧工具消失；全部外部 MCP 不可用仍正常结束对话，原生日志报告失败。原有文件工具、取消、Steer、并发和
+增强观测缺失仍成功的断言同次通过。未改官方源码、未使用日常数据或真实付费模型，未扩大平台矩阵。

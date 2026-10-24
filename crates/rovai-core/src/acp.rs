@@ -2647,14 +2647,25 @@ impl AcpHost {
 
     async fn hermes_control(&self, operation: &str, params: Value) -> Result<Value> {
         ensure!(self.is_alive(), "Hermes Host exited");
-        crate::hermes::control(
+        let result = crate::hermes::control(
             self.hermes_control
                 .as_ref()
                 .context("Hermes control unavailable")?,
             operation,
             params,
         )
-        .await
+        .await?;
+        if let Some(missing) = result
+            .get("missingMcpServers")
+            .and_then(Value::as_array)
+            .filter(|names| !names.is_empty())
+        {
+            self.send_host_diagnostic(format!(
+                "Hermes MCP discovery incomplete; unavailable servers: {}. Continuing with native tools and available MCP servers.",
+                json!(missing)
+            ));
+        }
+        Ok(result)
     }
 
     async fn complete_pending(&self, id: u64, pending: PendingRpc, message: Value) {

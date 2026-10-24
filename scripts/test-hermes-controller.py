@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, Mock, patch
 HOST = Path(__file__).resolve().parents[1] / "crates/rovai-core/src/hermes/host.py"
 spec = importlib.util.spec_from_file_location("hermes_controller", HOST)
 host = importlib.util.module_from_spec(spec)
-# Home preparation is outside these owners; loading the controller needs no
-# installed Hermes. Native prompt precedence is covered by the wire smoke.
+# Loading these boundary tests needs no installed Hermes. Native YAML parsing
+# and MCP discovery are exercised by the isolated experience smoke.
 with patch.dict(sys.modules, {"hermes_yaml": types.ModuleType("hermes_yaml")}):
     spec.loader.exec_module(host)
 
@@ -112,6 +112,40 @@ class OfficialControls(unittest.IsolatedAsyncioTestCase):
                     ["session.resume"] + (["session.mutate"] if state == "idle" else []))
                 if state == "idle":
                     self.assertEqual(rpc.call_args.kwargs["payload"], {"mcp_servers": []})
+                    self.assertEqual(rpc.call_args.kwargs["expected_revision"], 1)
+                    self.assertEqual(rpc.call_args.kwargs["expected_generation"], 2)
+
+        # A normally returned subset is usable; an absent/malformed response or
+        # an uncertain revoke is not evidence that the assignment was applied.
+        for requested, response, missing in (
+                (["good", "broken"], {"mcp_servers": ["good"]}, ["broken"]),
+                (["broken"], {"mcp_servers": []}, ["broken"]),
+                (["good"], {"mcp_servers": ["good"]}, []),
+                ([], {"mcp_servers": []}, []),
+                ([], {}, None), ([], {"mcp_servers": ["old"]}, None),
+                (["good"], {"mcp_servers": None}, None),
+                (["good"], {"mcp_servers": "good"}, None),
+                (["good"], {"mcp_servers": [1]}, None),
+                (["good"], None, None),
+                (["good"], ConnectionError("connection lost"), None),
+                ([], RuntimeError("revision_conflict"), None)):
+            with self.subTest(requested=requested, response=response):
+                snapshot = {"session_id": "original", "revision": 4, "execution_generation": 7}
+                rpc = AsyncMock(side_effect=[snapshot, response])
+                c = host.Control(types.SimpleNamespace(rpc=rpc))
+                servers = [{"name": name} for name in requested]
+                if missing is None:
+                    with self.assertRaises(type(response) if isinstance(response, Exception) else host.Rejected):
+                        await c.prepare_session({"sessionId": "original", "mcpServers": servers})
+                else:
+                    result = await c.prepare_session({"sessionId": "original", "mcpServers": servers})
+                    self.assertEqual(result["sessionId"], "original")
+                    self.assertEqual(result["state"], "idle")
+                    self.assertEqual(result.get("missingMcpServers", []), missing)
+                    self.assertEqual([server["name"] for server in servers], requested)
+                self.assertEqual([call.args[0] for call in rpc.call_args_list], ["session.resume", "session.mutate"])
+                self.assertEqual(rpc.call_args.kwargs["expected_revision"], 4)
+                self.assertEqual(rpc.call_args.kwargs["expected_generation"], 7)
 
     async def test_steer_targets_native_generation_and_never_retries(self):
         for response in ({"status": "queued", "execution_generation": 7}, {"status": "rejected", "delivered": False}, ConnectionError("lost")):
@@ -156,6 +190,78 @@ class OfficialControls(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(json.loads((home / "config.yaml").read_text())["agent"]["system_prompt"], "original-profile")
                     self.assertEqual(json.loads((storage / "native-source.json").read_text())["home"], str(home))
                     self.assertFalse((home / "auth.lock").is_symlink())
+
+    def test_home_preserves_sparse_config_and_normalizes_only_rewritten_sections(self):
+        preserved = {
+            "agent": {"system_prompt": "${NATIVE_PROMPT}", "disabled_toolsets": ["custom", "clarify"]},
+            "hooks": {"post_compaction": [{"command": "user-hook", "future_field": "${KEEP}"},
+                                         {"command": "owned-observer", "timeout": 5}],
+                      "future_event": {"opaque": None}},
+            "memory": {"future_option": False}, "display": {"personality": "native"},
+            "unknown_section": {"expression": "${KEEP}", "empty": None},
+        }
+        cases = [("missing", None, None), ("empty", "", None),
+                 ("comment", "# native config\n", None), ("null", "null\n", None),
+                 ("preserved", json.dumps(preserved), preserved)]
+        for key in ("gateway", "auxiliary", "memory", "agent", "terminal", "skills", "hooks"):
+            cases.append((key, json.dumps({key: None}), {key: None}))
+        for value in ({"auxiliary": {"title_generation": None, "background_review": None}},
+                      {"agent": {"disabled_toolsets": None}}, {"hooks": {"post_compaction": None}},
+                      {"agent": {"disabled_toolsets": "custom"}},
+                      {"agent": {"disabled_toolsets": '["custom"]'}}):
+            cases.append((str(value), json.dumps(value), value))
+        for value in (False, 0, [], "scalar", {"gateway": False}, {"auxiliary": {"title_generation": []}}):
+            cases.append(("invalid-type", json.dumps(value), value))
+        cases += [("invalid-yaml", "agent: [", ValueError("secret source line")),
+                  ("hook-disabled", '{"hooks":"native-future-format"}', {"hooks": "native-future-format"})]
+        for name, source_text, parsed in cases:
+            with self.subTest(case=name, source=source_text), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                source, storage = root / "source", root / "storage"
+                source.mkdir()
+                config_path = source / "config.yaml"
+                if source_text is not None:
+                    config_path.write_text(source_text)
+                load = Mock(side_effect=parsed) if isinstance(parsed, Exception) else Mock(return_value=parsed)
+                native_list = Mock(return_value=["custom"])
+                modules = {"dotenv": types.SimpleNamespace(dotenv_values=lambda _: {}),
+                           "hermes_cli": types.SimpleNamespace(__file__=str(root / "package/hermes_cli/__init__.py")),
+                           "agent.skill_utils": types.SimpleNamespace(parse_config_string_list=native_list)}
+                yaml = types.SimpleNamespace(safe_load=load, safe_dump=lambda value, **_: json.dumps(value), YAMLError=ValueError)
+                env = {"HERMES_HOME": str(source), "ROVAI_HERMES_STORAGE": str(storage),
+                       "ROVAI_HERMES_COMPACTION_HOOK": "" if name == "hook-disabled" else "owned-observer"}
+                for _ in range(2):
+                    with patch.dict(sys.modules, modules), patch.object(host, "yaml", yaml), patch.dict(os.environ, env):
+                        if name.startswith("invalid"):
+                            with self.assertRaisesRegex(host.Rejected, "configuration") as error:
+                                host.prepare_home()
+                            self.assertNotIn("secret source line", str(error.exception))
+                        else:
+                            home = host.prepare_home()
+                            result = json.loads((home / "config.yaml").read_text())
+                            self.assertEqual(result["gateway"]["auto_resume"], False)
+                            self.assertEqual(result["auxiliary"]["background_review"]["enabled"], False)
+                            self.assertEqual(result["memory"]["memory_enabled"], False)
+                            for toolset in ("clarify", "cronjob"):
+                                self.assertEqual(result["agent"]["disabled_toolsets"].count(toolset), 1)
+                            if name == "hook-disabled":
+                                self.assertEqual(result["hooks"], parsed["hooks"])
+                            else:
+                                self.assertEqual(sum(h.get("command") == "owned-observer" for h in result["hooks"]["post_compaction"]), 1)
+                            if name == "preserved":
+                                for key in ("hooks", "display", "unknown_section"):
+                                    self.assertEqual(result[key], preserved[key])
+                                self.assertEqual(result["agent"]["system_prompt"], "${NATIVE_PROMPT}")
+                                self.assertIn("custom", result["agent"]["disabled_toolsets"])
+                            if isinstance(parsed, dict) and isinstance((parsed.get("agent") or {}).get("disabled_toolsets"), str):
+                                native_list.assert_called_with(parsed["agent"]["disabled_toolsets"])
+                                self.assertIn("custom", result["agent"]["disabled_toolsets"])
+                            self.assertNotIn("model", result)  # No expanded native defaults.
+                    self.assertEqual(config_path.read_text() if config_path.exists() else None, source_text)
+                    if source_text is None:
+                        load.assert_not_called()
+                    else:
+                        load.assert_called_with(source_text)
 
 if __name__ == "__main__":
     unittest.main()

@@ -126,7 +126,9 @@ Hermes 当前仅保留 launcher/官方错误边界的独立纯函数 owner；恢
 `python3 scripts/test-hermes-controller.py` 覆盖现存启动器和小范围官方控制。生产 Core 的
 `smoke-hermes-first-input.mjs --availability` 复用隔离 Home/data-dir/Skill Library/MCP，验证当前安装恢复
 原 Session、未知任务不重放、明确解除阻塞后新任务；`--compression --unprotected` 单独验证多次自动压缩。
-`smoke-hermes-experience.mjs` 验证普通工具、停止、独立 Binding 并发，以及缺少增强详情仍成功。
+`smoke-hermes-experience.mjs` 验证普通工具、停止、独立 Binding 并发，以及缺少增强详情仍成功；沿同一原生
+Session 验证 MCP 首次绑定、部分/全部不可用仍可对话、冷恢复重绑、更新与明确清空。Python 既有入口
+参数化覆盖稀疏配置空值、保留源配置、一次快照/一次 mutation、原生阻塞与未确认撤销不降级为成功。
 失败回合不提供独立 usage delta 时保持未知；`smoke-hermes-failed-usage.mjs` 验证失败与不虚构消费。
 受控 Provider 使用 dummy key，实际运行未修改的官方执行器；不能等同真实付费模型验收。最新结果见
 [实施记录](../versions/v1.72/hermes-first-input-implementation.md#官方-acp-直连简化2026-10-24)。

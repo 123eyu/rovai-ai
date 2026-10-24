@@ -50,6 +50,8 @@ await writeFile(join(home, 'config.yaml'), JSON.stringify({ model: { provider: '
     transport: 'codex_responses', models: ['fixture-model'] } },
   platform_toolsets: { acp: ['file', 'terminal', 'clarify'] },
   agent: { max_turns: 20, disabled_toolsets: ['clarify'], reasoning_effort: 'low' },
+  gateway: null, auxiliary: { title_generation: null, background_review: null },
+  memory: null, terminal: null, skills: null, hooks: { post_compaction: null },
   session_title: { enabled: false }, compression: { enabled: false } }), { mode: 0o600 })
 let client
 console.log('Isolated fixture:', root)
@@ -128,38 +130,53 @@ const result=m.method==='initialize'?{protocolVersion:m.params.protocolVersion,c
 m.method==='tools/list'?{tools:[{name:'proof',description:'Controlled proof tool',inputSchema:{type:'object',properties:{}}}]}:
 m.method==='tools/call'?{content:[{type:'text',text:process.env.PROOF_CODE}]}:{};
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
-  for (const code of ['FIRST', 'CHANGED', null]) {
+  let mcpSessionId
+  const broken = { name: 'broken', command: join(root, 'missing-mcp'), args: [], env: [] }
+  for (const [phase, code, unavailable] of [
+    ['new', 'FIRST', true], ['cold', 'FIRST', true], ['changed', 'CHANGED', true],
+    ['clear', null, false], ['all-failed', null, true],
+  ]) {
     const config = JSON.parse(await readFile(join(home, 'config.yaml'), 'utf8'))
     config.mcp_servers = code ? { ownedproof: { command: process.execPath, args: [fixture], env: { PROOF_CODE: 'NATIVE_SHOULD_NOT_RUN' } } } : {}
     config.platform_toolsets.acp = ['file', 'terminal', 'clarify', ...(code ? ['mcp-ownedproof'] : [])]
     await writeFile(join(home, 'config.yaml'), JSON.stringify(config), { mode: 0o600 })
-    client = await openHermesAcp({ ...options, env: { ...options.env, ROVAI_HERMES_MCP_NAMES: JSON.stringify(code ? ['ownedproof'] : []) } })
     const servers = code ? [{ name: 'ownedproof', command: process.execPath, args: [fixture], env: [{ name: 'PROOF_CODE', value: code }] }] : []
-    await client.request('session/load', { sessionId, cwd: project, mcpServers: [] })
-    assert.equal((await client.control('prepare_session', {sessionId, mcpServers: servers})).state, 'idle')
+    if (unavailable) servers.push(broken)
+    client = await openHermesAcp({ ...options, env: { ...options.env, ROVAI_HERMES_MCP_NAMES: JSON.stringify(servers.map(server => server.name)) } })
+    if (phase === 'new') {
+      mcpSessionId = (await client.request('session/new', { cwd: project, mcpServers: servers })).sessionId
+      // The official creation binds MCP. No prepare_session/second discovery.
+      await client.request('session/set_mode', { sessionId: mcpSessionId, modeId: 'dont_ask' })
+    } else {
+      await client.request('session/load', { sessionId: mcpSessionId, cwd: project, mcpServers: [] })
+      assert(client.events.some(event => event.params?.sessionId === mcpSessionId && event.params.update?.sessionUpdate === 'user_message_chunk'), 'History must restore before MCP preparation')
+      const prepared = await client.control('prepare_session', {sessionId: mcpSessionId, mcpServers: servers})
+      assert.equal(prepared.sessionId, mcpSessionId)
+      assert.equal(prepared.state, 'idle')
+      assert.deepEqual(prepared.missingMcpServers ?? [], unavailable ? ['broken'] : [])
+    }
+    const mcpPrompt = () => client.request('session/prompt', { sessionId: mcpSessionId,
+      prompt: [{ type: 'text', text: `MCP fixture ${phase}` }] })
+    assert.equal((await mcpPrompt()).stopReason, 'end_turn', 'Unavailable MCP must not prevent ordinary dialogue')
     queue.push([{ name: 'tool_search', args: { queries: ['ownedproof'] } }])
-    await prompt('mcp-schema-' + code)
+    assert.equal((await mcpPrompt()).stopReason, 'end_turn')
     const searchResult = JSON.stringify(wire.at(-1).input.filter(item => item.type === 'function_call_output').at(-1))
     const toolName = searchResult.match(/mcp__editor_ownedproof_[a-z0-9]+__proof/)?.[0]
     assert.equal(Boolean(toolName), Boolean(code), `MCP ${code} did not match the native tool search: ${searchResult}`)
     if (toolName) {
       queue.push([{ name: 'tool_describe', args: { names: [toolName] } }],
         [{ name: 'tool_call', args: { calls: [{ name: toolName, arguments: {} }] } }])
-      await prompt('mcp-call-' + code)
+      assert.equal((await mcpPrompt()).stopReason, 'end_turn')
       assert(JSON.stringify(wire.at(-1).input.filter(item => item.type === 'function_call_output').at(-1)).includes(code), 'Native MCP invoked stale credentials/configuration')
       assert(!JSON.stringify(wire.at(-1).input).includes('NATIVE_SHOULD_NOT_RUN'), 'Native same-name MCP displaced the Rovai assignment')
     }
+    if (unavailable) assert(client.stderr.includes('failed discovery'), 'Native partial discovery must be diagnosed')
     await client.close()
     client = null
   }
-  client = await openHermesAcp(options)
-  await client.request('session/load', {sessionId, cwd: project, mcpServers: []})
-  await assert.rejects(client.control('prepare_session', { sessionId,
-    mcpServers: [{ name: 'broken', command: join(root, 'missing-mcp'), args: [], env: [] }] }), /could not discover/)
-  await client.close(); client = null
-  console.log('Exact Session MCP add, changed specification and removal passed')
+  console.log('One Session MCP creation, partial failure, cold restore, changed specification and removal passed')
   if (wireError) throw wireError
-  const summary = {nativeTools: true, successWithoutEnhancedDetails: true, nativeReasoning: true, questionnaireDisabled: true, steer: true, cancel: true, concurrency: true, nativeFailure: true, mcpAddChangeRemove: true, mcpRovaiWins: true, mcpUnavailableRejected: true}
+  const summary = {nativeTools: true, successWithoutEnhancedDetails: true, nativeReasoning: true, questionnaireDisabled: true, steer: true, cancel: true, concurrency: true, nativeFailure: true, nullConfigSections: true, mcpSessionId, mcpAddChangeRemove: true, mcpRovaiWins: true, mcpPartialFailureContinues: true, mcpAllUnavailableContinues: true}
   await writeFile(join(root, 'summary.json'), JSON.stringify(summary, null, 2))
   console.log('Experience acceptance passed:', root)
 } catch (error) {

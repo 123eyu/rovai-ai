@@ -9704,10 +9704,8 @@ impl Core {
                 {
                     return Ok(serde_json::to_value(blocker)?);
                 }
-                let restart_command = params.command.adapter_kind == AdapterKind::CommandCodeCli
-                    && environment_edit.is_some();
                 let agent_id = params.command.agent_id.clone();
-                let execution = {
+                let (execution, restart_command) = {
                     let mut database = self.database.lock().await;
                     let environment = environment_edit
                         .map(|edit| {
@@ -9720,6 +9718,9 @@ impl Core {
                             )
                         })
                         .transpose()?;
+                    let restart_command = params.command.adapter_kind
+                        == AdapterKind::CommandCodeCli
+                        && environment.as_ref().is_some_and(|update| update.changed);
                     params.command.environment_update =
                         environment.as_ref().map(|update| update.receipt.clone());
                     let execution = AgentProfileService::default().set_runtime_with_environment(
@@ -9730,11 +9731,11 @@ impl Core {
                     if execution.result.status == CommandResultStatus::Applied {
                         self.mark_skill_projections_dirty_best_effort(&mut database, true);
                     }
-                    execution
+                    (execution, restart_command)
                 };
                 emit_member_roster_if_applied(&self.output, &request.method, &execution);
                 if execution.result.status == CommandResultStatus::Applied {
-                    if restart_command {
+                    if restart_command && !execution.replayed {
                         self.runtime_fleet.invalidate_member(&agent_id).await;
                     }
                     self.pump_runtime_ready_recipient(&agent_id).await?;

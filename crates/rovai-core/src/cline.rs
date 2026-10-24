@@ -1054,12 +1054,10 @@ mod tests {
     // Both adapters formerly rejected valid long identities at 32 KiB. Exercise
     // the native binding files and immutable retry boundary without a model call.
     #[test]
-    fn long_bootstrap_bindings_preserve_utf8_and_enforce_body_and_envelope_limits() {
+    fn long_bootstrap_bindings_preserve_utf8_and_enforce_body_limits() {
         let root =
             std::env::temp_dir().join(format!("rovai-bootstrap-capacity-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("bindings")).unwrap();
-        fs::write(root.join("nonce"), "test-nonce").unwrap();
-        fs::write(root.join("ready.json"), serde_json::to_vec(&json!({"revision":crate::command_code_acp::BOOTSTRAP_REVISION, "nonce":"test-nonce", "pid":1})).unwrap()).unwrap();
         let text = format!(
             "[MEMBER_IDENTITY]\n{}\n[/MEMBER_IDENTITY]",
             serde_json::to_string(&json!({"professionalResponsibilities":"😀".repeat(10_000)}))
@@ -1088,16 +1086,23 @@ mod tests {
             assert!(bind_bootstrap(&root, "invalid", &invalid).is_err());
             assert!(crate::command_code_acp::bind_bootstrap(&root, "invalid", &invalid).is_err());
         }
-        assert!(
-            crate::command_code_acp::bind_bootstrap(
-                &root,
-                "escaped",
-                &"\"".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES)
-            )
-            .is_err()
+        let escaped = "\"".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES);
+        crate::command_code_acp::bind_bootstrap(&root, "escaped", &escaped).unwrap();
+        let serialized = fs::read(root.join("bindings/escaped.json")).unwrap();
+        assert!(serialized.len() > 256 * 1024);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&serialized).unwrap()["bootstrap"],
+            escaped
         );
         assert!(bind_bootstrap(&root, "long-session", "changed").is_err());
-        assert!(crate::command_code_acp::bind_bootstrap(&root, "long-session", "changed").is_err());
+        crate::command_code_acp::bind_bootstrap(&root, "long-session", "changed").unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(
+                &fs::read(root.join("bindings/long-session.json")).unwrap()
+            )
+            .unwrap(),
+            binding
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

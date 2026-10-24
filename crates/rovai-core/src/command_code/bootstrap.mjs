@@ -19,7 +19,6 @@ export default function (cmd) {
         const sessionId = state?.sessionId;
         if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(sessionId)) throw new Error();
         const raw = readFileSync(join(root, 'bindings', `${sessionId}.json`));
-        if (raw.length > 256 * 1024) throw new Error();
         const binding = JSON.parse(raw);
         if (binding.schemaVersion !== 1 || binding.sessionId !== sessionId ||
             typeof binding.bootstrap !== 'string' || !binding.bootstrap.trim() ||

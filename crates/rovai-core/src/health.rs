@@ -2352,14 +2352,6 @@ async fn run_acp_probe_with_scope(
     };
     match result {
         Ok(result) => Ok(result),
-        Err(_) if matches!(kind, AdapterKind::CommandCodeCli) => {
-            // Native diagnostics and RPC error bodies can contain BYOK
-            // settings. The probe only publishes a stable failure category.
-            Err(anyhow::anyhow!(
-                "{} ACP probe failed; check its native provider configuration",
-                kind.as_str()
-            ))
-        }
         Err(error) if stderr.bytes.iter().any(|byte| !byte.is_ascii_whitespace()) => {
             let detail = String::from_utf8_lossy(&stderr.bytes);
             let bounded = detail.chars().take(4096).collect::<String>();
@@ -4308,8 +4300,8 @@ while IFS= read -r ignored; do :; done
         }
     }
 
-    #[test]
-    fn acp_probe_failure_classification_separates_auth_protocol_and_transient_errors() {
+    #[tokio::test]
+    async fn acp_probe_failure_classification_separates_auth_protocol_and_transient_errors() {
         for detail in [
             "ACP probe failed: authentication required",
             "ACP probe failed: not signed in",
@@ -4334,6 +4326,55 @@ while IFS= read -r ignored; do :; done
             classify_acp_probe_failure("ACP probe timed out"),
             AgentRuntimeProbeStatus::ProbeFailed
         );
+
+        // Exercise the real probe boundary: Command must preserve errors just
+        // like other ACP adapters before the common classifier/redactor runs.
+        let directory = env::temp_dir().join(format!("rovai-acp-errors-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let _cleanup = ProbeRootCleanup(directory.clone());
+        let runtime = directory.join("runtime");
+        for (detail, expected) in [
+            (
+                "Not authenticated",
+                AgentRuntimeProbeStatus::AuthenticationRequired,
+            ),
+            (
+                "Method not found",
+                AgentRuntimeProbeStatus::MissingCapabilities,
+            ),
+            ("request timed out", AgentRuntimeProbeStatus::ProbeFailed),
+        ] {
+            fs::write(
+                &runtime,
+                format!(
+                    r#"#!/bin/sh
+IFS= read -r initialize || exit 1
+printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1}}}}'
+IFS= read -r session || exit 1
+printf '%s\n' 'fixture diagnostic' >&2
+printf '%s\n' '{{"jsonrpc":"2.0","id":2,"error":{{"code":-32000,"message":"{detail}"}}}}'
+while IFS= read -r ignored; do :; done
+"#
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+            for kind in [AdapterKind::CommandCodeCli, AdapterKind::KimiCodeCli] {
+                let probe = acp_capability_probe_at_for_purpose(
+                    &runtime,
+                    kind,
+                    RuntimeLaunchPurpose::HealthProbe,
+                    None,
+                    Some("1.88.0"),
+                    false,
+                )
+                .await;
+                assert_eq!(probe.result.status, expected, "{kind:?}: {probe:?}");
+                let diagnostic = probe.result.detail.unwrap();
+                assert!(diagnostic.contains(detail), "{diagnostic}");
+                assert!(diagnostic.contains("fixture diagnostic"), "{diagnostic}");
+            }
+        }
     }
 
     #[test]

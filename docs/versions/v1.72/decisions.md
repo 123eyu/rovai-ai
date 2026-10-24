@@ -3,7 +3,7 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 ---
 
 # v1.72 版本决定
@@ -1261,6 +1261,9 @@ Atom 按 ID 绑定，本机标签只展示；Core 首次发布捕获标题并保
 后续审查确认 dispatch 在 Fleet 之前验证磁盘入口仍会阻断 warm；将既有启动验证/刷新收回 cold spawn，
 继续保留显式禁用/删除安装准入。MCP 成功保存不能等同于配置变化，Store 直接传递实际改动涉及成员，
 Fleet 按成员限定失效，不引入配置差异扫描或新依赖管理器。
+后续可用性修复删除新旧 Bootstrap 相等门槛与 JSON 封装额外上限；已有 binding 直接复用，cold 的 B
+沿既有 Context 准备，不新增跨 Host 冻结状态。成员环境保存只传播实际修改事实，命令重放不重复退役。
+health probe 删除覆盖所有错误的 Command 特例，沿其他 ACP 已有分类与脱敏处理。
 
 ### 后果与替代方案
 

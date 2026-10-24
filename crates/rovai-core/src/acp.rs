@@ -12270,12 +12270,10 @@ while IFS= read -r ignored; do :; done
                         .bind_managed_bootstrap(&id, &format!("SYSTEM-SESSION-{i}"))
                         .await
                         .unwrap();
-                    assert!(
-                        runtime
-                            .bind_managed_bootstrap(&id, "CHANGED")
-                            .await
-                            .is_err()
-                    );
+                    runtime
+                        .bind_managed_bootstrap(&id, "CHANGED")
+                        .await
+                        .unwrap();
                     for mode in ["default", "auto-accept", "plan", "dont-ask", "bypass"] {
                         host.rpc("session/set_mode", json!({"sessionId":id, "modeId":mode}))
                             .await

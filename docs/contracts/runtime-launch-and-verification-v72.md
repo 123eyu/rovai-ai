@@ -4,7 +4,7 @@ name: Runtime Launch and Verification
 version: v72
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 ---
 
 # Runtime Launch and Verification v72
@@ -28,7 +28,8 @@ Command 新投影不生成 `hostConfigDigest`、`bindingCompatibilityDigest` 或
 Binding 提交根据冻结 Run 的 Runtime kind 明确选择此策略，忽略旧配置摘要相等条件；完整载荷、幂等请求、
 凭据和 Bootstrap 内容完整性校验保留，不能决定 Host 或 Session 选择。
 
-Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 和原冻结 Bootstrap 恢复。原生 1.88.0
+Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 恢复，Bootstrap 由既有 Context 为本轮
+准备并冻结；Command 不比较历史 Bootstrap，也不另建跨 Host 冻结恢复状态。原生 1.88.0
 `session/load`、`session/resume` 仍接受不存在的 ID，因此仅在冷恢复阶段通过 `session/list` 核验精确 ID 与 cwd；
 不扫描历史正文、不选择最近 Session。目录不完整、认证、网络、超时不是目标不存在。只有完整原生目录确认
 缺失才进入既有可见的连续性丢失流程；其他错误保留原 ID。
@@ -42,6 +43,8 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
   MCP Store 将本次实际修改涉及的成员传给既有 Fleet：单成员分配只影响该成员，成员集合变更取原/新成员
   并集，定义/启停/删除影响该 Server 分配成员，导入累积实际改动涉及成员。只匹配这些成员的 Command
   Host；无变化成功保存与失败操作均不退役。此事实仅在调用内传递，不成为配置快照或持久状态。
+  成员环境保存复用该操作已读取、解析的旧/新值与继承选项，只有实际变化且命令首次提交成功才退役；
+  JSON 排版、键顺序和命令重放不触发退役，不在执行前重新比较环境。
 - 已运行 Host 保留启动环境；外部原生配置编辑按原生规则或用户显式重载生效，不触发 Rovai 扫描或隐式重建。
 - Command dispatch 保留平台、权限、所属身份及显式禁用/删除安装的准入；磁盘入口、指纹及必要发现刷新
   只在 Fleet acquire 的 cold spawn 分支执行。入口暂时消失或安装观察 generation 改变不妨碍健康 Host
@@ -54,10 +57,15 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
 初始化局部 nonce 经环境传给 Mod；initialize 后只校验一次 revision、nonce 和实际 PID，删除 `ready.json`
 并丢弃预期 nonce。没有 nonce 文件，也没有长期 nonce map/数据库字段。
 
-每个 Session 首次绑定原子写入 `bindings/<native-session-id>.json`，同 Session 内容不可变；warm 不重写。
+每个 Session 在该 Host 首次绑定时原子写入 `bindings/<native-session-id>.json`；已有文件直接复用，
+不读取正文与本轮 Bootstrap 比较、不重新序列化或写入。不以新旧 Bootstrap 相等作为执行或恢复条件。
 稳态只有 Mod 与实际使用的 bindings。hook 按 `state.sessionId` 读取目标 binding，校验 schema、ID、预算及
 内容 SHA-256；缺少或损坏时在模型请求前退出。冻结 B 仍追加到原生 System 一次，user 只含动态 P。
+预算只约束 UTF-8 正文的 128 KiB，不再给 JSON 封装设置第二道大小门槛。
 此交付方式不改变 B/P 字节、选择规则、上下文版本或证据权威。
+
+状态检查沿共享 ACP 路径保留 RPC/进程错误并分类为认证、协议能力或临时故障，展示前使用公共脱敏。
+不再用 Command 专属 provider 提示覆盖错误；这属于 health probe，不修改 Run 卡片或平台公开准入。
 
 ## ACP MCP
 

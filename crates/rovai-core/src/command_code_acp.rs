@@ -163,27 +163,22 @@ pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<
             && session_id.len() <= 128
             && session_id
                 .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            && !bootstrap.trim().is_empty()
-            && bootstrap.len() <= crate::context::MAX_SESSION_BOOTSTRAP_BYTES,
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-'),
         "command_code_bootstrap_binding_invalid"
     );
     let path = root.join("bindings").join(format!("{session_id}.json"));
+    if path.exists() {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        !bootstrap.trim().is_empty()
+            && bootstrap.len() <= crate::context::MAX_SESSION_BOOTSTRAP_BYTES,
+        "command_code_bootstrap_binding_invalid"
+    );
     let payload = serde_json::to_vec(
         &json!({"schemaVersion":1, "sessionId":session_id, "bootstrap":bootstrap,
         "sha256":format!("{:x}",Sha256::digest(bootstrap.as_bytes()))}),
     )?;
-    anyhow::ensure!(
-        payload.len() <= 256 * 1024,
-        "command_code_bootstrap_binding_invalid"
-    );
-    if path.exists() {
-        anyhow::ensure!(
-            fs::read(path)? == payload,
-            "command_code_bootstrap_binding_changed"
-        );
-        return Ok(());
-    }
     let temporary = root
         .join("bindings")
         .join(format!("{}.tmp", uuid::Uuid::new_v4()));
@@ -269,13 +264,16 @@ mod tests {
         assert!(!ready.exists());
         bind_bootstrap(&root, "session-a", "frozen A").unwrap();
         let binding = root.join("bindings/session-a.json");
+        let original = fs::read(&binding).unwrap();
         let modified = fs::metadata(&binding).unwrap().modified().unwrap();
-        bind_bootstrap(&root, "session-a", "frozen A").unwrap();
+        for next in ["frozen A", "changed", ""] {
+            bind_bootstrap(&root, "session-a", next).unwrap();
+            assert_eq!(fs::read(&binding).unwrap(), original);
+        }
         assert_eq!(
             fs::metadata(&binding).unwrap().modified().unwrap(),
             modified
         );
-        assert!(bind_bootstrap(&root, "session-a", "changed").is_err());
         bind_bootstrap(&root, "session-b", "frozen B").unwrap();
         assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
         assert!(bind_bootstrap(&root, "../escape", "invalid").is_err());

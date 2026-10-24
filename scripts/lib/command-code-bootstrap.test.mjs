@@ -41,6 +41,13 @@ test('Command Code required Mod binds each Session and exits before inference on
     const long = run(['long'], 'nonce-long');
     assert.equal(long.status, 0, long.stderr);
     assert.equal(JSON.parse(JSON.parse(long.stdout.split('\n')[0])[0]).professionalResponsibilities, '😀\n\"'.repeat(3333) + '终');
+    const escaped = '"'.repeat(128 * 1024);
+    const serialized = JSON.stringify(binding('escaped', escaped));
+    assert.ok(Buffer.byteLength(serialized) > 256 * 1024);
+    writeFileSync(join(root, 'bindings', 'escaped.json'), serialized);
+    const envelope = run(['escaped'], 'nonce-escaped');
+    assert.equal(envelope.status, 0, envelope.stderr);
+    assert.deepEqual(JSON.parse(envelope.stdout.split('\n')[0]), [escaped]);
     for (const id of ['missing', '../session-A', 'wrong-id', 'wrong-digest', 'empty', 'oversize']) {
       const invalid = run([id], 'nonce-negative');
       assert.equal(invalid.status, 78, id);

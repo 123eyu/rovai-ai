@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 ---
 
 # Runtime Catalog Boundaries
@@ -68,6 +68,7 @@ selector 同样不展示 Cursor、Cline 与 Command Code；其他成员选项来
 Command 的入口/指纹验证和必要刷新只在 Fleet cold spawn 执行；warm 仍保留显式禁用/删除安装准入。
 显式启动设置和 MCP 实际修改走既有 invalidation，MCP 按操作涉及成员限定 Command Host，无变化不退役。
 忙碌进程结束后退役，新 Host 保留精确旧 Session ID。
+成员环境保存也只使用本次操作的实际变更事实；仅改 JSON 排版和命令重放不退役 Host。
 外部原生配置变化不触发扫描、比较或隐式新 Session；其他 Runtime 的策略不变。
 
 Bootstrap 的 `managed_system_prompt` 语义不变：完整冻结 B 经官方 `appendSystemPrompt({state})`
@@ -75,6 +76,9 @@ Bootstrap 的 `managed_system_prompt` 语义不变：完整冻结 B 经官方 `a
 revision/局部 nonce/PID 并删除 ready 文件。缺失或损坏 binding 在模型请求前停止。没有 active Bootstrap
 全局文件、HOME fallback、专属池/锁/缓存。原输入确认见 [revision 5](../versions/v1.72/model-context-change-command-code-acp.md)；
 其中旧物理交付描述由 v72 替代，冻结内容、选择、上下文版本和证据边界不变。
+已有 binding 直接复用，不再比较本轮新 Bootstrap；cold 使用现有 Context 准备的 B，不另建冻结管理器。
+大小预算只作用于正文，不因 JSON 转义增长而拒绝有效内容。状态检查与其他 ACP 共用错误分类和脱敏，
+不将认证、协议或网络错误统一改写成 provider 配置提示。
 
 分配 MCP 经 `session/new|load|resume.mcpServers`，原生同名配置由 CLI 自动优先。cwd 仅用现有 argv
 launcher，env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm 不运行额外 CLI。

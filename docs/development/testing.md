@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-17
+last_updated: 2026-10-25
 ---
 
 # 测试与 Smoke Test
@@ -1728,3 +1728,11 @@ warm 不调用、cold 失败不创建进程/材料。
 Core dispatcher owner 使用 `cargo test -p rovai-core --features slow-tests --lib runtime_configuration_writes`；
 Node 沿用 `node --test scripts/lib/command-code-bootstrap.test.mjs`。再执行默认 `cargo test --workspace`。
 真实 native Home 仅由验收夹具创建，adapter 本身不得覆盖共享 HOME；真实模型/MCP 与平台资格分别记账。
+
+2026-10-25 跟进扩展既有 owner，不增加测试文件或平行 Rust owner：
+`native_home_and_immutable_bootstrap_materials` 验证新 B 不阻断已有 binding、字节和修改时间保持不变；
+长正文 owner 更名为 `long_bootstrap_bindings_preserve_utf8_and_enforce_body_limits`，与既有 Node Mod owner
+共同验证 128 KiB 引号正文即使 JSON 大于 256 KiB 仍可交付，正文超限仍拒绝。
+`private_versions_preserve_credentials_and_new_launches_read_current_configuration` 覆盖成员环境的值、继承、
+格式无变化与重放事实；`acp_probe_failure_classification_separates_auth_protocol_and_transient_errors` 扩展
+假 ACP 进程，对照 Command/Kimi 的认证、协议与临时错误，确认真实 probe 边界保留原因与 stderr。

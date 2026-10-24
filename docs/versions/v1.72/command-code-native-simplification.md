@@ -1,7 +1,7 @@
 ---
 document_type: implementation-report
 source_version: v1.72
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 ---
 
 # Command Code 1.88 原生接入简化
@@ -26,6 +26,13 @@ PR #890 后续审查将 Command 的入口/指纹检查和必要刷新移到 Flee
 启动事件使用实际 Host 版本。MCP 修改只将本次受影响成员传到现有失效入口，无变化不退役；warm Session
 不再构造不会发送的 MCP wire 参数。没有新增文件或长期状态；保留 `bindings/<session-id>.json`，不为少一层
 目录改写不可变 binding 交付。
+
+2026-10-25 可用性跟进删除 Command 的新旧 Bootstrap 逐字比较和 Rust/Mod 两端的 256 KiB JSON
+封装限制。已有 binding 直接返回，warm 不读取旧正文、不序列化新正文；只在该 Host 首次绑定时写入。
+正文继续使用共享 128 KiB 预算。cold 按既有 Context 为本轮准备 B，再绑定精确恢复的原生 Session；
+这不要求历史 B 相等，也不新增跨 Host 冻结管理器。
+成员环境保存将已解析值和继承选项的实际变化传给既有失效入口，格式无变化和命令重放不触发退役。
+health probe 删除丢失原始错误的 Command 特例，和其他 ACP 共用错误分类与展示脱敏；未修改 Run 卡片。
 
 ## 与其他 Runtime 对照
 
@@ -79,3 +86,9 @@ PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试�
 默认工作区整套两次均为核心 428 通过、1 个既有 Cursor 身份探针超时、1 忽略；该探针在同一个工作区
 测试二进制中单独复跑通过（0.32 秒）。其余工作区目标分开运行 46 项通过，doc-tests 通过。保留整套
 超时记录，不把单独复跑算作整套全绿，也未修改 Cursor 探针代码或超时阈值。
+
+2026-10-25 四项修复的定向回归 5 项 Rust 通过、1 项既有真实账号 smoke 忽略；既有 Mod Node owner 通过。
+覆盖 binding 内容变化后继续复用、转义正文、环境保存事实及 Command/Kimi 真实 probe 入口的三类模拟错误；
+既有 dispatcher/Fleet 的 MCP 退役回归也通过。成员环境的退役条件通过代码核对，没有为绕过公开资格新增测试入口。
+工作区全目标 slow-tests 编译、格式检查及文档门禁通过（文档测试 10 项）；未重跑全套或真实模型/MCP。
+本次零新增仓库文件、生产文件种类和 Rust test owner。

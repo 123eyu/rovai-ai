@@ -7110,15 +7110,25 @@ impl Drop for PreparedAcpProcess {
         };
         let mut config = self.config.take();
         tokio::spawn(async move {
+            #[cfg(target_os = "linux")]
+            let captured = child.capture_descendants().is_ok();
+            #[cfg(not(target_os = "linux"))]
+            let captured = true;
             let terminated = child.force_terminate_tree().is_ok();
             let reaped = matches!(
                 timeout(Duration::from_secs(3), child.wait()).await,
                 Ok(Ok(_))
             );
             let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-            let confirmed = if terminated && reaped {
+            let confirmed = if captured && terminated && reaped {
                 loop {
-                    match child.tree_is_empty() {
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    let empty = child.captured_tree_is_empty();
+                    #[cfg(windows)]
+                    let empty = child.tree_is_empty();
+                    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+                    let empty = Ok::<bool, std::io::Error>(false);
+                    match empty {
                         Ok(true) => break true,
                         Err(_) => break false,
                         Ok(false) if tokio::time::Instant::now() < deadline => {
@@ -12367,9 +12377,8 @@ while IFS= read -r ignored; do :; done
                         .await
                         .unwrap_err();
                     assert!(
-                        error
-                            .to_string()
-                            .contains("command_code_restore_target_missing")
+                        format!("{error:#}").contains("command_code_restore_target_missing"),
+                        "unexpected restore failure: {error:#}"
                     );
                     assert!(!host.knows_session(&id).await);
                 }

@@ -1717,9 +1717,13 @@ HOME 镜像和原生文件合并）已删除。同模块现有 owner 替换为 `
 扩展既有 `member_sessions_reuse_only_within_their_camp_and_current_session` 覆盖显式身份策略与跨 cwd/owner；
 `binding_transitions_preserve_public_accepted_boundary` 覆盖旧摘要迁移到无摘要 Run 的 Binding 提交；
 `private_host_config_is_scoped_to_profiles_that_require_it` 增加构造失败时实际进程回收先于目录删除。
+既有成员配置写入 owner 扩展并更名为
+`runtime_configuration_writes_preserve_startups_and_retire_changed_command_hosts`：保留原 Codex 启动中写入
+边界，新增实际 dispatcher 的 MCP 分配/撤销与冲突拒绝，证明显式操作才退役 Command Host。
 保留取消/终态 owner，不新增等价 Rust 测试。真实控制面继续使用既有 ignored
 `isolated_command_code_acp_bootstrap_gate_and_resident_sessions`，基线更新到 1.88、BYOK 选模改为成功。
 
 最小命令：`cargo test -p rovai-core --features slow-tests --lib`，分别过滤上述 owner 与 `command_code`；
+Core dispatcher owner 使用 `cargo test -p rovai-core --features slow-tests --lib runtime_configuration_writes`；
 Node 沿用 `node --test scripts/lib/command-code-bootstrap.test.mjs`。再执行默认 `cargo test --workspace`。
 真实 native Home 仅由验收夹具创建，adapter 本身不得覆盖共享 HOME；真实模型/MCP 与平台资格分别记账。

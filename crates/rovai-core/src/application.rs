@@ -10322,14 +10322,6 @@ impl Core {
                 let params: RevealMcpServerParams = serde_json::from_value(request.params.clone())?;
                 Ok(serde_json::to_value(self.mcp_config()?.reveal(params)?)?)
             }
-            "mcp.servers.setMembers" => {
-                let params: SetMcpMembersParams = serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                let known_agents = Self::known_agent_ids(&database)?;
-                Ok(serde_json::to_value(
-                    self.mcp_config()?.set_members(params, &known_agents)?,
-                )?)
-            }
             "mcp.config.repairPermissions" => {
                 let database = self.database.lock().await;
                 let known_agents = Self::known_agent_ids(&database)?;
@@ -10346,53 +10338,51 @@ impl Core {
                     self.mcp_config()?.create(params, &known_agents)?,
                 )?)
             }
-            "mcp.servers.update" => {
-                let params: UpdateMcpServerParams = serde_json::from_value(request.params.clone())?;
+            "mcp.servers.setMembers"
+            | "mcp.servers.update"
+            | "mcp.servers.setEnabled"
+            | "mcp.assignments.set"
+            | "mcp.servers.delete"
+            | "mcp.import.commit" => {
                 let database = self.database.lock().await;
                 let known_agents = Self::known_agent_ids(&database)?;
-                let result = self.mcp_config()?.update(params, &known_agents)?;
+                let store = self.mcp_config()?;
+                let result = match request.method.as_str() {
+                    "mcp.servers.setMembers" => {
+                        let params: SetMcpMembersParams =
+                            serde_json::from_value(request.params.clone())?;
+                        store.set_members(params, &known_agents)?
+                    }
+                    "mcp.servers.update" => {
+                        let params: UpdateMcpServerParams =
+                            serde_json::from_value(request.params.clone())?;
+                        store.update(params, &known_agents)?
+                    }
+                    "mcp.servers.setEnabled" => {
+                        let params: SetMcpServerEnabledParams =
+                            serde_json::from_value(request.params.clone())?;
+                        store.set_enabled(params, &known_agents)?
+                    }
+                    "mcp.assignments.set" => {
+                        let params: SetMcpAssignmentParams =
+                            serde_json::from_value(request.params.clone())?;
+                        store.set_assignment(params, &known_agents)?
+                    }
+                    "mcp.servers.delete" => {
+                        let params: DeleteMcpServerParams =
+                            serde_json::from_value(request.params.clone())?;
+                        store.delete(params, &known_agents)?
+                    }
+                    "mcp.import.commit" => {
+                        let params: CommitMcpImportParams =
+                            serde_json::from_value(request.params.clone())?;
+                        McpImportScanner.commit(store, params, &known_agents)?
+                    }
+                    _ => unreachable!(),
+                };
                 drop(database);
-                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
-                    self.runtime_fleet
-                        .invalidate_adapter(AdapterKind::CommandCodeCli)
-                        .await;
-                }
-                Ok(serde_json::to_value(result)?)
-            }
-            "mcp.servers.setEnabled" => {
-                let params: SetMcpServerEnabledParams =
-                    serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                let known_agents = Self::known_agent_ids(&database)?;
-                let result = self.mcp_config()?.set_enabled(params, &known_agents)?;
-                drop(database);
-                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
-                    self.runtime_fleet
-                        .invalidate_adapter(AdapterKind::CommandCodeCli)
-                        .await;
-                }
-                Ok(serde_json::to_value(result)?)
-            }
-            "mcp.assignments.set" => {
-                let params: SetMcpAssignmentParams =
-                    serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                let known_agents = Self::known_agent_ids(&database)?;
-                let result = self.mcp_config()?.set_assignment(params, &known_agents)?;
-                drop(database);
-                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
-                    self.runtime_fleet
-                        .invalidate_adapter(AdapterKind::CommandCodeCli)
-                        .await;
-                }
-                Ok(serde_json::to_value(result)?)
-            }
-            "mcp.servers.delete" => {
-                let params: DeleteMcpServerParams = serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                let known_agents = Self::known_agent_ids(&database)?;
-                let result = self.mcp_config()?.delete(params, &known_agents)?;
-                drop(database);
+                // The successful user operation is the reload boundary. Command
+                // does not discover changes by comparing per-Run config digests.
                 if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
                     self.runtime_fleet
                         .invalidate_adapter(AdapterKind::CommandCodeCli)
@@ -10406,16 +10396,6 @@ impl Core {
                 Ok(serde_json::to_value(
                     McpImportScanner.scan(self.mcp_config()?, &known_agents)?,
                 )?)
-            }
-            "mcp.import.commit" => {
-                let params: CommitMcpImportParams = serde_json::from_value(request.params.clone())?;
-                let database = self.database.lock().await;
-                let known_agents = Self::known_agent_ids(&database)?;
-                Ok(serde_json::to_value(McpImportScanner.commit(
-                    self.mcp_config()?,
-                    params,
-                    &known_agents,
-                )?)?)
             }
             "skills.import.inspect" => {
                 let params: InspectSkillImportParams =
@@ -28810,7 +28790,7 @@ mod tests {
 
     #[cfg(all(target_os = "macos", feature = "slow-tests"))]
     #[tokio::test]
-    async fn member_runtime_writes_do_not_cancel_starting_fleet_reservations() {
+    async fn runtime_configuration_writes_preserve_startups_and_retire_changed_command_hosts() {
         for method in ["members.runtime.set", "members.runtime.clear"] {
             let root = std::env::temp_dir().join(format!(
                 "rovai-runtime-write-fleet-test-{}-{}",
@@ -28942,6 +28922,106 @@ mod tests {
             drop(core);
             std::fs::remove_dir_all(root).unwrap();
         }
+
+        // This owner also covers explicit MCP writes crossing the real dispatcher
+        // into Fleet. A rejected write must preserve the warm Host, while the UI's
+        // assignment/revocation route retires it after its current Run.
+        let root =
+            std::env::temp_dir().join(format!("rovai-command-mcp-write-{}", uuid::Uuid::new_v4()));
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
+        let known_agents = {
+            let database = core.database.lock().await;
+            Core::known_agent_ids(&database).unwrap()
+        };
+        let agent_id = known_agents.iter().next().unwrap().clone();
+        let store = core.mcp_config().unwrap();
+        let initial = store.get(&known_agents).unwrap();
+        let created = store
+            .create(
+                CreateMcpServerParams {
+                    expected_config_digest: initial.config_digest,
+                    definition_json: json!({ "mcpServers": { "fixture": {
+                        "type": "http", "url": "http://127.0.0.1:34567/mcp"
+                    }}})
+                    .to_string(),
+                },
+                &known_agents,
+            )
+            .unwrap();
+        assert!(matches!(
+            created,
+            rovai_core::mcp::McpMutationResult::Ok { .. }
+        ));
+        let view = store.get(&known_agents).unwrap();
+        let server_id = view
+            .servers
+            .iter()
+            .find(|server| server.name == "fixture")
+            .unwrap()
+            .server_id
+            .clone();
+        let compatibility = runtime_fleet::RuntimeCompatibilityKey::native_binding(
+            "camp-command-mcp",
+            &agent_id,
+            "binding-command-mcp",
+            root.clone(),
+        );
+        for (index, expected_status, assigned) in
+            [(0, "conflict", true), (1, "ok", true), (2, "ok", false)]
+        {
+            let run_id = format!("command-mcp-write-{index}");
+            let lease = core
+                .runtime_fleet
+                .acquire(
+                    runtime_fleet::FleetAcquireRequest {
+                        agent_run_id: run_id.clone(),
+                        execution_epoch: 1,
+                        adapter_kind: AdapterKind::CommandCodeCli,
+                        compatibility: compatibility.clone(),
+                    },
+                    || async {
+                        Ok(runtime_fleet::fake_runtime_process_host(format!(
+                            "command-host-{index}"
+                        )))
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                lease.process_id,
+                if index == 2 {
+                    "command-host-2"
+                } else {
+                    "command-host-0"
+                }
+            );
+            let view = store.get(&known_agents).unwrap();
+            let result = core.handle(&Request {
+                client: rovai_core::draft_client::DraftClient::default(),
+                id: json!(index), method: "mcp.servers.setMembers".into(),
+                params: json!({
+                    "expectedConfigDigest": if index == 0 { "stale".to_string() } else { view.config_digest },
+                    "serverId": server_id,
+                    "agentIds": if assigned { vec![agent_id.clone()] } else { Vec::new() },
+                }),
+            }).await.unwrap();
+            assert_eq!(result["status"], expected_status, "{result:#}");
+            let outcome = core
+                .runtime_fleet
+                .release_with_outcome(&run_id, 1, runtime_fleet::FleetReleaseDisposition::Reusable)
+                .await;
+            assert_eq!(
+                outcome,
+                if index == 0 {
+                    runtime_fleet::FleetReleaseOutcome::Reusable
+                } else {
+                    runtime_fleet::FleetReleaseOutcome::Reaped
+                }
+            );
+        }
+        core.runtime_fleet.shutdown_all().await;
+        drop(core);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(all(target_os = "macos", feature = "slow-tests"))]

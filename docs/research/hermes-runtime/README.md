@@ -6,6 +6,11 @@ last_updated: 2026-10-24
 
 # Hermes 接入与验证
 
+User sequence 46 提出的原生 Home／共享 Gateway 切换尚未实施。
+[2026-10-24 边界实测](native-acp-boundaries-2026-10-24.md) 已确认原生取消／连接退出行为，
+同时复现 ACP 环境未传到工具进程、内置 CLI Send 失败；[R2 完整提案](first-input-r2-proposal.md)
+待二次确认。下面的生产状态与既有资格证据仍属于此前私有 Home 实现，不用于证明新方案完整协作可用。
+
 `rovai/hermes-runtime` 已切换到**未修改的官方 ACP＋专用官方 Gateway**。macOS arm64 仍为 Preview，
 兼容策略为 **>=0.22.4**，没有 commit、dirty 或上界 fence。实际验证安装是 0.22.4，source commit
 `4d04303818b61bf3aa09278af48356315515965b`。规范见 [Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)，

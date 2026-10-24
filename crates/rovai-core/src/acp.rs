@@ -1456,7 +1456,6 @@ pub(crate) struct AcpHost {
     trae_permission_mode: Option<String>,
     startup_diagnostics: Mutex<String>,
     private_config_root: Option<PathBuf>,
-    remove_private_config_root_on_shutdown: bool,
     detector_config_root: Option<PathBuf>,
     ephemeral_config: Mutex<Option<EphemeralMcpConfigFile>>,
     executable_path: PathBuf,
@@ -2051,10 +2050,6 @@ impl AcpHost {
             ),
             startup_diagnostics: Mutex::new(String::new()),
             private_config_root: startup.config.as_ref().map(|config| config.root.clone()),
-            remove_private_config_root_on_shutdown: startup
-                .config
-                .as_ref()
-                .is_some_and(|config| config.remove_on_shutdown),
             detector_config_root,
             ephemeral_config: Mutex::new(ephemeral_config),
             executable_path: PathBuf::from(&frozen_runtime.executable_path),
@@ -4148,10 +4143,7 @@ impl AcpHost {
                     tokio::time::Instant::now() + Duration::from_millis(2500),
                 )
                 .await;
-        if groups_reaped
-            && self.remove_private_config_root_on_shutdown
-            && let Some(root) = self.private_config_root.as_ref()
-        {
+        if groups_reaped && let Some(root) = self.private_config_root.as_ref() {
             let _ = std::fs::remove_dir_all(root);
         }
         if let Some(root) = self.detector_config_root.as_ref() {
@@ -5000,25 +4992,32 @@ impl AcpRuntime {
         external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
         new_session_native_rules: Option<&str>,
     ) -> Result<String> {
+        let continuation = self
+            .session_continuation(existing_session_id, capabilities)
+            .await;
         let cwd = acp_protocol_path(&self.execution_root);
-        let run_tmp = self
-            .host
-            .builtin_tool_process_config()
-            .context("ACP Runtime has no Built-in Tool Run tmp")?
-            .run_tmp();
-        let additional_directories =
-            session_additional_directories(self.attachment_access_root.as_deref(), Some(run_tmp))?;
-        let mut mcp_servers: Vec<Value> = if !matches!(
-            self.host.adapter_kind,
-            AdapterKind::CopilotCli
-                | AdapterKind::KiroCli
-                | AdapterKind::QoderCli
-                | AdapterKind::CodebuddyCli
-                | AdapterKind::QwenCode
-                | AdapterKind::CursorAgent
-                | AdapterKind::GrokBuild
-                | AdapterKind::ClineCli
-        ) {
+        let additional_directories = if continuation == AcpSessionContinuation::ReuseSameHost {
+            Vec::new()
+        } else {
+            let run_tmp = self
+                .host
+                .builtin_tool_process_config()
+                .context("ACP Runtime has no Built-in Tool Run tmp")?
+                .run_tmp();
+            session_additional_directories(self.attachment_access_root.as_deref(), Some(run_tmp))?
+        };
+        let mut mcp_servers: Vec<Value> = if continuation != AcpSessionContinuation::ReuseSameHost
+            && !matches!(
+                self.host.adapter_kind,
+                AdapterKind::CopilotCli
+                    | AdapterKind::KiroCli
+                    | AdapterKind::QoderCli
+                    | AdapterKind::CodebuddyCli
+                    | AdapterKind::QwenCode
+                    | AdapterKind::CursorAgent
+                    | AdapterKind::GrokBuild
+                    | AdapterKind::ClineCli
+            ) {
             external_mcp_servers
                 .iter()
                 .map(|(name, definition)| {
@@ -5039,9 +5038,6 @@ impl AcpRuntime {
                 crate::dsh::resolve_mcp_command(server, &self.execution_root)?;
             }
         }
-        let continuation = self
-            .session_continuation(existing_session_id, capabilities)
-            .await;
         let new_session_native_rules = validate_new_session_native_rules(
             self.host.adapter_kind,
             continuation,
@@ -6615,7 +6611,7 @@ impl AcpCliRuntimeAdapter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn ensure_agent_run_runtime(
+    pub async fn ensure_agent_run_runtime<F, Fut>(
         &self,
         agent_run_id: &str,
         execution_epoch: i64,
@@ -6631,7 +6627,12 @@ impl AcpCliRuntimeAdapter {
         attachment_access_root: &Path,
         runtime_compatibility_digest: &Option<String>,
         startup_bootstrap: Option<&str>,
-    ) -> Result<Arc<AcpRuntime>> {
+        prepare_cold: F,
+    ) -> Result<Arc<AcpRuntime>>
+    where
+        F: FnOnce(FrozenAgentRuntimeConfig) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<FrozenAgentRuntimeConfig>> + Send + 'static,
+    {
         if frozen_runtime.adapter_kind != self.kind {
             bail!("ACP Runtime received an AgentRun for another Adapter");
         }
@@ -6715,6 +6716,7 @@ impl AcpCliRuntimeAdapter {
                     compatibility: compatibility.clone(),
                 },
                 move || async move {
+                    spawn_frozen_runtime = prepare_cold(spawn_frozen_runtime).await?;
                     spawn_frozen_runtime.environment =
                         rovai_core::member_environment::resolve_for_launch(
                             spawn_environment_source,
@@ -7153,13 +7155,12 @@ impl Drop for PreparedAcpProcess {
 #[derive(Debug)]
 struct PreparedPrivateHostConfig {
     root: PathBuf,
-    remove_on_shutdown: bool,
     preparing: bool,
 }
 
 impl Drop for PreparedPrivateHostConfig {
     fn drop(&mut self) {
-        if self.preparing && self.remove_on_shutdown {
+        if self.preparing {
             let _ = std::fs::remove_dir_all(&self.root);
         }
     }
@@ -7169,21 +7170,17 @@ fn prepare_private_host_config(
     private_runtime_dir: &Path,
     adapter_kind: AdapterKind,
 ) -> Result<Option<PreparedPrivateHostConfig>> {
-    let (root, remove_on_shutdown) = match adapter_kind {
+    let root = match adapter_kind {
         AdapterKind::KiroCli
         | AdapterKind::DeepseekHarness
         | AdapterKind::ClineCli
         | AdapterKind::CommandCodeCli
-        | AdapterKind::MinimaxCodeCli => (
-            private_runtime_dir
-                .join("acp-host")
-                .join(uuid::Uuid::new_v4().to_string()),
-            true,
-        ),
+        | AdapterKind::MinimaxCodeCli => private_runtime_dir
+            .join("acp-host")
+            .join(uuid::Uuid::new_v4().to_string()),
         AdapterKind::ZcodeApp => {
             return Ok(Some(PreparedPrivateHostConfig {
                 root: crate::zcode::private_runtime_root("rvzc")?,
-                remove_on_shutdown: true,
                 preparing: true,
             }));
         }
@@ -7191,7 +7188,6 @@ fn prepare_private_host_config(
     };
     let mut prepared = PreparedPrivateHostConfig {
         root,
-        remove_on_shutdown,
         preparing: true,
     };
     prepared.root =
@@ -9437,13 +9433,10 @@ mod route_policy_tests {
             .unwrap()
             .unwrap();
         assert_ne!(kiro_one.root, kiro_two.root);
-        assert!(kiro_one.remove_on_shutdown);
-        assert!(kiro_two.remove_on_shutdown);
         let cline = prepare_private_host_config(&root, AdapterKind::ClineCli)
             .unwrap()
             .unwrap();
         assert_ne!(cline.root, kiro_one.root);
-        assert!(cline.remove_on_shutdown);
         let abandoned = cline.root.clone();
         drop(cline);
         assert!(!abandoned.exists());
@@ -14111,6 +14104,8 @@ while IFS= read -r ignored; do :; done
         )
         .unwrap();
 
+        let cold_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let first_cold_calls = cold_calls.clone();
         let first = adapter
             .ensure_agent_run_runtime(
                 "agent-run-one",
@@ -14127,6 +14122,10 @@ while IFS= read -r ignored; do :; done
                 &attachment_root,
                 &Some("sha256:compatibility".to_owned()),
                 None,
+                move |runtime| {
+                    first_cold_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    std::future::ready(Ok(runtime))
+                },
             )
             .await
             .unwrap();
@@ -14168,10 +14167,16 @@ while IFS= read -r ignored; do :; done
                 &attachment_root,
                 &Some("sha256:compatibility".to_owned()),
                 None,
+                |_| {
+                    std::future::ready(Err(anyhow::anyhow!(
+                        "warm reuse must not prepare a new process"
+                    )))
+                },
             )
             .await
             .unwrap();
         assert_eq!(second.host_instance_id(), first_host);
+        assert_eq!(cold_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(
             second.builtin_tool_process_config().unwrap().context_path(),
             first.builtin_tool_process_config().unwrap().context_path()
@@ -14195,7 +14200,7 @@ while IFS= read -r ignored; do :; done
         second.start_prompt("delivery-two", "two").await.unwrap();
         receive_through_prompt_completion(&mut receiver).await;
         adapter.complete_agent_run("agent-run-two", 1).await;
-        fleet.shutdown_all().await;
+        fleet.invalidate_adapter(AdapterKind::TraeCnCli).await;
 
         // Catalog observations are optional background work and may finish after
         // prompt completion. Observe their actual invocations before asserting.
@@ -14234,6 +14239,29 @@ while IFS= read -r ignored; do :; done
         assert_eq!(protocol.matches("\"method\":\"session/prompt\"").count(), 2);
         assert!(!protocol.contains("\"method\":\"session/load\""));
         assert!(!protocol.contains("\"method\":\"session/resume\""));
+        let cold_error = adapter
+            .ensure_agent_run_runtime(
+                "agent-run-cold-rejected",
+                1,
+                "camp-one",
+                "agent-one",
+                "fixture-binding",
+                &workspace,
+                PermissionSemantics::RuntimeManagedV2,
+                &frozen,
+                &warm_factory,
+                &BTreeMap::new(),
+                "sha256:mcp",
+                &attachment_root,
+                &Some("sha256:compatibility".to_owned()),
+                None,
+                |_| std::future::ready(Err(anyhow::anyhow!("cold entry unavailable"))),
+            )
+            .await
+            .err()
+            .expect("cold validation failure must reject spawn");
+        assert!(format!("{cold_error:#}").contains("cold entry unavailable"));
+        fleet.shutdown_all().await;
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -14321,6 +14349,7 @@ while IFS= read -r ignored; do :; done
                 &attachment_root,
                 &Some("sha256:compatibility".to_owned()),
                 None,
+                |runtime| std::future::ready(Ok(runtime)),
             )
             .await
             .unwrap();
@@ -14397,6 +14426,7 @@ while IFS= read -r ignored; do :; done
                 &attachment_root,
                 &Some("sha256:compatibility".to_owned()),
                 None,
+                |runtime| std::future::ready(Ok(runtime)),
             )
             .await
             .unwrap();

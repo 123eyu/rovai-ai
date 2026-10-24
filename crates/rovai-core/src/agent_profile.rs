@@ -1694,17 +1694,22 @@ impl AgentProfileService {
                 json!({ "installationId": runtime.installation_id }),
             )));
         }
+        // A live Command Host is admitted by its installation identity. Disk
+        // entry observations belong to the Fleet's cold startup branch.
+        let command = runtime.adapter_kind == AdapterKind::CommandCodeCli;
         if adapter_kind != runtime.adapter_kind.as_str()
-            || executable_path != runtime.executable_path
-            || generation != runtime.installation_generation
-            || executable_fingerprint.as_deref() != Some(runtime.executable_fingerprint.as_str())
+            || (!command
+                && (executable_path != runtime.executable_path
+                    || generation != runtime.installation_generation
+                    || executable_fingerprint.as_deref()
+                        != Some(runtime.executable_fingerprint.as_str())))
         {
             return Ok(Some(runtime_blocker(
                 "runtime_snapshot_changed",
                 json!({ "installationId": runtime.installation_id }),
             )));
         }
-        if path_state != "valid" {
+        if !command && path_state != "valid" {
             return Ok(Some(runtime_blocker(
                 "runtime_path_invalid",
                 json!({

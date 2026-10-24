@@ -65,7 +65,9 @@ selector 同样不展示 Cursor、Cline 与 Command Code；其他成员选项来
 
 共享 Fleet 对 Command 显式采用 Native Binding 身份策略：所属范围、成员、Binding ID、canonical cwd
 一致且进程健康空闲时复用。配置摘要、安装 generation、程序指纹均不参与其复用或恢复判断；历史摘要仍可读。
-显式启动设置和 MCP 修改走既有 invalidation，忙碌进程结束后退役，新 Host 保留精确旧 Session ID。
+Command 的入口/指纹验证和必要刷新只在 Fleet cold spawn 执行；warm 仍保留显式禁用/删除安装准入。
+显式启动设置和 MCP 实际修改走既有 invalidation，MCP 按操作涉及成员限定 Command Host，无变化不退役。
+忙碌进程结束后退役，新 Host 保留精确旧 Session ID。
 外部原生配置变化不触发扫描、比较或隐式新 Session；其他 Runtime 的策略不变。
 
 Bootstrap 的 `managed_system_prompt` 语义不变：完整冻结 B 经官方 `appendSystemPrompt({state})`

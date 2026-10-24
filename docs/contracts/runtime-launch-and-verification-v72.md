@@ -39,8 +39,14 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
 - 模型、权限通过原生动态 RPC 更新，保留 Host/Session。
 - Rovai 启动设置、安装、成员启动环境与 MCP 分配/定义的显式成功修改，通过已有 Fleet invalidation 应用。
   空闲 Host 关闭，忙碌 Host 正常结束后退役；后继 Host 恢复原 ID，并传入当前 MCP。
+  MCP Store 将本次实际修改涉及的成员传给既有 Fleet：单成员分配只影响该成员，成员集合变更取原/新成员
+  并集，定义/启停/删除影响该 Server 分配成员，导入累积实际改动涉及成员。只匹配这些成员的 Command
+  Host；无变化成功保存与失败操作均不退役。此事实仅在调用内传递，不成为配置快照或持久状态。
 - 已运行 Host 保留启动环境；外部原生配置编辑按原生规则或用户显式重载生效，不触发 Rovai 扫描或隐式重建。
-- 自动检测可执行文件指纹变化不能使存活 Command Host 失效。真正启动时继续使用公共启动验证。
+- Command dispatch 保留平台、权限、所属身份及显式禁用/删除安装的准入；磁盘入口、指纹及必要发现刷新
+  只在 Fleet acquire 的 cold spawn 分支执行。入口暂时消失或安装观察 generation 改变不妨碍健康 Host
+  继续执行。新进程使用当前安装证据和公共启动验证；不重绑已 claim 的 Run，不改变冻结的模型/权限意图
+  或 Native Binding/Session。启动事件报告实际 Host 的版本。其他 Runtime 的预检策略不变。
 
 ## Bootstrap 材料
 
@@ -56,7 +62,7 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
 ## ACP MCP
 
 分配的 MCP 只经新建/恢复 Session 的标准 `mcpServers` 传入。用户原生 MCP 由 CLI 加载，1.88.0 已验证
-原生同名定义优先；删除额外 `mcp list` 探测和私有 `mcp.json`，warm 不启动额外 CLI。
+原生同名定义优先；删除额外 `mcp list` 探测和私有 `mcp.json`，warm 不启动额外 CLI，也不构造不会发送的 MCP wire 参数。
 
 stdio 自定义 cwd 使用已有 `node --eval` argv launcher，不生成脚本文件或增加代理管理层。
 1.88.0 的原生客户端即使从 ACP 接收 env/header pairs，仍调用 `resolveEnvPlaceholders`：字面 `$${x}`

@@ -1713,7 +1713,13 @@ HOME 镜像和原生文件合并）已删除。同模块现有 owner 替换为 `
 `private_host_config_is_scoped_to_profiles_that_require_it` 增加构造失败时实际进程回收先于目录删除。
 既有成员配置写入 owner 扩展并更名为
 `runtime_configuration_writes_preserve_startups_and_retire_changed_command_hosts`：保留原 Codex 启动中写入
-边界，新增实际 dispatcher 的 MCP 分配/撤销与冲突拒绝，证明显式操作才退役 Command Host。
+边界，覆盖实际 dispatcher 的 MCP 分配/撤销、定义、启停、删除、成员并集与冲突拒绝；重复保存不退役，
+无关成员及其他 Runtime Host 保留。导入的实际/无变化成员事实归既有
+`preserves_import_values_without_disclosing_credentials_or_inheriting_enablement`。
+`launch_version_uses_the_frozen_program_without_blocking_ordinary_execution` 同时拥有 Command 缺失入口下
+允许 warm 准入、cold 拒绝启动，以及显式禁用/删除安装的拒绝；
+`trae_completed_run_enters_lru_and_reuses_the_same_host_session` 覆盖共享 ACP cold callback 只在创建执行，
+warm 不调用、cold 失败不创建进程/材料。
 终态矩阵移除基线已失效的 14 个 Adapter 固定计数（实际为 15），改验非空后继续遍历全部 Adapter；
 目录数量仍由 Registry owner 拥有。保留取消/终态 owner，不新增等价 Rust 测试。真实控制面继续使用既有 ignored
 `isolated_command_code_acp_bootstrap_gate_and_resident_sessions`，基线更新到 1.88、BYOK 选模改为成功。

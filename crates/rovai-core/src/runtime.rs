@@ -3152,7 +3152,8 @@ impl ExecutionRuntimeService {
                            agent_run.status, agent_run.runtime_installation_id,
                            agent_run.runtime_binding_compatibility_digest,
                            agent_run.runtime_installation_generation,
-                           agent_run.runtime_native_session_compatibility_key
+                           agent_run.runtime_native_session_compatibility_key,
+                           agent_run.runtime_adapter_kind
                     FROM conversation
                     JOIN agent_run ON agent_run.conversation_id = conversation.id
                     LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
@@ -3192,6 +3193,7 @@ impl ExecutionRuntimeService {
                             row.get::<_, Option<String>>(12)?,
                             row.get::<_, Option<i64>>(13)?,
                             row.get::<_, Option<String>>(14)?,
+                            row.get::<_, String>(15)?,
                         ))
                     },
                 )
@@ -3212,6 +3214,7 @@ impl ExecutionRuntimeService {
                 frozen_digest,
                 frozen_installation_generation,
                 frozen_session_compatibility_key,
+                kind,
             )) = row
             else {
                 return Ok(rejected(
@@ -3229,10 +3232,6 @@ impl ExecutionRuntimeService {
                     "Conversation or AgentRun binding is stale",
                 ));
             }
-            let kind: String = transaction.query_row(
-                "SELECT runtime_adapter_kind FROM agent_run WHERE id=?1",
-                [&envelope.payload.agent_run_id], |row| row.get(0),
-            )?;
             let identity_binding = kind == AdapterKind::CommandCodeCli.as_str();
             if !identity_binding && envelope.payload.binding_compatibility_digest.is_none() {
                 return Ok(rejected("runtime.binding_configuration_mismatch", "Native Binding compatibility digest missing"));

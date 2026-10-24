@@ -141,6 +141,7 @@ while IFS= read -r ignored; do :; done
             &attachment_root,
             &Some("sha256:compatibility".to_owned()),
             None,
+            |runtime| std::future::ready(Ok(runtime)),
         )
         .await
         .unwrap();
@@ -185,6 +186,7 @@ while IFS= read -r ignored; do :; done
             &attachment_root,
             &Some("sha256:compatibility".to_owned()),
             None,
+            |runtime| std::future::ready(Ok(runtime)),
         )
         .await
         .unwrap();

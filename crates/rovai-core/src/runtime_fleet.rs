@@ -2222,6 +2222,22 @@ impl AgentRuntimeFleetManager {
             .await;
     }
 
+    pub(crate) async fn invalidate_adapter_members(
+        &self,
+        adapter_kind: AdapterKind,
+        agent_ids: &BTreeSet<String>,
+    ) {
+        self.invalidate_matching(|entry| {
+            entry.adapter_kind == adapter_kind
+                && entry
+                    .compatibility
+                    .invalidation_agent_id
+                    .as_ref()
+                    .is_some_and(|id| agent_ids.contains(id))
+        })
+        .await;
+    }
+
     async fn invalidate_matching(&self, predicate: impl Fn(&ProcessEntry) -> bool) {
         let plans = {
             let _operation = self.operations.lock().await;

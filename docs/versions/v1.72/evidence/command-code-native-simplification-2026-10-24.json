@@ -196,5 +196,77 @@
     "dailyInstallationChanged": false,
     "dailyNativeHomeChangedByAdapter": false
   },
-  "qualificationChanged": false
+  "qualificationChanged": false,
+  "followupControlBoundaryRegression": {
+    "baseRevision": "9e9ebbcb89759b8b0ff9cbc93e7daa22e147b574",
+    "targetedRust": {
+      "passed": 42,
+      "failed": 0,
+      "ignored": 1,
+      "ignoredReason": "existing real-account Command Code smoke; no native fixture in this rerun"
+    },
+    "covered": [
+      "shared ACP cold callback is skipped for warm Host and rejects cold before process/material creation",
+      "Command installation admission ignores missing path/generation observations but preserves disabled/missing installation rejection",
+      "cold entry refresh adopts current fingerprint and preserves model, permissions and installation ID; stale version observation is cleared",
+      "MCP dispatcher retires only affected Command members; conflicts and no-op writes preserve all Hosts",
+      "MCP membership old/new union; update, enable, assignment, delete and import mutation facts",
+      "shared Fleet cancellation, startup, reap, owner scope; immutable binding and legacy-digest continuity"
+    ],
+    "realModelAndMcpRerun": false,
+    "newProductionFiles": 0,
+    "bindingLayoutChanged": false,
+    "review": {
+      "standards": {
+        "found": 1,
+        "fixed": 1,
+        "open": 0,
+        "issue": "started runtimeVersion must come from actual Host"
+      },
+      "spec": {
+        "open": 0
+      }
+    },
+    "firstAttempts": [
+      {
+        "fixtureExpectation": "setMembers enables the server; disabling it is a change, not a no-op",
+        "corrected": true
+      },
+      {
+        "fixtureExpectation": "entry verification does not invoke a version subprocess; verify the new fingerprint and absent stale version instead",
+        "corrected": true
+      }
+    ],
+    "defaultWorkspace": {
+      "fullAttempts": 2,
+      "corePerAttempt": {
+        "passed": 428,
+        "failed": 1,
+        "ignored": 1
+      },
+      "failure": "runtime_discovery::tests::cursor_agent_alias_rejects_an_unrelated_agent_binary: runtime_probe_timed_out",
+      "singlePackageIsolatedRerun": "passed",
+      "sameWorkspaceBinaryIsolatedRerun": "passed in 0.32s",
+      "remainingTargets": {
+        "workspace-bins": {
+          "passed": 31,
+          "failed": 0,
+          "ignored": 0
+        },
+        "workspace-other-libs": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        "workspace-doc-tests": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      "cursorCodeOrTimeoutChanged": false,
+      "failedFixturesRemoved": true,
+      "fullWorkspaceClaimedGreen": false
+    }
+  }
 }

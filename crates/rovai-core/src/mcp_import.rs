@@ -1397,11 +1397,31 @@ mod tests {
         ));
         assert!(fs::read(store.path()).unwrap() == old_bytes);
         let result = McpImportScanner
-            .commit_specs(&store, params, &agents(), specs())
+            .commit_specs(&store, params.clone(), &agents(), specs())
             .unwrap();
-        let McpMutationResult::Ok { config, .. } = result else {
+        let McpMutationResult::Ok {
+            config,
+            affected_agent_ids,
+            ..
+        } = result
+        else {
             panic!("explicit re-import should replace legacy references");
         };
+        assert_eq!(affected_agent_ids, BTreeSet::from(["agent_1".to_string()]));
+        let replaced_bytes = fs::read(store.path()).unwrap();
+        let mut unchanged = params;
+        unchanged.expected_config_digest = config.config_digest.clone();
+        let result = McpImportScanner
+            .commit_specs(&store, unchanged, &agents(), specs())
+            .unwrap();
+        let McpMutationResult::Ok {
+            affected_agent_ids, ..
+        } = result
+        else {
+            panic!("identical re-import should succeed");
+        };
+        assert!(affected_agent_ids.is_empty());
+        assert_eq!(fs::read(store.path()).unwrap(), replaced_bytes);
         let replaced = config
             .servers
             .iter()

@@ -18,7 +18,14 @@ Fleet 的显式 Native Binding 策略与其配置摘要策略互斥；不以字�
 
 启动准备在进程创建前清理目录；实际 child 从底层启动失败也能交回清理 owner。Host 构造期间 owner 同时
 持有进程/材料，确认停止与 reap 后清理，不能确认则保留诊断。Host 成功接管后继续已有 shutdown；没有改写
-pending/stdin/取消/退出的锁顺序。
+pending/stdin/取消/退出的锁顺序。清理只用已有 `Option<root>` 表示材料所有权，删除两个恒真开关。
+Native Binding 提交从已有 JOIN 读取 Runtime kind，删除同一行的额外查询。
+
+PR #890 后续审查将 Command 的入口/指纹检查和必要刷新移到 Fleet cold spawn；warm 只保留安装身份、
+显式禁用/删除及既有准入。cold 使用当前安装证据启动，冻结 Run 的逻辑选择、Binding 和 Session 不换代，
+启动事件使用实际 Host 版本。MCP 修改只将本次受影响成员传到现有失效入口，无变化不退役；warm Session
+不再构造不会发送的 MCP wire 参数。没有新增文件或长期状态；保留 `bindings/<session-id>.json`，不为少一层
+目录改写不可变 binding 交付。
 
 ## 与其他 Runtime 对照
 
@@ -63,3 +70,12 @@ System 包含 Bootstrap，user 不含。增加完整字符串出现次数计数�
 
 隔离 fixture 的进程已退出，复制的凭据和原生历史随整个 fixture 删除；只导出明确白名单证据。
 本记录不声称隔离 App 或 Windows/Linux 资格通过。完整资格仍按现有流程补齐。
+
+PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试通过，1 项既有真实账号 smoke 按条件忽略。
+覆盖 cold callback、Command 入口变动/禁用/删除、MCP 成员范围与 no-op、导入、Fleet 取消/回收及旧 Binding。
+两处初始测试预期（setMembers 自动启用、入口验证不额外探测版本）已修正，保留在证据中。
+本次跟进未重新调用真实模型；上文原生 1.88 证据与公开资格边界不变。
+
+默认工作区整套两次均为核心 428 通过、1 个既有 Cursor 身份探针超时、1 忽略；该探针在同一个工作区
+测试二进制中单独复跑通过（0.32 秒）。其余工作区目标分开运行 46 项通过，doc-tests 通过。保留整套
+超时记录，不把单独复跑算作整套全绿，也未修改 Cursor 探针代码或超时阈值。

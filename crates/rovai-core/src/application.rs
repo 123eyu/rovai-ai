@@ -10381,11 +10381,14 @@ impl Core {
                     _ => unreachable!(),
                 };
                 drop(database);
-                // The successful user operation is the reload boundary. Command
-                // does not discover changes by comparing per-Run config digests.
-                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
+                // Only the mutation's actual member scope is a reload event.
+                if let rovai_core::mcp::McpMutationResult::Ok {
+                    affected_agent_ids, ..
+                } = &result
+                    && !affected_agent_ids.is_empty()
+                {
                     self.runtime_fleet
-                        .invalidate_adapter(AdapterKind::CommandCodeCli)
+                        .invalidate_adapter_members(AdapterKind::CommandCodeCli, affected_agent_ids)
                         .await;
                 }
                 Ok(serde_json::to_value(result)?)
@@ -15813,6 +15816,11 @@ impl Core {
                 effective_version: None,
             });
         }
+        // Command's process preparation runs only inside Fleet's spawn closure.
+        // Admission above still honors platform policy and disabled/deleted installations.
+        if runtime.adapter_kind == AdapterKind::CommandCodeCli {
+            return Ok((runtime, candidate.version));
+        }
         match self
             .inspect_runtime_integrity(&runtime)
             .await
@@ -15856,6 +15864,55 @@ impl Core {
         workspace: &AgentRunWorkspace,
         drift_reason: &str,
     ) -> std::result::Result<(FrozenAgentRuntimeConfig, i64), RuntimeDispatchFailure> {
+        let effective_runtime = self
+            .refresh_runtime_for_launch(frozen_runtime, workspace)
+            .await?;
+        self.persist_dispatch_runtime_rebind(candidate, effective_runtime, drift_reason)
+            .await
+    }
+
+    async fn prepare_acp_cold_runtime(
+        &self,
+        runtime: FrozenAgentRuntimeConfig,
+        workspace: &AgentRunWorkspace,
+    ) -> std::result::Result<FrozenAgentRuntimeConfig, RuntimeDispatchFailure> {
+        if runtime.adapter_kind != AdapterKind::CommandCodeCli {
+            return Ok(runtime);
+        }
+        // Keep the Run's logical choices; select current installation evidence
+        // only when Fleet actually needs a new process. No Run/Binding rotation.
+        let runtime = AgentProfileService::default()
+            .resolve_rebound_runtime(&*self.database.lock().await, &runtime)
+            .map_err(|error| RuntimeDispatchFailure {
+                code: "runtime_configuration_invalid".to_string(),
+                error,
+                effective_version: None,
+            })?
+            .map_err(|blocker| RuntimeDispatchFailure {
+                code: blocker.code,
+                error: anyhow::anyhow!("{}", blocker.payload),
+                effective_version: None,
+            })?;
+        match self
+            .inspect_runtime_integrity(&runtime)
+            .await
+            .map_err(|error| RuntimeDispatchFailure {
+                code: "runtime_integrity_failed".to_string(),
+                error,
+                effective_version: None,
+            })? {
+            RuntimeIntegrityPreflight::Verified => self.prepare_runtime_identity(runtime).await,
+            RuntimeIntegrityPreflight::DriftDetected(_) => {
+                self.refresh_runtime_for_launch(runtime, workspace).await
+            }
+        }
+    }
+
+    async fn refresh_runtime_for_launch(
+        &self,
+        frozen_runtime: FrozenAgentRuntimeConfig,
+        workspace: &AgentRunWorkspace,
+    ) -> std::result::Result<FrozenAgentRuntimeConfig, RuntimeDispatchFailure> {
         let installation = {
             let database = self.database.lock().await;
             AgentProfileService::default()
@@ -15991,8 +16048,7 @@ impl Core {
                 },
             )?;
 
-        self.persist_dispatch_runtime_rebind(candidate, effective_runtime, drift_reason)
-            .await
+        Ok(effective_runtime)
     }
 
     async fn persist_dispatch_runtime_rebind(
@@ -18348,6 +18404,15 @@ impl Core {
                 attachment_access_root,
                 &runtime_compatibility_digest,
                 startup_bootstrap.as_deref(),
+                {
+                    let core = self.clone();
+                    let workspace = execution.workspace.clone();
+                    move |runtime| async move {
+                        core.prepare_acp_cold_runtime(runtime, &workspace)
+                            .await
+                            .map_err(|failure| failure.error.context(failure.code))
+                    }
+                },
             )
             .await;
         let mut runtime = runtime_result?;
@@ -18413,6 +18478,15 @@ impl Core {
                             attachment_access_root,
                             &runtime_compatibility_digest,
                             startup_bootstrap.as_deref(),
+                            {
+                                let core = self.clone();
+                                let workspace = execution.workspace.clone();
+                                move |runtime| async move {
+                                    core.prepare_acp_cold_runtime(runtime, &workspace)
+                                        .await
+                                        .map_err(|failure| failure.error.context(failure.code))
+                                }
+                            },
                         )
                         .await?;
                 }
@@ -18532,6 +18606,15 @@ impl Core {
                         attachment_access_root,
                         &runtime_compatibility_digest,
                         startup_bootstrap.as_deref(),
+                        {
+                            let core = self.clone();
+                            let workspace = execution.workspace.clone();
+                            move |runtime| async move {
+                                core.prepare_acp_cold_runtime(runtime, &workspace)
+                                    .await
+                                    .map_err(|failure| failure.error.context(failure.code))
+                            }
+                        },
                     )
                     .await?;
                 let active_builtin_tools = runtime
@@ -18665,7 +18748,7 @@ impl Core {
                 "executionEpoch": execution.execution_epoch,
                 "adapterKind": execution.runtime.adapter_kind,
                 "adapterInstallationId": execution.runtime.installation_id,
-                "runtimeVersion": execution.runtime.reported_version,
+                "runtimeVersion": runtime.reported_version(),
                 "modelId": execution.runtime.model.model_id,
                 "modelOptions": execution.runtime.model.options,
                 "hostInstanceId": runtime.host_instance_id(),
@@ -28553,7 +28636,7 @@ mod tests {
         );
         // An unavailable version only leaves Steer unavailable, never rejects launch.
         write_runtime_resolution_executable(&executable, "#!/bin/sh\nexit 1\n");
-        let mut missing = runtime;
+        let mut missing = runtime.clone();
         missing.executable_fingerprint = fingerprint_executable(&executable).unwrap();
         assert!(
             core.prepare_runtime_identity(missing)
@@ -28784,6 +28867,136 @@ mod tests {
                 }
             }
         }
+        // Command admission preserves a live Host even if the entry has moved.
+        // Its cold branch must still resolve/validate the current installation.
+        let executable = root.join("command-code");
+        write_runtime_resolution_executable(&executable, "#!/bin/sh\nprintf '1.88.0\\n'\n");
+        let kind = AdapterKind::CommandCodeCli;
+        let service = AgentProfileService::default();
+        let frozen = {
+            let mut database = core.database.lock().await;
+            let snapshot = AgentRuntimeAdapterRegistry::default()
+                .light_ready_snapshot(
+                    kind,
+                    Some("1.88.0".into()),
+                    fingerprint_executable(&executable).unwrap(),
+                    chrono::Utc::now().to_rfc3339(),
+                )
+                .unwrap();
+            service
+                .commit_discovered_managed_installation(
+                    &mut database,
+                    DiscoveredManagedInstallation {
+                        executable_file_identity:
+                            rovai_core::agent_runtime_adapter::observe_executable_file_identity(
+                                &executable,
+                            )
+                            .ok(),
+                        adapter_kind: kind,
+                        executable_path: executable.display().to_string(),
+                        command_name: kind.command_name().into(),
+                        source: InstallationSource::Manual,
+                        auth_scope: "default".into(),
+                        snapshot,
+                        entrypoint_locator_identity: None,
+                    },
+                )
+                .unwrap();
+            let installed = service
+                .managed_installation(&database, kind, "default")
+                .unwrap()
+                .unwrap();
+            let mut frozen = runtime;
+            frozen.adapter_kind = kind;
+            frozen.installation_id = installed.id;
+            frozen.permissions.adapter_kind = kind;
+            frozen.permissions.values = json!({"permission_mode": "bypass"});
+            service
+                .resolve_rebound_runtime(&database, &frozen)
+                .unwrap()
+                .unwrap()
+        };
+        let workspace = AgentRunWorkspace::runtime_managed_path(root.display().to_string());
+        assert_eq!(
+            core.prepare_acp_cold_runtime(frozen.clone(), &workspace)
+                .await
+                .map_err(|failure| failure.error)
+                .unwrap()
+                .executable_path,
+            frozen.executable_path
+        );
+        write_runtime_resolution_executable(&executable, "#!/bin/sh\nprintf '1.89.0\\n'\n");
+        let refreshed = core
+            .prepare_acp_cold_runtime(frozen.clone(), &workspace)
+            .await
+            .map_err(|failure| failure.error)
+            .unwrap();
+        assert_eq!(
+            refreshed.executable_fingerprint,
+            fingerprint_executable(&executable).unwrap()
+        );
+        assert_ne!(
+            refreshed.executable_fingerprint,
+            frozen.executable_fingerprint
+        );
+        // Entry verification does not add a version subprocess. Unknown is
+        // honest; the old executable's reported version must not carry over.
+        assert!(refreshed.reported_version.is_none());
+        assert_eq!(refreshed.model, frozen.model);
+        assert_eq!(refreshed.permissions, frozen.permissions);
+        assert_eq!(refreshed.installation_id, frozen.installation_id);
+        std::fs::remove_file(&executable).unwrap();
+        {
+            let database = core.database.lock().await;
+            database.connection().execute(
+                "UPDATE adapter_installation SET path_state = 'path_missing', generation = generation + 1 WHERE id = ?1",
+                [&frozen.installation_id],
+            ).unwrap();
+            assert!(
+                service
+                    .runtime_dispatch_blocker(&database, &frozen)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let failure = core
+            .prepare_acp_cold_runtime(frozen.clone(), &workspace)
+            .await
+            .err()
+            .expect("cold launch must reject the missing entry");
+        assert_eq!(
+            failure.code, "runtime_executable_unavailable",
+            "{}",
+            failure.error
+        );
+        {
+            let database = core.database.lock().await;
+            database
+                .connection()
+                .execute(
+                    "UPDATE adapter_installation SET enabled = 0 WHERE id = ?1",
+                    [&frozen.installation_id],
+                )
+                .unwrap();
+            assert_eq!(
+                service
+                    .runtime_dispatch_blocker(&database, &frozen)
+                    .unwrap()
+                    .unwrap()
+                    .code,
+                "adapter_installation_disabled"
+            );
+            let mut deleted = frozen;
+            deleted.installation_id = "deleted-installation".into();
+            assert_eq!(
+                service
+                    .runtime_dispatch_blocker(&database, &deleted)
+                    .unwrap()
+                    .unwrap()
+                    .code,
+                "adapter_installation_missing"
+            );
+        }
         drop(core);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -28961,61 +29174,178 @@ mod tests {
             .unwrap()
             .server_id
             .clone();
-        let compatibility = runtime_fleet::RuntimeCompatibilityKey::native_binding(
-            "camp-command-mcp",
-            &agent_id,
-            "binding-command-mcp",
-            root.clone(),
-        );
-        let mut previous_process_id = None;
-        for (index, expected_status, assigned) in
-            [(0, "conflict", true), (1, "ok", true), (2, "ok", false)]
+        let other_agent_id = known_agents
+            .iter()
+            .find(|id| **id != agent_id)
+            .unwrap()
+            .clone();
+        let definition = |port| {
+            json!({ "mcpServers": { "fixture": {
+                "url": format!("http://127.0.0.1:{port}/mcp")
+            }}})
+            .to_string()
+        };
+        // Exercise real mutation facts through dispatch, including no-ops. Both
+        // assigned Command owners are busy; unrelated owners and adapters survive.
+        let cases = [
+            (
+                "mcp.servers.setMembers",
+                json!({"agentIds": [agent_id]}),
+                "conflict",
+                vec![],
+            ),
+            (
+                "mcp.servers.setMembers",
+                json!({"agentIds": [agent_id]}),
+                "ok",
+                vec![0],
+            ),
+            (
+                "mcp.servers.setMembers",
+                json!({"agentIds": [agent_id]}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.update",
+                json!({"definitionJson": definition(34567)}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.setEnabled",
+                json!({"enabled": true}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.assignments.set",
+                json!({"agentId": other_agent_id, "assigned": true}),
+                "ok",
+                vec![1],
+            ),
+            (
+                "mcp.assignments.set",
+                json!({"agentId": other_agent_id, "assigned": true}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.setMembers",
+                json!({"agentIds": [other_agent_id]}),
+                "ok",
+                vec![0, 1],
+            ),
+            (
+                "mcp.servers.setEnabled",
+                json!({"enabled": false}),
+                "ok",
+                vec![1],
+            ),
+            (
+                "mcp.servers.setEnabled",
+                json!({"enabled": false}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.update",
+                json!({"definitionJson": definition(34568)}),
+                "ok",
+                vec![1],
+            ),
+            (
+                "mcp.servers.update",
+                json!({"definitionJson": definition(34568)}),
+                "ok",
+                vec![],
+            ),
+            ("mcp.servers.delete", json!({}), "ok", vec![1]),
+            ("mcp.servers.delete", json!({}), "ok", vec![]),
+        ];
+        let owners = [
+            (AdapterKind::CommandCodeCli, agent_id.as_str()),
+            (AdapterKind::CommandCodeCli, other_agent_id.as_str()),
+            (AdapterKind::CommandCodeCli, "unrelated-member"),
+            (AdapterKind::CodexCli, agent_id.as_str()),
+        ];
+        let mut previous_processes = vec![None; owners.len()];
+        for (index, (method, mut params, expected_status, retired)) in cases.into_iter().enumerate()
         {
-            let run_id = format!("command-mcp-write-{index}");
-            let lease = core
-                .runtime_fleet
-                .acquire(
-                    runtime_fleet::FleetAcquireRequest {
-                        agent_run_id: run_id.clone(),
-                        execution_epoch: 1,
-                        adapter_kind: AdapterKind::CommandCodeCli,
-                        compatibility: compatibility.clone(),
-                    },
-                    move || async move {
-                        Ok(runtime_fleet::fake_runtime_process_host(format!(
-                            "command-host-{index}"
-                        )))
-                    },
-                )
+            let mut runs = Vec::new();
+            for (owner, (kind, member)) in owners.iter().enumerate() {
+                let run_id = format!("command-mcp-write-{index}-{owner}");
+                let lease = core
+                    .runtime_fleet
+                    .acquire(
+                        runtime_fleet::FleetAcquireRequest {
+                            agent_run_id: run_id.clone(),
+                            execution_epoch: 1,
+                            adapter_kind: *kind,
+                            compatibility: runtime_fleet::RuntimeCompatibilityKey::native_binding(
+                                "camp-command-mcp",
+                                member,
+                                "binding-command-mcp",
+                                root.clone(),
+                            ),
+                        },
+                        move || async move {
+                            Ok(runtime_fleet::fake_runtime_process_host(format!(
+                                "host-{index}-{owner}"
+                            )))
+                        },
+                    )
+                    .await
+                    .unwrap();
+                if let Some(previous) = &previous_processes[owner] {
+                    assert_eq!(
+                        &lease.process_id, previous,
+                        "{method} lost unchanged owner {owner}"
+                    );
+                }
+                previous_processes[owner] = Some(lease.process_id);
+                runs.push(run_id);
+            }
+            params["expectedConfigDigest"] = json!(if index == 0 {
+                "stale".to_string()
+            } else {
+                store.get(&known_agents).unwrap().config_digest
+            });
+            params["serverId"] = json!(server_id);
+            let result = core
+                .handle(&Request {
+                    client: rovai_core::draft_client::DraftClient::default(),
+                    id: json!(index),
+                    method: method.into(),
+                    params,
+                })
                 .await
                 .unwrap();
-            if let Some(previous) = &previous_process_id {
-                assert_eq!(&lease.process_id == previous, index == 1);
-            }
-            previous_process_id = Some(lease.process_id.clone());
-            let view = store.get(&known_agents).unwrap();
-            let result = core.handle(&Request {
-                client: rovai_core::draft_client::DraftClient::default(),
-                id: json!(index), method: "mcp.servers.setMembers".into(),
-                params: json!({
-                    "expectedConfigDigest": if index == 0 { "stale".to_string() } else { view.config_digest },
-                    "serverId": server_id,
-                    "agentIds": if assigned { vec![agent_id.clone()] } else { Vec::new() },
-                }),
-            }).await.unwrap();
-            assert_eq!(result["status"], expected_status, "{result:#}");
-            let outcome = core
-                .runtime_fleet
-                .release_with_outcome(&run_id, 1, runtime_fleet::FleetReleaseDisposition::Reusable)
-                .await;
-            assert_eq!(
-                outcome,
-                if index == 0 {
-                    runtime_fleet::FleetReleaseOutcome::Reusable
-                } else {
-                    runtime_fleet::FleetReleaseOutcome::Reaped
-                }
+            assert_eq!(result["status"], expected_status, "{method}: {result:#}");
+            assert!(
+                result.get("affectedAgentIds").is_none(),
+                "mutation facts must remain internal"
             );
+            for (owner, run_id) in runs.into_iter().enumerate() {
+                let outcome = core
+                    .runtime_fleet
+                    .release_with_outcome(
+                        &run_id,
+                        1,
+                        runtime_fleet::FleetReleaseDisposition::Reusable,
+                    )
+                    .await;
+                assert_eq!(
+                    outcome,
+                    if retired.contains(&owner) {
+                        previous_processes[owner] = None;
+                        runtime_fleet::FleetReleaseOutcome::Reaped
+                    } else {
+                        runtime_fleet::FleetReleaseOutcome::Reusable
+                    },
+                    "{method}, owner {owner}"
+                );
+            }
         }
         core.runtime_fleet.shutdown_all().await;
         drop(core);

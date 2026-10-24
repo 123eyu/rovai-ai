@@ -493,8 +493,8 @@ pub struct FrozenAgentRuntimeConfig {
     pub model: ResolvedModelSelection,
     pub permissions: AdapterPermissionConfig,
     pub native_session_compatibility_key: Option<String>,
-    pub binding_compatibility_digest: String,
-    pub host_config_digest: String,
+    pub binding_compatibility_digest: Option<String>,
+    pub host_config_digest: Option<String>,
     pub config_digest: String,
 }
 
@@ -4864,8 +4864,10 @@ fn resolve_frozen_runtime_binding_with_snapshot(
         // pre-upgrade member-env sessions) keep that identity only when today's
         // installation/protocol/permission projection still matches exactly.
         // Do not read member env or historical environment plans to decide this.
-        None if native_binding_compatibility_digest
-            == Some(projection.binding_compatibility_digest.as_str()) =>
+        None if adapter_kind != AdapterKind::CommandCodeCli
+            && native_binding_compatibility_digest.is_some()
+            && native_binding_compatibility_digest
+                == projection.binding_compatibility_digest.as_deref() =>
         {
             None
         }
@@ -4894,14 +4896,16 @@ fn resolve_frozen_runtime_binding_with_snapshot(
         host_config_digest: projection.host_config_digest,
         config_digest: String::new(),
     };
-    if let Some(api) = &frozen.custom_api {
+    if let Some(api) = &frozen.custom_api
+        && adapter_kind != AdapterKind::CommandCodeCli
+    {
         let identity = api.identity()?;
-        frozen.host_config_digest = canonical_json_digest(&json!({
+        frozen.host_config_digest = Some(canonical_json_digest(&json!({
             "native": frozen.host_config_digest, "customApi": identity
-        }))?;
-        frozen.binding_compatibility_digest = canonical_json_digest(&json!({
+        }))?);
+        frozen.binding_compatibility_digest = Some(canonical_json_digest(&json!({
             "native": frozen.binding_compatibility_digest, "customApi": identity
-        }))?;
+        }))?);
     }
     frozen.refresh_config_digest()?;
     Ok(Ok(frozen))
@@ -8387,8 +8391,8 @@ mod slow_tests {
                     old.binding_compatibility_digest
                 );
                 for previous in [
-                    &old.binding_compatibility_digest,
-                    &hosted.binding_compatibility_digest,
+                    old.binding_compatibility_digest.as_deref().unwrap(),
+                    hosted.binding_compatibility_digest.as_deref().unwrap(),
                     "unknown-binding",
                 ] {
                     let current = resolve_frozen_runtime_binding_with_snapshot(
@@ -8399,9 +8403,12 @@ mod slow_tests {
                     )
                     .unwrap()
                     .unwrap();
-                    if previous == old.binding_compatibility_digest {
+                    if Some(previous) == old.binding_compatibility_digest.as_deref() {
                         assert!(current.custom_api.is_none());
-                        assert_eq!(current.binding_compatibility_digest, previous);
+                        assert_eq!(
+                            current.binding_compatibility_digest.as_deref(),
+                            Some(previous)
+                        );
                         assert_eq!(current.host_config_digest, old.host_config_digest);
                     } else {
                         assert!(current.custom_api.is_some());
@@ -8426,7 +8433,7 @@ mod slow_tests {
                     database.connection(),
                     &changed,
                     None,
-                    Some(&old.binding_compatibility_digest),
+                    old.binding_compatibility_digest.as_deref(),
                 )
                 .unwrap()
                 .unwrap();
@@ -8451,7 +8458,7 @@ mod slow_tests {
                         database.connection(),
                         &changed,
                         None,
-                        Some(&old.binding_compatibility_digest),
+                        old.binding_compatibility_digest.as_deref(),
                     )
                     .unwrap()
                     .is_err(),

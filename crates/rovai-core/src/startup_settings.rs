@@ -237,7 +237,11 @@ impl Core {
         if settings.reconnect_required {
             self.native_skill_discovery.invalidate_cache();
         }
-        // No fleet invalidation: a live host retains its captured process environment.
+        // Command applies explicit startup edits through Fleet retirement. Busy
+        // Hosts finish normally; the next Host restores the same Native Session.
+        if kind == rovai_core::agent_profile::AdapterKind::CommandCodeCli {
+            self.runtime_fleet.invalidate_adapter(kind).await;
+        }
         Ok(serde_json::to_value(runtime_startup::saved_response(
             settings,
         ))?)

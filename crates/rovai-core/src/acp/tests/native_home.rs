@@ -139,7 +139,7 @@ while IFS= read -r ignored; do :; done
             &external_mcp_servers,
             "sha256:mcp",
             &attachment_root,
-            "sha256:compatibility",
+            &Some("sha256:compatibility".to_owned()),
             None,
         )
         .await
@@ -183,7 +183,7 @@ while IFS= read -r ignored; do :; done
             &external_mcp_servers,
             "sha256:mcp",
             &attachment_root,
-            "sha256:compatibility",
+            &Some("sha256:compatibility".to_owned()),
             None,
         )
         .await

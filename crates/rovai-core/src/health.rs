@@ -2411,36 +2411,6 @@ pub(crate) fn select_grok_noninteractive_auth_method(
     )
 }
 
-pub(crate) async fn inspect_command_code_native_mcp_server_names(
-    executable: &Path,
-    cwd: &Path,
-) -> Result<BTreeSet<String>> {
-    if !runtime_launch_allowed(
-        AdapterKind::CommandCodeCli,
-        RuntimeLaunchPurpose::DispatchPreflight,
-    ) {
-        bail!("runtime_launch_disallowed:dispatch_preflight");
-    }
-    let mut command = runtime_command(executable, Some(AdapterKind::CommandCodeCli));
-    command
-        .args(["mcp", "list"])
-        .current_dir(cwd)
-        .env("COMMANDCODE_SKIP_UPDATES", "1")
-        .env("NO_COLOR", "1")
-        .env("FORCE_COLOR", "0");
-    let output = bounded_output(&mut command, Duration::from_secs(15))
-        .await
-        .map_err(|_| anyhow::anyhow!("command_code_native_mcp_inspection_failed"))?;
-    anyhow::ensure!(
-        output.status.success() && !output.stdout.truncated,
-        "command_code_native_mcp_inspection_failed"
-    );
-    crate::command_code_acp::native_mcp_names(
-        std::str::from_utf8(&output.stdout.bytes)
-            .context("command_code_native_mcp_list_invalid")?,
-    )
-}
-
 pub(crate) async fn inspect_grok_native_mcp_server_names(
     executable: &Path,
     cwd: &Path,
@@ -4297,20 +4267,6 @@ while IFS= read -r ignored; do :; done
         assert_eq!(arguments(AdapterKind::KimiCodeCli), ["acp"]);
         assert_eq!(arguments(AdapterKind::CommandCodeCli), ["acp"]);
         assert_eq!(arguments(AdapterKind::ClineCli), ["--acp"]);
-        assert_eq!(
-            crate::command_code_acp::native_mcp_names("\nNo MCP servers configured\n").unwrap(),
-            BTreeSet::new()
-        );
-        assert_eq!(crate::command_code_acp::native_mcp_names("MCP Servers\n NAME TYPE SCOPE AUTH STATUS\n native stdio user - enabled\n disabled http project x disabled\n Total: 2 servers\n").unwrap(),
-            BTreeSet::from(["native".to_owned(), "disabled".to_owned()]));
-        for invalid in [
-            "NAME TYPE SCOPE AUTH STATUS\nnative stdio project x enabled",
-            "NAME TYPE SCOPE AUTH STATUS\nTotal: 9 servers",
-            "unknown format",
-            "\x1b[31mNo MCP servers configured",
-        ] {
-            assert!(crate::command_code_acp::native_mcp_names(invalid).is_err());
-        }
         assert_eq!(
             arguments(AdapterKind::GrokBuild),
             ["--no-auto-update", "agent", "--no-leader", "stdio"]

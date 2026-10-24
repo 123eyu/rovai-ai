@@ -1245,3 +1245,23 @@ Atom 按 ID 绑定，本机标签只展示；Core 首次发布捕获标题并保
 不新增 references 数组、上下文块、Composer V3、serializer 版本或数据库表；不改变已冻结 Context Blob。
 命令回放先于目标读取，源删除不使合法消息失效。若未来需要发送时历史快照，须独立定义读取边界，不能
 用当前引用 ID/标题冒充。未选择标题重绑、自动解析普通文本、跨 Host ID 或引用引发执行的方案。
+
+
+## V1.72-D59：Command Code 回归原生 HOME 与 Binding 身份
+
+- 状态：accepted
+- 日期：2026-10-24
+- 当前权威：[Runtime Launch and Verification v72](../../contracts/runtime-launch-and-verification-v72.md)、[Command Code ACP 边界](../../architecture/runtime-catalog-boundaries.md#command-code-acp-实施边界)
+
+### 背景与选择
+
+官方 1.88 已提供 ACP BYOK 目录/选模与正式 Mod 参数。用户明确要求删除私有 HOME、配置副本及摘要
+兼容性机制，避免原生状态有多个所有者、外部配置变化被解释为新会话。保留现有共享 Fleet，以实际所属
+身份及进程健康/租约选择 Host，以精确原生 Session ID 延续会话；显式修改通过既有失效事件应用。
+
+### 后果与替代方案
+
+不迁移或清空旧摘要和 Session，不改变冻结 Bootstrap。原生配置加载时机由 CLI 拥有；外部编辑不会由
+Rovai 自动扫描后重启。拒绝保留旧 HOME fallback、把摘要换名为 profile/generation、每轮比较配置快照或
+新增 Command 专属池/缓存。MCP 同名优先交给原生行为，仅保留有实测依据的 cwd/字面量适配和精确恢复
+目标确认。此决定替代 D27 中 Command 私有原生 MCP 文件路径，不改变 Cline，也不代表公开资格通过。

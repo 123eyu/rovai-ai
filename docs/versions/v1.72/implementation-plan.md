@@ -4117,3 +4117,10 @@ Mission 抽屉和 Diff 文件树已有最终指针提交与缩放换算，保留
   当前主题 token 不符，本次仅更新测试预期，未修改主题。
 - `pnpm docs:test`、`pnpm docs:check` 与以 `e9cfbeac4` 为 base 的 `pnpm docs:check:ci` 通过。
   验收全部使用显式隔离 userData 与内存 bridge，无 Core、真实 Runtime 或日常 App 数据写入；未安装日常 App。
+
+
+## Command Code 原生接入简化（2026-10-24）
+
+官方 1.88.0、用户原生 HOME、官方 Mod、ACP MCP 和共享 Fleet 身份复用作为同一交付；删除配置镜像与
+摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
+[Command Code 简化记录](command-code-native-simplification.md)。

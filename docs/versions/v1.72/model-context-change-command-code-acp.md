@@ -50,13 +50,15 @@ Bootstrap 和 Dynamic Context 的正文、原生历史与其他 Runtime 输入�
 
 ## 必需门禁与恢复
 
-Core 为每个 Host 创建私有设置覆盖，将必需 Mod 放入官方 `mods.paths`，保留原生其他设置与 Mod；
-不改全局 settings、AGENTS.md 或原生历史。Mod 工厂最后写 `{revision,nonce,pid}`，Core 必须在 initialize
+2026-10-24 内部简化：Core 在用户原生 HOME 下通过官方 `--mod` 加载 Host 临时模块，不创建 settings
+覆盖或原生配置副本；不改全局 settings、AGENTS.md 或原生历史。该调整不改变冻结 B/P、输入角色、选择规则、
+上下文版本或证据，属于物理交付简化，当前完整合同见 [Runtime Launch and Verification v72](../../contracts/runtime-launch-and-verification-v72.md)。
+Mod 工厂最后写 `{revision,nonce,pid}`，Core 必须在 initialize
 之后、首个 session prompt 之前验证它属于当前 Host。文件缺失、加载失败或版本漂移均关闭进程。
 
 Core 在共享 Context 冻结和 Native Binding generation 校验后写入按完整 Native Session ID 命名的绑定。
 内容包括完整 B、Session ID、schemaVersion 与 SHA-256；再次绑定只能完全相同。每次 hook 校验文件、ID、
-摘要、32 KiB Bootstrap 预算与 64 KiB 外层文件预算。上游会捕获普通异常，所以绑定错误以退出码 78 结束
+摘要、共享 128 KiB Bootstrap 预算与 256 KiB 外层文件预算。上游会捕获普通异常，所以绑定错误以退出码 78 结束
 Host，不使用普通 throw 作为门禁。A/B/A 各次均使用自身 state.sessionId，没有进程级 active B 指针。
 
 cold resume 在新的 Host 私有目录重新绑定原始 B；原生 Session storage 保持在 Runtime 自己的目录，

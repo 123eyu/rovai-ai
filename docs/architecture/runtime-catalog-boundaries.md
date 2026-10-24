@@ -59,39 +59,29 @@ selector 同样不展示 Cursor、Cline 与 Command Code；其他成员选项来
 <a id="command-code-研究接入边界"></a>
 ## Command Code ACP 实施边界
 
-`command-code-cli` 使用官方 `command-code acp`（最低 1.74.1），复用共享 ACP Host/Fleet、精确 Native
-Session、模型/权限、Action、取消和终态路径；不建立另一套进程池。Migration 185 将 schema 134 升为 135，
-原子扩展 Runtime 与 Skill group `command_code` 的闭合集合。按
-[V1.72-D25](../versions/v1.72/decisions.md#v1-72-d25)曾仅在 macOS arm64 开放开发 Preview。
-2026-10-09 按 User 105 撤回 Preview，所有平台为 NotQualified；Settings、新手引导、成员/Skill 选择、
-安装引导与监控筛选不提供 Command Code。ACP 实现、既有配置和历史 reader 保留；没有 qualification
-evidence，不声称 First-Class。headless 传输、事件归约器、专属测试及探针已删除，历史报告指向退役前固定提交。
+`command-code-cli` 以官方 1.88.0 为基线，接入只有用户原生 HOME、官方 `--mod`、标准 ACP
+与现有共享 Fleet。Adapter 不复制认证/配置、不镜像 HOME、不遍历原生 Mod/MCP，不管理用户原生历史。
+完整字段与行为见 [Runtime Launch and Verification v72](../contracts/runtime-launch-and-verification-v72.md)。
 
-Bootstrap 使用 `managed_system_prompt`，完整交付语义见[revision 5](../versions/v1.72/model-context-change-command-code-acp.md)。
-Host 私有 Home 保留原生 auth/provider/Skill/Mod/Session 路径，仅覆盖私有 settings 的 `mods.paths` 与原生 `mcp.json`，通过
-官方 `appendSystemPrompt({state})` 按 `state.sessionId` 读取完整冻结 Bootstrap。工厂注册完成后写入带
-随机 nonce/当前 PID 的 readiness；Core 在 initialize 后校验，缺失则关闭 Host 且不发 prompt。每次
-hook 检查绑定、摘要和预算，异常直接停止进程，避免上游捕获普通异常后继续。A/B 不共享 active Bootstrap 指针，
-cold Host 重新绑定原冻结字节。原生 System 保留并追加 B，用户 prompt 只含 P；不改项目 AGENTS.md。
+共享 Fleet 对 Command 显式采用 Native Binding 身份策略：所属范围、成员、Binding ID、canonical cwd
+一致且进程健康空闲时复用。配置摘要、安装 generation、程序指纹均不参与其复用或恢复判断；历史摘要仍可读。
+显式启动设置和 MCP 修改走既有 invalidation，忙碌进程结束后退役，新 Host 保留精确旧 Session ID。
+外部原生配置变化不触发扫描、比较或隐式新 Session；其他 Runtime 的策略不变。
 
-配置 digest 覆盖原生认证/provider/settings、Mod 源、环境与 MCP；项目 MCP 按原生 projects 下的具名
-配置文件保守失效，不读取历史。显式模型来自 ACP 真实目录；原生配置中的默认 BYOK ID 若不在目录中，
-以 runtime-default 哨兵保留默认选择。该 ID 不伪装成 session/set_model 可选项，实际模型仍按原生 Session 记录。
-原生五种权限原值传给 session/set_mode，默认 bypass，审批响应仍由共享 ACP 原生请求路径承载。
-External MCP 合入 Host 私有 Home 的原生 `mcp.json`，session mcpServers 保持空；保留原生定义、工作目录和已解析的环境/请求头，同名采用已存在的 `native_wins_skip`，先通过官方 `mcp list`
-发现有效名称并冻结冲突结果。发现失败/格式漂移阻断投影；不把被原生遮蔽的 Assignment 标为可用。
-原生连接失败可能继续建立 Session，因此握手和配置可见性不是 MCP 调用成功证明。
+Bootstrap 的 `managed_system_prompt` 语义不变：完整冻结 B 经官方 `appendSystemPrompt({state})`
+追加到原生 System，user 只有 P。每 Host 一个 Mod，每 Session 一个不可变 binding；初始化只校验一次
+revision/局部 nonce/PID 并删除 ready 文件。缺失或损坏 binding 在模型请求前停止。没有 active Bootstrap
+全局文件、HOME fallback、专属池/锁/缓存。原输入确认见 [revision 5](../versions/v1.72/model-context-change-command-code-acp.md)；
+其中旧物理交付描述由 v72 替代，冻结内容、选择、上下文版本和证据边界不变。
 
-此前 1.74.1 共享 Core Host 门禁和同 PID 成员 A→B→A 控制面已过；以原生默认 sub2api/gpt-6-sol 完成
-真实生成、exact cold、文件工具、原生 allow/deny/cancel、手动及自动压缩后连续性。这不是跨模型切换证据。隔离 App 的首次/warm/
-Core 重启、CLI 公开发送、文件 +/− 与 272000 Context 窗口通过。费用与非零命令状态等未取得结构化字段的
-边界保持未知，不提升 First-Class；详见[完整 Checklist 对照](../research/runtime-monitoring/command-cline-checklist-2026-10-05.md)。
+分配 MCP 经 `session/new|load|resume.mcpServers`，原生同名配置由 CLI 自动优先。cwd 仅用现有 argv
+launcher，env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm 不运行额外 CLI。
+1.88 仍会静默接受不存在的恢复 ID，因此冷恢复保留官方目录的精确 ID/cwd 检查，认证/网络错误不冒充缺失。
+显式模型来自真实 ACP 目录，ID（含 provider 前缀及碰撞别名）原样传递；不使用 `acp --model`。
 
-未完成项：1.74.1/1.79.1 ACP 模型目录不包含自定义 BYOK，`session/set_model` 和
-`session/set_config_option` 拒绝这些 ID；1.79.1 `acp --model` 接受参数但未用于会话，不能绕过此缺口。
-已测 BYOK 的 MCP 发现成功但实际调用未通过；费用、部分命令状态等原生缺失字段仍未知。
-[模型选择调查](../research/command-code-runtime/model-selection-2026-10-09.md)与
-[兼容性清单](../runtime-compatibility.md)分别保存原生失败和验收范围。
+Migration 185 的闭集 identity 与既有历史保持。按 User 105 暂停公开的决定继续有效：所有平台 NotQualified，
+不恢复 Preview、headless 或产品选择入口。旧 1.74.1/1.79.1 BYOK 目录缺口属于历史证据；1.88 的当前原生
+证据、结构简化及尚未覆盖的平台范围见[实施记录](../versions/v1.72/command-code-native-simplification.md)。
 
 ## Cline 实施边界
 

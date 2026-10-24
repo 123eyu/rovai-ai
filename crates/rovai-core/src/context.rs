@@ -16019,9 +16019,10 @@ mod slow_tests {
                             execution.runtime.installation_id.clone(),
                         ),
                         previous_native_session_id: Some("generation-one".to_string()),
-                        previous_binding_compatibility_digest: Some(
-                            execution.runtime.binding_compatibility_digest.clone(),
-                        ),
+                        previous_binding_compatibility_digest: execution
+                            .runtime
+                            .binding_compatibility_digest
+                            .clone(),
                         proposed_binding_id: None,
                         adapter_installation_id: execution.runtime.installation_id.clone(),
                         native_session_id: "generation-two".to_string(),

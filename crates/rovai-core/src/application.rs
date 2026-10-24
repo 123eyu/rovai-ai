@@ -9704,6 +9704,8 @@ impl Core {
                 {
                     return Ok(serde_json::to_value(blocker)?);
                 }
+                let restart_command = params.command.adapter_kind == AdapterKind::CommandCodeCli
+                    && environment_edit.is_some();
                 let agent_id = params.command.agent_id.clone();
                 let execution = {
                     let mut database = self.database.lock().await;
@@ -9732,6 +9734,9 @@ impl Core {
                 };
                 emit_member_roster_if_applied(&self.output, &request.method, &execution);
                 if execution.result.status == CommandResultStatus::Applied {
+                    if restart_command {
+                        self.runtime_fleet.invalidate_member(&agent_id).await;
+                    }
                     self.pump_runtime_ready_recipient(&agent_id).await?;
                 }
                 Ok(serde_json::to_value(execution.result)?)
@@ -10345,35 +10350,55 @@ impl Core {
                 let params: UpdateMcpServerParams = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
                 let known_agents = Self::known_agent_ids(&database)?;
-                Ok(serde_json::to_value(
-                    self.mcp_config()?.update(params, &known_agents)?,
-                )?)
+                let result = self.mcp_config()?.update(params, &known_agents)?;
+                drop(database);
+                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
+                    self.runtime_fleet
+                        .invalidate_adapter(AdapterKind::CommandCodeCli)
+                        .await;
+                }
+                Ok(serde_json::to_value(result)?)
             }
             "mcp.servers.setEnabled" => {
                 let params: SetMcpServerEnabledParams =
                     serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
                 let known_agents = Self::known_agent_ids(&database)?;
-                Ok(serde_json::to_value(
-                    self.mcp_config()?.set_enabled(params, &known_agents)?,
-                )?)
+                let result = self.mcp_config()?.set_enabled(params, &known_agents)?;
+                drop(database);
+                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
+                    self.runtime_fleet
+                        .invalidate_adapter(AdapterKind::CommandCodeCli)
+                        .await;
+                }
+                Ok(serde_json::to_value(result)?)
             }
             "mcp.assignments.set" => {
                 let params: SetMcpAssignmentParams =
                     serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
                 let known_agents = Self::known_agent_ids(&database)?;
-                Ok(serde_json::to_value(
-                    self.mcp_config()?.set_assignment(params, &known_agents)?,
-                )?)
+                let result = self.mcp_config()?.set_assignment(params, &known_agents)?;
+                drop(database);
+                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
+                    self.runtime_fleet
+                        .invalidate_adapter(AdapterKind::CommandCodeCli)
+                        .await;
+                }
+                Ok(serde_json::to_value(result)?)
             }
             "mcp.servers.delete" => {
                 let params: DeleteMcpServerParams = serde_json::from_value(request.params.clone())?;
                 let database = self.database.lock().await;
                 let known_agents = Self::known_agent_ids(&database)?;
-                Ok(serde_json::to_value(
-                    self.mcp_config()?.delete(params, &known_agents)?,
-                )?)
+                let result = self.mcp_config()?.delete(params, &known_agents)?;
+                drop(database);
+                if matches!(result, rovai_core::mcp::McpMutationResult::Ok { .. }) {
+                    self.runtime_fleet
+                        .invalidate_adapter(AdapterKind::CommandCodeCli)
+                        .await;
+                }
+                Ok(serde_json::to_value(result)?)
             }
             "mcp.import.scan" => {
                 let database = self.database.lock().await;
@@ -15125,16 +15150,6 @@ impl Core {
             .context("failed to discover effective Grok native MCP names")?;
             projection.finalize_native_name_conflicts(&native_names);
         }
-        if execution.runtime.adapter_kind == AdapterKind::CommandCodeCli
-            && !projection.servers.is_empty()
-        {
-            let native_names = health::inspect_command_code_native_mcp_server_names(
-                Path::new(&execution.runtime.executable_path),
-                &execution_root,
-            )
-            .await?;
-            projection.finalize_native_name_conflicts(&native_names);
-        }
         Ok(projection)
     }
 
@@ -15889,9 +15904,11 @@ impl Core {
             });
         }
 
-        self.runtime_fleet
-            .invalidate_adapter(frozen_runtime.adapter_kind)
-            .await;
+        if frozen_runtime.adapter_kind != AdapterKind::CommandCodeCli {
+            self.runtime_fleet
+                .invalidate_adapter(frozen_runtime.adapter_kind)
+                .await;
+        }
         // Resolve only this installation. No independent protocol process is launched.
         // Refresh the GUI search environment once if its cached paths cannot resolve
         // the entry, so a normal run can recover after an environment repair.
@@ -18261,8 +18278,8 @@ impl Core {
     async fn acp_host_bootstrap(
         &self,
         execution: &AgentRunExecution,
-        digest: String,
-    ) -> Result<(String, Option<String>)> {
+        digest: Option<String>,
+    ) -> Result<(Option<String>, Option<String>)> {
         if !matches!(
             execution.runtime.adapter_kind,
             AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
@@ -18277,10 +18294,11 @@ impl Core {
             execution.execution_epoch,
             charter_delivery_mode_for_adapter(execution.runtime.adapter_kind),
         )?;
-        let digest =
-            canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))?;
+        let digest = canonical_json_digest(
+            &json!({"runtime":digest.context("ACP Bootstrap host digest missing")?,"bootstrap":bootstrap.payload}),
+        )?;
         Ok((
-            digest,
+            Some(digest),
             (execution.runtime.adapter_kind == AdapterKind::MinimaxCodeCli)
                 .then_some(bootstrap.payload),
         ))
@@ -18330,8 +18348,10 @@ impl Core {
         let (mut runtime_compatibility_digest, mut startup_bootstrap) = self
             .acp_host_bootstrap(execution, runtime_compatibility_digest)
             .await?;
-        self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
-            .await?;
+        if let Some(digest) = &runtime_compatibility_digest {
+            self.persist_runtime_compatibility_digest(execution, digest)
+                .await?;
+        }
         let runtime_result = adapter
             .ensure_agent_run_runtime(
                 &execution.agent_run_id,
@@ -18393,11 +18413,10 @@ impl Core {
                         .forget_agent_run(&execution.agent_run_id, execution.execution_epoch)
                         .await;
                     runtime_compatibility_digest = digest;
-                    self.persist_runtime_compatibility_digest(
-                        execution,
-                        &runtime_compatibility_digest,
-                    )
-                    .await?;
+                    if let Some(digest) = &runtime_compatibility_digest {
+                        self.persist_runtime_compatibility_digest(execution, digest)
+                            .await?;
+                    }
                     runtime = adapter
                         .ensure_agent_run_runtime(
                             &execution.agent_run_id,
@@ -18512,8 +18531,10 @@ impl Core {
                 (runtime_compatibility_digest, startup_bootstrap) = self
                     .acp_host_bootstrap(execution, runtime_compatibility_digest)
                     .await?;
-                self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
-                    .await?;
+                if let Some(digest) = &runtime_compatibility_digest {
+                    self.persist_runtime_compatibility_digest(execution, digest)
+                        .await?;
+                }
                 launch_permit.check_cancelled()?;
                 runtime = adapter
                     .ensure_agent_run_runtime(
@@ -28498,8 +28519,8 @@ mod tests {
                 values: json!({}),
             },
             native_session_compatibility_key: None,
-            binding_compatibility_digest: "binding".into(),
-            host_config_digest: "host".into(),
+            binding_compatibility_digest: Some("binding".into()),
+            host_config_digest: Some("host".into()),
             config_digest: "config".into(),
         };
         let mut observation = RuntimeDiscoveryObservation::detecting(AdapterKind::Pi, 1);
@@ -34953,8 +34974,8 @@ for line in sys.stdin:
                 values: json!({}),
             },
             native_session_compatibility_key: None,
-            binding_compatibility_digest: "cleanup-binding".into(),
-            host_config_digest: "cleanup-host".into(),
+            binding_compatibility_digest: Some("cleanup-binding".into()),
+            host_config_digest: Some("cleanup-host".into()),
             config_digest: "cleanup-config".into(),
         };
         let builtin_tools = BuiltinToolProcessConfigFactory::new(

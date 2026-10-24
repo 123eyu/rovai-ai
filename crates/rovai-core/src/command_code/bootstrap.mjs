@@ -1,4 +1,4 @@
-// Loaded through Command Code's official mods.paths, before ACP initialize.
+// Loaded through Command Code's official --mod, before ACP initialize.
 // Every hook resolves its own immutable Session binding, never an active global
 // Session pointer. A broken binding must stop the process: the native Mod host
 // catches ordinary exceptions and would otherwise continue without Bootstrap.
@@ -7,11 +7,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = process.env.ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT;
-const nonce = process.env.ROVAI_COMMAND_CODE_BOOTSTRAP_NONCE;
 const revision = 'command-code-system-bootstrap-v1';
 const hash = value => createHash('sha256').update(value).digest('hex');
 
 export default function (cmd) {
+  const nonce = process.env.ROVAI_COMMAND_CODE_BOOTSTRAP_NONCE;
   if (!root || !nonce) throw new Error('command_code_bootstrap_environment_missing');
   cmd.hooks({
     appendSystemPrompt({ state }) {

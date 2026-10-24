@@ -374,8 +374,8 @@ fn runtime_entrypoint_compatibility(input: &AdapterRuntimeResolutionInput<'_>) -
 #[serde(rename_all = "camelCase")]
 pub struct AdapterRuntimeProjection {
     pub protocol_version: String,
-    pub binding_compatibility_digest: String,
-    pub host_config_digest: String,
+    pub binding_compatibility_digest: Option<String>,
+    pub host_config_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -1825,8 +1825,8 @@ impl AgentRuntimeAdapter for CodexCliAdapterPolicy {
         }))?;
         Ok(AdapterRuntimeProjection {
             protocol_version,
-            binding_compatibility_digest,
-            host_config_digest,
+            binding_compatibility_digest: Some(binding_compatibility_digest),
+            host_config_digest: Some(host_config_digest),
         })
     }
 }
@@ -2592,7 +2592,7 @@ fn acp_capability_snapshot(
     };
     let permission_schema_digest =
         adapter_permission_schema_digest(adapter_kind, &permission_options)?;
-    let native_session_compatibility_key = if ready {
+    let native_session_compatibility_key = if ready && adapter_kind != AdapterKind::CommandCodeCli {
         Some(
             if matches!(
                 adapter_kind,
@@ -3548,8 +3548,8 @@ fn resolve_pi_runtime(
     }))?;
     Ok(AdapterRuntimeProjection {
         protocol_version,
-        binding_compatibility_digest,
-        host_config_digest,
+        binding_compatibility_digest: Some(binding_compatibility_digest),
+        host_config_digest: Some(host_config_digest),
     })
 }
 
@@ -3582,6 +3582,13 @@ fn resolve_session_runtime(
         .find(|protocol| protocol.as_str() == required_protocol)
         .context("Runtime installation does not advertise the required protocol")?
         .clone();
+    if expected_kind == AdapterKind::CommandCodeCli {
+        return Ok(AdapterRuntimeProjection {
+            protocol_version,
+            binding_compatibility_digest: None,
+            host_config_digest: None,
+        });
+    }
     let permission_values = input
         .permissions
         .values
@@ -3634,8 +3641,8 @@ fn resolve_session_runtime(
     }))?;
     Ok(AdapterRuntimeProjection {
         protocol_version,
-        binding_compatibility_digest,
-        host_config_digest,
+        binding_compatibility_digest: Some(binding_compatibility_digest),
+        host_config_digest: Some(host_config_digest),
     })
 }
 
@@ -3758,8 +3765,8 @@ impl AgentRuntimeAdapter for ClaudeCodeCliAdapterPolicy {
         }))?;
         Ok(AdapterRuntimeProjection {
             protocol_version,
-            binding_compatibility_digest,
-            host_config_digest,
+            binding_compatibility_digest: Some(binding_compatibility_digest),
+            host_config_digest: Some(host_config_digest),
         })
     }
 }
@@ -3830,8 +3837,8 @@ impl AgentRuntimeAdapter for AntigravityAppAdapterPolicy {
         }))?;
         Ok(AdapterRuntimeProjection {
             protocol_version,
-            binding_compatibility_digest,
-            host_config_digest,
+            binding_compatibility_digest: Some(binding_compatibility_digest),
+            host_config_digest: Some(host_config_digest),
         })
     }
 }
@@ -4383,7 +4390,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             resolved.binding_compatibility_digest,
-            current_contract_digest
+            Some(current_contract_digest.clone())
         );
         assert_ne!(current_contract_digest, legacy_contract_digest);
     }

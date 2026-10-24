@@ -1705,3 +1705,21 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 它拥有原生文件阅读、失败恢复、迟到响应、键盘导航、逐队员配置与 MCP 凭据编辑的 Electron 交互覆盖；
 完整范围见 [fixture 说明](../../scripts/fixtures/capability-workspace/README.md)。旧 `SkillSettings` 页面及仅服务
 旧导入／交付组的单元测试已退役。Core 的历史 Library、Revision、投影恢复与兼容测试继续拥有旧数据路径。
+
+
+## Command Code 1.88 简化测试归属（2026-10-24）
+
+退役 `native_configuration_tracks_scoped_mod_sources_without_hashing_history`：其唯一生产路径（配置扫描、
+HOME 镜像和原生文件合并）已删除。同模块现有 owner 替换为 `native_home_and_immutable_bootstrap_materials`，
+验证原生 HOME 不被改写、一次握手清理和不可变 bindings。health owner 中的 `mcp list` 格式矩阵随已删除
+解析器退役；真实 1.88 原生同名优先验证由隔离 native-contract 探针承接。
+
+扩展既有 `member_sessions_reuse_only_within_their_camp_and_current_session` 覆盖显式身份策略与跨 cwd/owner；
+`binding_transitions_preserve_public_accepted_boundary` 覆盖旧摘要迁移到无摘要 Run 的 Binding 提交；
+`private_host_config_is_scoped_to_profiles_that_require_it` 增加构造失败时实际进程回收先于目录删除。
+保留取消/终态 owner，不新增等价 Rust 测试。真实控制面继续使用既有 ignored
+`isolated_command_code_acp_bootstrap_gate_and_resident_sessions`，基线更新到 1.88、BYOK 选模改为成功。
+
+最小命令：`cargo test -p rovai-core --features slow-tests --lib`，分别过滤上述 owner 与 `command_code`；
+Node 沿用 `node --test scripts/lib/command-code-bootstrap.test.mjs`。再执行默认 `cargo test --workspace`。
+真实 native Home 仅由验收夹具创建，adapter 本身不得覆盖共享 HOME；真实模型/MCP 与平台资格分别记账。

@@ -1171,3 +1171,10 @@ User 进一步确认保留 App 运行期间的 Run 异常退出提醒，统一�
 对话/使命标题及 Skill 保留原文检索，分类、身份、邀请和发送流程沿用既有机制。
 当前规则见[结构化 Mention](../../ui/components/structured-mentions.md#member-typeahead)，
 实现、分层验收及当前基线体积对照见[队员拼音检索验收](member-pinyin-search-validation.md)。
+
+
+## Command Code 原生接入简化（2026-10-24）
+
+官方 1.88.0、用户原生 HOME、官方 Mod、ACP MCP 和共享 Fleet 身份复用作为同一交付；删除配置镜像与
+摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
+[Command Code 简化记录](command-code-native-simplification.md)。

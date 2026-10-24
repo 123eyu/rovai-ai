@@ -1858,6 +1858,15 @@ impl AcpHost {
                 .map(BuiltinToolProcessConfig::run_tmp),
         )
         .context("failed to configure ACP Runtime command")?;
+        let mut command_bootstrap_nonce =
+            if frozen_runtime.adapter_kind == AdapterKind::CommandCodeCli {
+                Some(crate::command_code_acp::configure_host(
+                    &mut command,
+                    private_config_root.context("Command Code private Host directory missing")?,
+                )?)
+            } else {
+                None
+            };
         let detector_config_root = if compaction_detector_policy
             == CompactionDetectorPolicy::BestEffort
             && !(frozen_runtime.adapter_kind == AdapterKind::OpencodeCli
@@ -1918,16 +1927,33 @@ impl AcpHost {
         } else {
             None
         };
-        // From this point a process may exist; its owner handles cleanup.
-        if let Some(config) = private_config.as_mut() {
+        let mut startup = PreparedAcpProcess {
+            config: private_config.take(),
+            child: None,
+        };
+        let child = match ManagedProcess::spawn_owned(spec) {
+            Ok(child) => child,
+            Err(failure) => {
+                if failure.process_started() {
+                    if let Some(config) = startup.config.as_mut() {
+                        config.preparing = false;
+                    }
+                }
+                let (error, confirmed) = failure.reap().await;
+                if let Some(config) = startup.config.as_mut() {
+                    config.preparing = confirmed;
+                }
+                return Err(error.context(format!(
+                    "failed to start {} as an ACP server",
+                    frozen_runtime.executable_path
+                )));
+            }
+        };
+        if let Some(config) = startup.config.as_mut() {
             config.preparing = false;
         }
-        let mut child = ManagedProcess::spawn(spec).with_context(|| {
-            format!(
-                "failed to start {} as an ACP server",
-                frozen_runtime.executable_path
-            )
-        })?;
+        startup.child = Some(child);
+        let child = startup.child.as_mut().expect("startup owns child");
         #[cfg(target_os = "macos")]
         child.track_descendants(&private_runtime_dir.join("owned-processes"))?;
         let stdin = child.take_stdin().context("ACP stdin was unavailable")?;
@@ -1983,7 +2009,7 @@ impl AcpHost {
             minimax_data_dir,
             client_terminal_bridge,
             host_instance_id,
-            child: Mutex::new(child),
+            child: Mutex::new(startup.child.take().expect("Host takes startup child")),
             stdin: Mutex::new(stdin),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
@@ -2024,8 +2050,9 @@ impl AcpHost {
                 },
             ),
             startup_diagnostics: Mutex::new(String::new()),
-            private_config_root: private_config.as_ref().map(|config| config.root.clone()),
-            remove_private_config_root_on_shutdown: private_config
+            private_config_root: startup.config.as_ref().map(|config| config.root.clone()),
+            remove_private_config_root_on_shutdown: startup
+                .config
                 .as_ref()
                 .is_some_and(|config| config.remove_on_shutdown),
             detector_config_root,
@@ -2114,12 +2141,18 @@ impl AcpHost {
                     );
                 }
                 if host.adapter_kind == AdapterKind::CommandCodeCli {
-                    if let Err(error) = crate::command_code_acp::verify_ready(
-                        host.private_config_root
-                            .as_deref()
-                            .context("Command Code private Host missing")?,
-                        host.pid(),
-                    ) {
+                    let ready = (|| {
+                        crate::command_code_acp::verify_ready(
+                            host.private_config_root
+                                .as_deref()
+                                .context("Command Code private Host missing")?,
+                            &command_bootstrap_nonce
+                                .take()
+                                .context("Command initialize nonce missing")?,
+                            host.pid().context("Command Code process PID unavailable")?,
+                        )
+                    })();
+                    if let Err(error) = ready {
                         host.shutdown().await;
                         return Err(error);
                     }
@@ -4675,8 +4708,8 @@ impl AcpSessionPermissions {
 pub struct AcpRuntime {
     owner: AcpRuntimeOwner,
     host: Arc<AcpHost>,
-    runtime_compatibility_digest: String,
-    mcp_projection_digest: String,
+    compatibility: RuntimeCompatibilityKey,
+    mcp_projection_digest: Option<String>,
     session_id: RwLock<Option<String>>,
     session_result: RwLock<Option<Value>>,
     execution_root: PathBuf,
@@ -4828,8 +4861,8 @@ impl AcpRuntime {
     fn from_host(
         owner: AcpRuntimeOwner,
         host: Arc<AcpHost>,
-        runtime_compatibility_digest: String,
-        mcp_projection_digest: String,
+        compatibility: RuntimeCompatibilityKey,
+        mcp_projection_digest: Option<String>,
         execution_root: PathBuf,
         attachment_access_root: Option<PathBuf>,
         workspace_access: String,
@@ -4839,7 +4872,7 @@ impl AcpRuntime {
         Arc::new(Self {
             owner,
             host,
-            runtime_compatibility_digest,
+            compatibility,
             mcp_projection_digest,
             session_id: RwLock::new(None),
             session_result: RwLock::new(None),
@@ -4851,6 +4884,32 @@ impl AcpRuntime {
             active_observation: Mutex::new(None),
             native_usage: Arc::new(Mutex::new(None)),
         })
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    fn from_test_host(
+        owner: AcpRuntimeOwner,
+        host: Arc<AcpHost>,
+        digest: String,
+        mcp: String,
+        execution_root: PathBuf,
+        attachment_access_root: Option<PathBuf>,
+        workspace_access: String,
+        session_permissions: AcpSessionPermissions,
+        dsh_model_source: Option<rovai_core::agent_profile::DshModelSource>,
+    ) -> Arc<Self> {
+        Self::from_host(
+            owner,
+            host,
+            RuntimeCompatibilityKey::member("test-camp", "test-member", digest),
+            Some(mcp),
+            execution_root,
+            attachment_access_root,
+            workspace_access,
+            session_permissions,
+            dsh_model_source,
+        )
     }
 
     pub(crate) async fn bind_managed_bootstrap(
@@ -4959,11 +5018,16 @@ impl AcpRuntime {
                 | AdapterKind::CursorAgent
                 | AdapterKind::GrokBuild
                 | AdapterKind::ClineCli
-                | AdapterKind::CommandCodeCli
         ) {
             external_mcp_servers
                 .iter()
-                .map(|(name, definition)| external_acp_server(name, definition))
+                .map(|(name, definition)| {
+                    let mut server = external_acp_server(name, definition);
+                    if self.host.adapter_kind == AdapterKind::CommandCodeCli {
+                        crate::command_code_acp::adapt_mcp_server(&mut server, definition);
+                    }
+                    server
+                })
                 .collect()
         } else {
             // These adapters receive Rovai servers through their native
@@ -6565,7 +6629,7 @@ impl AcpCliRuntimeAdapter {
         external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
         mcp_projection_digest: &str,
         attachment_access_root: &Path,
-        runtime_compatibility_digest: &str,
+        runtime_compatibility_digest: &Option<String>,
         startup_bootstrap: Option<&str>,
     ) -> Result<Arc<AcpRuntime>> {
         if frozen_runtime.adapter_kind != self.kind {
@@ -6574,11 +6638,41 @@ impl AcpCliRuntimeAdapter {
         // Native mode/config RPCs are reapplied for each frozen Run even when
         // Fleet reuses a Host launched under a previous member configuration.
         let session_permissions = AcpSessionPermissions::from_frozen(frozen_runtime)?;
+        let execution_root = PathBuf::from(&workspace.execution_root).canonicalize()?;
+        let (compatibility, mcp_projection_digest) = if self.kind == AdapterKind::CommandCodeCli {
+            anyhow::ensure!(
+                runtime_compatibility_digest.is_none(),
+                "Command Code uses Native Binding identity"
+            );
+            (
+                RuntimeCompatibilityKey::native_binding(
+                    camp_id,
+                    agent_id,
+                    native_binding_id,
+                    execution_root.clone(),
+                ),
+                None,
+            )
+        } else {
+            (
+                RuntimeCompatibilityKey::member_session(
+                    camp_id,
+                    agent_id,
+                    Some(native_binding_id),
+                    runtime_compatibility_digest
+                        .as_deref()
+                        .context("ACP compatibility digest missing")?,
+                ),
+                Some(mcp_projection_digest.to_owned()),
+            )
+        };
         let existing = { self.runtimes.lock().await.get(agent_run_id).cloned() };
         if let Some(existing) = existing {
             if existing.execution_epoch() == execution_epoch
                 && existing.host.is_alive()
-                && existing.runtime_compatibility_digest == runtime_compatibility_digest
+                && existing
+                    .compatibility
+                    .is_process_compatible_with(&compatibility)
                 && existing.mcp_projection_digest == mcp_projection_digest
                 && existing.attachment_access_root.as_deref() == Some(attachment_access_root)
             {
@@ -6591,7 +6685,6 @@ impl AcpCliRuntimeAdapter {
                 .release(agent_run_id, old_epoch, FleetReleaseDisposition::Stop)
                 .await;
         }
-        let execution_root = PathBuf::from(&workspace.execution_root);
         let spawn_execution_root = execution_root.clone();
         let spawn_workspace = workspace.clone();
         let mut spawn_frozen_runtime = frozen_runtime.clone();
@@ -6603,12 +6696,6 @@ impl AcpCliRuntimeAdapter {
         let spawn_startup_bootstrap = startup_bootstrap.map(str::to_owned);
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
-        let compatibility = RuntimeCompatibilityKey::member_session(
-            camp_id,
-            agent_id,
-            Some(native_binding_id),
-            runtime_compatibility_digest,
-        );
         if self.kind == AdapterKind::DeepseekHarness {
             // DSH persists exact Sessions but holds a native lock while the
             // previous Host owns them. Reap obsolete idle Hosts before resume;
@@ -6625,7 +6712,7 @@ impl AcpCliRuntimeAdapter {
                     agent_run_id: agent_run_id.to_string(),
                     execution_epoch,
                     adapter_kind: self.kind,
-                    compatibility,
+                    compatibility: compatibility.clone(),
                 },
                 move || async move {
                     spawn_frozen_runtime.environment =
@@ -6669,8 +6756,8 @@ impl AcpCliRuntimeAdapter {
                 execution_epoch,
             },
             host,
-            runtime_compatibility_digest.to_string(),
-            mcp_projection_digest.to_string(),
+            compatibility,
+            mcp_projection_digest,
             execution_root,
             Some(attachment_access_root.to_path_buf()),
             if permission_semantics == PermissionSemantics::CoreEnforcedV1 {
@@ -6830,7 +6917,10 @@ pub(crate) fn runtime_compatibility_digest(
     permission_semantics: PermissionSemantics,
     external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
     attachment_authorization: &ThreadOutputDirectory,
-) -> Result<String> {
+) -> Result<Option<String>> {
+    if frozen_runtime.adapter_kind == AdapterKind::CommandCodeCli {
+        return Ok(None);
+    }
     let execution_root = PathBuf::from(&workspace.execution_root)
         .canonicalize()
         .with_context(|| {
@@ -6891,11 +6981,6 @@ pub(crate) fn runtime_compatibility_digest(
         compatibility["dshNativeConfigurationDigest"] =
             json!(crate::dsh::native_configuration_digest(&execution_root)?);
     }
-    if frozen_runtime.adapter_kind == AdapterKind::CommandCodeCli {
-        compatibility["commandCodeNativeConfigurationDigest"] = json!(
-            crate::command_code_acp::native_configuration_digest(&execution_root)?
-        );
-    }
     if frozen_runtime.adapter_kind == AdapterKind::ClineCli {
         compatibility["clineNativeConfigurationDigest"] =
             json!(crate::cline::runtime_configuration_digest()?);
@@ -6910,7 +6995,7 @@ pub(crate) fn runtime_compatibility_digest(
             .digest
         );
     }
-    canonical_json_digest(&compatibility)
+    canonical_json_digest(&compatibility).map(Some)
 }
 
 pub(crate) fn freeze_native_session_compatibility(
@@ -6926,7 +7011,6 @@ pub(crate) fn freeze_native_session_compatibility(
             | AdapterKind::GrokBuild
             | AdapterKind::ZcodeApp
             | AdapterKind::DeepseekHarness
-            | AdapterKind::CommandCodeCli
             | AdapterKind::ClineCli
     ) {
         return Ok(frozen_runtime);
@@ -6960,11 +7044,6 @@ pub(crate) fn freeze_native_session_compatibility(
     if adapter_kind == AdapterKind::DeepseekHarness {
         compatibility["dshNativeConfigurationDigest"] =
             json!(crate::dsh::native_configuration_digest(&execution_root)?);
-    }
-    if adapter_kind == AdapterKind::CommandCodeCli {
-        compatibility["commandCodeNativeConfigurationDigest"] = json!(
-            crate::command_code_acp::native_configuration_digest(&execution_root)?
-        );
     }
     if adapter_kind == AdapterKind::ClineCli {
         compatibility["clineNativeConfigurationDigest"] =
@@ -7017,6 +7096,50 @@ pub(crate) fn freeze_native_session_compatibility(
     Ok(frozen_runtime)
 }
 
+/// Between spawn and Host construction this local guard owns both process
+/// and materials. Its cleanup task retains both until reaping is confirmed.
+struct PreparedAcpProcess {
+    config: Option<PreparedPrivateHostConfig>,
+    child: Option<ManagedProcess>,
+}
+
+impl Drop for PreparedAcpProcess {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        let mut config = self.config.take();
+        tokio::spawn(async move {
+            let terminated = child.force_terminate_tree().is_ok();
+            let reaped = matches!(
+                timeout(Duration::from_secs(3), child.wait()).await,
+                Ok(Ok(_))
+            );
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            let confirmed = if terminated && reaped {
+                loop {
+                    match child.tree_is_empty() {
+                        Ok(true) => break true,
+                        Err(_) => break false,
+                        Ok(false) if tokio::time::Instant::now() < deadline => {
+                            tokio::time::sleep(Duration::from_millis(10)).await
+                        }
+                        _ => break false,
+                    }
+                }
+            } else {
+                false
+            };
+            if !confirmed {
+                eprintln!("acp_startup_cleanup_unconfirmed: retaining Host materials");
+            }
+            if let Some(config) = config.as_mut() {
+                config.preparing = confirmed;
+            }
+        });
+    }
+}
+
 #[derive(Debug)]
 struct PreparedPrivateHostConfig {
     root: PathBuf,
@@ -7056,18 +7179,20 @@ fn prepare_private_host_config(
         }
         _ => return Ok(None),
     };
-    let root = rovai_core::platform::private_storage::prepare_private_directory(&root)
-        .with_context(|| {
-            format!(
-                "failed to create private ACP Host directory {}",
-                root.display()
-            )
-        })?;
-    Ok(Some(PreparedPrivateHostConfig {
+    let mut prepared = PreparedPrivateHostConfig {
         root,
         remove_on_shutdown,
         preparing: true,
-    }))
+    };
+    prepared.root =
+        rovai_core::platform::private_storage::prepare_private_directory(&prepared.root)
+            .with_context(|| {
+                format!(
+                    "failed to create private ACP Host directory {}",
+                    prepared.root.display()
+                )
+            })?;
+    Ok(Some(prepared))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7103,11 +7228,7 @@ fn configure_runtime_command(
             );
         }
         AdapterKind::CommandCodeCli => {
-            crate::command_code_acp::configure_host(
-                command,
-                private_config_root.context("Command Code private Host directory missing")?,
-                external_mcp_servers,
-            )?;
+            command.arg("acp");
         }
         AdapterKind::ClineCli => {
             let root = private_config_root.context("Cline private Host directory missing")?;
@@ -9293,8 +9414,8 @@ fn canonicalize_allow_missing(path: &Path) -> Result<PathBuf> {
 mod route_policy_tests {
     use super::*;
 
-    #[test]
-    fn private_host_config_is_scoped_to_profiles_that_require_it() {
+    #[tokio::test]
+    async fn private_host_config_is_scoped_to_profiles_that_require_it() {
         let root = std::env::temp_dir().join(format!(
             "rovai-private-host-config-{}",
             uuid::Uuid::new_v4()
@@ -9349,6 +9470,38 @@ mod route_policy_tests {
         );
         assert!(!root.join("home").exists());
 
+        #[cfg(unix)]
+        {
+            let mut config = prepare_private_host_config(&root, AdapterKind::CommandCodeCli)
+                .unwrap()
+                .unwrap();
+            let path = config.root.clone();
+            let mut command = Command::new("/bin/sleep");
+            command.arg("60").current_dir(&root);
+            let spec = ManagedProcessLaunchSpec::capture(
+                &command,
+                ManagedProcessPurpose::RuntimeHost,
+                ManagedStdinPolicy::Piped,
+                ManagedWindowsArgvDialect::MicrosoftCrt,
+                "startup-cleanup",
+            )
+            .unwrap();
+            let child = ManagedProcess::spawn(spec).unwrap();
+            let pid = child.id().unwrap();
+            config.preparing = false;
+            drop(PreparedAcpProcess {
+                config: Some(config),
+                child: Some(child),
+            });
+            timeout(Duration::from_secs(8), async {
+                while path.exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("startup failure must reap before removing its materials");
+            assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -10081,8 +10234,8 @@ mod tests {
                 values: json!({"permission_mode": "default"}),
             },
             native_session_compatibility_key: None,
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10114,8 +10267,8 @@ mod tests {
                 values: json!({"trust_all_tools": "on"}),
             },
             native_session_compatibility_key: Some("kiro-cli:acp-v1".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10154,8 +10307,8 @@ mod tests {
                 }),
             },
             native_session_compatibility_key: Some("cursor-agent:acp-v1:sha256:cursor".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10187,8 +10340,8 @@ mod tests {
                 values: json!({"permission_mode": "default"}),
             },
             native_session_compatibility_key: Some("kimi-code-cli:acp-v1".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10220,8 +10373,8 @@ mod tests {
                 values: json!({"permission_mode": "bypassPermissions"}),
             },
             native_session_compatibility_key: Some("grok-build:acp-v1".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10506,7 +10659,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-client-fs-proxy".to_string(),
                 execution_epoch: 1,
@@ -10659,7 +10812,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-kimi-038-terminal-wire".to_string(),
                 execution_epoch: 1,
@@ -11313,7 +11466,7 @@ done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-kimi-terminal-cancel".to_string(),
                 execution_epoch: 1,
@@ -11875,7 +12028,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-cursor-private".to_string(),
                 execution_epoch: 1,
@@ -12022,7 +12175,7 @@ while IFS= read -r ignored; do :; done
     // transport. This opt-in smoke never sends an LLM prompt: /acp is an
     // advertised native control command. Generation is verified separately.
     #[tokio::test]
-    #[ignore = "requires isolated Command Code 1.74.1 native Home and executable"]
+    #[ignore = "requires isolated Command Code 1.88.0 native Home and executable"]
     async fn isolated_command_code_acp_bootstrap_gate_and_resident_sessions() {
         use crate::runtime_startup::{RuntimeEnvironmentVariable, RuntimeStartupConfiguration};
         let root = PathBuf::from(
@@ -12057,7 +12210,7 @@ while IFS= read -r ignored; do :; done
                     AgentRunWorkspace::runtime_managed_path(cwd.to_string_lossy().into_owned());
                 let mut frozen = frozen_trae_runtime(&executable);
                 frozen.adapter_kind = AdapterKind::CommandCodeCli;
-                frozen.reported_version = Some("1.74.1".into());
+                frozen.reported_version = Some("1.88.0".into());
                 frozen.permissions.adapter_kind = AdapterKind::CommandCodeCli;
                 frozen.permissions.values = json!({"permission_mode":"bypass"});
                 let (incoming, mut receiver) = mpsc::unbounded_channel();
@@ -12077,10 +12230,15 @@ while IFS= read -r ignored; do :; done
                 )
                 .await
                 .unwrap();
+                let host_root = host.private_config_root.as_ref().unwrap();
+                assert!(!host_root.join("home").exists());
+                assert!(!host_root.join("nonce").exists());
+                assert!(!host_root.join("ready.json").exists());
+                assert_eq!(std::fs::read_dir(host_root).unwrap().count(), 2);
                 let pid = host.pid();
                 let mut sessions = Vec::new();
                 for i in 0..2 {
-                    let runtime = AcpRuntime::from_host(
+                    let runtime = AcpRuntime::from_test_host(
                         AcpRuntimeOwner {
                             agent_run_id: format!("command-control-{i}"),
                             execution_epoch: 1,
@@ -12120,14 +12278,12 @@ while IFS= read -r ignored; do :; done
                             .await
                             .unwrap();
                     }
-                    assert!(
-                        host.rpc(
-                            "session/set_model",
-                            json!({"sessionId":id, "modelId":"sub2api/gpt-6-sol"})
-                        )
-                        .await
-                        .is_err()
-                    );
+                    host.rpc(
+                        "session/set_model",
+                        json!({"sessionId":id, "modelId":"sub2api/gpt-6-sol"}),
+                    )
+                    .await
+                    .unwrap();
                     sessions.push((runtime, id));
                 }
                 assert_ne!(sessions[0].1, sessions[1].1);
@@ -12366,7 +12522,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "cline-host-smoke".to_string(),
                 execution_epoch: 1,
@@ -12425,7 +12581,7 @@ while IFS= read -r ignored; do :; done
             }
         }
         runtime.detach().await;
-        let session_b = AcpRuntime::from_host(
+        let session_b = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "cline-second-session-smoke".to_string(),
                 execution_epoch: 1,
@@ -12721,7 +12877,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let cold_runtime = AcpRuntime::from_host(
+        let cold_runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "cline-cold-host-smoke".to_string(),
                 execution_epoch: 1,
@@ -12936,7 +13092,7 @@ while IFS= read -r ignored; do :; done
                 host.bind_session("session-steer", &owner, AcpSessionPhase::Ready)
                     .await
                     .unwrap();
-                let runtime = AcpRuntime::from_host(
+                let runtime = AcpRuntime::from_test_host(
                     owner,
                     host.clone(),
                     "compat".into(),
@@ -13225,7 +13381,7 @@ while IFS= read -r ignored; do :; done
             )
             .await
             .unwrap();
-            let runtime = AcpRuntime::from_host(
+            let runtime = AcpRuntime::from_test_host(
                 AcpRuntimeOwner {
                     agent_run_id: format!("run-{case_name}"),
                     execution_epoch: 1,
@@ -13346,7 +13502,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "agent-run-trae".to_string(),
                 execution_epoch: 1,
@@ -13483,7 +13639,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-idle-metadata".to_string(),
                 execution_epoch: 1,
@@ -13587,7 +13743,7 @@ while IFS= read -r ignored; do :; done
             )
             .await
             .unwrap();
-            let runtime = AcpRuntime::from_host(
+            let runtime = AcpRuntime::from_test_host(
                 AcpRuntimeOwner {
                     agent_run_id: "run-live-model-validation".to_string(),
                     execution_epoch: 1,
@@ -13698,7 +13854,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "agent-run-resume".to_string(),
                 execution_epoch: 1,
@@ -13827,7 +13983,7 @@ while IFS= read -r ignored; do :; done
             )
             .await
             .unwrap();
-            let runtime = AcpRuntime::from_host(
+            let runtime = AcpRuntime::from_test_host(
                 AcpRuntimeOwner {
                     agent_run_id: format!("agent-run-history-anomaly-{case_name}"),
                     execution_epoch: 1,
@@ -13960,7 +14116,7 @@ while IFS= read -r ignored; do :; done
                 &BTreeMap::new(),
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14001,7 +14157,7 @@ while IFS= read -r ignored; do :; done
                 &BTreeMap::new(),
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14137,7 +14293,7 @@ while IFS= read -r ignored; do :; done
                 &external_mcp_servers,
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14213,7 +14369,7 @@ while IFS= read -r ignored; do :; done
                 &external_mcp_servers,
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14316,7 +14472,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-kimi-active-compaction".to_string(),
                 execution_epoch: 1,
@@ -14490,7 +14646,7 @@ while IFS= read -r ignored; do :; done
         )
         .await
         .unwrap();
-        let runtime = AcpRuntime::from_host(
+        let runtime = AcpRuntime::from_test_host(
             AcpRuntimeOwner {
                 agent_run_id: "run-final-assistant-suffix".to_string(),
                 execution_epoch: 1,
@@ -15454,7 +15610,7 @@ while IFS= read -r ignored; do :; done
             "attachmentOutputRoot": attachment_authorization.output_root,
         }))
         .unwrap();
-        assert_eq!(first, process_input_digest);
+        assert_eq!(first, Some(process_input_digest));
 
         // A process-policy upgrade replaces Copilot Hosts, without changing
         // the Native Session binding or other adapters' compatibility inputs.
@@ -15478,9 +15634,15 @@ while IFS= read -r ignored; do :; done
             "builtinToolContractVersion":BUILTIN_TOOL_CONTRACT_VERSION,
             "externalMcpServers":{}, "attachmentOutputRoot":attachment_authorization.output_root,
         });
-        assert_ne!(copilot_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_ne!(
+            copilot_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         old_inputs["nativeQuestionnairePolicy"] = json!("no-ask-user-v1");
-        assert_eq!(copilot_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_eq!(
+            copilot_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         for isolated in [false, true] {
             let mut command = Command::new(&executable);
             configure_runtime_command(
@@ -15527,9 +15689,15 @@ while IFS= read -r ignored; do :; done
             .as_object_mut()
             .unwrap()
             .remove("nativeQuestionnairePolicy");
-        assert_ne!(qwen_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_ne!(
+            qwen_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         old_inputs["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
-        assert_eq!(qwen_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_eq!(
+            qwen_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         for isolated in [false, true] {
             let mut command = Command::new(&executable);
             configure_runtime_command(
@@ -15573,10 +15741,10 @@ while IFS= read -r ignored; do :; done
                 .unwrap()
                 .remove("nativeQuestionnairePolicy");
             if let Some(policy) = policy {
-                assert_ne!(digest, canonical_json_digest(&old_inputs).unwrap());
+                assert_ne!(digest, Some(canonical_json_digest(&old_inputs).unwrap()));
                 old_inputs["nativeQuestionnairePolicy"] = json!(policy);
             }
-            assert_eq!(digest, canonical_json_digest(&old_inputs).unwrap());
+            assert_eq!(digest, Some(canonical_json_digest(&old_inputs).unwrap()));
         }
 
         let mut upgraded = frozen.clone();
@@ -15667,12 +15835,12 @@ while IFS= read -r ignored; do :; done
         });
         assert_ne!(
             codebuddy_default,
-            canonical_json_digest(&old_inputs).unwrap()
+            Some(canonical_json_digest(&old_inputs).unwrap())
         );
         old_inputs["nativeBackgroundPolicy"] = json!("disabled-v1");
         assert_eq!(
             codebuddy_default,
-            canonical_json_digest(&old_inputs).unwrap()
+            Some(canonical_json_digest(&old_inputs).unwrap())
         );
         let unchanged = freeze_native_session_compatibility(codebuddy.clone(), &workspace).unwrap();
         assert_eq!(
@@ -15715,7 +15883,7 @@ while IFS= read -r ignored; do :; done
         .unwrap();
         assert_ne!(changed_mcp, first);
 
-        upgraded.host_config_digest = "sha256:changed-host-input".to_string();
+        upgraded.host_config_digest = Some("sha256:changed-host-input".to_string());
         let changed_host = runtime_compatibility_digest(
             &upgraded,
             &workspace,
@@ -15807,7 +15975,7 @@ while IFS= read -r ignored; do :; done
         let mut changed_executable = frozen.clone();
         changed_executable.executable_fingerprint = "sha256:grok-other".to_string();
         let mut changed_host = frozen.clone();
-        changed_host.host_config_digest = "sha256:host-other".to_string();
+        changed_host.host_config_digest = Some("sha256:host-other".to_string());
         let mut changed_model = frozen.clone();
         changed_model.model.model_id = "grok-4.5".to_string();
         let mut changed_permissions = frozen.clone();

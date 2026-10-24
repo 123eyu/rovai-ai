@@ -14,6 +14,7 @@ assert(process.env.ROVAI_HERMES_BIN)
 const compression = process.argv.includes('--compression')
 const availability = process.argv.includes('--availability')
 const recovery = availability || process.argv.includes('--recovery')
+const modelSelection = !compression && !recovery
 assert(!(compression && recovery), 'Use separate fixtures for compaction and crash recovery')
 const protectFirst = process.argv.includes('--unprotected') ? 0 : 3
 const repository = resolve(import.meta.dirname, '..')
@@ -41,7 +42,7 @@ function respond(response, body, item, inputTokens = 100) {
 const message = text => ({id:crypto.randomUUID(),type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text,annotations:[]}]})
 const server = createServer(async(request,response)=>{
   try {
-    if(request.method==='GET'){response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify({object:'list',data:[{id:'fixture-model',object:'model'}]}));return}
+    if(request.method==='GET'){response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify({object:'list',data:['fixture-model','fixture-selected'].map(id=>({id,object:'model'}))}));return}
     const chunks=[];for await(const chunk of request)chunks.push(chunk)
     const body=JSON.parse(Buffer.concat(chunks).toString())
     if(request.url==='/api/show'){response.writeHead(200,{'content-type':'application/json'});response.end('{}');return}
@@ -61,7 +62,7 @@ await new Promise(done=>server.listen(0,'127.0.0.1',done))
 const config={model:{provider:'fixture',default:'fixture-model',...(compression?{context_length:65536}:{})},
   // Keep this loopback fixture offline during native --version's passive update check.
   updates:{check:false},
-  providers:{fixture:{base_url:`http://127.0.0.1:${server.address().port}/v1`,api_key_env:'ROVAI_HERMES_FIXTURE_KEY',transport:'codex_responses',models:['fixture-model']}},
+  providers:{fixture:{base_url:`http://127.0.0.1:${server.address().port}/v1`,api_key_env:'ROVAI_HERMES_FIXTURE_KEY',transport:'codex_responses',models:['fixture-model','fixture-selected']}},
   platform_toolsets:{acp:['terminal','no_mcp']},session_title:{enabled:false},agent:{max_turns:8,system_prompt:'NATIVE_CONFIG_SYSTEM_639'},
   compression:compression?{enabled:true,threshold:0.5,protect_first_n:protectFirst,protect_last_n:2}:{enabled:false}}
 await writeFile(join(home,'config.yaml'),JSON.stringify(config),{mode:0o600})
@@ -96,6 +97,13 @@ try{
   let recoveryEvidence
   for(phase=0;phase<(compression?7:recovery?6:4);phase++){
     roundCall=0
+    if(modelSelection&&phase===1){
+      member=await core.request('members.get',{agentId:'agent_2'})
+      assert.equal((await core.request('members.runtime.set',{commandId:crypto.randomUUID(),command:{
+        agentId:'agent_2',expectedVersion:member.version,adapterKind:'hermes-cli',
+        model:{mode:'explicit',modelId:'custom:fixture:fixture-selected',options:{}},
+        permissions:installation.memberRuntimeDefaults.permissions}})).status,'applied')
+    }
     if(availability&&phase===1)await appendFile(launcherA,'# changed executable fingerprint\n')
     if(phase===2||phase===6){
       await core.stop()
@@ -228,6 +236,10 @@ try{
     assert.equal(payload.split('[MEMBER_IDENTITY]').length-1,expected==='none'?0:1)
     assert(payload.includes(`HERMES_TASK_${phase}`))
     const first=wire.find(row=>row.phase===phase&&row.main).body
+    if(modelSelection)for(const request of wire.filter(row=>row.phase===phase&&row.main)){
+      assert.equal(request.body.model,phase===0?'fixture-model':'fixture-selected',
+        'Explicit Core model selection must change actual native requests, including cold resume')
+    }
     const system=(first.instructions??'')+JSON.stringify(first.input.filter(m=>['system','developer'].includes(m.role)))
     assert(system.includes('NATIVE_CONFIG_SYSTEM_639'));assert(!system.includes('[SESSION_CHARTER]'))
     if(availability){
@@ -241,7 +253,7 @@ try{
     assert(first.input.some(m=>m.role==='user'&&m.content===payload.trim()),'Actual user request differs from native-trimmed frozen payload')
     const requirement=sql('SELECT requested_revision,acknowledged_revision FROM bootstrap_redelivery_requirement WHERE native_binding_id=?',delivery.native_binding_id)
     previousRequested=requirement&&requirement.requested_revision>requirement.acknowledged_revision?requirement.requested_revision:0
-    results.push({phase,run:run.id,kind:expected,requested:requirement?.requested_revision??0,acknowledged:requirement?.acknowledged_revision??0,mainRequests:wire.filter(r=>r.phase===phase&&r.main).length})
+    results.push({phase,run:run.id,model:first.model,kind:expected,requested:requirement?.requested_revision??0,acknowledged:requirement?.acknowledged_revision??0,mainRequests:wire.filter(r=>r.phase===phase&&r.main).length})
     console.log('Phase:',JSON.stringify(results.at(-1)))
   }
   if(compression){assert(summaries>=2,'Two native automatic summaries not observed');assert(results.at(-1).acknowledged>=2,'Completed native hooks did not trigger accepted recovery');assert.equal(results.at(-1).kind,'none','Post-compaction cold resume duplicated accepted rules');assert.equal(previousRequested,0)}
@@ -258,7 +270,7 @@ try{
     for(const c of ['context.charter.managed_system_prompt','context.compaction.native_system_prompt_preserved'])assert(!refreshed.includes(c))
     recoveryEvidence.legacyReadySnapshotRefreshed=true;recoveryEvidence.noDuplicateSend=true
   }
-  const summary={version:installation.snapshot.reportedVersion,compression,protectFirst,syntheticProvider:true,successWithoutEnhancedUsage:true,nativeSessionUnchanged:true,summaries,results,recovery:recoveryEvidence,availability:availabilityEvidence}
+  const summary={version:installation.snapshot.reportedVersion,compression,protectFirst,syntheticProvider:true,successWithoutEnhancedUsage:true,nativeSessionUnchanged:true,explicitModelSelection:modelSelection,summaries,results,recovery:recoveryEvidence,availability:availabilityEvidence}
   await writeFile(join(root,'summary.json'),JSON.stringify(summary,null,2))
   console.log('Hermes first-input acceptance passed:',root)
 }catch(error){console.error(error);throw error}finally{

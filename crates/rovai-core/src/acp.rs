@@ -2106,14 +2106,17 @@ impl AcpHost {
             initialize_params["clientCapabilities"]["_meta"] =
                 json!({"opencode/child-session-updates": true});
         }
-        // V1 installs plugin dependencies in the background during catalog
-        // discovery. If that short-lived process exits first, its native lock
-        // expires after 60 seconds. Allow that bounded cold-start recovery;
-        // never delete native locks or resend an accepted prompt to recover.
-        let initialize_timeout = if host.adapter_kind == AdapterKind::OpencodeCli
+        let initialize_timeout = if host.adapter_kind == AdapterKind::HermesCli {
+            // Cover private Home preparation, the launcher's 55-second Gateway
+            // readiness budget, and the subsequent official ACP import/handshake.
+            Duration::from_secs(90)
+        } else if host.adapter_kind == AdapterKind::OpencodeCli
             && crate::opencode_compat::Generation::from_version(host.reported_version.as_deref())
                 == Some(crate::opencode_compat::Generation::V1)
         {
+            // V1 installs plugin dependencies during catalog discovery. If that
+            // process exits first, its native lock expires after 60 seconds.
+            // Allow recovery without deleting locks or resending accepted input.
             Duration::from_secs(90)
         } else {
             Duration::from_secs(45)
@@ -5358,7 +5361,7 @@ impl AcpRuntime {
                 // CodeBuddy omits it from set_config_option's built-in choices.
             } else if matches!(
                 self.host.adapter_kind,
-                AdapterKind::KiroCli | AdapterKind::GrokBuild
+                AdapterKind::KiroCli | AdapterKind::GrokBuild | AdapterKind::HermesCli
             ) {
                 self.set_model(&session_id, model).await?;
             } else {

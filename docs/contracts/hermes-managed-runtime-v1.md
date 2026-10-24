@@ -29,6 +29,8 @@ Core 启动沿既有 owned-processes 记录清理遗留进程。只退出 ACP vi
 全局锁或额外 storage flock。启动器仅连接自己刚启动、PID/Home/external supervisor 匹配的 Gateway，
 不接管日常共享 Gateway。每 Run 只启动一次，不自动 respawn；专用子进程通过官方
 `HERMES_GATEWAY_MAX_STARTS=0` 避免把正常逐 Run 启动误判为守护进程重启风暴。
+Hermes 外层 ACP initialize 使用 90 秒预算，覆盖 Home 准备、启动器最多 55 秒的 Gateway 就绪等待及后续
+官方 ACP 导入/握手余量；超时仍走既有进程清理，不自动重试或重发输入。
 
 最低版本由官方 ACP initialize 验证。删除 `_rovai/ready`、控制器 PID/revision 握手、补充事件能力的
 统一门禁。必要接口按实际调用的原生结果处理，不要求每轮取得额外 receipt、连续事件序号或完整工具证据。

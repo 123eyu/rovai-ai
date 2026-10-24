@@ -207,3 +207,21 @@ Python 既有入口 6 项通过，覆盖空配置/空节、错误类型/语法�
 成功工具和普通对话可用；同 Session 冷恢复保留历史、重新连接相同分配、更新凭据、从有效分配明确清空后
 旧工具消失；全部外部 MCP 不可用仍正常结束对话，原生日志报告失败。原有文件工具、取消、Steer、并发和
 增强观测缺失仍成功的断言同次通过。未改官方源码、未使用日常数据或真实付费模型，未扩大平台矩阵。
+
+## 显式模型选择与初始化预算（2026-10-24）
+
+按 User sequence 42 修正 Core 的显式模型选择分支：Hermes 与 Kiro/Grok 复用已有 `set_model()`，
+发送官方 `session/set_model`；不再进入只返回空配置 ACK 的 `set_config_option("model", ...)`。
+此前直接调用官方接口的体验测试、以及默认模型与目标相同的 Core 流程，未覆盖这个遗漏。
+
+既有 first-input 普通模式扩展为默认模型 A → Core 显式选择 B → Core 冷恢复 → 规则更新，始终断言
+原 Session ID 不变，并检查每轮实际模型请求。修复前基线 `542fd99e9` 的 fixture `bVqS2A` 在选择 B 后
+仍请求 A，断言失败；修复后 fixture `f62Pj4` 四轮全部通过，请求模型依次为 A/B/B/B。使用未修改的
+官方 Hermes 0.22.4 和本地受控 Responses，未调用真实付费模型。
+
+Hermes 正式 Host initialize 由 45 秒改为 90 秒，覆盖私有 Home 准备、Gateway 55 秒就绪预算和
+官方 ACP 导入/握手余量，与既有 Hermes 探测预算一致。保留原超时清理，不增加重试；本次只对齐预算，
+没有把正常启动验收当作慢机失败率或性能矩阵。插话锁、逐 Run 冷启动、按需恢复快照和启动串处理保持原状。
+
+共享 ACP extended 回归 67 passed / 0 failed / 2 ignored；Core build、workspace check、fmt、脚本语法、
+whitespace 和通用文档门禁通过。没有新增 Rust 测试入口或恢复/缓存机制。

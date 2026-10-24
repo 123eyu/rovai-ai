@@ -126,6 +126,7 @@ Hermes 当前仅保留 launcher/官方错误边界的独立纯函数 owner；恢
 `python3 scripts/test-hermes-controller.py` 覆盖现存启动器和小范围官方控制。生产 Core 的
 `smoke-hermes-first-input.mjs --availability` 复用隔离 Home/data-dir/Skill Library/MCP，验证当前安装恢复
 原 Session、未知任务不重放、明确解除阻塞后新任务；`--compression --unprotected` 单独验证多次自动压缩。
+普通模式还验证 Core 从原生默认模型 A 显式选择 B，检查后续及冷恢复的实际请求模型为 B，原 Session 不变。
 `smoke-hermes-experience.mjs` 验证普通工具、停止、独立 Binding 并发，以及缺少增强详情仍成功；沿同一原生
 Session 验证 MCP 首次绑定、部分/全部不可用仍可对话、冷恢复重绑、更新与明确清空。Python 既有入口
 参数化覆盖稀疏配置空值、保留源配置、一次快照/一次 mutation、原生阻塞与未确认撤销不降级为成功。

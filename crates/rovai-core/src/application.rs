@@ -9412,12 +9412,12 @@ impl Core {
                 // A same-value save also repairs a previously failed projection.
                 // Retry only this derived file state; the preference stays saved
                 // and each attempt reads the latest value under the invocation gate.
-                if !self.refresh_task_discovery().await {
+                if !self.refresh_task_discovery(None).await {
                     let core = Arc::clone(self);
                     tokio::spawn(async move {
                         for delay_ms in [100, 500, 2_000] {
                             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                            if core.refresh_task_discovery().await {
+                            if core.refresh_task_discovery(None).await {
                                 break;
                             }
                         }
@@ -15439,7 +15439,7 @@ impl Core {
         self.builtin_tool_process_config_factory()?.create()
     }
 
-    async fn refresh_task_discovery(&self) -> bool {
+    async fn refresh_task_discovery(&self, target: Option<(&str, &str, i64)>) -> bool {
         let _gate = self.builtin_tool_leases.invocation_guard().await;
         let enabled_runs = {
             let database = self.database.lock().await;
@@ -15452,7 +15452,11 @@ impl Core {
             })()
         };
         match enabled_runs {
-            Ok(enabled_runs) => self.builtin_tool_leases.refresh_tasks(&enabled_runs).await,
+            Ok(enabled_runs) => {
+                self.builtin_tool_leases
+                    .refresh_tasks(&enabled_runs, target)
+                    .await
+            }
             Err(error) => {
                 eprintln!("Task CLI capability read failed: {error:#}");
                 false
@@ -15475,7 +15479,12 @@ impl Core {
                 Path::new(&execution.workspace.execution_root),
             )
             .await?;
-        self.refresh_task_discovery().await;
+        self.refresh_task_discovery(Some((
+            config.process_id(),
+            &execution.agent_run_id,
+            execution.execution_epoch,
+        )))
+        .await;
         Ok(())
     }
 
@@ -33952,6 +33961,146 @@ done
             )
         };
         (camp_id, agent_run_id, version, execution_epoch)
+    }
+
+    // Owns the preference transaction -> invocation gate -> CLI projection seam.
+    // Registry tests cannot verify when Core reads SQLite or its saved-value retry.
+    #[cfg(all(target_os = "macos", feature = "slow-tests"))]
+    #[tokio::test(start_paused = true)]
+    async fn task_discovery_refresh_scopes_bindings_and_repairs_saved_preferences() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("rovai-task-discovery-{}", uuid::Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        fs::create_dir_all(&workspace).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
+        let endpoint = rovai_core::builtin_tool_transport::LocalIpcEndpoint::UnixSocket {
+            path: root.join("core.sock").to_string_lossy().into_owned(),
+        };
+        async fn save(core: &Arc<Core>, enabled: bool) {
+            let result = core
+                .handle(&Request {
+                    client: rovai_core::draft_client::DraftClient::default(),
+                    id: json!(1),
+                    method: "preferences.tasks.set".to_string(),
+                    params: json!({"enabled": enabled}),
+                })
+                .await
+                .unwrap();
+            assert_eq!(result["enabled"], enabled);
+        }
+        fn tasks(config: &BuiltinToolProcessConfig) -> bool {
+            let context: serde_json::Value =
+                serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+            context["tasksEnabled"].as_bool().unwrap()
+        }
+        save(&core, false).await;
+        let mut bindings = Vec::new();
+        for _ in 0..2 {
+            let (camp, run, _, epoch) = claimed_runtime_cleanup_test_run(&core, &workspace).await;
+            let execution = {
+                let database = core.database.lock().await;
+                ExecutionRuntimeService::default()
+                    .load_agent_run_execution(&database, &run, epoch)
+                    .unwrap()
+                    .unwrap()
+            };
+            let credential = core
+                .prepare_builtin_tool_binding(&execution, false)
+                .await
+                .unwrap();
+            let config = BuiltinToolProcessConfig::create(
+                &std::env::current_exe().unwrap(),
+                &endpoint,
+                &root,
+            )
+            .unwrap();
+            bindings.push((camp, execution, credential, config));
+        }
+        let (_, execution_a, credential_a, a) = &bindings[0];
+        let (_, execution_b, credential_b, b) = &bindings[1];
+        core.bind_builtin_tool_runtime(a, execution_a, credential_a)
+            .await
+            .unwrap();
+        let mut unchanged = fs::read(a.context_path()).unwrap();
+        unchanged.push(b'\n'); // Detect even a same-value rewrite, independent of inode/mtime.
+        fs::write(a.context_path(), &unchanged).unwrap();
+        core.bind_builtin_tool_runtime(b, execution_b, credential_b)
+            .await
+            .unwrap();
+        assert_eq!(fs::read(a.context_path()).unwrap(), unchanged);
+
+        // Pause at the existing gate, commit a new preference, then resume the
+        // binding refresh. It must read the new value, not one captured at bind.
+        {
+            let gate = core.builtin_tool_leases.invocation_guard().await;
+            let refresh = core.refresh_task_discovery(Some((
+                b.process_id(),
+                &execution_b.agent_run_id,
+                execution_b.execution_epoch,
+            )));
+            tokio::pin!(refresh);
+            assert!(
+                std::future::poll_fn(|cx| std::task::Poll::Ready(
+                    std::future::Future::poll(refresh.as_mut(), cx).is_pending()
+                ))
+                .await
+            );
+            {
+                let mut database = core.database.lock().await;
+                let tx = database.connection_mut().transaction().unwrap();
+                rovai_core::task_capability::set(&tx, true).unwrap();
+                tx.commit().unwrap();
+            }
+            drop(gate);
+            assert!(refresh.await);
+        }
+        assert!(tasks(b));
+        assert!(!tasks(a));
+        // A same-value public save repairs the other process, then a changed
+        // value updates both. The DB transaction is released before projection.
+        save(&core, true).await;
+        assert!(tasks(a) && tasks(b));
+        save(&core, false).await;
+        assert!(!tasks(a) && !tasks(b));
+
+        let saved = a.context_path().with_extension("saved");
+        fs::rename(a.context_path(), &saved).unwrap();
+        fs::create_dir(a.context_path()).unwrap();
+        save(&core, true).await; // One failed file must not stop the other projection.
+        assert!(tasks(b));
+        assert_eq!(core.builtin_tool_leases.active_count().await, 2);
+        tokio::task::yield_now().await;
+        fs::remove_dir(a.context_path()).unwrap();
+        fs::rename(saved, a.context_path()).unwrap();
+        tokio::time::advance(Duration::from_millis(100)).await;
+        tokio::task::yield_now().await;
+        assert!(tasks(a)); // Existing bounded retry repairs without another save/bind.
+        for (camp, execution, _, config) in &bindings {
+            core.builtin_tool_leases
+                .unbind(
+                    config.process_id(),
+                    &execution.agent_run_id,
+                    execution.execution_epoch,
+                )
+                .await;
+            ThreadAttachmentStore::new(&core.data_dir)
+                .remove_camp(camp)
+                .unwrap();
+            fs::set_permissions(
+                core.attachment_views.root().join("camps").join(camp),
+                fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
+        }
+        fs::set_permissions(
+            core.attachment_views.root().join("camps"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        drop(core);
+        drop(bindings);
+        fs::remove_dir_all(root).unwrap();
     }
 
     // Owns the ended one-shot worker -> bound Core route -> Delivery seam.

@@ -3,7 +3,7 @@ document_type: architecture
 architecture: builtin-tool-runtime
 authority: builtin-tool-component-boundaries
 status: accepted
-last_updated: 2026-10-20
+last_updated: 2026-10-24
 ---
 
 # Built-in Tool Runtime Architecture
@@ -355,6 +355,12 @@ Thread 并使用调用时 sequence boundary；ContextManifest history catalog �
 4. Core 按 Profile 选择并由 Formatter 形成 Model Context Projection，再冻结 ContextManifest；
 5. Core 建立 Runtime Input Delivery，将 Manifest 绑定到 execution epoch/Binding generation 后投递；
 6. Agent 使用固定命令和 command-local `--help`；Router 从 lease 解析当前 Run 与 Thread。
+
+普通 Run 绑定后的 Task CLI discovery 只刷新本进程；用户保存全局 Task 设置（含同值修复）及既有失败
+重试仍刷新所有活动进程。刷新先取得既有 invocation gate，再读取最新任务设置；定向刷新在 processes
+锁内核对 process/Run/execution epoch，并使用当前 ActiveLease 写入。已解绑或换绑的旧目标跳过，不能
+写回早先捕获的 lease。设置保存先提交并释放数据库事务，再进入刷新；投影失败只记录诊断，不撤销已绑定
+lease 或取消任务。绑定本身与 Task 投影仍允许各写一次当前进程的小文件，不建立跨请求缓存。
 
 ### Resume / Resident process reuse
 

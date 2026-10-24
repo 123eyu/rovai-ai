@@ -151,6 +151,11 @@ Skills 索引遵循原生 Home 的 skills、create_dir、external_dirs 与禁用
 受信时采集。设置页仅用户来源，Thread 候选可含受信项目来源；保留路径身份，不把索引存在当成实际加载。
 仅在原生 `.env` 定义的目录变量尚无 Rust 索引等价保证。
 
+私有 Home 只适配必要路径，实际发现和加载仍由 Hermes 执行。`external_dirs` 的字符串表示单个目录，
+列表项按原生方式转成字符串、去除首尾空白并过滤空项，再展开环境变量与 `~`；相对目录以 binding
+记录的原来源 Home 为基准。`create_dir` 使用去除首尾空白后的非空字符串；空白保留未设置语义。
+缺失、null 和其他类型不增加额外校验，原 Skills 链接、未知字段与来源 config 保持。
+
 新 Session 的 MCP 只随官方 ACP `session/new` 绑定，不在创建后重复发现。冷恢复先恢复历史，再读取一次
 完整状态快照；idle 时用该快照的 revision/generation 提交一次 `session.mutate(editor_mcp)`，其他执行状态
 暂不修改。每 Run 冷 Gateway 需要重建凭据与连接，不能因持久分配列表未变而跳过。空 assignment 通过

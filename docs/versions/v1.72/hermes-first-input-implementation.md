@@ -225,3 +225,38 @@ Hermes 正式 Host initialize 由 45 秒改为 90 秒，覆盖私有 Home 准备
 
 共享 ACP extended 回归 67 passed / 0 failed / 2 ignored；Core build、workspace check、fmt、脚本语法、
 whitespace 和通用文档门禁通过。没有新增 Rust 测试入口或恢复/缓存机制。
+
+## Skills 路径与普通绑定刷新范围（2026-10-24）
+
+本轮只修改私有 Home 的 Skills 路径转换，以及共享工具上下文刷新目标。`external_dirs` 的单个字符串
+与列表项采用原生 scalar/list 语义，先转字符串、trim、过滤空项，再展开变量/`~`，以 binding 记录的
+来源 Home 处理相对目录；`create_dir` 只转换 trim 后的非空字符串。实际发现仍由 Hermes 执行，
+源 config、稀疏未知字段和 Skills 链接保留。没有修改原生 personality/system prompt 或 Session 规则。
+
+普通绑定向现有刷新函数传入 process/Run/epoch，只投影当前 ActiveLease；已解绑或换绑的旧目标跳过。
+既有 invocation gate → 最新设置读取 → processes 锁顺序保持。全局设置保存、同值修复和有界重试仍用
+全量入口，事务先提交并释放；投影错误不撤销 lease。当前进程仍可写两次小文件，其他无变化进程不写。
+没有新增锁、服务、缓存或后台轮询；本轮不把减少文件写入描述为已测得的性能提升。
+
+### 验证归属与结果
+
+- Python 既有稀疏配置 owner 增加路径边界，6 个普通测试通过。原生模式 `--native-skills` 使用本机未修改
+  Hermes 0.22.4（`4d04303818b61bf3aa09278af48356315515965b`）及已准备依赖；7 组隔离实际 Skill 发现通过，
+  包含空项不引入 Home 搜索根、源 config 不改写、Skills 链接保留及重新准备时沿用记录的来源 Home。
+- lease owner `builtin_tool_runtime::tests::lease_rotates_fences_and_replays_exact_request` 扩展当前进程写入、
+  当前 lease 轮换、解绑/Run/epoch 换绑跳过和投影失败后认证仍有效。通过保留合法 JSON 的非标准空白检测
+  同值重写，不依赖 inode、mtime 或磁盘耗时。
+- 新增 slow owner `application::tests::task_discovery_refresh_scopes_bindings_and_repairs_saved_preferences`：
+  原 registry owner 没有 SQLite/公开设置保存，不能证明 gate 之后读取最新设置、普通 bind 的定向调用、
+  同值保存和有界重试的跨模块传递。复用既有私有 Core/数据库/Run fixture，不启动 Runtime；暂停 Tokio
+  时钟驱动既有重试，显式 poll 到 gate 等待处后提交设置，不以线程调度猜测竞态。修复前绑定 B 会重写 A。
+  最小命令：`cargo test -p rovai-core --lib --features slow-tests,extended-tests task_discovery_refresh_scopes_bindings_and_repairs_saved_preferences`；
+  lease owner 使用同一入口的 `builtin_tool_runtime::tests::` 过滤器。两项 lease 回归和一项 Core 设置回归均通过。
+
+普通 workspace 首轮在 Core 测试阶段停止，430 passed / 1 failed / 1 ignored：既有 Cursor 身份探测在 2 秒预算内超时，
+未到达预期的身份不匹配断言。该项单独复核通过；未修改其实现或超时预算，完整 workspace 以
+`--test-threads=2` 复跑为 477 passed / 0 failed / 1 ignored，保留首轮失败记录。Core/CLI build、workspace
+check、fmt、whitespace、文档单测及通用文档门禁通过。
+
+没有新增真实付费模型、自动压缩、平台扩展或性能矩阵验收；原 Session、Gateway、Fleet 和 CLI lease
+机制保持，本轮在这两项局部修改处结束。

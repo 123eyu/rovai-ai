@@ -1,4 +1,4 @@
-"""Launcher and narrow control regressions; no Runtime or credentials."""
+"""Launcher/control regressions; --native-skills adds isolated native discovery."""
 import asyncio
 import importlib.util
 import json
@@ -214,11 +214,29 @@ class OfficialControls(unittest.IsolatedAsyncioTestCase):
             cases.append(("invalid-type", json.dumps(value), value))
         cases += [("invalid-yaml", "agent: [", ValueError("secret source line")),
                   ("hook-disabled", '{"hooks":"native-future-format"}', {"hooks": "native-future-format"})]
+        skill_cases = [
+            ({"external_dirs": "extra-skills"}, ["extra-skills"], None),
+            ({"external_dirs": ["extra-skills"]}, ["extra-skills"], None),
+            ({"external_dirs": [" extra-skills ", "", " \t "]}, ["extra-skills"], None),
+            ({"external_dirs": [""]}, [], None),
+            ({"external_dirs": ' ["one", "two"] '}, ['["one", "two"]'], None),
+            ({"external_dirs": [None, 1, False]}, ["None", "1", "False"], None),
+            ({"external_dirs": ["~/skill-fixture", "${ROVAI_SKILL_FIXTURE}/extra"]},
+             [str(Path.home() / "skill-fixture"), "expanded/extra"], None),
+            ({"create_dir": "  created-skills \t"}, None, "created-skills"),
+            ({"create_dir": " \t "}, None, " \t "),
+            ({"external_dirs": None, "create_dir": None}, None, None),
+            ({"external_dirs": {"future": "value"}, "create_dir": False}, {"future": "value"}, False),
+        ]
+        for index, (skills, _, _) in enumerate(skill_cases):
+            value = {"skills": {**skills, "future_option": "${KEEP}"}}
+            cases.append((f"skills-{index}", json.dumps(value), value))
         for name, source_text, parsed in cases:
             with self.subTest(case=name, source=source_text), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory).resolve()
                 source, storage = root / "source", root / "storage"
                 source.mkdir()
+                (source / "skills").mkdir()
                 config_path = source / "config.yaml"
                 if source_text is not None:
                     config_path.write_text(source_text)
@@ -229,6 +247,7 @@ class OfficialControls(unittest.IsolatedAsyncioTestCase):
                            "agent.skill_utils": types.SimpleNamespace(parse_config_string_list=native_list)}
                 yaml = types.SimpleNamespace(safe_load=load, safe_dump=lambda value, **_: json.dumps(value), YAMLError=ValueError)
                 env = {"HERMES_HOME": str(source), "ROVAI_HERMES_STORAGE": str(storage),
+                       "ROVAI_SKILL_FIXTURE": "expanded",
                        "ROVAI_HERMES_COMPACTION_HOOK": "" if name == "hook-disabled" else "owned-observer"}
                 for _ in range(2):
                     with patch.dict(sys.modules, modules), patch.object(host, "yaml", yaml), patch.dict(os.environ, env):
@@ -257,11 +276,75 @@ class OfficialControls(unittest.IsolatedAsyncioTestCase):
                                 native_list.assert_called_with(parsed["agent"]["disabled_toolsets"])
                                 self.assertIn("custom", result["agent"]["disabled_toolsets"])
                             self.assertNotIn("model", result)  # No expanded native defaults.
+                            self.assertTrue((home / "skills").is_symlink())
+                            self.assertEqual((home / "skills").resolve(), source / "skills")
+                            if name.startswith("skills-"):
+                                raw, external, create = skill_cases[int(name.split("-")[1])]
+                                if isinstance(external, list):
+                                    external = [str(source / value) for value in external]
+                                if isinstance(create, str) and create.strip():
+                                    create = str(source / create)
+                                self.assertEqual(result["skills"].get("external_dirs"), external)
+                                self.assertEqual(result["skills"].get("create_dir"), create)
+                                self.assertEqual(result["skills"]["future_option"], "${KEEP}")
+                                for key in ("external_dirs", "create_dir"):
+                                    self.assertEqual(key in result["skills"], key in raw)
+                                native_list.assert_not_called()
                     self.assertEqual(config_path.read_text() if config_path.exists() else None, source_text)
                     if source_text is None:
                         load.assert_not_called()
                     else:
                         load.assert_called_with(source_text)
 
+def check_native_skills():
+    """Run only via the installed Hermes interpreter, using new isolated Homes."""
+    import hermes_yaml
+    from tools.skills_tool import find_all_skills
+    from agent.skill_utils import get_external_skills_dirs, get_skill_create_dir
+    host.yaml = hermes_yaml
+    cases = [("extra-skills", None, True, False),
+             (["extra-skills"], None, True, False),
+             ([" extra-skills "], None, True, False),
+             ([""], None, False, False),
+             (None, " created-skills \t", False, True),
+             (None, " \t ", False, False),
+             (["${ROVAI_SKILL_FIXTURE}"], None, True, False)]
+    with tempfile.TemporaryDirectory(prefix="rovai-hermes-skills-") as directory:
+        root = Path(directory).resolve()
+        for index, (external, create, has_external, has_create) in enumerate(cases):
+            source, storage = root / f"source-{index}", root / f"storage-{index}"
+            for parent, name in (("skills", "local-fixture"), ("extra-skills", "external-fixture"),
+                                 ("created-skills", "create-fixture"), ("", "home-only-fixture")):
+                skill = source / parent / name
+                skill.mkdir(parents=True)
+                (skill / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Isolated discovery fixture\n---\nUse fixture only.\n")
+            original = json.dumps({"skills": {"external_dirs": external, "create_dir": create,
+                                               "future_option": "${KEEP}"}})
+            (source / "config.yaml").write_text(original)
+            with patch.dict(os.environ, {"HERMES_HOME": str(source), "ROVAI_HERMES_STORAGE": str(storage),
+                                         "ROVAI_SKILL_FIXTURE": "extra-skills", "ROVAI_HERMES_COMPACTION_HOOK": ""}):
+                home = host.prepare_home()
+                expected = {"local-fixture"}
+                if has_external:
+                    expected.add("external-fixture")
+                if has_create:
+                    expected.add("create-fixture")
+                assert {skill["name"] for skill in find_all_skills()} == expected, (index, "native discovery")
+                assert get_external_skills_dirs() == ([source / "extra-skills"] if has_external else [])
+                assert get_skill_create_dir() == (source / "created-skills" if has_create else None)
+                assert (source / "config.yaml").read_text() == original
+                assert (home / "skills").is_symlink() and (home / "skills").resolve() == source / "skills"
+                # Re-preparation follows the binding's recorded origin, even if
+                # the process environment now points to another native Home.
+                os.environ["HERMES_HOME"] = str(root / "another-home")
+                assert host.prepare_home() == home
+                assert {skill["name"] for skill in find_all_skills()} == expected
+                assert (source / "config.yaml").read_text() == original
+        print(f"Native Skills discovery: {len(cases)} cases passed; source config and links preserved")
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if "--native-skills" in sys.argv:
+        check_native_skills()
+    else:
+        unittest.main()

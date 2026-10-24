@@ -164,10 +164,16 @@ def prepare_home():
     def skill_path(value):
         path = Path(os.path.expandvars(value)).expanduser()
         return str(path if path.is_absolute() else source / path)
-    if isinstance(skills.get("external_dirs"), list):
-        skills["external_dirs"] = [skill_path(p) for p in skills["external_dirs"]]
-    if isinstance(skills.get("create_dir"), str) and skills["create_dir"].strip():
-        skills["create_dir"] = skill_path(skills["create_dir"])
+    external_dirs = skills.get("external_dirs")
+    if isinstance(external_dirs, str):
+        external_dirs = [external_dirs]
+    if isinstance(external_dirs, list):
+        # Match native scalar/list semantics; empty entries must not become Home.
+        skills["external_dirs"] = [skill_path(entry) for value in external_dirs
+                                   if (entry := str(value).strip())]
+    create_dir = skills.get("create_dir")
+    if isinstance(create_dir, str) and (entry := create_dir.strip()):
+        skills["create_dir"] = skill_path(entry)
     hook_command = os.environ.get("ROVAI_HERMES_COMPACTION_HOOK")
     if hook_command:
         # Use the official configuration hook. Missing optional observations

@@ -130,6 +130,9 @@ Hermes 当前仅保留 launcher/官方错误边界的独立纯函数 owner；恢
 `smoke-hermes-experience.mjs` 验证普通工具、停止、独立 Binding 并发，以及缺少增强详情仍成功；沿同一原生
 Session 验证 MCP 首次绑定、部分/全部不可用仍可对话、冷恢复重绑、更新与明确清空。Python 既有入口
 参数化覆盖稀疏配置空值、保留源配置、一次快照/一次 mutation、原生阻塞与未确认撤销不降级为成功。
+同一配置 owner 覆盖 Skills 字符串/列表、空白/空项、变量展开和 create_dir；通过官方安装解释器运行该入口
+的 `--native-skills` 模式，在临时 Home 用实际 SKILL.md 验证原生发现、来源 config 与链接、来源 Home 接续。
+原生模式复用 `scripts/lib/hermes-native-acp.mjs` 的 `hermesManagedCommand`，只需已准备依赖，不启动模型。
 失败回合不提供独立 usage delta 时保持未知；`smoke-hermes-failed-usage.mjs` 验证失败与不虚构消费。
 受控 Provider 使用 dummy key，实际运行未修改的官方执行器；不能等同真实付费模型验收。最新结果见
 [实施记录](../versions/v1.72/hermes-first-input-implementation.md#官方-acp-直连简化2026-10-24)。

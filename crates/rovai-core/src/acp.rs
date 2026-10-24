@@ -14197,7 +14197,24 @@ while IFS= read -r ignored; do :; done
         adapter.complete_agent_run("agent-run-two", 1).await;
         fleet.shutdown_all().await;
 
-        let invocations = std::fs::read_to_string(&invocation_log).unwrap();
+        // Catalog observations are optional background work and may finish after
+        // prompt completion. Observe their actual invocations before asserting.
+        let invocations = timeout(Duration::from_secs(5), async {
+            loop {
+                let invocations = std::fs::read_to_string(&invocation_log).unwrap();
+                if invocations
+                    .lines()
+                    .filter(|line| line.ends_with("models --json"))
+                    .count()
+                    >= 2
+                {
+                    break invocations;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("TRAE catalog observations did not reach the fixture");
         assert_eq!(
             invocations
                 .lines()

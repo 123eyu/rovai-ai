@@ -146,9 +146,8 @@ def prepare_home():
         skills["create_dir"] = skill_path(skills["create_dir"])
     hook_command = os.environ.get("ROVAI_HERMES_COMPACTION_HOOK")
     if hook_command:
-        from hermes_cli.plugins import VALID_HOOKS, SHELL_UNSUPPORTED_HOOKS
-        if "post_compaction" not in VALID_HOOKS or "post_compaction" in SHELL_UNSUPPORTED_HOOKS:
-            raise Rejected("Hermes post_compaction shell hook unavailable")
+        # Use the official configuration hook. Missing optional observations
+        # must not add a second, internal-API startup eligibility gate.
         hooks = config.setdefault("hooks", {}).setdefault("post_compaction", [])
         if not any(hook.get("command") == hook_command for hook in hooks if isinstance(hook, dict)):
             hooks.append({"command": hook_command, "timeout": 5})

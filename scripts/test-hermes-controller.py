@@ -139,9 +139,10 @@ class OfficialControls(unittest.IsolatedAsyncioTestCase):
                        "hermes_cli": types.SimpleNamespace(__file__=str(root / "package/hermes_cli/__init__.py"))}
             with patch.dict(sys.modules, modules), patch.object(host, "yaml", types.SimpleNamespace(safe_load=json.loads, safe_dump=lambda value, **_: json.dumps(value))):
                 for source in (first, second, second):
-                    with patch.dict(os.environ, {"HERMES_HOME": str(source), "ROVAI_HERMES_STORAGE": str(storage)}):
+                    with patch.dict(os.environ, {"HERMES_HOME": str(source), "ROVAI_HERMES_STORAGE": str(storage), "ROVAI_HERMES_COMPACTION_HOOK": "owned-observer"}):
                         home = host.prepare_home()
                         self.assertEqual(home, storage / "native-home")
+                        self.assertEqual(json.loads((home / "config.yaml").read_text())["hooks"]["post_compaction"], [{"command": "owned-observer", "timeout": 5}])
                         self.assertEqual(json.loads((home / "config.yaml").read_text())["agent"]["system_prompt"], "original-profile")
                         self.assertEqual(json.loads((storage / "native-source.json").read_text()), {"home": str(first), "profile": "default"})
                     # Legacy storage has no marker and can contain a symlink

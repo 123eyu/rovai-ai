@@ -5061,7 +5061,7 @@ impl AcpRuntime {
                     verify_codebuddy_restore_target(root, existing_session_id, &cwd).await?;
                 }
                 if self.host.adapter_kind == AdapterKind::CommandCodeCli {
-                    // Command Code 1.74.1 silently opens an empty Session when
+                    // Command Code 1.88.0 silently opens an empty Session when
                     // resume/load names missing history. Its official catalog
                     // must prove the exact target before either operation.
                     let catalog = self

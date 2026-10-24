@@ -37,6 +37,8 @@ Bootstrap 冻结内容、system/user 角色及证据轴未变，因而无需新�
 
 ## 验证记录
 
+脱敏数据见[原生接入证据](evidence/command-code-native-simplification-2026-10-24.json)。
+
 自动验收使用新建私有 fixture，官方 npm 1.88.0；日常 1.66 安装、配置和 App 未修改。
 原生控制探针确认 `--mod` ready 的 revision/nonce/PID，随后删除 ready；原生同名定义优先，stdio 自定义
 cwd 正确。未转义 ACP `$${literal}` 被原生变为 `${literal}`；wire 转义一次后 stdio env 与 HTTP header
@@ -45,8 +47,15 @@ cwd 正确。未转义 ACP `$${literal}` 被原生变为 `${literal}`；wire 转
 
 真实 sub2api/gpt-6-sol 经官方 Mod + ACP stdio/HTTP 两组，各实际调用工具一次、返回本次随机 receipt，
 receipt 回到后继模型输入并由最终 ACP 答复返回。两组各 3 次前台模型请求均 HTTP 200；所有前台请求的
-System 包含 Bootstrap，user 不含。HTTP 组另有 1 次无工具的后台请求在 fixture 关闭时中断，单独记账。
+System 包含 Bootstrap，user 不含。增加完整字符串出现次数计数后，两组再次各调用工具一次，
+每次前台 System 中 B 恰好一份，user 为零。两轮各有 1 次无工具后台请求在 fixture 关闭时中断，单独记账。
 原生使用 codemode 调 MCP，不能以 tools 数组缺少直接 MCP schema 判失败；证据关联原生工具调用 ID、
 目标引用、服务器实际请求和随机回执。
 
+同一原生 Session 经一次 warm 与两次 cold 仍能精确回忆先前随机回执，保存的 BYOK 模型未被覆盖。
+再将该 Session 的分配 MCP 从 stdio 替换为新 HTTP endpoint，冷恢复仍使用原 ID/冻结 binding。
+首个探针没有重设权限，客户端拒绝原生 permission 请求，工具零调用；按生产路径调用 `session/set_mode`
+后，新 endpoint 实际调用一次并返回新回执。此失败及修正均保留，不把模型返回 UNAVAILABLE 算作成功。
+
+隔离 fixture 的进程已退出，复制的凭据和原生历史随整个 fixture 删除；只导出明确白名单证据。
 本记录不声称隔离 App 或 Windows/Linux 资格通过。完整资格仍按现有流程补齐。

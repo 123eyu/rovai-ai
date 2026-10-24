@@ -1,0 +1,200 @@
+{
+  "scope": "Command Code native HOME + official Mod + ACP integration; not platform or App qualification",
+  "date": "2026-10-24",
+  "commandCodeVersion": "1.88.0",
+  "model": "sub2api/gpt-6-sol",
+  "officialCliSha256": "600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd",
+  "bootstrapModSha256": "e2e2de75da58e8568313ddf2b91eb6a7a7877877f32415644b55884f6f115b25",
+  "nativeContract": {
+    "nativeNameWins": true,
+    "stdioCustomCwdCorrect": true,
+    "rawAcpLiteralChangedByNativeExpansion": true,
+    "onceEscapedEnvAndHeadersArrivedUnchanged": true,
+    "nonexistentLoadAndResumeAccepted": true,
+    "coldExactIdPrecheckStillRequired": true
+  },
+  "realMcp": {
+    "version": "1.88.0",
+    "criterion": "native codemode target call + actual MCP tools/call + unpredictable receipt in subsequent provider input and final ACP answer",
+    "cases": [
+      {
+        "case": "acp-stdio",
+        "sessionId": "503304e0-eabc-409f-8a91-673878e918a6",
+        "foregroundProviderRequests": 3,
+        "foregroundHttp200AndParsed": true,
+        "modelIds": [
+          "gpt-6-sol"
+        ],
+        "directTargetSchemaCount": 0,
+        "codemodeTargetCalls": [
+          {
+            "id": "call_8ffeb04395904130b5e4a7ca9ff0992d",
+            "targetReferenced": true,
+            "codeSha256": "c2e40c80c3f3e2850bd0b607f3f57a50ab586438b961249241a87788d949d4d9",
+            "requestId": 2,
+            "argumentsSha256": "079773efc0c536990e1d2f965d98e0ace31df26b54343d20898a36f18910d3d2"
+          }
+        ],
+        "mcpInitialized": true,
+        "mcpDiscovered": true,
+        "serverTargetCalls": 1,
+        "issuedReceipts": [
+          "RCP_073a276c-ea54-4ebf-87c1-49557a66811f"
+        ],
+        "finalRoundtripReceipts": [
+          "RCP_073a276c-ea54-4ebf-87c1-49557a66811f"
+        ],
+        "bootstrapReadyMatched": true,
+        "bootstrapExactlyOnceInEveryForegroundSystemAndAbsentFromUser": true,
+        "auxiliaryRequestsWithoutTools": 1,
+        "auxiliaryAbortedDuringHarnessShutdown": 1,
+        "fullChainPassed": true
+      },
+      {
+        "case": "acp-http",
+        "sessionId": "9828a505-ca0d-45fc-b511-bc49d3805e13",
+        "foregroundProviderRequests": 3,
+        "foregroundHttp200AndParsed": true,
+        "modelIds": [
+          "gpt-6-sol"
+        ],
+        "directTargetSchemaCount": 0,
+        "codemodeTargetCalls": [
+          {
+            "id": "call_63805d0943d743a4ae8a418f7af94569",
+            "targetReferenced": true,
+            "codeSha256": "c2e40c80c3f3e2850bd0b607f3f57a50ab586438b961249241a87788d949d4d9",
+            "requestId": 2,
+            "argumentsSha256": "079773efc0c536990e1d2f965d98e0ace31df26b54343d20898a36f18910d3d2"
+          }
+        ],
+        "mcpInitialized": true,
+        "mcpDiscovered": true,
+        "serverTargetCalls": 1,
+        "issuedReceipts": [
+          "RCP_701cbb8d-1dc7-4b85-b5b7-dfd5d931d20d"
+        ],
+        "finalRoundtripReceipts": [
+          "RCP_701cbb8d-1dc7-4b85-b5b7-dfd5d931d20d"
+        ],
+        "bootstrapReadyMatched": true,
+        "bootstrapExactlyOnceInEveryForegroundSystemAndAbsentFromUser": true,
+        "auxiliaryRequestsWithoutTools": 0,
+        "auxiliaryAbortedDuringHarnessShutdown": 0,
+        "fullChainPassed": true
+      }
+    ]
+  },
+  "continuity": {
+    "originalSession": "1a406534-ada3-4fef-a3af-4f0fffcae3d5",
+    "model": "sub2api/gpt-6-sol",
+    "cases": [
+      {
+        "case": "cold-1-load",
+        "version": "1.88.0",
+        "readyMatched": true,
+        "exactTargetListed": true,
+        "pid": 54799,
+        "selectedModel": "sub2api/gpt-6-sol",
+        "savedModelPreserved": true
+      },
+      {
+        "case": "cold-1-recall",
+        "stopReason": "end_turn",
+        "pid": 54799,
+        "receiptMatched": true,
+        "responseSha256": "2e6ffbed1445aa067b901683a5f4fcf54f69cf57c0d14ad7dd8867ca07664ac5"
+      },
+      {
+        "case": "warm-recall",
+        "stopReason": "end_turn",
+        "pid": 54799,
+        "receiptMatched": true,
+        "responseSha256": "2e6ffbed1445aa067b901683a5f4fcf54f69cf57c0d14ad7dd8867ca07664ac5"
+      },
+      {
+        "case": "cold-2-load",
+        "version": "1.88.0",
+        "readyMatched": true,
+        "exactTargetListed": true,
+        "pid": 54866,
+        "selectedModel": "sub2api/gpt-6-sol",
+        "savedModelPreserved": true
+      },
+      {
+        "case": "cold-2-recall",
+        "stopReason": "end_turn",
+        "pid": 54866,
+        "receiptMatched": true,
+        "responseSha256": "2e6ffbed1445aa067b901683a5f4fcf54f69cf57c0d14ad7dd8867ca07664ac5"
+      }
+    ],
+    "modelSelectionOverriddenOnLoad": false
+  },
+  "coldMcpReplacement": {
+    "initialHarnessDeniedPermission": {
+      "originalSession": "1a406534-ada3-4fef-a3af-4f0fffcae3d5",
+      "model": "sub2api/gpt-6-sol",
+      "cases": [
+        {
+          "case": "cold-1-load",
+          "version": "1.88.0",
+          "readyMatched": true,
+          "exactTargetListed": true,
+          "pid": 60588,
+          "selectedModel": "sub2api/gpt-6-sol",
+          "savedModelPreserved": true
+        },
+        {
+          "case": "cold-with-replaced-mcp",
+          "stopReason": "end_turn",
+          "pid": 60588,
+          "receiptMatched": false,
+          "actualCalls": 0,
+          "transportChangedFrom": "stdio",
+          "transportChangedTo": "http",
+          "responseSha256": "eb0be6d636d52794e3ab5c50e7ef17aac1235da10f904ab59fbe8b9c73c30cf9"
+        }
+      ],
+      "modelSelectionOverriddenOnLoad": false,
+      "passed": false
+    },
+    "afterApplyingProductionPermissionRpc": {
+      "originalSession": "1a406534-ada3-4fef-a3af-4f0fffcae3d5",
+      "model": "sub2api/gpt-6-sol",
+      "cases": [
+        {
+          "case": "cold-1-load",
+          "version": "1.88.0",
+          "readyMatched": true,
+          "exactTargetListed": true,
+          "pid": 60978,
+          "selectedModel": "sub2api/gpt-6-sol",
+          "savedModelPreserved": true
+        },
+        {
+          "case": "cold-with-replaced-mcp",
+          "stopReason": "end_turn",
+          "pid": 60978,
+          "receiptMatched": true,
+          "actualCalls": 1,
+          "transportChangedFrom": "stdio",
+          "transportChangedTo": "http",
+          "responseSha256": "9484e8645c7cf130ae2fdd9fcef44dde06aa1ce468d2402baafe2b720c830c0d"
+        }
+      ],
+      "modelSelectionOverriddenOnLoad": false,
+      "initialPermissionMode": "default",
+      "permissionModeAppliedViaRpc": "bypass",
+      "passed": true
+    }
+  },
+  "cleanup": {
+    "fixtureRemoved": true,
+    "remainingFixtureProcesses": [],
+    "removed": "Entire isolated fixture, including copied auth/providers and native session history",
+    "dailyInstallationChanged": false,
+    "dailyNativeHomeChangedByAdapter": false
+  },
+  "qualificationChanged": false
+}

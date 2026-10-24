@@ -28941,17 +28941,18 @@ mod tests {
                 CreateMcpServerParams {
                     expected_config_digest: initial.config_digest,
                     definition_json: json!({ "mcpServers": { "fixture": {
-                        "type": "http", "url": "http://127.0.0.1:34567/mcp"
+                        "url": "http://127.0.0.1:34567/mcp"
                     }}})
                     .to_string(),
                 },
                 &known_agents,
             )
             .unwrap();
-        assert!(matches!(
-            created,
-            rovai_core::mcp::McpMutationResult::Ok { .. }
-        ));
+        assert!(
+            matches!(&created, rovai_core::mcp::McpMutationResult::Ok { .. }),
+            "{}",
+            serde_json::to_string(&created).unwrap()
+        );
         let view = store.get(&known_agents).unwrap();
         let server_id = view
             .servers
@@ -28966,6 +28967,7 @@ mod tests {
             "binding-command-mcp",
             root.clone(),
         );
+        let mut previous_process_id = None;
         for (index, expected_status, assigned) in
             [(0, "conflict", true), (1, "ok", true), (2, "ok", false)]
         {
@@ -28979,7 +28981,7 @@ mod tests {
                         adapter_kind: AdapterKind::CommandCodeCli,
                         compatibility: compatibility.clone(),
                     },
-                    || async {
+                    move || async move {
                         Ok(runtime_fleet::fake_runtime_process_host(format!(
                             "command-host-{index}"
                         )))
@@ -28987,14 +28989,10 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(
-                lease.process_id,
-                if index == 2 {
-                    "command-host-2"
-                } else {
-                    "command-host-0"
-                }
-            );
+            if let Some(previous) = &previous_process_id {
+                assert_eq!(&lease.process_id == previous, index == 1);
+            }
+            previous_process_id = Some(lease.process_id.clone());
             let view = store.get(&known_agents).unwrap();
             let result = core.handle(&Request {
                 client: rovai_core::draft_client::DraftClient::default(),

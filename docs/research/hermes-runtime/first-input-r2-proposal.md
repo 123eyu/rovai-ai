@@ -188,6 +188,9 @@ Core 接受被准入的压缩完成事件后，生成下一普通输入的补发
 [共享 Gateway 边界实测](native-acp-boundaries-2026-10-24.md) 已确认普通 ACP、原 Session 冷恢复、
 定向取消、连接退出与 Gateway 生命周期边界；也复现了 CLI 环境未传递、真实 `send` 失败。
 没有找到当前官方 ACP 可直接使用的会话级 CLI 身份运输，CLI/TUI 的 client_env 不是 ACP 已有能力。
+
+后续 User sequence 50 的[隔离原型](client-env-feasibility-2026-10-24.md)已证明：保持 CLI，扩展原生任务环境快照
+可以通过两个真实成员、原 Session 续轮和旧 lease 拒绝验证。该上游修复尚未合并，不改变此处对未修改官方版本的判断。
 原生自动启动的 Gateway 仍可能是 ACP 后代，连接级回收必须显式实现。
 
 因此本说明的确认只批准上述输入／原生边界，**不授予完整协作验收通过**。

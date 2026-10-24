@@ -6,6 +6,10 @@ last_updated: 2026-10-24
 
 # Hermes 接入与验证
 
+User sequence 50 的[客户端环境最小修复原型](client-env-feasibility-2026-10-24.md)已验证真实 Core 下两成员、
+原 Session 续轮与旧 lease 拒绝；关联上游 Issue #142671，PR #142008 仅作为启动注入与 snapshot 的参考。
+这是隔离开发可行性证据，未修改日常安装或生产接入，不能当作官方版本已经修复。
+
 User sequence 46 提出的原生 Home／共享 Gateway 切换尚未实施。
 [2026-10-24 边界实测](native-acp-boundaries-2026-10-24.md) 已确认原生取消／连接退出行为，
 同时复现 ACP 环境未传到工具进程、内置 CLI Send 失败；[R2 完整提案](first-input-r2-proposal.md)

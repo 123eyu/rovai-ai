@@ -7,7 +7,8 @@ last_updated: 2026-10-25
 # Command Code 1.88 原生接入简化
 
 当前实现以[启动合同 v72](../../contracts/runtime-launch-and-verification-v72.md)为准。
-只保留原生 HOME、官方 Mod、标准 ACP 与共享 Fleet。公开状态仍为所有平台 NotQualified。
+只保留原生 HOME、官方 Mod、标准 ACP 与共享 Fleet。当前 macOS arm64/x64 按 User seq61 开放 Preview，
+Windows/Linux 保持 NotQualified；该开放不代替完整平台资格，具体范围见文末。
 
 ## 实际减少
 
@@ -407,7 +408,7 @@ Mod 先解析到局部变量，沿用非空字符串和 UTF-8 128 KiB 正文限�
 完整测试归属见[测试指南](../../development/testing.md#command-code-188-简化测试归属2026-10-24)。
 
 本次没有重跑 MCP 或外部真实模型；前次同一官方通道的 MCP/取消证据仍单独保留。共享回归不替代
-完整 Core/App、Windows/Linux、子代理范围或平台资格；Command 继续所有平台 NotQualified。
+完整 Core/App、Windows/Linux、子代理范围或平台资格；当时 Command 继续所有平台 NotQualified。
 没有测量延迟、CPU 或内存，准确收益是删除正文文件及读写责任，代价是每 Run 一次现有 ACP 控制往返。
 
 ## 验证记录
@@ -522,3 +523,69 @@ override；正式平台准入不变。以下五项均通过完整 Core AgentRun 
 
 已扩展的 ready 与 Windows Job 定向 owners 通过；原生登录副本在结束后删除，原 mcode 配置哈希未变。
 Command Code 1.88.0 原生 MCP 的 Windows 路径／argv 问题属于另一项，本修复未改其投影和启动逻辑。
+
+## macOS 双架构开放（2026-10-25）
+
+User seq61 要求 macOS 两个架构开放。以主干 `51da43668fa9b9e50cd94c86a29825db8666f79a` 为基线，
+在独立 worktree 的 `rovai/command-code-macos-preview` 分支实施；本项是公开准入调整，不新增原生模型验收结论。
+
+| 平台 | 当前准入 | 行为 |
+| --- | --- | --- |
+| macOS arm64 / Apple Silicon | Preview | 允许正常发现、配置、检查和执行。 |
+| macOS x64 / Intel | Preview | 同上；不将本机 Renderer 平台夹具当作 Intel 真机证明。 |
+| Windows x64、Linux x64 | NotQualified | 沿现有平台限制，不因可见目录恢复而开放执行。 |
+
+两条 Preview 行保留 `qualification_evidence_missing` 与空 evidenceRevision，不增加资格文件。
+最低版本仍为 1.88.0 稳定版。共享可见目录恢复设置、新手引导、队员/Skill 选择和监控入口；
+安装引导仅链接 [Command 官方说明](https://commandcode.ai/docs)，不增加安装脚本或认证探针。
+App CLI 删除 Command 的旧全平台拒绝分支，配置请求交由 Core 判断目标平台；Cline 继续暂缓公开。
+界面使用现有状态与检查详情，不增加常驻实验标签。没有更改 Bootstrap 传输、Host/Session 生命周期，
+也没有新增生产文件、锁、池、缓存或监听器。当前决定见 [V1.72-D60](decisions.md#v1-72-d60)。
+
+验证复用现有 owners：前端全套 256 文件 / 3005 项通过、2 项既有跳过；TypeScript 与桌面/Web 构建通过。
+隔离 Electron Runtime Picker 实际选中 Command 并保留原生默认模型，原有键盘、IME、日夜主题、尺寸及
+200% 缩放回归通过；其 userData 位于独立临时目录，不启动 Core/Skill Library/真实 Runtime，结束后已清理。
+最终 `cargo test --workspace --quiet` 通过：Core 431 项通过、1 项既有忽略，其余目标 46 项通过，
+doc-tests 通过；其中 App CLI 31 项包含 Command 原生默认配置解析。文档治理测试 10 项、格式检查及
+基于上述 base 的 `docs:check:ci` 通过。
+兼容性清单更新同步既有 register revision，平台证据 owner 五项复验通过；Command Preview 不引用该摘要，
+也不恢复配置摘要式 Host/Session 判断。
+
+未新增 Intel 原生模型、完整 macOS Core/App、子代理或跨平台 MCP 资格验收；已有原生证据仍见本报告
+前文。本次不安装、重启或改写日常 App，也不自动升级 Command。Preview 开放和完整资格通过分别记录。
+
+## Windows Preview 开放（2026-10-25）
+
+按 User 后续要求，把 Windows 补验和 macOS 开放提交 `3c5d6343c` 一起交付；Windows x64 同样采用
+Preview，Linux 仍关闭。最低稳定版 1.88.0、原生 HOME/Mod/ACP/Fleet 及共享产品入口保持。
+前文 macOS 开放时“Windows 仍 NotQualified”是该提交当时状态，由本节更新。
+
+真实模型测试使用已含 Bootstrap PID 修复的主干 `51da43668` debug Core/CLI、官方 Command Code 1.88.0、
+独立 D 盘 Core、Skill Library、MCP config 与原生 HOME。仅该隔离 Core 使用既有逐 Adapter qualification
+override；模型为本机 sub2api `gpt-6/xhigh`。开放补丁只调整准入/入口，不修改上述执行链。
+脱敏证据见 [Windows Preview 实测](../../research/command-code-runtime/windows-preview-2026-10-25.evidence.json)。
+
+| 补验场景 | 观察结果 |
+| --- | --- |
+| Skill 与分配 MCP | Core Run 实际读取 Skill 随机回执并调用 MCP echo；两个回执进入公开消息。 |
+| 更新与撤销 | 修改 Skill 与 MCP 后，下一轮采用新回执，Binding/Session 保持；撤销后搜索无工具且零新增 MCP 调用。 |
+| 正常关闭与恢复 | 所属 Runtime/MCP 退出；重启后恢复精确 Session，重新读取 Skill 并调用更新后的 MCP。 |
+| 原生手动压缩 | 真实摘要将 16 条消息压为 5 条；压缩后与 cold 恢复后均保留随机记忆和最新 System。 |
+| 权限拒绝 | 持久回执为 user_selected_deny，目标文件不存在。 |
+| 强杀与后继 | MCP hold 已开始时只强杀隔离 Core，Job 回收后代，35 秒延迟写入未发生；重启后新 Run 成功。另测模型请求中强杀，Runtime/MCP 同样退出且后继恢复。 |
+
+八项正向/恢复检查通过，拒绝分支独立核对。拒绝写权限时，1.88 原生可直接以 end_turn 结束，不继续生成
+公开最终消息；Core 如实报告 runtime_missing_final_output，本项不计作成功发布的 Run。最初权限脚本
+把原生 reject_once 当作公开 kind，又读取未公开的内部字段，两项假设已纠正，失败记录保留。
+短历史的两次手动压缩返回 Nothing to compact yet，也不计作成功；补足原生 30000-token recent tail
+与较早消息后才获得真实摘要证据。
+
+官方 Windows ACP 独立对照已确认：MCP executable 绝对路径含空格可启动失败，复杂 argv 可被拆分；
+普通 `node` 与简单参数可实际调用。这是未经过 Rovai 时同样存在的限制，本轮不修改用户上游安装包。
+阈值/溢出自动压缩、完整 Skills 变体/成员隔离、Usage/成本及完整资格矩阵仍未闭合，因此保留
+qualification_evidence_missing 与空 evidenceRevision，不晋升 Qualified。临时登录副本已删除，
+记录的所属进程全部退出，原 mcode 配置哈希未变。
+
+准入扩展复用既有 Windows/macOS/Linux 矩阵、App CLI、App、OnboardingFlow、member-runtime-apply 和安装/监控
+owners，无新增 Rust 测试函数；归属见[测试说明](../../development/testing.md#command-code-188-简化测试归属2026-10-24)。
+正式 release 无 override 的准入、已安装 App 和本机数据保留由安装回执另记；debug 模型证据不替代它们。

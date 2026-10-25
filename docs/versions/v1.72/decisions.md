@@ -1273,3 +1273,23 @@ Rovai 自动扫描后重启。拒绝保留旧 HOME fallback、把摘要换名为
 新增 Command 专属池/缓存。MCP 同名优先交给原生行为，仅保留有实测依据的 cwd/字面量适配。
 冷恢复删除目录预检，直接向原生提交精确 ID；接受 1.88 可能静默打开空会话的代价，不额外承诺恢复证明。
 此决定替代 D27 中 Command 私有原生 MCP 文件路径，不改变 Cline，也不代表公开资格通过。
+
+<a id="v1-72-d60"></a>
+## V1.72-D60：Command Code 在 macOS 与 Windows 开放 Preview
+
+- 状态：accepted
+- 日期：2026-10-25
+- 确认：User 消息 17fcec4d-6c8b-4004-8450-f70af4e7b588（seq61）要求“mac两个端都开放”。
+- 补充确认：同日 Windows 会话要求“缺口你快速验证一下，验证完就开放”，并要求将 Windows 与上述 macOS 提交一同合入。
+- 当前权威：[Runtime Platform Admission v2](../../contracts/runtime-platform-admission-v2.md#8-command-code-macos-preview)、[Command Code ACP 边界](../../architecture/runtime-catalog-boundaries.md#command-code-acp-实施边界)。
+
+原生 HOME、官方 Mod/ACP、共享 Fleet 简化已合入；1.88 的 BYOK 与 MCP 原生实测具备使用依据，
+但现有记录不覆盖完整 Core/App、Intel 与子代理资格。选择已有 Preview 状态在 macOS arm64/x64
+允许正常发现、配置、检查和执行，保留缺失资格原因与空 evidenceRevision，不把开放请求当作完整验收证明。
+同日 Windows 真实 Core/MCP、配置更新与撤销、原生压缩、权限拒绝及强杀回收补验后，Windows x64 也采用
+Preview。保留原生 Windows MCP 路径／参数及拒绝后缺少最终回复的已知边界；不据此宣称完整资格。
+最低版本仍为 1.88.0 稳定版；Linux 继续 NotQualified，Cline 与 Cursor 继续暂缓公开。
+
+公开入口共用现有产品目录和 Core 平台准入，不增加 Renderer 平台白名单、专属检查、实验标签或启动分支。
+拒绝继续全平台隐藏 Command，也不凭单平台原生试验直接标为 qualified。此次只改变准入范围，不调整
+Bootstrap、Host/Session 生命周期或用户原生配置；后续完整资格仍须以实际平台证据确认。

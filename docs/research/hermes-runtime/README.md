@@ -1,10 +1,14 @@
 ---
 document_type: research-note
 authority: non-normative
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 ---
 
 # Hermes 接入与验证
+
+User sequence 54 的[原生中间件探索](middleware-feasibility-2026-10-25.md)已在未补丁 Hermes 中验证
+前后台终端的无权限变量注入，同时复现 Shell 快照残留和路径进入风险评估模型的现象。逐 Run 身份绑定
+尚未建立，因此未提供真实 CLI context、未宣称公开 Send 或授权轮换通过，生产接入保持不变。
 
 User sequence 50 的[客户端环境最小修复原型](client-env-feasibility-2026-10-24.md)已验证真实 Core 下两成员、
 原 Session 续轮与旧 lease 拒绝；关联上游 Issue #142671，PR #142008 仅作为启动注入与 snapshot 的参考。

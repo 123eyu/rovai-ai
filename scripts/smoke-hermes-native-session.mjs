@@ -1,5 +1,6 @@
 // Official, unpatched Hermes with one native Home and a pre-existing shared Gateway.
 // Usage: node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python>
+// Opt-in real model: append --real-model <second-model-id>; requires explicit model-use authorization.
 import assert from 'node:assert/strict'
 import {createServer} from 'node:http'
 import {spawn, spawnSync, execFileSync} from 'node:child_process'
@@ -13,6 +14,11 @@ import {createConfiguredCampAndSend, composerDocumentForAddress} from './lib/cre
 
 const [officialSource, python] = process.argv.slice(2)
 assert([officialSource, python].every(p => p && isAbsolute(p)))
+if (process.argv[4] === '--real-model') {
+  const {runRealModelProbe} = await import('./lib/hermes-real-model-probe.mjs')
+  await runRealModelProbe(officialSource, python, process.argv[5])
+  process.exit(0)
+}
 const repository = resolve(import.meta.dirname, '..')
 const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-hermes-native-session-')))
 const userHome = join(root, 'user'), nativeHome = join(userHome, '.hermes')

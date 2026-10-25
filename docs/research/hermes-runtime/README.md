@@ -11,15 +11,20 @@ CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增�
 原生版本 0.22.4，源码 `4d04303818b61bf3aa09278af48356315515965b`；macOS arm64 保持 Preview。
 当前合同见 [Hermes Runtime](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D65](../../versions/v1.72/decisions.md#v1-72-d65)。
 最新执行结果见 [实施记录](../../versions/v1.72/hermes-first-input-implementation.md)。
-本轮 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、
+此前 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、
 两次原生压缩、原 Session 冷恢复、MCP 部分失败/恢复、取消隔离及 Core 强杀不重放。
+最新 [真实模型验收](real-model-acceptance-2026-10-25.json)在生产 `37f017b68` 上通过 5 个 Run、
+18 次主任务请求：两成员 Send、精确原 Session 冷恢复、目录外真实模型切换、相同模型/模式省略设置，
+以及固定 Skills 菜单与显式文件使用。实际使用 `gpt-6.1-sol`、`gpt-5.6-sol`，没有伪造模型工具调用。
+初次夹具对 Provider ID 稳定性的错误假设，以及依赖检查误触发日常 bootstrap 准备，均在实施记录中保留。
 
 ## 交付与执行边界
 
 独立分支 `rovai/hermes-runtime`，PR [#878](https://github.com/murray17/rovai-ai/pull/878)。
-生产代码直接替换未上线实验，无旧 Home 导入/回退；未修改用户日常 Hermes 安装或日常 App 数据。
+生产代码直接替换未上线实验，无旧 Home 导入/回退；日常 App 数据不参与验收。
 验收使用同一测试用户 Home 下的原生 `.hermes`、预先启动的共享 Gateway、独立 Core data/Skill Library/MCP，
-未补丁官方源码，Provider 是本地受控端点，不能算真实付费模型或平台资格矩阵。
+未补丁官方源码。原生会话定位矩阵的 Provider 是本地受控端点，不能算真实付费模型或平台资格矩阵；
+真实模型分支与该矩阵分开记录。
 
 ## 官方路径的边界
 
@@ -54,7 +59,7 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 | Image | 图片 bytes 到达官方 Gateway 原生缓存，未被 controller 改写 | 本次模型识图不通过，不能从 ACP image=true 推定结果质量 |
 | Ready / Version / Platform | >=0.22.4、受管 revision/PID、官方能力探测；FirstPayload 与 signal-driven/best-effort，旧 Ready 升级刷新 | macOS arm64 Preview；其余平台 Not Qualified；无 system 保留保证 |
 
-## 图片与 Skills 的额外评估
+## 此前图片与 Skills 的额外评估（历史记录）
 
 四色 PNG 的原生缓存已目视确认与发送内容一致。默认 auto 模式走 Hermes vision 预解析，错误描述为单色
 magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `agent.image_input_mode: native` 后，主模型
@@ -71,6 +76,11 @@ magenta，主模型据此回答无法分辨四象限。隔离 config 显式设 `
 当前入口为 `node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python>`。
 使用一次性完整用户 Home，实际官方 ACP/Gateway 与同包 Core/CLI，记录原生逻辑标识、模型请求和发送归属。
 不连接日常用户 Gateway，不用修改上游或逐 Run wrapper 帮助成功。
+
+显式授权真实模型后可追加 `--real-model <second-model-id>`，使用当前原生配置的 Responses Provider。
+真实分支复用 Core 启动与用户命令入口；测试 relay 原样转发模型响应，测试 stdio observer 仅记录
+方法与模型/模式等元数据。它们不参与生产运行，不向模型提供 CLI 包装路径。具体隔离、记录与边界见
+[测试入口](../../development/testing.md#hermes-首次输入与历史证据)。
 
 旧 controller Python fixture 和私有 Home 的 wire/native/experience/first-input/core/failed-usage/auto-compression
 脚本随对应生产路径退役；Git 与已有 JSON/研究文档保留历史证据。旧官方入口对照脚本仍是历史探针。

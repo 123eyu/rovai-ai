@@ -206,6 +206,55 @@ Adapter owner 验证空菜单不合成模型、部分菜单保留和无 Session 
 本轮使用受控 ACP 进程和隔离文件 fixture；未新增真实官方 Hermes/付费模型流程、原生压缩或平台矩阵。
 用户日常 Hermes 配置与 App 未修改。此前隔离原生验收只保留为各自提交的历史证据。
 
+## 原生接入的真实模型验收（2026-10-25）
+
+User sequence 84 明确要求真实模型。生产 Core/CLI 构建于 `37f017b68`，官方 Hermes 0.22.4 源码
+`4d04303818b61bf3aa09278af48356315515965b` 不打补丁。复用原生会话 smoke 的显式真实模型分支，
+在一次性用户 Home、独立 Core data、Skill Library、MCP 配置和非 Git 项目运行；先启动测试用户的
+共享 Gateway，再启动 Core。日常 Gateway 和 App 不参与。
+
+沿当前配置使用 Sub2API Responses 服务，测试 relay 只转发真实请求/响应；凭据不落盘、不写日志。
+测试用 ACP stdio observer 原样转发字节，只记录方法、Session 和模型/模式元数据，帮助区分真正省略
+设置与空 ACK；没有生产控制器、Hook、插件或模型可见的 CLI 包装路径。该 observer 会增加一个测试
+进程，因此本轮不用于测量生产进程数或启动性能。
+
+### 首轮发现与边界
+
+`rovai-hermes-real-model-RRSFv4` 中 A0、B0、A1 三个真实 Run 均成功并完成文件操作和公开 Send，
+但 A1 的“零设置 RPC”断言失败：new 返回 `custom:sub2api:gpt-6.1-sol`，首次生成后 resume 返回
+`custom:gpt-6.1-sol`。完整 ID 不相同，生产代码按合同发送 `session/set_model`，行为正确。
+不能据此承诺相同底层模型总能省略设置；没有通过去 Provider 前缀或别名归一化修复这条断言。
+后续 fixture 按实际观察到的完整原生值选择当前行，命名 Provider 仍用完整命名路由切换不同模型。
+这是测试前提校正，没有修改生产比较逻辑，也没有重放原 Session 的旧输入。
+
+### 最终一组结果
+
+`rovai-hermes-real-model-BhSkZF`：**5 Run succeeded**，真实 `gpt-6.1-sol` / `gpt-5.6-sol`。
+18 次主任务模型请求均 HTTP 200 且收到 completed，响应模型与请求模型一致；另有 2 次原生辅助请求。
+这不是 Core 本轮费用或 Usage 完整入账的证据。结构化摘要见
+[真实模型验收记录](../../research/hermes-runtime/real-model-acceptance-2026-10-25.json)。
+
+| 场景 | 结果 |
+| --- | --- |
+| A0/B0 两成员并发 | 真实 read_file/write_file/terminal，独立原生 Session，公开 Send 精确归入各自 Run |
+| A0 显式选择项目共享 Skill | 菜单四目录与预览成立；原生项目发现关闭且该 Skill 禁用，仍按精确文件引用读到验证内容并实际使用 |
+| Core 重启后的 A1 | 原 Session ID 不变；显式选择原生完整当前 ID，模型/模式设置 RPC 均为 0；只发 P |
+| A2 目录外模型与模式变化 | 发送完整命名路由的 set_model 和 set_mode 各一次；真实请求及响应均为 gpt-5.6-sol，无默认回退 |
+| A3 同模型同模式续轮 | 原 Session 继续，两个设置 RPC 均为 0；只发 P |
+| 结束与配置 | 5 个 Run 各一条精确公开 Send，无重复；Core 退出后测试共享 Gateway 仍存活，最后由 fixture 清理；配置摘要不变 |
+
+真实分支退出 0；另以只读数据库复核唯一 Send，并把该断言加入可复现脚本。Node 语法检查与
+whitespace 通过，文档单测 **10 passed**，当前及 diff-aware 文档门禁通过。生产 Rust/Renderer 未再修改，沿用上一节在同一生产提交上
+的全工作区与定向回归，不重复计数。本轮没有新增真实模型压缩、取消、MCP、图片或平台矩阵。
+
+### 环境准备记录
+
+在正式隔离启动前，检查已有解释器时误在日常 Home 导入官方 bootstrap，触发一次原生依赖准备；
+该次检查最终仍报 `ModuleNotFoundError: yaml`。没有启动日常会话或 Gateway。源码工作区保持干净，
+`config.yaml`、`.env`、`install-stamp.json` 的修改时间仍分别为 10 月 23/23/22 日；依赖准备造成的
+安装缓存变化没有逐文件审计，不能声称本轮完全未触碰日常安装。后续所有启动使用隔离 Home 和源码
+副本；测试说明已明确依赖探针也必须隔离。日常配置在真实验收前后按字节摘要核对。
+
 ## 历史 R1 实施
 
 按当时 R1 和 User sequence 31 实施。

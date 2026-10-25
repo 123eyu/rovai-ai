@@ -1724,6 +1724,22 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 原生请求与生产 Core 的边界由 `scripts/smoke-hermes-native-session.mjs` 拥有，使用隔离测试用户 Home；
 合成 usage 只用于触发官方压缩，不作为实际账单或模型效果证明。
 
+User 明确授权真实模型后，同一入口追加 `--real-model <第二个模型 ID>`：
+
+```sh
+node scripts/smoke-hermes-native-session.mjs /absolute/official-source /absolute/prepared-python --real-model <second-model-id>
+```
+
+真实分支读取当前原生配置中的默认模型及 Responses Provider，使用一次性用户 Home、独立 Core data、
+Skill Library、MCP 文件和未修改的源码副本。测试 relay 原样转发真实模型响应，凭据只留在测试进程内，
+不复制到 fixture；不生成工具调用或伪造模型回复。测试用 stdio observer 只记录 ACP 方法、Session、
+模型/模式等白名单元数据，不改变消息。它不是生产代理、插件或 CLI wrapper。
+两成员真实工具与 Send、原 Session 冷恢复、同值省略设置、目录外显式模型切换和固定 Skills 文件选择
+使用生产 Core 入口验收。报告区分请求模型、原生设置、落盘文件与公开 Send 回执，不靠模型自报身份。
+该分支不重跑压缩、取消、MCP 或平台矩阵；它不能替代默认受控分支的相应证据。
+启动解释器也可能触发官方 bootstrap 的依赖准备，必须在已明确隔离的 Home/源码副本中执行，
+不要为了检查依赖在日常 Home 导入 bootstrap。
+
 ## Command Code 1.88 简化测试归属（2026-10-24）
 
 退役 `native_configuration_tracks_scoped_mod_sources_without_hashing_history`：其唯一生产路径（配置扫描、

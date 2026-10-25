@@ -563,5 +563,220 @@
       "newProductionFiles": 0,
       "qualificationChanged": false
     }
+  },
+  "followupSub2apiRealMcp": {
+    "repositoryCommit": "e1e667905ef558e4d8d6e3e67ab5eeba496041b5",
+    "commandVersion": "1.88.0",
+    "cliSha256": "600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd",
+    "model": "sub2api/gpt-6-sol",
+    "scope": "Real native official ACP + current Mod and stdio argv delivery; not an App or production AgentRun qualification",
+    "phases": [
+      {
+        "label": "first-direct",
+        "sessionId": "238b1212-7ea9-4a1d-af0d-df4868f8fbd9",
+        "pid": 46909,
+        "stopReason": "end_turn",
+        "targetServer": "direct_cwd",
+        "actualCalls": 1,
+        "receipt": "RCP_c6150018-e981-42fc-ae89-34e5568b63e8",
+        "returnedReceipt": true,
+        "receiptInSubsequentModelInput": true,
+        "providerRequests": 3,
+        "providerResponses": 3,
+        "allForegroundHttp200": true,
+        "bootstrapExactlyOnce": true,
+        "passed": true,
+        "codemodeTargetCalls": [
+          {
+            "id": "call_64f4407f99be4977a2be6e25bfa1b38a",
+            "name": "codemode",
+            "argumentsSha256": "5473bba2b87bed000a743c3374c58fee30feec53b07b36fba4956c21103debbb",
+            "matchedAcpCompletedReceipt": true
+          }
+        ]
+      },
+      {
+        "label": "warm-custom",
+        "sessionId": "238b1212-7ea9-4a1d-af0d-df4868f8fbd9",
+        "pid": 46909,
+        "stopReason": "end_turn",
+        "targetServer": "custom_cwd",
+        "actualCalls": 1,
+        "receipt": "RCP_a8ebe514-4228-41b3-a738-506ab109cca3",
+        "returnedReceipt": true,
+        "receiptInSubsequentModelInput": true,
+        "providerRequests": 3,
+        "providerResponses": 3,
+        "allForegroundHttp200": true,
+        "bootstrapExactlyOnce": true,
+        "passed": true,
+        "codemodeTargetCalls": [
+          {
+            "id": "call_edef87e5294a4b198354df2f49ef3bd0",
+            "name": "codemode",
+            "argumentsSha256": "981a57583206bb9cb81549040670b25c9fee9f44acd4de494312dae3d3f7703c",
+            "matchedAcpCompletedReceipt": true
+          }
+        ]
+      },
+      {
+        "label": "warm-http",
+        "sessionId": "238b1212-7ea9-4a1d-af0d-df4868f8fbd9",
+        "pid": 46909,
+        "stopReason": "end_turn",
+        "targetServer": "http_cwd",
+        "actualCalls": 1,
+        "receipt": "RCP_8c62905d-380c-4fdc-968e-95c723aad98a",
+        "returnedReceipt": true,
+        "receiptInSubsequentModelInput": true,
+        "providerRequests": 3,
+        "providerResponses": 3,
+        "allForegroundHttp200": true,
+        "bootstrapExactlyOnce": true,
+        "passed": true,
+        "codemodeTargetCalls": [
+          {
+            "id": "call_004afbe106db4c1db0a8c48ca72fdecd",
+            "name": "codemode",
+            "argumentsSha256": "8a47e30604539d25067c4b66b4187e3da562613b88dcaa06c366df72e4df91c2",
+            "matchedAcpCompletedReceipt": true
+          }
+        ]
+      },
+      {
+        "label": "cold-direct-recall",
+        "sessionId": "238b1212-7ea9-4a1d-af0d-df4868f8fbd9",
+        "pid": 47404,
+        "stopReason": "end_turn",
+        "targetServer": "direct_cwd",
+        "actualCalls": 1,
+        "receipt": "RCP_9627881e-0a52-4c48-ae0b-c109123be75b",
+        "returnedReceipt": true,
+        "receiptInSubsequentModelInput": true,
+        "providerRequests": 2,
+        "providerResponses": 2,
+        "allForegroundHttp200": true,
+        "bootstrapExactlyOnce": true,
+        "originalReceiptRecalled": true,
+        "passed": true,
+        "codemodeTargetCalls": [
+          {
+            "id": "call_7672e930706e4a80a3281088313cff1e",
+            "name": "codemode",
+            "argumentsSha256": "18dcf79efd6d75208383403e717db2e55b74ea888575868c3c36975ce64bd1fd",
+            "matchedAcpCompletedReceipt": true
+          }
+        ]
+      }
+    ],
+    "explicitByokModelSelected": true,
+    "coldModelPreserved": true,
+    "stdioStartChecks": [
+      {
+        "case": "direct_cwd",
+        "pid": 47062,
+        "ppid": 46909,
+        "cwdMatched": true,
+        "argsMatched": true,
+        "literalMatched": true,
+        "directParentIsNative": true
+      },
+      {
+        "case": "custom_cwd",
+        "pid": 47085,
+        "ppid": 47082,
+        "cwdMatched": true,
+        "argsMatched": true,
+        "literalMatched": true,
+        "directParentIsNative": false
+      },
+      {
+        "case": "direct_cwd",
+        "pid": 47422,
+        "ppid": 47404,
+        "cwdMatched": true,
+        "argsMatched": true,
+        "literalMatched": true,
+        "directParentIsNative": true
+      },
+      {
+        "case": "custom_cwd",
+        "pid": 47443,
+        "ppid": 47442,
+        "cwdMatched": true,
+        "argsMatched": true,
+        "literalMatched": true,
+        "directParentIsNative": false
+      }
+    ],
+    "httpLiteralPreserved": true,
+    "passed": true,
+    "remainingPids": [],
+    "ownedPids": [
+      46909,
+      47404,
+      47062,
+      47085,
+      47082,
+      47422,
+      47443,
+      47442
+    ],
+    "auxiliaryRequests": 1,
+    "abortedRequests": [],
+    "productionCodeModified": false,
+    "date": "2026-10-25",
+    "platform": "macOS arm64",
+    "foregroundProviderRequests": 11,
+    "auxiliaryProviderRequests": 1,
+    "allProviderHttp200": true,
+    "probeSourceSha256": "df33cc71fd50a5779087772a70486b5579e02c8fb99aa3d66ed57a2f289f9ebf",
+    "observerSource": "docs/research/command-code-runtime/fixtures/mcp_delivery_observer.mjs",
+    "observerSourceSha256": "6e38f931899cb98fc721761871b0d84cc89a713ef060b38b1a397486b6b25964",
+    "method": "Unmodified official 1.88 + current production Mod; same-cwd original command/args and different-cwd production argv wrapper; loopback relay forwards original provider bytes to configured native sub2api; receipt generated only after actual MCP tools/call",
+    "isolation": {
+      "nativeProviderSource": "Command Code own sub2api configuration",
+      "nativeAuthentication": "Existing native credential supplied in isolated child environment; no new login or account bypass tested",
+      "providerSecretDelivery": "Resolved in local memory and passed by child env reference; no credential/endpoint/full prompt/history in evidence",
+      "dailyAppAndCliUnchanged": true,
+      "dailyNativeHistoryUnchanged": true,
+      "fixtureRemoved": true
+    },
+    "cleanup": "Closed CLI stdin, terminated fixture process groups, verified all 8 recorded native/stdio/wrapper PIDs absent, then removed owned fixture",
+    "observationNote": "ACP sparse tool updates are correlated by exact native tool ID, Session ID, completed status and receipt; search_tools is excluded from codemodeTargetCalls",
+    "notVerified": [
+      "Full App/Core restart",
+      "Permission deny/cancel matrix",
+      "Native questionnaires",
+      "Skills update/revoke matrix",
+      "Manual/threshold/overflow compaction",
+      "Usage/cost reconciliation",
+      "Windows/Linux qualification",
+      "CPU/memory performance"
+    ],
+    "productionChanges": 0,
+    "qualificationChanged": false,
+    "bootstrapSource": "Fixed synthetic acceptance text delivered by unchanged production Mod; full product Context formatter is outside this native probe",
+    "repositoryValidation": {
+      "rustWorkspaceInitial": {
+        "corePassed": 429,
+        "coreFailed": 2,
+        "coreIgnored": 1,
+        "failures": [
+          "runtime_platform_admission::tests::platform_evidence_revisions_bind_their_frozen_source_bytes",
+          "runtime_discovery::tests::cursor_agent_alias_rejects_an_unrelated_agent_binary"
+        ]
+      },
+      "evidenceRevisionResolution": "Reverted this follow-up edit of runtime-compatibility.md; retained existing qualification bytes/revision and recorded new native results only in existing v1.72 report/evidence. Same workspace configuration rebuilt; affected owner passed.",
+      "cursorResolution": "Existing runtime_probe_timed_out under suite; isolated rerun in same workspace test binary passed in 0.30 seconds. No Cursor code/timeout change; owned failed fixture removed.",
+      "remainingWorkspaceTargetsPassed": 46,
+      "docTestsPassed": true,
+      "documentationTestsPassed": 10,
+      "documentationGatesPassed": true,
+      "rustFormatPassed": true,
+      "newRepositoryFiles": 0,
+      "newRustTestOwners": 0,
+      "fullWorkspaceGreenClaimed": false
+    }
   }
 }

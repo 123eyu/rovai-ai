@@ -9,10 +9,15 @@ confirmed_revision: 5
 confirmed_at: 2026-10-05
 authority: model-input-change-statement
 implementation_status: implemented
-last_updated: 2026-10-05
+last_updated: 2026-10-25
 ---
 
 # Command Code 官方 ACP：System Bootstrap revision 5
+
+本页保留 2026-10-05 已确认的前/后输入快照。当前 Host 文件、预算与恢复实现已由
+[Runtime Launch v72](../../contracts/runtime-launch-and-verification-v72.md)收敛；
+下文初次确认时的物理细节不作为新旧 Bootstrap 比较、256 KiB 外层限制或配置 fence 的当前要求。
+最新实施与能力对照见[当前简化记录](command-code-native-simplification.md#按接入-checklist-对照其余方案2026-10-25)。
 
 User 已明确要求修复 System Bootstrap、warm，并继续完成所有可接能力；本次按此授权实施，不重复询问。
 [revision 4](model-context-change-command-code.md)保留旧 headless 的输入快照。本 revision 只改变 Command
@@ -72,7 +77,7 @@ Node 子进程验证 A/B/A、缺失、非法 ID、错摘要、空值和超预算
 exact cold、实际手动压缩和自动 summarized 后均保留各自 System 身份与早期记忆；隔离 App 经过共享 Core
 首次/warm/重启与 CLI 发送亦通过。短会话的 Nothing to compact 不算压缩成功；overflow/retry 未据此冒领。
 该输入交付变更已实现，不代表完整 First-Class。依据与剩余矩阵见
-[最新 Checklist](../../research/runtime-monitoring/command-cline-checklist-2026-10-05.md)。
+[当时的 Checklist](../../research/runtime-monitoring/command-cline-checklist-2026-10-05.md)。
 
 ## 二次确认
 

@@ -85,8 +85,9 @@ revision/局部 nonce/PID 并删除 ready 文件。缺失或损坏 binding 在�
 大小预算只作用于正文，不因 JSON 转义增长而拒绝有效内容。状态检查与其他 ACP 共用错误分类和脱敏，
 不将认证、协议或网络错误统一改写成 provider 配置提示。
 
-分配 MCP 经 `session/new|load|resume.mcpServers`，原生同名配置由 CLI 自动优先。cwd 仅用现有 argv
-launcher，env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm 不运行额外 CLI。
+分配 MCP 经 `session/new|load|resume.mcpServers`，原生同名配置由 CLI 自动优先。1.88 原生 stdio 使用
+Session cwd；默认／相同目录直接传 command/args，只有不同 cwd 使用现有 argv launcher，不额外扫描目录。
+env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm 不运行额外 CLI。
 1.88 仍会静默接受不存在的恢复 ID，因此冷恢复保留官方目录的精确 ID/cwd 检查，认证/网络错误不冒充缺失。
 显式模型来自真实 ACP 目录，ID（含 provider 前缀及碰撞别名）原样传递；不使用 `acp --model`。
 

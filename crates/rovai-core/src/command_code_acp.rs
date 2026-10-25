@@ -122,8 +122,13 @@ pub fn verify_ready(root: &Path, nonce: &str, expected_pid: u32) -> Result<()> {
 
 /// 1.88 applies native placeholder expansion even to ACP env/header pairs.
 /// Escape once at this wire boundary so the server receives the resolved value;
-/// native file serialization is not involved. ACP stdio also needs argv for cwd.
-pub(crate) fn adapt_mcp_server(server: &mut Value, definition: &crate::mcp::McpServerDefinition) {
+/// native file serialization is not involved. Native ACP connects stdio servers
+/// from the Session cwd; only a different cwd needs the argv launcher.
+pub(crate) fn adapt_mcp_server(
+    server: &mut Value,
+    definition: &crate::mcp::McpServerDefinition,
+    session_cwd: &Path,
+) {
     for field in ["env", "headers"] {
         if let Some(pairs) = server.get_mut(field).and_then(Value::as_array_mut) {
             for pair in pairs {
@@ -139,6 +144,7 @@ pub(crate) fn adapt_mcp_server(server: &mut Value, definition: &crate::mcp::McpS
         cwd: Some(cwd),
         ..
     } = definition
+        && !crate::git::persisted_workspace_path_matches_canonical(Path::new(cwd), session_cwd)
     {
         server["command"] = json!("node");
         server["args"] = json!(
@@ -210,6 +216,55 @@ pub fn supported_version(version: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Pure wire owner: the native cwd receipt is a separate opt-in acceptance.
+    #[test]
+    fn mcp_wire_uses_session_cwd_without_a_launcher_and_preserves_literals() {
+        use crate::mcp::McpServerDefinition;
+        use std::collections::BTreeMap;
+
+        let session_cwd = Path::new("/project space");
+        let command = "/tools/server space";
+        let args = vec![
+            "two words".to_owned(),
+            "$() `literal`".to_owned(),
+            String::new(),
+        ];
+        for cwd in [None, Some("/project space"), Some("/other space")] {
+            let definition = McpServerDefinition::Stdio {
+                command: command.into(),
+                args: args.clone(),
+                cwd: cwd.map(str::to_owned),
+                env: BTreeMap::new(),
+            };
+            let mut server = json!({"name":"docs", "command":command, "args":args,
+                "env":[{"name":"LITERAL", "value":"$${literal} \\ '"}]});
+            adapt_mcp_server(&mut server, &definition, session_cwd);
+            assert_eq!(server["env"][0]["value"], "$$${literal} \\ '");
+            if cwd == Some("/other space") {
+                assert_eq!(server["command"], "node");
+                let argv = server["args"].as_array().unwrap();
+                assert_eq!(argv[0], "--eval");
+                assert_eq!(argv[1], include_str!("command_code/mcp-cwd.cjs"));
+                assert_eq!(argv[2], "--");
+                assert_eq!(argv[3], "/other space");
+                assert_eq!(argv[4], command);
+                assert_eq!(&argv[5..], json!(args).as_array().unwrap());
+            } else {
+                assert_eq!(server["command"], command);
+                assert_eq!(server["args"], json!(args));
+            }
+        }
+        let definition = McpServerDefinition::StreamableHttp {
+            url: "https://example.test/mcp".into(),
+            headers: BTreeMap::new(),
+        };
+        let mut server = json!({"name":"remote", "type":"http", "url":"https://example.test/mcp",
+            "headers":[{"name":"X-Literal", "value":"$${literal}"}]});
+        adapt_mcp_server(&mut server, &definition, session_cwd);
+        assert_eq!(server["headers"][0]["value"], "$$${literal}");
+        assert!(server.get("command").is_none());
+    }
 
     #[test]
     fn version_gate_accepts_native_release_labels() {

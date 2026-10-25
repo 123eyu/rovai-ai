@@ -1748,3 +1748,14 @@ MCP dispatcher/import owner 覆盖保留成员不退役、关闭 Server 的修�
 owner，HOME/binding fixture 不拥有该独立边界。该测试不创建文件或进程，同时保留低版本/预发布/无版本拒绝。
 最小命令为 `cargo test -p rovai-core --features slow-tests --lib version_gate_accepts_native_release_labels`；
 其余定向命令复用同一入口并过滤上述既有 owner。Rust 测试函数净增 1，无测试文件新增或已有 owner 退役。
+
+stdio 资源跟进新增纯函数 owner
+`command_code_acp::tests::mcp_wire_uses_session_cwd_without_a_launcher_and_preserves_literals`：修复前共享投影
+补全的默认 cwd 会触发多余 Node launcher；同目录应保持原 command/args，不同目录继续保留参数式包装。
+该 owner 同时保留 env/header 的单次 wire 转义和含空格／空参数／shell 字面值。现有 HOME/binding 与版本
+owner 不经过 MCP wire，`runtime_mcp` 的原生文件 owner 也不拥有 Command ACP 适配，故不能用它们替代。
+测试不创建文件、进程或数据库；最小命令为
+`cargo test -p rovai-core --lib mcp_wire_uses_session_cwd_without_a_launcher_and_preserves_literals`。
+真实 cwd 与进程父子关系由隔离官方 1.88 控制探针验证：CLI 初始 cwd 与 Session cwd 不同，分别执行
+`session/new` 和同 ID 的 `session/load`，检查 MCP `tools/list` 回执及停止后回收；这不替代历史恢复、
+真实模型工具调用或 Windows/Linux 资格。证据追加到已有 Command JSON，不新增测试文件或常驻验收服务。

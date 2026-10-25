@@ -5023,7 +5023,11 @@ impl AcpRuntime {
                 .map(|(name, definition)| {
                     let mut server = external_acp_server(name, definition);
                     if self.host.adapter_kind == AdapterKind::CommandCodeCli {
-                        crate::command_code_acp::adapt_mcp_server(&mut server, definition);
+                        crate::command_code_acp::adapt_mcp_server(
+                            &mut server,
+                            definition,
+                            &self.execution_root,
+                        );
                     }
                     server
                 })

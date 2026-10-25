@@ -355,5 +355,213 @@
     "newRustTestOwners": 1,
     "realModelAndMcpRerun": false,
     "qualificationChanged": false
+  },
+  "followupStdioCwdControl": {
+    "date": "2026-10-25",
+    "reviewBaseCommit": "942219d366510aa1cd55c31b7671e43580ff0448",
+    "officialNpmPackage": "command-code@1.88.0",
+    "officialCliSha256": "600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd",
+    "platform": "macOS arm64",
+    "scope": "Native ACP session/new and session/load stdio launch/discovery/cwd/argv/env/process ownership controls; no model prompt or tools/call",
+    "productionChange": "Pass existing Session cwd to wire adapter; retain original command/args for equal cwd using existing shared path comparison; retain existing argv wrapper for different cwd",
+    "initialHarnessFailure": {
+      "failure": "cwd/argv/env mismatch: direct",
+      "nativePid": 38464,
+      "cause": "JavaScript replacement string $$ was interpreted by replaceAll, so the harness under-escaped env. Production Rust escaping was unchanged.",
+      "correction": "Use a replacement callback to return literal $${ at the same single wire boundary",
+      "expectedLiteral": "$${literal} \\ ' quote",
+      "mcpReceipts": [
+        {
+          "case": "direct",
+          "method": "tools/list",
+          "cwd": "<fixture>/session space",
+          "pid": 38482,
+          "ppid": 38464,
+          "args": [
+            "space value",
+            "quote'\"",
+            "$() `literal`",
+            "",
+            "中文"
+          ],
+          "literal": "${literal} \\ ' quote"
+        },
+        {
+          "case": "custom",
+          "method": "tools/list",
+          "cwd": "<fixture>/custom space",
+          "pid": 38487,
+          "ppid": 38483,
+          "args": [
+            "space value",
+            "quote'\"",
+            "$() `literal`",
+            "",
+            "中文"
+          ],
+          "literal": "${literal} \\ ' quote"
+        }
+      ],
+      "promptRpcCalls": 0,
+      "allRecordedPidsGoneBeforeFixtureRemoval": true
+    },
+    "cases": [
+      {
+        "method": "session/new",
+        "sessionId": "b75ba29c-35d3-4e6c-9f26-50c5d3554676",
+        "nativePid": 38662,
+        "hostCwd": "<fixture>/attempt-2/host space",
+        "sessionCwd": "<fixture>/attempt-2/session space",
+        "readyPidAndNonceMatched": true,
+        "mcpReceipts": [
+          {
+            "case": "direct",
+            "method": "tools/list",
+            "cwd": "<fixture>/attempt-2/session space",
+            "pid": 38667,
+            "ppid": 38662,
+            "args": [
+              "space value",
+              "quote'\"",
+              "$() `literal`",
+              "",
+              "中文"
+            ],
+            "literal": "$${literal} \\ ' quote",
+            "expectedCwd": "<fixture>/attempt-2/session space",
+            "directParentIsNative": true
+          },
+          {
+            "case": "custom",
+            "method": "tools/list",
+            "cwd": "<fixture>/attempt-2/custom space",
+            "pid": 38669,
+            "ppid": 38668,
+            "args": [
+              "space value",
+              "quote'\"",
+              "$() `literal`",
+              "",
+              "中文"
+            ],
+            "literal": "$${literal} \\ ' quote",
+            "expectedCwd": "<fixture>/attempt-2/custom space",
+            "directParentIsNative": false
+          }
+        ],
+        "customWrapperParentIsNative": true,
+        "exitedOnEof": true,
+        "cleanup": "Close stdin, wait for native exit, terminate fixture process group, verify all recorded PIDs gone",
+        "neededSigkill": [],
+        "remainingPids": [],
+        "promptRpcCalls": 0,
+        "toolsCallRequests": 0
+      },
+      {
+        "method": "session/load",
+        "sessionId": "b75ba29c-35d3-4e6c-9f26-50c5d3554676",
+        "nativePid": 39290,
+        "hostCwd": "<fixture>/attempt-2/host space",
+        "sessionCwd": "<fixture>/attempt-2/session space",
+        "readyPidAndNonceMatched": true,
+        "mcpReceipts": [
+          {
+            "case": "direct",
+            "method": "tools/list",
+            "cwd": "<fixture>/attempt-2/session space",
+            "pid": 39299,
+            "ppid": 39290,
+            "args": [
+              "space value",
+              "quote'\"",
+              "$() `literal`",
+              "",
+              "中文"
+            ],
+            "literal": "$${literal} \\ ' quote",
+            "expectedCwd": "<fixture>/attempt-2/session space",
+            "directParentIsNative": true
+          },
+          {
+            "case": "custom",
+            "method": "tools/list",
+            "cwd": "<fixture>/attempt-2/custom space",
+            "pid": 39301,
+            "ppid": 39300,
+            "args": [
+              "space value",
+              "quote'\"",
+              "$() `literal`",
+              "",
+              "中文"
+            ],
+            "literal": "$${literal} \\ ' quote",
+            "expectedCwd": "<fixture>/attempt-2/custom space",
+            "directParentIsNative": false
+          }
+        ],
+        "customWrapperParentIsNative": true,
+        "exitedOnEof": true,
+        "cleanup": "Close stdin, wait for native exit, terminate fixture process group, verify all recorded PIDs gone",
+        "neededSigkill": [],
+        "remainingPids": [],
+        "promptRpcCalls": 0,
+        "toolsCallRequests": 0
+      }
+    ],
+    "processReduction": "One fewer resident Node launcher per actually started Rovai stdio server whose effective cwd equals Session cwd; custom-cwd wrapper remains",
+    "performanceMeasured": false,
+    "windowsLinuxQualified": false,
+    "historicalContentContinuityRetested": false,
+    "nativeCodeObservation": "1.88 bindAgentSession changes process cwd to the Session cwd before connectEditorMcpServers; stdio constructor receives command/args/env",
+    "isolation": {
+      "dailyAppAndCliUnchanged": true,
+      "dailyNativeHistoryUnchanged": true,
+      "credentialDelivery": "Read existing native credential locally and pass in child environment only; no secret in exported evidence",
+      "fixtureOwnedPidsVerifiedAbsent": [
+        38464,
+        38482,
+        38483,
+        38487,
+        38662,
+        38667,
+        38668,
+        38669,
+        39290,
+        39299,
+        39300,
+        39301
+      ],
+      "fixtureRemoved": true
+    },
+    "validation": {
+      "pureWireOwner": "mcp_wire_uses_session_cwd_without_a_launcher_and_preserves_literals",
+      "cargoCheckWorkspace": "passed",
+      "pureWireOwnerPassed": true,
+      "defaultWorkspace": {
+        "core": {
+          "passed": 431,
+          "failed": 0,
+          "ignored": 1
+        },
+        "remainingTargets": {
+          "passed": 46,
+          "failed": 0,
+          "ignored": 0
+        },
+        "docTests": "passed",
+        "previouslyFlakyCursorCase": "passed in the complete suite; implementation and timeout unchanged"
+      },
+      "formatCheck": "passed",
+      "documentationTests": {
+        "passed": 10,
+        "failed": 0
+      },
+      "documentationGates": "passed including diff-aware base check",
+      "newRustTestOwners": 1,
+      "newRepositoryFiles": 0,
+      "newProductionFiles": 0,
+      "qualificationChanged": false
+    }
   }
 }

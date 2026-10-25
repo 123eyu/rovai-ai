@@ -80,24 +80,62 @@ User 后续清单引用 `ce140e684`；以下核对的是已推送的 `abf8f4cdc`
 若要求“下一轮 warm 也必定使用新指令”，需要另行确定投递规则；不能用隐式重启、摘要或跨 Host 冻结管理器代替该决定。
 以上是现有调用链核对，不是新增的真实模型验收。
 
-## 与其他 Runtime 对照
+## 与其他 Runtime 的资源与复杂度对照（2026-10-25）
 
-| 边界 | Command 本轮结果 | 已有 Runtime 的职责 |
-| --- | --- | --- |
-| 原生 HOME | 用户 HOME；不镜像或代管历史 | 与 Codex 原生 Home 原则一致 |
-| MCP | 新建/恢复的 ACP mcpServers，原生处理同名 | 与共享 ACP 直接投递路径一致；Cline 的原生配置路径独立保留 |
-| Bootstrap | 每 Host 小 Mod + 每 Session 不可变 binding | 与 Cline/MiniMax 启动文件不同，Command 必须按实际 Session ID 选 B |
-| Host 复用 | 所属身份 + cwd + 存活/健康/租约 | 仍由同一 Fleet 管理；其他 Runtime 的配置摘要策略不变 |
-| 恢复预检 | 仅完整原生目录确认精确 ID/cwd | 1.88 静默接受缺失 ID，因此该差异仍有真实依据 |
-| stdio cwd | 现有 argv 包装，不生成脚本 | ACP stdio 无 cwd 字段带来的必要适配 |
-| env/header | 一次 wire 转义，服务器得到原解析值 | 1.88 在 ACP 后仍做变量展开，不能当作通用 ACP 行为推广 |
-| 编辑工具事件 | 保留 matched-fragment 到 reported mutation 的窄转换 | 与其他 Runtime 的事件归一化职责相同；原生 old/new 字符串不能误报为整文件 diff |
+本次基于 `942219d36` 再检查生产调用链，随后只修改 stdio wire 的目录分支。比较重点是额外常驻进程、
+每轮重复工作、磁盘开销、后台任务与锁；其他 Runtime 也存在某个步骤，不能单独作为保留依据。
 
-Command 专属模块净减少 398 行，额外删除 health 中 44 行名称探测/解析。仍保留的恢复确认、Mod binding、
-wire 适配和编辑事件转换都有原生协议差异依据；没有把它们扩展成生命周期管理层。
+| 关注点 | Command 当前行为／成本 | 其他 Runtime 对照 | 处理结论 |
+| --- | --- | --- | --- |
+| 默认目录 stdio MCP | 修复前所有投影的 stdio 都多一个常驻 Node，因为共享投影将缺省 cwd 补为 execution_root。本次相同 Session cwd 直接传原命令。 | Codex 的 Session MCP 配置直接携带 cwd；Cline 用原生配置字段，不由 Rovai 为每个 stdio 加 Node。 | **已减量**：每个实际启动的默认目录 stdio 少一个包装进程；HTTP 原本没有。 |
+| 不同目录 stdio MCP | ACP 无 cwd 字段，仍保留 `node --eval` spawn 包装；该 Node 与子进程同时存活。 | ZCode 也按 cwd 包装；Unix 使用 shell `exec` 替换进程，Windows 使用 Node。Pi 未支持外部分配 MCP，不能把其零 MCP 开销当等价实现。 | 保留现有必要适配；不引入 Shell 拼接、缓存或守护进程。 |
+| 原生配置与 HOME | 沿用用户 HOME；不扫描/复制 auth、settings、Mods 或原生 MCP。 | Codex 同样使用原生 HOME；部分 ACP 的私有配置文件来自各自协议需求。 | 无可删除的 Command 配置镜像；不为对齐其他 Runtime 增加文件。 |
+| Run 级 MCP 投影 | 仍走共享 prepare：读取冻结投影，必要时生成 `runtime/mcp/.../canonical.json`、同步并重新读取校验。 | 所有消费共享投影的 Adapter 均承担该成本，不取决于最终交给原生的是文件还是 ACP 参数。 | 有 I/O，但不是 Command 私有原生配置副本。本 PR 不改，也不增加内存模式旁路。 |
+| 新 Host 的 Bootstrap | 一个 Mod；一次 ready 写入、校验、删除；Session 首次绑定原子写一个正文文件。 | Cline 用原生 System Rule；Pi 用受管扩展和 binding。物理交付渠道不同。 | 保留现有文件布局和握手，不建立共享资源缓存。 |
+| warm Bootstrap | Rust 检查 binding 是否存在后返回；原生每次调用 System hook 仍读 JSON、检查正文与 SHA。 | Pi 的 `before_agent_start` 同样读取并校验 binding。Codex 等走原生 Session 输入接口，不等于可以直接替代 Command Mod。 | 有文件读取与正文计算；没有证据证明是瓶颈，不加缓存/失效标记。SHA 不参与恢复或 Host 选择。 |
+| warm 启动准备 | Fleet 复用成功时，不执行 cold callback 中的入口验证、环境解析、Built-in 进程上下文创建及 spawn。 | 继续使用共享 acquire/spawn 边界；其他 Runtime 保持原兼容策略。 | 未发现仍可直接删除的 Command 冷启动重复工作。 |
+| 进程池与锁 | 使用共享 Fleet 和 ACP 的 stdin/pending/Session 状态；Run map 锁只做对象取放。 | Cline、Kimi 等使用相同 Host；DSH 另有原生 Session 锁对应的旧 Host 退役等待，Command 没有该分支。 | 无 Command 专属池、账号锁或新锁；不改 pending 的终态/退出顺序。 |
+| 启动失败清理任务 | 未交接 child 的 owner Drop 启动一次停止、reap、进程树确认任务；无法确认则留材料诊断。 | 来自共享 `PreparedAcpProcess`，不是 Command 常驻任务。 | 保留；删除会留下取消/构造失败的资源所有权空档。 |
+| 原生用量观察 | Command 不启用 `NativeUsageReader` 日志尾读路径。 | Kimi、Qoder、Codebuddy、MiniMax、TRAE 等按原生数据源启用；Cline 有自己的观察来源。 | 没有可删的 Command 用量轮询；不能误报为每个 ACP 都有后台日志扫描。 |
+| 压缩与后台监控 | Command 当前没有启用专属 compaction relay/outbox；也没有配置 watcher。 | 部分 Runtime 有已接通的 best-effort 原生压缩策略。 | 没有新增资源候选；缺少压缩能力不等于资格已经完成。 |
+| cold 恢复确认 | 仅 cold 查询官方 Session 目录，确认精确 ID/cwd；warm 不做。 | 能可靠拒绝缺失 ID 的 Runtime 直接恢复；Codebuddy 也有针对原生缺口的目标确认。 | 1.88 已实测会接受不存在的 ID，故保留；不查历史正文或配置。 |
+| 模型／权限 RPC | 沿共享 Session 方法应用当前 Run 设置，模型 ID 原样传递。 | 其他 ACP 也应用冻结 Run 的权限和选择。 | 不为省一次 RPC 新增“上次值”缓存；没有额外登录探针。 |
+| env/header 与工具事件 | 一次 wire 转义；工具初始/完成事件沿共享关联 map 补全输入和编辑片段。 | 1.88 会再次展开 env/header；稀疏事件关联与 Cline 共用。 | 均有原生回执或协议缺口依据，不扩展成配置缓存、额外锁或文件扫描。 |
+
+可核对的代码入口：[Command wire 与 Bootstrap](../../../crates/rovai-core/src/command_code_acp.rs)、
+[共享 ACP](../../../crates/rovai-core/src/acp.rs)（`ensure_agent_run_runtime`、`native_usage_selected`、
+`PreparedAcpProcess`）、[共享投影](../../../crates/rovai-core/src/mcp_projection.rs)、
+[Codex Session MCP](../../../crates/rovai-core/src/codex.rs)（`codex_mcp_session_config`）、
+[Cline](../../../crates/rovai-core/src/cline.rs)、[ZCode](../../../crates/rovai-core/src/zcode.rs)、
+[Pi Host](../../../crates/rovai-core/src/pi/managed-host.ts)和[压缩策略](../../../crates/rovai-core/src/compaction.rs)。
+
+其中共享投影在 Unix 发布新文件时，依次同步文件、临时目录和 rename 后的 Run 父目录；冻结与恢复校验
+仍有消费者。warm 不重写 Bootstrap **不代表整轮没有磁盘 I/O**。上述锁与任务结论只限当前接入差异，
+不声称整个共享 ACP 已证明无死锁；也未测量 CPU／内存，不给出 MB 节省数字。
 
 没有为共享一个小 Mod 新建资源缓存，没有专属锁、进程池、配置快照、文件监听器或回收队列。
 Bootstrap 冻结内容、system/user 角色及证据轴未变，因而无需新增模型上下文 revision。
+
+### stdio 默认目录的最小减量
+
+旧报告将包装范围写成“自定义 cwd”并不准确：共享 `resolve_definition` 会补全缺省 cwd，旧适配只判断
+`Some(cwd)`，因此每个经 Rovai 投递的 stdio 都会包装。现在把已有 Session 执行目录传入 wire 适配，
+沿共享路径比较处理相同目录与 Windows 前缀表示；相同就保留 command/args，不同才继续原包装。
+项目选择与 Mission 工作区已有 canonical 路径约束，本次不增加 realpath 扫描或新的目录准入检查；显式
+配置其他路径别名时仍可沿原包装运行，不为消除所有等价拼写增加解析机制。
+
+官方 1.88 在原生 `bindAgentSession` 中先进入 Session cwd，再连接 editor MCP。隔离原生控制探针将
+CLI 初始目录设为 `host space`、ACP 目录设为不同的 `session space`，直接 MCP 自报后者且父进程就是 CLI；
+不同目录用生产 `mcp-cwd.cjs`，回执为 `custom space`，进程链仍为 CLI → Node → Server。
+该事实分别在 `session/new` 与同 ID 的 `session/load` 验证，不是从 Host 启动目录推测。
+
+两条路径的空参数、空格、引号、中文、shell 字面字符及 env 原样到达；关闭 stdin、执行夹具进程组清理后，
+所有已记录进程退出。该结果不单独证明原生仅靠 EOF 就会回收全部子进程。
+首次夹具用 JavaScript 字符串替换时误用 replacement 的 `$$` 语义，env 检查失败；改用回调返回字面值后
+两条路径通过，生产 Rust wire 转义没有修改。失败及修正一并保留在证据中。
+本次只发送 initialize、Session 与 MCP discovery 控制请求，没有 `session/prompt` 或 `tools/call`，
+不声称重新通过模型工具回执、历史内容恢复或 Windows/Linux 资格。原生凭据只传给隔离子进程，
+没有复制到验收证据；日常安装、App 与原生历史未改动。
 
 ## 验证记录
 
@@ -155,3 +193,9 @@ PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试�
 核心 429 通过/1 个相同 Cursor 身份探针超时/1 忽略；同一二进制单独复跑通过（0.25 秒），其余目标
 46 项及 doc-tests 通过。仅清理本次失败夹具，不改 Cursor 探针或阈值，不把整套标绿。
 本次身份生效时机为共享合同与生产调用链核对；没有新增真实模型/MCP 或跨平台验收。
+
+同日 stdio 默认目录跟进：新增的纯 wire owner 通过；最终 `pnpm test:rust:pr` 整套通过，核心 431 通过／
+0 失败／1 忽略，其余目标 46 通过，doc-tests 通过。之前超时的 Cursor 身份探针本次在整套中通过，
+此前失败记录保留。`cargo check --workspace`、格式检查、10 项文档测试及文档治理通过。
+官方 1.88 的新建／恢复 stdio 控制探针见上节；增加一个无 I/O 的 Rust owner，零新增仓库文件或生产文件种类。
+未重跑模型工具调用、App 或跨平台资格，也未测量性能。

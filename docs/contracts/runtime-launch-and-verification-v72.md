@@ -76,7 +76,9 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
 分配的 MCP 只经新建/恢复 Session 的标准 `mcpServers` 传入。用户原生 MCP 由 CLI 加载，1.88.0 已验证
 原生同名定义优先；删除额外 `mcp list` 探测和私有 `mcp.json`，warm 不启动额外 CLI，也不构造不会发送的 MCP wire 参数。
 
-stdio 自定义 cwd 使用已有 `node --eval` argv launcher，不生成脚本文件或增加代理管理层。
+1.88.0 的 ACP 原生 stdio 启动目录是 Session cwd，不取 CLI 最初的工作目录。投影 cwd 与 Session cwd
+相同（包括共享路径比较已支持的 Windows 前缀差异）时直接传原 command/args；只有不同目录才使用已有
+`node --eval` argv launcher。不增加目录探测、脚本文件或代理管理层。
 1.88.0 的原生客户端即使从 ACP 接收 env/header pairs，仍调用 `resolveEnvPlaceholders`：字面 `$${x}`
 会变成 `${x}`。因此只在 Command ACP wire 边界对已解析值中的 `${` 转义一次为 `$${`；真实 stdio/HTTP
 回执须证明到达值与解析值一致。它不是原生文件格式序列化，禁止再叠加第二层转义。

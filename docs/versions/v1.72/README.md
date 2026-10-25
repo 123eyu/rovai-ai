@@ -49,7 +49,7 @@ Core 首发事务捕获，正文沿既有 projector 输出链接，无 Context/C
 
 User 在 Team 设计 Thread sequence 29 确认开启 worktree 实施。当前范围为具名团队、General 的
 Team/Custom 创建默认配置、简洁新对话选择和可选 Bootstrap 指引；旧配置不自动创建团队。
-上下文边界与确认见 [R1](model-context-change-team-guidance.md)，分支、范围和结果见
+上下文边界与确认见 [R1](model-context-change-team-guidance.md)和[长度上限 R1](model-context-change-team-guidance-limit.md)，分支、范围和结果见
 [实施记录](team-management-implementation.md)。功能已在独立分支实现，单元测试、构建与五项真实模型
 定向验证通过；通用 Gate 为 `degraded`（共有交付失败、一项耗时退化及语义证据不足），不标记为 Gate 通过。
 2026-10-22 User 在 sequence 62 明确按 V10 收口并要求 PR 合入 main、本机安装；本次整合主线

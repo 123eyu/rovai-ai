@@ -24,7 +24,7 @@ const find = (selector: string) => {
 const click = (selector: string) => act(async () => { find(selector).click() })
 const type = (selector: string, value: string) => act(async () => {
   const input = find(selector)
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+  Object.getOwnPropertyDescriptor(input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
 })
 
@@ -127,8 +127,39 @@ export async function runTeamCreationRegression(root: Root, app: ReactNode, clie
   const availability = await runCreationAvailabilityRegression(root, app, client, agents, environment, events)
   await runTeamRefreshRegression(root, client, team)
   await runSavedTeamRegression(root, client, agents, team)
+  await runGuidanceLimitRegression(root, client, agents, team)
   await act(async () => { root.unmount() })
-  return { ok: true, cases: ['save receipt before teams.list', 'retry after list refresh', 'late initial team preserves draft', 'external edits preserve selected version', 'late list preserves Custom', 'deleted source cancels conversation and duplication with a fallback or empty library', ...availability, 'scoped Web invalidation, reconnect and request generation', 'saved version survives discard and list selection'] }
+  return { ok: true, cases: ['save receipt before teams.list', 'retry after list refresh', 'late initial team preserves draft', 'external edits preserve selected version', 'late list preserves Custom', 'deleted source cancels conversation and duplication with a fallback or empty library', ...availability, 'scoped Web invalidation, reconnect and request generation', 'saved version survives discard and list selection', 'guidance accepts 10000 Unicode scalars and rejects 10001 without truncation'] }
+}
+
+async function runGuidanceLimitRegression(root: Root, client: any, agents: AgentProfile[], team: Team) {
+  const writes: any[] = []
+  const scopedClient = { ...client, request: async (method: string, params: any) => {
+    if (method !== 'teams.save') return client.request(method, params)
+    writes.push(params.command)
+    return { status: 'applied', payload: { team: { ...team, ...params.command, version: 2 } } }
+  } }
+  await act(async () => { root.render(<ThreadClientProvider client={scopedClient}><TeamWorkspace
+    teams={[team]} agents={agents} loading={false} loadError={null} defaultTeamId={null} customDefaults={null}
+    refresh={async () => [team]} onNewConversation={() => {}} onLeaveGuardChange={() => {}}/></ThreadClientProvider>) })
+  await click('.team-guidance-toggle')
+  for (const character of ['花', '🌸']) {
+    const tooLong = character.repeat(10001)
+    await type('.team-guidance-editor textarea', tooLong)
+    check(find('.team-guidance-count').textContent, '10001 / 10000', 'Unicode count includes the over-limit character')
+    await click('.team-editor-form button[type="submit"]')
+    check(writes.length, 0, 'over-limit guidance never reaches Core')
+    check((find('.team-guidance-editor textarea') as HTMLTextAreaElement).value, tooLong, 'over-limit draft is not truncated')
+    check(find('[role="alert"]').textContent?.includes('10000'), true, 'error shows the new limit')
+  }
+  const guidance = '花🌸'.repeat(5000)
+  await type('.team-guidance-editor textarea', guidance)
+  check(find('.team-guidance-count').textContent, '10000 / 10000', 'emoji counts as one Unicode scalar')
+  await click('.team-editor-form button[type="submit"]')
+  check(writes.length, 1, '10000-character guidance can be saved')
+  check(writes[0].guidance, guidance, 'complete guidance reaches the save request')
+  check(find('.team-guidance-preview').textContent, guidance, 'save receipt retains complete guidance')
+  await act(async () => { root.render(null) })
 }
 
 async function runTeamRefreshRegression(root: Root, client: any, team: Team) {

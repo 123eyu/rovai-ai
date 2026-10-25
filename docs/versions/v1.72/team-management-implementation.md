@@ -389,3 +389,35 @@ Host owner 同时对齐之前 Team 合入后的三处旧夹具预期：导入响
 不调整既有 Core 逻辑。定向 Web 47 项、生产 Electron 22 组、TypeScript 和构建通过；
 完整前端链使用 Vitest 2 workers，252 文件 / 2870 项通过、2 项既有跳过，后续 Node 357 通过、
 2 项平台跳过；Rust 默认 workspace 474 通过、1 项既有忽略。文档门禁与 Rust 格式检查通过。
+
+
+## 2026-10-25：指引上限 10000
+
+确认范围见 [长度上限 R1](model-context-change-team-guidance-limit.md)。UI 计数和中英文错误、Core Unicode
+校验统一改为 10000；Migration 214 / schema 164 原子扩宽两张表约束。原有输入格式、字节预算、冻结来源
+和补发机制不变，既有数据不重写为新指引；本轮不重新运行真实模型，完整上下文 Gate 仍为 `degraded`。
+
+验证归属：Team CRUD owner 扩展中文/emoji 的 10000/10001 边界及新 Thread 保存；现有生产 React 夹具
+验证完整输入、计数、拒绝超限且草稿保留；现有 Bootstrap 物化 owner 验证 40000 UTF-8 字节的完整投递、
+预算失败无 Manifest、同 Run 恢复一致。数据库准入 owner 增加 schema 163→164 来源与 marker 组合。
+
+新增一个 `db::teams::tests::guidance_limit_upgrade_preserves_rows_and_rolls_back`：它拥有新迁移的 DDL 回滚、
+生产打开升级、数据保留和重开边界。现有 Team CRUD fixture 已是当前 schema；Bootstrap migration owner
+拥有另一张表及 v5/v6 证据，不能覆盖这两张指引表的数据保留。新 owner 使用既有 schema-only 临时 SQLite
+fixture，无 Runtime；测试表格/纯谓词不足以验证事务 DDL、触发器和外键。新增 Rust 测试函数 1 个，未删除或禁用。
+最小命令：`cargo test -p rovai-core --features extended-tests --lib guidance_limit_upgrade`。
+
+本轮已执行：
+
+- `pnpm typecheck`；`pnpm test` 的文档、Skills、sandbox capability 和 Vitest 路径通过（256 文件、3005 项通过、2 项跳过）。
+  最后的 Node 阶段首次发现 Product Contract Fingerprint 仍预期 schema 163；同步为 164 后，单独重跑同一 Node 阶段，358 项通过、2 项跳过。
+- `node --test --test-name-pattern='Team creation' scripts/lib/member-creation.test.mjs`：生产 React/Electron 夹具的 23 个场景通过，新增长度边界包含在其中；使用全新临时 userData，无 Core、Skill Library 或模型。
+- `cargo test -p rovai-core --features extended-tests --lib guidance_limit_upgrade`：升级、DDL 回滚、保留、重开和外键/不可变触发器通过。
+- 相同 extended-tests 命令分别运行 `templates_preserve_custom_defaults_and_freeze_thread_guidance`、`current_migration_state_admission_matrix`、
+  `database_contract_preflight_admits_current_and_rejects_future_store`、`run_bootstrap_migration_keeps_audit_and_rolls_back_its_schema_change`，全部通过。
+- `cargo test -p rovai-core --features slow-tests --lib newly_bound_session_bootstraps_on_its_current_generation`：完整长指引、预算失败和冻结恢复通过。
+- `pnpm build:desktop`、`cargo fmt --all -- --check`、`git diff --check` 通过。
+- `DOCS_BASE_REF=51da43668fa9b9e50cd94c86a29825db8666f79a pnpm docs:check:ci` 通过；初次文档检查要求的四个标准标题已补齐。
+
+`pnpm test:rust:pr`（`cargo test --workspace`）通过：477 项通过、1 项按既有原因忽略。
+本轮未执行真实模型或重新打包安装日常 App；结果不代表完整上下文 Gate 已通过。

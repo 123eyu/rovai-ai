@@ -2,12 +2,12 @@
 document_type: ui-contract
 authority: mission-renderer-presentation
 status: accepted
-last_updated: 2026-10-10
+last_updated: 2026-10-25
 ---
 
 # Mission board
 
-The board header's creation entry is **新使命**, using the existing neutral primary action tokens
+The board header's creation entry is **新使命**, using the current theme primary action tokens
 (`--conversation-action` / `--conversation-action-contrast`, black in Day) and their hover token.
 This entry still opens the same creation dialog; the dialog's labels and submission choices are unchanged.
 
@@ -127,7 +127,7 @@ expansion, current source attachments, roster, tags and read-only status. Attach
 cards and focusable no-wrap strip, including file/directory typing, hidden visual scrollbar and
 Left/Right/Home/End browsing. Opening an attachment is not a Mission edit action. The Mission card has no edit,
 context menu, or detail/delivery/activity links.
-An unstarted Mission has a 36px neutral primary 开始使命 action below the card (black in Day) only while Core
+An unstarted Mission has a 36px theme primary 开始使命 action below the card only while Core
 projects `startAvailable`. Pressing it immediately disables the stable button, sets its accessible busy state and
 changes the label to `正在开始…`. Explicit rejection restores the action and shows the error. Acceptance hides it
 without waiting for claim; an ordinary public message hides it after claim creates a non-terminal Run, including
@@ -238,7 +238,7 @@ The candidate menu anchors to the description caret, prefers opening below it, a
 height at the viewport edge. It portals into the owning Mission dialog outside the clipped writing plane,
 so candidates remain visible and accept pointer/wheel input in ordinary and expanded editors. Focus stays in
 the description; arrow navigation scrolls only the candidate list. Escape dismisses this menu before the dialog.
-Creation, editing, long scrolled descriptions, both themes and 200% zoom require native pointer/keyboard
+Creation, editing, long scrolled descriptions, all registered palettes and 200% zoom require native pointer/keyboard
 acceptance with hit testing; programmatic option clicks alone do not prove candidates are usable.
 
 Referenced outsiders appear in a compact “新建时加入” / “保存时加入” row with a cancel action; the primary action

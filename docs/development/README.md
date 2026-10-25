@@ -1,7 +1,7 @@
 ---
 document_type: development-index
 authority: development-routing
-last_updated: 2026-10-12
+last_updated: 2026-10-25
 ---
 
 # Rovai-ai 开发者指南
@@ -166,7 +166,7 @@ ThreadWorkspace、Lexical 与 CSS，覆盖确认跨期、刷新／重启不续�
 | 构建 Release Core、App、DMG，检查签名 | [macOS 构建与打包](packaging.md) |
 | 构建或验收 Windows x64 sidecar、NSIS、签名与升级 | [Windows x64 构建、打包与发布](packaging-windows.md) |
 | 使用隔离 `userData` 运行真实 App、截图或桌面验收 | [桌面 UI 验收](ui-acceptance.md) |
-| 为 Coding Agent 安装本地 Impeccable、更新设计上下文或维护 UI 文档分类 | [Coding Agent Impeccable 与 UI 文档工作流](coding-agent-impeccable-ui-workflow.md) |
+| 维护设计规则、页面 brief 或 Agent UI 工作流 | [Coding Agent UI 与设计文档工作流](coding-agent-impeccable-ui-workflow.md) |
 | 处理 Core、Runtime、Git、签名、测试卡住或 Rust `target/` 膨胀 | [常见问题排查](troubleshooting.md) |
 
 具体版本的页面矩阵、Schema 版本、Migration 路径和验收证据属于

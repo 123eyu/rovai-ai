@@ -9,7 +9,7 @@ last_updated: 2026-10-25
 
 当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D64](decisions.md#v1-72-d64)。
 下面 R1 与私有 Home 的原始验收是历史记录，其 Hook、恢复 CLI 和树回收保证不适用于原生共享 Gateway。
-本轮新结果在“原生会话定位”节单独记录，旧证据不改写。
+原生接入与后续减量结果分别在“原生会话定位”和“接入减量”节记录，旧证据不改写。
 
 ## 原生会话定位（2026-10-25）
 
@@ -68,6 +68,61 @@ Desktop User Automation 10 项、qualification helper/isolation 8 项、文档�
 探测的 2 秒预算处超时（430 passed / 1 failed / 1 ignored）。该项单独复核为 0.14 秒通过，最终串行
 完整 workspace 通过；未修改 Cursor 实现、超时或断言，也未跳过失败项。兼容性文档变更后的既有证据摘要
 按实际文件更新，保持原 checksum 断言。当前路径未安装到日常 App，macOS arm64 仍为 Preview。
+
+## 接入减量（2026-10-25）
+
+按 User sequence 64/66/68/70 继续在 `rovai/hermes-runtime` 上实施；不新开旧 Hermes 兼容路线。
+
+- `BuiltinToolProcessConfig` 使用可选的文件输出。Hermes 保留同一 ActiveLease 注册表和 `run-tmp`，
+  无 `context.json` 创建、绑定写入、Task 投影/重试或撤权写入；普通绑定也跳过专供文件输出的 Task 查询。
+  其他 Runtime 的文件投影、失败修复、锁顺序、撤权及回执原义保持。
+- 复用 Command Code 分支现有的 `HostReusePolicy::NativeBinding` 与 nullable 摘要字段；Hermes 的
+  Host/Binding/runtime 配置摘要为 `None`，不计算、不比较，也不保存伪造常量或实现 revision 摘要。
+  实际配置与 Run 冻结审计摘要、B 内容摘要继续保留；其他 Runtime 仍生成原来的摘要值。
+- 固定 CLI 链接由 macOS 安装版 App 初始化提供。已有文件/陌生目标保留，开发和隔离 App 不触碰日常
+  入口。同路径 App 更新自然更新链接目标内容；每 Run 不再创建或核对。隔离 smoke 先准备测试用户入口。
+- 当前规则选择只读已接受 `initial` / `update`，删除旧 system 输入转 update 的实验接续查询。
+  已有 frozen/历史读取及数据库迁移保持；旧 `compaction_recovery` 不影响新输入的规则基线。
+- 更正活动目录：当前无 Hermes 结构化 Diff 生成；MCP 自定义 cwd 尚未传递；可靠逐 Run usage/费用
+  缺失时仍为未知。本轮不为补齐显示重建控制器或增强观测通道。
+
+### 验证归属
+
+没有增加或删除独立 Rust 测试。扩展既有 lease registry owner，验证无文件输出时初次绑定、轮换、
+定向/全局 Task 刷新、解绑、全局撤权及注销均不接触被目录占用的 `context.json` 路径，同时保留临时目录
+和旧授权失效。修复前该路径会在 bind 时写入失败；无需完整 DB 夹具即可覆盖这个文件/注册表边界。
+既有 Fleet Session owner 同时覆盖 Native Binding 与摘要策略的成员、Thread、Binding 和 cwd 隔离。
+既有 Adapter/ACP owner 覆盖摘要省略；共享 Core Task 设置 owner 保留全局刷新、同值修复和失败重试。
+
+上下文 owner 保留 prepared/unknown、冻结正文、首次/更新/none、旧 pending 不消费；删除旧 system 实验
+接续的两轮断言，加入旧 recovery 记录不参与新基线的断言。未删除历史读取或 Migration owner。
+安装入口的两个 Vitest 用临时 Home 验证首次/重复初始化、同路径更新和用户文件/陌生链接冲突。
+现有原生 smoke 增加在实际模型请求时无文件投影、Run 三类兼容性摘要为 NULL 的断言。
+
+### 实际结果
+
+[本轮原生验收记录](../../research/hermes-runtime/reduction-acceptance-2026-10-25.json)对应隔离夹具
+`MJWMOO`：生产 Core/CLI、未修改官方 0.22.4、同一测试用户 Home、预先启动的共享 Gateway 与本地
+Responses 端点。12 个 Run 中 10 succeeded、1 主动 cancelled、1 Core 强杀后 failed，后两项符合故障
+场景预期。两成员并发、原 Session 冷恢复、普通 CLI Send、后台调用按调用时归属、MCP 部分失败及
+Gateway 重启后恢复、两次自动压缩不补发、取消不影响另一成员、Core 强杀不重放均通过。
+实际模型调用期间无 Hermes `context.json`；成功 Run 的 Host/Binding/runtime 兼容性摘要均为 NULL。
+首次与真实规则更新仍正确，用户配置未改写，原生 system prompt 保留。
+
+最终 `cargo test --workspace -- --test-threads=1` 为 **477 passed / 0 failed / 1 ignored**，包含 CLI 31 项。
+Hermes slow/extended 筛选 3 项通过；共享 Task 设置、ACP 配置摘要、Fleet Native Binding、冻结配置与
+Cursor 身份探测 5 个指定 owner 通过。这些用例和默认 workspace 有重叠，不累加为独立覆盖数量。
+`pnpm test` 最终通过：Vitest 257 个文件、2994 passed / 2 skipped，Node 组合 358 passed / 2 skipped，
+另含文档 10、Skills 3 和 Electron sandbox admission 7 项。`pnpm typecheck`、Core/CLI 构建、
+`pnpm build:desktop`、fmt、脚本语法和 whitespace 检查通过。
+
+回归先发现 benchmark protocol 仍期待 schema 164，已对齐分支此前已有的 165；本轮未新增迁移。
+一次完整 Rust 回归在既有 Cursor 的 2 秒版本探测处超时，该 owner 单独复核 0.77 秒通过；未改其
+预算、实现或断言。一次 Vitest 文件监听用例在等待更新时超时，随后完整 `pnpm test` 通过；未改该
+owner。最终完整 workspace 通过；当前与 diff-aware 文档门禁通过。
+
+未执行日常 App 安装、付费模型、Windows/Linux、execute_code、子智能体或远程/容器后端验收。
+安装行为依据临时 Home 的 helper 测试和桌面构建，不将其表述为已完成用户日常安装。
 
 ## 历史 R1 实施
 

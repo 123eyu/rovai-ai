@@ -307,12 +307,16 @@ Agent 可控的 envelope output mode、环境变量、隐藏 flag 或 `--full`�
 <a id="runtime-process-lease-and-camp-scope"></a>
 ## Runtime process、Lease 与 Thread scope
 
-每个受管 Runtime 根进程拥有稳定 process identity 和私有 CLI context path。Fleet acquire 为
+每个受管 Runtime 根进程拥有稳定 process identity；CLI 文件输出是可选投影。Fleet acquire 为
 当前 `(agentRunId, executionEpoch)` 轮换 active lease，Core 在输入投递前完成绑定和 CLI preflight。
 Codex、ACP、Pi 的 process context 只在 Fleet 确认需要新进程后的 spawn future 内创建，且在 CLI
 启动前准备好无 active lease 的 `context.json` 与 `run-tmp`。复用已有 Host 不创建候选目录；每轮仍对
 Host 持有的原 context 轮换授权并重置 `run-tmp`。恢复失败后的替换进程同样获得全新 process identity
 和目录，不能复用已退役的 context。
+Hermes 的原生 Session CLI 没有文件消费者，因此不创建 `context.json`，绑定、Task 刷新/重试、解绑与
+撤权也不写文件。它使用同一注册表的内存 ActiveLease、Run/epoch 和 Binding，保留实际使用的 `run-tmp`。
+macOS 安装版 App 初始化负责固定 CLI 链接；Hermes Run 不再安装或检查该入口。实例端点 `connection.json`
+继续用于 CLI 寻找 Core；它不是每进程上下文或会话映射。其他 Runtime 的文件投影和失败语义不变。
 Fleet 只在短临界区 Reserve/Commit；计入容量的 Starting reservation 将进程创建、协议 handshake 与必要
 health 检查移到锁外，并由 Fleet-owned Startup Operation 推进到唯一终态；任意 acquire waiter 被 drop 不影响
 operation。相同 Run/epoch 等待同一 completion，不同 Run/Runtime 可并发启动；shutdown、Thread 删除或成员永久移除

@@ -1,18 +1,12 @@
 //! Official Hermes ACP, native Home and native logical Session identity.
 use anyhow::{Context, Result};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::process::Command;
-
-pub const REVISION: &str = "rovai-hermes-native-session-v1";
 
 pub fn supported_version(version: Option<&str>) -> bool {
     version
         .and_then(crate::agent_runtime_adapter::parse_reported_runtime_version)
         .is_some_and(|(version, _)| version >= [0, 22, 4])
-}
-
-pub fn implementation_digest() -> Result<String> {
-    crate::command::canonical_json_digest(&json!({"revision": REVISION}))
 }
 
 /// Only launch selection: never copy config, write native instructions, or own
@@ -25,16 +19,7 @@ pub fn configure_command(command: &mut Command) -> Result<()> {
         .env("HERMES_HOME", home.join(".hermes"))
         .env_remove("HERMES_PROFILE")
         .env_remove("HERMES_DATA_DIR_SUFFIX");
-    for key in [
-        "ROVAI_HERMES_STORAGE",
-        "ROVAI_HERMES_LAUNCHER",
-        "ROVAI_HERMES_CONTROL",
-        "ROVAI_HERMES_MCP_NAMES",
-        "ROVAI_HERMES_COMPACTION_HOOK",
-        "ROVAI_CLI_CONTEXT",
-        "ROVAI_AGENT_CLI",
-        "ROVAI_RUN_TMP",
-    ] {
+    for key in ["ROVAI_CLI_CONTEXT", "ROVAI_AGENT_CLI", "ROVAI_RUN_TMP"] {
         command.env_remove(key);
     }
     Ok(())
@@ -70,6 +55,7 @@ pub fn input_acceptance_uncertain(message: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn native_entry_preserves_the_launcher_and_uses_logical_session_identity() {

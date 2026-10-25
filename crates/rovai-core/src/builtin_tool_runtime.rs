@@ -34,6 +34,7 @@ pub(crate) struct BuiltinToolProcessConfigFactory {
     cli_executable: PathBuf,
     core_endpoint: LocalIpcEndpoint,
     private_root: PathBuf,
+    context_file: bool,
 }
 
 impl BuiltinToolProcessConfigFactory {
@@ -46,14 +47,21 @@ impl BuiltinToolProcessConfigFactory {
             cli_executable: cli_executable.to_path_buf(),
             core_endpoint: core_endpoint.clone(),
             private_root: private_root.to_path_buf(),
+            context_file: true,
         }
     }
 
+    pub(crate) fn without_context_file(mut self) -> Self {
+        self.context_file = false;
+        self
+    }
+
     pub(crate) fn create(&self) -> Result<BuiltinToolProcessConfig> {
-        BuiltinToolProcessConfig::create(
+        BuiltinToolProcessConfig::create_with_context_file(
             &self.cli_executable,
             &self.core_endpoint,
             &self.private_root,
+            self.context_file,
         )
     }
 }
@@ -67,7 +75,7 @@ struct BuiltinToolProcessConfigInner {
     cli_executable: PathBuf,
     core_endpoint: LocalIpcEndpoint,
     process_root: PathBuf,
-    context_path: PathBuf,
+    context_path: Option<PathBuf>,
     run_tmp: PathBuf,
     process_id: String,
     process_token: String,
@@ -92,10 +100,20 @@ impl Drop for BuiltinToolProcessConfigInner {
 }
 
 impl BuiltinToolProcessConfig {
+    #[cfg(test)]
     pub(crate) fn create(
         cli_executable: &Path,
         core_endpoint: &LocalIpcEndpoint,
         private_root: &Path,
+    ) -> Result<Self> {
+        Self::create_with_context_file(cli_executable, core_endpoint, private_root, true)
+    }
+
+    fn create_with_context_file(
+        cli_executable: &Path,
+        core_endpoint: &LocalIpcEndpoint,
+        private_root: &Path,
+        context_file: bool,
     ) -> Result<Self> {
         if !cli_executable.is_absolute() || !private_root.is_absolute() {
             bail!("Built-in Tool process paths must be absolute");
@@ -123,7 +141,7 @@ impl BuiltinToolProcessConfig {
             inner: Arc::new(BuiltinToolProcessConfigInner {
                 cli_executable: cli_executable.to_path_buf(),
                 core_endpoint: core_endpoint.clone(),
-                context_path: process_root.join("context.json"),
+                context_path: context_file.then(|| process_root.join("context.json")),
                 run_tmp,
                 process_root,
                 process_id,
@@ -146,8 +164,8 @@ impl BuiltinToolProcessConfig {
         &self.inner.process_token
     }
 
-    pub(crate) fn context_path(&self) -> &Path {
-        &self.inner.context_path
+    pub(crate) fn context_path(&self) -> Option<&Path> {
+        self.inner.context_path.as_deref()
     }
 
     pub(crate) fn run_tmp(&self) -> &Path {
@@ -155,6 +173,9 @@ impl BuiltinToolProcessConfig {
     }
 
     pub(crate) fn configure_command(&self, command: &mut Command) -> Result<()> {
+        let context_path = self
+            .context_path()
+            .context("Runtime requires a CLI context file")?;
         let cli_directory = self
             .inner
             .cli_executable
@@ -176,36 +197,9 @@ impl BuiltinToolProcessConfig {
         command
             .env("PATH", path)
             .env(ROVAI_AGENT_CLI_ENV, &self.inner.cli_executable)
-            .env(ROVAI_CLI_CONTEXT_ENV, &self.inner.context_path)
+            .env(ROVAI_CLI_CONTEXT_ENV, context_path)
             .env(ROVAI_RUN_TMP_ENV, &self.inner.run_tmp);
         Ok(())
-    }
-
-    /// A stable installation entry, shared by all native Hermes sessions.
-    /// Existing user-owned files/links are never replaced. No Run data lives here.
-    #[cfg(unix)]
-    pub(crate) fn ensure_native_cli_entry(&self) -> Result<()> {
-        let path = dirs::home_dir()
-            .context("CLI installation requires the current user's Home")?
-            .join(".local/bin/rovai");
-        fs::create_dir_all(path.parent().unwrap())?;
-        match std::os::unix::fs::symlink(&self.inner.cli_executable, &path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Another concurrent session may have installed this same entry.
-                anyhow::ensure!(
-                    path.canonicalize()? == self.inner.cli_executable.canonicalize()?,
-                    "The installed rovai command does not match this Core; install the matching bundled CLI"
-                );
-                Ok(())
-            }
-            Err(error) => Err(error).context("failed to install the fixed rovai CLI entry"),
-        }
-    }
-
-    #[cfg(not(unix))]
-    pub(crate) fn ensure_native_cli_entry(&self) -> Result<()> {
-        bail!("Native Hermes CLI installation is not admitted on this platform")
     }
 
     fn write_context(&self, lease: Option<BuiltinToolLeaseContext>) -> Result<()> {
@@ -217,6 +211,9 @@ impl BuiltinToolProcessConfig {
         lease: Option<BuiltinToolLeaseContext>,
         tasks_enabled: bool,
     ) -> Result<()> {
+        let Some(path) = self.context_path() else {
+            return Ok(());
+        };
         let document = BuiltinToolCliContext {
             contract_version: BUILTIN_TOOL_CONTRACT_VERSION,
             ipc_protocol_version: BUILTIN_TOOL_IPC_PROTOCOL_VERSION,
@@ -226,7 +223,7 @@ impl BuiltinToolProcessConfig {
             lease,
             tasks_enabled,
         };
-        atomic_write_private_json(&self.inner.context_path, &document)
+        atomic_write_private_json(path, &document)
     }
 }
 
@@ -310,9 +307,7 @@ impl BuiltinToolLeaseRegistry {
                     lease_generation: 0,
                     active: None,
                 });
-            if process.process_token != config.process_token()
-                || process.config.context_path() != config.context_path()
-            {
+            if process.process_token != config.process_token() {
                 bail!("Built-in Tool process identity conflict");
             }
             if let Some(active) = &process.active {
@@ -378,6 +373,9 @@ impl BuiltinToolLeaseRegistry {
         let processes = self.processes.lock().await;
         let mut refreshed = true;
         for process in processes.values() {
+            if process.config.context_path().is_none() {
+                continue;
+            }
             let Some(active) = &process.active else {
                 continue;
             };
@@ -954,7 +952,7 @@ mod tests {
             conversation_version: 1,
             adapter_installation_id: "installation".to_string(),
             native_session_id: None,
-            binding_compatibility_digest: "digest".to_string(),
+            binding_compatibility_digest: Some("digest".to_string()),
             binding_replaced: false,
         }
     }
@@ -1004,29 +1002,29 @@ mod tests {
             }
         }
         let context: BuiltinToolCliContext =
-            serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(config.context_path().unwrap()).unwrap()).unwrap();
         let lease = context.lease.unwrap();
         assert_eq!(Path::new(&lease.execution_root), root);
         assert_eq!(Path::new(&lease.run_tmp), config.run_tmp());
         // A projection write can fail while the original Run/lease stays usable.
         // Retrying the same desired state repairs that process without rebinding.
-        let saved_context = config.context_path().with_extension("saved");
-        fs::rename(config.context_path(), &saved_context).unwrap();
-        fs::create_dir(config.context_path()).unwrap();
+        let saved_context = config.context_path().unwrap().with_extension("saved");
+        fs::rename(config.context_path().unwrap(), &saved_context).unwrap();
+        fs::create_dir(config.context_path().unwrap()).unwrap();
         let enabled_runs = std::collections::HashSet::from(["run-1".to_string()]);
         for target in [None, Some((config.process_id(), "run-1", 1))] {
             let _gate = registry.invocation_guard().await;
             assert!(!registry.refresh_tasks(&enabled_runs, target).await);
         }
         assert!(registry.authenticate(&first).await.is_ok());
-        fs::remove_dir(config.context_path()).unwrap();
-        fs::rename(saved_context, config.context_path()).unwrap();
+        fs::remove_dir(config.context_path().unwrap()).unwrap();
+        fs::rename(saved_context, config.context_path().unwrap()).unwrap();
         {
             let _gate = registry.invocation_guard().await;
             assert!(registry.refresh_tasks(&enabled_runs, None).await);
         }
         let repaired: BuiltinToolCliContext =
-            serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(config.context_path().unwrap()).unwrap()).unwrap();
         assert!(repaired.tasks_enabled);
         assert_eq!(repaired.lease.unwrap().lease_id, first.lease_id);
         {
@@ -1034,15 +1032,15 @@ mod tests {
             assert!(registry.refresh_tasks(&Default::default(), None).await);
         }
         let disabled: BuiltinToolCliContext =
-            serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(config.context_path().unwrap()).unwrap()).unwrap();
         assert!(!disabled.tasks_enabled);
         assert!(registry.authenticate(&first).await.is_ok());
         // Preserve a valid, noncanonical encoding to detect even an identical
         // projection rewrite without depending on timestamps or inode behavior.
         fn preserve_context_bytes(config: &BuiltinToolProcessConfig) -> Vec<u8> {
-            let mut bytes = fs::read(config.context_path()).unwrap();
+            let mut bytes = fs::read(config.context_path().unwrap()).unwrap();
             bytes.push(b'\n');
-            fs::write(config.context_path(), &bytes).unwrap();
+            fs::write(config.context_path().unwrap(), &bytes).unwrap();
             bytes
         }
         let unchanged = preserve_context_bytes(&config);
@@ -1065,9 +1063,10 @@ mod tests {
                     .await
             );
         }
-        assert_eq!(fs::read(config.context_path()).unwrap(), unchanged);
+        assert_eq!(fs::read(config.context_path().unwrap()).unwrap(), unchanged);
         let other_context: BuiltinToolCliContext =
-            serde_json::from_slice(&fs::read(other_config.context_path()).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(other_config.context_path().unwrap()).unwrap())
+                .unwrap();
         assert!(other_context.tasks_enabled);
         assert_eq!(other_context.lease.unwrap().lease_id, other.lease_id);
         // Global settings still project every active process, including same-value repair.
@@ -1076,7 +1075,8 @@ mod tests {
             assert!(registry.refresh_tasks(enabled, None).await);
             for process in [&config, &other_config] {
                 let context: BuiltinToolCliContext =
-                    serde_json::from_slice(&fs::read(process.context_path()).unwrap()).unwrap();
+                    serde_json::from_slice(&fs::read(process.context_path().unwrap()).unwrap())
+                        .unwrap();
                 assert_eq!(context.tasks_enabled, !enabled.is_empty());
             }
         }
@@ -1096,7 +1096,7 @@ mod tests {
             );
         }
         assert_eq!(
-            fs::read(other_config.context_path()).unwrap(),
+            fs::read(other_config.context_path().unwrap()).unwrap(),
             other_unbound
         );
         drop(other_config);
@@ -1136,7 +1136,7 @@ mod tests {
             );
         }
         let current: BuiltinToolCliContext =
-            serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(config.context_path().unwrap()).unwrap()).unwrap();
         assert_eq!(current.lease.unwrap().lease_id, rotated.lease_id);
         assert!(current.tasks_enabled);
         assert!(registry.authenticate(&first).await.is_err());
@@ -1253,11 +1253,60 @@ mod tests {
                     .refresh_tasks(&both_enabled, Some((config.process_id(), run, epoch)))
                     .await
             );
-            assert_eq!(fs::read(config.context_path()).unwrap(), unchanged);
+            assert_eq!(fs::read(config.context_path().unwrap()).unwrap(), unchanged);
         }
         assert!(registry.authenticate(&second).await.is_ok());
         registry.unbind(config.process_id(), "run-2", 2).await;
         drop(config);
+
+        // Native Session CLI calls use this same registry without a file
+        // consumer. Even an unwritable projection destination cannot block a
+        // bind, refresh or revocation; Run tmp and lease fencing still apply.
+        let native = BuiltinToolProcessConfigFactory::new(&executable(), &endpoint, &root)
+            .without_context_file()
+            .create()
+            .unwrap();
+        assert!(native.context_path().is_none());
+        let unused_path = native.inner.process_root.join("context.json");
+        assert!(!unused_path.exists());
+        fs::create_dir(&unused_path).unwrap();
+        let native_binding = binding();
+        let auth = registry
+            .bind(&native, "native-run", 1, &native_binding, &root)
+            .await
+            .unwrap();
+        assert!(native.run_tmp().is_dir());
+        assert_eq!(
+            registry
+                .auth_for_execution("native-run", 1, &native_binding.native_binding_id, 1)
+                .await
+                .unwrap()
+                .lease_id,
+            auth.lease_id
+        );
+        for target in [None, Some((native.process_id(), "native-run", 1))] {
+            let _gate = registry.invocation_guard().await;
+            assert!(registry.refresh_tasks(&Default::default(), target).await);
+        }
+        let rotated = registry
+            .bind(&native, "native-run", 1, &native_binding, &root)
+            .await
+            .unwrap();
+        assert!(registry.authenticate(&auth).await.is_err());
+        assert!(registry.authenticate(&rotated).await.is_ok());
+        registry.unbind(native.process_id(), "native-run", 1).await;
+        assert!(registry.authenticate(&rotated).await.is_err());
+        assert!(!native.run_tmp().exists());
+        let next = registry
+            .bind(&native, "native-next", 2, &native_binding, &root)
+            .await
+            .unwrap();
+        assert_eq!(registry.fence_all().await, 1);
+        assert!(registry.authenticate(&next).await.is_err());
+        registry.unregister(native.process_id()).await;
+        assert!(unused_path.is_dir());
+        assert!(fs::read_dir(&unused_path).unwrap().next().is_none());
+        drop(native);
         let _ = fs::remove_dir_all(root);
     }
 

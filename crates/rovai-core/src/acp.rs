@@ -1851,9 +1851,6 @@ impl AcpHost {
             }
         }
         if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
-            if let Some(config) = &builtin_tools {
-                config.ensure_native_cli_entry()?;
-            }
             crate::hermes::configure_command(&mut command)?;
         }
         let ephemeral_config = configure_runtime_command(
@@ -4725,7 +4722,7 @@ impl AcpSessionPermissions {
 pub struct AcpRuntime {
     owner: AcpRuntimeOwner,
     host: Arc<AcpHost>,
-    runtime_compatibility_digest: String,
+    compatibility: RuntimeCompatibilityKey,
     mcp_projection_digest: String,
     session_id: RwLock<Option<String>>,
     session_result: RwLock<Option<Value>>,
@@ -4879,7 +4876,7 @@ impl AcpRuntime {
     fn from_host(
         owner: AcpRuntimeOwner,
         host: Arc<AcpHost>,
-        runtime_compatibility_digest: String,
+        compatibility: RuntimeCompatibilityKey,
         mcp_projection_digest: String,
         execution_root: PathBuf,
         attachment_access_root: Option<PathBuf>,
@@ -4890,7 +4887,7 @@ impl AcpRuntime {
         Arc::new(Self {
             owner,
             host,
-            runtime_compatibility_digest,
+            compatibility,
             mcp_projection_digest,
             session_id: RwLock::new(None),
             session_result: RwLock::new(None),
@@ -6643,7 +6640,7 @@ impl AcpCliRuntimeAdapter {
         external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
         mcp_projection_digest: &str,
         attachment_access_root: &Path,
-        runtime_compatibility_digest: &str,
+        runtime_compatibility_digest: &Option<String>,
         startup_bootstrap: Option<&str>,
     ) -> Result<Arc<AcpRuntime>> {
         if frozen_runtime.adapter_kind != self.kind {
@@ -6652,11 +6649,35 @@ impl AcpCliRuntimeAdapter {
         // Native mode/config RPCs are reapplied for each frozen Run even when
         // Fleet reuses a Host launched under a previous member configuration.
         let session_permissions = AcpSessionPermissions::from_frozen(frozen_runtime)?;
+        let execution_root = PathBuf::from(&workspace.execution_root);
+        let compatibility = if self.kind == AdapterKind::HermesCli {
+            anyhow::ensure!(
+                runtime_compatibility_digest.is_none(),
+                "Hermes uses Native Binding identity"
+            );
+            RuntimeCompatibilityKey::native_binding(
+                camp_id,
+                agent_id,
+                native_binding_id,
+                execution_root.clone(),
+            )
+        } else {
+            RuntimeCompatibilityKey::member_session(
+                camp_id,
+                agent_id,
+                Some(native_binding_id),
+                runtime_compatibility_digest
+                    .as_deref()
+                    .context("ACP compatibility digest missing")?,
+            )
+        };
         let existing = { self.runtimes.lock().await.get(agent_run_id).cloned() };
         if let Some(existing) = existing {
             if existing.execution_epoch() == execution_epoch
                 && existing.host.is_alive()
-                && existing.runtime_compatibility_digest == runtime_compatibility_digest
+                && existing
+                    .compatibility
+                    .is_process_compatible_with(&compatibility)
                 && existing.mcp_projection_digest == mcp_projection_digest
                 && existing.attachment_access_root.as_deref() == Some(attachment_access_root)
             {
@@ -6669,24 +6690,21 @@ impl AcpCliRuntimeAdapter {
                 .release(agent_run_id, old_epoch, FleetReleaseDisposition::Stop)
                 .await;
         }
-        let execution_root = PathBuf::from(&workspace.execution_root);
         let spawn_execution_root = execution_root.clone();
         let spawn_workspace = workspace.clone();
         let mut spawn_frozen_runtime = frozen_runtime.clone();
         let spawn_environment_source = rovai_core::member_environment::launch_source();
-        let spawn_builtin_tool_factory = builtin_tool_factory.clone();
+        let spawn_builtin_tool_factory = if self.kind == AdapterKind::HermesCli {
+            builtin_tool_factory.clone().without_context_file()
+        } else {
+            builtin_tool_factory.clone()
+        };
         let spawn_external_mcp_servers = external_mcp_servers.clone();
         let spawn_attachment_access_root = attachment_access_root.to_path_buf();
         let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_startup_bootstrap = startup_bootstrap.map(str::to_owned);
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
-        let compatibility = RuntimeCompatibilityKey::member_session(
-            camp_id,
-            agent_id,
-            Some(native_binding_id),
-            runtime_compatibility_digest,
-        );
         if self.kind == AdapterKind::DeepseekHarness {
             // DSH persists exact Sessions but holds a native lock while the
             // previous Host owns them. Reap obsolete idle Hosts before resume;
@@ -6703,7 +6721,7 @@ impl AcpCliRuntimeAdapter {
                     agent_run_id: agent_run_id.to_string(),
                     execution_epoch,
                     adapter_kind: self.kind,
-                    compatibility,
+                    compatibility: compatibility.clone(),
                 },
                 move || async move {
                     spawn_frozen_runtime.environment =
@@ -6747,7 +6765,7 @@ impl AcpCliRuntimeAdapter {
                 execution_epoch,
             },
             host,
-            runtime_compatibility_digest.to_string(),
+            compatibility,
             mcp_projection_digest.to_string(),
             execution_root,
             Some(attachment_access_root.to_path_buf()),
@@ -6910,7 +6928,10 @@ pub(crate) fn runtime_compatibility_digest(
     permission_semantics: PermissionSemantics,
     external_mcp_servers: &BTreeMap<String, McpServerDefinition>,
     attachment_authorization: &ThreadOutputDirectory,
-) -> Result<String> {
+) -> Result<Option<String>> {
+    if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
+        return Ok(None);
+    }
     let execution_root = PathBuf::from(&workspace.execution_root)
         .canonicalize()
         .with_context(|| {
@@ -6967,10 +6988,6 @@ pub(crate) fn runtime_compatibility_digest(
             json!(GROK_NATIVE_RULES_REVISION),
         );
     }
-    if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
-        compatibility["hermesImplementationDigest"] =
-            json!(crate::hermes::implementation_digest()?);
-    }
     if frozen_runtime.adapter_kind == AdapterKind::DeepseekHarness {
         compatibility["dshNativeConfigurationDigest"] =
             json!(crate::dsh::native_configuration_digest(&execution_root)?);
@@ -6994,7 +7011,7 @@ pub(crate) fn runtime_compatibility_digest(
             .digest
         );
     }
-    canonical_json_digest(&compatibility)
+    canonical_json_digest(&compatibility).map(Some)
 }
 
 pub(crate) fn freeze_native_session_compatibility(
@@ -10202,8 +10219,8 @@ mod tests {
                 values: json!({"permission_mode": "default"}),
             },
             native_session_compatibility_key: None,
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10235,8 +10252,8 @@ mod tests {
                 values: json!({"trust_all_tools": "on"}),
             },
             native_session_compatibility_key: Some("kiro-cli:acp-v1".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10275,8 +10292,8 @@ mod tests {
                 }),
             },
             native_session_compatibility_key: Some("cursor-agent:acp-v1:sha256:cursor".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10308,8 +10325,8 @@ mod tests {
                 values: json!({"permission_mode": "default"}),
             },
             native_session_compatibility_key: Some("kimi-code-cli:acp-v1".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10341,8 +10358,8 @@ mod tests {
                 values: json!({"permission_mode": "bypassPermissions"}),
             },
             native_session_compatibility_key: Some("grok-build:acp-v1".to_string()),
-            binding_compatibility_digest: "sha256:binding".to_string(),
-            host_config_digest: "sha256:host".to_string(),
+            binding_compatibility_digest: Some("sha256:binding".to_string()),
+            host_config_digest: Some("sha256:host".to_string()),
             config_digest: "sha256:config".to_string(),
         }
     }
@@ -10633,7 +10650,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -10786,7 +10803,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -11440,7 +11457,7 @@ done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -12002,7 +12019,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -12207,7 +12224,7 @@ while IFS= read -r ignored; do :; done
                             execution_epoch: 1,
                         },
                         host.clone(),
-                        "compatibility".into(),
+                        RuntimeCompatibilityKey::member("camp", "agent", "compatibility"),
                         "mcp".into(),
                         cwd.clone(),
                         Some(exact_attachment_root(&root)),
@@ -12493,7 +12510,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             workspace_root.clone(),
             Some(attachments.clone()),
@@ -12552,7 +12569,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             workspace_root.clone(),
             Some(attachments.clone()),
@@ -12848,7 +12865,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             cold_host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             workspace_root,
             Some(attachments),
@@ -13060,7 +13077,7 @@ while IFS= read -r ignored; do :; done
                 let runtime = AcpRuntime::from_host(
                     owner,
                     host.clone(),
-                    "compat".into(),
+                    RuntimeCompatibilityKey::member("camp", "agent", "compat"),
                     "mcp".into(),
                     root.clone(),
                     Some(exact_attachment_root(&root)),
@@ -13352,7 +13369,7 @@ while IFS= read -r ignored; do :; done
                     execution_epoch: 1,
                 },
                 host.clone(),
-                "sha256:compatibility".to_string(),
+                RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
                 "sha256:mcp".to_string(),
                 root.clone(),
                 Some(exact_attachment_root(&root)),
@@ -13473,7 +13490,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -13610,7 +13627,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -13714,7 +13731,7 @@ while IFS= read -r ignored; do :; done
                     execution_epoch: 1,
                 },
                 host.clone(),
-                "sha256:compatibility".to_string(),
+                RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
                 "sha256:mcp".to_string(),
                 root.clone(),
                 Some(exact_attachment_root(&root)),
@@ -13825,7 +13842,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -13954,7 +13971,7 @@ while IFS= read -r ignored; do :; done
                     execution_epoch: 1,
                 },
                 host.clone(),
-                "sha256:compatibility".to_string(),
+                RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
                 "sha256:mcp".to_string(),
                 root.clone(),
                 Some(exact_attachment_root(&root)),
@@ -14081,7 +14098,7 @@ while IFS= read -r ignored; do :; done
                 &BTreeMap::new(),
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14122,7 +14139,7 @@ while IFS= read -r ignored; do :; done
                 &BTreeMap::new(),
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14258,7 +14275,7 @@ while IFS= read -r ignored; do :; done
                 &external_mcp_servers,
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14334,7 +14351,7 @@ while IFS= read -r ignored; do :; done
                 &external_mcp_servers,
                 "sha256:mcp",
                 &attachment_root,
-                "sha256:compatibility",
+                &Some("sha256:compatibility".to_owned()),
                 None,
             )
             .await
@@ -14443,7 +14460,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -14617,7 +14634,7 @@ while IFS= read -r ignored; do :; done
                 execution_epoch: 1,
             },
             host.clone(),
-            "sha256:compatibility".to_string(),
+            RuntimeCompatibilityKey::member("camp", "agent", "sha256:compatibility"),
             "sha256:mcp".to_string(),
             root.clone(),
             Some(exact_attachment_root(&root)),
@@ -15532,6 +15549,21 @@ while IFS= read -r ignored; do :; done
         make_executable(&executable, "#!/bin/sh\nexit 0\n");
         let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
         let frozen = frozen_trae_runtime(&executable);
+        let mut hermes = frozen.clone();
+        hermes.adapter_kind = AdapterKind::HermesCli;
+        hermes.permissions.adapter_kind = AdapterKind::HermesCli;
+        assert!(
+            runtime_compatibility_digest(
+                &hermes,
+                &workspace,
+                PermissionSemantics::RuntimeManagedV2,
+                &BTreeMap::new(),
+                &attachment_authorization
+            )
+            .unwrap()
+            .is_none()
+        );
+
         let mut opencode = frozen.clone();
         opencode.adapter_kind = AdapterKind::OpencodeCli;
         opencode.permissions.adapter_kind = AdapterKind::OpencodeCli;
@@ -15584,7 +15616,7 @@ while IFS= read -r ignored; do :; done
             "attachmentOutputRoot": attachment_authorization.output_root,
         }))
         .unwrap();
-        assert_eq!(first, process_input_digest);
+        assert_eq!(first, Some(process_input_digest));
 
         // A process-policy upgrade replaces Copilot Hosts, without changing
         // the Native Session binding or other adapters' compatibility inputs.
@@ -15608,9 +15640,15 @@ while IFS= read -r ignored; do :; done
             "builtinToolContractVersion":BUILTIN_TOOL_CONTRACT_VERSION,
             "externalMcpServers":{}, "attachmentOutputRoot":attachment_authorization.output_root,
         });
-        assert_ne!(copilot_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_ne!(
+            copilot_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         old_inputs["nativeQuestionnairePolicy"] = json!("no-ask-user-v1");
-        assert_eq!(copilot_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_eq!(
+            copilot_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         for isolated in [false, true] {
             let mut command = Command::new(&executable);
             configure_runtime_command(
@@ -15657,9 +15695,15 @@ while IFS= read -r ignored; do :; done
             .as_object_mut()
             .unwrap()
             .remove("nativeQuestionnairePolicy");
-        assert_ne!(qwen_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_ne!(
+            qwen_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         old_inputs["nativeQuestionnairePolicy"] = json!("exclude-ask-user-question-v1");
-        assert_eq!(qwen_digest, canonical_json_digest(&old_inputs).unwrap());
+        assert_eq!(
+            qwen_digest,
+            Some(canonical_json_digest(&old_inputs).unwrap())
+        );
         for isolated in [false, true] {
             let mut command = Command::new(&executable);
             configure_runtime_command(
@@ -15703,10 +15747,10 @@ while IFS= read -r ignored; do :; done
                 .unwrap()
                 .remove("nativeQuestionnairePolicy");
             if let Some(policy) = policy {
-                assert_ne!(digest, canonical_json_digest(&old_inputs).unwrap());
+                assert_ne!(digest, Some(canonical_json_digest(&old_inputs).unwrap()));
                 old_inputs["nativeQuestionnairePolicy"] = json!(policy);
             }
-            assert_eq!(digest, canonical_json_digest(&old_inputs).unwrap());
+            assert_eq!(digest, Some(canonical_json_digest(&old_inputs).unwrap()));
         }
 
         let mut upgraded = frozen.clone();
@@ -15797,12 +15841,12 @@ while IFS= read -r ignored; do :; done
         });
         assert_ne!(
             codebuddy_default,
-            canonical_json_digest(&old_inputs).unwrap()
+            Some(canonical_json_digest(&old_inputs).unwrap())
         );
         old_inputs["nativeBackgroundPolicy"] = json!("disabled-v1");
         assert_eq!(
             codebuddy_default,
-            canonical_json_digest(&old_inputs).unwrap()
+            Some(canonical_json_digest(&old_inputs).unwrap())
         );
         let unchanged = freeze_native_session_compatibility(codebuddy.clone(), &workspace).unwrap();
         assert_eq!(
@@ -15845,7 +15889,7 @@ while IFS= read -r ignored; do :; done
         .unwrap();
         assert_ne!(changed_mcp, first);
 
-        upgraded.host_config_digest = "sha256:changed-host-input".to_string();
+        upgraded.host_config_digest = Some("sha256:changed-host-input".to_string());
         let changed_host = runtime_compatibility_digest(
             &upgraded,
             &workspace,
@@ -15937,7 +15981,7 @@ while IFS= read -r ignored; do :; done
         let mut changed_executable = frozen.clone();
         changed_executable.executable_fingerprint = "sha256:grok-other".to_string();
         let mut changed_host = frozen.clone();
-        changed_host.host_config_digest = "sha256:host-other".to_string();
+        changed_host.host_config_digest = Some("sha256:host-other".to_string());
         let mut changed_model = frozen.clone();
         changed_model.model.model_id = "grok-4.5".to_string();
         let mut changed_permissions = frozen.clone();

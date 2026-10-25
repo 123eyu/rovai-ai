@@ -374,8 +374,8 @@ fn runtime_entrypoint_compatibility(input: &AdapterRuntimeResolutionInput<'_>) -
 #[serde(rename_all = "camelCase")]
 pub struct AdapterRuntimeProjection {
     pub protocol_version: String,
-    pub binding_compatibility_digest: String,
-    pub host_config_digest: String,
+    pub binding_compatibility_digest: Option<String>,
+    pub host_config_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -1870,8 +1870,8 @@ impl AgentRuntimeAdapter for CodexCliAdapterPolicy {
         }))?;
         Ok(AdapterRuntimeProjection {
             protocol_version,
-            binding_compatibility_digest,
-            host_config_digest,
+            binding_compatibility_digest: Some(binding_compatibility_digest),
+            host_config_digest: Some(host_config_digest),
         })
     }
 }
@@ -3655,8 +3655,8 @@ fn resolve_pi_runtime(
     }))?;
     Ok(AdapterRuntimeProjection {
         protocol_version,
-        binding_compatibility_digest,
-        host_config_digest,
+        binding_compatibility_digest: Some(binding_compatibility_digest),
+        host_config_digest: Some(host_config_digest),
     })
 }
 
@@ -3689,6 +3689,13 @@ fn resolve_session_runtime(
         .find(|protocol| protocol.as_str() == required_protocol)
         .context("Runtime installation does not advertise the required protocol")?
         .clone();
+    if expected_kind == AdapterKind::HermesCli {
+        return Ok(AdapterRuntimeProjection {
+            protocol_version,
+            binding_compatibility_digest: None,
+            host_config_digest: None,
+        });
+    }
     let permission_values = input
         .permissions
         .values
@@ -3741,8 +3748,8 @@ fn resolve_session_runtime(
     }))?;
     Ok(AdapterRuntimeProjection {
         protocol_version,
-        binding_compatibility_digest,
-        host_config_digest,
+        binding_compatibility_digest: Some(binding_compatibility_digest),
+        host_config_digest: Some(host_config_digest),
     })
 }
 
@@ -3865,8 +3872,8 @@ impl AgentRuntimeAdapter for ClaudeCodeCliAdapterPolicy {
         }))?;
         Ok(AdapterRuntimeProjection {
             protocol_version,
-            binding_compatibility_digest,
-            host_config_digest,
+            binding_compatibility_digest: Some(binding_compatibility_digest),
+            host_config_digest: Some(host_config_digest),
         })
     }
 }
@@ -3937,8 +3944,8 @@ impl AgentRuntimeAdapter for AntigravityAppAdapterPolicy {
         }))?;
         Ok(AdapterRuntimeProjection {
             protocol_version,
-            binding_compatibility_digest,
-            host_config_digest,
+            binding_compatibility_digest: Some(binding_compatibility_digest),
+            host_config_digest: Some(host_config_digest),
         })
     }
 }
@@ -4081,6 +4088,36 @@ mod tests {
             assert!(hermes.capabilities.iter().any(|value| value == capability));
         }
         assert_eq!(hermes.permission_options, hermes_permission_options());
+        let permissions = AdapterPermissionConfig {
+            adapter_kind: AdapterKind::HermesCli,
+            schema_version: 1,
+            values: json!({"permission_mode":"dont_ask"}),
+        };
+        for (path, version, fingerprint) in [
+            ("/old/hermes", "0.22.4", "old"),
+            ("/new/hermes", "0.23.0", "new"),
+        ] {
+            let projection = AgentRuntimeAdapterRegistry::default()
+                .resolve_runtime(
+                    AdapterKind::HermesCli,
+                    AdapterRuntimeResolutionInput {
+                        installation_id: "hermes-local",
+                        executable_path: path,
+                        auth_scope: "default",
+                        reported_version: Some(version),
+                        executable_fingerprint: fingerprint,
+                        protocols: &["acp-v1".into()],
+                        native_session_compatibility_key: None,
+                        permissions: &permissions,
+                        permission_descriptors: &hermes.permission_options,
+                    },
+                )
+                .unwrap();
+            assert_eq!(projection.protocol_version, "acp-v1");
+            assert!(projection.binding_compatibility_digest.is_none());
+            assert!(projection.host_config_digest.is_none());
+        }
+
         assert_eq!(
             AgentRuntimeAdapterRegistry::default()
                 .mcp_projection(AdapterKind::HermesCli)
@@ -4537,7 +4574,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             resolved.binding_compatibility_digest,
-            current_contract_digest
+            Some(current_contract_digest.clone())
         );
         assert_ne!(current_contract_digest, legacy_contract_digest);
     }

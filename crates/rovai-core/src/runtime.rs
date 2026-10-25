@@ -294,7 +294,7 @@ pub struct BindNativeSessionCommand {
     pub proposed_binding_id: Option<String>,
     pub adapter_installation_id: String,
     pub native_session_id: String,
-    pub binding_compatibility_digest: String,
+    pub binding_compatibility_digest: Option<String>,
 }
 
 impl sealed::Sealed for BindNativeSessionCommand {}
@@ -723,8 +723,8 @@ fn validate_frozen_runtime_columns(
         && capabilities.as_ref() == Some(&runtime.capabilities)
         && model.as_ref() == Some(&runtime.model)
         && permissions.as_ref() == Some(&runtime.permissions)
-        && binding_digest == Some(runtime.binding_compatibility_digest.as_str())
-        && host_digest == Some(runtime.host_config_digest.as_str())
+        && binding_digest == runtime.binding_compatibility_digest.as_deref()
+        && host_digest == runtime.host_config_digest.as_deref()
         && protocol_version == Some(runtime.protocol_version.as_str())
         && native_session_compatibility_key == runtime.native_session_compatibility_key.as_deref();
     if !consistent {
@@ -3116,8 +3116,8 @@ impl ExecutionRuntimeService {
             || envelope
                 .payload
                 .binding_compatibility_digest
-                .trim()
-                .is_empty()
+                .as_ref()
+                .is_some_and(|digest| digest.trim().is_empty())
         {
             anyhow::bail!("Native Binding fields must not be empty");
         }
@@ -3232,7 +3232,7 @@ impl ExecutionRuntimeService {
             if frozen_installation.as_deref()
                 != Some(envelope.payload.adapter_installation_id.as_str())
                 || frozen_digest.as_deref()
-                    != Some(envelope.payload.binding_compatibility_digest.as_str())
+                    != envelope.payload.binding_compatibility_digest.as_deref()
                 || frozen_installation_generation.is_none()
             {
                 return Ok(rejected(
@@ -3267,7 +3267,7 @@ impl ExecutionRuntimeService {
                     == Some(envelope.payload.adapter_installation_id.as_str())
                 && current_session.as_deref() == Some(envelope.payload.native_session_id.as_str())
                 && current_digest.as_deref()
-                    == Some(envelope.payload.binding_compatibility_digest.as_str());
+                    == envelope.payload.binding_compatibility_digest.as_deref();
             let binding_prepared = current_binding_id.is_some()
                 && current_binding_generation >= 1
                 && envelope.payload.proposed_binding_id.as_deref() == current_binding_id.as_deref();
@@ -7516,8 +7516,8 @@ mod tests {
                     values: json!({}),
                 },
                 native_session_compatibility_key: current_key.map(str::to_string),
-                binding_compatibility_digest: "binding-stable".to_string(),
-                host_config_digest: "host-current".to_string(),
+                binding_compatibility_digest: Some("binding-stable".to_string()),
+                host_config_digest: Some("host-current".to_string()),
                 config_digest: "config-current".to_string(),
             },
             workspace: AgentRunWorkspace::runtime_managed_path("/tmp".to_string()),
@@ -7541,7 +7541,7 @@ mod tests {
                 execution.runtime.executable_path = "/new/location/selected-cli".into();
                 execution.runtime.reported_version = Some("0.23.0".into());
                 execution.runtime.binding_compatibility_digest =
-                    "different-context-and-permissions".into();
+                    Some("different-context-and-permissions".into());
                 execution.runtime.executable_fingerprint = "new-binary".into();
                 assert_eq!(
                     execution.resumable_native_session_id(),
@@ -10281,7 +10281,7 @@ mod tests {
         assert_eq!(binding.1.as_deref(), Some("thread-first"));
         assert_eq!(
             binding.2.as_deref(),
-            Some(execution.runtime.binding_compatibility_digest.as_str())
+            execution.runtime.binding_compatibility_digest.as_deref()
         );
         let resume_status: String = database
             .connection()
@@ -10643,7 +10643,7 @@ mod tests {
         effective.installation_generation += 1;
         effective.reported_version = Some("2.0.0".to_string());
         effective.executable_fingerprint = "sha256:runtime-v2".to_string();
-        effective.host_config_digest = "sha256:host-v2".to_string();
+        effective.host_config_digest = Some("sha256:host-v2".to_string());
         effective.config_digest.clear();
         effective.config_digest =
             canonical_json_digest(&serde_json::to_value(&effective).unwrap()).unwrap();

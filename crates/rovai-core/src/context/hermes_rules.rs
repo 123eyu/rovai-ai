@@ -35,7 +35,7 @@ pub(super) fn select(
             "SELECT hermes_rules_digest FROM runtime_input_delivery
          WHERE native_binding_id=?1 AND native_binding_generation=?2
            AND status='accepted' AND hermes_rules_envelope_version=1
-           AND hermes_rules_delivery_kind IN ('initial','update','compaction_recovery')
+           AND hermes_rules_delivery_kind IN ('initial','update')
          ORDER BY rowid DESC LIMIT 1",
             params![binding, snapshot.native_binding_generation],
             |r| r.get(0),
@@ -45,15 +45,7 @@ pub(super) fn select(
     let kind = match previous.as_deref() {
         Some(previous) if previous != digest => "update",
         Some(_) => "none",
-        None => {
-            let accepted: bool = database.connection().query_row(
-                "SELECT EXISTS(SELECT 1 FROM runtime_input_delivery WHERE native_binding_id=?1
-                 AND native_binding_generation=?2 AND status='accepted')",
-                params![binding, snapshot.native_binding_generation],
-                |r| r.get(0),
-            )?;
-            if accepted { "update" } else { "initial" }
-        }
+        None => "initial",
     };
     Ok((
         (kind != "none").then(|| envelope(kind, bootstrap)),

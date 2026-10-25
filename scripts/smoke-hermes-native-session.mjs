@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import {createServer} from 'node:http'
 import {spawn, spawnSync, execFileSync} from 'node:child_process'
-import {mkdtemp, mkdir, writeFile, readFile, cp, realpath} from 'node:fs/promises'
+import {mkdtemp, mkdir, writeFile, readFile, cp, realpath, symlink, readdir} from 'node:fs/promises'
 import {join, resolve, isAbsolute} from 'node:path'
 import {tmpdir} from 'node:os'
 import {DatabaseSync} from 'node:sqlite'
@@ -18,6 +18,10 @@ const root = await realpath(await mkdtemp(join(tmpdir(), 'rovai-hermes-native-se
 const userHome = join(root, 'user'), nativeHome = join(userHome, '.hermes')
 const project = join(root, 'project'), data = join(root, 'data'), source = join(root, 'hermes-agent')
 for (const p of [nativeHome, project, data]) await mkdir(p, {recursive: true, mode: 0o700})
+// The test user's normal CLI installation precedes Gateway/Core startup.
+// A Run must not create or repair the fixed installation entry.
+await mkdir(join(userHome, '.local/bin'), {recursive: true})
+await symlink(join(repository, 'target/debug/rovai'), join(userHome, '.local/bin/rovai'))
 execFileSync('git', ['clone', '--shared', '--no-hardlinks', officialSource, source], {stdio: 'pipe'})
 await cp(join(officialSource, 'install-stamp.json'), join(source, 'install-stamp.json'))
 const nativeCommit = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: source, encoding: 'utf8'}).trim()
@@ -50,6 +54,14 @@ const server = createServer(async (req, res) => {
     if (!main) {if (JSON.stringify(body.input).includes('You are a summarization agent creating a context checkpoint.')) summaries++; respond(res, body, text('Earlier isolated tasks completed. Continue the current task.')); return}
     const label = [...JSON.stringify(body.input).matchAll(/SESSION_PROBE:([AB][0-9]+)/g)].at(-1)?.[1]
     const n = calls.get(label) ?? 0; calls.set(label, n + 1)
+    if (label && n === 0) {
+      const contexts = join(data, 'runtime', 'builtin-tools')
+      const processes = await readdir(contexts)
+      assert(processes.length > 0, 'A live native CLI lease must retain its process/run-tmp root')
+      for (const process of processes) assert(!await exists(join(contexts, process, 'context.json')), 'Hermes must not project a CLI context file')
+      checks.noHermesContextProjection = true
+    }
+
     const mcpRound = ['A0', 'A1', 'A2', 'A6'].includes(label)
     if (mcpRound && n >= 1 && n <= 3) {
       const toolName = JSON.stringify(body.input).match(/mcp__editor_hermes_fixture_[a-z0-9]+__echo/)?.[0]
@@ -131,6 +143,9 @@ async function settled(test) {
     return r && ['succeeded', 'failed', 'cancelled'].includes(r.status) && !runs.some(v => v.run === r.id) && r
   })
   assert.equal(run.status, 'succeeded', JSON.stringify({test, run}))
+  const compatibility = row('SELECT runtime_binding_compatibility_digest AS binding, runtime_host_config_digest AS host, runtime_compatibility_digest AS runtime FROM agent_run WHERE id=?', run.id)
+  assert.deepEqual({...compatibility}, {binding: null, host: null, runtime: null})
+
   const message = row("SELECT * FROM camp_message WHERE camp_id=? AND author_type='agent' AND body=?", test.thread, 'NATIVE_OK_' + test.label)
   assert(message, test.label + ' missing public Send'); assert.equal(message.author_id, test.agentId); assert.equal(message.source_agent_run_id, run.id)
   const sid = row('SELECT native_session_id FROM conversation WHERE camp_id=? AND agent_id=?', test.thread, test.agentId).native_session_id
@@ -236,6 +251,8 @@ try {
   }
   assert.equal(row('SELECT COUNT(*) AS n FROM agent_run').n, 12)
   checks.actualModelInputsMatchRulesDelivery = true
+  checks.noHermesCompatibilityDigests = true
+  checks.cliEntryInstalledBeforeRuns = true
 
   await core.stop(); core = null; assert(alive(gateway))
   checks.originalSessionColdResume = true

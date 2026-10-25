@@ -15553,12 +15553,14 @@ impl Core {
                 Path::new(&execution.workspace.execution_root),
             )
             .await?;
-        self.refresh_task_discovery(Some((
-            config.process_id(),
-            &execution.agent_run_id,
-            execution.execution_epoch,
-        )))
-        .await;
+        if config.context_path().is_some() {
+            self.refresh_task_discovery(Some((
+                config.process_id(),
+                &execution.agent_run_id,
+                execution.execution_epoch,
+            )))
+            .await;
+        }
         Ok(())
     }
 
@@ -18369,8 +18371,8 @@ impl Core {
     async fn acp_host_bootstrap(
         &self,
         execution: &AgentRunExecution,
-        digest: String,
-    ) -> Result<(String, Option<String>)> {
+        digest: Option<String>,
+    ) -> Result<(Option<String>, Option<String>)> {
         if !matches!(
             execution.runtime.adapter_kind,
             AdapterKind::ClineCli | AdapterKind::MinimaxCodeCli
@@ -18385,10 +18387,11 @@ impl Core {
             execution.execution_epoch,
             charter_delivery_mode_for_adapter(execution.runtime.adapter_kind),
         )?;
-        let digest =
-            canonical_json_digest(&json!({"runtime":digest,"bootstrap":bootstrap.payload}))?;
+        let digest = canonical_json_digest(
+            &json!({"runtime":digest.context("ACP Bootstrap host digest missing")?,"bootstrap":bootstrap.payload}),
+        )?;
         Ok((
-            digest,
+            Some(digest),
             matches!(execution.runtime.adapter_kind, AdapterKind::MinimaxCodeCli)
                 .then_some(bootstrap.payload),
         ))
@@ -18438,8 +18441,10 @@ impl Core {
         let (mut runtime_compatibility_digest, mut startup_bootstrap) = self
             .acp_host_bootstrap(execution, runtime_compatibility_digest)
             .await?;
-        self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
-            .await?;
+        if let Some(digest) = &runtime_compatibility_digest {
+            self.persist_runtime_compatibility_digest(execution, digest)
+                .await?;
+        }
         let runtime_result = adapter
             .ensure_agent_run_runtime(
                 &execution.agent_run_id,
@@ -18505,11 +18510,10 @@ impl Core {
                         .forget_agent_run(&execution.agent_run_id, execution.execution_epoch)
                         .await;
                     runtime_compatibility_digest = digest;
-                    self.persist_runtime_compatibility_digest(
-                        execution,
-                        &runtime_compatibility_digest,
-                    )
-                    .await?;
+                    if let Some(digest) = &runtime_compatibility_digest {
+                        self.persist_runtime_compatibility_digest(execution, digest)
+                            .await?;
+                    }
                     runtime = adapter
                         .ensure_agent_run_runtime(
                             &execution.agent_run_id,
@@ -18625,8 +18629,10 @@ impl Core {
                 (runtime_compatibility_digest, startup_bootstrap) = self
                     .acp_host_bootstrap(execution, runtime_compatibility_digest)
                     .await?;
-                self.persist_runtime_compatibility_digest(execution, &runtime_compatibility_digest)
-                    .await?;
+                if let Some(digest) = &runtime_compatibility_digest {
+                    self.persist_runtime_compatibility_digest(execution, digest)
+                        .await?;
+                }
                 launch_permit.check_cancelled()?;
                 runtime = adapter
                     .ensure_agent_run_runtime(
@@ -28648,8 +28654,8 @@ mod tests {
                 values: json!({}),
             },
             native_session_compatibility_key: None,
-            binding_compatibility_digest: "binding".into(),
-            host_config_digest: "host".into(),
+            binding_compatibility_digest: Some("binding".into()),
+            host_config_digest: Some("host".into()),
             config_digest: "config".into(),
         };
         let mut observation = RuntimeDiscoveryObservation::detecting(AdapterKind::Pi, 1);
@@ -34082,7 +34088,7 @@ done
         }
         fn tasks(config: &BuiltinToolProcessConfig) -> bool {
             let context: serde_json::Value =
-                serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
+                serde_json::from_slice(&fs::read(config.context_path().unwrap()).unwrap()).unwrap();
             context["tasksEnabled"].as_bool().unwrap()
         }
         save(&core, false).await;
@@ -34113,13 +34119,13 @@ done
         core.bind_builtin_tool_runtime(a, execution_a, credential_a)
             .await
             .unwrap();
-        let mut unchanged = fs::read(a.context_path()).unwrap();
+        let mut unchanged = fs::read(a.context_path().unwrap()).unwrap();
         unchanged.push(b'\n'); // Detect even a same-value rewrite, independent of inode/mtime.
-        fs::write(a.context_path(), &unchanged).unwrap();
+        fs::write(a.context_path().unwrap(), &unchanged).unwrap();
         core.bind_builtin_tool_runtime(b, execution_b, credential_b)
             .await
             .unwrap();
-        assert_eq!(fs::read(a.context_path()).unwrap(), unchanged);
+        assert_eq!(fs::read(a.context_path().unwrap()).unwrap(), unchanged);
 
         // Pause at the existing gate, commit a new preference, then resume the
         // binding refresh. It must read the new value, not one captured at bind.
@@ -34155,15 +34161,15 @@ done
         save(&core, false).await;
         assert!(!tasks(a) && !tasks(b));
 
-        let saved = a.context_path().with_extension("saved");
-        fs::rename(a.context_path(), &saved).unwrap();
-        fs::create_dir(a.context_path()).unwrap();
+        let saved = a.context_path().unwrap().with_extension("saved");
+        fs::rename(a.context_path().unwrap(), &saved).unwrap();
+        fs::create_dir(a.context_path().unwrap()).unwrap();
         save(&core, true).await; // One failed file must not stop the other projection.
         assert!(tasks(b));
         assert_eq!(core.builtin_tool_leases.active_count().await, 2);
         tokio::task::yield_now().await;
-        fs::remove_dir(a.context_path()).unwrap();
-        fs::rename(saved, a.context_path()).unwrap();
+        fs::remove_dir(a.context_path().unwrap()).unwrap();
+        fs::rename(saved, a.context_path().unwrap()).unwrap();
         tokio::time::advance(Duration::from_millis(100)).await;
         tokio::task::yield_now().await;
         assert!(tasks(a)); // Existing bounded retry repairs without another save/bind.
@@ -35243,8 +35249,8 @@ for line in sys.stdin:
                 values: json!({}),
             },
             native_session_compatibility_key: None,
-            binding_compatibility_digest: "cleanup-binding".into(),
-            host_config_digest: "cleanup-host".into(),
+            binding_compatibility_digest: Some("cleanup-binding".into()),
+            host_config_digest: Some("cleanup-host".into()),
             config_digest: "cleanup-config".into(),
         };
         let builtin_tools = BuiltinToolProcessConfigFactory::new(

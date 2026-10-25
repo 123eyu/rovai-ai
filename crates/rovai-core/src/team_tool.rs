@@ -205,7 +205,7 @@ pub struct BuiltinToolBindingCredential {
     pub conversation_version: i64,
     pub adapter_installation_id: String,
     pub native_session_id: Option<String>,
-    pub binding_compatibility_digest: String,
+    pub binding_compatibility_digest: Option<String>,
     pub binding_replaced: bool,
     pub previous_adapter_installation_id: Option<String>,
     pub previous_native_session_id: Option<String>,
@@ -834,8 +834,11 @@ impl TeamToolService {
         ensure_runtime_is_frozen(adapter_kind.as_deref())?;
         let frozen_installation_id = frozen_installation_id
             .context("Team Tool AgentRun has no frozen Runtime installation")?;
-        let frozen_compatibility_digest = frozen_compatibility_digest
-            .context("Team Tool AgentRun has no frozen Native Binding compatibility digest")?;
+        anyhow::ensure!(
+            adapter_kind.as_deref() == Some(AdapterKind::HermesCli.as_str())
+                || frozen_compatibility_digest.is_some(),
+            "Team Tool AgentRun has no frozen Native Binding compatibility digest"
+        );
         let frozen_installation_generation = frozen_installation_generation
             .context("Team Tool AgentRun has no frozen installation generation")?;
 

@@ -17,7 +17,7 @@ last_updated: 2026-10-25
 最低版本为官方 Hermes **0.22.4**，不锁 commit 或版本上界；实际能力通过当前安装的原生接口验证。
 `ROVAI_HERMES_BIN` 或通用启动设置选定程序，直接执行 `hermes --profile default acp`。
 不解析/替换 Python 启动串，不生成 `host.py`。子进程固定 `HERMES_HOME=当前用户 ~/.hermes`，
-移除遗留私有存储/profile 控制变量，不修改 Shell 配置或用户 `.env`。
+清除子进程的 profile 选择，不再识别旧私有 Home 启动变量，不修改 Shell 配置或用户 `.env`。
 
 链路为 **共享 ACP 客户端 → 官方 Hermes ACP → 原生共享 Gateway**。Rovai 只拥有启动的 ACP 连接。
 使用 `ManagedProcessPurpose::RuntimeConnection`，退出、超时和强制清理只作用于客户端根进程，
@@ -33,6 +33,9 @@ Hermes 正常保存会话、记忆和刷新认证不属于 Rovai 配置覆盖。
 
 版本、入口、安装记录、指纹或普通配置变化只触发探测/进程更新，不单独拒绝精确恢复。
 不同 Binding 并行；同 Binding 使用既有调度和 Fleet owner，不新增全局锁。
+Hermes 使用显式 Native Binding Host 策略，不生成或比较 Host/Binding/runtime 配置兼容性摘要，
+不追加实现 revision 摘要。实际启动配置、版本下限、协议、权限、工作目录与同 Binding 所有权仍保留。
+Run 冻结配置的审计摘要与下述 B 内容摘要继续使用，不作为 Hermes resume 的配置相等门槛。
 
 ## Session 与输入
 
@@ -49,6 +52,7 @@ Hermes 正常保存会话、记忆和刷新认证不属于 Rovai 配置覆盖。
 不注册 `post_compaction` Hook、不建立 Hermes observer、不生成或消费 Hermes 压缩补发需求。
 压缩后下一输入在 B 未变化时仍只提交 P。旧 pending 停止消费，不伪造 acknowledged；旧记录、
 冻结正文及 `compaction_recovery` 枚举保持可读，不产生新的 recovery 投递。其他 Runtime 不变。
+当前规则基线只查询已接受的 `initial` / `update`；不接续旧 system 注入或 recovery 实验。
 现有 nullable Hermes 输入证据/Managed Blob 继续记录 initial/update/none；prepared/unknown 不算 accepted。
 
 Ready 声明 `context.charter.first_payload`、`hermes.native_session_cli`、模型/权限原生能力；
@@ -65,8 +69,13 @@ CLI 读取本机原生终端提供的 `HERMES_SESSION_PLATFORM=local` 和逻辑 
 不使用可能随压缩旋转的物理 `HERMES_SESSION_ID`，不按 cwd、日志、时间或最新活跃成员猜测。
 旧上下文文件来源仍服务其他 Runtime，不改变其协议。
 
-CLI 通过固定安装入口运行。缺失时建立 `~/.local/bin/rovai` 到同包 CLI 的固定链接，已有不同目标不覆盖。
+CLI 通过固定安装入口运行。macOS 安装版 App 在启动初始化时建立 `~/.local/bin/rovai` 到同包 CLI
+的固定链接；同路径 App 更新直接使用新二进制，已有普通文件或不同目标不覆盖，冲突记录安装诊断。
+开发与隔离验收 App 不修改日常入口；隔离原生 smoke 在测试用户 Home 中预先完成 CLI 安装。
+Hermes 每次 Run 不建立、更新或核对链接；没有逐 Run 安装握手、版本检查或后台修复。
 这不是逐 Run wrapper；共享 Gateway 的 PATH 必须能找到该固定入口，不靠给 ACP 设置 PATH 传递。
+Hermes 的 process 配置没有 `context.json` 输出：创建、绑定、Task 刷新/重试、解绑与撤权均不写该文件。
+内存 ActiveLease、Run/epoch、Binding、撤权和回执继续复用共享注册表；`run-tmp` 与实例端点保留。
 Core 在自己的用户数据目录 `Rovai AI/builtin-tools/connection.json` 发布一个私有端点描述；
 仅含本地 IPC 地址，启动更新、正常退出按自身端点清理。不存 Session/Run 映射或凭据。
 多个隔离 Core 不共享 Home；同一用户端点指向当前发布实例，不扫描/猜测其他实例。
@@ -103,6 +112,7 @@ MCP 当前分配直接随原生 new/resume 参数提供；不二次发现、不�
 原生正常返回的部分失败保持可用、日志如实呈现；异常/断线不伪装成部分成功。
 **官方恢复空列表表示保留既有分配，不证明撤销。**当前无 ACP 确认的显式清空能力，不宣称即时撤销；
 用户配置来源的 MCP 继续由原生管理。Gateway 重启后的凭据恢复须由正常 resume 参数重新提供。
+当前 ACP stdio MCP 参数未传递自定义 `cwd`，不宣称按该目录启动服务。
 
 ## 结果与观测
 
@@ -110,8 +120,11 @@ MCP 当前分配直接随原生 new/resume 参数提供；不二次发现、不�
 断线未知不自动重放；其他 Session/请求不串联。公开 Send 与任务结算仍遵守共享产品规则。
 不靠模型自然语言判成功，不追加 Gateway 事件订阅、receipt 对账或连续序号成功门禁。
 
-工具通知按原生字段投影；缺少参数、Diff 或文件完整状态保持未知，不扫描磁盘补证。
+工具通知按原生字段投影，可展示有原生依据的工具事件、输出和文件路径。当前官方 ACP 路径未接通
+Hermes 的结构化 `reported_mutation` / Diff 生成；原生预览不能冒充完整状态。旧控制器的文件验收
+不代表当前生产能力，历史证据仍可读取。缺少参数、Diff 或文件完整状态保持未知，不扫描磁盘补证。
 原生 PromptResponse usage 的 Session 累计值不冒充本 prompt 消耗，失败前缺少可归属 delta 也不估算。
+缺少可靠的逐 Run 用量或费用时显示未知，不以 Session 总量补齐。
 原生 `usage_update` 仅作上下文 gauge。ACP 图片沿原生媒体流程，能力取决于配置及模型。
 
 ## 准入

@@ -14155,18 +14155,11 @@ mod slow_tests {
             )
             .unwrap();
         let store = ManagedBlobStore::new(&fixture.directory);
-        for (index, expected) in [
-            "initial", "none", "update", "none", "none", "none", "update", "none",
-        ]
-        .into_iter()
-        .enumerate()
+        for (index, expected) in ["initial", "none", "update", "none", "none", "none"]
+            .into_iter()
+            .enumerate()
         {
             if index > 0 {
-                if index == 6 {
-                    // An upgraded Session's old accepted system-layer inputs
-                    // must not masquerade as accepted user-layer rules.
-                    fixture.database.connection().execute("UPDATE runtime_input_delivery SET hermes_rules_envelope_version=NULL,hermes_rules_digest=NULL,hermes_rules_delivery_kind=NULL,hermes_runtime_payload_blob_id=NULL", []).unwrap();
-                }
                 if index == 2 {
                     fixture.database.connection().execute("UPDATE agent_profile SET display_name='Updated Hermes identity' WHERE id='agent_1'", []).unwrap();
                 }
@@ -14185,6 +14178,11 @@ mod slow_tests {
                 fixture.database.connection().execute("INSERT INTO bootstrap_redelivery_requirement(conversation_id,native_binding_id,native_binding_generation,adapter_kind,requested_revision,acknowledged_revision,created_at,updated_at)
                     SELECT conversation_id,?2,1,'hermes-cli',1,0,datetime('now'),datetime('now') FROM agent_run WHERE id=?1",
                     params![fixture.run_id,fixture.native_binding_id]).unwrap();
+            }
+            if index == 4 {
+                // Historical experimental recovery is readable, but cannot
+                // become the current rules baseline for a new input.
+                fixture.database.connection().execute("UPDATE runtime_input_delivery SET hermes_rules_delivery_kind='compaction_recovery',hermes_rules_digest='retired-experiment' WHERE rowid=(SELECT MAX(rowid) FROM runtime_input_delivery WHERE status='accepted')", []).unwrap();
             }
             let request = MaterializeContextRequest {
                 agent_run_id: &fixture.run_id,
@@ -16312,9 +16310,10 @@ mod slow_tests {
                             execution.runtime.installation_id.clone(),
                         ),
                         previous_native_session_id: Some("generation-one".to_string()),
-                        previous_binding_compatibility_digest: Some(
-                            execution.runtime.binding_compatibility_digest.clone(),
-                        ),
+                        previous_binding_compatibility_digest: execution
+                            .runtime
+                            .binding_compatibility_digest
+                            .clone(),
                         proposed_binding_id: None,
                         adapter_installation_id: execution.runtime.installation_id.clone(),
                         native_session_id: "generation-two".to_string(),

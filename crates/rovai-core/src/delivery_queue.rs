@@ -1087,10 +1087,10 @@ fn insert_batch_run(
             runtime
                 .map(|runtime| serde_json::to_string(&runtime.permissions))
                 .transpose()?,
-            runtime.map(|runtime| runtime.binding_compatibility_digest.as_str()),
+            runtime.and_then(|runtime| runtime.binding_compatibility_digest.as_deref()),
             runtime.map(|runtime| runtime.executable_path.as_str()),
             runtime.map(|runtime| runtime.auth_scope.as_str()),
-            runtime.map(|runtime| runtime.host_config_digest.as_str()),
+            runtime.and_then(|runtime| runtime.host_config_digest.as_deref()),
             runtime.map(|runtime| runtime.protocol_version.as_str()),
             runtime.map(|runtime| runtime.installation_generation),
             runtime.map(|runtime| runtime.search_environment_generation),

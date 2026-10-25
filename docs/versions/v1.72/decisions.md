@@ -1354,3 +1354,9 @@ D59/D62 的控制器重复了官方 ACP 已有的 admission、事件回放与终
 
 取代 D59–D63 中私有 Home、专用 Gateway、Hook 补发和私有控制的当前实施选择，保留其历史理由。
 未选择插件安装、逐 Run 包装路径、MCP 替代 CLI 或原生执行来源证明；未上线实验无迁移和回退要求。
+
+User sequence 64/66/68/70 确认进一步删除没有消费者的 Hermes CLI 文件投影和没有有效决策用途的
+Host/Binding/runtime 兼容性摘要。复用 Command Code 分支已经定义的显式 Native Binding 策略，
+其他 Runtime 的调用路径保持原义；固定同包 CLI 入口由安装版 App 初始化提供，Run 不再重复安装。
+不增加表、握手或后台管理。旧实验规则记录只保留历史读取，不参与新的规则基线；当前 Diff、MCP cwd
+及用量能力按实际实现说明，不为旧文档承诺恢复封装。

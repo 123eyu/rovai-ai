@@ -171,7 +171,14 @@ User 要求三款名称具有一致风格，并指出「暮色」没有体现暗
 偏好存储、所有配色值和生产交互保持原样，旧偏好无需迁移；system/day/night 继续保留。
 历史设计稿与实施记录保留当时名称；品牌 Ember 色及 Logo 地平线几何不属于主题显示名称。
 
-验证结果待本次回归与生产组件预览完成后记录。
+- `pnpm typecheck`、`pnpm test`、`pnpm build:desktop`：通过；Vitest 256 个文件、3005 项通过、2 项既有跳过，完整 Node 门禁通过。
+- `pnpm test:rust:pr`：477 项通过、1 项既有忽略；本机 Rust 1.98 工具链仍报告缺少 `libLLVM.dylib`
+  的调试信息剥离警告，不影响构建和测试结果。
+- 通用文档测试、版本/决策检查随完整测试通过；最终提交另执行基于本次 main 基线的 CI 文档门禁。
+- 生产组件浏览器 fixture 确认六个选项完整显示，新中英文名称、选中摘要及明暗模式正确；
+  仍分别提交 `horizon` / `classic-red` / `ember`，无整页横向溢出或浏览器 warning/error。
+- CSS 去除注释后与本次 main 基线完全一致，所有配色值与生产样式保持不变；仅更新既有测试的名称预期。
+- 已保存外观设置截图与命名映射检查结果；fixture 使用固定数据，不接入 Host/Core/Runtime，不改动日常 App 数据。
 
 ## Worktree handoff
 
@@ -180,6 +187,6 @@ User 要求三款名称具有一致风格，并指出「暮色」没有体现暗
 - Branch: `rovai/theme-display-names`
 - Base: `origin/main` / `179289b080d74a8868c7d7de8bfb5dd99508a292`
 - Governance: none；局部可逆名称修订，沿用已授权的 PR 与合入流程，UI 合同随同提交。
-- Status: active
-- Validation: 待本次回归与生产组件预览。
-- Next: 完成验证、创建 PR，CI 通过后合入 main 并清理 worktree。
+- Status: ready
+- Validation: 见上节；源码预览提交 `53b4f061eac1abd086827b11ab724f24220c7bb3`。
+- Next: 创建 PR，CI 通过后合入 main 并清理 worktree。

@@ -6,6 +6,13 @@ last_updated: 2026-10-23
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-25 Hermes 原生会话定位
+
+当前生产代码已替换私有 Home/专用 Gateway/Hook；用户原生 Home + 官方 ACP + Core 调用时 Run 解析。
+历史条目的旧控制入口、进程树回收与补发保证不再适用。现行边界见
+[合同](contracts/hermes-managed-runtime-v1.md)，本轮验证结果见 [实施记录](versions/v1.72/hermes-first-input-implementation.md)。
+macOS arm64 保持 Preview；不使用下面历史路径的通过结果补全本轮未验证能力。
+
 ## 2026-10-23 Hermes 显式 unknown 恢复补修
 
 Ready 目录已与 FirstPayload 对齐：首条 user 规则、signal-driven/best-effort 压缩连续性，移除旧 system

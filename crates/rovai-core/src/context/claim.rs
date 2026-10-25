@@ -139,9 +139,7 @@ impl ClaimedBatchContext {
         // A resumed Session may need a new Bootstrap or be replaced after claim.
         // Reserve actual frozen bytes, never zero merely because an old digest exists.
         let bootstrap_reserve = if adapter == AdapterKind::HermesCli {
-            hermes_rules::envelope("compaction_recovery", &bootstrap.payload(&member_identity)?)
-                .len()
-                + 2
+            hermes_rules::envelope("update", &bootstrap.payload(&member_identity)?).len() + 2
         } else if request.charter_delivery_mode == CharterDeliveryMode::FirstPayload
             || may_redeliver
         {

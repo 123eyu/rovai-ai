@@ -15,10 +15,6 @@ pub(super) fn envelope(kind: &str, bootstrap: &str) -> String {
             "Rovai 协作规则更新",
             "以下规则替换此前的 Rovai 协作规则，继续当前会话与任务。\n\n",
         ),
-        "compaction_recovery" => (
-            "Rovai 协作规则恢复",
-            "原生上下文压缩后，重新提供当前协作规则，继续当前会话与任务。\n\n",
-        ),
         _ => unreachable!("unknown Hermes rules envelope"),
     };
     format!("[{label}]\n{introduction}{bootstrap}\n[/{label}]")
@@ -28,7 +24,6 @@ pub(super) fn select(
     database: &Database,
     snapshot: &RunSnapshot,
     bootstrap: &str,
-    redelivery: Option<i64>,
 ) -> Result<(Option<String>, HermesRulesEvidence)> {
     let binding = snapshot
         .native_binding_id
@@ -49,7 +44,6 @@ pub(super) fn select(
     let digest = sha256_text(bootstrap);
     let kind = match previous.as_deref() {
         Some(previous) if previous != digest => "update",
-        Some(_) if redelivery.is_some() => "compaction_recovery",
         Some(_) => "none",
         None => {
             let accepted: bool = database.connection().query_row(

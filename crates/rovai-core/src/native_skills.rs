@@ -292,12 +292,18 @@ impl NativeSkillDiscoveryRequest<'_> {
         configuration: &RuntimeStartupConfiguration,
     ) -> Result<NativeSkillScan> {
         configuration.ensure_environment_available()?;
-        let home = runtime_variable(
-            configuration,
-            if cfg!(windows) { "USERPROFILE" } else { "HOME" },
-        )
-        .map(PathBuf::from)
-        .or_else(dirs::home_dir)
+        let home = if adapter == AdapterKind::HermesCli {
+            // Match the native ACP launch: legacy Runtime Home overrides cannot
+            // redirect this integration's Skills into a private profile.
+            dirs::home_dir()
+        } else {
+            runtime_variable(
+                configuration,
+                if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+            )
+            .map(PathBuf::from)
+            .or_else(dirs::home_dir)
+        }
         .context("executing Host home directory is unavailable")?;
         ensure!(
             home.is_absolute(),
@@ -526,7 +532,7 @@ fn hermes_skill_roots(
     project: Option<&Path>,
     configuration: &RuntimeStartupConfiguration,
 ) -> (Vec<(&'static str, PathBuf)>, HashSet<String>, Vec<String>) {
-    let native = configured_root("HERMES_HOME", home.join(".hermes"), configuration);
+    let native = home.join(".hermes");
     let mut errors = Vec::new();
     let config: serde_json::Value = match fs::read_to_string(native.join("config.yaml")) {
         Ok(text) => serde_yaml::from_str(&text).unwrap_or_else(|_| {
@@ -690,9 +696,7 @@ fn user_roots(
                 );
             }
         }
-        AdapterKind::HermesCli => paths.push(
-            configured_root("HERMES_HOME", home.join(".hermes"), configuration).join("skills"),
-        ),
+        AdapterKind::HermesCli => paths.push(home.join(".hermes/skills")),
         AdapterKind::KiroCli => paths.push(home.join(".kiro/skills")),
         AdapterKind::QoderCli => {
             paths.push(
@@ -1071,6 +1075,9 @@ mod tests {
                 assert!(scan.skills.iter().all(|skill| skill.source_scope == "user"));
             }
         }
+        let native_home = home.join(".hermes");
+        fs::rename(&first, &native_home).unwrap();
+        let first = native_home;
         // Hermes shared user Skills are opt-in; project .agents requires native
         // trust and nearest-Git-root discovery, including nested working dirs.
         let project = fixture.join("project");
@@ -1100,7 +1107,7 @@ mod tests {
                 },
                 RuntimeEnvironmentVariable {
                     name: "HERMES_HOME".into(),
-                    value: first.to_string_lossy().into(),
+                    value: second.to_string_lossy().into(),
                 },
                 RuntimeEnvironmentVariable {
                     name: "HERMES_TEST_EXTERNAL".into(),
@@ -1109,26 +1116,32 @@ mod tests {
             ],
         };
         let discovery = NativeSkillDiscovery::default();
-        let names = |user_only| {
-            let scan = discovery
-                .discover(
-                    AdapterKind::HermesCli,
-                    Some(&nested),
-                    user_only,
-                    false,
-                    &configuration,
-                )
-                .unwrap();
-            assert!(scan.errors.is_empty());
-            if user_only {
-                assert!(scan.skills.iter().all(|skill| skill.source_scope == "user"));
+        let nested = nested.canonicalize().unwrap();
+        let names = |user_only: bool| {
+            let (roots, disabled, errors) = hermes_skill_roots(
+                &home,
+                (!user_only).then_some(nested.as_path()),
+                &configuration,
+            );
+            assert!(errors.is_empty());
+            let mut names = Vec::new();
+            for (scope, root) in roots {
+                if user_only {
+                    assert_eq!(scope, "user");
+                }
+                let scanned =
+                    discovery.ensure_directory(&directory_key(&root), AdapterKind::HermesCli, true);
+                assert!(scanned.errors.is_empty());
+                names.extend(
+                    scanned
+                        .skills
+                        .into_iter()
+                        .filter(|s| !disabled.contains(&s.name))
+                        .map(|s| s.name),
+                );
             }
-            let mut names = scan
-                .skills
-                .into_iter()
-                .map(|skill| skill.name)
-                .collect::<Vec<_>>();
             names.sort();
+            names.dedup();
             names
         };
         assert_eq!(names(false), ["one"]);

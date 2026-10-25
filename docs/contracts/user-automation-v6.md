@@ -27,10 +27,7 @@ Judge 变更后仍须重新登记与绑定。取消、App 关闭、父进程消�
 
 ## Hermes 显式恢复
 
-新增封闭操作 `agentRun.hermesRecovery.inspect` / `.resolve`，分别映射 Core
-`agentRuns.hermesRecovery.inspect` / `.resolve`。CLI 为 `agent-run hermes-inspect` /
-`agent-run hermes-discard`，参数、确认与原生身份约束见
-[Hermes 未知执行合同](hermes-managed-runtime-v1.md#用户明确处理未知执行)。
-确认文件冻结精确目标，CLI 从其 canonical digest 派生稳定 commandId；运输失败时用户复用该文件核对。
-Main 不接受任意 RPC method、原生 Home 或 executable 参数。Core 记录用户意图及回执，禁止把维护操作
-转成业务输入、自动重放或成功 Run。原失败与已发生效果保留，后续新任务须由用户另行提交。
+未上线的 hermes-inspect/hermes-discard 及私有恢复 RPC 已退出生产接线，不保留兼容分支。
+原生 unknown 保留事实，按官方入口明确处理，不自动换 Session 或重放任务。
+Hermes 原生会话 CLI 环境仍禁止用户级 `rovai app`。
+详见 [Hermes 未知执行合同](hermes-managed-runtime-v1.md#用户明确处理未知执行)。

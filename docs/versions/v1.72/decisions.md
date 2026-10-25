@@ -1334,3 +1334,23 @@ D59/D62 的控制器重复了官方 ACP 已有的 admission、事件回放与终
 失败/取消照原生处理，中断未知不重放，错误 Session/请求不串联。沿用 FirstPayload、官方完成 Hook 的
 下一普通输入补发、原生能力关闭策略、逐 Run 冷启动、共享 Fleet/队列/Send/CLI lease。
 未选择扩大 Gateway/Fleet、恢复或证据框架，也不为内部实验分支持续维持私有接口兼容。
+
+
+<a id="v1-72-d64"></a>
+## V1.72-D64：Hermes 使用原生 Home 与调用时活动 Run，不追溯命令的原始执行
+
+- 状态：accepted
+- 日期：2026-10-25
+- 授权：User sequence 56 的完整方案与 sequence 60 的实施授权。
+- 当前权威：[Hermes Runtime](../../contracts/hermes-managed-runtime-v1.md)、[内置工具运输](../../contracts/builtin-tool-transport-v43.md)、[进程所有权](../../contracts/managed-runtime-process-v2.md)。
+
+私有 Home/逐 Run Gateway 与插件逐执行身份方案需要额外维护，且偏离用户原生环境。采用官方 ACP、
+原生共享 Home，通过原生逻辑 Session 在 Core 现有关系和活动 lease 中一次解析 Run；不新增映射、
+上下文交换、上游补丁或模型参数。CLI 与 Core 同包发布，其他 Runtime 的原有运输不动。
+
+明确接受旧后台执行在后继 Run 首次调用时归后继 Run；固定一次操作的身份，派发未知不自动重新定位。
+取消压缩补发，保留首次/真实变更的 user 层规则；多次原生压缩可能丢失完整规则。
+共享 Gateway 不属于 Run，关闭 ACP 不承诺工具停止；记忆与配置也不按成员隔离。
+
+取代 D59–D63 中私有 Home、专用 Gateway、Hook 补发和私有控制的当前实施选择，保留其历史理由。
+未选择插件安装、逐 Run 包装路径、MCP 替代 CLI 或原生执行来源证明；未上线实验无迁移和回退要求。

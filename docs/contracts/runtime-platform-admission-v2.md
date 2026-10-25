@@ -4,7 +4,7 @@ name: Runtime Platform Admission
 version: v2
 status: accepted
 source_version: v1.39
-last_updated: 2026-10-18
+last_updated: 2026-10-25
 ---
 
 # Runtime Platform Admission v2
@@ -141,6 +141,7 @@ fail-closed 门槛不因本项晋升改变；不建立 Renderer allowlist。
 `hermes-cli × macos-arm64` 为 `preview / qualification_evidence_missing`，其余三个平台为
 `not_qualified / qualification_evidence_missing`。当前资格证据仅覆盖已记录的官方 source install 0.22.4
 安装；兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
-[受管合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)明确内部接口、
-真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。理由见
-[V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)。
+[当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
+Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
+初始准入理由见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)，当前接入边界见
+[V1.72-D64](../versions/v1.72/decisions.md#v1-72-d64)。

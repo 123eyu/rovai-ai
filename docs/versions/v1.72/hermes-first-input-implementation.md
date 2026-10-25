@@ -2,12 +2,76 @@
 document_type: implementation-plan
 version: v1.72
 authority: implementation-status
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 ---
 
 # Hermes 首次输入规则实施与验证
 
-按 [R1](model-context-change-hermes-first-input.md) 和 User sequence 31 实施。
+当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D64](decisions.md#v1-72-d64)。
+下面 R1 与私有 Home 的原始验收是历史记录，其 Hook、恢复 CLI 和树回收保证不适用于原生共享 Gateway。
+本轮新结果在“原生会话定位”节单独记录，旧证据不改写。
+
+## 原生会话定位（2026-10-25）
+
+按 User sequence 56/58/60 实施 [D64](decisions.md#v1-72-d64)。正式入口直接运行用户安装的
+`hermes --profile default acp`，使用当前用户 `~/.hermes`。删除私有 Python 启动器、Home/config
+副本、专用 Gateway、Hook、压缩补发和私有 steer/recovery 控制路径；不为未上线实验做迁移或回退。
+其他 Runtime 的输入、CLI context 运输和清理保持不变，历史数据库字段与冻结正文保留。
+
+CLI 从本机原生工具环境读取 `HERMES_SESSION_PLATFORM=local` 与逻辑 `HERMES_SESSION_CHAT_ID`，
+一次业务请求直达 Core。Core 用已有 Conversation、当前 running Run/epoch、Binding/generation 与
+ActiveLease 固定身份，再汇入现有 Router/领域校验/发送回执。没有新增表、映射文件、模型参数、
+上下文获取握手或来源证明；旧后台执行在下一轮首次调用即属于下一轮，是 User 明确选择的语义。
+无活动或未知 Session 返回既有 `builtin_tool.run_not_bound` 业务错误；已派发但响应丢失不重试到后继 Run。
+
+固定 CLI 入口为 `~/.local/bin/rovai`；已有不同目标不覆盖。实例级 `connection.json` 只含 Core 地址，
+不是会话映射或凭据文件。生产和探测使用 `RuntimeConnection` 只回收 ACP 根进程；共享 Gateway 由原生管理。
+MCP 随 new/resume 参数提供，同名策略不再宣称 `rovai_wins`，空列表不冒充已撤销。
+
+[隔离原生证据](../../research/hermes-runtime/native-session-acceptance-2026-10-25.json)使用生产 Core/CLI、
+未补丁官方 0.22.4（`4d04303818b61bf3aa09278af48356315515965b`）、同一测试用户 Home 和预先运行的 Gateway。
+Provider 为 loopback Responses，不使用付费模型或日常用户数据。最终二进制的 `VmUwPI` 共 12 个 Run：10 succeeded、
+1 主动 cancelled、1 Core 强杀后 failed；后两项是故障场景的预期结果。
+
+| 场景 | 实际结果 |
+| --- | --- |
+| 两成员并发普通终端 Send | 成员/Thread/Run 归属准确，工具环境没有 `ROVAI_CLI_CONTEXT`；Gateway 原 PATH 不含后来安装的 `.local/bin` |
+| 同 Session 续轮与旧后台调用 | 原 Session 不变；A0 后台首次调用发生在 A1，回执精确属于 A1 |
+| Core 正常重启、规则真实变化 | 原 Session 恢复，只有更新轮携带更新块；实际模型请求与投递证据一致 |
+| 两次自动压缩 | 合成 usage 触发两次已提交原生摘要；无 Hook/补发需求，下一普通输入只有 P |
+| 部分 MCP 失败与冷恢复 | 坏服务原生日志告警，成功服务真实调用可用；Core 冷恢复与测试主动重启 Gateway 后，同 Session MCP 重新可用 |
+| 取消与强杀 | 取消 A 不影响 B；Core SIGKILL 不杀 Gateway，不重放 B2、不重复 Send，B4 继续原 Session |
+| 原生配置 | config/.env 哈希不变，手写 system prompt 出现在真实模型请求中；未改上游源码 |
+
+压缩使用窗口 65536、`protect_first_n=0`、`protect_last_n=2`、合成 input usage 60000；依据原生日志
+`commit_status=committed` 与实际请求核对，不按辅助请求总数或物理 Session 是否旋转猜测压缩。
+不承诺规则永久保留、取消回滚工具外部效果、共享 Home 的成员长期记忆隔离或即时 MCP 清空。
+未验收 execute_code、子智能体、远程/容器终端、其他平台、付费模型质量和日常 App 安装。
+
+迁移过程中实际发现并修复了两处仍调用已删恢复 envelope 的预算预留，以及无活动 Session 错误被 CLI
+压成通用 IPC 错误的问题。测试自身还修正了提交后误取上一取消 Run、非模型请求缺 input 和 macOS
+夹具路径 canonicalization；失败尝试独立记录，不算通过。
+
+复现入口：`node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python>`。
+旧私有 Home smoke/Python controller fixtures 随生产职责退役，历史结果和 Git 保留；没有删除迁移读取测试。
+
+### 本轮回归
+
+最终 `cargo test --workspace -- --test-threads=1` 为 **477 passed / 0 failed / 1 ignored**，包含 CLI 31 项。
+Hermes slow/extended 3 项、ACP 相关筛选 77 项（另 2 个指定真实环境的用例 ignored）、Adapter 目录 25 项通过；
+这些筛选与 workspace 存在重叠，不累加为独立覆盖数量。CLI 响应丢失仅派发一次，旧 context 来源的原重试测试保留。
+Desktop User Automation 10 项、qualification helper/isolation 8 项、文档单测 10 项通过；
+`cargo build -p rovai-core --bins`、`cargo check --workspace`、fmt、TypeScript、脚本语法、whitespace、
+当前和 diff-aware 文档门禁通过。
+
+并发 workspace 首先暴露已修复的 Skills 夹具规范化遗漏；修正后两次并发全量均在既有 Cursor alias
+探测的 2 秒预算处超时（430 passed / 1 failed / 1 ignored）。该项单独复核为 0.14 秒通过，最终串行
+完整 workspace 通过；未修改 Cursor 实现、超时或断言，也未跳过失败项。兼容性文档变更后的既有证据摘要
+按实际文件更新，保持原 checksum 断言。当前路径未安装到日常 App，macOS arm64 仍为 Preview。
+
+## 历史 R1 实施
+
+按当时 R1 和 User sequence 31 实施。
 Core 继续拥有完整 B；Hermes 在首次、更新或可靠完成通知后的下一普通输入携带一份规则。
 官方 ACP/Gateway 与逐 Run lease 不变；原生 system/personality/环境变量不再被 Adapter 解析或覆盖。
 

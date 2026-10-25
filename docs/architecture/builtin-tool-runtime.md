@@ -3,7 +3,7 @@ document_type: architecture
 architecture: builtin-tool-runtime
 authority: builtin-tool-component-boundaries
 status: accepted
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 ---
 
 # Built-in Tool Runtime Architecture
@@ -130,7 +130,8 @@ membership version；这一统一 Router fence 覆盖整个 catalog，而不是�
 Local IPC 的外部 seam 只有 `LocalIpcEndpoint` 与异步 byte stream。macOS Adapter 使用 Unix Socket；Windows
 Adapter 使用在创建时带 protected DACL、拒绝 remote client 的 Named Pipe。Raw `SECURITY_ATTRIBUTES`、listener
 补位与 Pipe instance 生命周期只存在于 Windows transport implementation；Router、Catalog、receipt 和 replay
-不感知端点类型。OS ACL 永不替代 process/lease token。
+不感知端点类型。上下文文件来源传递 process/lease token；Hermes 原生来源由 Core 解析当前执行并在内部
+取得同一 ActiveLease，仍走共享校验，不向 CLI 返回凭据。OS ACL 本身不建立业务 Run 权限。
 
 ## Catalog 与 Agent command
 
@@ -735,11 +736,20 @@ Activity。命令文本、时间、cwd 或输出相似度不能建立关联。Sh
   其他 parse、IPC/lease/catalog preflight 失败继续使用安全
   通用 structured error，退出码 `2`；
 - Core 业务拒绝：完整 Envelope 记录在 Core/Evidence，Agent stdout 输出业务 `error`，退出码 `1`；
-- 响应丢失：CLI 对同一 request identity 有界重试，Core 执行 Replay；Projection 不暴露 request
-  identity；
+- 响应丢失：上下文文件来源对同一 request identity 有界重试，Core 执行 Replay；Hermes 原生会话来源
+  单次派发，未知结果不重新定位后继 Run。Projection 不暴露 request identity；
 - 无法证明 mutation 结果：Agent 只收到无 request identity 的 `builtin_tool.outcome_indeterminate`，
   退出码 `3`，必须先确认当前状态；
 - `thread.message.send` 的内部 Thread 不变量失败：fail closed，不加入稳定 Agent error contract；
 - external MCP 失败：遵循其独立 non-blocking degradation，不回退为 built-in MCP；
 - macOS 每个正式 Runtime、以及 Windows 每个 `qualified` Runtime 未通过 v21 command、projection、replay、
   fence 和 negative-path 验收：对应平台版本不得完成。未准入 Windows Runtime 不进入 AgentRun。
+
+
+## Hermes 的原生会话定位入口
+
+Hermes 在共享 Gateway 的工具侧取得逻辑 Session ID，CLI 不依赖 ACP 进程传递逐 Run 环境。
+一次业务请求进入 Core，现有 Conversation → 活动 Run → ActiveLease 提供内部上下文，再复用本架构的
+Router、领域校验、回复和回执。没有额外映射表、逐 Session 文件或凭据查询握手。
+当前 Run 在调用受理时固定；旧后台命令首次调用可归后继 Run。未找到唯一活动执行就拒绝。
+其他 Runtime 继续 context.json/lease 运输，细节见 [运输合同](../contracts/builtin-tool-transport-v43.md#hermes-原生会话来源)。

@@ -2065,12 +2065,7 @@ async fn run_acp_probe_with_scope(
         command.args(["--permission-mode", "default"]);
     }
     if kind == AdapterKind::HermesCli {
-        crate::hermes::configure_command(
-            &mut command,
-            &probe_root,
-            &probe_root.join("hermes-storage"),
-        )
-        .await?;
+        crate::hermes::configure_command(&mut command)?;
     } else if kind == AdapterKind::DeepseekHarness {
         crate::dsh::configure_probe(&mut command, &probe_root)?;
     } else if kind == AdapterKind::OpencodeCli && catalog_only {
@@ -2100,9 +2095,17 @@ async fn run_acp_probe_with_scope(
     // working directory and its additive configuration belong to this probe;
     // native initialization may persist state, which is not ours to remove.
     command.current_dir(&probe_root).stdin(Stdio::piped());
-    let mut process =
-        RuntimeProbeProcess::spawn(&mut command, DEFAULT_CAPTURE_LIMIT, DEFAULT_CLEANUP_TIMEOUT)
-            .with_context(|| format!("failed to start {} as an ACP server", path.display()))?;
+    let mut process = RuntimeProbeProcess::spawn_with_purpose(
+        &mut command,
+        DEFAULT_CAPTURE_LIMIT,
+        DEFAULT_CLEANUP_TIMEOUT,
+        if kind == AdapterKind::HermesCli {
+            crate::managed_process::ManagedProcessPurpose::RuntimeConnection
+        } else {
+            crate::managed_process::ManagedProcessPurpose::RuntimeProbe
+        },
+    )
+    .with_context(|| format!("failed to start {} as an ACP server", path.display()))?;
     let deadline = Duration::from_secs(if kind == AdapterKind::HermesCli {
         90
     } else {
@@ -2884,7 +2887,7 @@ pub fn configure_acp_command(
         AdapterKind::CursorAgent => {
             command.arg("acp");
         }
-        AdapterKind::HermesCli => {} // managed entry configured asynchronously before spawn
+        AdapterKind::HermesCli => crate::hermes::configure_command(command)?,
         AdapterKind::KimiCodeCli | AdapterKind::MinimaxCodeCli => {
             command.arg("acp");
         }

@@ -16,8 +16,6 @@ pub use transport::{
 #[path = "core_subsystems.rs"]
 mod core_subsystems;
 use crate::{acp, antigravity, builtin_tool_runtime, claude, codex, health, pi, runtime_fleet};
-#[path = "hermes_recovery.rs"]
-pub(crate) mod hermes_recovery;
 #[path = "runtime_check_environment.rs"]
 mod runtime_check_environment;
 #[path = "startup_settings.rs"]
@@ -6280,6 +6278,86 @@ impl Core {
         }
     }
 
+    async fn handle_hermes_session_ipc(
+        &self,
+        request: rovai_core::builtin_tool_transport::HermesSessionIpcRequest,
+    ) -> BuiltinToolIpcResponse {
+        let BuiltinToolIpcRequestBody::Invoke {
+            request_id,
+            operation,
+            ..
+        } = &request.body;
+        let _gate = self.builtin_tool_leases.invocation_guard().await;
+        let resolved: Result<_> = {
+            let database = self.database.lock().await;
+            (|| {
+                anyhow::ensure!(
+                    !request.native_session_id.trim().is_empty(),
+                    "Hermes Session ID is missing"
+                );
+                let mut statement = database.connection().prepare(
+                    "SELECT c.id, c.native_binding_id, c.native_binding_generation
+                     FROM conversation AS c JOIN adapter_installation AS i ON i.id=c.native_adapter_installation_id
+                     WHERE c.native_session_id=?1 AND i.adapter_kind='hermes-cli'")?;
+                let matches = statement
+                    .query_map([&request.native_session_id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                anyhow::ensure!(
+                    matches.len() == 1,
+                    "Hermes Session does not identify one Conversation"
+                );
+                let (conversation, binding, generation) = &matches[0];
+                let (run, epoch): (String, i64) = database.connection().query_row(
+                    "SELECT id, execution_epoch FROM agent_run WHERE conversation_id=?1
+                     AND status='running' AND cancel_requested_at IS NULL AND runtime_adapter_kind='hermes-cli'",
+                    [conversation], |row| Ok((row.get(0)?,row.get(1)?)))
+                    .optional()?.context("Hermes Session has no active execution")?;
+                Ok((run, epoch, binding.clone(), *generation))
+            })()
+        };
+        let (run, epoch, binding, generation) = match resolved {
+            Ok(scope) => scope,
+            Err(_) => {
+                return builtin_tool_rejection(
+                    operation,
+                    request_id,
+                    "builtin_tool.run_not_bound",
+                    "Hermes Session does not identify one active Rovai Run.",
+                );
+            }
+        };
+        let auth = match self
+            .builtin_tool_leases
+            .auth_for_execution(&run, epoch, &binding, generation)
+            .await
+        {
+            Ok(auth) => auth,
+            Err(_) => {
+                return builtin_tool_rejection(
+                    operation,
+                    request_id,
+                    "builtin_tool.run_not_bound",
+                    "Hermes Session has no active execution lease.",
+                );
+            }
+        };
+        // The captured lease is revalidated by the common handler. It may be
+        // revoked before commit, but can never be re-resolved to a successor.
+        drop(_gate);
+        self.handle_builtin_tool_ipc(BuiltinToolIpcRequest {
+            ipc_protocol_version: BUILTIN_TOOL_IPC_PROTOCOL_VERSION,
+            auth,
+            body: request.body,
+        })
+        .await
+    }
+
     async fn handle_builtin_tool_ipc(
         &self,
         request: BuiltinToolIpcRequest,
@@ -11281,10 +11359,6 @@ impl Core {
                         .remove_camp(&camp_id)?;
                 }
                 Ok(serde_json::to_value(execution.result)?)
-            }
-            "agentRuns.hermesRecovery.inspect" | "agentRuns.hermesRecovery.resolve" => {
-                self.handle_hermes_recovery(&request.method, request.params.clone())
-                    .await
             }
             "agentRuns.continue" => {
                 let params: UserCommandParams<crate::run_continuation::ContinueAgentRunCommand> =
@@ -18618,7 +18692,6 @@ impl Core {
         self.bind_prepared_native_session(execution, &binding_credential, &session_id)
             .await
             .context("failed to bind ACP Native Session")?;
-        runtime.ensure_hermes_input_ready().await?;
         if matches!(
             execution.runtime.adapter_kind,
             AdapterKind::DeepseekHarness | AdapterKind::CommandCodeCli | AdapterKind::ClineCli
@@ -27142,6 +27215,10 @@ async fn serve_builtin_tool_ipc(core: Arc<Core>, mut shutdown: oneshot::Receiver
                 _ = &mut shutdown => return,
             }
         };
+        let _discovery =
+            builtin_tool_runtime::BuiltinToolDiscovery::publish(builtin_tool_endpoint())
+                .map_err(|error| eprintln!("Native CLI endpoint discovery unavailable: {error:#}"))
+                .ok();
         let admission_error = loop {
             let accepted = tokio::select! {
                 accepted = listener.accept() => accepted,
@@ -27205,6 +27282,20 @@ async fn handle_builtin_tool_connection(core: Arc<Core>, stream: LocalIpcStream)
                 }) {
                     Some(request) => core.handle_compaction_hook_ipc(request).await,
                     None => CompactionHookIpcResponse { accepted: false },
+                };
+                serde_json::to_value(response)?
+            } else if value.as_ref().and_then(|v| v.get("source")).is_some() {
+                let response = match value.and_then(|v| {
+                    serde_json::from_value::<
+                        rovai_core::builtin_tool_transport::HermesSessionIpcRequest,
+                    >(v)
+                    .ok()
+                }) {
+                    Some(request) => core.handle_hermes_session_ipc(request).await,
+                    None => BuiltinToolIpcResponse::ipc_error(
+                        "builtin_tool.invalid_ipc_request",
+                        "Native Session request is malformed",
+                    ),
                 };
                 serde_json::to_value(response)?
             } else {

@@ -226,7 +226,7 @@ pub struct PreparedContext {
     pub rendered_payload: String,
     pub rendered_payload_digest: String,
     /// Runtime text, including a selected Bootstrap envelope for first input,
-    /// update or compaction recovery. Hermes freezes the exact text in a Blob.
+    /// update. Hermes freezes the exact text in a Blob.
     pub runtime_payload: String,
     pub hermes_rules: Option<HermesRulesEvidence>,
     pub charter_delivery_mode: CharterDeliveryMode,
@@ -969,12 +969,8 @@ impl ContextService {
                     &snapshot,
                     bootstrap_evidence.clone(),
                 )?;
-                let (overlay, evidence) = hermes_rules::select(
-                    database,
-                    &snapshot,
-                    &bootstrap.payload,
-                    bootstrap_redelivery_revision,
-                )?;
+                let (overlay, evidence) =
+                    hermes_rules::select(database, &snapshot, &bootstrap.payload)?;
                 hermes_rules = Some(evidence);
                 overlay
             }
@@ -1623,9 +1619,7 @@ impl ContextService {
         // the dynamic bytes themselves remain frozen here and are never
         // re-selected on retry/recovery.
         let reserve = if run_snapshot_adapter_kind(&snapshot)? == AdapterKind::HermesCli {
-            MAX_SESSION_BOOTSTRAP_BYTES
-                + hermes_rules::envelope("compaction_recovery", "").len()
-                + 2
+            MAX_SESSION_BOOTSTRAP_BYTES + hermes_rules::envelope("update", "").len() + 2
         } else {
             bootstrap_payload_reserve(
                 request.charter_delivery_mode,
@@ -7641,12 +7635,7 @@ fn load_existing_manifest(
             &entrypoint,
         )?;
         if hermes {
-            let (overlay, evidence) = hermes_rules::select(
-                database,
-                snapshot,
-                &bootstrap,
-                bootstrap_redelivery_revision,
-            )?;
+            let (overlay, evidence) = hermes_rules::select(database, snapshot, &bootstrap)?;
             bootstrap_in_runtime_payload = overlay.is_some();
             hermes_rules = Some(evidence);
             overlay
@@ -7872,12 +7861,7 @@ fn materialize_frozen_delivery_context(
         let bootstrap =
             format_session_bootstrap_for_snapshot(database, snapshot, bootstrap_evidence.clone())?;
         if hermes {
-            let (overlay, evidence) = hermes_rules::select(
-                database,
-                snapshot,
-                &bootstrap.payload,
-                bootstrap_redelivery_revision,
-            )?;
+            let (overlay, evidence) = hermes_rules::select(database, snapshot, &bootstrap.payload)?;
             bootstrap_in_runtime_payload = overlay.is_some();
             hermes_rules = Some(evidence);
             overlay
@@ -14158,7 +14142,7 @@ mod slow_tests {
     // Owns Hermes's complete-B acceptance ledger and exact frozen user bytes.
     // The generic Bootstrap owner deliberately excludes identity from its digest.
     #[test]
-    fn hermes_rules_follow_accepted_inputs_and_freeze_compaction_revisions() {
+    fn hermes_rules_follow_accepted_inputs_and_ignore_retired_compaction_requirements() {
         let mut fixture = fixture();
         bind_fixture_native_session(&mut fixture, "hermes-rules-session");
         let original_growth: String = fixture
@@ -14172,14 +14156,7 @@ mod slow_tests {
             .unwrap();
         let store = ManagedBlobStore::new(&fixture.directory);
         for (index, expected) in [
-            "initial",
-            "none",
-            "update",
-            "compaction_recovery",
-            "compaction_recovery",
-            "none",
-            "update",
-            "none",
+            "initial", "none", "update", "none", "none", "none", "update", "none",
         ]
         .into_iter()
         .enumerate()
@@ -14253,7 +14230,7 @@ mod slow_tests {
                         .unwrap()
                         .unwrap();
                 assert_eq!(
-                    hermes_rules::select(&fixture.database, &snapshot, "B", None)
+                    hermes_rules::select(&fixture.database, &snapshot, "B")
                         .unwrap()
                         .1
                         .kind,
@@ -14300,7 +14277,7 @@ mod slow_tests {
                 assert_eq!(
                     pending_redelivery_revision(&fixture.database, &fixture.native_binding_id, 1)
                         .unwrap(),
-                    Some(2)
+                    None
                 );
             }
             if index >= 4 {

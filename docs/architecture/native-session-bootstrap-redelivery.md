@@ -56,7 +56,7 @@ pending。
 | Qwen Code | `signal_driven` | `best_effort` | `ROVAI_INTERNAL_QWEN_COMPACTION_DETECTOR_POLICY` |
 | Antigravity | `unavailable_no_qualified_signal` | `disabled` | `ROVAI_INTERNAL_ANTIGRAVITY_COMPACTION_DETECTOR_POLICY`；v0.48 不允许 enable |
 | TRAE CLI CN | `not_observed_no_qualified_signal` | `disabled` | 无；`0.120.52` manual/auto ACP 与 Hook Probe 未见结构化完成边界，状态不是 `Unsupported` |
-| Hermes | `signal_driven`，user 层规则 | `best_effort` | `ROVAI_INTERNAL_HERMES_COMPACTION_DETECTOR_POLICY` |
+| Hermes | `disabled`，仅首次/真实更新 | 不准入压缩补发 | 无 |
 | Claude Code | `protected_instruction_layer` | 不适用 | 无 |
 | Codex CLI | `protected_instruction_layer` | 不适用 | 无 |
 
@@ -233,16 +233,12 @@ Gate 后到达的更高 requested revision。
 
 ## Hermes 完成通知与下一普通输入
 
-Hermes 使用私有 Home 内官方 `post_compaction` shell Hook，走既有 `rovai __compaction-hook`、
-process credential / Host instance / exact Session observer lease 和 durable outbox。
-仅 committed `summarize` 且没有旋转到其他 Session 的通知准入；失败、started、token 变化与普通文案不准入。
-重复运输沿原有 request/digest 去重。Hook 不读取 B/P、不修改原生历史，不批准其他用户 Hook。
-
-输入 prepared 是 cutoff：之前的 Requirement 可被普通 start 输入携带，之后的事件留给下一普通输入。
-Hermes Steer 不携带规则、不消费 pending；同一 Run 自动压缩后仍可能存在完整规则缺失窗口，不能宣称即时恢复。
-Hermes 外层 envelope v1 独立于共享 Redelivery v2，完整 B digest 和最终输入 Blob 是经确认的 Hermes 证据例外；
-其他 Runtime 继续遵守上文的身份/摘要/Blob 边界。字段和接受语义见
-[Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md#session-与输入)。
+Hermes 已按 [R2](../versions/v1.72/model-context-change-hermes-first-input.md) 取消压缩补发。
+不注册 Hook、不准入 Hermes observer/完成事件、不消费旧 pending；历史要求不伪造为 acknowledged。
+下一普通输入仅在完整 B 实际变化时携带更新块，否则只提交 P。冷恢复也不重复首次规则。
+不保证多次原生压缩后完整 B 仍存在，不以隐藏提醒替代补发。其他 Runtime 的本架构不变。
+历史 envelope/冻结输入保持可读，当前字段语义见
+[Hermes 合同](../contracts/hermes-managed-runtime-v1.md#session-与输入)。
 
 ## 长期约束
 

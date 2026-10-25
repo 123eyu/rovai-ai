@@ -174,8 +174,6 @@ async fn run() -> Result<u8> {
         }
         _ => bail!("invalid Rovai command; run `rovai --help`"),
     };
-    let context = load_context()?;
-    let auth = context.auth()?;
     let request_id = if operation == "member.update" {
         input["requestId"]
             .as_str()
@@ -184,18 +182,33 @@ async fn run() -> Result<u8> {
     } else {
         Uuid::new_v4().to_string()
     };
-    let request = BuiltinToolIpcRequest {
-        ipc_protocol_version: BUILTIN_TOOL_IPC_PROTOCOL_VERSION,
-        auth,
-        body: BuiltinToolIpcRequestBody::Invoke {
-            request_id,
-            operation,
-            input,
-            send_input_file_path,
-        },
+    let body = BuiltinToolIpcRequestBody::Invoke {
+        request_id,
+        operation,
+        input,
+        send_input_file_path,
     };
-
-    let response = match send_with_retry(&context.core_endpoint, &request).await {
+    let result = if let Some(native_session_id) = hermes_session_source() {
+        let endpoint: LocalIpcEndpoint = serde_json::from_slice(&fs::read(
+            rovai_core::builtin_tool_transport::builtin_tool_discovery_path()?,
+        )?)?;
+        endpoint.validate()?;
+        let request = rovai_core::builtin_tool_transport::HermesSessionIpcRequest {
+            source: rovai_core::builtin_tool_transport::HermesSessionSource::NativeSession,
+            native_session_id,
+            body,
+        };
+        send_native_session(&endpoint, &request).await
+    } else {
+        let context = load_context()?;
+        let request = BuiltinToolIpcRequest {
+            ipc_protocol_version: BUILTIN_TOOL_IPC_PROTOCOL_VERSION,
+            auth: context.auth()?,
+            body,
+        };
+        send_with_retry(&context.core_endpoint, &request).await
+    };
+    let response = match result {
         Ok(response) => response,
         Err(BuiltinToolIpcFailure::OutcomeIndeterminate) => {
             println!(
@@ -287,17 +300,12 @@ async fn run_compaction_hook(args: &[String]) -> Result<()> {
         bail!("compaction hook signal does not match its configured source");
     }
     let hook_event_name = source_signal.to_string();
-    let trigger = if adapter_kind == "hermes-cli" {
-        validate_hermes_compaction(&hook_input, &native_session_id, source_signal)?;
-        "summarize".to_string()
-    } else {
-        hook_input
-            .get("trigger")
-            .or_else(|| hook_input.get("source"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
-    };
+    let trigger = hook_input
+        .get("trigger")
+        .or_else(|| hook_input.get("source"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     // The explicit compact_summary field may travel only on this live local IPC
     // request so the execution console can reuse its Managed Blob result path.
     // It never participates in the observation digest or recovery outbox.
@@ -374,19 +382,6 @@ async fn run_compaction_hook(args: &[String]) -> Result<()> {
     }
     let error = last_error.context("compaction observation submission remained uncertain")?;
     Err(error)
-}
-
-fn validate_hermes_compaction(input: &Value, session: &str, source: &str) -> Result<()> {
-    anyhow::ensure!(
-        source == "post_compaction"
-            && input["hook_event_name"] == "post_compaction"
-            && input["extra"]["kind"] == "summarize"
-            && input["extra"]["old_session_id"]
-                .as_str()
-                .is_some_and(|old| old.is_empty() || old == session),
-        "Hermes hook is not a committed in-place summary"
-    );
-    Ok(())
 }
 
 fn stage_compaction_observation(
@@ -490,7 +485,23 @@ fn is_family_help(args: &[String]) -> bool {
     matches!(args, [family, help] if help == "--help" && matches!(family.as_str(), "member" | "thread" | "camp" | "history" | "memory" | "single-chat" | "automation" | "mission"))
 }
 
+fn hermes_session_source() -> Option<String> {
+    // Existing Runtime context callers retain their transport unchanged.
+    if env::var_os(ROVAI_CLI_CONTEXT_ENV).is_some() {
+        return None;
+    }
+    rovai_core::hermes::native_session_id(
+        env::var("HERMES_SESSION_PLATFORM").ok().as_deref(),
+        env::var("HERMES_SESSION_CHAT_ID").ok().as_deref(),
+    )
+}
+
 fn discover_tasks_enabled() -> bool {
+    // Hermes has no per-Run context projection. Core owns capability decisions;
+    // local help remains available without an extra context-fetch request.
+    if hermes_session_source().is_some() {
+        return true;
+    }
     load_context().is_ok_and(|context| {
         context.contract_version == BUILTIN_TOOL_CONTRACT_VERSION
             && context.ipc_protocol_version == BUILTIN_TOOL_IPC_PROTOCOL_VERSION
@@ -1444,6 +1455,25 @@ fn insert_direct_value(
     Ok(())
 }
 
+async fn send_native_session(
+    endpoint: &LocalIpcEndpoint,
+    request: &rovai_core::builtin_tool_transport::HermesSessionIpcRequest,
+) -> std::result::Result<BuiltinToolIpcResponse, BuiltinToolIpcFailure> {
+    let serialized =
+        serde_json::to_vec(request).map_err(|_| BuiltinToolIpcFailure::BeforeDispatch)?;
+    // A retry could arrive in a successor Run. Dispatch once; an uncertain
+    // response remains uncertain instead of resolving the Session a second time.
+    match exchange_local_ipc_frame(endpoint, &serialized, CORE_TIMEOUT).await {
+        Ok(response) => {
+            serde_json::from_str(&response).map_err(|_| BuiltinToolIpcFailure::OutcomeIndeterminate)
+        }
+        Err((LocalIpcRoundTripFailure::BeforeDispatch, _)) => {
+            Err(BuiltinToolIpcFailure::BeforeDispatch)
+        }
+        Err(_) => Err(BuiltinToolIpcFailure::OutcomeIndeterminate),
+    }
+}
+
 async fn send_with_retry(
     endpoint: &LocalIpcEndpoint,
     request: &BuiltinToolIpcRequest,
@@ -1577,14 +1607,16 @@ fn user_automation_available_in_current_process() -> bool {
     user_automation_available_in_process(
         env::var(ROVAI_CLI_CONTEXT_ENV).ok().as_deref(),
         env::var(ROVAI_RUN_TMP_ENV).ok().as_deref(),
+        hermes_session_source().is_some(),
     )
 }
 
 fn user_automation_available_in_process(
     builtin_tool_context: Option<&str>,
     run_tmp: Option<&str>,
+    native_hermes: bool,
 ) -> bool {
-    builtin_tool_context.is_none() && run_tmp.is_none()
+    !native_hermes && builtin_tool_context.is_none() && run_tmp.is_none()
 }
 
 fn print_user_automation_unavailable_in_runtime() {
@@ -2234,6 +2266,7 @@ mod tests {
 
     #[test]
     fn managed_runtime_cli_surface_does_not_advertise_or_admit_user_automation() {
+        assert!(!user_automation_available_in_process(None, None, true));
         assert!(!root_help_text(true, true).contains("rovai app"));
         assert!(root_help_text(false, true).contains("rovai app --help"));
         for (context, run_tmp, available) in [
@@ -2245,7 +2278,7 @@ mod tests {
             (None, Some(""), false),
         ] {
             assert_eq!(
-                user_automation_available_in_process(context, run_tmp),
+                user_automation_available_in_process(context, run_tmp, false),
                 available
             );
         }
@@ -3172,6 +3205,44 @@ mod tests {
         );
         server.join().unwrap();
         std::fs::remove_file(socket).unwrap();
+        let socket = std::path::PathBuf::from("/tmp").join(format!(
+            "rv-native-loss-{}.sock",
+            &Uuid::new_v4().to_string()[..8]
+        ));
+        let listener = UnixListener::bind(&socket).unwrap();
+        let endpoint = LocalIpcEndpoint::UnixSocket {
+            path: socket.to_string_lossy().into_owned(),
+        };
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut byte = [0; 1];
+            while stream.read_exact(&mut byte).is_ok() && byte[0] != b'\n' {}
+            drop(stream);
+            // If CLI retries, it connects to this still-open listener and times out.
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            listener.set_nonblocking(true).unwrap();
+            assert_eq!(
+                listener.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        });
+        let request = rovai_core::builtin_tool_transport::HermesSessionIpcRequest {
+            source: rovai_core::builtin_tool_transport::HermesSessionSource::NativeSession,
+            native_session_id: "logical-session".into(),
+            body: request_for_ipc_test().body,
+        };
+        assert_eq!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                send_native_session(&endpoint, &request)
+            )
+            .await
+            .unwrap()
+            .unwrap_err(),
+            BuiltinToolIpcFailure::OutcomeIndeterminate
+        );
+        server.join().unwrap();
+        std::fs::remove_file(socket).unwrap();
     }
 
     #[cfg(unix)]
@@ -3327,21 +3398,6 @@ mod tests {
 
     #[test]
     fn compaction_hook_stages_only_lifecycle_metadata_for_uncertain_recovery() {
-        let completed = json!({"hook_event_name":"post_compaction", "session_id":"session-1",
-            "extra":{"kind":"summarize","old_session_id":"session-1"}});
-        assert!(validate_hermes_compaction(&completed, "session-1", "post_compaction").is_ok());
-        for (pointer, value) in [
-            ("/hook_event_name", json!("pre_compaction")),
-            ("/extra/kind", json!("prune_tool_results")),
-            ("/extra/kind", Value::Null),
-            ("/extra/old_session_id", json!("other-session")),
-            ("/extra/old_session_id", Value::Null),
-        ] {
-            let mut rejected = completed.clone();
-            *rejected.pointer_mut(pointer).unwrap() = value;
-            assert!(validate_hermes_compaction(&rejected, "session-1", "post_compaction").is_err());
-        }
-        assert!(validate_hermes_compaction(&completed, "session-1", "pre_compaction").is_err());
         let root = std::env::temp_dir().join(format!("rovai-hook-outbox-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let context_path = root.join("context.json");

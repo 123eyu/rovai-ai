@@ -750,7 +750,7 @@ impl FleetState {
             );
         }
 
-        // Hermes has one native Gateway per binding. Reserve that
+        // Hermes permits one active ACP owner per binding. Reserve that
         // actual shared resource while spawning, executing and stopping; an
         // unrelated binding never waits on the other Host's I/O.
         if request.adapter_kind == AdapterKind::HermesCli
@@ -2546,7 +2546,7 @@ mod tests {
                 assert!(
                     fleet
                         .acquire(same_binding, || async {
-                            panic!("same Hermes Home must not start another owner")
+                            panic!("same Hermes binding must not start another owner")
                         })
                         .await
                         .is_err()

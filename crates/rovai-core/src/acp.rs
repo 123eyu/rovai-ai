@@ -1469,7 +1469,6 @@ pub(crate) struct AcpHost {
     grok_context_windows: BTreeMap<String, i64>,
     codebuddy_config_dir: Option<PathBuf>,
     minimax_data_dir: Option<PathBuf>,
-    hermes_control: Option<ManagedProcessLaunchSpec>,
 }
 
 fn enrich_paired_tool_message(
@@ -1846,22 +1845,16 @@ impl AcpHost {
         if let Some(environment) = &frozen_runtime.environment {
             environment.apply(&mut command)?;
         }
-        if let Some(config) = &builtin_tools {
-            config.configure_command(&mut command)?;
+        if frozen_runtime.adapter_kind != AdapterKind::HermesCli {
+            if let Some(config) = &builtin_tools {
+                config.configure_command(&mut command)?;
+            }
         }
         if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
-            // Official ACP initialize validates the selected installation.
-            // Stale installation metadata never prevents native restoration.
-            command.env(
-                "ROVAI_HERMES_MCP_NAMES",
-                serde_json::to_string(&external_mcp_servers.keys().collect::<Vec<_>>())?,
-            );
-            crate::hermes::configure_command(
-                &mut command,
-                private_config_root.context("Hermes private Host missing")?,
-                &private_runtime_dir.join("hermes-storage"),
-            )
-            .await?;
+            if let Some(config) = &builtin_tools {
+                config.ensure_native_cli_entry()?;
+            }
+            crate::hermes::configure_command(&mut command)?;
         }
         let ephemeral_config = configure_runtime_command(
             &mut command,
@@ -1917,13 +1910,15 @@ impl AcpHost {
         command.current_dir(&process_working_directory);
         let spec = ManagedProcessLaunchSpec::capture(
             &command,
-            ManagedProcessPurpose::RuntimeHost,
+            if frozen_runtime.adapter_kind == AdapterKind::HermesCli {
+                ManagedProcessPurpose::RuntimeConnection
+            } else {
+                ManagedProcessPurpose::RuntimeHost
+            },
             ManagedStdinPolicy::Piped,
             ManagedWindowsArgvDialect::MicrosoftCrt,
             format!("runtime-host:{}", frozen_runtime.adapter_kind.as_str()),
         )?;
-        let hermes_control =
-            (frozen_runtime.adapter_kind == AdapterKind::HermesCli).then(|| spec.clone());
         let minimax_data_dir = (frozen_runtime.adapter_kind == AdapterKind::MinimaxCodeCli)
             .then(|| minimax_data_dir(&spec))
             .flatten();
@@ -2003,7 +1998,6 @@ impl AcpHost {
             client_terminal_mode,
             codebuddy_config_dir,
             minimax_data_dir,
-            hermes_control,
             client_terminal_bridge,
             host_instance_id,
             child: Mutex::new(child),
@@ -2646,29 +2640,6 @@ impl AcpHost {
             prompt_id,
             message,
         )
-    }
-
-    async fn hermes_control(&self, operation: &str, params: Value) -> Result<Value> {
-        ensure!(self.is_alive(), "Hermes Host exited");
-        let result = crate::hermes::control(
-            self.hermes_control
-                .as_ref()
-                .context("Hermes control unavailable")?,
-            operation,
-            params,
-        )
-        .await?;
-        if let Some(missing) = result
-            .get("missingMcpServers")
-            .and_then(Value::as_array)
-            .filter(|names| !names.is_empty())
-        {
-            self.send_host_diagnostic(format!(
-                "Hermes MCP discovery incomplete; unavailable servers: {}. Continuing with native tools and available MCP servers.",
-                json!(missing)
-            ));
-        }
-        Ok(result)
     }
 
     async fn complete_pending(&self, id: u64, pending: PendingRpc, message: Value) {
@@ -5108,7 +5079,7 @@ impl AcpRuntime {
                     "session/load"
                 };
                 let result = loop {
-                    let mut params = if method == "session/resume" {
+                    let params = if method == "session/resume" {
                         build_acp_resume_session_params(
                             self.host.adapter_kind,
                             existing_session_id,
@@ -5132,9 +5103,6 @@ impl AcpRuntime {
                         }
                         params
                     };
-                    if self.host.adapter_kind == AdapterKind::HermesCli {
-                        params["mcpServers"] = json!([]);
-                    }
                     match self
                         .host
                         .rpc_with_timeout(method, params, ACP_HISTORY_RESTORE_TIMEOUT)
@@ -5213,40 +5181,10 @@ impl AcpRuntime {
         {
             *self.session_result.write().await = Some(result);
         }
-        if self.host.adapter_kind == AdapterKind::HermesCli && prebound_session {
-            // Restore first. MCP revocation is an idle-only preparation; a native
-            // blocker must not discard or replace the successfully restored Session.
-            let state = self
-                .host
-                .hermes_control(
-                    "prepare_session",
-                    json!({"sessionId":session_id,"mcpServers":mcp_servers}),
-                )
-                .await?;
-            if let Some(result) = self.session_result.write().await.as_mut() {
-                result["_meta"]["rovaiHermesState"] = state;
-            }
-        }
         let session_result = self.session_result.read().await.clone();
         self.host
             .remember_session(&session_id, session_result.as_ref())
             .await;
-        if self.host.adapter_kind == AdapterKind::HermesCli
-            && session_result
-                .as_ref()
-                .and_then(|result| {
-                    result
-                        .pointer("/_meta/rovaiHermesState/state")
-                        .and_then(Value::as_str)
-                })
-                .is_some_and(|state| state != "idle")
-        {
-            // Restoration succeeded. Keep history/session identity available;
-            // the separate input gate reports why a new task cannot start.
-            self.finish_session_attachment(&session_id, prebound_session)
-                .await?;
-            return Ok(session_id);
-        }
         if self.host.adapter_kind == AdapterKind::ClineCli
             && model_source == "runtime_default"
             && let Some(expected) = crate::cline::configured_native_model()?
@@ -5551,38 +5489,6 @@ impl AcpRuntime {
         Ok(())
     }
 
-    pub(crate) async fn ensure_hermes_input_ready(&self) -> Result<()> {
-        if self.host.adapter_kind != AdapterKind::HermesCli {
-            return Ok(());
-        }
-        let result = self.session_result.read().await;
-        let state = result
-            .as_ref()
-            .and_then(|result| result.pointer("/_meta/rovaiHermesState/state"))
-            .and_then(Value::as_str)
-            .unwrap_or("idle");
-        let message = match state {
-            "idle" => return Ok(()),
-            "running" => "原会话已恢复，原生任务仍在执行，暂不能提交新任务",
-            "approval" => "原会话已恢复，原生任务正在等待审批，暂不能提交新任务",
-            "queued" => "原会话已恢复，原生仍有待执行任务，暂不能提交新任务",
-            "unknown" => "原会话已恢复，但有一次执行的结果未知；需要明确处理该执行后才能提交新任务",
-            _ => "原会话已恢复，但原生执行状态尚无法确认",
-        };
-        Err(rovai_core::runtime_failure::RuntimeFailureError::new(
-            rovai_core::runtime_failure::RuntimeFailureView::new(
-                AdapterKind::HermesCli,
-                rovai_core::runtime_failure::RuntimeFailureOrigin::Runtime,
-                rovai_core::runtime_failure::RuntimeFailurePhase::Execution,
-                format!("hermes_session_{state}"),
-                message,
-                None,
-                false,
-            ),
-        )
-        .into())
-    }
-
     pub async fn session_capabilities(&self) -> AcpSessionCapabilities {
         let initialize = self.host.initialize_result.read().await;
         AcpSessionCapabilities {
@@ -5841,20 +5747,6 @@ impl AcpRuntime {
         if !active {
             return Err(rovai_core::steer::ActiveInputNotAccepted.into());
         }
-        if self.adapter_kind() == AdapterKind::HermesCli {
-            let result = self
-                .host
-                .hermes_control("steer", json!({"sessionId":session,"text":text}))
-                .await?;
-            if result["accepted"] == false {
-                return Err(rovai_core::steer::ActiveInputNotAccepted.into());
-            }
-            ensure!(
-                result["accepted"] == true,
-                "Hermes steering outcome is unknown"
-            );
-            return Ok(input_id.to_string());
-        }
         if self.adapter_kind() == AdapterKind::QwenCode {
             let (sender, receipt) = oneshot::channel();
             self.host.qwen_steering.lock().await.insert(
@@ -5956,9 +5848,7 @@ impl AcpRuntime {
         );
         // Some transports cannot atomically bind to a native turn. Retire the
         // exact Host for every path so no leftover queue reaches a successor.
-        if self.adapter_kind() != AdapterKind::HermesCli {
-            self.host.retire_after_steer.store(true, Ordering::Release);
-        }
+        self.host.retire_after_steer.store(true, Ordering::Release);
         timeout(
             Duration::from_secs(10),
             self.host
@@ -6725,20 +6615,6 @@ impl AcpCliRuntimeAdapter {
         }
         #[cfg(target_os = "macos")]
         ManagedProcess::recover_descendants(&self.private_runtime_dir.join("owned-processes"))?;
-        #[cfg(target_os = "macos")]
-        if kind == AdapterKind::HermesCli {
-            let bindings = self.private_runtime_dir.join("hermes-bindings");
-            if bindings.is_dir() {
-                for binding in std::fs::read_dir(bindings)? {
-                    let binding = binding?;
-                    if binding.file_type()?.is_dir() {
-                        ManagedProcess::recover_descendants(
-                            &binding.path().join("owned-processes"),
-                        )?;
-                    }
-                }
-            }
-        }
         if matches!(
             kind,
             AdapterKind::CopilotCli
@@ -6801,17 +6677,7 @@ impl AcpCliRuntimeAdapter {
         let spawn_builtin_tool_factory = builtin_tool_factory.clone();
         let spawn_external_mcp_servers = external_mcp_servers.clone();
         let spawn_attachment_access_root = attachment_access_root.to_path_buf();
-        let spawn_private_runtime_dir = if self.kind == AdapterKind::HermesCli {
-            // Native sessions survive controller teardown, but never share a
-            // Gateway owner/lock with another binding or the user's native CLI.
-            self.private_runtime_dir
-                .join("hermes-bindings")
-                .join(canonical_json_digest(
-                    &json!({"binding": native_binding_id}),
-                )?)
-        } else {
-            self.private_runtime_dir.clone()
-        };
+        let spawn_private_runtime_dir = self.private_runtime_dir.clone();
         let spawn_startup_bootstrap = startup_bootstrap.map(str::to_owned);
         let spawn_incoming = self.incoming.clone();
         let spawn_compaction_policy = self.compaction_detector_policy;
@@ -6898,82 +6764,6 @@ impl AcpCliRuntimeAdapter {
             .await
             .insert(agent_run_id.to_string(), runtime.clone());
         Ok(runtime)
-    }
-
-    /// User-owned maintenance uses the existing Fleet/process owner, with no
-    /// Run, CLI lease, session/prompt, model configuration or business input.
-    pub(crate) async fn recover_hermes_session(
-        &self,
-        scope: &crate::application::hermes_recovery::RecoveryScope,
-        workspace: &AgentRunWorkspace,
-        permission_semantics: PermissionSemantics,
-        runtime: FrozenAgentRuntimeConfig,
-        params: Value,
-    ) -> Result<Value> {
-        ensure!(
-            self.kind == AdapterKind::HermesCli && runtime.adapter_kind == self.kind,
-            "Recovery is only available for Hermes"
-        );
-        let operation = format!("hermes-recovery:{}", uuid::Uuid::new_v4());
-        let private_dir =
-            self.private_runtime_dir
-                .join("hermes-bindings")
-                .join(canonical_json_digest(
-                    &json!({"binding": scope.native_binding_id}),
-                )?);
-        ensure!(
-            private_dir
-                .join("hermes-storage/native-home/state.db")
-                .is_file(),
-            "The original Hermes session storage is unavailable"
-        );
-        let incoming = self.incoming.clone();
-        let workspace = workspace.clone();
-        let lease = self
-            .fleet
-            .acquire(
-                FleetAcquireRequest {
-                    agent_run_id: operation.clone(),
-                    execution_epoch: 0,
-                    adapter_kind: self.kind,
-                    compatibility: RuntimeCompatibilityKey::member_session(
-                        &scope.camp_id,
-                        &scope.agent_id,
-                        Some(&scope.native_binding_id),
-                        &operation,
-                    ),
-                },
-                move || async move {
-                    let host = AcpHost::spawn(
-                        workspace.path(),
-                        &workspace,
-                        permission_semantics,
-                        &runtime,
-                        incoming,
-                        None,
-                        CompactionDetectorPolicy::Disabled,
-                        false,
-                        &BTreeMap::new(),
-                        &private_dir,
-                        None,
-                        None,
-                    )
-                    .await?;
-                    Ok(RuntimeProcessHost::Acp(host))
-                },
-            )
-            .await?;
-        let host = lease.host.into_acp()?;
-        let result = host.hermes_control("recover_unknown", params).await;
-        let cleanup = self
-            .fleet
-            .release_with_outcome(&operation, 0, FleetReleaseDisposition::Stop)
-            .await;
-        ensure!(
-            matches!(cleanup, crate::runtime_fleet::FleetReleaseOutcome::Reaped),
-            "Hermes recovery cleanup is not confirmed; inspect again before continuing"
-        );
-        result
     }
 
     pub async fn get_agent_run(
@@ -7106,8 +6896,8 @@ fn completed_run_release_disposition(adapter_kind: AdapterKind) -> FleetReleaseD
     ) {
         // Kiro keeps a Native Session locked for the lifetime of its ACP
         // process. Cursor Host reuse remains outside the current contract.
-        // Hermes freezes Gateway environment per Run; cold-resume its private
-        // native session so the next Run receives fresh built-in credentials.
+        // Hermes closes only its ACP client after each Run. Its shared native
+        // Gateway and original Session retain their own lifecycle.
         FleetReleaseDisposition::Stop
     } else {
         FleetReleaseDisposition::Reusable
@@ -7335,8 +7125,7 @@ fn prepare_private_host_config(
         | AdapterKind::DeepseekHarness
         | AdapterKind::ClineCli
         | AdapterKind::CommandCodeCli
-        | AdapterKind::MinimaxCodeCli
-        | AdapterKind::HermesCli => (
+        | AdapterKind::MinimaxCodeCli => (
             private_runtime_dir
                 .join("acp-host")
                 .join(uuid::Uuid::new_v4().to_string()),
@@ -7390,7 +7179,7 @@ fn configure_runtime_command(
                     || workspace.access != "read_only",
                 "Hermes cannot enforce a read-only workspace"
             );
-        } // installation-bound managed entry already configured
+        } // official native ACP entry already configured
         AdapterKind::MinimaxCodeCli => {
             health::configure_acp_command(
                 command,
@@ -8119,7 +7908,6 @@ fn configure_compaction_detector_command(
             | AdapterKind::QoderCli
             | AdapterKind::CodebuddyCli
             | AdapterKind::QwenCode
-            | AdapterKind::HermesCli
     ) {
         return Ok(None);
     }
@@ -8157,14 +7945,10 @@ fn configure_compaction_detector_command(
                 AdapterKind::CopilotCli => "preCompact",
                 AdapterKind::QoderCli | AdapterKind::QwenCode => "PostCompact",
                 AdapterKind::CodebuddyCli => "SessionStart",
-                AdapterKind::HermesCli => "post_compaction",
                 _ => unreachable!(),
             }),
         );
         match adapter_kind {
-            AdapterKind::HermesCli => {
-                command.env("ROVAI_HERMES_COMPACTION_HOOK", &hook_command);
-            }
             AdapterKind::CopilotCli => {
                 let plugin_root = root.join("copilot-plugin");
                 std::fs::create_dir_all(&plugin_root)?;

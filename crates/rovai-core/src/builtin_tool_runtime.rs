@@ -181,6 +181,33 @@ impl BuiltinToolProcessConfig {
         Ok(())
     }
 
+    /// A stable installation entry, shared by all native Hermes sessions.
+    /// Existing user-owned files/links are never replaced. No Run data lives here.
+    #[cfg(unix)]
+    pub(crate) fn ensure_native_cli_entry(&self) -> Result<()> {
+        let path = dirs::home_dir()
+            .context("CLI installation requires the current user's Home")?
+            .join(".local/bin/rovai");
+        fs::create_dir_all(path.parent().unwrap())?;
+        match std::os::unix::fs::symlink(&self.inner.cli_executable, &path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Another concurrent session may have installed this same entry.
+                anyhow::ensure!(
+                    path.canonicalize()? == self.inner.cli_executable.canonicalize()?,
+                    "The installed rovai command does not match this Core; install the matching bundled CLI"
+                );
+                Ok(())
+            }
+            Err(error) => Err(error).context("failed to install the fixed rovai CLI entry"),
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn ensure_native_cli_entry(&self) -> Result<()> {
+        bail!("Native Hermes CLI installation is not admitted on this platform")
+    }
+
     fn write_context(&self, lease: Option<BuiltinToolLeaseContext>) -> Result<()> {
         self.write_context_with_tasks(lease, false)
     }
@@ -492,6 +519,37 @@ impl BuiltinToolLeaseRegistry {
         })
     }
 
+    /// Caller holds invocation_gate and has resolved a unique current Hermes
+    /// Conversation/Run from Core data. Credentials never leave this process.
+    pub(crate) async fn auth_for_execution(
+        &self,
+        run: &str,
+        epoch: i64,
+        binding: &str,
+        generation: i64,
+    ) -> std::result::Result<BuiltinToolAuth, BuiltinToolLeaseError> {
+        let processes = self.processes.lock().await;
+        let mut matches = processes.iter().filter_map(|(id, process)| {
+            let active = process.active.as_ref()?;
+            (active.agent_run_id == run
+                && active.execution_epoch == epoch
+                && active.native_binding.native_binding_id == binding
+                && active.native_binding.native_binding_generation == generation)
+                .then(|| BuiltinToolAuth {
+                    process_id: id.clone(),
+                    process_token: process.process_token.clone(),
+                    lease_id: active.lease_id.clone(),
+                    lease_generation: active.lease_generation,
+                    lease_token: active.lease_token.clone(),
+                })
+        });
+        let auth = matches.next().ok_or_else(run_not_bound)?;
+        if matches.next().is_some() {
+            return Err(run_not_bound());
+        }
+        Ok(auth)
+    }
+
     pub(crate) async fn authenticate_process(&self, process_id: &str, process_token: &str) -> bool {
         self.processes
             .lock()
@@ -676,6 +734,34 @@ pub(crate) fn bundled_cli_executable() -> Result<PathBuf> {
         "rovai".into()
     };
     Ok(directory.join(name))
+}
+
+pub(crate) struct BuiltinToolDiscovery {
+    path: PathBuf,
+    endpoint: LocalIpcEndpoint,
+}
+
+impl BuiltinToolDiscovery {
+    pub(crate) fn publish(endpoint: LocalIpcEndpoint) -> Result<Self> {
+        let path = rovai_core::builtin_tool_transport::builtin_tool_discovery_path()?;
+        crate::platform::private_storage::prepare_private_directory(path.parent().unwrap())?;
+        atomic_write_private_json(&path, &endpoint)?;
+        Ok(Self { path, endpoint })
+    }
+}
+
+impl Drop for BuiltinToolDiscovery {
+    fn drop(&mut self) {
+        // A different Core may have published its own endpoint meanwhile.
+        if fs::read(&self.path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<LocalIpcEndpoint>(&bytes).ok())
+            .as_ref()
+            == Some(&self.endpoint)
+        {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 
 pub(crate) fn builtin_tool_endpoint() -> LocalIpcEndpoint {
@@ -897,11 +983,26 @@ mod tests {
         };
         let config = BuiltinToolProcessConfig::create(&executable(), &endpoint, &root).unwrap();
         let registry = BuiltinToolLeaseRegistry::default();
+        let first_binding = binding();
         let first = registry
-            .bind(&config, "run-1", 1, &binding(), &root)
+            .bind(&config, "run-1", 1, &first_binding, &root)
             .await
             .unwrap();
         assert_eq!(registry.active_count().await, 1);
+        for (run, epoch, generation, valid) in [
+            ("run-1", 1, 1, true),
+            ("run-1", 2, 1, false),
+            ("run-2", 1, 1, false),
+            ("run-1", 1, 2, false),
+        ] {
+            let resolved = registry
+                .auth_for_execution(run, epoch, &first_binding.native_binding_id, generation)
+                .await;
+            assert_eq!(resolved.is_ok(), valid);
+            if let Ok(auth) = resolved {
+                assert_eq!(auth.lease_id, first.lease_id);
+            }
+        }
         let context: BuiltinToolCliContext =
             serde_json::from_slice(&fs::read(config.context_path()).unwrap()).unwrap();
         let lease = context.lease.unwrap();
@@ -1123,6 +1224,12 @@ mod tests {
         }
         registry.unbind(config.process_id(), "run-1", 1).await;
         assert!(registry.authenticate(&rotated).await.is_err());
+        assert!(
+            registry
+                .auth_for_execution("run-1", 1, &first_binding.native_binding_id, 1)
+                .await
+                .is_err()
+        );
         assert!(!config.run_tmp().exists());
         let second = registry
             .bind(&config, "run-2", 2, &binding(), &root)

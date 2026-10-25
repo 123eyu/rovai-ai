@@ -63,13 +63,10 @@ Input Delivery 与 effect evidence 判断。重复启动不得增加执行次数
 
 ## 4. Cleanup、lane 与 execution root
 
-Hermes 的用户专用维护入口在旧进程隔离后查询原生 unknown receipt，显式确认后调用精确
-`prompt.resolve_unknown`。它解除原生会话阻塞，保留 Rovai 失败 Run，不重放输入或创建 continuation。
-维护进程仍由 Fleet/ManagedProcess 拥有，不持有业务 CLI lease；原 Session 的下一条新任务使用普通路径。
-Hermes 正常路径使用当前选定的同类 Runtime，保留原 Home/profile/Session；安装与配置漂移只更新进程和探测。
-历史/状态恢复先于新输入门禁，原生 running、approval、queued、unknown 分别报告；不自动换 Session 绕过。
-Fleet 与 binding 私有 Home 的所有权保护真实共享资源，不以 Hermes 全局长锁阻塞无关成员。
-两层状态、用户确认和幂等边界见 [Hermes 合同](../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)。
+Hermes 使用当前可用官方 ACP 精确恢复原生 Home 的 Session；安装或指纹变化不单独否定恢复。
+Rovai 只管理 ACP 连接，不通过共享 Gateway 的退出或强杀宣称原执行已停止。原生 unknown 保留事实，
+不自动重放、不换 Session 绕过；未上线的私有恢复 CLI 已删除。当前限制见
+[Hermes 合同](../contracts/hermes-managed-runtime-v1.md#用户明确处理未知执行)。
 
 Run 可以先进入失败或取消终态，但 `(CampId, AgentId)` lane 只有在旧执行隔离被 Adapter 确认后才能继续 claim。
 隔离未确认时，后继输入保持 Delivery，不提前创建一个注定无法执行的 AgentRun。

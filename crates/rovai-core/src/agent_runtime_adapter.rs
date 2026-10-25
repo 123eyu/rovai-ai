@@ -1120,10 +1120,18 @@ impl AgentRuntimeAdapterRegistry {
             | AdapterKind::TraeCnCli
             | AdapterKind::KimiCodeCli
             | AdapterKind::MinimaxCodeCli
-            | AdapterKind::HermesCli
             | AdapterKind::ZcodeApp
             | AdapterKind::DeepseekHarness
             | AdapterKind::ClineCli => additive_native_mcp_projection(McpSameNamePolicy::RovaiWins),
+            AdapterKind::HermesCli => McpProjectionCapability {
+                supports_stdio: true,
+                supports_streamable_http: true,
+                external_mcp_projection: ExternalMcpProjection::AdditivePerRun,
+                // Native config and editor MCP are separate upstream sources.
+                // Rovai no longer edits config to impose a same-name winner.
+                same_name_policy: None,
+                approval_control: McpApprovalControl::RuntimeNative,
+            },
             AdapterKind::GrokBuild | AdapterKind::CommandCodeCli => {
                 additive_native_mcp_projection(McpSameNamePolicy::NativeWinsSkip)
             }
@@ -2281,8 +2289,7 @@ pub(crate) fn hermes_capabilities_current(capabilities: &[String]) -> bool {
         "session.set_model",
         "session.set_mode",
         "context.charter.first_payload",
-        "context.compaction.signal_driven",
-        "context.compaction.best_effort",
+        "hermes.native_session_cli",
     ]
     .iter()
     .all(|value| capabilities.iter().any(|item| item == value))
@@ -2290,6 +2297,9 @@ pub(crate) fn hermes_capabilities_current(capabilities: &[String]) -> bool {
             "session.set_config_option",
             "context.charter.managed_system_prompt",
             "context.compaction.native_system_prompt_preserved",
+            "context.compaction.signal_driven",
+            "context.compaction.best_effort",
+            "mcp.same_name_policy.rovai_wins",
         ]
         .iter()
         .any(|value| capabilities.iter().any(|item| item == value))
@@ -2570,8 +2580,7 @@ fn acp_capability_snapshot(
                 "session.set_mode",
                 "structured_permission_request",
                 "context.charter.first_payload",
-                "context.compaction.signal_driven",
-                "context.compaction.best_effort",
+                "hermes.native_session_cli",
             ]
         } else if matches!(
             adapter_kind,
@@ -2648,6 +2657,9 @@ fn acp_capability_snapshot(
         }
         let mcp_projection = AgentRuntimeAdapterRegistry::default().mcp_projection(adapter_kind);
         match mcp_projection.external_mcp_projection {
+            ExternalMcpProjection::AdditivePerRun if adapter_kind == AdapterKind::HermesCli => {
+                capabilities.push("mcp.external_projection.additive_per_run".to_string());
+            }
             ExternalMcpProjection::AdditivePerRun => append_additive_mcp_axes(
                 &mut capabilities,
                 mcp_projection
@@ -4060,8 +4072,7 @@ mod tests {
         validate_machine_ready_snapshot(AdapterKind::HermesCli, &hermes).unwrap();
         for capability in [
             "context.charter.first_payload",
-            "context.compaction.signal_driven",
-            "context.compaction.best_effort",
+            "hermes.native_session_cli",
             "session.set_model",
             "session.set_mode",
             "structured_permission_request",
@@ -4070,6 +4081,12 @@ mod tests {
             assert!(hermes.capabilities.iter().any(|value| value == capability));
         }
         assert_eq!(hermes.permission_options, hermes_permission_options());
+        assert_eq!(
+            AgentRuntimeAdapterRegistry::default()
+                .mcp_projection(AdapterKind::HermesCli)
+                .same_name_policy,
+            None
+        );
         assert!(hermes.models.iter().all(|model| model.options.is_empty()));
         assert!(
             !hermes
@@ -4078,6 +4095,9 @@ mod tests {
                 .any(|capability| capability == "session.set_config_option")
         );
         for old in [
+            "mcp.same_name_policy.rovai_wins",
+            "context.compaction.signal_driven",
+            "context.compaction.best_effort",
             "context.charter.managed_system_prompt",
             "context.compaction.native_system_prompt_preserved",
         ] {

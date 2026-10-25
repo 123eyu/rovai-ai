@@ -374,6 +374,32 @@ pub struct BuiltinToolIpcRequest {
     pub body: BuiltinToolIpcRequestBody,
 }
 
+/// Hermes identifies the logical native session; Core resolves the current
+/// execution exactly once. No context exchange or CLI-supplied Run identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSessionIpcRequest {
+    pub source: HermesSessionSource,
+    pub native_session_id: String,
+    #[serde(flatten)]
+    pub body: BuiltinToolIpcRequestBody,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum HermesSessionSource {
+    #[serde(rename = "hermes_native_session")]
+    NativeSession,
+}
+
+/// One endpoint for the current Core instance, never a Session/Run map.
+pub fn builtin_tool_discovery_path() -> Result<std::path::PathBuf> {
+    Ok(dirs::data_dir()
+        .context("Rovai data directory is unavailable")?
+        .join("Rovai AI")
+        .join("builtin-tools")
+        .join("connection.json"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BuiltinToolIpcResponse {

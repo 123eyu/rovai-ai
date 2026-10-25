@@ -827,17 +827,13 @@ ACP Session 累计费用仅作 Session gauge，不冒充 Run 费用。Skills 只
 
 ## Hermes 受管 ACP
 
-Hermes Agent 以 `hermes-cli` 进入产品闭集，macOS arm64 为 Preview，其余平台不准入。
-共享 ACP 客户端直接连接官方 ACP，Fleet 拥有启动器和专用官方 Gateway 的整棵执行树。
-每个 binding 的私有持久 Home 保存原生 Session；每 Run 冷启动并精确恢复，刷新 CLI lease。
-启动器只准备环境与进程，不代理普通消息。原生 admission、事件回放、工具通知、权限与取消由官方 ACP
-处理；按需控制仅补 MCP 撤销、同轮 Steer 和明确 unknown 处理。删除额外事件流、逐轮 receipt 门禁、
-reasoning 内部依赖及 storage flock。当前选定 Runtime 实际尝试原 Session，不以旧指纹/安装记录拒绝恢复。
-版本最低 0.22.4，不锁 commit 或上界；已测版本与兼容策略分开记录。
+Hermes 以 `hermes-cli` 进入产品闭集，macOS arm64 Preview。共享 ACP 直接启动官方入口，
+使用用户原生 `~/.hermes` 与精确 Session resume；无私有 Home、启动器或专用 Gateway。
+Fleet 只拥有 ACP 客户端根进程，原生共享执行端不随 Run 回收。
 
-Bootstrap 复用 Core 原文，按精确 Session 首条普通 user 输入、规则更新和压缩后下一普通输入投递；
-原生 system/personality 由 Hermes 自行解析。Core 队列、CLI lease 和共享 replay 隔离沿现有主路径；
-不向用户 Home 写入成员身份，不连接日常共享 Gateway。缺失工具参数、结构化 Diff 或 prompt 消耗保持未知，不影响官方明确成功的任务。
-字段、限制与失败条件见
-[Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)，取舍见
-[V1.72-D63](../versions/v1.72/decisions.md#v1-72-d63)。
+模型的普通 CLI 调用通过原生逻辑 Session 定位唯一 Conversation/活动 Run，并复用现有 lease、
+Router、回复和回执。按调用时归属，不追溯旧后台程序最初属于哪轮。其他 Runtime 不改。
+FirstPayload 只保留首次及真实规则更新，不进行压缩补发。未确认的 MCP 撤销、原生工具终止和
+增强详情不声明成功；未知输入不自动重放。具体合同见
+[Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)，理由见
+[原生会话定位决定](../versions/v1.72/decisions.md#v1-72-d64)。

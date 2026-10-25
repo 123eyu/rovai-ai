@@ -1,7 +1,7 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # 长期接口合同
@@ -15,7 +15,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## Hermes Runtime
 
-- [Hermes Managed Runtime v1](hermes-managed-runtime-v1.md)：受管进程、精确恢复、系统绑定、MCP 和原生结果边界。
+- [Hermes Managed Runtime v1](hermes-managed-runtime-v1.md)：官方 ACP、原生 Home、会话定位 CLI、user 层规则及共享 Gateway 边界。
 
 ## Team 与启动指引
 

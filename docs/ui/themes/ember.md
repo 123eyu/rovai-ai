@@ -11,20 +11,19 @@ last_updated: 2026-10-25
 
 ## Identity and mode
 
-显示名称为绯夜 / Crimson Night，原名余烬 / Ember。
-稳定 `ThemeId` / `ThemePreference` 为 `ember`，明暗模式为 `night`，
-`color-scheme: dark`。与原有主题共享生产组件、页面、能力与状态。
+- 显示名称：绯夜 / Crimson Night
+- 稳定 `ThemeId` / `ThemePreference`：`ember`
+- 明暗模式：`night`；`color-scheme: dark`
 
 ## Design intent
 
-保留石墨黑、灰阶与正红主调，采用中性深灰气泡；不改成棕铜色系。
-User 在主题设计 Thread sequence 18 确认按第六版配色实施，同时明确不加入生产没有的聚焦效果或功能。
+石墨黑、灰阶与正红主调，配中性深灰气泡；不扩展为棕铜色系。
 
 ## Surface hierarchy and color responsibilities
 
-Canvas、rail、conversation、raised/input 通过明度和底色形成层次；消息气泡使用生产几何与同色边线。
-品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
-实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
+Canvas、rail、conversation、raised/input 通过明度建立深色层级。
+红色用于主题强调和实心操作；正文、气泡与过程阅读区保持灰阶。
+控件、消息、品牌、状态、身份和 Memory 的规则继承 [DESIGN.md](../../../DESIGN.md#colors)。
 
 ## Complete semantic token assignments
 
@@ -225,16 +224,15 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 ## Contrast requirements
 
 共享主题测试验证普通正文、静音文字、状态标签、八种身份文字与消息气泡正文至少 4.5:1；
-会话控件及选择器强边界至少 3:1。原型配色仅在不满足实际表面对比度时作小幅调整。
+会话控件及选择器强边界至少 3:1。焦点行为遵循[无障碍基线](../qa/accessibility.md)。
 
 ## Prohibited substitutions
 
-不使用自动反色，不复制组件，不按主题分叉业务结构，不引入原型的聚焦光晕、额外边框变化或评审工具。
+不自动反色、不分叉组件，不增加主题专属交互或聚焦装饰。
 
 ## Implementation and verification
 
 真源：[共享 Token](../../../packages/ui/src/theme.css)、
 [主题解析](../../../apps/desktop/src/shared/appearance.ts)、
 [对比度测试](../../../apps/desktop/src/renderer/src/theme-tokens.test.ts)。
-按[共享矩阵](../qa/theme-matrix.md)验证，当前范围和证据见
-[实施记录](../../versions/v1.72/theme-palettes-implementation.md)。
+按[共享矩阵](../qa/theme-matrix.md)验证全部配色、状态、浮层与平台边界。

@@ -1479,7 +1479,7 @@ html[data-rovai-platform="win32"] .bootstrap-shell-brand { padding-left: 20px; }
 .single-chat-error button { min-width: 32px; min-height: 24px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--danger); background: transparent; cursor: pointer; font-size: 10px; }
 .single-chat-error button:hover { background: color-mix(in srgb, var(--danger) 9%, transparent); }
 .single-chat-confirm-choice { display: inline-flex; min-height: 28px; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; cursor: pointer; }
-.single-chat-confirm-choice input { width: 15px; height: 15px; margin: 0; accent-color: var(--brand); }
+.single-chat-confirm-choice input { width: 15px; height: 15px; margin: 0; accent-color: var(--conversation-action); }
 @media (prefers-reduced-motion: reduce) {
   .single-chat-target-chevron svg,
   .single-chat-disclosure svg,
@@ -8983,7 +8983,7 @@ html[lang="en"] .runtime-parameter-picker-menu:has(.permission-menu-guidance) { 
 .file-find-scope-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 5px 9px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; }
 .file-find-scope-row select { min-width: 0; border: 0; background: transparent; color: inherit; font-size: inherit; padding: 0; }
 .file-find-scope-row label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-.file-find-scope-row input { width: 12px; height: 12px; margin: 0; accent-color: var(--focus); }
+.file-find-scope-row input { width: 12px; height: 12px; margin: 0; accent-color: var(--conversation-action); }
 .file-find-error { padding: 5px 10px; border-top: 1px solid var(--line); color: var(--danger); font-size: 10.5px; }
 ::highlight(rovai-file-find-match) { color: var(--ink); background-color: var(--conversation-find-match); }
 ::highlight(rovai-file-find-current) { color: var(--ink); background-color: var(--conversation-find-current); text-decoration: underline; text-decoration-color: var(--conversation-find-line); }

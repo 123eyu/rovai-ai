@@ -118,8 +118,8 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
   }
   const save = async (): Promise<boolean> => {
     if (!draft) return true
-    if (!pending.current && (!draft.name.trim() || Array.from(draft.name.trim()).length > 80 || !draft.memberAgentIds.length || !draft.memberAgentIds.includes(draft.defaultLeadAgentId) || Array.from(draft.guidance.trim()).length > 1000)) {
-      setError(uiAttribute('请填写团队名称，选择队员和队长；指引最多 1000 字。')); return false
+    if (!pending.current && (!draft.name.trim() || Array.from(draft.name.trim()).length > 80 || !draft.memberAgentIds.length || !draft.memberAgentIds.includes(draft.defaultLeadAgentId) || Array.from(draft.guidance.trim()).length > 10000)) {
+      setError(uiAttribute('请填写团队名称，选择队员和队长；指引最多 10000 字。')); return false
     }
     const result = await mutate('teams.save', draft)
     if (!result) return false
@@ -168,7 +168,7 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
         {changedElsewhere && <p className="team-roster-attention">{uiAttribute('团队已在其他地方更改，请重新载入。')} <button type="button" className="quiet-button" disabled={frozen} onClick={discard}>{uiAttribute('重新载入')}</button></p>}
         <div className="team-editor-content"><label className="member-editor-field"><span className="member-editor-field-label">{uiAttribute('团队名称')}</span><input ref={nameInput} value={draft.name} disabled={frozen} aria-label={uiAttribute('团队名称')} placeholder={uiAttribute('例如：日常开发')} onChange={event => change({ name: Array.from(event.target.value).slice(0, 80).join('') })}/></label>
           <section className="team-guidance-block"><header className="team-section-heading"><h2>{uiAttribute('团队指引')}{!draft.guidance.trim() && <span className="team-guidance-optional">{uiAttribute('可选')}</span>}</h2><button type="button" className="team-guidance-toggle" disabled={frozen} aria-expanded={guidanceOpen} aria-controls="team-guidance-content" onClick={() => setGuidanceOpen(!guidanceOpen)}>{guidanceOpen ? uiAttribute('收起') : draft.guidance.trim() ? uiAttribute('编辑') : uiAttribute('添加')}</button></header>
-            <div id="team-guidance-content">{guidanceOpen ? <label className="member-editor-field team-guidance-editor"><textarea ref={guidanceInput} rows={5} aria-label={uiAttribute('团队指引')} disabled={frozen} value={draft.guidance} onChange={event => change({ guidance: event.target.value })} placeholder={uiAttribute('团队共同遵循的协作方式、工作原则…')}/><span className="team-guidance-count" aria-live="polite">{Array.from(draft.guidance.trim()).length} / 1000</span></label> : draft.guidance.trim() && <p className="team-guidance-preview">{draft.guidance}</p>}</div>
+            <div id="team-guidance-content">{guidanceOpen ? <label className="member-editor-field team-guidance-editor"><textarea ref={guidanceInput} rows={5} aria-label={uiAttribute('团队指引')} disabled={frozen} value={draft.guidance} onChange={event => change({ guidance: event.target.value })} placeholder={uiAttribute('团队共同遵循的协作方式、工作原则…')}/><span className="team-guidance-count" aria-live="polite">{Array.from(draft.guidance.trim()).length} / 10000</span></label> : draft.guidance.trim() && <p className="team-guidance-preview">{draft.guidance}</p>}</div>
           </section>
           <section><header className="team-section-heading"><h2>{uiAttribute('队员')}<span className="team-member-count">{draft.memberAgentIds.length}</span></h2><TeamMemberPicker agents={agents} roster={draft} onChange={change} compact busy={frozen}/></header>
             {draft.memberAgentIds.length ? <ul className="team-member-rows">{draft.memberAgentIds.map(id => {

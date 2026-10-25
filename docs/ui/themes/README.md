@@ -17,14 +17,13 @@ Rovai AI 有五套配色，外观页提供六项偏好：跟随系统、日间�
 | `classic-red` | [朝霞 / Dawn Glow](classic-red.md) | `day` / `light` | `:root[data-theme-id="classic-red"]` |
 | `ember` | [绯夜 / Crimson Night](ember.md) | `night` / `dark` | `:root[data-theme-id="ember"]` |
 
-晨雾、朝霞、绯夜分别是原地平线、经典红、余烬的新显示名称；稳定 `ThemeId`、持久化值与合同路径不变。
-设置选项与当前主题摘要使用新名称，已有偏好直接恢复，无需迁移或重置。
+显示名称与稳定 `ThemeId` 分离；更名不改变持久化值或合同路径。
 
 `ThemePreference = system | ThemeId` 保存具体偏好；`ResolvedTheme = day | night` 继续表示明暗模式，
 供系统明暗外观、代码高亮与原生控件模式使用。共享 `THEME_MODES` 拥有配色到模式的映射。
 Windows caption controls 的背景与图标色按具体 `ThemeId` 的 `--rail` / `--ink` 同步，不只按明暗模式取色。
-`system` 仅解析为原有日间或夜间，不随系统自动选择其他配色。根 `data-theme` 保留明暗模式，
-`data-theme-id` 表示有效配色；切回旧主题或 system 时同样覆盖该属性，避免残留新配色。
+`system` 仅解析为日间或夜间，不随系统自动选择其他配色。根 `data-theme` 保留明暗模式，
+`data-theme-id` 表示有效配色；每次切换均覆盖有效配色属性，避免残留。
 
 依赖方向固定为：
 
@@ -73,9 +72,8 @@ Web 使用同一外观页面、主题和阅读偏好模型，由浏览器入口�
 整页缩放由浏览器菜单或快捷键控制；Web 外观页解释这一差异，不显示无法控制浏览器倍率的选择器。
 恢复外观默认值不重置浏览器保存的缩放。Desktop 仍使用上述原生 Chrome 档位。
 
-新增配色沿用 schema-v2 的 `themePreference` 字段和封闭值校验，不重置旧偏好或阅读参数。
-Main 原子保存 schema-v2 偏好，并串行处理连续更新。schema-v1 主题文件按原主题加默认阅读偏好读取，
-显式调整后升级；无效文件保持原字节并在内存使用安全默认值，保存失败不发布成功快照。
+外观保存使用封闭字段校验、串行更新与原子写入；更改主题不重置其他阅读参数。
+无效文件保留原字节并使用安全默认值，保存失败不发布成功快照。
 页面保留未保存的调整和重试入口，恢复默认只重置外观字段。
 
 ## 新增或修改主题
@@ -88,21 +86,17 @@ Main 原子保存 schema-v2 偏好，并串行处理连续更新。schema-v1 主
 
 ## 配色与交互边界
 
-三款新配色只提供语义 Token，不带入 HTML 交互稿的组件覆盖、额外 focus ring、输入框聚焦边框变化、
-动画或评审工具。消息继续使用生产圆角、留白与气泡组件，边线和气泡底色同色。
-`--conversation-action` 是实心动作底色，`--conversation-action-contrast` 是其前景；
-`--conversation-action-ink` 是浅/深表面上的动作文字、选中导航文字及光标颜色，避免红色按钮底色在暗背景上被误用为低对比文字。
-日间与夜间的动作文字保持原值。Memory 的专用工作区继续使用无彩色 Token，外围侧栏跟随所选主题。
+控件、文字、品牌、状态与身份色的职责遵循 [DESIGN.md](../../../DESIGN.md#colors)，包括 Portal 内的控件。
+所有配色沿用相同消息几何与交互，不增加主题专属聚焦装饰、动画或功能。
 
-`--scrollbar-thumb` 独立拥有通用滚动块与 Mission 文件树的底色，不再复用选中区域色。
-朝霞使用中性灰 `#dedede`，其余配色保持原有滚动块色值；Memory / Automation 的无彩色工作区继续使用
-`--neutral-selected`。透明轨道、滚动块尺寸与悬停/拖动反馈沿用生产规则。
+`--scrollbar-thumb` 拥有通用滚动块与 Mission 文件树底色，不复用选中区域色；
+Memory / Automation 的无彩色工作区使用 `--neutral-selected`。透明轨道、尺寸和拖动反馈保持一致。
 
 `--execution-surface` 拥有执行台在底部、浮层和右侧标签中的统一阅读底色，包括头像状态背板与滚动渐隐。
-日间、夜间、朝霞与绯夜保持原会话底色值；晨雾的会话保留轻暖白，执行台使用中性白，避免暖色扩散到过程阅读区。
+晨雾的会话使用轻暖白、执行台使用中性白；其他配色的执行台与会话底色一致。
 手机继续由 `--mobile-page` 同时覆盖会话与执行台底色。
 
 主题选择沿用整卡原生 radio、缩略图、名称与选中勾；980px 内容轨道为六列紧凑卡片，
-容器不超过 900px 时三列，不超过 420px 时两列。不加入原型专属键盘/聚焦行为。
+容器不超过 900px 时三列，不超过 420px 时两列。键盘与焦点遵循共享控件规则。
 `--settings-choice-selected-surface` 拥有外观选项的选中底色；朝霞使用淡灰红区域色，
-其余配色保持各自原有 `--home-surface` 色值。选中边线继续由 `--settings-choice-selected-line` 拥有。
+其余配色使用各自 `--home-surface` 色值。选中边线继续由 `--settings-choice-selected-line` 拥有。

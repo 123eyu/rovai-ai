@@ -2,14 +2,14 @@
 document_type: ui-component-contract
 authority: renderer-file-preview
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 ---
 
 # Camp 文件预览区
 
 ## 会话内的文件链接
 
-文件与 Web 链接统一使用独立的 `--resource-link`，Hover 使用 `--resource-link-hover`；色值由两套主题分别定义，
+文件与 Web 链接统一使用独立的 `--resource-link`，Hover 使用 `--resource-link-hover`；色值由各配色合同定义，
 不复用品牌或信息状态颜色。文件链接保持正文阅读感与原生链接语义，不呈现为按钮或 Badge。文件与 Web 资源链接
 在默认、Hover、Active 与 Focus 状态均不显示下划线；Hover/Active 只加强链接色，键盘操作不添加额外焦点框，
 长路径可自然换行，不让正文横向溢出。
@@ -178,7 +178,7 @@ Tab。全 operation-only 卡片使用“查看文件”，header 默认打开第
 继续保留。旧异步 response 必须被 revision fence 拒绝；重算失败时上一份 detail 继续可读并明确显示待更新状态，
 原位提供重试。旧 `no_changes` 被合法迟到事实推翻后，会话中可以新增同一 Run/epoch 的 Files Changed 卡片。
 
-卡片与历史 Diff 使用双主题的 `--file-change-*` 色彩 token；中性内容底色配较浅的增删行底色，保留符号与可靠行号。
+卡片与历史 Diff 使用 `--file-change-*` 主题 Token；中性内容底色配较浅的增删行底色，保留符号与可靠行号。
 代码继续跟随 `--code-preview-font-size`（默认 14px），行高 1.6，行号 .85em；完整差异前三列随字号使用
 1.6em / 2.6em / 2.6em。精确替换仍只有符号和正文，不制造行号。
 

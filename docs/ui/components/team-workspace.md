@@ -7,13 +7,13 @@ last_updated: 2026-10-25
 
 # Team 工作区
 
-沿用 Rovai 的 Porcelain Day / Steel Night、原生队员列表与详情分栏。主侧栏显示“团队 / Team”；
+沿用 [DESIGN.md](../../../DESIGN.md) 的主题规则、原生队员列表与详情分栏。主侧栏显示“团队 / Team”；
 新增与名册添加统一为“添加 / Add”。团队列表支持收起和调宽；Mobile 列表/详情逐级返回。
-空态沿用 MCP 引导，提供添加空白团队和显式从现有默认配置创建，迁移不自动生成团队。
+空态沿用 MCP 引导，提供添加空白团队和显式从现有默认配置创建。
 
-详情按名称、可选团队指引、队员行列表排列。指引默认两行预览，添加/编辑后展开；计数 1000 字，
-超限保存报错，不静默截断。按确认的 V10，指引使用现有 workspace-surface-subtle 底色、10px 圆角，
-与名称和名册同宽；名册用细边框和圆角收拢，hover/focus 行使用同一语义底色。日夜主题只用现有 token，
+详情按名称、可选团队指引、队员行列表排列。指引默认两行预览，添加/编辑后展开；计数 10000 字，
+超限保存报错，不静默截断。指引使用现有 workspace-surface-subtle 底色、10px 圆角，
+与名称和名册同宽；名册用细边框和圆角收拢，hover/focus 行使用同一语义底色。所有配色只用语义 Token，
 左侧列表沿用原样式。窄屏行操作换行，减少动态效果时取消行底色过渡。
 名册通过多选下拉添加；超过八位候选提供搜索。
 行操作以图标加文字平铺，hover/focus 显示 Make lead 与 Remove，触屏常驻；队长标记留在名字旁。
@@ -48,5 +48,5 @@ Web 团队列表只随团队变更或连接重新同步刷新；其他业务失�
 删除保留 danger 语义，主侧栏“新对话”保留普通导航样式。
 
 记忆入口移入“设置 → 应用”，保留待审核计数；主侧栏设置旁仅在有待审核项时出现记忆快捷入口。
-数据和旧 Memory 深链不迁移。数据与上下文语义由 [Team Templates v1](../../contracts/team-templates-v1.md)
+数据与上下文语义由 [Team Templates v1](../../contracts/team-templates-v1.md)
 和 [Bootstrap v6](../../contracts/native-session-bootstrap-v6.md)拥有。

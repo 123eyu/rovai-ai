@@ -13,10 +13,13 @@ CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增�
 最新执行结果见 [实施记录](../../versions/v1.72/hermes-first-input-implementation.md)。
 此前 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、
 两次原生压缩、原 Session 冷恢复、MCP 部分失败/恢复、取消隔离及 Core 强杀不重放。
-最新 [真实模型验收](real-model-acceptance-2026-10-25.json)在生产 `37f017b68` 上通过 5 个 Run、
+此前 [真实模型验收](real-model-acceptance-2026-10-25.json)在生产 `37f017b68` 上通过 5 个 Run、
 18 次主任务请求：两成员 Send、精确原 Session 冷恢复、目录外真实模型切换、相同模型/模式省略设置，
 以及固定 Skills 菜单与显式文件使用。实际使用 `gpt-6.1-sol`、`gpt-5.6-sol`，没有伪造模型工具调用。
 初次夹具对 Provider ID 稳定性的错误假设，以及依赖检查误触发日常 bootstrap 准备，均在实施记录中保留。
+最新 [custom ID 兼容验收](model-id-compatibility-2026-10-25.json)在 `34dd2e2f9` 上再次完成 5 个真实 Run、
+17 次主任务请求：原选择保持完整命名 ID，原 Session 冷恢复与后继轮均零重复设置；真实改选时完整 ID
+原样发送，实际请求切到 `gpt-5.6-sol`。不同命名 Provider 的拒绝相等由定向单测覆盖。
 
 ## 交付与执行边界
 
@@ -37,6 +40,70 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 和[原生边界探针](native-acp-boundaries-2026-10-24.md)均为历史探索，不参与当前生产路径。
 其旧逐执行身份目标不再是本方案约束；原 [R2 提案](first-input-r2-proposal.md) 的迁移/插件探索被
 [已确认 R2](../../versions/v1.72/model-context-change-hermes-first-input.md)替代。
+
+## 与 Command 简化原则及 Checklist 的当前对照（2026-10-25）
+
+按 User sequence 93，读取参考 Thread `rvcamp_01m5pwm8ptf0rarmhgg3ckegm0` 的相关记录，
+重点采用 sequence 45/46 的内存直传替换和 48 的收口结论；Command 当前实现已合入本分支基线
+`1028095f6`。此次核对 Hermes `34dd2e2f9`，不把参考 Thread 早期已删除的正文文件、恢复前 list
+或旧更新时机继续算作 Command 当前行为。对应[Command 收口记录](../../versions/v1.72/command-code-native-simplification.md)。
+
+结论：Hermes 原私有 Home、启动器、第二事件通道、配置解释器、Hook/压缩补发、context.json
+投影、配置兼容摘要及逐 Run CLI 安装均已退出生产。当前没有发现需要再次重构的 Hermes
+专属锁、池或常驻配置监听。模型 ID 简写造成的重复设置已在上述提交局部修复。
+
+仍有成本的地方应区分用途：
+
+- 每 Run 重建 ACP 客户端、重新 new/resume 和交付 MCP；共享 Gateway 保持原生生命周期。
+  相比 Command/Codex 的 warm 复用，确有重复连接成本，但本轮没有耗时数据，不把它升级成 warm 改造。
+- user 层首次/更新规则需读取接受账本、比较 B 摘要并保存冻结输入。它用于跨重启不重复首次规则、
+  真实变更才更新、未知输入不重发；不是已删除的 Host 配置摘要，也不是 Bootstrap 中转文件。
+- CLI 在一次业务请求中解析 Session → Conversation → 活动 Run/lease。它替代逐 Run 环境投递，
+  没有第二次握手或新映射表；删除会失去内置 CLI 的准确业务归属。
+- 模型 ID、原生终态接受状态和连接清理范围仍有小型适配。每项都对应现有原生协议差异；
+  没有重建 Gateway 事件流来证明补充信息齐全。
+
+参考 Thread 提到的“普通文本先取得工具配对锁”仅发生在当前 Cline/Command/MiniMax 的
+`enrich_paired_tool_message` 路由，Hermes 不进入该分支。不能把它复制成 Hermes 的新问题。
+共享 MCP 投影、输入证据、Fleet、Blob 和进程退出观察仍有普通 I/O/同步成本；不为 Hermes
+另造绕过路径，也不把源码存在一次读取等同已测得性能问题。
+
+下表按 [Checklist 的 14 轴](../../development/runtime-integration-checklist.md#2-实现前必须完成-parity-matrix)
+对照当前代码，是实现/产品差异清单，不是新增的完整资格验收。
+
+| 能力轴 | Hermes 当前实现 | 与其他接入的具体差异 |
+| --- | --- | --- |
+| 1. Auth / Provider / Model | 原生默认交原生；菜单缺失不阻止执行；显式模型经 set_model，局部兼容 custom 简写；无额外登录探针 | Codex 按 Turn 配置模型；Command/Cline 的共享显式选模仍使用原生目录验证。Hermes 的菜单与执行门槛已解耦 |
+| 2. Host / Fleet / LRU | 共享 Fleet、Native Binding 身份；无 Host/Binding/runtime 配置摘要；每 Run 关闭 ACP | Command 同样不用配置摘要但可 warm；Codex/Cline 等仍有配置摘要。Hermes 当前付出重连成本，不管理共享 Gateway 的 LRU |
+| 3. Session / Continuation | 原 ID 直接 resume/load；共享 replay 隔离；失败不自动新建 Session 冒充恢复 | 与一般 ACP 一样直接恢复；当前 Command 也已去掉恢复前 list。Hermes 不使用版本/指纹相等作为 resume 前提 |
+| 4. Bootstrap / Context | 首次 B+P、真实规则变化 B 更新+P，其余 P；user 层；接受账本跨重启保持 | Command 用小 Mod 和已有 ACP 控制请求逐轮更新内存中的 System；Codex 用 developerInstructions；Claude 用启动参数文件。Hermes 没有 Mod/ready/正文中转文件，但指令层级较低 |
+| 5. Compaction | 原生压缩照常，Core detector 关闭，无补发或永久保留承诺 | Command/System hook 与 Codex/Claude 的原生高权限指令路径不同；同样关闭 detector 不代表保留保证相同。此项是已选产品边界，未满足通用清单的永久连续性要求 |
+| 6. Skills | 用户/当前项目各 .hermes/skills 与 .agents/skills；公共扫描、预览、显式文件引用 | 与 Command 的固定目录发现方向一致；不还原原生启用/信任结果，不列任意 external_dirs。真实读取已验证，文件候选不等于原生启用 |
+| 7. External MCP | 共享分配随 ACP new/resume 交付；原生部分发现失败可继续；不改配置 | Command 自定义 cwd 需要包装且有原生优先策略；Hermes 未传自定义 cwd、同名优先级未知，空 resume 列表不能宣称撤销。没有第二次绑定或额外发现 |
+| 8. Tool / Action / Output | 直接消费官方 ACP 工具、输出、路径；原生终态决定任务结算 | Codex 有更丰富的结构化 item，Command 可映射部分编辑片段；Hermes 当前无结构化 Diff，缺详情不会反改明确成功的任务 |
+| 9. Narration / Final / Missing-Send | ACP 当前请求结果，加共享 Explicit Send/收尾规则；不按自然语言判断成功 | 与其他 ACP 共用产品收尾；没有第二条 Gateway 事件流、receipt 对账或全证据收齐门槛 |
+| 10. Permission / Approval / Workspace | 原生文件编辑模式；权限请求经共享审批桥；不把 dont_ask 当作所有命令自动允许 | 不同于 Codex 的 sandbox 或 Command 的 bypass；Hermes 无已接通的 Core read-only 保证，不能从模式成功推导工作区隔离或问卷支持 |
+| 11. Built-in CLI | 固定安装入口、实例端点、原生逻辑 Session 一次定位当前 Run；无 context.json | Command/Codex 等主要使用逐 Run context/环境。Hermes 明确采用调用时归属：旧后台程序到下一 Run 才首次调用，会归入下一 Run，不追溯来源执行 |
+| 12. Usage / Cache / Cost | Session 上下文观测可用；缺少可靠本 Run 数据时未知，无原生日志补账 | Command 消费 result._meta.usage；Codex/Claude 有各自结构化计数。Hermes 当前消费统计较弱，不能把 Session 累计当本轮，也不靠新增采集器补齐承诺 |
+| 13. Retry / Queue / Cancel / Cleanup | 官方 cancel、共享去重/队列；只清理自有 ACP。无私有 steer/unknown 维护通道 | 当前 Hermes 与 Command 都不承诺已接通同轮 steer；Codex 等有相应原生路径。共享 Gateway/已提交工具可能继续；无法确认执行结果保持未知，不自动重放 |
+| 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64 Preview | Command 最低稳定版 1.88 并有一次 Mod ready；Hermes 无插件 ready。当前通过不等于 Windows/Linux/macOS x64 或全部能力资格 |
+
+这次没有为比较其他 Runtime 重跑它们的真实模型。实际检查入口为
+[ACP](../../../crates/rovai-core/src/acp.rs)、[Hermes 局部适配](../../../crates/rovai-core/src/hermes.rs)、
+[规则接受账本](../../../crates/rovai-core/src/context/hermes_rules.rs)、
+[能力目录](../../../crates/rovai-core/src/agent_runtime_adapter.rs)、
+[Core CLI 解析](../../../crates/rovai-core/src/application.rs)、
+[用量映射](../../../crates/rovai-core/src/monitoring.rs)与当前合同。
+
+原生提问应单列未验证项：当前没有 Hermes 专属问卷禁用/取消形状接线，不能用文件审批通过替代。
+原生记忆、画像、后台能力按用户配置保留，与部分适配器关闭原生自动记忆的策略有差异；共享 Home
+不承诺成员长期记忆隔离。完整 Diff、逐 Run 用量、MCP 自定义 cwd/明确撤销和其他终端后端属于
+能力缺口，不应包装成“必须再增加封装”的整改理由。
+
+当前 [D65](../../versions/v1.72/decisions.md#v1-72-d65) 和 Hermes 合同明确接受 user 规则、共享 Gateway
+及调用时 Run 归属等产品选择；这些优先于 proposed Checklist 的通用默认。通用清单里的高权限
+Bootstrap、压缩连续性、全部执行树回收和旧执行来源隔离不能在 Hermes 行勾成已通过。
+保持 Preview，不把局部简化和一次真实恢复验收表述为 First-Class 全部闭合。
 
 ## 此前实现的能力与证据（历史记录）
 

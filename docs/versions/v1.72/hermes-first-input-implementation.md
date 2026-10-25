@@ -222,7 +222,7 @@ User sequence 84 明确要求真实模型。生产 Core/CLI 构建于 `37f017b68
 
 `rovai-hermes-real-model-RRSFv4` 中 A0、B0、A1 三个真实 Run 均成功并完成文件操作和公开 Send，
 但 A1 的“零设置 RPC”断言失败：new 返回 `custom:sub2api:gpt-6.1-sol`，首次生成后 resume 返回
-`custom:gpt-6.1-sol`。完整 ID 不相同，生产代码按合同发送 `session/set_model`，行为正确。
+`custom:gpt-6.1-sol`。完整 ID 不相同，生产代码按当时的合同发送 `session/set_model`，行为正确。
 不能据此承诺相同底层模型总能省略设置；没有通过去 Provider 前缀或别名归一化修复这条断言。
 后续 fixture 按实际观察到的完整原生值选择当前行，命名 Provider 仍用完整命名路由切换不同模型。
 这是测试前提校正，没有修改生产比较逻辑，也没有重放原 Session 的旧输入。
@@ -278,6 +278,30 @@ cargo test -p rovai-core --features slow-tests,extended-tests --lib acp::tests::
 
 现有真实 smoke 保留原始命名 Provider 选择，在 Core 重启、原 Session resume 后断言无重复设置；
 改变模型时断言完整选择进入设置请求，下一轮继续同 Session 再次零设置。无需新的验收框架。
+
+### 真实恢复结果
+
+生产 `34dd2e2f9`、官方未修改 0.22.4，隔离夹具 `rovai-hermes-real-model-WDyVxp` **5 Run succeeded**。
+17 次主任务请求和 2 次原生辅助请求经过真实 Sub2API；主任务均 HTTP 200/completed，响应模型与
+请求一致。证据见 [custom 模型 ID 兼容验收](../../research/hermes-runtime/model-id-compatibility-2026-10-25.json)。
+
+| 轮次 | 原选择与原生返回 | 实际结果 |
+| --- | --- | --- |
+| A0/B0 | 原生默认 `gpt-6.1-sol` | 两成员、不同原生 Session、文件工具及各一条公开 Send 正常；首次规则 |
+| A1 Core 重启后 | 选择 `custom:sub2api:gpt-6.1-sol`，返回 `custom:gpt-6.1-sol` | 原 A Session；零模型/模式设置，实际仍使用 gpt-6.1-sol；不重复规则 |
+| A2 真正换模型 | 选择 `custom:sub2api:gpt-5.6-sol`，返回仍为旧模型 | 完整原选择进入一次 set_model；实际请求/响应均为 gpt-5.6-sol，模式变更另一次 set_mode |
+| A3 不再改选 | 仍选择完整 `custom:sub2api:gpt-5.6-sol`，返回 `custom:gpt-5.6-sol` | 原 A Session；零模型/模式设置，继续 gpt-5.6-sol；不重复规则 |
+
+五个 Run 均有且只有一条精确 Send，归属和落盘文件正确。测试共享 Gateway 在 Core 退出后仍存活，
+最终由夹具清理；已核对无该夹具残留进程。用户配置字节不变，上游源码未改；未启动日常 Gateway。
+不同命名 Provider 对照由单测覆盖，未新增第二个真实 Provider 账号、取消/压缩/MCP/图片/平台或性能矩阵。
+
+本次默认 `cargo test --workspace -- --test-threads=1` **480 passed / 0 failed / 1 ignored**；新增纯函数
+owner 和既有 ACP seam 定向通过（与 workspace 有重叠，不累加），Core/CLI 构建、fmt、Node 语法及
+whitespace 检查通过；文档单测 10 项、当前与 diff-aware 文档门禁通过（base `4d8625c94`）。
+没有 Renderer 改动，未重跑前端或安装日常 App。
+User sequence 93 要求的剩余复杂度与 14 轴对照见[当前研究记录](../../research/hermes-runtime/README.md#与-command-简化原则及-checklist-的当前对照2026-10-25)，
+本轮只核对其他 Runtime 的代码和既有证据，没有替它们重新做真实模型验收。
 
 ## 历史 R1 实施
 

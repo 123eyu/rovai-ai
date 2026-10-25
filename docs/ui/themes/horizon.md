@@ -7,10 +7,11 @@ mode: light
 last_updated: 2026-10-25
 ---
 
-# 地平线
+# 晨雾
 
 ## Identity and mode
 
+显示名称为晨雾 / Morning Mist，原名地平线 / Horizon。
 稳定 `ThemeId` / `ThemePreference` 为 `horizon`，明暗模式为 `day`，
 `color-scheme: light`。与原有主题共享生产组件、页面、能力与状态。
 

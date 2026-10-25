@@ -7,10 +7,11 @@ mode: light
 last_updated: 2026-10-25
 ---
 
-# 经典红
+# 朝霞
 
 ## Identity and mode
 
+显示名称为朝霞 / Dawn Glow，原名经典红 / Classic Red。
 稳定 `ThemeId` / `ThemePreference` 为 `classic-red`，明暗模式为 `day`，
 `color-scheme: light`。与原有主题共享生产组件、页面、能力与状态。
 
@@ -18,7 +19,7 @@ last_updated: 2026-10-25
 
 纯白阅读区、浅灰气泡与轻红侧栏，樱桃红用于实心主操作和选中勾；导航与操作文字使用中性深灰，
 Logo 保留 Steel 与 Ember 原色。User 在主题设计 Thread sequence 40 选择 A「轻红侧栏」，
-通过区域底色体现经典红，避免红字和大面积鲜红选中块。
+通过区域底色体现红色主题，避免红字和大面积鲜红选中块。
 继续遵守 sequence 18 的交互边界，不加入生产没有的聚焦效果或功能。
 
 ## Surface hierarchy and color responsibilities

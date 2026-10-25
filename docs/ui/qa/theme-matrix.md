@@ -2,12 +2,12 @@
 document_type: ui-qa-contract
 authority: renderer-theme-verification
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 ---
 
 # Renderer 主题覆盖矩阵
 
-Porcelain Day、Steel Night、地平线、经典红与余烬必须在同一生产组件、数据和功能上逐项通过。主题不能通过隐藏功能、
+Porcelain Day、Steel Night、晨雾、朝霞与绯夜必须在同一生产组件、数据和功能上逐项通过。主题不能通过隐藏功能、
 替换假数据或禁用状态来换取视觉一致。
 
 | Surface / state | Day | Night | 重点检查 |

@@ -59,7 +59,7 @@ Windows `BrowserWindow` 保留系统 frame，但以 `titleBarStyle: hidden` 隐�
 完整行为见[App Shell 调宽与完全折叠](components/app-shell-navigation.md#调宽与完全折叠)。
 
 顶层菜单行与 Window Controls Overlay 使用当前有效 `ThemeId` 的 `--rail` 背景和 `--ink` 图标色，
-覆盖日间、夜间、地平线、经典红与余烬；`system` 解析为日间或夜间。建窗与主题切换使用同一配色解析，
+覆盖日间、夜间、晨雾、朝霞与绯夜；`system` 解析为日间或夜间。建窗与主题切换使用同一配色解析，
 不能只传递 `ResolvedTheme` 明暗模式。高度读取 WCO CSS environment value，不写死覆盖值，继续采用系统默认值适配多屏 DPI。
 隐藏标题文字层后，Windows 复用既有 `.topbar`、
 `.window-drag-strip` 与 `.unified-sidebar-drag` 受控拖拽区；既有按钮继续保持 `no-drag`。

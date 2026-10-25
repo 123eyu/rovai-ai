@@ -6,7 +6,9 @@ authority: implementation-evidence
 last_updated: 2026-10-25
 ---
 
-# 地平线、经典红与余烬实施
+# 晨雾、朝霞与绯夜实施
+
+三款主题原名地平线、经典红、余烬；下文历史记录保留当时名称，当前显示名称见末尾更名记录。
 
 User 最初在主题设计 Thread sequence 18 确认使用独立 worktree 实施第六版配色与六项紧凑选择器，
 并明确不加入生产没有的功能、输入框聚焦装饰或原型专属行为。
@@ -154,14 +156,30 @@ User 指出 Windows 菜单栏切换主题后，右上角最小化、最大化与
   核对另发现日间/夜间附件色表分别有 8/6 项既有文档—实现偏差，已记录到任务的 palette audit；
   本次新增滚动块 Token 的合同与实现一致，既有配色值没有变化。
 
+## 显示名称统一（Thread sequence 44–48）
+
+User 要求三款名称具有一致风格，并指出「暮色」没有体现暗色配色中的红色。
+最终采用晨雾、朝霞、绯夜，在 sequence 48 授权完成后 PR 合入 main。
+
+| 原显示名称 | 新显示名称 | 英文显示名称 | 稳定 `ThemeId` |
+|---|---|---|---|
+| 地平线 | 晨雾 | Morning Mist | `horizon` |
+| 经典红 | 朝霞 | Dawn Glow | `classic-red` |
+| 余烬 | 绯夜 | Crimson Night | `ember` |
+
+更新共用主题选项、英文翻译、既有设置测试与当前 UI 文档。稳定 ID、CSS 选择器、合同路径、
+偏好存储、所有配色值和生产交互保持原样，旧偏好无需迁移；system/day/night 继续保留。
+历史设计稿与实施记录保留当时名称；品牌 Ember 色及 Logo 地平线几何不属于主题显示名称。
+
+验证结果待本次回归与生产组件预览完成后记录。
+
 ## Worktree handoff
 
-- Work item: User sequence 42 的 Windows 窗口按钮配色遗漏与经典红滚动块修正。
-- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-theme-chrome`
-- Branch: `rovai/theme-chrome-scrollbars`
-- Base: `origin/main` / `c73c79423da12d2ac4aa154a1ff4742c69206f2d`
-- Integrated main: `1028095f6d318f1d77802c518ec76f97c036f402`
-- Governance: none；沿用已授权的主题修订、PR 与合入流程，UI 合同随同提交。
-- Status: ready
-- Validation: 见上节；源码预览提交 `1635838d051fb7d9246b02386c9ee8cd31e80008`。
-- Next: 创建 PR，CI 通过后合入 main 并清理 worktree；真机 Windows 视觉范围保留为未实测。
+- Work item: User sequence 44–48 的三款主题显示名称统一。
+- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-theme-names`
+- Branch: `rovai/theme-display-names`
+- Base: `origin/main` / `179289b080d74a8868c7d7de8bfb5dd99508a292`
+- Governance: none；局部可逆名称修订，沿用已授权的 PR 与合入流程，UI 合同随同提交。
+- Status: active
+- Validation: 待本次回归与生产组件预览。
+- Next: 完成验证、创建 PR，CI 通过后合入 main 并清理 worktree。

@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-app-shell-navigation
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-25
 ---
 
 # App Shell 与统一侧栏

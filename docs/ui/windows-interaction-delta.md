@@ -3,13 +3,13 @@ document_type: ui-platform-contract
 authority: renderer-windows-interaction-delta
 status: accepted
 source_version: v1.05
-last_updated: 2026-10-02
+last_updated: 2026-10-25
 ---
 
 # Windows Interaction Delta
 
 本文只拥有 Rovai AI 在 Windows x64 上相对现有 macOS 产品界面的交互差异。Windows 不是第二套产品：
-Renderer 继续使用同一组件树、信息架构、Porcelain Day / Steel Night Token、领域动作和持久状态。平台差异由
+Renderer 继续使用同一组件树、信息架构、主题 Token、领域动作和持久状态。平台差异由
 只读 `HostPlatformKey` 投影到展示层，不复制业务状态机，也不允许 Renderer 自行推断安全或 Runtime 准入。
 
 生产实现状态由代码、自动化和真实 Windows 证据决定；本文 `accepted` 不表示 Windows UI 已完成。原

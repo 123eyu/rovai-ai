@@ -2960,8 +2960,8 @@ mod tests {
                 native_session_compatibility_key: Some(
                     "claude-code-cli:stream-json-v1".to_string(),
                 ),
-                binding_compatibility_digest: "binding".to_string(),
-                host_config_digest: "host".to_string(),
+                binding_compatibility_digest: Some("binding".to_string()),
+                host_config_digest: Some("host".to_string()),
                 config_digest: "config".to_string(),
             },
             prompt: "test input".to_string(),

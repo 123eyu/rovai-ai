@@ -8172,7 +8172,7 @@ describe('task event projections', () => {
     expect(markup).not.toMatch(/稳定|测试|实验性/)
     expect(markup.match(/class="runtime-product-logo"/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
     expect(markup.match(/class="quiet-button runtime-product-check"/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 2)
-    expect(markup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - (hostPlatform === 'windows-x64' ? 3 : 2))
+    expect(markup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 2)
     expect(markup).not.toContain('runtime-product-check" disabled="">正在检查…')
     expect(markup).toContain('Claude Code 登录指南')
     expect(markup).toContain('Antigravity 安装指南')
@@ -8184,7 +8184,7 @@ describe('task event projections', () => {
     expect(markup).toContain('<strong>Kiro</strong></div>')
     expect(markup).toContain('<strong>Antigravity</strong></div>')
     expect(markup).toContain('<small title="codex-cli 1.0.0">codex-cli 1.0.0</small>')
-    expect(markup.match(/<small\b/g)).toHaveLength(hostPlatform === 'windows-x64' ? 5 : 4)
+    expect(markup.match(/<small\b/g)).toHaveLength(4)
     expect(markup).not.toContain('<small></small>')
     expect(markup).not.toContain('来源 inherited_path')
     expect(markup).not.toContain('Version Probe')
@@ -8213,7 +8213,7 @@ describe('task event projections', () => {
           ? `<strong>Codex CLI</strong><small title="${subtitle}">${subtitle}</small>`
           : '<strong>Codex CLI</strong></div>')
         expect(versionMarkup).toContain('status-available">可用</span>')
-        expect(versionMarkup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - (hostPlatform === 'windows-x64' && status === 'qualified' ? 1 : 0))
+        expect(versionMarkup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
         expect(versionMarkup).toContain('DeepSeek Harness')
         expect(versionMarkup).not.toMatch(/测试|试运行|实验性/)
         expect(versionMarkup).toContain('<strong>ZCode</strong></div>')
@@ -8418,7 +8418,7 @@ function runtimeAdmissionRows(
   ]
   return runtimeKinds.map((runtimeKind) => {
     const effectiveStatus = status === 'qualified' && ['cursor-agent', 'cline-cli', 'command-code-cli'].includes(runtimeKind)
-      ? runtimeKind === 'command-code-cli' && (platform === 'macos-arm64' || platform === 'macos-x64') ? 'preview' : 'not_qualified'
+      ? runtimeKind === 'command-code-cli' && platform !== 'linux-x64' ? 'preview' : 'not_qualified'
       : status
     return {
       runtimeKind,

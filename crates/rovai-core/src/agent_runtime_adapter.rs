@@ -847,14 +847,14 @@ impl AgentRuntimeAdapterRegistry {
         }
         if kind == AdapterKind::CommandCodeCli {
             return match platform {
-                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64 => {
-                    RuntimePlatformAdmission::preview(
-                        kind,
-                        platform,
-                        RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
-                    )
-                }
-                HostPlatformKey::WindowsX64 | HostPlatformKey::LinuxX64 => unqualified(),
+                HostPlatformKey::MacosArm64
+                | HostPlatformKey::MacosX64
+                | HostPlatformKey::WindowsX64 => RuntimePlatformAdmission::preview(
+                    kind,
+                    platform,
+                    RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
+                ),
+                HostPlatformKey::LinuxX64 => unqualified(),
             };
         }
         // Deferred products retain their ACP implementation and persisted identity.

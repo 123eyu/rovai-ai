@@ -174,7 +174,8 @@ Claude 新会话的保存指引随关闭消失；旧会话恢复仍可能保留�
 交付。原生同名优先、cwd、env/header 字面量及缺失恢复 ID 的实测见[简化记录](versions/v1.72/command-code-native-simplification.md)。
 用户原生配置与历史由 CLI 拥有；真实模型证据未覆盖完整 App/平台资格。
 2026-10-25 按 User seq61 开放 macOS arm64 与 x64，采用既有 Preview 准入，保留 1.88.0 稳定版下限；
-Windows/Linux 仍 NotQualified。本次开放没有新增 Intel、完整 App 或子代理实测结论。
+同日 Windows x64 真实功能补验后也采用 Preview，Linux 仍 NotQualified。Windows 的实测和原生 MCP 路径／
+参数、拒绝后无公开最终回复等边界见[实施记录](versions/v1.72/command-code-native-simplification.md#windows-preview-开放2026-10-25)。本次开放没有新增 Intel 或子代理实测结论。
 以下带日期的旧结果作为历史证据保留。
 
 ## 2026-10-09 Cline / Command Code 暂缓公开（User 105）
@@ -295,7 +296,7 @@ AgentRun/App 主路径与正常 managed System Rule 已通过；compaction 与 F
 当前 closed `AdapterKind` 包含十九种 Runtime identity：Codex CLI、OpenCode、GitHub Copilot、
 Claude Code、Antigravity、Kiro、Qoder、CodeBuddy、Qwen Code、TRAE CLI CN、Cursor Agent、Kimi Code、
 MiniMax Code、Grok Build、Pi Coding Agent、ZCode、DeepSeek Harness、Cline 与 Command Code。Cline 暂不公开，
-所有平台 NotQualified；Command Code 在 macOS arm64/x64 以 Preview 开放，Windows/Linux 保持 NotQualified。
+所有平台 NotQualified；Command Code 在 macOS arm64/x64 与 Windows x64 以 Preview 开放，Linux 保持 NotQualified。
 identity 或 Preview 均不代表 First-Class。
 Cursor 在三个目标平台均为 `not_qualified`；Pi、Kimi 在 macOS arm64、macOS x64 与 Windows x64 均为
 digest-bound `qualified`。Pi 三个平台分别绑定自己的 adapter-scoped evidence，不继承通用 macOS/Windows、

@@ -4132,5 +4132,6 @@ Mission 抽屉和 Diff 文件树已有最终指针提交与缩放换算，保留
 固定 1.88 的确定性原生验证与既有 sub2api 真实模型证据分开，详见上述报告。
 
 2026-10-25 User seq61 另行确认 macOS 两架构开放，沿现有 Preview 准入与共享产品目录实施；
-Windows/Linux 保持 NotQualified。最低版本、原生接入和生命周期不变，不新增资格门禁或证据文件。
+同日 Windows x64 补验后也按 Preview 开放，Linux 保持 NotQualified。最低版本、原生接入和生命周期不变，
+不新增资格门禁；Windows 实测和已知限制见[实施记录](command-code-native-simplification.md#windows-preview-开放2026-10-25)。
 完整 Intel/Core/App 验收不由此次开放推导，决定见 [V1.72-D60](decisions.md#v1-72-d60)。

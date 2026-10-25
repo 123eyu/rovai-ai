@@ -553,3 +553,39 @@ doc-tests 通过；其中 App CLI 31 项包含 Command 原生默认配置解析�
 
 未新增 Intel 原生模型、完整 macOS Core/App、子代理或跨平台 MCP 资格验收；已有原生证据仍见本报告
 前文。本次不安装、重启或改写日常 App，也不自动升级 Command。Preview 开放和完整资格通过分别记录。
+
+## Windows Preview 开放（2026-10-25）
+
+按 User 后续要求，把 Windows 补验和 macOS 开放提交 `3c5d6343c` 一起交付；Windows x64 同样采用
+Preview，Linux 仍关闭。最低稳定版 1.88.0、原生 HOME/Mod/ACP/Fleet 及共享产品入口保持。
+前文 macOS 开放时“Windows 仍 NotQualified”是该提交当时状态，由本节更新。
+
+真实模型测试使用已含 Bootstrap PID 修复的主干 `51da43668` debug Core/CLI、官方 Command Code 1.88.0、
+独立 D 盘 Core、Skill Library、MCP config 与原生 HOME。仅该隔离 Core 使用既有逐 Adapter qualification
+override；模型为本机 sub2api `gpt-6/xhigh`。开放补丁只调整准入/入口，不修改上述执行链。
+脱敏证据见 [Windows Preview 实测](../../research/command-code-runtime/windows-preview-2026-10-25.evidence.json)。
+
+| 补验场景 | 观察结果 |
+| --- | --- |
+| Skill 与分配 MCP | Core Run 实际读取 Skill 随机回执并调用 MCP echo；两个回执进入公开消息。 |
+| 更新与撤销 | 修改 Skill 与 MCP 后，下一轮采用新回执，Binding/Session 保持；撤销后搜索无工具且零新增 MCP 调用。 |
+| 正常关闭与恢复 | 所属 Runtime/MCP 退出；重启后恢复精确 Session，重新读取 Skill 并调用更新后的 MCP。 |
+| 原生手动压缩 | 真实摘要将 16 条消息压为 5 条；压缩后与 cold 恢复后均保留随机记忆和最新 System。 |
+| 权限拒绝 | 持久回执为 user_selected_deny，目标文件不存在。 |
+| 强杀与后继 | MCP hold 已开始时只强杀隔离 Core，Job 回收后代，35 秒延迟写入未发生；重启后新 Run 成功。另测模型请求中强杀，Runtime/MCP 同样退出且后继恢复。 |
+
+八项正向/恢复检查通过，拒绝分支独立核对。拒绝写权限时，1.88 原生可直接以 end_turn 结束，不继续生成
+公开最终消息；Core 如实报告 runtime_missing_final_output，本项不计作成功发布的 Run。最初权限脚本
+把原生 reject_once 当作公开 kind，又读取未公开的内部字段，两项假设已纠正，失败记录保留。
+短历史的两次手动压缩返回 Nothing to compact yet，也不计作成功；补足原生 30000-token recent tail
+与较早消息后才获得真实摘要证据。
+
+官方 Windows ACP 独立对照已确认：MCP executable 绝对路径含空格可启动失败，复杂 argv 可被拆分；
+普通 `node` 与简单参数可实际调用。这是未经过 Rovai 时同样存在的限制，本轮不修改用户上游安装包。
+阈值/溢出自动压缩、完整 Skills 变体/成员隔离、Usage/成本及完整资格矩阵仍未闭合，因此保留
+qualification_evidence_missing 与空 evidenceRevision，不晋升 Qualified。临时登录副本已删除，
+记录的所属进程全部退出，原 mcode 配置哈希未变。
+
+准入扩展复用既有 Windows/macOS/Linux 矩阵、App CLI、App、OnboardingFlow、member-runtime-apply 和安装/监控
+owners，无新增 Rust 测试函数；归属见[测试说明](../../development/testing.md#command-code-188-简化测试归属2026-10-24)。
+正式 release 无 override 的准入、已安装 App 和本机数据保留由安装回执另记；debug 模型证据不替代它们。

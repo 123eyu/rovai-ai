@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:028c5e082aa395b5dc77feef341b9857c32560db0700250e36cbd48d47346499";
+    "sha256:65ed6331ed288dc2c8c81452ee8dd3b72e1cb1351886468978988a3e027c5785";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -451,6 +451,16 @@ mod tests {
                     admission.evidence_revision(),
                     Some(DSH_WINDOWS_X64_EVIDENCE_REVISION)
                 );
+                assert_eq!(admission.blocker_code(), None);
+            } else if runtime_kind == AdapterKind::CommandCodeCli {
+                assert_eq!(admission.status(), RuntimePlatformAdmissionStatus::Preview);
+                assert!(admission.allows_runtime_use());
+                assert!(!admission.is_qualified());
+                assert_eq!(
+                    admission.reason_code(),
+                    Some(RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing)
+                );
+                assert_eq!(admission.evidence_revision(), None);
                 assert_eq!(admission.blocker_code(), None);
             } else if !matches!(
                 runtime_kind,

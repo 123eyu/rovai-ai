@@ -1200,5 +1200,6 @@ MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口�
 
 2026-10-25 按 User seq61 开放 macOS Apple Silicon 与 Intel，Core 两个平台采用既有 Preview 准入；
 共享产品目录恢复 Command 的设置、引导、成员/Skill 选择和监控入口，安装引导指向官方说明。
-Windows/Linux 保持 NotQualified，1.88.0 稳定版下限保持，不新增平台资格证据或专属检查。
+同日 Windows x64 完成真实功能补验后也按 Preview 开放，Linux 保持 NotQualified，1.88.0 稳定版下限保持。
+Windows 实测与残余边界见[Windows Preview 开放](command-code-native-simplification.md#windows-preview-开放2026-10-25)，不新增专属检查或宣称完整资格。
 取舍见 [V1.72-D60](decisions.md#v1-72-d60)，本次回归与未实测项记录在同一简化报告。

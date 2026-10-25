@@ -98,11 +98,14 @@ env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm �
 schema 与拒绝调用，不追加 fallback 或原生问卷界面。Skills 发现复用共享代码的 user/project
 `.commandcode/skills`、`.agents/skills` 来源；原生同名选择由 CLI 拥有，不生成投影副本。
 
-Migration 185 的闭集 identity 与既有历史保持。2026-10-25 按 User seq61 开放 macOS Apple Silicon 与 Intel，
-两行均采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。Windows/Linux
-继续 NotQualified，Cline 的暂缓公开不变。Preview 不代表完整 App/Intel 资格验收通过；不绑定虚构证据，
+Migration 185 的闭集 identity 与既有历史保持。2026-10-25 按 User 要求开放 macOS Apple Silicon、Intel 与
+Windows x64，三行均采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。
+Linux 继续 NotQualified，Cline 的暂缓公开不变。Preview 不代表完整平台资格验收通过；不绑定虚构证据，
 不显示常驻实验标签。取舍见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。旧 1.74.1/1.79.1 BYOK
 目录缺口属于历史证据；1.88 的原生证据与尚未覆盖范围见[实施记录](../versions/v1.72/command-code-native-simplification.md)。
+官方 1.88 Windows 原生 ACP 的 MCP executable 含空格路径／复杂 argv 限制在不经过 Rovai 时同样可复现；
+普通 `node` 与简单参数可用。拒绝写权限会阻止文件修改，原生可能直接结束该轮而不发公开最终回复，
+此时 Core 如实报告缺失最终输出。上述边界不通过修改上游包、复制原生配置或新建进程机制掩盖。
 
 ## Cline 实施边界
 

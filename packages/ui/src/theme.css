@@ -402,7 +402,7 @@
   --lightbox-shadow: 0 28px 80px rgb(0 0 0 / 52%);
 }
 
-/* 地平线 — palette only; shared production components own all interactions. */
+/* 晨雾 — palette only; shared production components own all interactions. */
 :root[data-theme-id="horizon"] {
   --monitoring-input: #393b3d;
   --monitoring-output: #657f9b;
@@ -595,7 +595,7 @@
   --member-avatar-accent: var(--identity-1);
 }
 
-/* 经典红 — palette only; shared production components own all interactions. */
+/* 朝霞 — palette only; shared production components own all interactions. */
 :root[data-theme-id="classic-red"] {
   --monitoring-input: #393b3d;
   --monitoring-output: #657f9b;
@@ -788,7 +788,7 @@
   --member-avatar-accent: var(--identity-1);
 }
 
-/* 余烬 — palette only; shared production components own all interactions. */
+/* 绯夜 — palette only; shared production components own all interactions. */
 :root[data-theme-id="ember"] {
   --monitoring-input: #d5d6d8;
   --monitoring-output: #8ca7c6;

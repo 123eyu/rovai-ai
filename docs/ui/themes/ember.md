@@ -7,10 +7,11 @@ mode: dark
 last_updated: 2026-10-25
 ---
 
-# 余烬
+# 绯夜
 
 ## Identity and mode
 
+显示名称为绯夜 / Crimson Night，原名余烬 / Ember。
 稳定 `ThemeId` / `ThemePreference` 为 `ember`，明暗模式为 `night`，
 `color-scheme: dark`。与原有主题共享生产组件、页面、能力与状态。
 

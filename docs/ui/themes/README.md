@@ -7,15 +7,18 @@ last_updated: 2026-10-25
 
 # Renderer 主题
 
-Rovai AI 有五套配色，外观页提供六项偏好：跟随系统、日间、夜间、地平线、经典红、余烬。
+Rovai AI 有五套配色，外观页提供六项偏好：跟随系统、日间、夜间、晨雾、朝霞、绯夜。
 
 | `ThemeId` | 主题合同 | `ResolvedTheme` / `color-scheme` | CSS 选择器 |
 |---|---|---|---|
 | `day` | [Porcelain Day](porcelain-day.md) | `day` / `light` | `:root` |
 | `night` | [Steel Night](steel-night.md) | `night` / `dark` | `:root[data-theme="night"]` |
-| `horizon` | [地平线](horizon.md) | `day` / `light` | `:root[data-theme-id="horizon"]` |
-| `classic-red` | [经典红](classic-red.md) | `day` / `light` | `:root[data-theme-id="classic-red"]` |
-| `ember` | [余烬](ember.md) | `night` / `dark` | `:root[data-theme-id="ember"]` |
+| `horizon` | [晨雾 / Morning Mist](horizon.md) | `day` / `light` | `:root[data-theme-id="horizon"]` |
+| `classic-red` | [朝霞 / Dawn Glow](classic-red.md) | `day` / `light` | `:root[data-theme-id="classic-red"]` |
+| `ember` | [绯夜 / Crimson Night](ember.md) | `night` / `dark` | `:root[data-theme-id="ember"]` |
+
+晨雾、朝霞、绯夜分别是原地平线、经典红、余烬的新显示名称；稳定 `ThemeId`、持久化值与合同路径不变。
+设置选项与当前主题摘要使用新名称，已有偏好直接恢复，无需迁移或重置。
 
 `ThemePreference = system | ThemeId` 保存具体偏好；`ResolvedTheme = day | night` 继续表示明暗模式，
 供系统明暗外观、代码高亮与原生控件模式使用。共享 `THEME_MODES` 拥有配色到模式的映射。
@@ -92,14 +95,14 @@ Main 原子保存 schema-v2 偏好，并串行处理连续更新。schema-v1 主
 日间与夜间的动作文字保持原值。Memory 的专用工作区继续使用无彩色 Token，外围侧栏跟随所选主题。
 
 `--scrollbar-thumb` 独立拥有通用滚动块与 Mission 文件树的底色，不再复用选中区域色。
-经典红使用中性灰 `#dedede`，其余配色保持原有滚动块色值；Memory / Automation 的无彩色工作区继续使用
+朝霞使用中性灰 `#dedede`，其余配色保持原有滚动块色值；Memory / Automation 的无彩色工作区继续使用
 `--neutral-selected`。透明轨道、滚动块尺寸与悬停/拖动反馈沿用生产规则。
 
 `--execution-surface` 拥有执行台在底部、浮层和右侧标签中的统一阅读底色，包括头像状态背板与滚动渐隐。
-日间、夜间、经典红与余烬保持原会话底色值；地平线的会话保留轻暖白，执行台使用中性白，避免暖色扩散到过程阅读区。
+日间、夜间、朝霞与绯夜保持原会话底色值；晨雾的会话保留轻暖白，执行台使用中性白，避免暖色扩散到过程阅读区。
 手机继续由 `--mobile-page` 同时覆盖会话与执行台底色。
 
 主题选择沿用整卡原生 radio、缩略图、名称与选中勾；980px 内容轨道为六列紧凑卡片，
 容器不超过 900px 时三列，不超过 420px 时两列。不加入原型专属键盘/聚焦行为。
-`--settings-choice-selected-surface` 拥有外观选项的选中底色；经典红使用淡灰红区域色，
+`--settings-choice-selected-surface` 拥有外观选项的选中底色；朝霞使用淡灰红区域色，
 其余配色保持各自原有 `--home-surface` 色值。选中边线继续由 `--settings-choice-selected-line` 拥有。

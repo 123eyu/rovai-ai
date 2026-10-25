@@ -12,6 +12,7 @@ const requiredTokens = [
   '--surface-subtle',
   '--surface-muted',
   '--surface-selected',
+  '--scrollbar-thumb',
   '--workspace-surface-subtle',
   '--workspace-surface-raised',
   '--workspace-surface-hover',
@@ -396,7 +397,7 @@ describe('Porcelain Day + Steel Night theme tokens', () => {
     expect(gutterSize - (thumbInset * 2)).toBe(8)
     expect(css).toMatch(/\*::-webkit-scrollbar\s*\{[^}]*width: var\(--scrollbar-gutter-size\)[^}]*height: var\(--scrollbar-gutter-size\)[^}]*background: transparent/)
     expect(css).toMatch(/\*::-webkit-scrollbar-track,\s*\*::-webkit-scrollbar-corner\s*\{[^}]*background: transparent/)
-    expect(css).toMatch(/\*::-webkit-scrollbar-thumb\s*\{[^}]*border: var\(--scrollbar-thumb-inset\) solid transparent[^}]*border-radius: 999px[^}]*background: var\(--surface-selected\)/)
+    expect(css).toMatch(/\*::-webkit-scrollbar-thumb\s*\{[^}]*border: var\(--scrollbar-thumb-inset\) solid transparent[^}]*border-radius: 999px[^}]*background: var\(--scrollbar-thumb\)/)
     expect(css).not.toContain('scrollbar-width: thin')
     expect(css).toContain('.file-preview-tab-strip::-webkit-scrollbar { display: none; }')
     expect(css).toContain('.run-pulse-inspector .run-pulse-list::-webkit-scrollbar { display: none; }')

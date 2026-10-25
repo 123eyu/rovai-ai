@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: classic-red
 mode: light
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # 经典红
@@ -27,6 +27,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
 实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
 侧栏为 `#f8f5f6`，选中区域为低饱和灰红 `#eee4e6`；会话、输入、执行台与队员浮层保持白色。
+滚动块使用独立中性灰 `--scrollbar-thumb: #dedede`，不复用淡红选中面。
 外观选项选中面由 `--settings-choice-selected-surface` 拥有，沿用生产 radio、尺寸和焦点行为。
 
 ## Complete semantic token assignments
@@ -52,6 +53,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--surface-subtle` | `#f7f6f6` |
 | `--surface-muted` | `#f0ebec` |
 | `--surface-selected` | `#eee4e6` |
+| `--scrollbar-thumb` | `#dedede` |
 | `--surface-hover` | `#f2ebed` |
 | `--surface-sunken` | `#eae7e8` |
 | `--workspace-surface-subtle` | `#f7f7f7` |

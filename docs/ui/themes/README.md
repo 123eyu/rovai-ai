@@ -2,7 +2,7 @@
 document_type: ui-theme-index
 authority: renderer-theme-routing
 status: accepted
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # Renderer 主题
@@ -18,7 +18,8 @@ Rovai AI 有五套配色，外观页提供六项偏好：跟随系统、日间�
 | `ember` | [余烬](ember.md) | `night` / `dark` | `:root[data-theme-id="ember"]` |
 
 `ThemePreference = system | ThemeId` 保存具体偏好；`ResolvedTheme = day | night` 继续表示明暗模式，
-供系统窗口、代码高亮与原生控件使用。共享 `THEME_MODES` 拥有配色到模式的映射。
+供系统明暗外观、代码高亮与原生控件模式使用。共享 `THEME_MODES` 拥有配色到模式的映射。
+Windows caption controls 的背景与图标色按具体 `ThemeId` 的 `--rail` / `--ink` 同步，不只按明暗模式取色。
 `system` 仅解析为原有日间或夜间，不随系统自动选择其他配色。根 `data-theme` 保留明暗模式，
 `data-theme-id` 表示有效配色；切回旧主题或 system 时同样覆盖该属性，避免残留新配色。
 
@@ -37,7 +38,7 @@ Theme Token → Shared Component → Surface Composition
 2. `index.html` 在 React 启动前按 `prefers-color-scheme` 写入初始 `data-theme`，避免先亮后暗。
 3. Renderer 收到 Main 的 `AppearanceSnapshot` 后，以其中 `resolvedTheme` 覆盖初始明暗模式，按 `preference` 与模式解析具体配色，
    同时更新 `data-theme-id` 和 `color-scheme`。
-4. 主题切换只更新根 Token 与窗口背景；不得重新挂载页面、移动焦点，或改变 Camp、Tab、
+4. 主题切换只更新根 Token、窗口背景与 Windows caption controls 配色；不得重新挂载页面、移动焦点，或改变 Camp、Tab、
    Draft、滚动、选择、Dialog、Core/IPC 事实。
 
 实现真源是 [`theme.css`](../../../packages/ui/src/theme.css)、
@@ -89,6 +90,10 @@ Main 原子保存 schema-v2 偏好，并串行处理连续更新。schema-v1 主
 `--conversation-action` 是实心动作底色，`--conversation-action-contrast` 是其前景；
 `--conversation-action-ink` 是浅/深表面上的动作文字、选中导航文字及光标颜色，避免红色按钮底色在暗背景上被误用为低对比文字。
 日间与夜间的动作文字保持原值。Memory 的专用工作区继续使用无彩色 Token，外围侧栏跟随所选主题。
+
+`--scrollbar-thumb` 独立拥有通用滚动块与 Mission 文件树的底色，不再复用选中区域色。
+经典红使用中性灰 `#dedede`，其余配色保持原有滚动块色值；Memory / Automation 的无彩色工作区继续使用
+`--neutral-selected`。透明轨道、滚动块尺寸与悬停/拖动反馈沿用生产规则。
 
 `--execution-surface` 拥有执行台在底部、浮层和右侧标签中的统一阅读底色，包括头像状态背板与滚动渐隐。
 日间、夜间、经典红与余烬保持原会话底色值；地平线的会话保留轻暖白，执行台使用中性白，避免暖色扩散到过程阅读区。

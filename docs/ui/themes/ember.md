@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: ember
 mode: dark
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # 余烬
@@ -48,6 +48,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--surface-subtle` | `#252525` |
 | `--surface-muted` | `#333333` |
 | `--surface-selected` | `#373737` |
+| `--scrollbar-thumb` | `#373737` |
 | `--surface-hover` | `#303030` |
 | `--surface-sunken` | `#191919` |
 | `--workspace-surface-subtle` | `#222222` |

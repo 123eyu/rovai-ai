@@ -136,6 +136,18 @@ Ready 检查。取舍见 [V1.59-D10](../versions/v1.59/decisions.md#v1-59-d10)�
 原生权限/plan、取消问卷和原生管理命令的边界保持。其他平台、其他 Runtime、普通动态检查和执行
 fail-closed 门槛不因本项晋升改变；不建立 Renderer allowlist。
 
+## 8. Command Code macOS Preview
+
+2026-10-25，User seq61 明确要求 macOS 两个架构开放。`command-code-cli × macos-arm64` 与
+`command-code-cli × macos-x64` 均为 `preview / reasonCode=runtime_platform.qualification_evidence_missing`，
+`evidenceRevision=null`，沿既有准入允许 discovery、检查、成员配置与普通执行。同日按 User 要求完成
+Windows 补验后，Windows x64 同样采用 Preview；Linux x64 仍为 NotQualified，其他 Runtime 的资格不变。
+
+使用现有公开产品目录与官方安装说明入口，不增加 Renderer 平台白名单、专属门禁或实验标签。
+Command 原生接入及 1.88.0 稳定版下限保持；本次开放不宣称已完成完整 Core/App、Intel 或子代理资格。
+理由见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)，既有实测与此次验证见
+[Command Code 实施记录](../versions/v1.72/command-code-native-simplification.md)。
+
 ## Hermes 初始准入
 
 `hermes-cli × macos-arm64` 为 `preview / qualification_evidence_missing`，其余三个平台为
@@ -143,5 +155,5 @@ fail-closed 门槛不因本项晋升改变；不建立 Renderer allowlist。
 安装；兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
 [当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
 Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
-初始准入理由见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)，当前接入边界见
-[V1.72-D65](../versions/v1.72/decisions.md#v1-72-d65)。
+初始准入理由见 [V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)，当前接入边界见
+[V1.72-D66](../versions/v1.72/decisions.md#v1-72-d66)。

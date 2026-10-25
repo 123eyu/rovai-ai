@@ -45,9 +45,10 @@ Product Runtime Catalog 当前包含二十种已实现 Adapter。Preview 与它�
 Renderer 当前不展示 Settings Preview row。DeepSeek Harness 通过官方 ACP profile 接入；macOS arm64、macOS x64、
 Windows x64 与 Linux x64 分别绑定平台专属证据并取得 qualified。
 产品目录的机器可判数量、全量检查、诊断分母和
-普通执行仍只来自逐平台 Admission。Cursor 与暂缓公开的 Cline、Command Code 保留 closed identity 和历史 reader，但不进入
+普通执行仍只来自逐平台 Admission。Cursor 与暂缓公开的 Cline 保留 closed identity 和历史 reader，但不进入
 Settings Runtime Preview Catalog；隐藏该 row 不删除持久 identity，也不改变未准入状态。普通成员 Runtime
-selector 同样不展示 Cursor、Cline 与 Command Code；其他成员选项来自 `AdapterKind`，并在当前主机上继续经过 Runtime Platform Admission。
+selector 同样不展示 Cursor 与 Cline；Command Code 进入公开目录，macOS arm64/x64 为 Preview，Windows/Linux
+保持 NotQualified。成员选项在当前主机上继续经过 Runtime Platform Admission，Renderer 不另建平台白名单。
 
 `qualified` 与 `preview` 可以进入 Product Runtime Availability；`preview` 保留缺失资格证据，检查详情说明记录未齐备。
 `qualified` 行只在有实际 reported version 时显示版本副文案，否则仅显示居中的产品名，不再回退到静态
@@ -74,11 +75,12 @@ Command 的入口/指纹验证和必要刷新只在 Fleet cold spawn 执行；wa
 外部原生配置变化不触发扫描、比较或隐式新 Session；其他 Runtime 的策略不变。
 
 Bootstrap 的 `managed_system_prompt` 语义不变：完整冻结 B 经官方 `appendSystemPrompt({state})`
-追加到原生 System，user 只有 P。每 Host 一个 Mod，每 Session 一个 binding；初始化只校验一次
-revision/局部 nonce/PID 并删除 ready 文件。缺失或损坏 binding 在模型请求前停止。没有 active Bootstrap
-全局文件、HOME fallback、专属池/锁/缓存。原输入确认见 [revision 5](../versions/v1.72/model-context-change-command-code-acp.md)；
+追加到原生 System，user 只有 P。每 Host 一个 Mod，正文通过已有 ACP 的 `/rovai-bootstrap` 控制命令
+保存在 Mod 内存；初始化只校验一次 revision/局部 nonce/PID 归属并删除 ready 文件。没有 Bootstrap
+正文文件、HOME fallback、专属池/锁/缓存。原输入确认见 [revision 5](../versions/v1.72/model-context-change-command-code-acp.md)；
 其中旧物理交付描述由 v72 替代，冻结内容、选择、上下文版本和证据边界不变。
-每个 Run 发送前把该 Run 已冻结的 B 原子发布到现有 binding，warm 与 cold 使用相同交付时点。
+每个 Run 发送前交付该 Run 已冻结的 B，控制成功后才发送业务输入；warm 与 cold 使用相同交付时点。
+控制失败停止准备，不使用旧正文继续执行；控制回复不形成业务终态或用量。
 成员编辑不回写正在执行的 Run；后继 Run 使用其准备的新身份，同 Run 重试仍用原冻结字节。
 不比较历史正文、不触发 Host 退役或额外补发，也不另建冻结管理器；具体时点见
 [实施记录](../versions/v1.72/command-code-native-simplification.md#成员身份与长期指令何时生效)。
@@ -96,9 +98,14 @@ env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm �
 schema 与拒绝调用，不追加 fallback 或原生问卷界面。Skills 发现复用共享代码的 user/project
 `.commandcode/skills`、`.agents/skills` 来源；原生同名选择由 CLI 拥有，不生成投影副本。
 
-Migration 185 的闭集 identity 与既有历史保持。按 User 105 暂停公开的决定继续有效：所有平台 NotQualified，
-不恢复 Preview、headless 或产品选择入口。旧 1.74.1/1.79.1 BYOK 目录缺口属于历史证据；1.88 的当前原生
-证据、结构简化及尚未覆盖的平台范围见[实施记录](../versions/v1.72/command-code-native-simplification.md)。
+Migration 185 的闭集 identity 与既有历史保持。2026-10-25 按 User 要求开放 macOS Apple Silicon、Intel 与
+Windows x64，三行均采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。
+Linux 继续 NotQualified，Cline 的暂缓公开不变。Preview 不代表完整平台资格验收通过；不绑定虚构证据，
+不显示常驻实验标签。取舍见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。旧 1.74.1/1.79.1 BYOK
+目录缺口属于历史证据；1.88 的原生证据与尚未覆盖范围见[实施记录](../versions/v1.72/command-code-native-simplification.md)。
+官方 1.88 Windows 原生 ACP 的 MCP executable 含空格路径／复杂 argv 限制在不经过 Rovai 时同样可复现；
+普通 `node` 与简单参数可用。拒绝写权限会阻止文件修改，原生可能直接结束该轮而不发公开最终回复，
+此时 Core 如实报告缺失最终输出。上述边界不通过修改上游包、复制原生配置或新建进程机制掩盖。
 
 ## Cline 实施边界
 
@@ -843,4 +850,4 @@ Router、回复和回执。按调用时归属，不追溯旧后台程序最初�
 FirstPayload 只保留首次及真实规则更新，不进行压缩补发。未确认的 MCP 撤销、原生工具终止和
 增强详情不声明成功；未知输入不自动重放。具体合同见
 [Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)，理由见
-[原生会话定位决定](../versions/v1.72/decisions.md#v1-72-d65)。
+[原生会话定位决定](../versions/v1.72/decisions.md#v1-72-d66)。

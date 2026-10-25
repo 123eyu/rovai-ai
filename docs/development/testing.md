@@ -1742,6 +1742,14 @@ Skill Library、MCP 文件和未修改的源码副本。测试 relay 原样转�
 
 ## Command Code 1.88 简化测试归属（2026-10-24）
 
+macOS 两架构 Preview 开放扩展既有 `macos_catalog_qualifies_each_runtime_only_with_its_bound_evidence`：
+Command 允许使用但不伪称 qualified，保留缺失证据原因。同日 Windows 开放扩展既有
+`windows_catalog_qualifies_only_adapter_scoped_frozen_evidence` 验证相同 Preview 语义，Linux 继续验证拒绝。
+Renderer 沿既有 App、OnboardingFlow、RuntimeInstallationGuide、RuntimeMonitoring 与 member-runtime-apply
+owner 验证公开目录、两种 macOS 与 Windows 的配置准入和 Linux 的只读限制；不增加 Rust owner。
+App CLI 的既有 `member_runtime_configuration_admits_native_runtime_defaults` 同步允许解析 Command 配置，
+目标 Host 平台仍由 Core 准入；现有隔离 Electron Runtime Picker 覆盖实际菜单选择与默认模型保留。
+
 退役 `native_configuration_tracks_scoped_mod_sources_without_hashing_history`：其唯一生产路径（配置扫描、
 HOME 镜像和原生文件合并）已删除。同模块 owner 后续更名为 `native_home_and_bootstrap_control`，
 验证原生 HOME 不被改写、一次握手清理和直接控制正文编码。health owner 中的 `mcp list` 格式矩阵随已删除

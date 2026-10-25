@@ -9,7 +9,7 @@ last_updated: 2026-10-25
 当前接入是 User sequence 56/60 确认的官方 ACP、原生 Home、原生 Session 定位。
 CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增加表或模型参数。
 原生版本 0.22.4，源码 `4d04303818b61bf3aa09278af48356315515965b`；macOS arm64 保持 Preview。
-当前合同见 [Hermes Runtime](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D65](../../versions/v1.72/decisions.md#v1-72-d65)。
+当前合同见 [Hermes Runtime](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D66](../../versions/v1.72/decisions.md#v1-72-d66)。
 最新执行结果见 [实施记录](../../versions/v1.72/hermes-first-input-implementation.md)。
 此前 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、
 两次原生压缩、原 Session 冷恢复、MCP 部分失败/恢复、取消隔离及 Core 强杀不重放。
@@ -49,6 +49,7 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 或旧更新时机继续算作 Command 当前行为。对应[Command 收口记录](../../versions/v1.72/command-code-native-simplification.md)。
 随后同步主线 `4d8625c94`，保留 Command 的 Windows 进程所有权修复；本表所述 Hermes 接入边界未变。
 主线迁移编号整合及合流后回归见[实施记录](../../versions/v1.72/hermes-first-input-implementation.md#主线集成)。
+再同步 `3425e7c1e` 的 Command macOS/Windows Preview 开放；Hermes 仍仅 macOS arm64 Preview。
 
 结论：Hermes 原私有 Home、启动器、第二事件通道、配置解释器、Hook/压缩补发、context.json
 投影、配置兼容摘要及逐 Run CLI 安装均已退出生产。当前没有发现需要再次重构的 Hermes
@@ -88,7 +89,7 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 | 11. Built-in CLI | 固定安装入口、实例端点、原生逻辑 Session 一次定位当前 Run；无 context.json | Command/Codex 等主要使用逐 Run context/环境。Hermes 明确采用调用时归属：旧后台程序到下一 Run 才首次调用，会归入下一 Run，不追溯来源执行 |
 | 12. Usage / Cache / Cost | Session 上下文观测可用；缺少可靠本 Run 数据时未知，无原生日志补账 | Command 消费 result._meta.usage；Codex/Claude 有各自结构化计数。Hermes 当前消费统计较弱，不能把 Session 累计当本轮，也不靠新增采集器补齐承诺 |
 | 13. Retry / Queue / Cancel / Cleanup | 官方 cancel、共享去重/队列；只清理自有 ACP。无私有 steer/unknown 维护通道 | 当前 Hermes 与 Command 都不承诺已接通同轮 steer；Codex 等有相应原生路径。共享 Gateway/已提交工具可能继续；无法确认执行结果保持未知，不自动重放 |
-| 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64 Preview | Command 最低稳定版 1.88 并有一次 Mod ready；Hermes 无插件 ready。当前通过不等于 Windows/Linux/macOS x64 或全部能力资格 |
+| 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64 Preview | Command 最低稳定版 1.88、一次 Mod ready，macOS 两架构与 Windows x64 已开放 Preview；Hermes 无插件 ready，其余平台未获资格。Preview 均不代表全部能力已验收 |
 
 这次没有为比较其他 Runtime 重跑它们的真实模型。实际检查入口为
 [ACP](../../../crates/rovai-core/src/acp.rs)、[Hermes 局部适配](../../../crates/rovai-core/src/hermes.rs)、
@@ -102,7 +103,7 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 不承诺成员长期记忆隔离。完整 Diff、逐 Run 用量、MCP 自定义 cwd/明确撤销和其他终端后端属于
 能力缺口，不应包装成“必须再增加封装”的整改理由。
 
-当前 [D65](../../versions/v1.72/decisions.md#v1-72-d65) 和 Hermes 合同明确接受 user 规则、共享 Gateway
+当前 [D66](../../versions/v1.72/decisions.md#v1-72-d66) 和 Hermes 合同明确接受 user 规则、共享 Gateway
 及调用时 Run 归属等产品选择；这些优先于 proposed Checklist 的通用默认。通用清单里的高权限
 Bootstrap、压缩连续性、全部执行树回收和旧执行来源隔离不能在 Hermes 行勾成已通过。
 保持 Preview，不把局部简化和一次真实恢复验收表述为 First-Class 全部闭合。

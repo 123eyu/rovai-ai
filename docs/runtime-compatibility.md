@@ -1,7 +1,7 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # Agent Runtime 兼容性清单
@@ -216,7 +216,10 @@ Claude 新会话的保存指引随关闭消失；旧会话恢复仍可能保留�
 上游已支持自定义 BYOK 目录与标准显式选模，旧 1.74/1.79 的该项缺口不再代表 1.88。
 本轮真实 sub2api/gpt-6-sol 的 ACP stdio/HTTP 工具调用与随机回执闭环通过；System Bootstrap 由官方 Mod
 交付。原生同名优先、cwd、env/header 字面量及缺失恢复 ID 的实测见[简化记录](versions/v1.72/command-code-native-simplification.md)。
-用户原生配置与历史由 CLI 拥有；本次未覆盖完整 App/平台资格，仍保持所有平台 NotQualified。
+用户原生配置与历史由 CLI 拥有；真实模型证据未覆盖完整 App/平台资格。
+2026-10-25 按 User seq61 开放 macOS arm64 与 x64，采用既有 Preview 准入，保留 1.88.0 稳定版下限；
+同日 Windows x64 真实功能补验后也采用 Preview，Linux 仍 NotQualified。Windows 的实测和原生 MCP 路径／
+参数、拒绝后无公开最终回复等边界见[实施记录](versions/v1.72/command-code-native-simplification.md#windows-preview-开放2026-10-25)。本次开放没有新增 Intel 或子代理实测结论。
 以下带日期的旧结果作为历史证据保留。
 
 ## 2026-10-09 Cline / Command Code 暂缓公开（User 105）
@@ -334,9 +337,11 @@ AgentRun/App 主路径与正常 managed System Rule 已通过；compaction 与 F
 
 ## 当前 Product Runtime Catalog
 
-当前 closed `AdapterKind` 包含十八种 Runtime identity：Codex CLI、OpenCode、GitHub Copilot、
+当前 closed `AdapterKind` 包含十九种 Runtime identity：Codex CLI、OpenCode、GitHub Copilot、
 Claude Code、Antigravity、Kiro、Qoder、CodeBuddy、Qwen Code、TRAE CLI CN、Cursor Agent、Kimi Code、
-Grok Build、Pi Coding Agent、ZCode、DeepSeek Harness、Cline 与 Command Code。Cline 与 Command Code 均暂不公开，所有平台 NotQualified。identity 不代表 First-Class。
+MiniMax Code、Grok Build、Pi Coding Agent、ZCode、DeepSeek Harness、Cline 与 Command Code。Cline 暂不公开，
+所有平台 NotQualified；Command Code 在 macOS arm64/x64 与 Windows x64 以 Preview 开放，Linux 保持 NotQualified。
+identity 或 Preview 均不代表 First-Class。
 Cursor 在三个目标平台均为 `not_qualified`；Pi、Kimi 在 macOS arm64、macOS x64 与 Windows x64 均为
 digest-bound `qualified`。Pi 三个平台分别绑定自己的 adapter-scoped evidence，不继承通用 macOS/Windows、
 Kimi 或 Grok 的平台结论。

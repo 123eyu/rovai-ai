@@ -126,5 +126,48 @@
     "Bundled CLI installation helper was verified with temporary Home fixtures; no daily App installation was performed.",
     "Structured Hermes Diff, MCP custom cwd and reliable per-Run usage/cost remain outside this change.",
     "The cancelled and Core-killed Runs have expected non-success outcomes; shared Gateway cancellation is not a general rollback guarantee."
-  ]
+  ],
+  "afterMainMerge": {
+    "mainCommit": "1028095f6d318f1d77802c518ec76f97c036f402",
+    "fixture": "rovai-hermes-native-session-TPM8dy",
+    "nativeCommit": "4d04303818b61bf3aa09278af48356315515965b",
+    "checks": {
+      "noHermesContextProjection": true,
+      "concurrentMembers": true,
+      "backgroundUsesRunAtCallTime": true,
+      "noActiveOrUnknownSessionRejected": true,
+      "gatewaySurvivesCoreShutdown": true,
+      "nativeCompactionNoRulesRedelivery": true,
+      "nativeSystemPromptPreserved": true,
+      "nativeConfigUnchanged": true,
+      "mcpNewAndColdResumeWithPartialFailure": true,
+      "fixedCliWithoutAcpPathInjection": true,
+      "cancelDoesNotStopOtherSession": true,
+      "mcpRebindAfterNativeGatewayRestart": true,
+      "coreKillDoesNotKillGatewayOrReplay": true,
+      "actualModelInputsMatchRulesDelivery": true,
+      "noHermesCompatibilityDigests": true,
+      "cliEntryInstalledBeforeRuns": true,
+      "originalSessionColdResume": true
+    },
+    "runStatusCounts": {
+      "cancelled": 1,
+      "failed": 1,
+      "succeeded": 10
+    },
+    "successfulInputKinds": [
+      "initial",
+      "initial",
+      "none",
+      "none",
+      "update",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none"
+    ],
+    "committedSummaries": 2,
+    "wireSha256": "3cc5c8909151bfe9a5f970bd2ca7b4890964f19af48dace0b2396df0209f450f"
+  }
 }

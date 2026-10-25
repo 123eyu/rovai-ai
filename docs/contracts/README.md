@@ -169,7 +169,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Camp Open Projection v10（历史）](camp-open-projection-v10.md) | main Snapshot 34/Open 6；Open 不读取 event_log，移除 timeline/coverage.timeline，保留 high-water 与业务卡片 |
 | [Camp Open Projection v10（渠道分支历史）](camp-open-projection-channel-v10.md) | v9 保留；Camp/Navigation 增加可选 channelSource，原始 title 不变；合并时保留原文以区分同号合同 |
 | [Camp Open Projection v9（历史）](camp-open-projection-v9.md) | v8 保留；Snapshot 34/Open 5 增加可选 member.fast，仅查询安全缓存 |
-| [Runtime Launch and Verification v71（当前）](runtime-launch-and-verification-v71.md) | 通用 ACP Host 同时接受字符串 `error.data` 与 `error.data.error`；共用脱敏、输入确认与失败分类，不回填旧 Run |
+| [Runtime Launch and Verification v72（当前）](runtime-launch-and-verification-v72.md) | Command Code 1.88 原生 HOME、官方 Mod、ACP MCP、按 Binding 身份复用与启动失败材料所有权 |
+| [Runtime Launch and Verification v71（历史）](runtime-launch-and-verification-v71.md) | 通用 ACP Host 同时接受字符串 `error.data` 与 `error.data.error`；共用脱敏、输入确认与失败分类，不回填旧 Run |
 | [Runtime Launch and Verification v70（历史）](runtime-launch-and-verification-v70.md) | 继承环境输入规则；Claude 复用私有 settings 与进程环境，CodeBuddy 只注入后台启动变量，原生配置与 Session 保持自有边界 |
 | [Runtime Launch and Verification v69（历史）](runtime-launch-and-verification-v69.md) | 环境值直接显示；Renderer 标量转字符串、取消独立条数和名称长度限制，保留私有存储与三层合并 |
 | [Runtime Launch and Verification v68（历史）](runtime-launch-and-verification-v68.md) | Host＋Runtime 通用环境、继承选择、三层合并与私有通用版本 |

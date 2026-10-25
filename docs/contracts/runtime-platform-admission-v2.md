@@ -143,5 +143,5 @@ fail-closed 门槛不因本项晋升改变；不建立 Renderer allowlist。
 安装；兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
 [当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
 Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
-初始准入理由见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)，当前接入边界见
-[V1.72-D64](../versions/v1.72/decisions.md#v1-72-d64)。
+初始准入理由见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)，当前接入边界见
+[V1.72-D65](../versions/v1.72/decisions.md#v1-72-d65)。

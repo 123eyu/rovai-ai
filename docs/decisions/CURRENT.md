@@ -301,7 +301,9 @@ macOS ACP detached 后代与 Core 重启回收当前规范见
 [Managed Runtime Process v2](../contracts/managed-runtime-process-v2.md#macos-acp-descendants)，
 内核身份、私有 ledger 和不增加常驻代理的取舍见 [V1.72-D26](../versions/v1.72/decisions.md#v1-72-d26)。
 
-Cline 正常 System Rule 与 Command 原生 MCP 由 [V1.72-D27](../versions/v1.72/decisions.md#v1-72-d27)记录；当前交付边界由 [Runtime Catalog Boundaries](../architecture/runtime-catalog-boundaries.md)及 [Cline System 输入说明](../versions/v1.72/model-context-change-cline-system.md)拥有。
+Command 原生 HOME、官方 Mod、ACP MCP 与 Binding 身份复用的当前取舍见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)，字段合同见 [Runtime Launch and Verification v72](../contracts/runtime-launch-and-verification-v72.md)。
+
+Cline 正常 System Rule 与此前 Command 原生 MCP 文件方案由 [V1.72-D27](../versions/v1.72/decisions.md#v1-72-d27)记录；当前交付边界由 [Runtime Catalog Boundaries](../architecture/runtime-catalog-boundaries.md)及 [Cline System 输入说明](../versions/v1.72/model-context-change-cline-system.md)拥有。
 
 
 Cline 唯一官方 ACP 与 Native Hub 退役见 [V1.72-D30](../versions/v1.72/decisions.md#v1-72-d30)；
@@ -354,7 +356,7 @@ MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architectu
 当前规范：[Hermes Runtime](../contracts/hermes-managed-runtime-v1.md)、
 [Runtime Catalog](../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、
 [内置工具运输](../contracts/builtin-tool-transport-v43.md)、[Managed Process](../contracts/managed-runtime-process-v2.md)。
-原生 Home、共享 Gateway 与调用时活动 Run 的取舍见 [V1.72-D64](../versions/v1.72/decisions.md#v1-72-d64)。
+原生 Home、共享 Gateway 与调用时活动 Run 的取舍见 [V1.72-D65](../versions/v1.72/decisions.md#v1-72-d65)。
 Hermes 初始/真实更新的 user 层规则与取消压缩补发见 [R2](../versions/v1.72/model-context-change-hermes-first-input.md)
 和 [补发边界](../architecture/native-session-bootstrap-redelivery.md#hermes-完成通知与下一普通输入)。
-D59–D63 保留历史理由，其私有启动/补发/维护路径不再是当前规范。
+D60–D64 保留历史理由，其私有启动/补发/维护路径不再是当前规范。

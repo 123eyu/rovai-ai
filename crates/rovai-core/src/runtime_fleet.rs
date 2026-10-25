@@ -2237,6 +2237,22 @@ impl AgentRuntimeFleetManager {
             .await;
     }
 
+    pub(crate) async fn invalidate_adapter_members(
+        &self,
+        adapter_kind: AdapterKind,
+        agent_ids: &BTreeSet<String>,
+    ) {
+        self.invalidate_matching(|entry| {
+            entry.adapter_kind == adapter_kind
+                && entry
+                    .compatibility
+                    .invalidation_agent_id
+                    .as_ref()
+                    .is_some_and(|id| agent_ids.contains(id))
+        })
+        .await;
+    }
+
     async fn invalidate_matching(&self, predicate: impl Fn(&ProcessEntry) -> bool) {
         let plans = {
             let _operation = self.operations.lock().await;
@@ -3540,14 +3556,21 @@ mod tests {
 
     #[tokio::test]
     async fn member_sessions_reuse_only_within_their_camp_and_current_session() {
-        for kind in [AdapterKind::Pi, AdapterKind::HermesCli] {
+        for kind in [
+            AdapterKind::Pi,
+            AdapterKind::CommandCodeCli,
+            AdapterKind::HermesCli,
+        ] {
             let fleet = AgentRuntimeFleetManager::new(test_config(Duration::from_secs(1)));
             let request = |run: &str, camp: &str, agent: &str, session: &str, digest: &str| {
                 FleetAcquireRequest {
                     agent_run_id: run.into(),
                     execution_epoch: 1,
                     adapter_kind: kind,
-                    compatibility: if kind == AdapterKind::HermesCli {
+                    compatibility: if matches!(
+                        kind,
+                        AdapterKind::CommandCodeCli | AdapterKind::HermesCli
+                    ) {
                         RuntimeCompatibilityKey::native_binding(
                             camp,
                             agent,

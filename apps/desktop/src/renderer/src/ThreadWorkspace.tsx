@@ -1037,7 +1037,7 @@ export function runtimeRecoveryReason(blockerCode: string): string {
     case 'runtime_not_configured':
       return uiAttribute("尚未配置智能体")
     case 'runtime_authentication_required':
-      return uiAttribute("智能体需要登录")
+      return uiAttribute("智能体认证未通过")
     case 'adapter_installation_missing':
       return uiAttribute("所选智能体尚未安装")
     case 'adapter_installation_disabled':

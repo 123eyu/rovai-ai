@@ -16,7 +16,7 @@ last_updated: 2026-10-25
 按 User sequence 56/60 直接替换未上线实验：官方 ACP、用户原生 Home、共享 Gateway；
 通过逻辑 Session 在 Core 定位当前 Run，普通 CLI 不增加参数、表或上下文交换。
 FirstPayload 保留首次/真实更新，取消压缩补发；ACP 清理不拥有原生执行端。
-当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D64](decisions.md#v1-72-d64)，
+当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D65](decisions.md#v1-72-d65)，
 正文确认见 [R2](model-context-change-hermes-first-input.md)，验证见 [实施记录](hermes-first-input-implementation.md)。
 最低版本 0.22.4，macOS arm64 保持 Preview，不把未覆盖平台/工具路径声明为完整兼容。
 
@@ -621,8 +621,9 @@ Claude 继续使用既有私有 settings 文件与子进程 env 双重覆盖，F
 Command Code 与 Cline 一样撤回 Preview，所有平台 NotQualified；设置、新手引导、队员/Skill 选择、
 安装引导和监控筛选不再展示。旧身份、配置与公开历史不删除、不迁移，隐藏不改变旧 Run 事实。
 
-Cline ACP 自动压缩仍未接通；Command ACP 自定义 BYOK 目录/切换、`acp --model` 启动选择及已测 BYOK
-MCP 实际调用仍有缺口。精确版本、通过范围与未知项见[兼容性清单](../../runtime-compatibility.md)。
+Cline ACP 自动压缩仍未接通；当时 Command 1.74/1.79 的 ACP 自定义 BYOK 目录/切换及已测 BYOK MCP
+实际调用有缺口。1.88 已有新的目录/标准选模支持与真实 MCP 调用证据，不再沿用这些旧阻塞；
+`acp --model` 仍不作为选模路径。精确版本、通过范围与未知项见[兼容性清单](../../runtime-compatibility.md)。
 这是公开范围收敛，没有更换 Runtime 或新增后备链路；下文 Preview/headless 是实施历史。
 
 2026-10-10 合流主干内部续做请求等后续修复；190/schema 140 兼容主干与 Preview 的同号旧收据，
@@ -1180,3 +1181,25 @@ User 进一步确认保留 App 运行期间的 Run 异常退出提醒，统一�
 对话/使命标题及 Skill 保留原文检索，分类、身份、邀请和发送流程沿用既有机制。
 当前规则见[结构化 Mention](../../ui/components/structured-mentions.md#member-typeahead)，
 实现、分层验收及当前基线体积对照见[队员拼音检索验收](member-pinyin-search-validation.md)。
+
+
+## Command Code 原生接入简化（2026-10-24）
+
+官方 1.88.0、用户原生 HOME、官方 Mod、ACP MCP 和共享 Fleet 身份复用作为同一交付；删除配置镜像与
+摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
+[Command Code 简化记录](command-code-native-simplification.md)。
+
+2026-10-25 已修复配置/数据库持锁等待 Fleet、非空已生效设置重试、安装命令 replay、版本文本误拒绝及
+MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口只修正旧 BYOK 注释与报告，保留原生默认模型占位。
+成员指令在每 Run 发送前交付该 Run 已冻结内容；后继 warm 无需重启即可采用新指令。直接传输验证后，
+首次/warm/cold 统一经官方 Mod 控制命令更新内存，删除 Bootstrap binding 正文文件及其读写、SHA 和文件名限制。
+控制回复沿普通 RPC 返回，不形成业务终态或用量；更新失败停止准备，不新增锁、缓存或 fallback。
+
+同日 stdio 资源跟进确认官方 1.88 从 ACP Session cwd 直接启动 MCP；默认／相同目录去掉额外 Node，
+不同目录保留原 argv 包装。隔离 `session/new`／`session/load` 的目录、参数、环境字面值与回收均通过。
+与 Codex、Cline、ZCode、Pi 及共享 ACP 的进程／文件／锁对照追加到同一实施记录；共享 MCP 投影落盘不改，
+不新增锁、池、缓存或文件种类，也不将本次控制面验证算作真实模型或跨平台资格。
+
+后续 sub2api 实模型补验通过默认/自定义 cwd stdio、HTTP、warm 及 exact cold 的四次 MCP 回执闭环；
+11 次前台请求 System 中合成 B 恰好一份，cold 保留模型并回忆首轮回执。现有报告另补接入 Checklist 的
+14 能力轴方案对照，区分当前实现、旧版本证据，以及原生提问、Skills、压缩、用量等尚未验证的子项；公开资格不变。

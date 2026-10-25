@@ -210,6 +210,15 @@ Claude 新会话的保存指引随关闭消失；旧会话恢复仍可能保留�
 完整方法、MCP/Windows 结果与未验证项见[验收记录](research/native-auto-memory/verification-2026-10-10.md)。
 固定产品策略见[当前架构边界](architecture/runtime-catalog-boundaries.md#受管执行的原生自动记忆)，不增加版本或配置读取门禁。
 
+## 2026-10-24 Command Code 1.88.0
+
+当前实现改为原生 HOME、官方 `--mod`、标准 ACP MCP 与共享 Fleet 的 Native Binding 身份策略。
+上游已支持自定义 BYOK 目录与标准显式选模，旧 1.74/1.79 的该项缺口不再代表 1.88。
+本轮真实 sub2api/gpt-6-sol 的 ACP stdio/HTTP 工具调用与随机回执闭环通过；System Bootstrap 由官方 Mod
+交付。原生同名优先、cwd、env/header 字面量及缺失恢复 ID 的实测见[简化记录](versions/v1.72/command-code-native-simplification.md)。
+用户原生配置与历史由 CLI 拥有；本次未覆盖完整 App/平台资格，仍保持所有平台 NotQualified。
+以下带日期的旧结果作为历史证据保留。
+
 ## 2026-10-09 Cline / Command Code 暂缓公开（User 105）
 
 两者保留官方 ACP Client/Host/Fleet 接线及原生身份、配置、历史数据，但全部平台为 NotQualified，

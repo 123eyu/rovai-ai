@@ -8161,7 +8161,7 @@ describe('task event projections', () => {
     expect(markup).toContain(`当前平台：${platformLabel}`)
     expect(markup).toContain('可用')
     expect(markup).toContain('正在检查…')
-    expect(markup).toContain('需要登录')
+    expect(markup).toContain('认证未通过')
     expect(markup).toContain('Claude Code 返回错误')
     expect(markup).toContain('Claude Code 尚未登录')
     expect(markup).toContain('请先在终端完成 Claude Code 登录。')

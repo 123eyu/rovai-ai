@@ -220,8 +220,10 @@ impl WindowsManagedProcess {
         }
         drop(command_shim_lock);
 
-        let process = owned_handle(process_information.hProcess, "managed_process.spawn_failed")?;
-        let thread = owned_handle(process_information.hThread, "managed_process.spawn_failed")?;
+        // Successful CreateProcessW returns two valid owned handles. Transfer
+        // them infallibly: no error may discard a running, atomically assigned Job.
+        let process = unsafe { OwnedHandle::from_raw_handle(process_information.hProcess) };
+        let thread = unsafe { OwnedHandle::from_raw_handle(process_information.hThread) };
         drop(thread);
         drop(child_stdin);
         drop(child_stdout);

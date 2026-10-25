@@ -7,13 +7,13 @@ last_updated: 2026-10-25
 
 # Hermes 首次输入规则实施与验证
 
-当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D64](decisions.md#v1-72-d64)。
+当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D65](decisions.md#v1-72-d65)。
 下面 R1 与私有 Home 的原始验收是历史记录，其 Hook、恢复 CLI 和树回收保证不适用于原生共享 Gateway。
 原生接入与后续减量结果分别在“原生会话定位”和“接入减量”节记录，旧证据不改写。
 
 ## 原生会话定位（2026-10-25）
 
-按 User sequence 56/58/60 实施 [D64](decisions.md#v1-72-d64)。正式入口直接运行用户安装的
+按 User sequence 56/58/60 实施 [D65](decisions.md#v1-72-d65)。正式入口直接运行用户安装的
 `hermes --profile default acp`，使用当前用户 `~/.hermes`。删除私有 Python 启动器、Home/config
 副本、专用 Gateway、Hook、压缩补发和私有 steer/recovery 控制路径；不为未上线实验做迁移或回退。
 其他 Runtime 的输入、CLI context 运输和清理保持不变，历史数据库字段与冻结正文保留。
@@ -109,7 +109,7 @@ Gateway 重启后恢复、两次自动压缩不补发、取消不影响另一成
 实际模型调用期间无 Hermes `context.json`；成功 Run 的 Host/Binding/runtime 兼容性摘要均为 NULL。
 首次与真实规则更新仍正确，用户配置未改写，原生 system prompt 保留。
 
-最终 `cargo test --workspace -- --test-threads=1` 为 **477 passed / 0 failed / 1 ignored**，包含 CLI 31 项。
+减量提交 `d8d14eeb7` 的 `cargo test --workspace -- --test-threads=1` 为 **477 passed / 0 failed / 1 ignored**，包含 CLI 31 项。
 Hermes slow/extended 筛选 3 项通过；共享 Task 设置、ACP 配置摘要、Fleet Native Binding、冻结配置与
 Cursor 身份探测 5 个指定 owner 通过。这些用例和默认 workspace 有重叠，不累加为独立覆盖数量。
 `pnpm test` 最终通过：Vitest 257 个文件、2994 passed / 2 skipped，Node 组合 358 passed / 2 skipped，
@@ -123,6 +123,25 @@ owner。最终完整 workspace 通过；当前与 diff-aware 文档门禁通过�
 
 未执行日常 App 安装、付费模型、Windows/Linux、execute_code、子智能体或远程/容器后端验收。
 安装行为依据临时 Home 的 helper 测试和桌面构建，不将其表述为已完成用户日常安装。
+
+### 同步 Command Code 主分支
+
+推送后主分支已合入 `1028095f6`（PR #890）。在 Hermes 分支合并该提交，统一两边的 nullable 摘要和
+Native Binding 策略，保留 Command 的控制通道 Bootstrap 与冷启动准备、Hermes 的 FirstPayload 和
+原生 Session CLI。保留两边的 Skills、恢复与接受账本用例；Command/Hermes 的项目 Skills 夹具使用
+不同测试项目，避免相互添加测试 Skill。未增加生产兼容分支、协议或数据库迁移。
+
+主分支已占用 D59，因此尚未合入的 Hermes 决策顺延为 D60–D65，链接同步；当前选择为 D65。
+合并后的兼容性登记正文摘要按实际文件更新，不删除原有摘要一致性检查。
+
+合并后的官方原生复跑 `TPM8dy` 再次通过全部 12 个 Run 场景（10 succeeded / 1 cancelled / 1 failed），
+结果追加在同一[减量证据](../../research/hermes-runtime/reduction-acceptance-2026-10-25.json)的
+`afterMainMerge`，保留先前 `MJWMOO` 原记录。共享 ACP 筛选 **69 passed / 2 ignored**，Hermes、Task
+设置、Skills、冻结配置、Binding 提交与 Fleet 定向 **8 passed**；计数与默认层重叠，不相加。
+一个错误模块路径的筛选返回 0 tests，已用 `--list` 定位并重跑真实 owner，0 tests 不计入通过数。
+合并后的 `pnpm test`、typecheck、Desktop 与 Core/CLI 构建、包含 slow-tests 的 workspace tests 编译通过。
+最终合并树的 `cargo test --workspace -- --test-threads=1` 为 **479 passed / 0 failed / 1 ignored**；
+Cursor 身份探测本次在全量内正常通过。fmt、whitespace、当前与 diff-aware 文档门禁通过。
 
 ## 历史 R1 实施
 
@@ -192,7 +211,7 @@ CLI hook 1、catalog migration 1、迁移准入矩阵 1、数据库打开准入 
 
 ## 合入前补修与显式恢复
 
-按 User sequence 34 / [D61](decisions.md#v1-72-d61) 实施，保持 FirstPayload。生产 Ready 能力独立声明
+按 User sequence 34 / [D62](decisions.md#v1-72-d62) 实施，保持 FirstPayload。生产 Ready 能力独立声明
 `context.charter.first_payload`、`context.compaction.signal_driven`、`context.compaction.best_effort`，
 移除 Hermes 的两个旧 system 保证；模型、effort、权限和 session.load 保留。
 普通目录映射测试修复前实际失败，现已改正。静态发现使旧 Ready 变为 installed_unverified；
@@ -229,7 +248,7 @@ Controller 确定性回归 5 项、User Automation 定向测试 10 项与 TypeSc
 
 ## 原会话优先与可用性收口（2026-10-24）
 
-按 User sequence 36 / [D62](decisions.md#v1-72-d62) 与共享同类 CLI Resume 规则对齐。原生 Session
+按 User sequence 36 / [D63](decisions.md#v1-72-d63) 与共享同类 CLI Resume 规则对齐。原生 Session
 选择本来就不应按历史指纹拒绝；此次删除 Hermes 额外的 Session 配置冻结和维护入口旧安装相等门槛，
 保留实际启动的最低版本、原生能力和身份检查。正常任务及维护都使用当前选定安装，原 binding 的
 Home/profile/Session 保留，版本和指纹只影响必要探测与进程更新。controller revision 为 v6。
@@ -265,7 +284,7 @@ Home/profile/Session 保留，版本和指纹只影响必要探测与进程更�
 
 ## 官方 ACP 直连简化（2026-10-24）
 
-按 User sequence 38 和 [D63](decisions.md#v1-72-d63)，controller v7 改为启动器：原生 ACP 直接拥有协议
+按 User sequence 38 和 [D64](decisions.md#v1-72-d64)，controller v7 改为启动器：原生 ACP 直接拥有协议
 管道，删除消息转发、工具事件过滤/重建、额外 Gateway 订阅、连续序号 replay、逐 prompt receipt 门禁、
 私有 Diff 解析、reasoning mutation、`_rovai/*` Hermes 协议和额外 storage flock。配置/凭据摘要不再参与
 Hermes 进程兼容性。保留原 Home、SessionDB、原生能力关闭策略、FirstPayload、完成 Hook 和共享 Fleet/lease。

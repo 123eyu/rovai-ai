@@ -3116,8 +3116,8 @@ impl ExecutionRuntimeService {
             || envelope
                 .payload
                 .binding_compatibility_digest
-                .as_ref()
-                .is_some_and(|digest| digest.trim().is_empty())
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
         {
             anyhow::bail!("Native Binding fields must not be empty");
         }
@@ -3152,7 +3152,8 @@ impl ExecutionRuntimeService {
                            agent_run.status, agent_run.runtime_installation_id,
                            agent_run.runtime_binding_compatibility_digest,
                            agent_run.runtime_installation_generation,
-                           agent_run.runtime_native_session_compatibility_key
+                           agent_run.runtime_native_session_compatibility_key,
+                           agent_run.runtime_adapter_kind
                     FROM conversation
                     JOIN agent_run ON agent_run.conversation_id = conversation.id
                     LEFT JOIN camp_turn ON camp_turn.id = agent_run.camp_turn_id
@@ -3192,6 +3193,7 @@ impl ExecutionRuntimeService {
                             row.get::<_, Option<String>>(12)?,
                             row.get::<_, Option<i64>>(13)?,
                             row.get::<_, Option<String>>(14)?,
+                            row.get::<_, String>(15)?,
                         ))
                     },
                 )
@@ -3212,6 +3214,7 @@ impl ExecutionRuntimeService {
                 frozen_digest,
                 frozen_installation_generation,
                 frozen_session_compatibility_key,
+                kind,
             )) = row
             else {
                 return Ok(rejected(
@@ -3229,10 +3232,13 @@ impl ExecutionRuntimeService {
                     "Conversation or AgentRun binding is stale",
                 ));
             }
+            let identity_binding = matches!(kind.as_str(), "command-code-cli" | "hermes-cli");
+            if !identity_binding && envelope.payload.binding_compatibility_digest.is_none() {
+                return Ok(rejected("runtime.binding_configuration_mismatch", "Native Binding compatibility digest missing"));
+            }
             if frozen_installation.as_deref()
                 != Some(envelope.payload.adapter_installation_id.as_str())
-                || frozen_digest.as_deref()
-                    != envelope.payload.binding_compatibility_digest.as_deref()
+                || (!identity_binding && frozen_digest != envelope.payload.binding_compatibility_digest)
                 || frozen_installation_generation.is_none()
             {
                 return Ok(rejected(
@@ -3242,7 +3248,7 @@ impl ExecutionRuntimeService {
             }
             if current_installation != envelope.payload.previous_adapter_installation_id
                 || current_session != envelope.payload.previous_native_session_id
-                || current_digest != envelope.payload.previous_binding_compatibility_digest
+                || (!identity_binding && current_digest != envelope.payload.previous_binding_compatibility_digest)
             {
                 return Ok(rejected(
                     "runtime.session_changed",
@@ -3254,20 +3260,15 @@ impl ExecutionRuntimeService {
             let native_session_replaced = if current_session.as_deref()
                 .is_some_and(|old| old != envelope.payload.native_session_id)
             {
-                let kind: String = transaction.query_row(
-                    "SELECT runtime_adapter_kind FROM agent_run WHERE id=?1",
-                    [&envelope.payload.agent_run_id], |row| row.get(0),
-                )?;
                 native_session_adapter_kind(transaction, &envelope.payload.conversation_id)?
                     == Some(kind.parse()?)
             } else { false };
             let binding_reused = current_binding_id.is_some()
                 && current_binding_generation >= 1
-                && current_installation.as_deref()
-                    == Some(envelope.payload.adapter_installation_id.as_str())
+                && (identity_binding || current_installation.as_deref()
+                    == Some(envelope.payload.adapter_installation_id.as_str()))
                 && current_session.as_deref() == Some(envelope.payload.native_session_id.as_str())
-                && current_digest.as_deref()
-                    == envelope.payload.binding_compatibility_digest.as_deref();
+                && (identity_binding || current_digest == envelope.payload.binding_compatibility_digest);
             let binding_prepared = current_binding_id.is_some()
                 && current_binding_generation >= 1
                 && envelope.payload.proposed_binding_id.as_deref() == current_binding_id.as_deref();
@@ -3355,7 +3356,7 @@ impl ExecutionRuntimeService {
                         WHERE id = ?1 AND version = ?8
                           AND native_adapter_installation_id IS ?9
                           AND native_session_id IS ?10
-                          AND native_binding_compatibility_digest IS ?11
+                          AND (?14 OR native_binding_compatibility_digest IS ?11)
                         "#,
                         params![
                             envelope.payload.conversation_id,
@@ -3371,6 +3372,7 @@ impl ExecutionRuntimeService {
                             envelope.payload.previous_binding_compatibility_digest,
                             frozen_installation_generation,
                             frozen_session_compatibility_key,
+                            identity_binding,
                         ],
                     )?
                 };
@@ -3380,9 +3382,9 @@ impl ExecutionRuntimeService {
                         "Conversation changed before Native Session binding",
                     ));
                 }
-            } else if current_installation_generation
+            } else if !identity_binding && (current_installation_generation
                 != Some(frozen_installation_generation)
-                || current_session_compatibility_key != frozen_session_compatibility_key
+                || current_session_compatibility_key != frozen_session_compatibility_key)
             {
                 let updated = transaction.execute(
                     r#"

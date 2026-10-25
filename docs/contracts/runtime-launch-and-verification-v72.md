@@ -29,10 +29,10 @@ Binding 提交根据冻结 Run 的 Runtime kind 明确选择此策略，忽略�
 凭据和 Bootstrap 内容完整性校验保留，不能决定 Host 或 Session 选择。
 
 Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 恢复，Bootstrap 由既有 Context 为本轮
-准备并冻结；Command 不比较历史 Bootstrap，也不另建跨 Host 冻结恢复状态。原生 1.88.0
-`session/load`、`session/resume` 仍接受不存在的 ID，因此仅在冷恢复阶段通过 `session/list` 核验精确 ID 与 cwd；
-不扫描历史正文、不选择最近 Session。目录不完整、认证、网络、超时不是目标不存在。只有完整原生目录确认
-缺失才进入既有可见的连续性丢失流程；其他错误保留原 ID。
+准备并冻结；Command 不比较历史 Bootstrap，也不另建跨 Host 冻结恢复状态。直接调用原生
+`session/load` 或 `session/resume`，不再前置 `session/list`、目录分页或 cwd 存在性证明。
+这是原生尽力恢复：1.88.0 可静默接受不存在的 ID，RPC 成功不证明历史完整。不得将认证、网络、超时
+解释为目标不存在，不改已有身份、输入接收及重试边界，也不以不确定连续性重复发送业务输入。
 
 ## 生效时机
 
@@ -61,12 +61,21 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
 初始化局部 nonce 经环境传给 Mod；initialize 后只校验一次 revision、nonce 和实际 PID，删除 `ready.json`
 并丢弃预期 nonce。没有 nonce 文件，也没有长期 nonce map/数据库字段。
 
-每个 Session 在该 Host 首次绑定时原子写入 `bindings/<native-session-id>.json`；已有文件直接复用，
-不读取正文与本轮 Bootstrap 比较、不重新序列化或写入。不以新旧 Bootstrap 相等作为执行或恢复条件。
+每个 Run 在发送原生输入前，将共享 Context 为该 Run 冻结的 Bootstrap 原子发布到现有
+`bindings/<native-session-id>.json`。成员编辑不改写执行中的 Run；后继 Run 使用其准备的新内容，
+同 Run 重试沿共享 Evidence 读取原冻结字节。不读旧正文作相等判断，不因此换 Host 或 Session。
 稳态只有 Mod 与实际使用的 bindings。hook 按 `state.sessionId` 读取目标 binding，校验 schema、ID、预算及
 内容 SHA-256；缺少或损坏时在模型请求前退出。冻结 B 仍追加到原生 System 一次，user 只含动态 P。
 预算只约束 UTF-8 正文的 128 KiB，不再给 JSON 封装设置第二道大小门槛。
 此交付方式不改变 B/P 字节、选择规则、上下文版本或证据权威。
+
+同一 Mod 在官方 `onSessionStart` 时使用 `getActiveTools` / `setActiveTools`，只移除
+`ask_user_question`。保留当前启用的其他工具，不以硬编码白名单启用更多工具。1.88 ACP 已验证过滤器
+同时移除模型 schema 并拒绝执行；不叠加 beforeToolCall fallback、运行时能力探测或问卷管理器。
+真正需要 User 输入时使用 Rovai 已有消息渠道，不代选答案。
+
+Skills 发现复用共享只读来源，同时包含 user/project 的 `.commandcode/skills` 和 `.agents/skills`；
+不复制或链接。原生同名优先级为项目 `.commandcode`、项目 `.agents`、用户 `.commandcode`、用户 `.agents`。
 
 状态检查沿共享 ACP 路径保留 RPC/进程错误并分类为认证、协议能力或临时故障，展示前使用公共脱敏。
 不再用 Command 专属 provider 提示覆盖错误；这属于 health probe，不修改 Run 卡片或平台公开准入。

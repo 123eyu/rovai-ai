@@ -32704,25 +32704,12 @@ done
 
     #[test]
     fn native_resume_consumes_only_adapter_evidence() {
-        let missing = crate::command_code_acp::verify_restore_target(
-            &json!({"sessions": []}),
-            "missing-session",
-            "/workspace",
-        )
-        .unwrap_err();
         assert_eq!(
-            native_resume_failure(&missing),
+            native_resume_failure(
+                &anyhow::anyhow!("native target rejected")
+                    .context(NativeSessionResumeFailure::Incompatible)
+            ),
             NativeSessionResumeFailure::Incompatible
-        );
-        let invalid = crate::command_code_acp::verify_restore_target(
-            &json!({}),
-            "missing-session",
-            "/workspace",
-        )
-        .unwrap_err();
-        assert_eq!(
-            native_resume_failure(&invalid),
-            NativeSessionResumeFailure::Ambiguous
         );
         for detail in [
             "session not found",
@@ -35746,6 +35733,86 @@ for line in sys.stdin:
             update["status"] = json!("completed");
             rovai_core::command_code_acp::enrich_tool_update(&mut update, Some(&initial));
             assert!(update.pointer("/_meta/rovaiCommandMutation").is_none());
+        }
+
+        // Only the native edit_file creation receipt proves nonexistence.
+        // write_file uses its "created" message even for an existing empty file.
+        for (input, status, receipt, has_diff) in [
+            (
+                json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
+                "completed",
+                "Created /repo/new.txt (3 lines)",
+                true,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
+                "failed",
+                "Created /repo/new.txt (3 lines)",
+                false,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
+                "in_progress",
+                "Created /repo/new.txt (3 lines)",
+                false,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
+                "completed",
+                "Created /repo/other.txt (3 lines)",
+                false,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
+                "completed",
+                "Edited /repo/new.txt (replaced empty file content)",
+                false,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
+                "completed",
+                "File created successfully at: /repo/new.txt",
+                false,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
+                "completed",
+                "The file /repo/new.txt has been updated successfully.",
+                false,
+            ),
+        ] {
+            let mut initial = json!({"sessionUpdate":"tool_call","toolCallId":"command-create","status":"pending","kind":"edit",
+                "locations":[{"path":"/repo/new.txt"}],"rawInput":input,
+                "content":[{"type":"diff","path":"/repo/new.txt","oldText":null,"newText":"one\ntwo\n"}]});
+            crate::command_code_acp::enrich_tool_update(&mut initial, None);
+            assert_eq!(initial["content"], json!([]));
+            let mut update = json!({"sessionUpdate":"tool_call_update","toolCallId":"command-create","status":status,
+                "content":[{"type":"content","content":{"type":"text","text":receipt}}]});
+            crate::command_code_acp::enrich_tool_update(&mut update, Some(&initial));
+            let params = json!({"update":update});
+            let completion = acp::completed_action(AdapterKind::CommandCodeCli, &params).unwrap();
+            let (_, payload) = normalize_acp_event_with_completion(
+                AdapterKind::CommandCodeCli,
+                "session/update",
+                &params,
+                completion.as_ref(),
+            );
+            assert_eq!(
+                !payload["runtimeDiff"].is_null(),
+                has_diff,
+                "{status}: {receipt}"
+            );
+            if has_diff {
+                let admitted = crate::runtime_diff::admit_runtime_diff(
+                    &payload,
+                    std::path::Path::new("/repo"),
+                    Some("command-code-cli"),
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(admitted.evidence_entries[0]["changeKind"], "add");
+                assert_eq!(admitted.evidence_entries[0]["after"], "one\ntwo\n");
+            }
         }
 
         let query = "password=公开测试词 token=也照常展示";

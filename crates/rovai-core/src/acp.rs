@@ -5060,24 +5060,6 @@ impl AcpRuntime {
                 if let Some(root) = &self.host.codebuddy_config_dir {
                     verify_codebuddy_restore_target(root, existing_session_id, &cwd).await?;
                 }
-                if self.host.adapter_kind == AdapterKind::CommandCodeCli {
-                    // Command Code 1.88.0 silently opens an empty Session when
-                    // resume/load names missing history. Its official catalog
-                    // must prove the exact target before either operation.
-                    let catalog = self
-                        .host
-                        .rpc_with_timeout(
-                            "session/list",
-                            json!({"cwd": cwd}),
-                            ACP_HISTORY_RESTORE_TIMEOUT,
-                        )
-                        .await?;
-                    crate::command_code_acp::verify_restore_target(
-                        &catalog,
-                        existing_session_id,
-                        &cwd,
-                    )?;
-                }
                 self.host
                     .bind_session(
                         existing_session_id,
@@ -12355,10 +12337,10 @@ while IFS= read -r ignored; do :; done
                     runtime.detach().await;
                     assert_eq!(host.pid(), pid);
                 }
-                // Native resume itself accepts nonexistent IDs. Our official
-                // catalog preflight must reject them before opening a Session.
+                // Native best-effort resume accepts nonexistent IDs in 1.88.
+                // There is no extra catalog proof or continuity guarantee.
                 for id in [uuid::Uuid::new_v4().to_string(), "12345678".into()] {
-                    let error = sessions[0]
+                    let resumed = sessions[0]
                         .0
                         .start_or_resume_session(
                             Some(&id),
@@ -12372,12 +12354,9 @@ while IFS= read -r ignored; do :; done
                             &BTreeMap::new(),
                         )
                         .await
-                        .unwrap_err();
-                    assert!(
-                        format!("{error:#}").contains("command_code_restore_target_missing"),
-                        "unexpected restore failure: {error:#}"
-                    );
-                    assert!(!host.knows_session(&id).await);
+                        .unwrap();
+                    assert_eq!(resumed, id);
+                    sessions[0].0.detach().await;
                 }
                 // The native Mod runner swallows ordinary hook exceptions.
                 // A missing binding must kill the real Host before it can
@@ -13805,17 +13784,23 @@ while IFS= read -r ignored; do :; done
 
     #[tokio::test]
     async fn history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input() {
-        let root = std::env::temp_dir().join(format!(
-            "rovai-acp-resume-quarantine-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let executable = root.join("traecli");
-        let protocol_log = root.join("protocol.jsonl");
-        make_executable(
-            &executable,
-            &format!(
-                r#"#!/bin/sh
+        // Command uses the same transport and goes straight to native restore;
+        // the fixture deliberately has no session/list response.
+        for kind in [AdapterKind::TraeCnCli, AdapterKind::CommandCodeCli] {
+            let root = std::env::temp_dir().join(format!(
+                "rovai-acp-resume-quarantine-{}",
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let executable = root.join("traecli");
+            let protocol_log = root.join("protocol.jsonl");
+            make_executable(
+                &executable,
+                &format!(
+                    r#"#!/bin/sh
+if [ -n "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT" ]; then
+  printf '{{"revision":"command-code-system-bootstrap-v1","nonce":"%s","pid":%s}}' "$ROVAI_COMMAND_CODE_BOOTSTRAP_NONCE" "$$" > "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT/ready.json"
+fi
 IFS= read -r initialize || exit 1
 printf '%s\n' "$initialize" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{"loadSession":true,"sessionCapabilities":{{"resume":{{}}}}}}}}}}'
@@ -13824,6 +13809,12 @@ printf '%s\n' "$resume" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":90,"method":"session/request_permission","params":{{"sessionId":"session-old","toolCall":{{"toolCallId":"historical-tool"}},"options":[]}}}}'
 IFS= read -r quarantined_permission || exit 1
 printf '%s\n' '{{"jsonrpc":"2.0","id":2,"result":{{"modes":{{"currentModeId":"default","availableModes":[{{"id":"default","name":"Default"}}]}}}}}}'
+prompt_id=3
+if [ -n "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT" ]; then
+  IFS= read -r mode || exit 1
+  printf '%s\n' '{{"jsonrpc":"2.0","id":3,"result":{{}}}}'
+  prompt_id=4
+fi
 sleep 0.2
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"historical"}}}}}}}}'
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"tool_call","toolCallId":"historical-tool","kind":"execute","title":"historical"}}}}}}'
@@ -13831,115 +13822,134 @@ printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId
 IFS= read -r prompt || exit 1
 printf '%s\n' "$prompt" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"current"}}}}}}}}'
-printf '%s\n' '{{"jsonrpc":"2.0","id":3,"result":{{"stopReason":"end_turn"}}}}'
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{"stopReason":"end_turn"}}}}\n' "$prompt_id"
 while IFS= read -r ignored; do :; done
 "#,
-                protocol_log.display(),
-                protocol_log.display(),
-                protocol_log.display(),
-            ),
-        );
+                    protocol_log.display(),
+                    protocol_log.display(),
+                    protocol_log.display(),
+                ),
+            );
 
-        let frozen = frozen_trae_runtime(&executable);
-        let workspace = AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
-        let (incoming, mut receiver) = mpsc::unbounded_channel();
-        let builtin_tools = exact_builtin_tools(&root);
-        let host = AcpHost::spawn(
-            &root,
-            &workspace,
-            PermissionSemantics::RuntimeManagedV2,
-            &frozen,
-            incoming,
-            Some(builtin_tools),
-            CompactionDetectorPolicy::Disabled,
-            true,
-            &BTreeMap::new(),
-            &root.join("private"),
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-        let runtime = AcpRuntime::from_test_host(
-            AcpRuntimeOwner {
-                agent_run_id: "agent-run-resume".to_string(),
-                execution_epoch: 1,
-            },
-            host.clone(),
-            "sha256:compatibility".to_string(),
-            "sha256:mcp".to_string(),
-            root.clone(),
-            Some(exact_attachment_root(&root)),
-            "runtime_managed".to_string(),
-            AcpSessionPermissions::default(),
-            None,
-        );
-        let session_id = runtime
-            .start_or_resume_session(
-                Some("session-old"),
-                AcpSessionCapabilities {
-                    can_resume: false,
-                    can_load_history: true,
-                },
-                "runtime_default",
-                TRAE_RUNTIME_DEFAULT_MODEL_ID,
-                &json!({}),
+            let mut frozen = frozen_trae_runtime(&executable);
+            frozen.adapter_kind = kind;
+            frozen.permissions.adapter_kind = kind;
+            if kind == AdapterKind::CommandCodeCli {
+                frozen.reported_version = Some("1.88.0".into());
+            }
+            let workspace =
+                AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().to_string());
+            let (incoming, mut receiver) = mpsc::unbounded_channel();
+            let builtin_tools = exact_builtin_tools(&root);
+            let host = AcpHost::spawn(
+                &root,
+                &workspace,
+                PermissionSemantics::RuntimeManagedV2,
+                &frozen,
+                incoming,
+                Some(builtin_tools),
+                CompactionDetectorPolicy::Disabled,
+                true,
                 &BTreeMap::new(),
+                &root.join("private"),
+                None,
+                None,
             )
             .await
             .unwrap();
-        assert_eq!(session_id, "session-old");
-        assert!(receiver.try_recv().is_err());
+            let runtime = AcpRuntime::from_test_host(
+                AcpRuntimeOwner {
+                    agent_run_id: "agent-run-resume".to_string(),
+                    execution_epoch: 1,
+                },
+                host.clone(),
+                "sha256:compatibility".to_string(),
+                "sha256:mcp".to_string(),
+                root.clone(),
+                Some(exact_attachment_root(&root)),
+                "runtime_managed".to_string(),
+                AcpSessionPermissions {
+                    mode: Some("default".into()),
+                    ..AcpSessionPermissions::default()
+                },
+                None,
+            );
+            let session_id = runtime
+                .start_or_resume_session(
+                    Some("session-old"),
+                    AcpSessionCapabilities {
+                        can_resume: false,
+                        can_load_history: true,
+                    },
+                    "runtime_default",
+                    TRAE_RUNTIME_DEFAULT_MODEL_ID,
+                    &json!({}),
+                    &BTreeMap::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(session_id, "session-old");
+            assert!(receiver.try_recv().is_err());
 
-        let prompt_id = runtime
-            .start_prompt("delivery-current", "continue")
-            .await
-            .unwrap();
-        assert!(matches!(
-            receiver.recv().await,
-            Some(AcpIncoming::InputAccepted {
-                native_session_id,
-                native_prompt_id,
-                delivery_id,
-                ..
-            }) if native_session_id == "session-old"
-                && native_prompt_id == prompt_id
-                && delivery_id == "delivery-current"
-        ));
-        let first = receiver
-            .recv()
-            .await
-            .expect("current prompt update missing");
-        assert!(matches!(
-            first,
-            AcpIncoming::Message {
-                native_session_id,
-                native_prompt_id,
-                delivery_id,
-                sequence: 1,
-                message,
-                ..
-            } if native_session_id == "session-old"
-                && native_prompt_id == prompt_id
-                && delivery_id == "delivery-current"
-                && message.pointer("/params/update/content/text").and_then(Value::as_str)
-                    == Some("current")
-        ));
-        assert!(matches!(
-            receiver.recv().await,
-            Some(AcpIncoming::Message {
-                sequence: 2,
-                message,
-                ..
-            }) if message.get("method").and_then(Value::as_str)
-                == Some("rovai/acp_prompt_completed")
-        ));
-        host.shutdown().await;
+            let prompt_id = runtime
+                .start_prompt("delivery-current", "continue")
+                .await
+                .unwrap();
+            // Command acknowledges on the prompt result; TRAE supports active
+            // input and acknowledges on the first current activity instead.
+            let (accepted, first) = if kind == AdapterKind::CommandCodeCli {
+                let first = receiver.recv().await;
+                (receiver.recv().await, first)
+            } else {
+                (receiver.recv().await, receiver.recv().await)
+            };
+            assert!(
+                matches!(
+                    &accepted,
+                    Some(AcpIncoming::InputAccepted {
+                        native_session_id,
+                        native_prompt_id,
+                        delivery_id,
+                        ..
+                    }) if native_session_id == "session-old"
+                        && native_prompt_id == &prompt_id
+                        && delivery_id == "delivery-current"
+                ),
+                "{kind:?}: {accepted:?}"
+            );
+            let first = first.expect("current prompt update missing");
+            assert!(matches!(
+                first,
+                AcpIncoming::Message {
+                    native_session_id,
+                    native_prompt_id,
+                    delivery_id,
+                    sequence: 1,
+                    message,
+                    ..
+                } if native_session_id == "session-old"
+                    && native_prompt_id == prompt_id
+                    && delivery_id == "delivery-current"
+                    && message.pointer("/params/update/content/text").and_then(Value::as_str)
+                        == Some("current")
+            ));
+            assert!(matches!(
+                receiver.recv().await,
+                Some(AcpIncoming::Message {
+                    sequence: 2,
+                    message,
+                    ..
+                }) if message.get("method").and_then(Value::as_str)
+                    == Some("rovai/acp_prompt_completed")
+            ));
+            host.shutdown().await;
 
-        let protocol = std::fs::read_to_string(&protocol_log).unwrap();
-        assert!(protocol.contains("\"method\":\"session/load\""));
-        assert!(!protocol.contains("\"method\":\"session/resume\""));
-        std::fs::remove_dir_all(root).unwrap();
+            let protocol = std::fs::read_to_string(&protocol_log).unwrap();
+            assert!(protocol.contains("\"method\":\"session/load\""));
+            assert!(!protocol.contains("\"method\":\"session/resume\""));
+            assert!(!protocol.contains("\"method\":\"session/list\""));
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[tokio::test]

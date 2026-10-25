@@ -11,35 +11,11 @@ pub const MINIMUM_VERSION: &str = "1.88.0";
 pub const BOOTSTRAP_REVISION: &str = "command-code-system-bootstrap-v1";
 const BOOTSTRAP: &str = include_str!("command_code/bootstrap.mjs");
 
-/// 1.88.0 returns its complete native catalog in one page. Do not infer a
-/// successful restore from resume/load: both silently accept missing history.
-pub(crate) fn verify_restore_target(catalog: &Value, session_id: &str, cwd: &str) -> Result<()> {
-    let sessions = catalog["sessions"]
-        .as_array()
-        .context("command_code_restore_catalog_invalid")?;
-    if sessions.iter().any(|session| {
-        session["sessionId"].as_str() == Some(session_id) && session["cwd"].as_str() == Some(cwd)
-    }) {
-        return Ok(());
-    }
-    anyhow::ensure!(
-        catalog.get("nextCursor").is_none_or(Value::is_null)
-            && sessions
-                .iter()
-                .all(|session| session["sessionId"].is_string() && session["cwd"].is_string()),
-        "command_code_restore_catalog_incomplete"
-    );
-    // A future paginated catalog requires fresh qualification; absence from
-    // an incomplete response cannot prove an exact restore of the old Session.
-    Err(anyhow::anyhow!(
-        "command_code_restore_target_missing: session not found in exact native catalog"
-    )
-    .context(crate::runtime::NativeSessionResumeFailure::Incompatible))
-}
-
 /// Native ACP sends the proposed edit only on tool_call. Its old/new strings
 /// are matched fragments, not complete file states. Promote them only after a
-/// matching successful terminal and never mislabel the proposal as a full diff.
+/// matching successful terminal. Only edit_file's explicit creation receipt
+/// establishes a complete new file; write_file also says "created" for an
+/// existing empty file, so its null oldText cannot establish creation.
 pub fn enrich_tool_update(update: &mut Value, initial: Option<&Value>) {
     if let Some(meta) = update.get_mut("_meta").and_then(Value::as_object_mut) {
         meta.remove("rovaiCommandMutation");
@@ -51,8 +27,8 @@ pub fn enrich_tool_update(update: &mut Value, initial: Option<&Value>) {
             }
         }
     }
-    // The official translator emits edit_file fragments as ACP diff content.
-    // Remove them from the generic complete-before/after admission path.
+    // Pending native diffs are proposals, and edits contain fragments rather
+    // than full file states. Promote only the terminal semantics below.
     if let Some(content) = update.get_mut("content").and_then(Value::as_array_mut) {
         content.retain(|block| block["type"] != "diff");
     }
@@ -70,12 +46,30 @@ pub fn enrich_tool_update(update: &mut Value, initial: Option<&Value>) {
     else {
         return;
     };
-    if path.trim().is_empty()
-        || old.is_empty()
-        || old == new
-        || input["replace_all"] == true
-        || input["replacement_count"].as_u64().is_some_and(|v| v != 1)
-    {
+    if path.trim().is_empty() || old == new {
+        return;
+    }
+    if old.is_empty() {
+        let lines = new.split('\n').count();
+        let receipt = format!(
+            "Created {path} ({lines} {})",
+            if lines == 1 { "line" } else { "lines" }
+        );
+        if update["content"].as_array().is_some_and(|blocks| {
+            blocks.iter().any(|block| {
+                block["type"] == "content"
+                    && block["content"]["type"] == "text"
+                    && block["content"]["text"].as_str() == Some(receipt.as_str())
+            })
+        }) {
+            update["content"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"type":"diff", "path":path, "oldText":null, "newText":new}));
+        }
+        return;
+    }
+    if input["replace_all"] == true || input["replacement_count"].as_u64().is_some_and(|v| v != 1) {
         return;
     }
     let mutation = json!({"entries":[{"semantics":"reported_mutation", "path":path, "fragments":[{"oldText":old,"newText":new}]}]});
@@ -163,6 +157,8 @@ pub(crate) fn adapt_mcp_server(
     }
 }
 
+/// Publish the current Run's frozen instructions before dispatch. Reusing a
+/// Session does not freeze its instructions for the lifetime of the Host.
 pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<()> {
     anyhow::ensure!(
         !session_id.is_empty()
@@ -173,9 +169,6 @@ pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<
         "command_code_bootstrap_binding_invalid"
     );
     let path = root.join("bindings").join(format!("{session_id}.json"));
-    if path.exists() {
-        return Ok(());
-    }
     anyhow::ensure!(
         !bootstrap.trim().is_empty()
             && bootstrap.len() <= crate::context::MAX_SESSION_BOOTSTRAP_BYTES,
@@ -284,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn native_home_and_immutable_bootstrap_materials() {
+    fn native_home_and_run_bootstrap_materials() {
         let root =
             std::env::temp_dir().join(format!("command-code-profile-{}", uuid::Uuid::new_v4()));
         let mut command = tokio::process::Command::new("command-code");
@@ -322,18 +315,22 @@ mod tests {
         assert!(!ready.exists());
         bind_bootstrap(&root, "session-a", "frozen A").unwrap();
         let binding = root.join("bindings/session-a.json");
-        let original = fs::read(&binding).unwrap();
-        let modified = fs::metadata(&binding).unwrap().modified().unwrap();
-        for next in ["frozen A", "changed", ""] {
+        for next in ["frozen A", "changed", "changed"] {
             bind_bootstrap(&root, "session-a", next).unwrap();
-            assert_eq!(fs::read(&binding).unwrap(), original);
+            let value: Value = serde_json::from_slice(&fs::read(&binding).unwrap()).unwrap();
+            assert_eq!(value["bootstrap"], next);
+            assert_eq!(
+                value["sha256"],
+                format!("{:x}", Sha256::digest(next.as_bytes()))
+            );
         }
-        assert_eq!(
-            fs::metadata(&binding).unwrap().modified().unwrap(),
-            modified
-        );
+        let original = fs::read(&binding).unwrap();
+        assert!(bind_bootstrap(&root, "session-a", "").is_err());
+        assert_eq!(fs::read(&binding).unwrap(), original);
         bind_bootstrap(&root, "session-b", "frozen B").unwrap();
+        assert_eq!(fs::read(&binding).unwrap(), original);
         assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        assert_eq!(fs::read_dir(root.join("bindings")).unwrap().count(), 2);
         assert!(bind_bootstrap(&root, "../escape", "invalid").is_err());
         fs::remove_dir_all(root).unwrap();
     }

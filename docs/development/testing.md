@@ -1704,8 +1704,8 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 ## Command Code 1.88 简化测试归属（2026-10-24）
 
 退役 `native_configuration_tracks_scoped_mod_sources_without_hashing_history`：其唯一生产路径（配置扫描、
-HOME 镜像和原生文件合并）已删除。同模块现有 owner 替换为 `native_home_and_immutable_bootstrap_materials`，
-验证原生 HOME 不被改写、一次握手清理和不可变 bindings。health owner 中的 `mcp list` 格式矩阵随已删除
+HOME 镜像和原生文件合并）已删除。同模块现有 owner 当前为 `native_home_and_run_bootstrap_materials`，
+验证原生 HOME 不被改写、一次握手清理和 Run 边界 bindings。health owner 中的 `mcp list` 格式矩阵随已删除
 解析器退役；真实 1.88 原生同名优先验证由隔离 native-contract 探针承接。
 
 扩展既有 `member_sessions_reuse_only_within_their_camp_and_current_session` 覆盖显式身份策略与跨 cwd/owner；
@@ -1730,7 +1730,8 @@ Node 沿用 `node --test scripts/lib/command-code-bootstrap.test.mjs`。再执�
 真实 native Home 仅由验收夹具创建，adapter 本身不得覆盖共享 HOME；真实模型/MCP 与平台资格分别记账。
 
 2026-10-25 跟进扩展既有 owner，不增加测试文件或平行 Rust owner：
-`native_home_and_immutable_bootstrap_materials` 验证新 B 不阻断已有 binding、字节和修改时间保持不变；
+原 `native_home_and_immutable_bootstrap_materials` 曾验证已有文件不重写；其 Host 生命周期冻结断言
+已由下述 User 确认的 Run 边界交付替代，不再作为当前合同；
 长正文 owner 更名为 `long_bootstrap_bindings_preserve_utf8_and_enforce_body_limits`，与既有 Node Mod owner
 共同验证 128 KiB 引号正文即使 JSON 大于 256 KiB 仍可交付，正文超限仍拒绝。
 `private_versions_preserve_credentials_and_new_launches_read_current_configuration` 覆盖成员环境的值、继承、
@@ -1756,6 +1757,19 @@ stdio 资源跟进新增纯函数 owner
 owner 不经过 MCP wire，`runtime_mcp` 的原生文件 owner 也不拥有 Command ACP 适配，故不能用它们替代。
 测试不创建文件、进程或数据库；最小命令为
 `cargo test -p rovai-core --lib mcp_wire_uses_session_cwd_without_a_launcher_and_preserves_literals`。
+
+2026-10-25 Run 边界收口继续扩展原 owners，不增加 Rust 测试函数或 fixture 文件：
+`native_home_and_run_bootstrap_materials`（原 immutable owner 更名）拥有同 Session 的新 B 覆盖、
+相同冻结字节重复发布、不同 Session 隔离和非法输入不覆盖旧文件；不可变整 Host 正文断言随旧行为退役。
+`history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input` 增加 Command 协议进程分支，
+没有 `session/list` 回应也可完成 load、历史隔离与当前输入；真实 ignored Command owner 不再要求目录预检
+拒绝缺失 ID。`native_resume_consumes_only_adapter_evidence` 保留原生明确拒绝与模糊错误的分类，删除专属目录案例。
+`runtime_directory_overrides_change_native_candidates_without_explicit_refresh` 增加 Command 的四处原址发现；
+`acp_tool_events_expose_only_the_public_command_and_payload_digests` 增加 edit 新建、失败/提案/异路径、已有空文件
+和 write 回执不明确的矩阵，并检查新增内容进入共享 Diff 准入。Node Mod owner 验证过滤问卷且保留其余 active tools。
+固定官方 1.88 的 active-tools、真实文件回执、warm B 更新和 cold 同 ID 证据记录在
+[实施报告](../versions/v1.72/command-code-native-simplification.md#run-边界与原生能力补齐2026-10-25)。
+最小命令沿用 `cargo test -p rovai-core --features extended-tests --lib <owner>`、Node Mod owner 与默认 workspace。
 真实 cwd 与进程父子关系由隔离官方 1.88 控制探针验证：CLI 初始 cwd 与 Session cwd 不同，分别执行
 `session/new` 和同 ID 的 `session/load`，检查 MCP `tools/list` 回执及停止后回收；这不替代历史恢复、
 真实模型工具调用或 Windows/Linux 资格。证据追加到已有 Command JSON，不新增测试文件或常驻验收服务。

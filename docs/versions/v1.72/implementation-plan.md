@@ -2897,7 +2897,7 @@ User 明确要求整套已确认方案一并完成。规范见 [Runtime Launch v
 取舍见 [V1.72-D37](decisions.md#v1-72-d37)。
 
 - 当前 Conversation 的类型由既有安装/历史 Run 解析；同类 CLI 保留 exact-ID Resume 资格，历史摘要、安装代次和受控恢复记录不提前否决。
-- Adapter 在恢复调用处提供可靠结论；退役全局文本及 Claude/Antigravity/Pi 的日志猜测。Command Code 继续精确核验完整目录，Pi 区分精确目标不存在与普通 IO 错误。
+- Adapter 在恢复调用处提供可靠结论；退役全局文本及 Claude/Antigravity/Pi 的日志猜测。Command Code 后续已按原生尽力恢复删除目录预检（见本页 Command 收口）；Pi 区分精确目标不存在与普通 IO 错误。
 - 新建前保留旧目标，当前输入 dispatch/accepted/unknown、取消与 epoch 仍阻止自动降级。成功替换与提示事件在绑定事务一同提交；公开/私聊执行详情显示一句提示。
 - 新 Run 正常装配 Bootstrap，不依赖旧 Blob。Migration 195/schema 145 保留所有历史行与引用，仅解除 Binding/generation 唯一约束；同一 Run 已准备输入保持不可变。
 - 进程丢失或重启时，未知输入正常失败并保留清理/防重证据，同时保留原生目标。用户显式续做的未知执行隔离机制不变。
@@ -4124,3 +4124,8 @@ Mission 抽屉和 Diff 文件树已有最终指针提交与缩放换算，保留
 官方 1.88.0、用户原生 HOME、官方 Mod、ACP MCP 和共享 Fleet 身份复用作为同一交付；删除配置镜像与
 摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
 [Command Code 简化记录](command-code-native-simplification.md)。
+
+2026-10-25 按 User 收口继续删除冷恢复 `session/list`，Run 发送前原子更新原 Session binding，补共享
+`.agents/skills` user/project 来源。问卷通过现有 Mod 的官方 active-tools 过滤器移除；原生明确 edit
+新建与普通编辑片段进入现有 Diff 展示，write 创建状态不明确时不推测。没有新生产文件、专属状态或锁。
+固定 1.88 的确定性原生验证与既有 sub2api 真实模型证据分开，详见上述报告。

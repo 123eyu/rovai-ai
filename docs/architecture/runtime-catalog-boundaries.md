@@ -74,22 +74,27 @@ Command 的入口/指纹验证和必要刷新只在 Fleet cold spawn 执行；wa
 外部原生配置变化不触发扫描、比较或隐式新 Session；其他 Runtime 的策略不变。
 
 Bootstrap 的 `managed_system_prompt` 语义不变：完整冻结 B 经官方 `appendSystemPrompt({state})`
-追加到原生 System，user 只有 P。每 Host 一个 Mod，每 Session 一个不可变 binding；初始化只校验一次
+追加到原生 System，user 只有 P。每 Host 一个 Mod，每 Session 一个 binding；初始化只校验一次
 revision/局部 nonce/PID 并删除 ready 文件。缺失或损坏 binding 在模型请求前停止。没有 active Bootstrap
 全局文件、HOME fallback、专属池/锁/缓存。原输入确认见 [revision 5](../versions/v1.72/model-context-change-command-code-acp.md)；
 其中旧物理交付描述由 v72 替代，冻结内容、选择、上下文版本和证据边界不变。
-已有 binding 直接复用，不再比较本轮新 Bootstrap；cold 使用现有 Context 准备的 B，不另建冻结管理器。
-成员身份编辑沿共享规则进入后续 Run 准备内容，不触发 Host 退役或额外补发；Command warm 仍使用原 binding，
-新 Host／Session 首次绑定才采用该 Run 的 B。因此不能将下一 Run 准备了新身份等同于下一次 warm 已投递新身份，
-具体时点见[实施记录](../versions/v1.72/command-code-native-simplification.md#成员身份与长期指令何时生效)。
+每个 Run 发送前把该 Run 已冻结的 B 原子发布到现有 binding，warm 与 cold 使用相同交付时点。
+成员编辑不回写正在执行的 Run；后继 Run 使用其准备的新身份，同 Run 重试仍用原冻结字节。
+不比较历史正文、不触发 Host 退役或额外补发，也不另建冻结管理器；具体时点见
+[实施记录](../versions/v1.72/command-code-native-simplification.md#成员身份与长期指令何时生效)。
 大小预算只作用于正文，不因 JSON 转义增长而拒绝有效内容。状态检查与其他 ACP 共用错误分类和脱敏，
 不将认证、协议或网络错误统一改写成 provider 配置提示。
 
 分配 MCP 经 `session/new|load|resume.mcpServers`，原生同名配置由 CLI 自动优先。1.88 原生 stdio 使用
 Session cwd；默认／相同目录直接传 command/args，只有不同 cwd 使用现有 argv launcher，不额外扫描目录。
 env/header 按 1.88 实测在 wire 边界转义一次以保留解析值；warm 不运行额外 CLI。
-1.88 仍会静默接受不存在的恢复 ID，因此冷恢复保留官方目录的精确 ID/cwd 检查，认证/网络错误不冒充缺失。
+冷恢复直接携带保存的精确 Session ID 调用原生 load/resume，不做 `session/list` 前置查询。
+采用原生尽力恢复，不额外证明历史完整；1.88 静默接受缺失 ID 的可能性保留，认证/网络错误不冒充缺失。
 显式模型来自真实 ACP 目录，ID（含 provider 前缀及碰撞别名）原样传递；不使用 `acp --model`。
+
+同一 Mod 在 `onSessionStart` 从当前 active tools 中移除 `ask_user_question`，官方过滤器负责隐藏
+schema 与拒绝调用，不追加 fallback 或原生问卷界面。Skills 发现复用共享代码的 user/project
+`.commandcode/skills`、`.agents/skills` 来源；原生同名选择由 CLI 拥有，不生成投影副本。
 
 Migration 185 的闭集 identity 与既有历史保持。按 User 105 暂停公开的决定继续有效：所有平台 NotQualified，
 不恢复 Preview、headless 或产品选择入口。旧 1.74.1/1.79.1 BYOK 目录缺口属于历史证据；1.88 的当前原生

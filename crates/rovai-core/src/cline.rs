@@ -1095,14 +1095,6 @@ mod tests {
             escaped
         );
         assert!(bind_bootstrap(&root, "long-session", "changed").is_err());
-        crate::command_code_acp::bind_bootstrap(&root, "long-session", "changed").unwrap();
-        assert_eq!(
-            serde_json::from_slice::<Value>(
-                &fs::read(root.join("bindings/long-session.json")).unwrap()
-            )
-            .unwrap(),
-            binding
-        );
         fs::remove_dir_all(root).unwrap();
     }
 

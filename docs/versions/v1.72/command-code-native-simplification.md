@@ -25,12 +25,12 @@ PR #890 后续审查将 Command 的入口/指纹检查和必要刷新移到 Flee
 显式禁用/删除及既有准入。cold 使用当前安装证据启动，冻结 Run 的逻辑选择、Binding 和 Session 不换代，
 启动事件使用实际 Host 版本。MCP 修改只将本次受影响成员传到现有失效入口，无变化不退役；warm Session
 不再构造不会发送的 MCP wire 参数。没有新增文件或长期状态；保留 `bindings/<session-id>.json`，不为少一层
-目录改写不可变 binding 交付。
+目录改写 binding 布局。
 
 2026-10-25 可用性跟进删除 Command 的新旧 Bootstrap 逐字比较和 Rust/Mod 两端的 256 KiB JSON
-封装限制。已有 binding 直接返回，warm 不读取旧正文、不序列化新正文；只在该 Host 首次绑定时写入。
-正文继续使用共享 128 KiB 预算。cold 按既有 Context 为本轮准备 B，再绑定精确恢复的原生 Session；
-这不要求历史 B 相等，也不新增跨 Host 冻结管理器。
+封装限制。后续按 Run 边界交付：每 Run 发送前将已有 Context 准备的冻结 B 原子更新到当前 Session
+binding，warm/cold 一致；不读取旧正文做相等判断。正文继续使用共享 128 KiB 预算，
+不新增跨 Host 冻结管理器，也不因成员编辑更换 Host 或 Session。
 成员环境保存将已解析值和继承选项的实际变化传给既有失效入口，格式无变化和命令重放不触发退役。
 health probe 删除丢失原始错误的 Command 特例，和其他 ACP 共用错误分类与展示脱敏；未修改 Run 卡片。
 
@@ -56,9 +56,9 @@ User 后续清单引用 `ce140e684`；以下核对的是已推送的 `abf8f4cdc`
 | MCP 退役范围 | 已启用 Server 从 A、B 改为 A、B、C，只影响 C；修改前后仍关闭的定义、单成员分配、删除和导入替换不退役。`setMembers` 非空集合会按既有语义启用 Server，此时新分配成员的有效配置确实变化。 |
 | 认证文案与 BYOK 注释 | 认证失败沿共享分类和脱敏原因展示，不一律要求网页登录。本次删除代码注释中“Command BYOK 选模仍不支持”的旧结论；原生默认模型占位分支仍处理当前模型未出现在返回目录中的情况，不影响目录内 BYOK 的显式选择。 |
 
-不继续整理空摘要比较或 binding 目录。`session/list` 精确恢复确认、一次 ready 握手、binding 正文
-完整性校验、stdio cwd 包装及 wire 转义继续只承担已验证的原生适配职责。没有新增 Runtime 文件、
-认证探针或配置比较；Mod 读取 binding 仍是 System 交付，不增加缓存。
+不继续整理 binding 目录。后续 User 收口取消 `session/list` 强制预检，直接交给原生尽力恢复；
+一次 ready 握手、binding 正文完整性校验、不同 stdio cwd 包装及 wire 转义保留。没有新增 Runtime
+文件种类、认证探针或配置比较；Mod 读取 binding 仍是 System 交付，不增加缓存。
 
 ### 成员身份与长期指令何时生效
 
@@ -72,18 +72,55 @@ User 后续清单引用 `ce140e684`；以下核对的是已推送的 `abf8f4cdc`
 | --- | --- |
 | 身份编辑前已 claim 的公开 Run | 继续使用该 Run 已冻结的身份；编辑不回写既有输入。 |
 | 身份编辑后 claim 的公开 Run | 共享 Context 准备新身份；旧／非 batch Run 沿准备时读取规则。准备新 B 本身不等于已向模型投递。 |
-| 同一 Host／Session warm 续用 | 使用该 Host 首次绑定的完整 B；身份编辑不重写 binding，模型的这份 System 仍是旧内容。 |
+| 同一 Host／Session warm 续用 | 发送本轮输入前，原子更新同一 binding 为该 Run 已准备的 B；不依赖进程重启生效。 |
 | 后续新 Host 冷恢复，或新 Session 首次绑定 | 写入该 Run 准备的 B。若该 Run 在编辑后取得身份，就使用新内容；冷恢复保留精确原 Session ID，不要求新旧 B 相等。 |
 
-因此，当前 Command **不保证成员编辑在下一次 warm 执行中进入 System**；生效取决于后续新 Host／Session
-首次绑定所用的 Run 内容。共享规则没有要求所有 Runtime 在身份编辑后立即热更新，本轮不改变这一产品行为。
-若要求“下一轮 warm 也必定使用新指令”，需要另行确定投递规则；不能用隐式重启、摘要或跨 Host 冻结管理器代替该决定。
-以上是现有调用链核对，不是新增的真实模型验收。
+一轮内冻结与 Host 生命周期固定不再混同。同 Run 重试仍由 Context 的 Run Evidence 取回原冻结字节；
+成员编辑操作本身不写 binding，执行中的 Run 不被中途更新。后继 Run 的准备规则与 Codex/Pi 等共用，
+Command 在发送前实际交付这些字节，不增加摘要、重启或缓存。下述隔离原生试验验证了同 PID/Session
+的 A→B→B 和换进程同 Session 的 C；它不是完整 Core 队列／失败重试的真实模型验收。
+
+### Run 边界与原生能力补齐（2026-10-25）
+
+在 `6470ebd6` 之后的同一 worktree 修改：删除 Command 专属目录校验函数和 `session/list` 调用，
+保留精确 Session ID、共享请求归属及 accepted-input 边界。1.88 仍会接受缺失 ID；这是原生尽力恢复，
+不标记为已证明完整历史，也不以认证/网络错误触发新 Session。
+
+官方 Mod 文档的 `getActiveTools` / `setActiveTools` 在固定 1.88 ACP 中已接通。现有 Mod 的
+`onSessionStart` 只从当前工具集合排除 `ask_user_question`，没有硬编码白名单、beforeToolCall fallback
+或运行时探测。对照组模型 schema 有 13 个工具，过滤后 12 个，差集仅为该问卷；强制返回被禁用调用
+没有产生问卷，随后 read_file 与后继 prompt 正常。所有测试均未代选用户答案。
+
+Skills 只给现有 `native_skills` 增加 user/project 的 `.agents/skills` 来源。原生同名优先级是
+项目 `.commandcode` → 项目 `.agents` → 用户 `.commandcode` → 用户 `.agents`，不能泛称所有
+`.commandcode` 都覆盖 `.agents`。共享发现保留各来源身份，原生选择由 CLI 负责，不复制或重排用户文件。
+
+Diff 仍关联同 ToolCall 的成功终态。单次 edit 用 reported mutation 展示片段；空 old_string 加
+精确原生 `Created <同路径> (<行数> line[s])` 回执接入已有 full-before-after/add 展示。
+原生 write_file 对已有空文件也说 created，故不凭该文案或提案的 oldText:null 声称新增；
+write/overwrite、空文件填充及无完整结果的多处替换保留操作记录，失败不生成 Diff。不新增磁盘读取或 Git 检查。
+
+本次使用官方 npm `command-code@1.88.0`，CLI SHA-256 为
+`600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd`。
+自动验收在独立 HOME/cwd 中使用本地确定性模型响应，未调用外部模型，未启动 App/Core。
+原生工具、ACP 和生产 Mod 实际执行；这与下文 sub2api 真实模型试验分开记账。
+
+| 隔离场景 | 原生回执 |
+| --- | --- |
+| 默认问卷 / 官方工具过滤 | 默认 1 次问卷；过滤后 0 次，schema 中移除且其他工具保留；当前与后继输入均 end_turn |
+| write/read/edit | 新写入、读取、单次编辑、edit 新建、已有空文件填充、覆盖、多处替换成功；不存在片段的编辑返回 failed |
+| 生产 Mod warm | 同 PID/Session 的三个请求分别只有 A、B、B；System 各一份，user 均为零 |
+| 生产 Mod cold | 新 PID 直接恢复旧精确 ID，三个请求均只包含本轮 C；没有 session/list |
+| 缺失 ID | 原生接受精确随机 ID 并执行；只记录此原生行为，不当作历史恢复证明 |
+| 稳态材料 | ready 校验后删除；每 Host 只有原 Mod 与一个实际 Session binding，没有新增生产文件种类 |
+
+代码回归和文档门禁结果在文末验证记录中更新；公开资格仍保持不变。
 
 ## 与其他 Runtime 的资源与复杂度对照（2026-10-25）
 
-本次基于 `942219d36` 再检查生产调用链，随后只修改 stdio wire 的目录分支。比较重点是额外常驻进程、
-每轮重复工作、磁盘开销、后台任务与锁；其他 Runtime 也存在某个步骤，不能单独作为保留依据。
+首次基于 `942219d36` 检查生产调用链并修改 stdio wire 的目录分支；下表的 Bootstrap、恢复和提问行为
+已同步本页后续 Run 边界收口。比较重点是额外常驻进程、每轮重复工作、磁盘开销、后台任务与锁；
+其他 Runtime 也存在某个步骤，不能单独作为保留依据。
 
 | 关注点 | Command 当前行为／成本 | 其他 Runtime 对照 | 处理结论 |
 | --- | --- | --- | --- |
@@ -92,13 +129,13 @@ User 后续清单引用 `ce140e684`；以下核对的是已推送的 `abf8f4cdc`
 | 原生配置与 HOME | 沿用用户 HOME；不扫描/复制 auth、settings、Mods 或原生 MCP。 | Codex 同样使用原生 HOME；部分 ACP 的私有配置文件来自各自协议需求。 | 无可删除的 Command 配置镜像；不为对齐其他 Runtime 增加文件。 |
 | Run 级 MCP 投影 | 仍走共享 prepare：读取冻结投影，必要时生成 `runtime/mcp/.../canonical.json`、同步并重新读取校验。 | 所有消费共享投影的 Adapter 均承担该成本，不取决于最终交给原生的是文件还是 ACP 参数。 | 有 I/O，但不是 Command 私有原生配置副本。本 PR 不改，也不增加内存模式旁路。 |
 | 新 Host 的 Bootstrap | 一个 Mod；一次 ready 写入、校验、删除；Session 首次绑定原子写一个正文文件。 | Cline 用原生 System Rule；Pi 用受管扩展和 binding。物理交付渠道不同。 | 保留现有文件布局和握手，不建立共享资源缓存。 |
-| warm Bootstrap | Rust 检查 binding 是否存在后返回；原生每次调用 System hook 仍读 JSON、检查正文与 SHA。 | Pi 的 `before_agent_start` 同样读取并校验 binding。Codex 等走原生 Session 输入接口，不等于可以直接替代 Command Mod。 | 有文件读取与正文计算；没有证据证明是瓶颈，不加缓存/失效标记。SHA 不参与恢复或 Host 选择。 |
+| warm Bootstrap | 每 Run 发送前原子发布该 Run 的 B；原生 System hook 读取 JSON、检查正文与 SHA。 | Pi 激活时同样更新 binding；Codex 在会话请求传当次指令。 | 多一次既有文件发布以交付新指令，不增加文件种类或缓存；SHA 不参与恢复或 Host 选择。 |
 | warm 启动准备 | Fleet 复用成功时，不执行 cold callback 中的入口验证、环境解析、Built-in 进程上下文创建及 spawn。 | 继续使用共享 acquire/spawn 边界；其他 Runtime 保持原兼容策略。 | 未发现仍可直接删除的 Command 冷启动重复工作。 |
 | 进程池与锁 | 使用共享 Fleet 和 ACP 的 stdin/pending/Session 状态；Run map 锁只做对象取放。 | Cline、Kimi 等使用相同 Host；DSH 另有原生 Session 锁对应的旧 Host 退役等待，Command 没有该分支。 | 无 Command 专属池、账号锁或新锁；不改 pending 的终态/退出顺序。 |
 | 启动失败清理任务 | 未交接 child 的 owner Drop 启动一次停止、reap、进程树确认任务；无法确认则留材料诊断。 | 来自共享 `PreparedAcpProcess`，不是 Command 常驻任务。 | 保留；删除会留下取消/构造失败的资源所有权空档。 |
 | 原生用量观察 | Command 不启用 `NativeUsageReader` 日志尾读路径。 | Kimi、Qoder、Codebuddy、MiniMax、TRAE 等按原生数据源启用；Cline 有自己的观察来源。 | 没有可删的 Command 用量轮询；不能误报为每个 ACP 都有后台日志扫描。 |
 | 压缩与后台监控 | Command 当前没有启用专属 compaction relay/outbox；也没有配置 watcher。 | 部分 Runtime 有已接通的 best-effort 原生压缩策略。 | 没有新增资源候选；缺少压缩能力不等于资格已经完成。 |
-| cold 恢复确认 | 仅 cold 查询官方 Session 目录，确认精确 ID/cwd；warm 不做。 | 能可靠拒绝缺失 ID 的 Runtime 直接恢复；Codebuddy 也有针对原生缺口的目标确认。 | 1.88 已实测会接受不存在的 ID，故保留；不查历史正文或配置。 |
+| cold 恢复 | 直接提交精确 ID，不再查询 Session 目录。 | 共享协议归属与错误处理不变；其他 Adapter 的目标确认策略不搬到 Command。 | 原生尽力恢复，不额外证明历史完整；无配置或正文扫描。 |
 | 模型／权限 RPC | 沿共享 Session 方法应用当前 Run 设置，模型 ID 原样传递。 | 其他 ACP 也应用冻结 Run 的权限和选择。 | 不为省一次 RPC 新增“上次值”缓存；没有额外登录探针。 |
 | env/header 与工具事件 | 一次 wire 转义；工具初始/完成事件沿共享关联 map 补全输入和编辑片段。 | 1.88 会再次展开 env/header；稀疏事件关联与 Cline 共用。 | 均有原生回执或协议缺口依据，不扩展成配置缓存、额外锁或文件扫描。 |
 
@@ -110,7 +147,7 @@ User 后续清单引用 `ce140e684`；以下核对的是已推送的 `abf8f4cdc`
 [Pi Host](../../../crates/rovai-core/src/pi/managed-host.ts)和[压缩策略](../../../crates/rovai-core/src/compaction.rs)。
 
 其中共享投影在 Unix 发布新文件时，依次同步文件、临时目录和 rename 后的 Run 父目录；冻结与恢复校验
-仍有消费者。warm 不重写 Bootstrap **不代表整轮没有磁盘 I/O**。上述锁与任务结论只限当前接入差异，
+仍有消费者。warm 交付新 Bootstrap 也包含小文件发布。上述锁与任务结论只限当前接入差异，
 不声称整个共享 ACP 已证明无死锁；也未测量 CPU／内存，不给出 MB 节省数字。
 
 没有为共享一个小 Mod 新建资源缓存，没有专属锁、进程池、配置快照、文件监听器或回收队列。
@@ -139,7 +176,7 @@ CLI 初始目录设为 `host space`、ACP 目录设为不同的 `session space`�
 
 ## 按接入 Checklist 对照其余方案（2026-10-25）
 
-对照基线为 `e1e667905`；范围包括当前[接入 Checklist](../../development/runtime-integration-checklist.md)、
+首次对照基线为 `e1e667905`，下表已同步后续 Run 边界收口；范围包括当前[接入 Checklist](../../development/runtime-integration-checklist.md)、
 旧 [Command/Cline 14 轴表](../../research/runtime-monitoring/command-cline-checklist-2026-10-05.md)及
 [10 月 6 日追加表](../../research/runtime-monitoring/command-cline-native-system-2026-10-06.md)。
 旧表是特定版本的研究证据，不能把其中 headless、私有 HOME、原生 MCP 文件合并或 Preview 当成当前方案。
@@ -149,12 +186,12 @@ CLI 初始目录设为 `host space`、ACP 目录设为不同的 `session space`�
 | --- | --- | --- | --- |
 | Auth / Provider / Model | 各 Runtime 读取自身原生来源；Codex app-server 与 ACP 使用各自目录及选模方法。 | 原生 HOME、真实 ACP 目录、标准 set_model；sub2api 显式选择及 cold 后保存模型本次通过。 | 生产不借用其他 Runtime 凭据。测试使用已有原生认证，不能据此宣称 BYOK 不需要原生认证；全认证方式与凭据轮换未验。无需增加登录探针。 |
 | Host / Fleet / LRU | ACP 共享 Fleet；Codex/Pi 等通过同一 Fleet 所有权与租约管理生命周期。 | 按所属范围、成员、Native Binding、cwd 复用；正常生产同一根 Binding 使用自己的 Host。共享冷启动回归已过，本次原生 warm 保持 PID。 | 原生同 PID A→B→A 是 Adapter 隔离证据，不意味着生产要跨 Binding 拼池；1.88 完整 App/LRU 压力未补验。 |
-| Native Session / Continuation | Codex 使用 Thread resume，ACP 使用 load/resume；错误目标是否需要补确认由原生行为决定。 | exact ID；本次原生 Host 重启后恢复同 ID、回忆原 receipt，并再次调用 MCP。 | 额外 session/list 只弥补 1.88 接受缺失目标的缺口。Core/App 重启证据仍来自旧版本，不能用本次原生重启替代。 |
-| Bootstrap / Context | Codex/Claude 用原生指令入口，Pi/DSH/Cline 用各自受管 System 交付。 | 官方 Mod；本次 11 次前台请求 System 中合成 B 的全文恰好一份，user 为零。 | warm 使用已有 binding，cold 使用该 Run 准备的 B；不重新比较新旧正文，也不增加跨 Host 冻结仓库。成员编辑时点沿本页现状说明。 |
+| Native Session / Continuation | Codex 使用 Thread resume，ACP 使用 load/resume；Host 配置摘要不等于必须丢弃旧 Session。 | exact ID；此前原生 Host 重启后恢复同 ID、回忆原 receipt，并再次调用 MCP。 | 当前已删除 session/list，采用原生尽力恢复。Core/App 重启证据仍来自旧版本，不能用原生重启替代。 |
+| Bootstrap / Context | Codex/Claude 用原生指令入口，Pi/DSH/Cline 用各自受管 System 交付。 | 官方 Mod；此前 11 次前台请求合成 B 在 System 中恰好一份、user 为零；本次同 Host 更新 B 已验证。 | warm/cold 都在 Run 发送前发布当前冻结 B；不比较历史正文，不新增跨 Host 仓库。 |
 | Compaction continuity | System 原生保留与 Core 补发是不同策略；只有补发正确性需要信号时才接 detector。 | Command 每次 System hook 追加 B，当前 detector 为 Disabled；这不等于原生压缩功能被禁用。 | 旧 1.74 manual/threshold/cold 证据不能替代 1.88 的 manual/threshold/overflow+retry 矩阵。补验 System 保留即可，不为打勾另造 detector/outbox。 |
-| Skills | 当前共享来源是平台索引、成员工具箱和 Harness 原址发现；原生目录依 Runtime 不同。 | 使用共享 native_skills 的 `.commandcode/skills` user/project 来源；无 Command 私有投影。Registry 仍标 DocumentationOnly。 | 旧读取/撤销证据不能提升当前整轴；1.88 真实读取、热更新、删除、同名与相邻成员矩阵未完成。不要恢复旧 delivery group 目录复制。 |
+| Skills | 当前共享来源是平台索引、成员工具箱和 Harness 原址发现；原生目录依 Runtime 不同。 | 共享 native_skills 同时枚举 `.commandcode/skills` 和 `.agents/skills` 的 user/project 来源；无私有投影。Registry 仍标 DocumentationOnly。 | 原生目录兼容与同名优先级不等于整轴通过；读取、热更新、删除与相邻成员完整矩阵仍分别验收。 |
 | External MCP | Codex Session 配置、Cline 原生配置、其他 ACP 参数交付；同名规则可因原生行为不同。 | 标准 mcpServers，原生同名优先；本次默认目录直启、自定义 cwd 包装、HTTP 均真实调用，cold 后再次直启。 | 默认包装已删；保留共享投影和必要 wire 转义。生产 Assignment 更新/撤销、相邻成员与取消副作用的完整新版本矩阵不能只靠工具调用通过。 |
-| Tool / Action / Output | 共享 Tool ID、Action、命令输出与分级 Diff；Cline/MiniMax 也需要关联稀疏事件。 | Command 仅做原生编辑片段转换，原生 codemode ID 与 MCP 回执本次可关联。 | 1.88 的 stdout/stderr/empty/nonzero/large output、编辑形态未全验；旧非零 exit 字段不足不能靠 shell 包装或最终文本猜补。 |
+| Tool / Action / Output | 共享 Tool ID、Action、命令输出与分级 Diff；Cline/MiniMax 也需要关联稀疏事件。 | 单次 edit 片段、原生明确 edit 新建回执进入共享展示；write 的创建状态不明确时保留操作记录。 | 不将工具执行前的 Diff 当成功，不伪造多处替换行号；完整命令输出矩阵仍分别验收。 |
 | Narration / Final / Missing-Send | 各协议提供权威终态，公开发送与 Missing-Send 使用共享规则。 | ACP prompt 结果与稀疏事件沿共享路径；本次四轮 end_turn 均回传实际 receipt。 | 原生 final 不等于产品公开消息已发送；本次未运行 Core 的 zero-send/accepted-send/tool→final 全链路。无需新增 Command 终态状态机。 |
 | Permission / Approval / Workspace | 唯一原生审批权威；例如 Kimi 用 Session mode，Cline 用 mode 与 auto_approve。 | 五种原生 mode 经 set_mode；Command 不再由 Core 自动允许同一请求，避免第二层审批。本次使用 bypass。 | allow/deny/cancel、只读及实际目录边界仍需独立验；不能把 bypass 的 MCP 成功当作这些选项通过。 |
 | Built-in rovai CLI | 当前 bundled CLI、逐 Run binding/lease 和操作目录共享。 | 沿共享 Built-in 进程上下文与租约，没有 Command 专属 CLI 或桥。 | 旧版本公开发送证据保留；本次没有 Core lease，未重跑当前完整 operation 集，不能把 MCP 当 Built-in CLI 资格。 |
@@ -170,9 +207,8 @@ CLI 初始目录设为 `host space`、ACP 目录设为不同的 `session space`�
 ### 主干后来增加的两项方案
 
 - **原生提问**：Claude/Copilot/Qwen/OpenCode V2/ZCode 走已验证的原生禁用；Kimi 等走精确识别后的原生取消。
-  Command 目前只有共享 `questionnaire:` option 前缀兜底，没有专属已验证的问卷帧或禁用参数；本次未触发问卷。
-  这是待确认的能力差异，不能用普通 permission RPC 或 bypass 成功替代，也不能直接照抄别家 flag、选默认答案。
-  下一步只需先取得 1.88 原生请求，再选原生禁用或共享取消，不新增问卷 UI/管理器。
+  Command 现在通过现有 Mod 的官方 active-tools 过滤器禁用问卷，固定 1.88 ACP 已验证 schema 移除和
+  零问卷请求；普通 deny 或 enable=false 不具有同等效果。不新增问卷 UI/管理器，也不代选答案。
 - **原生自动记忆**：当前产品决定专门覆盖 Claude/Codex，采用原生开关且保留会话和工程规则。
   没有依据把它机械复制成 Command 的文件隔离、目录清理或全局配置覆盖；Command 的原生能力与产品要求需分别确认。
 
@@ -209,8 +245,8 @@ user 为零。四次 codemode 调用均以同一原生 Tool ID 关联 ACP comple
 自动验收使用新建私有 fixture，官方 npm 1.88.0；日常 1.66 安装、配置和 App 未修改。
 原生控制探针确认 `--mod` ready 的 revision/nonce/PID，随后删除 ready；原生同名定义优先，stdio 自定义
 cwd 正确。未转义 ACP `$${literal}` 被原生变为 `${literal}`；wire 转义一次后 stdio env 与 HTTP header
-均原样收到 `$${literal}`、反斜杠、引号和 shell 字面字符。load/resume 对随机不存在 UUID 仍成功，故保留
-精确目录预检，删除配置兼容性预检。
+均原样收到 `$${literal}`、反斜杠、引号和 shell 字面字符。load/resume 对随机不存在 UUID 仍成功，初始
+实现曾据此保留目录预检；本页后续已按原生尽力恢复删除该预检，不改写这一原生行为记录。
 
 真实 sub2api/gpt-6-sol 经官方 Mod + ACP stdio/HTTP 两组，各实际调用工具一次、返回本次随机 receipt，
 receipt 回到后继模型输入并由最终 ACP 答复返回。两组各 3 次前台模型请求均 HTTP 200；所有前台请求的
@@ -272,3 +308,11 @@ PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试�
 另一项为相同 Cursor 身份探针超时，同一 workspace 二进制单独复跑通过（0.30 秒）；未改其实现或阈值。
 其余目标 46 项和 doc-tests 通过；首跑失败记录保留，不将分项复跑描述为整套全绿。
 仅清理本轮产生的失败测试夹具；真实 sub2api 的四轮与原生验收清理结果见上节。
+
+同日 Run 边界收口：最终 `cargo test --workspace` 整套通过，核心 431 通过／0 失败／1 忽略，
+其余目标 46 通过，doc-tests 通过。Command、恢复隔离、Skills 来源、Diff 映射、原生错误分类、权限
+取消及长正文的既有定向 Rust owners 通过；真实账号 owner 仍按条件忽略，既有 Node Mod owner 通过。
+中间夹具修正保留 Command/TRAE 各自输入接收顺序，并退役 Command 整 Host 正文不变的旧断言；
+未修改共享锁、事件顺序或其他 Runtime 的生产交付方式。没有新增 Rust 测试函数或仓库文件。
+10 项文档测试、基于 PR base 的文档治理、格式和差异检查通过。官方 1.88 的六个记录进程组均已退出，
+隔离材料已删除；本轮没有外部模型请求、Renderer 点击验收或平台资格变更。

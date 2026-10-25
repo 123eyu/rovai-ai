@@ -294,9 +294,15 @@
       "existing dispatcher and Fleet MCP retirement regression remains passing"
     ],
     "memberEnvironmentDispatch": "changed fact consumed only after Applied and non-replayed command; code-reviewed, no test-only platform admission bypass added",
-    "nodeBootstrap": { "passed": 1, "failed": 0 },
+    "nodeBootstrap": {
+      "passed": 1,
+      "failed": 0
+    },
     "workspaceAllTargetsSlowTestsCheck": "passed",
-    "documentationTests": { "passed": 10, "failed": 0 },
+    "documentationTests": {
+      "passed": 10,
+      "failed": 0
+    },
     "documentationGates": "passed including diff-aware base check",
     "newRepositoryFiles": 0,
     "newProductionFiles": 0,
@@ -333,10 +339,18 @@
     ],
     "startupSettingsLock": "explicit release before Fleet await verified in code; no test-only Command platform admission bypass",
     "defaultWorkspace": {
-      "core": { "passed": 429, "failed": 1, "ignored": 1 },
+      "core": {
+        "passed": 429,
+        "failed": 1,
+        "ignored": 1
+      },
       "failure": "runtime_discovery::tests::cursor_agent_alias_rejects_an_unrelated_agent_binary: runtime_probe_timed_out",
       "sameWorkspaceBinaryIsolatedRerun": "passed in 1.01s",
-      "remainingTargets": { "passed": 46, "failed": 0, "ignored": 0 },
+      "remainingTargets": {
+        "passed": 46,
+        "failed": 0,
+        "ignored": 0
+      },
       "docTests": "passed",
       "cursorCodeOrTimeoutChanged": false,
       "failedFixtureRemoved": true,
@@ -344,12 +358,23 @@
     },
     "cargoCheckWorkspace": "passed",
     "formatCheck": "passed",
-    "documentationTests": { "passed": 10, "failed": 0 },
+    "documentationTests": {
+      "passed": 10,
+      "failed": 0
+    },
     "documentationGates": "passed including diff-aware base check",
     "typecheck": "passed",
     "pnpmTest": "passed",
-    "vitest": { "passed": 2992, "skipped": 2, "failed": 0 },
-    "nodeMainSuite": { "passed": 358, "skipped": 2, "failed": 0 },
+    "vitest": {
+      "passed": 2992,
+      "skipped": 2,
+      "failed": 0
+    },
+    "nodeMainSuite": {
+      "passed": 358,
+      "skipped": 2,
+      "failed": 0
+    },
     "newRepositoryFiles": 0,
     "newProductionFiles": 0,
     "newRustTestOwners": 1,
@@ -777,6 +802,367 @@
       "newRepositoryFiles": 0,
       "newRustTestOwners": 0,
       "fullWorkspaceGreenClaimed": false
+    }
+  },
+  "followupRunBoundary20261025": {
+    "baselineCommit": "6470ebd6bc3460a9af1b21855528556933bfc056",
+    "commandCodeVersion": "1.88.0",
+    "officialCliSha256": "600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd",
+    "bootstrapModSha256": "f3edc08a6c8b3406e9c0e5db61c8df43a903b27354a9f41f260b3bf87eae69fa",
+    "scope": "Isolated official CLI ACP and production Mod; deterministic loopback model; no Core/App or external model",
+    "toolFilter": {
+      "hook": "onSessionStart",
+      "api": "setActiveTools(getActiveTools().filter(...))",
+      "baselineToolCount": 13,
+      "filteredToolCount": 12,
+      "removedTools": [
+        "ask_user_question"
+      ],
+      "addedTools": [],
+      "baselineQuestionRequests": 1,
+      "filteredQuestionRequests": 0,
+      "forcedDisabledToolCall": "refused without questionnaire; subsequent read_file and next prompt completed"
+    },
+    "skillsPriority": [
+      {
+        "label": "project-command",
+        "exit": 0,
+        "found": true
+      },
+      {
+        "label": "project-agents",
+        "exit": 0,
+        "found": true
+      },
+      {
+        "label": "user-command",
+        "exit": 0,
+        "found": true
+      },
+      {
+        "label": "user-agents",
+        "exit": 0,
+        "found": true
+      }
+    ],
+    "runBoundary": [
+      {
+        "case": "production-warm",
+        "sessionId": "b5bfd440-b5de-4e30-b677-0ae72f086349",
+        "pid": 28004,
+        "bootstrapCounts": [
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            1,
+            0
+          ]
+        ],
+        "userBootstrapCounts": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ],
+        "stopReasons": [
+          "end_turn",
+          "end_turn",
+          "end_turn"
+        ],
+        "methods": [
+          "initialize",
+          "session/new",
+          "session/set_model",
+          "session/set_mode",
+          "session/prompt",
+          "session/prompt",
+          "session/prompt"
+        ],
+        "readyValidatedAndRemoved": true,
+        "steadyMaterials": [
+          "bindings",
+          "rovai-bootstrap.mjs"
+        ],
+        "bindingFileCount": 1,
+        "historyCompletenessProven": false
+      },
+      {
+        "case": "production-cold",
+        "sessionId": "b5bfd440-b5de-4e30-b677-0ae72f086349",
+        "pid": 28057,
+        "bootstrapCounts": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            0,
+            1
+          ]
+        ],
+        "userBootstrapCounts": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ],
+        "stopReasons": [
+          "end_turn",
+          "end_turn",
+          "end_turn"
+        ],
+        "methods": [
+          "initialize",
+          "session/resume",
+          "session/set_model",
+          "session/set_mode",
+          "session/prompt",
+          "session/prompt",
+          "session/prompt"
+        ],
+        "readyValidatedAndRemoved": true,
+        "steadyMaterials": [
+          "bindings",
+          "rovai-bootstrap.mjs"
+        ],
+        "bindingFileCount": 1,
+        "historyCompletenessProven": false
+      },
+      {
+        "case": "production-missing",
+        "sessionId": "88923b6d-fa46-4560-bded-b1cb79f7324b",
+        "pid": 28083,
+        "bootstrapCounts": [
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ],
+        "userBootstrapCounts": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ],
+        "stopReasons": [
+          "end_turn",
+          "end_turn",
+          "end_turn"
+        ],
+        "methods": [
+          "initialize",
+          "session/resume",
+          "session/set_model",
+          "session/set_mode",
+          "session/prompt",
+          "session/prompt",
+          "session/prompt"
+        ],
+        "readyValidatedAndRemoved": true,
+        "steadyMaterials": [
+          "bindings",
+          "rovai-bootstrap.mjs"
+        ],
+        "bindingFileCount": 1,
+        "historyCompletenessProven": false
+      }
+    ],
+    "fileReceipts": [
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt",
+          "content": "alpha\nbeta\n"
+        },
+        "status": "completed",
+        "result": [
+          "File created successfully at: <fixture>/files/workspace/new.txt"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt"
+        },
+        "status": "completed",
+        "result": [
+          "Read 1/1 file, 2 lines\n1: alpha\n2: beta"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt",
+          "old_string": "beta",
+          "new_string": "gamma"
+        },
+        "status": "completed",
+        "result": [
+          "Edited <fixture>/files/workspace/new.txt (1 replacement)\n\nSnippet (lines 1-3 of 3):\n1\talpha\n2\tgamma\n3\t"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/created.txt",
+          "old_string": "",
+          "new_string": "created\nbody\n"
+        },
+        "status": "completed",
+        "result": [
+          "Created <fixture>/files/workspace/created.txt (3 lines)"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/empty.txt"
+        },
+        "status": "completed",
+        "result": [
+          "Read 1/1 file, 0 lines\nNote: the file exists but is empty."
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/empty.txt",
+          "content": "filled\n"
+        },
+        "status": "completed",
+        "result": [
+          "File created successfully at: <fixture>/files/workspace/empty.txt"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt"
+        },
+        "status": "completed",
+        "result": [
+          "Read 1/1 file, 2 lines\n1: alpha\n2: gamma"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt",
+          "content": "one\none\n"
+        },
+        "status": "completed",
+        "result": [
+          "The file <fixture>/files/workspace/new.txt has been updated successfully."
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt",
+          "old_string": "one",
+          "new_string": "two",
+          "replace_all": true
+        },
+        "status": "completed",
+        "result": [
+          "Edited <fixture>/files/workspace/new.txt (2 replacements)\n\nSnippet (lines 1-3 of 3):\n1\ttwo\n2\ttwo\n3\t"
+        ]
+      },
+      {
+        "input": {
+          "file_path": "<fixture>/files/workspace/new.txt",
+          "old_string": "missing",
+          "new_string": "unused"
+        },
+        "status": "failed",
+        "result": [
+          "No occurrences of the specified text were found in the file. The old_string must match the file contents exactly, including whitespace and indentation. Read the file to see its current content."
+        ]
+      }
+    ],
+    "cleanup": {
+      "nativeProcessGroupsChecked": 6,
+      "remainingProcessGroups": [],
+      "isolatedFixtureRemoved": true
+    },
+    "qualificationChanged": false,
+    "limitations": [
+      "Repeated B is a deterministic native prompt, not a Core failed-Run retry test.",
+      "Missing session ID was accepted natively; no history completeness claim.",
+      "write_file created text also occurs for an existing empty file, so its add state remains unknown.",
+      "No Renderer click-through, platform admission, or full real-model regression in this follow-up."
+    ],
+    "validation": {
+      "workspace": {
+        "command": "cargo test --workspace",
+        "corePassed": 431,
+        "otherTargetsPassed": 46,
+        "failed": 0,
+        "ignored": 1,
+        "docTestsPassed": true
+      },
+      "targetedExistingOwners": "Command bootstrap/MCP/version, history restore quarantine, native Skills, tool Diff, resume classification, permission cancellation, long bootstrap",
+      "nodeModOwner": "passed",
+      "docsTestsPassed": 10,
+      "docsGovernance": "passed against PR base",
+      "formatAndDiffChecks": "passed",
+      "newRustTestFunctions": 0,
+      "newRepositoryFiles": 0,
+      "fixtureCorrections": [
+        "Preserved native Command acknowledgement after first activity rather than imposing TRAE ordering.",
+        "Retired the obsolete Command Host-lifetime immutable binding assertion."
+      ]
     }
   }
 }

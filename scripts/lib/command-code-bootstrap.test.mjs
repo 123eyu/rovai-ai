@@ -26,8 +26,13 @@ test('Command Code required Mod binds each Session and exits before inference on
       rmSync(join(root, 'ready.json'), { force: true });
       return spawnSync(process.execPath, ['--input-type=module', '-e', `
         import load from ${JSON.stringify(module)};
+        import assert from 'node:assert/strict';
         let hooks;
-        load({ hooks(value) { hooks = value; } });
+        let active = ['read_file', 'ask_user_question', 'shell_command', 'mcp__docs__search'];
+        load({ hooks(value) { hooks = value; }, getActiveTools() { return active; },
+          setActiveTools(value) { active = value; } });
+        hooks.onSessionStart();
+        assert.deepEqual(active, ['read_file', 'shell_command', 'mcp__docs__search']);
         const replies = ${JSON.stringify(ids)}.map(sessionId => hooks.appendSystemPrompt({state:{sessionId}}));
         console.log(JSON.stringify(replies));
         console.log('MODEL_WOULD_RUN');

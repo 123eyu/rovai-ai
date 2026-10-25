@@ -145,7 +145,7 @@ User 指出 Windows 菜单栏切换主题后，右上角最小化、最大化与
   同时保留 macOS / Linux 边界与系统默认高度检查。针对性回归 58 项通过。
 - `pnpm typecheck`、`pnpm test`、`pnpm build:desktop` 通过；Vitest 256 个文件、3005 项通过、2 项既有跳过。
   同步主线 PR #890 后，类型检查、完整 JavaScript 测试与桌面构建复验通过。
-- `pnpm test:rust:pr` 475 项通过、1 项既有忽略；本机 Rust 1.98 工具链仍报告缺少 `libLLVM.dylib`
+- 同步主线后的 `pnpm test:rust:pr` 477 项通过、1 项既有忽略；本机 Rust 1.98 工具链仍报告缺少 `libLLVM.dylib`
   的调试信息剥离警告，不影响构建和测试结果。
 - 生产组件浏览器 fixture 验证六项切换；经典红滚动块为 `rgb(222, 222, 222)`，选中面仍为 `#eee4e6`，
   轨道透明、可见滚动块宽 8px，实际滚动正常，无整页横向溢出和浏览器 warning/error。

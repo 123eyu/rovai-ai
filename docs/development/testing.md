@@ -1780,6 +1780,13 @@ owner 不经过 MCP wire，`runtime_mcp` 的原生文件 owner 也不拥有 Comm
 
 - `native_home_and_bootstrap_control` 拥有中文／换行／引号等控制编码、完整 128 KiB UTF-8 正文预算、
   无效输入拒绝、原生 HOME 和 ready 清理；原 binding 文件发布／不同文件名断言随正文文件路径退役。
+  Windows npm 入口修复扩展同一 owner 的 revision/nonce、PID 类型／范围和归属拒绝矩阵。
+  `managed_process::tests::windows_bat_entrypoint_job_owns_the_complete_child_tree` 原地核对存活后代、
+  已退出根进程、无关当前进程、零 PID 与终止后代；复用已有真实 Job fixture，不新增 Rust 测试函数。
+  修复前官方 `.cmd` 入口的根 PID 与 Mod Node PID 不同，实际 Run 被 `command_code_bootstrap_readiness_invalid`
+  拦截；纯 ready 解析不能证明 OS Job 归属，因此后者由既有 Windows 进程 owner 拥有。
+  最小命令分别为 `cargo test -p rovai-core --features extended-tests --lib native_home_and_bootstrap_control`
+  与 `cargo test -p rovai-core --features extended-tests --lib windows_bat_entrypoint_job_owns_the_complete_child_tree`。
 - `history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input` 保留 TRAE/Command 恢复
   回放隔离，扩展生产交付调用：控制 end_turn、usage、mode 仅属准备，错误／cancelled 返回不提交业务
   prompt；成功后只有原业务输入生成接受和终态。复用 Ready 路由与普通 RPC waiter，没有新状态机。

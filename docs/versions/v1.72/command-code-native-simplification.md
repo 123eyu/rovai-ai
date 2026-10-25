@@ -493,3 +493,32 @@ PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试�
 所有记录进程组与 MCP 子进程退出后，精确删除本次隔离根目录。`cargo test --workspace` 整套通过：
 核心 431 通过／0 失败／1 忽略，其余目标 46 通过，doc-tests 通过。10 项文档测试、当前文档治理、
 基于 PR base 的差异治理与差异检查通过。没有创建新仓库文件或提高公开资格。
+
+## Windows npm 入口的 Bootstrap PID 归属修复（2026-10-25）
+
+Windows 真机验收中，官方 `command-code@1.88.0` 的检查和模型目录正常，但实际 Run 在发送模型输入前
+返回 `command_code_bootstrap_readiness_invalid`。独立原生对照确认 revision、nonce 一致；受管根是
+`cmd.exe`，Mod 上报其 Node 进程 PID，两者正常不同。原先把上报 PID 与受管根 PID 直接相等比较，
+不适用于已支持的 Windows command shim。
+
+本次改为由 Managed Process 在其精确 Job handle 上证明上报 PID 是存活成员；非 Windows 保留根 PID
+等值要求。ready 的 revision、一次性 nonce、正 u32 PID 和消费后清理继续执行。查询失败、外部进程或
+退出进程仍拒绝；不枚举进程、不缓存后代、不暴露 OS handle。握手查询结束即释放 child guard，再进入
+失败 shutdown，保留现有锁顺序与进程树清理。没有修改 Mod wire shape、Bootstrap 正文或平台公开准入。
+
+扩展既有 ready owner 和 Windows Job 生命周期 owner，归属和最小命令见
+[Command Code 测试归属](../../development/testing.md#command-code-188-简化测试归属2026-10-24)。
+Windows x64 真实模型复验使用同一补丁构建的 debug Core/CLI、官方 Command Code 1.88.0、独立 D 盘
+数据／Skill Library／原生 HOME 与 sub2api `gpt-6/xhigh`。仅隔离 Core 启用既有逐 Adapter qualification
+override；正式平台准入不变。以下五项均通过完整 Core AgentRun 与公开消息链路验证：
+
+| 场景 | 结果 |
+| --- | --- |
+| 首次 Run | 真实读取未知随机文件回执，按 System 身份前缀发布公开消息；Runtime 请求使用 xhigh。 |
+| warm Run | 编辑成员工作原则后，新指令生效；包装／Node PID、Native Binding 和 Session 均不换。 |
+| 文件操作 | 真实写入、编辑并读取工作区文件，最终字节与公开消息相符。 |
+| cold Run | 正常关闭 Core 后重启，新包装／Node PID 恢复精确原 Session 并回忆首轮随机回执。 |
+| 取消与后继 | 真实模型请求开始后取消，随后新的 Run 成功回复；两个 Core 生命周期的所属进程全部退出。 |
+
+已扩展的 ready 与 Windows Job 定向 owners 通过；原生登录副本在结束后删除，原 mcode 配置哈希未变。
+Command Code 1.88.0 原生 MCP 的 Windows 路径／argv 问题属于另一项，本修复未改其投影和启动逻辑。

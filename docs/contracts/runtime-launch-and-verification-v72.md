@@ -59,7 +59,10 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
 
 每个新 Host 只写一次 `rovai-bootstrap.mjs`，通过官方 `acp --mod <absolute-path>` 加载。
 Mod 注册 `rovai-bootstrap` 控制命令和 System hook 后才写 ready。初始化局部 nonce 经环境传给 Mod；
-initialize 后只校验一次 revision、nonce 和实际 PID，删除 `ready.json` 并丢弃预期 nonce。
+initialize 后只校验一次 revision、nonce 和原生 PID 归属，删除 `ready.json` 并丢弃预期 nonce。
+Windows 通过本次 Managed Process 的精确 Job handle 核对上报 PID 是仍存活的成员，允许 `.cmd` / `.bat`
+包装进程启动的原生 Node 子进程；其他平台仍要求受管根 PID。零值、越界、已退出、无权查询或不属于
+本次 Job 的 PID 均拒绝，不能仅凭 nonce、进程名或父 PID 放行。
 没有 nonce 文件、逐轮探针或长期 nonce map/数据库字段；稳态材料只有该 Mod。
 
 首次、warm、cold 都在建立／恢复 Session 后、发送业务输入前，经已有 ACP `session/prompt`

@@ -95,17 +95,20 @@ pub fn configure_host(command: &mut tokio::process::Command, root: &Path) -> Res
     Ok(nonce)
 }
 
-pub fn verify_ready(root: &Path, nonce: &str, expected_pid: u32) -> Result<()> {
+pub fn verify_ready(root: &Path, nonce: &str, owns_pid: impl FnOnce(u32) -> bool) -> Result<()> {
     let path = root.join("ready.json");
     let ready: Value = serde_json::from_slice(
         &fs::read(&path)
             .context("Command Code Bootstrap extension did not load; no prompt sent")?,
     )?;
+    let pid = ready["pid"]
+        .as_u64()
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 0);
     anyhow::ensure!(
         ready["revision"] == BOOTSTRAP_REVISION
             && ready["nonce"] == nonce
-            && expected_pid > 0
-            && ready["pid"].as_u64() == Some(u64::from(expected_pid)),
+            && pid.is_some_and(owns_pid),
         "command_code_bootstrap_readiness_invalid"
     );
     fs::remove_file(path)?;
@@ -292,9 +295,39 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert!(verify_ready(&root, "wrong", 123).is_err());
-        assert!(verify_ready(&root, &nonce, 456).is_err());
-        verify_ready(&root, &nonce, 123).unwrap();
+        assert!(verify_ready(&root, "wrong", |pid| pid == 123).is_err());
+        assert!(verify_ready(&root, &nonce, |pid| pid == 456).is_err());
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!(u64::from(u32::MAX) + 1),
+            json!("123"),
+            Value::Null,
+        ] {
+            fs::write(
+                &ready,
+                serde_json::to_vec(
+                    &json!({"revision":BOOTSTRAP_REVISION,"nonce":nonce,"pid":invalid}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(verify_ready(&root, &nonce, |_| true).is_err());
+            assert!(ready.exists());
+        }
+        fs::write(
+            &ready,
+            serde_json::to_vec(&json!({"revision":"wrong","nonce":nonce,"pid":123})).unwrap(),
+        )
+        .unwrap();
+        assert!(verify_ready(&root, &nonce, |_| true).is_err());
+        fs::write(
+            &ready,
+            serde_json::to_vec(&json!({"revision":BOOTSTRAP_REVISION,"nonce":nonce,"pid":123}))
+                .unwrap(),
+        )
+        .unwrap();
+        verify_ready(&root, &nonce, |pid| pid == 123).unwrap();
         assert!(!ready.exists());
         for text in [
             "  中文\n\"quotes\" \\ = ${literal}\n  ".to_owned(),

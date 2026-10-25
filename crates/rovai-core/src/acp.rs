@@ -2136,17 +2136,20 @@ impl AcpHost {
                     );
                 }
                 if host.adapter_kind == AdapterKind::CommandCodeCli {
-                    let ready = (|| {
-                        crate::command_code_acp::verify_ready(
-                            host.private_config_root
-                                .as_deref()
-                                .context("Command Code private Host missing")?,
-                            &command_bootstrap_nonce
-                                .take()
-                                .context("Command initialize nonce missing")?,
-                            host.pid().context("Command Code process PID unavailable")?,
-                        )
-                    })();
+                    let ready = {
+                        let child = host.child.lock().await;
+                        (|| {
+                            crate::command_code_acp::verify_ready(
+                                host.private_config_root
+                                    .as_deref()
+                                    .context("Command Code private Host missing")?,
+                                &command_bootstrap_nonce
+                                    .take()
+                                    .context("Command initialize nonce missing")?,
+                                |pid| child.owns_process_id(pid),
+                            )
+                        })()
+                    };
                     if let Err(error) = ready {
                         host.shutdown().await;
                         return Err(error);

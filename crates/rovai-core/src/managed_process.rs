@@ -662,6 +662,20 @@ impl ManagedProcess {
         None
     }
 
+    /// Validate a reported Runtime PID without exposing platform handles.
+    /// Windows launchers may report a live descendant in this exact Job;
+    /// other platforms retain the managed leader's PID requirement.
+    pub fn owns_process_id(&self, pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            self.child.owns_process_id(pid)
+        }
+        #[cfg(not(windows))]
+        {
+            pid > 0 && self.id() == Some(pid)
+        }
+    }
+
     #[cfg(windows)]
     pub(crate) fn windows_job_name(&self) -> &str {
         self.child.job_name()
@@ -1607,6 +1621,10 @@ mod tests {
             .parse::<u32>()
             .expect("grandchild handshake PID was invalid");
         assert!(windows::process_is_running_for_test(grandchild_pid).unwrap());
+        assert!(process.owns_process_id(grandchild_pid));
+        assert!(!process.owns_process_id(process.id().unwrap()));
+        assert!(!process.owns_process_id(std::process::id()));
+        assert!(!process.owns_process_id(0));
 
         process.force_terminate_tree().unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -1616,6 +1634,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert!(!windows::process_is_running_for_test(grandchild_pid).unwrap());
+        assert!(!process.owns_process_id(grandchild_pid));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -1294,9 +1294,26 @@ Preview。保留原生 Windows MCP 路径／参数及拒绝后缺少最终回复
 拒绝继续全平台隐藏 Command，也不凭单平台原生试验直接标为 qualified。此次只改变准入范围，不调整
 Bootstrap、Host/Session 生命周期或用户原生配置；后续完整资格仍须以实际平台证据确认。
 
-<a id="v1-72-d61"></a>
 
-## V1.72-D61：Hermes 使用官方 ACP 与专用 Gateway，逐 Run 冷恢复并保持最低版本策略
+<a id="v1-72-d61"></a>
+## V1.72-D61：Command Code Linux 随目标机验收开放 Preview
+
+- 状态：accepted
+- 日期：2026-10-25
+- 确认：维护者要求“剩下的赶紧跑完”，随后要求 Linux 完成后更新到 macOS 开放分支。
+- 当前权威：[Runtime Platform Admission v2](../../contracts/runtime-platform-admission-v2.md#9-command-code-linux-preview)、[Command Code ACP 边界](../../architecture/runtime-catalog-boundaries.md#command-code-acp-实施边界)。
+
+GNU x64 目标机已用官方 1.88.0、真实 Sub2API 与隔离 Core/浏览器执行验收。选择沿既有 Preview
+开放 Linux，保持稳定版 ≥1.88.0、原生配置所有权和共享 Fleet；不继续全平台隐藏，也不把单台机器
+证据扩张为所有发行版或子代理的完整资格。Windows 的公开范围独立决定。
+
+官方 ACP 将 shell `exit 7` 的 Tool 状态报告为 completed，输出仍包含实际 Exit code: 7；Core 如实
+采用该状态。维护者明确接受这项差异，本轮不再以它阻断开放；不从输出文本另造退出码解析或状态管理。
+其余未通过或未覆盖项按实际证据记录，不由这一接受决定自动豁免。
+
+<a id="v1-72-d62"></a>
+
+## V1.72-D62：Hermes 使用官方 ACP 与专用 Gateway，逐 Run 冷恢复并保持最低版本策略
 
 - 状态：accepted
 - 日期：2026-10-23
@@ -1314,8 +1331,8 @@ Steer/取消、reasoning/MCP mutation 和原生事件补充。controller 借用�
 macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成不晋升 Qualified；已测版本与兼容策略分开。
 
 
-<a id="v1-72-d62"></a>
-## V1.72-D62：Hermes 规则随用户输入交付，原生提示词由 Hermes 解析
+<a id="v1-72-d63"></a>
+## V1.72-D63：Hermes 规则随用户输入交付，原生提示词由 Hermes 解析
 
 - 状态：accepted
 - 日期：2026-10-23
@@ -1329,10 +1346,10 @@ macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成�
 0.22.4 原生 protect_first_n 在首次压缩后退化，不能证明无限次完整保留。使用官方 committed Hook
 及已有输入账本，在下一普通输入补发，不介入当前 Run 的原生模型循环。接受这段完整规则可见性空窗。
 未选择继续解析并拼接原生 system overlay，也未选择补丁原生压缩器或在每轮无条件重复 B。
-进程/CLI lease 生命周期仍按 D61，不由投递位置改变推导旧进程可跨 Run 复用。
+进程/CLI lease 生命周期仍按 D62，不由投递位置改变推导旧进程可跨 Run 复用。
 
-<a id="v1-72-d63"></a>
-## V1.72-D63：Hermes 未知执行由用户明确处理，原生与 Rovai 终态分别保留
+<a id="v1-72-d64"></a>
+## V1.72-D64：Hermes 未知执行由用户明确处理，原生与 Rovai 终态分别保留
 
 - 状态：accepted
 - 日期：2026-10-23
@@ -1346,8 +1363,8 @@ macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成�
 代价是当前需用户普通终端操作，尚无专用聊天按钮。未选择自动放弃未知任务、重放原输入、编辑原生数据库，
 或自动换 Session 绕过。与既有“继续执行”产生独立 Run 的语义分开，不改其他 Adapter 或共享队列合同。
 
-<a id="v1-72-d64"></a>
-## V1.72-D64：Hermes 优先恢复原会话，执行门禁与恢复分开
+<a id="v1-72-d65"></a>
+## V1.72-D65：Hermes 优先恢复原会话，执行门禁与恢复分开
 
 - 状态：accepted
 - 日期：2026-10-23
@@ -1359,21 +1376,21 @@ macOS arm64 维持 Preview，其他平台与完整 Fleet/CLI/UI 矩阵未完成�
 排队或 unknown 阻塞新输入。读取断线只重连原受管 Gateway；不重放业务输入、不自动换 Session。
 
 移除跨 Hermes 会话的长锁，复用调度 lane、Fleet owner 与同 Home 文件锁。不同成员/Session 不互相
-等待。用户维护入口只用于 D63 的异常确认，不能成为普通续聊的前置步骤。
+等待。用户维护入口只用于 D64 的异常确认，不能成为普通续聊的前置步骤。
 
 代价是实际缺失或不兼容的原生 Session 仍会如实失败，unknown 仍需用户明确处理；当前不新增聊天按钮。
 未选择以安装指纹永久封锁旧 Session，亦未选择通过新建 Session 掩盖原生阻塞。其他 Adapter 的回退策略不变。
 
 
-<a id="v1-72-d65"></a>
-## V1.72-D65：Hermes 普通交互直连官方 ACP，增强观测不决定任务终态
+<a id="v1-72-d66"></a>
+## V1.72-D66：Hermes 普通交互直连官方 ACP，增强观测不决定任务终态
 
 - 状态：accepted
 - 日期：2026-10-24
 - 授权：User sequence 38 明确要求以可用性、原生兼容与低维护成本简化 Hermes 接入。
 - 当前权威：[Hermes Managed Runtime v1](../../contracts/hermes-managed-runtime-v1.md)、[Runtime Catalog](../../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)。
 
-D61/D64 的控制器重复了官方 ACP 已有的 admission、事件回放与终态处理，并要求额外事件通道完整，
+D62/D65 的控制器重复了官方 ACP 已有的 admission、事件回放与终态处理，并要求额外事件通道完整，
 使补充观测丢失也能破坏明确成功。选择共享 ACP 直接使用官方协议；启动器只准备 Home/进程，移除消息
 转发、工具过滤与重建、连续序号回放、逐 prompt receipt 成功门禁、额外文件锁及内部 reasoning 依赖。
 只在官方 ACP 的实际缺口保留按需 MCP 撤销、Steer 与已有 unknown 操作。
@@ -1384,8 +1401,8 @@ D61/D64 的控制器重复了官方 ACP 已有的 admission、事件回放与终
 未选择扩大 Gateway/Fleet、恢复或证据框架，也不为内部实验分支持续维持私有接口兼容。
 
 
-<a id="v1-72-d66"></a>
-## V1.72-D66：Hermes 使用原生 Home 与调用时活动 Run，不追溯命令的原始执行
+<a id="v1-72-d67"></a>
+## V1.72-D67：Hermes 使用原生 Home 与调用时活动 Run，不追溯命令的原始执行
 
 - 状态：accepted
 - 日期：2026-10-25
@@ -1400,7 +1417,7 @@ D61/D64 的控制器重复了官方 ACP 已有的 admission、事件回放与终
 取消压缩补发，保留首次/真实变更的 user 层规则；多次原生压缩可能丢失完整规则。
 共享 Gateway 不属于 Run，关闭 ACP 不承诺工具停止；记忆与配置也不按成员隔离。
 
-取代 D61–D65 中私有 Home、专用 Gateway、Hook 补发和私有控制的当前实施选择，保留其历史理由。
+取代 D62–D66 中私有 Home、专用 Gateway、Hook 补发和私有控制的当前实施选择，保留其历史理由。
 未选择插件安装、逐 Run 包装路径、MCP 替代 CLI 或原生执行来源证明；未上线实验无迁移和回退要求。
 
 User sequence 64/66/68/70 确认进一步删除没有消费者的 Hermes CLI 文件投影和没有有效决策用途的

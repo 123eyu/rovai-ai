@@ -7,7 +7,7 @@ last_updated: 2026-10-25
 
 # Hermes 首次输入规则实施与验证
 
-当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D66](decisions.md#v1-72-d66)。
+当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D67](decisions.md#v1-72-d67)。
 下面 R1 与私有 Home 的原始验收是历史记录，其 Hook、恢复 CLI 和树回收保证不适用于原生共享 Gateway。
 原生接入与后续减量结果分别在“原生会话定位”和“接入减量”节记录，旧证据不改写。
 
@@ -19,10 +19,12 @@ User sequence 100 要求保持现有接入方式，尝试补齐压缩事件与�
 无实时压缩通知均已复现。[详细结果与证据](../../research/hermes-runtime/README.md#原生-acp-观测验证2026-10-25)。
 这次交付为可复现探针和能力边界修正；两项尚未端到端接通，没有生产协议/数据库/UI 改动。
 没有重跑付费模型；既有上下文 gauge、原会话恢复、公开 Send 与 B/P 策略保持原样。
+观测提交 `e6ba868b6` 后同步主线 `c99db24da` 的 Command Linux Preview，保留其平台项和 D61；
+Hermes 尚未合入的决定顺延为 D62–D67，更新引用与兼容性登记摘要，不改变 Hermes 的平台范围或传输。
 
 ## 原生会话定位（2026-10-25）
 
-按 User sequence 56/58/60 实施 [D66](decisions.md#v1-72-d66)。正式入口直接运行用户安装的
+按 User sequence 56/58/60 实施 [D67](decisions.md#v1-72-d67)。正式入口直接运行用户安装的
 `hermes --profile default acp`，使用当前用户 `~/.hermes`。删除私有 Python 启动器、Home/config
 副本、专用 Gateway、Hook、压缩补发和私有 steer/recovery 控制路径；不为未上线实验做迁移或回退。
 其他 Runtime 的输入、CLI context 运输和清理保持不变，历史数据库字段与冻结正文保留。
@@ -397,7 +399,7 @@ CLI hook 1、catalog migration 1、迁移准入矩阵 1、数据库打开准入 
 
 ## 合入前补修与显式恢复
 
-按 User sequence 34 / [D63](decisions.md#v1-72-d63) 实施，保持 FirstPayload。生产 Ready 能力独立声明
+按 User sequence 34 / [D64](decisions.md#v1-72-d64) 实施，保持 FirstPayload。生产 Ready 能力独立声明
 `context.charter.first_payload`、`context.compaction.signal_driven`、`context.compaction.best_effort`，
 移除 Hermes 的两个旧 system 保证；模型、effort、权限和 session.load 保留。
 普通目录映射测试修复前实际失败，现已改正。静态发现使旧 Ready 变为 installed_unverified；
@@ -434,7 +436,7 @@ Controller 确定性回归 5 项、User Automation 定向测试 10 项与 TypeSc
 
 ## 原会话优先与可用性收口（2026-10-24）
 
-按 User sequence 36 / [D64](decisions.md#v1-72-d64) 与共享同类 CLI Resume 规则对齐。原生 Session
+按 User sequence 36 / [D65](decisions.md#v1-72-d65) 与共享同类 CLI Resume 规则对齐。原生 Session
 选择本来就不应按历史指纹拒绝；此次删除 Hermes 额外的 Session 配置冻结和维护入口旧安装相等门槛，
 保留实际启动的最低版本、原生能力和身份检查。正常任务及维护都使用当前选定安装，原 binding 的
 Home/profile/Session 保留，版本和指纹只影响必要探测与进程更新。controller revision 为 v6。
@@ -470,7 +472,7 @@ Home/profile/Session 保留，版本和指纹只影响必要探测与进程更�
 
 ## 官方 ACP 直连简化（2026-10-24）
 
-按 User sequence 38 和 [D65](decisions.md#v1-72-d65)，controller v7 改为启动器：原生 ACP 直接拥有协议
+按 User sequence 38 和 [D66](decisions.md#v1-72-d66)，controller v7 改为启动器：原生 ACP 直接拥有协议
 管道，删除消息转发、工具事件过滤/重建、额外 Gateway 订阅、连续序号 replay、逐 prompt receipt 门禁、
 私有 Diff 解析、reasoning mutation、`_rovai/*` Hermes 协议和额外 storage flock。配置/凭据摘要不再参与
 Hermes 进程兼容性。保留原 Home、SessionDB、原生能力关闭策略、FirstPayload、完成 Hook 和共享 Fleet/lease。

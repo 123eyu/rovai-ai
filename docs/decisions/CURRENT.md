@@ -297,6 +297,8 @@ Command Code 官方 ACP、System 门禁及此前的 macOS arm64 Preview 由 [V1.
 保留 ACP 并删除 headless 实验代码；2026-10-25 macOS 两架构及 Windows x64 开放 Preview 的理由见
 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)，当前准入见
 [Runtime Platform Admission v2](../contracts/runtime-platform-admission-v2.md#8-command-code-macos-preview)。
+Linux 目标机验收后的 Preview 开放与已接受非零退出差异见
+[V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)及[当前准入](../contracts/runtime-platform-admission-v2.md#9-command-code-linux-preview)。
 
 
 macOS ACP detached 后代与 Core 重启回收当前规范见
@@ -358,7 +360,7 @@ MiniMax Code 的 ACP、Host 与精确恢复边界由[当前架构](../architectu
 当前规范：[Hermes Runtime](../contracts/hermes-managed-runtime-v1.md)、
 [Runtime Catalog](../architecture/runtime-catalog-boundaries.md#hermes-受管-acp)、
 [内置工具运输](../contracts/builtin-tool-transport-v43.md)、[Managed Process](../contracts/managed-runtime-process-v2.md)。
-原生 Home、共享 Gateway 与调用时活动 Run 的取舍见 [V1.72-D66](../versions/v1.72/decisions.md#v1-72-d66)。
+原生 Home、共享 Gateway 与调用时活动 Run 的取舍见 [V1.72-D67](../versions/v1.72/decisions.md#v1-72-d67)。
 Hermes 初始/真实更新的 user 层规则与取消压缩补发见 [R2](../versions/v1.72/model-context-change-hermes-first-input.md)
 和 [补发边界](../architecture/native-session-bootstrap-redelivery.md#hermes-完成通知与下一普通输入)。
-D61–D65 保留历史理由，其私有启动/补发/维护路径不再是当前规范。
+D62–D66 保留历史理由，其私有启动/补发/维护路径不再是当前规范。

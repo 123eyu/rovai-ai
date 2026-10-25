@@ -47,8 +47,7 @@ Windows x64 与 Linux x64 分别绑定平台专属证据并取得 qualified。
 产品目录的机器可判数量、全量检查、诊断分母和
 普通执行仍只来自逐平台 Admission。Cursor 与暂缓公开的 Cline 保留 closed identity 和历史 reader，但不进入
 Settings Runtime Preview Catalog；隐藏该 row 不删除持久 identity，也不改变未准入状态。普通成员 Runtime
-selector 同样不展示 Cursor 与 Cline；Command Code 进入公开目录，macOS arm64/x64 为 Preview，Windows/Linux
-保持 NotQualified。成员选项在当前主机上继续经过 Runtime Platform Admission，Renderer 不另建平台白名单。
+selector 同样不展示 Cursor 与 Cline；Command Code 进入公开目录，macOS arm64/x64、Windows x64 与 Linux x64 均为 Preview。成员选项在当前主机上继续经过 Runtime Platform Admission，Renderer 不另建平台白名单。
 
 `qualified` 与 `preview` 可以进入 Product Runtime Availability；`preview` 保留缺失资格证据，检查详情说明记录未齐备。
 `qualified` 行只在有实际 reported version 时显示版本副文案，否则仅显示居中的产品名，不再回退到静态
@@ -99,9 +98,9 @@ schema 与拒绝调用，不追加 fallback 或原生问卷界面。Skills 发�
 `.commandcode/skills`、`.agents/skills` 来源；原生同名选择由 CLI 拥有，不生成投影副本。
 
 Migration 185 的闭集 identity 与既有历史保持。2026-10-25 按 User 要求开放 macOS Apple Silicon、Intel 与
-Windows x64，三行均采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。
-Linux 继续 NotQualified，Cline 的暂缓公开不变。Preview 不代表完整平台资格验收通过；不绑定虚构证据，
-不显示常驻实验标签。取舍见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。旧 1.74.1/1.79.1 BYOK
+Windows x64，Linux x64 随独立目标机验收后开放；四行均采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。
+Cline 的暂缓公开不变。Preview 不代表完整平台资格验收通过；不绑定虚构证据，
+不显示常驻实验标签。Linux 取舍见 [V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)，macOS/Windows 取舍见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。旧 1.74.1/1.79.1 BYOK
 目录缺口属于历史证据；1.88 的原生证据与尚未覆盖范围见[实施记录](../versions/v1.72/command-code-native-simplification.md)。
 官方 1.88 Windows 原生 ACP 的 MCP executable 含空格路径／复杂 argv 限制在不经过 Rovai 时同样可复现；
 普通 `node` 与简单参数可用。拒绝写权限会阻止文件修改，原生可能直接结束该轮而不发公开最终回复，
@@ -850,4 +849,4 @@ Router、回复和回执。按调用时归属，不追溯旧后台程序最初�
 FirstPayload 只保留首次及真实规则更新，不进行压缩补发。未确认的 MCP 撤销、原生工具终止和
 增强详情不声明成功；未知输入不自动重放。具体合同见
 [Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)，理由见
-[原生会话定位决定](../versions/v1.72/decisions.md#v1-72-d66)。
+[原生会话定位决定](../versions/v1.72/decisions.md#v1-72-d67)。

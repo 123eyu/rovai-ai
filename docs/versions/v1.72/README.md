@@ -16,7 +16,7 @@ last_updated: 2026-10-25
 按 User sequence 56/60 直接替换未上线实验：官方 ACP、用户原生 Home、共享 Gateway；
 通过逻辑 Session 在 Core 定位当前 Run，普通 CLI 不增加参数、表或上下文交换。
 FirstPayload 保留首次/真实更新，取消压缩补发；ACP 清理不拥有原生执行端。
-当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D66](decisions.md#v1-72-d66)，
+当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D67](decisions.md#v1-72-d67)，
 正文确认见 [R2](model-context-change-hermes-first-input.md)，验证见 [实施记录](hermes-first-input-implementation.md)。
 最低版本 0.22.4，macOS arm64 保持 Preview，不把未覆盖平台/工具路径声明为完整兼容。
 
@@ -1212,3 +1212,9 @@ MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口�
 同日 Windows x64 完成真实功能补验后也按 Preview 开放，Linux 保持 NotQualified，1.88.0 稳定版下限保持。
 Windows 实测与残余边界见[Windows Preview 开放](command-code-native-simplification.md#windows-preview-开放2026-10-25)，不新增专属检查或宣称完整资格。
 取舍见 [V1.72-D60](decisions.md#v1-72-d60)，本次回归与未实测项记录在同一简化报告。
+
+
+2026-10-25 Linux x64 随独立目标机验收开放 Command Code Preview，保持官方稳定版 ≥1.88.0。
+真实 Core/浏览器、能力、生命周期和已接受差异分别记录于
+[Linux 验收](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)；
+公开范围见 [V1.72-D61](decisions.md#v1-72-d61)，不增加 Runtime 管理机制。

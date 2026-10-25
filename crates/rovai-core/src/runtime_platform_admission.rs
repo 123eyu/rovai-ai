@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:a495399d4bfa528bb5f54bd62393fb85c1eb4db777996dedc687bfe3bf32f49a";
+    "sha256:0442e9bb20e28881797347b2bf51f8d079ddb0aa22ba9d654df506004381509f";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -365,7 +365,6 @@ mod tests {
                         }
                         AdapterKind::CursorAgent
                         | AdapterKind::ClineCli
-                        | AdapterKind::CommandCodeCli
                         | AdapterKind::HermesCli => {
                             assert_eq!(
                                 admission.status(),

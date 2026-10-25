@@ -8,7 +8,7 @@ last_updated: 2026-10-25
 
 当前实现以[启动合同 v72](../../contracts/runtime-launch-and-verification-v72.md)为准。
 只保留原生 HOME、官方 Mod、标准 ACP 与共享 Fleet。当前 macOS arm64/x64 按 User seq61 开放 Preview，
-Windows/Linux 保持 NotQualified；该开放不代替完整平台资格，具体范围见文末。
+Windows 与 Linux 随各自独立验收后也开放 Preview；该开放不代替完整平台资格，具体范围见文末。
 
 ## 实际减少
 
@@ -589,3 +589,11 @@ qualification_evidence_missing 与空 evidenceRevision，不晋升 Qualified。�
 准入扩展复用既有 Windows/macOS/Linux 矩阵、App CLI、App、OnboardingFlow、member-runtime-apply 和安装/监控
 owners，无新增 Rust 测试函数；归属见[测试说明](../../development/testing.md#command-code-188-简化测试归属2026-10-24)。
 正式 release 无 override 的准入、已安装 App 和本机数据保留由安装回执另记；debug 模型证据不替代它们。
+
+
+## Linux x64 目标机验收与开放（2026-10-25）
+
+独立目标机使用官方 1.88.0 与真实 Sub2API，Core 数据、Skills、MCP 与原生 HOME 均隔离。
+[验收报告](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)区分真实模型、浏览器、
+受控故障、已接受差异与未覆盖范围。维护者要求本次 Linux 开放与上述 macOS 分支一同交付；
+采用同一 Preview 状态，稳定版下限、原生配置和共享生命周期不变。前节的平台表保留 macOS 开放时的事实。

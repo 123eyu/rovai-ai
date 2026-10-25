@@ -137,7 +137,7 @@ export function TeamWorkspace({ teams, agents, loading, loadError, defaultTeamId
     if (result) select(result.payload.team as unknown as Team)
   }
   const discard = (): void => select(teams.find(team => team.id === base?.id) ?? teams[0] ?? null)
-  const dialogs = <Dialog.Root open={confirm !== null} onOpenChange={open => { if (!open && !frozen) finishDecision(false) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay app-dialog-overlay"/><AppDialogContent tone={confirm === 'delete' ? 'danger' : 'neutral'}>
+  const dialogs = <Dialog.Root open={confirm !== null} onOpenChange={open => { if (!open && !frozen) finishDecision(false) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay app-dialog-overlay"/><AppDialogContent className="team-confirm-dialog" tone={confirm === 'delete' ? 'danger' : 'neutral'}>
     <AppDialogHeader title={confirm === 'delete' ? uiAttribute('删除「{0}」？', base?.name ?? '') : uiAttribute('保存团队更改？')} description={confirm === 'delete' ? (base?.id === defaultTeamId ? uiAttribute('删除后改用自定义配置，并关闭一键创建。已有对话不受影响。') : uiAttribute('已有对话不受影响。')) : uiAttribute('有尚未保存的更改。')}/>
     {error && <p className="compact-inline-error" role="alert">{error}</p>}
     <AppDialogFooter><button type="button" className="quiet-button" disabled={frozen} data-dialog-autofocus onClick={() => finishDecision(false)}>{uiAttribute('取消')}</button>

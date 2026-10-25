@@ -1713,9 +1713,9 @@ HOME 镜像和原生文件合并）已删除。同模块现有 owner 替换为 `
 `private_host_config_is_scoped_to_profiles_that_require_it` 增加构造失败时实际进程回收先于目录删除。
 既有成员配置写入 owner 扩展并更名为
 `runtime_configuration_writes_preserve_startups_and_retire_changed_command_hosts`：保留原 Codex 启动中写入
-边界，覆盖实际 dispatcher 的 MCP 分配/撤销、定义、启停、删除、成员并集与冲突拒绝；重复保存不退役，
+边界，覆盖实际 dispatcher 的 MCP 分配/撤销、定义、启停、删除、有效成员变化与冲突拒绝；重复保存不退役，
 无关成员及其他 Runtime Host 保留。导入的实际/无变化成员事实归既有
-`preserves_import_values_without_disclosing_credentials_or_inheriting_enablement`。
+`import_commit_rehydrates_credentials_and_fences_replacement_before_startup`。
 `launch_version_uses_the_frozen_program_without_blocking_ordinary_execution` 同时拥有 Command 缺失入口下
 允许 warm 准入、cold 拒绝启动，以及显式禁用/删除安装的拒绝；
 `trae_completed_run_enters_lru_and_reuses_the_same_host_session` 覆盖共享 ACP cold callback 只在创建执行，
@@ -1736,3 +1736,15 @@ Node 沿用 `node --test scripts/lib/command-code-bootstrap.test.mjs`。再执�
 `private_versions_preserve_credentials_and_new_launches_read_current_configuration` 覆盖成员环境的值、继承、
 格式无变化与重放事实；`acp_probe_failure_classification_separates_auth_protocol_and_transient_errors` 扩展
 假 ACP 进程，对照 Command/Kimi 的认证、协议与临时错误，确认真实 probe 边界保留原因与 stderr。
+
+六项审查跟进继续扩展上述 dispatcher owner：控制一个 Fleet startup 等待数据库，安装更新进入退役后
+确认数据库锁已释放，再完成启动/回收；同命令 replay 和新命令保存相同值均保留 Host 及安装版本。
+该跨 Core/SQLite/Fleet 等待关系不能由纯函数证明，复用原隔离 fixture，不增加锁或生产测试入口。
+已有 `local_saves_finish_while_environment_capture_is_held_and_never_launch_work` 增加旧字段请求重放且
+程序入口暂时移走的情况；原事务 owner 保留冲突/失败回滚并确认已应用编辑为空。
+MCP dispatcher/import owner 覆盖保留成员不退役、关闭 Server 的修改不退役与重新启用生效。
+新增唯一纯函数 owner `command_code_acp::tests::version_gate_accepts_native_release_labels`：
+修复前 `v1.88.0`、`Command Code v1.88.0` 与 `1.88.0+build-name` 会失败；此前 Command 无版本解析
+owner，HOME/binding fixture 不拥有该独立边界。该测试不创建文件或进程，同时保留低版本/预发布/无版本拒绝。
+最小命令为 `cargo test -p rovai-core --features slow-tests --lib version_gate_accepts_native_release_labels`；
+其余定向命令复用同一入口并过滤上述既有 owner。Rust 测试函数净增 1，无测试文件新增或已有 owner 退役。

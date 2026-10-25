@@ -615,7 +615,13 @@ impl McpConfigStore {
             if metadata.enabled == enabled && existing == members {
                 return Ok(None);
             }
-            let affected = existing.union(&members).cloned().collect();
+            let affected = if !metadata.enabled {
+                members.clone()
+            } else if enabled {
+                existing.symmetric_difference(&members).cloned().collect()
+            } else {
+                existing
+            };
             let (_, metadata) = config
                 .metadata_by_id_mut(&params.server_id)
                 .expect("resolved metadata");
@@ -758,16 +764,19 @@ impl McpConfigStore {
             if old_name == new_name && config.mcp_servers.get(&old_name) == Some(&definition) {
                 return Ok(None);
             }
+            let affected = if metadata.enabled {
+                config
+                    .assignment_ids(&params.server_id)
+                    .into_iter()
+                    .collect()
+            } else {
+                BTreeSet::new()
+            };
             config.mcp_servers.remove(&old_name);
             config.rovai.servers.remove(&old_name);
             config.mcp_servers.insert(new_name.clone(), definition);
             config.rovai.servers.insert(new_name, metadata);
-            Ok(Some(
-                config
-                    .assignment_ids(&params.server_id)
-                    .into_iter()
-                    .collect(),
-            ))
+            Ok(Some(affected))
         })
     }
 
@@ -863,7 +872,11 @@ impl McpConfigStore {
                     .assignments
                     .retain(|current| current != &assignment);
             }
-            Ok(Some(BTreeSet::from([params.agent_id.clone()])))
+            Ok(Some(if metadata.enabled {
+                BTreeSet::from([params.agent_id.clone()])
+            } else {
+                BTreeSet::new()
+            }))
         })
     }
 
@@ -873,16 +886,20 @@ impl McpConfigStore {
         known_agent_ids: &BTreeSet<String>,
     ) -> Result<McpMutationResult> {
         self.mutate(&params.expected_config_digest, known_agent_ids, |config| {
-            let Some((name, _)) = config
+            let Some((name, metadata)) = config
                 .metadata_by_id(&params.server_id)
                 .map(|(name, metadata)| (name.clone(), metadata.clone()))
             else {
                 return Ok(None);
             };
-            let affected = config
-                .assignment_ids(&params.server_id)
-                .into_iter()
-                .collect();
+            let affected = if metadata.enabled {
+                config
+                    .assignment_ids(&params.server_id)
+                    .into_iter()
+                    .collect()
+            } else {
+                BTreeSet::new()
+            };
             config.mcp_servers.remove(&name);
             config.rovai.servers.remove(&name);
             config
@@ -988,7 +1005,9 @@ impl McpConfigStore {
                         {
                             continue;
                         }
-                        affected.extend(config.assignment_ids(&server_id));
+                        if metadata.enabled {
+                            affected.extend(config.assignment_ids(&server_id));
+                        }
                         config.mcp_servers.remove(&old_name);
                         config.rovai.servers.remove(&old_name);
                         config.mcp_servers.insert(name.clone(), definition);

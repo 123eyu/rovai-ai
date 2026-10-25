@@ -202,28 +202,31 @@ fn private_mode(path: &Path, mode: u32) -> Result<()> {
     Ok(())
 }
 pub fn supported_version(version: Option<&str>) -> bool {
-    let Some(version) = version.and_then(|v| {
-        v.split_whitespace()
-            .find(|s| s.as_bytes().first().is_some_and(u8::is_ascii_digit))
-    }) else {
-        return false;
-    };
-    if version.contains('-') {
-        return false;
-    }
     version
-        .split('+')
-        .next()
-        .unwrap_or(version)
-        .split('.')
-        .map(str::parse::<u64>)
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .is_ok_and(|v| v.len() == 3 && v.as_slice() >= [1, 88, 0].as_slice())
+        .and_then(crate::agent_runtime_adapter::parse_reported_runtime_version)
+        .is_some_and(|(version, prerelease)| !prerelease && version >= [1, 88, 0])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_gate_accepts_native_release_labels() {
+        for (version, accepted) in [
+            (None, false),
+            (Some("development"), false),
+            (Some("1.87.9"), false),
+            (Some("1.88.0-beta.1"), false),
+            (Some("1.88.0"), true),
+            (Some("v1.88.0"), true),
+            (Some("Command Code v1.88.0"), true),
+            (Some("1.88.0+build-name"), true),
+            (Some("1.89.0"), true),
+        ] {
+            assert_eq!(supported_version(version), accepted, "{version:?}");
+        }
+    }
 
     #[test]
     fn native_home_and_immutable_bootstrap_materials() {

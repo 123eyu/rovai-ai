@@ -304,5 +304,56 @@
     "realModelAndMcpRerun": false,
     "fullWorkspaceRerun": false,
     "qualificationChanged": false
+  },
+  "followupReviewFixes": {
+    "date": "2026-10-25",
+    "baseRevision": "ce140e68483c60525f4718acb82fdba380c84149",
+    "targetedRust": {
+      "passed": 8,
+      "failed": 0,
+      "owners": [
+        "application::tests::runtime_configuration_writes_preserve_startups_and_retire_changed_command_hosts",
+        "application::runtime_check_environment::tests::local_saves_finish_while_environment_capture_is_held_and_never_launch_work",
+        "agent_profile::slow_tests::profile_and_installation_commands_are_idempotent_and_explicit",
+        "command_code_acp::tests::version_gate_accepts_native_release_labels",
+        "runtime_custom_api::tests::startup_saves_preserve_native_files_and_merge_only_local_preferences",
+        "mcp_import::tests::import_commit_rehydrates_credentials_and_fences_replacement_before_startup",
+        "runtime_failure::tests::classifies_auth_quota_model_and_permission_failures_with_stable_codes",
+        "acp::tests::trae_completed_run_enters_lru_and_reuses_the_same_host_session"
+      ]
+    },
+    "covered": [
+      "installation update releases the database before waiting for a controlled Fleet startup that reads it",
+      "installation replay and a new command with the same target preserve the Host, version and generation",
+      "stale field-edit retry succeeds without revision or search-generation changes while its executable is temporarily absent",
+      "Command version gate accepts v/product prefixes and build metadata, retaining the stable 1.88 minimum",
+      "MCP member additions/removals preserve unchanged owners; disabled definition, assignment, deletion and import do not retire Hosts; re-enabling still applies",
+      "authentication labels use the shared neutral wording and existing sanitized native failure details",
+      "shared ACP reuse still honors configured digests while Native Binding skips absent MCP digests"
+    ],
+    "startupSettingsLock": "explicit release before Fleet await verified in code; no test-only Command platform admission bypass",
+    "defaultWorkspace": {
+      "core": { "passed": 429, "failed": 1, "ignored": 1 },
+      "failure": "runtime_discovery::tests::cursor_agent_alias_rejects_an_unrelated_agent_binary: runtime_probe_timed_out",
+      "sameWorkspaceBinaryIsolatedRerun": "passed in 1.01s",
+      "remainingTargets": { "passed": 46, "failed": 0, "ignored": 0 },
+      "docTests": "passed",
+      "cursorCodeOrTimeoutChanged": false,
+      "failedFixtureRemoved": true,
+      "fullWorkspaceClaimedGreen": false
+    },
+    "cargoCheckWorkspace": "passed",
+    "formatCheck": "passed",
+    "documentationTests": { "passed": 10, "failed": 0 },
+    "documentationGates": "passed including diff-aware base check",
+    "typecheck": "passed",
+    "pnpmTest": "passed",
+    "vitest": { "passed": 2992, "skipped": 2, "failed": 0 },
+    "nodeMainSuite": { "passed": 358, "skipped": 2, "failed": 0 },
+    "newRepositoryFiles": 0,
+    "newProductionFiles": 0,
+    "newRustTestOwners": 1,
+    "realModelAndMcpRerun": false,
+    "qualificationChanged": false
   }
 }

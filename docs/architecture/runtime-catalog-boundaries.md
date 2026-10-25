@@ -66,7 +66,9 @@ selector 同样不展示 Cursor、Cline 与 Command Code；其他成员选项来
 共享 Fleet 对 Command 显式采用 Native Binding 身份策略：所属范围、成员、Binding ID、canonical cwd
 一致且进程健康空闲时复用。配置摘要、安装 generation、程序指纹均不参与其复用或恢复判断；历史摘要仍可读。
 Command 的入口/指纹验证和必要刷新只在 Fleet cold spawn 执行；warm 仍保留显式禁用/删除安装准入。
-显式启动设置和 MCP 实际修改走既有 invalidation，MCP 按操作涉及成员限定 Command Host，无变化不退役。
+显式启动设置和 MCP 实际修改走既有 invalidation，MCP 只影响有效工具变化的成员；增减成员不影响保留
+成员，关闭 Server 的修改和无变化保存不退役。保存先释放配置/数据库锁，再等待 Fleet；安装命令 replay
+与已达到目标值的保存不重复退役。
 忙碌进程结束后退役，新 Host 保留精确旧 Session ID。
 成员环境保存也只使用本次操作的实际变更事实；仅改 JSON 排版和命令重放不退役 Host。
 外部原生配置变化不触发扫描、比较或隐式新 Session；其他 Runtime 的策略不变。

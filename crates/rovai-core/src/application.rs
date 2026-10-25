@@ -9987,16 +9987,21 @@ impl Core {
                 if let Some(blocker) = adapter_kind.and_then(current_runtime_platform_blocker) {
                     return Ok(serde_json::to_value(blocker)?);
                 }
-                let mut database = self.database.lock().await;
-                let execution = AgentProfileService::default().update_installation(
-                    &mut database,
-                    &user_command_envelope(params.command_id, params.command),
-                )?;
-                if execution.result.status == CommandResultStatus::Applied
-                    && let Some(adapter_kind) = adapter_kind
-                {
+                let (execution, changed) = {
+                    let mut database = self.database.lock().await;
+                    let execution = AgentProfileService::default().update_installation(
+                        &mut database,
+                        &user_command_envelope(params.command_id, params.command),
+                    )?;
+                    let changed = !execution.replayed
+                        && execution.result.code == "adapter_installation.updated";
+                    if changed {
+                        self.mark_skill_projections_dirty_best_effort(&mut database, true);
+                    }
+                    (execution, changed)
+                };
+                if changed && let Some(adapter_kind) = adapter_kind {
                     self.runtime_fleet.invalidate_adapter(adapter_kind).await;
-                    self.mark_skill_projections_dirty_best_effort(&mut database, true);
                 }
                 Ok(serde_json::to_value(execution.result)?)
             }
@@ -29137,6 +29142,156 @@ mod tests {
             std::fs::remove_dir_all(root).unwrap();
         }
 
+        // Installation retirement must release the database before waiting for
+        // a starting Host, whose cold preparation reads that same database.
+        let root =
+            std::env::temp_dir().join(format!("rovai-installation-write-{}", uuid::Uuid::new_v4()));
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
+        let installation = {
+            let database = core.database.lock().await;
+            rovai_core::agent_profile::configure_test_runtime(&database, &["agent_1"]);
+            AgentProfileService::default()
+                .list_installations(&database)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.id == "adapter-test-codex")
+                .unwrap()
+        };
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let acquire = tokio::spawn({
+            let core = core.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            async move {
+                let startup_core = core.clone();
+                core.runtime_fleet
+                    .acquire(
+                        runtime_fleet::FleetAcquireRequest {
+                            agent_run_id: "installation-starting".into(),
+                            execution_epoch: 1,
+                            adapter_kind: AdapterKind::CodexCli,
+                            compatibility: runtime_fleet::RuntimeCompatibilityKey::member(
+                                "camp-installation",
+                                "agent_1",
+                                "fixture",
+                            ),
+                        },
+                        move || async move {
+                            entered.notify_one();
+                            release.notified().await;
+                            let _database = startup_core.database.lock().await;
+                            Ok(runtime_fleet::fake_runtime_process_host(
+                                "installation-starting",
+                            ))
+                        },
+                    )
+                    .await
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        let mut request = Request {
+            client: rovai_core::draft_client::DraftClient::default(),
+            id: json!(1),
+            method: "runtime.installations.update".into(),
+            params: json!({"commandId":uuid::Uuid::new_v4().to_string(), "command":{
+                "installationId":installation.id, "expectedVersion":installation.version,
+                "executablePath":installation.executable_path, "commandName":installation.command_name,
+                "source":installation.source, "authScope":"updated-scope", "enabled":true
+            }}),
+        };
+        let mut update = Box::pin(core.handle(&request));
+        std::future::poll_fn(|cx| {
+            assert!(
+                std::future::Future::poll(update.as_mut(), cx).is_pending(),
+                "retirement waits for the controlled startup"
+            );
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let database_released = core.database.try_lock().is_ok();
+        release.notify_one();
+        let result = tokio::time::timeout(Duration::from_secs(2), update)
+            .await
+            .expect("installation save deadlocked with cold preparation")
+            .unwrap();
+        assert!(
+            database_released,
+            "Fleet must never be awaited under the database lock"
+        );
+        assert_eq!(result["code"], "adapter_installation.updated");
+        assert!(
+            acquire.await.unwrap().is_err(),
+            "the old startup must retire"
+        );
+        let saved = core.database.lock().await.connection().query_row(
+            "SELECT version, generation FROM adapter_installation WHERE id = 'adapter-test-codex'",
+            [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        ).unwrap();
+        // The same command replay and a new command with the same target must
+        // both preserve a healthy Host and the persisted installation revision.
+        let mut process_id = None;
+        for replay in [true, false] {
+            let lease = core
+                .runtime_fleet
+                .acquire(
+                    runtime_fleet::FleetAcquireRequest {
+                        agent_run_id: "installation-retry".into(),
+                        execution_epoch: 1,
+                        adapter_kind: AdapterKind::CodexCli,
+                        compatibility: runtime_fleet::RuntimeCompatibilityKey::member(
+                            "camp-installation",
+                            "agent_1",
+                            "fixture",
+                        ),
+                    },
+                    || async {
+                        Ok(runtime_fleet::fake_runtime_process_host(
+                            "installation-retry",
+                        ))
+                    },
+                )
+                .await
+                .unwrap();
+            if let Some(previous) = &process_id {
+                assert_eq!(&lease.process_id, previous);
+            }
+            process_id = Some(lease.process_id);
+            if !replay {
+                request.params["commandId"] = json!(uuid::Uuid::new_v4().to_string());
+            }
+            let result = core.handle(&request).await.unwrap();
+            assert_eq!(result["status"], "applied");
+            assert_eq!(
+                result["code"],
+                if replay {
+                    "adapter_installation.updated"
+                } else {
+                    "adapter_installation.unchanged"
+                }
+            );
+            assert_eq!(
+                core.runtime_fleet
+                    .release_with_outcome(
+                        "installation-retry",
+                        1,
+                        runtime_fleet::FleetReleaseDisposition::Reusable
+                    )
+                    .await,
+                runtime_fleet::FleetReleaseOutcome::Reusable
+            );
+            let current = core.database.lock().await.connection().query_row(
+                "SELECT version, generation FROM adapter_installation WHERE id = 'adapter-test-codex'",
+                [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            ).unwrap();
+            assert_eq!(current, saved);
+        }
+        core.runtime_fleet.shutdown_all().await;
+        drop(core);
+        std::fs::remove_dir_all(root).unwrap();
+
         // This owner also covers explicit MCP writes crossing the real dispatcher
         // into Fleet. A rejected write must preserve the warm Host, while the UI's
         // assignment/revocation route retires it after its current Run.
@@ -29220,6 +29375,18 @@ mod tests {
                 vec![],
             ),
             (
+                "mcp.servers.setMembers",
+                json!({"agentIds": [agent_id, other_agent_id]}),
+                "ok",
+                vec![1],
+            ),
+            (
+                "mcp.assignments.set",
+                json!({"agentId": other_agent_id, "assigned": false}),
+                "ok",
+                vec![1],
+            ),
+            (
                 "mcp.assignments.set",
                 json!({"agentId": other_agent_id, "assigned": true}),
                 "ok",
@@ -29235,33 +29402,63 @@ mod tests {
                 "mcp.servers.setMembers",
                 json!({"agentIds": [other_agent_id]}),
                 "ok",
+                vec![0],
+            ),
+            (
+                "mcp.servers.setEnabled",
+                json!({"enabled": false}),
+                "ok",
+                vec![1],
+            ),
+            (
+                "mcp.servers.setEnabled",
+                json!({"enabled": false}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.update",
+                json!({"definitionJson": definition(34568)}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.update",
+                json!({"definitionJson": definition(34568)}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.assignments.set",
+                json!({"agentId": agent_id, "assigned": true}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.setMembers",
+                json!({"agentIds": []}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.assignments.set",
+                json!({"agentId": other_agent_id, "assigned": true}),
+                "ok",
+                vec![],
+            ),
+            (
+                "mcp.servers.setMembers",
+                json!({"agentIds": [agent_id, other_agent_id]}),
+                "ok",
                 vec![0, 1],
             ),
             (
                 "mcp.servers.setEnabled",
                 json!({"enabled": false}),
                 "ok",
-                vec![1],
+                vec![0, 1],
             ),
-            (
-                "mcp.servers.setEnabled",
-                json!({"enabled": false}),
-                "ok",
-                vec![],
-            ),
-            (
-                "mcp.servers.update",
-                json!({"definitionJson": definition(34568)}),
-                "ok",
-                vec![1],
-            ),
-            (
-                "mcp.servers.update",
-                json!({"definitionJson": definition(34568)}),
-                "ok",
-                vec![],
-            ),
-            ("mcp.servers.delete", json!({}), "ok", vec![1]),
+            ("mcp.servers.delete", json!({}), "ok", vec![]),
             ("mcp.servers.delete", json!({}), "ok", vec![]),
         ];
         let owners = [

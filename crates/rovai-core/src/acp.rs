@@ -6674,7 +6674,9 @@ impl AcpCliRuntimeAdapter {
                 && existing
                     .compatibility
                     .is_process_compatible_with(&compatibility)
-                && existing.mcp_projection_digest == mcp_projection_digest
+                && mcp_projection_digest
+                    .as_ref()
+                    .is_none_or(|digest| existing.mcp_projection_digest.as_ref() == Some(digest))
                 && existing.attachment_access_root.as_deref() == Some(attachment_access_root)
             {
                 return Ok(existing);

@@ -12681,12 +12681,6 @@ impl Core {
                 snapshot.probe_status == "ready"
                     && snapshot.stale_at.is_none()
                     && snapshot.last_successful_probe_at.is_some()
-                    && (adapter_kind != rovai_core::agent_profile::AdapterKind::HermesCli
-                        || rovai_core::agent_runtime_adapter::validate_machine_ready_snapshot(
-                            adapter_kind,
-                            snapshot,
-                        )
-                        .is_ok())
             })
             .map(|snapshot| snapshot.capabilities.as_slice())
             .unwrap_or_default();

@@ -2305,31 +2305,6 @@ impl AgentProfileService {
             entry.entrypoint_locator_identity.as_ref(),
             &now,
         )?;
-        // An unchanged executable is not evidence for an obsolete adapter
-        // contract. Startup discovery must not retain the old system guarantee.
-        if entry.adapter_kind == AdapterKind::HermesCli {
-            let capabilities = transaction.query_row(
-                "SELECT capabilities_json,probe_status FROM adapter_capability_snapshot WHERE installation_id=?1",
-                [&id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?))).optional()?;
-            if let Some((raw, status)) = capabilities {
-                let mut capabilities: Vec<String> = serde_json::from_str(&raw)?;
-                let obsolete = |value: &String| {
-                    value == "context.charter.managed_system_prompt"
-                        || value == "context.compaction.native_system_prompt_preserved"
-                };
-                if capabilities.iter().any(obsolete)
-                    || (status == "ready"
-                        && !crate::agent_runtime_adapter::hermes_capabilities_current(
-                            &capabilities,
-                        ))
-                {
-                    capabilities.retain(|value| !obsolete(value));
-                    transaction.execute(
-                        "UPDATE adapter_capability_snapshot SET probe_status=CASE WHEN probe_status='ready' THEN 'installed_unverified' ELSE probe_status END,stale_at=?2,capabilities_json=?3 WHERE installation_id=?1",
-                        params![id, now, serde_json::to_string(&capabilities)?])?;
-                }
-            }
-        }
         transaction.commit()?;
         Ok(id)
     }
@@ -2379,7 +2354,7 @@ impl AgentProfileService {
                        CASE WHEN installation.adapter_kind = 'minimax-code-cli'
                             THEN snapshot.model_catalog_succeeded_at
                             ELSE COALESCE(snapshot.model_catalog_succeeded_at, snapshot.last_successful_probe_at) END,
-                       snapshot.executable_fingerprint, snapshot.capabilities_json
+                       snapshot.executable_fingerprint
                 FROM adapter_installation AS installation
                 LEFT JOIN runtime_executable_identity AS identity
                   ON identity.installation_id = installation.id
@@ -2407,7 +2382,6 @@ impl AgentProfileService {
                         row.get::<_, Option<String>>(9)?,
                         row.get::<_, Option<String>>(10)?,
                         row.get::<_, Option<String>>(11)?,
-                        row.get::<_, Option<String>>(12)?,
                     ))
                 },
             )
@@ -2435,24 +2409,14 @@ impl AgentProfileService {
             locator_fingerprint,
             catalog_succeeded_at,
             snapshot_fingerprint,
-            capabilities_json,
         )) = existing
         {
             let identity_changed =
                 path != discovered.executable_path || fingerprint.as_deref() != next_fingerprint;
             let compatibility_changed =
                 identity_changed || locator_fingerprint.as_deref() != next_locator_fingerprint;
-            let stale_hermes_contract = discovered.adapter_kind == AdapterKind::HermesCli
-                && probe_status.as_deref() == Some("ready")
-                && !capabilities_json
-                    .as_deref()
-                    .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
-                    .is_some_and(|capabilities| {
-                        crate::agent_runtime_adapter::hermes_capabilities_current(&capabilities)
-                    });
-            let snapshot_compatibility_changed = compatibility_changed
-                || snapshot_fingerprint.as_deref() != next_fingerprint
-                || stale_hermes_contract;
+            let snapshot_compatibility_changed =
+                compatibility_changed || snapshot_fingerprint.as_deref() != next_fingerprint;
             transaction.execute(
                 if compatibility_changed {
                     r#"

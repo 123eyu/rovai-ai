@@ -6727,8 +6727,7 @@ impl AcpCliRuntimeAdapter {
                     native_binding_id,
                     execution_root.clone(),
                 ),
-                (self.kind != AdapterKind::CommandCodeCli)
-                    .then(|| mcp_projection_digest.to_owned()),
+                None,
             )
         } else {
             (

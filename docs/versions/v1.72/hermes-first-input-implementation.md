@@ -143,6 +143,26 @@ Native Binding 策略，保留 Command 的控制通道 Bootstrap 与冷启动准
 最终合并树的 `cargo test --workspace -- --test-threads=1` 为 **479 passed / 0 failed / 1 ignored**；
 Cursor 身份探测本次在全量内正常通过。fmt、whitespace、当前与 diff-aware 文档门禁通过。
 
+## 删除实验快照识别与重复 MCP 比较（2026-10-25）
+
+按 User sequence 79 的前两项继续减量：删除 Hermes 旧实验能力标记识别，以及发现提交、Ready
+校验和静态能力复用中的专属降级/失效分支。安装发现仍按现有可执行文件、入口与指纹事实更新，
+普通能力缓存和实际 ACP 连接检查保留；没有换用旧版本黑名单或新增迁移版本号。
+
+Hermes 沿用 Command Code 的显式 Native Binding 分支，同一 Run 的 Runtime 不再保存或比较
+`mcp_projection_digest`。MCP 的实际 new/resume 参数、共享冻结投影校验和原生错误传播保持不变；
+这不放宽 Hermes 原生对已有会话 MCP 规格的限制。其他 Runtime 的摘要比较保持原义。
+
+没有新增或删除独立 Rust 测试；在原有 Adapter owner 中删除旧实验拒绝断言，保留当前能力生成
+断言。模型目录准入和相同模型/模式设置的优化本轮仅核对源码，没有改变生产行为。
+
+`cargo test --workspace -- --test-threads=1` 最终 **479 passed / 0 failed / 1 ignored**。
+首轮在既有 Cursor alias 版本探测的 2 秒预算处超时（432 passed / 1 failed / 1 ignored）；该 owner
+单独复核 0.09 秒通过，完整复跑也正常通过。未改变 Cursor 实现、预算或断言。
+Hermes、能力生成、安装发现、Binding 与 ACP 相关定向 **7 passed**，与默认层重叠，不累加计数。
+文档单测 10 项、fmt、whitespace、当前和 diff-aware 文档门禁通过。本轮未重跑真实 Hermes/模型，
+未启动日常 App；上述隔离原生验收仍保留为各自提交的历史证据。
+
 ## 历史 R1 实施
 
 按当时 R1 和 User sequence 31 实施。

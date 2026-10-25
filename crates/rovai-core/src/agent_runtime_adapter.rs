@@ -2285,37 +2285,10 @@ pub fn trae_machine_ready_capabilities(
     capabilities
 }
 
-pub(crate) fn hermes_capabilities_current(capabilities: &[String]) -> bool {
-    [
-        "session.set_model",
-        "session.set_mode",
-        "context.charter.first_payload",
-        "hermes.native_session_cli",
-    ]
-    .iter()
-    .all(|value| capabilities.iter().any(|item| item == value))
-        && ![
-            "session.set_config_option",
-            "context.charter.managed_system_prompt",
-            "context.compaction.native_system_prompt_preserved",
-            "context.compaction.signal_driven",
-            "context.compaction.best_effort",
-            "mcp.same_name_policy.rovai_wins",
-        ]
-        .iter()
-        .any(|value| capabilities.iter().any(|item| item == value))
-}
-
 pub fn validate_machine_ready_snapshot(
     adapter_kind: AdapterKind,
     snapshot: &AdapterCapabilitySnapshot,
 ) -> Result<()> {
-    if adapter_kind == AdapterKind::HermesCli && snapshot.probe_status == "ready" {
-        anyhow::ensure!(
-            hermes_capabilities_current(&snapshot.capabilities),
-            "Hermes Ready evidence predates the direct ACP contract; refresh the Runtime check"
-        );
-    }
     if adapter_kind == AdapterKind::DeepseekHarness && snapshot.probe_status == "ready" {
         if !crate::dsh::supported_version(snapshot.reported_version.as_deref())
             || snapshot
@@ -4142,9 +4115,6 @@ mod tests {
             "context.compaction.native_system_prompt_preserved",
         ] {
             assert!(!hermes.capabilities.iter().any(|value| value == old));
-            let mut legacy = hermes.clone();
-            legacy.capabilities.push(old.into());
-            assert!(validate_machine_ready_snapshot(AdapterKind::HermesCli, &legacy).is_err());
         }
         let mini = json!({"configOptions":[
             {"id":"model","type":"select","currentValue":"m:provider:model:u","options":[{"value":"m:provider:model:u","name":"Model"},{"value":"m:provider:other:v:fast","name":"Other"}]},

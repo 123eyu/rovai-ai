@@ -163,6 +163,49 @@ Hermes、能力生成、安装发现、Binding 与 ACP 相关定向 **7 passed**
 文档单测 10 项、fmt、whitespace、当前和 diff-aware 文档门禁通过。本轮未重跑真实 Hermes/模型，
 未启动日常 App；上述隔离原生验收仍保留为各自提交的历史证据。
 
+## 原生选模与固定 Skills 目录（2026-10-25）
+
+User sequence 81 确认将上述模型评估落实，sequence 82 同时收敛 Skills 文件发现。
+
+- Hermes 探测不再要求当前模型存在于菜单。Ready 快照在目录缺失/损坏时保留空模型列表，正常
+  Session 与默认执行继续可用；显式完整 ID 直接交给 `session/set_model`，原生拒绝不回退默认。
+  通用模型选项仍不支持，不向只返回空 ACK 的配置接口发送这类选项。其他 Runtime 的准入保持。
+- 只按本次 new/resume 返回的完整模型 ID、`currentModeId` 精确比较；相同则省略对应设置，
+  不同或缺失则正常设置。没有 Provider 归一化、额外查询、跨轮缓存或 warm 改动。
+- 删除 `hermes_skill_roots` 及其配置解析/过滤。用户级 `.hermes/skills`、`.agents/skills` 与当前
+  项目根下同名目录使用公共扫描器；不要求 Git/信任，不找祖先，不枚举历史项目。保留同文件
+  去重、同名不同来源、部分失败、缓存、预览和精确文件引用。自定义外部/创建目录不自动列入。
+- Skills 页面仅替换 Hermes 的现有页首说明，明确文件发现不代表原生启用/加载；原生配置和
+  加载行为不改写。没有新表、来源状态、服务、配置同步或自动加入模型输入。
+
+### 验证归属
+
+不增加独立 Rust 测试。原 live Session owner 更名为
+`acp::tests::real_acp_session_model_selection_respects_native_adapter_boundaries`，保留 TRAE 的目录拒绝
+与原生设置失败输入，新增受控 ACP 进程的新建/冷恢复表驱动场景：默认无目录、相同值不设置、
+目录外模型、同模型名不同 Provider、未知状态、原生模型/模式拒绝。核对完整请求顺序及后续 prompt
+的模型，失败无 prompt、无默认回退、无新 Session。仅测比较谓词不能证明真实 RPC 是否发出。
+
+原 Grok/Kiro probe owner 更名为
+`health::tests::acp_checks_keep_native_model_catalog_boundaries_without_lifecycle_rehearsals`，保留原有
+四种输入，并追加 Hermes 的目录/当前模型缺失、不完整、损坏和原生会话拒绝；仍要求正常协议能力。
+首轮新夹具遗漏 `loadSession` 后正确被拒，补齐官方能力广告，没有放宽生产能力要求。
+Adapter owner 验证空菜单不合成模型、部分菜单保留和无 Session 仍失败；Skills owner 验证四目录、
+非 Git 项目、不向上扫描、外部目录不加入、配置禁用/无效 YAML 不参与过滤且源配置不变。
+
+### 本轮检查结果
+
+- 上述 ACP、Adapter、probe、Skills 与 Hermes 规则/入口定向测试共 **12 passed**；Skills 配置输入
+  补强为确实存在的外部目录后，原 owner 再次 **1 passed**，不重复累计。
+- `cargo test --workspace -- --test-threads=1`：**479 passed / 0 failed / 1 ignored**。
+  定向 owner 与默认集有重叠，不将二者相加。当前改动下默认集一次通过。
+- 现有模型参数、Skills 选择与文件引用前端回归 **46 passed**；`pnpm typecheck` 与
+  `pnpm build:desktop` 通过。没有启动 App，构建不代替界面人工验收。
+- 文档单测 **10 passed**，fmt、whitespace、当前及 diff-aware 文档门禁通过。
+
+本轮使用受控 ACP 进程和隔离文件 fixture；未新增真实官方 Hermes/付费模型流程、原生压缩或平台矩阵。
+用户日常 Hermes 配置与 App 未修改。此前隔离原生验收只保留为各自提交的历史证据。
+
 ## 历史 R1 实施
 
 按当时 R1 和 User sequence 31 实施。

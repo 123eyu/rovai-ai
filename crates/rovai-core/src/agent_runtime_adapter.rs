@@ -2492,6 +2492,9 @@ fn acp_capability_snapshot(
         let session = session_result.context("ready ACP probe did not create a session")?;
         match acp_model_catalog_for_adapter(adapter_kind, session) {
             Ok(models) => models,
+            // Hermes owns native default and explicit model selection. A
+            // missing picker must not turn a successful Session into a failure.
+            Err(_) if adapter_kind == AdapterKind::HermesCli => Vec::new(),
             Err(_)
                 if matches!(
                     adapter_kind,
@@ -4042,16 +4045,48 @@ mod tests {
 
     #[test]
     fn grouped_acp_models_keep_opaque_provider_routes_and_reject_empty_catalogs() {
-        let hermes = AgentRuntimeAdapterRegistry::default().acp_capability_snapshot(AcpProbeObservation {
+        let observation = AcpProbeObservation {
             adapter_kind: AdapterKind::HermesCli,
             reported_version: Some("0.22.4".into()),
             executable_fingerprint: Some("sha256:hermes".into()),
-            authentication_status: "authenticated".into(), probe_status: "ready".into(),
-            capabilities: vec![], initialize_result: Some(json!({"agentCapabilities":{"loadSession":true}})),
+            authentication_status: "authenticated".into(),
+            probe_status: "ready".into(),
+            capabilities: vec![],
+            initialize_result: Some(json!({"agentCapabilities":{"loadSession":true}})),
             session_result: Some(json!({"sessionId":"native", "models":{
                 "currentModelId":"route/model", "availableModels":[{"modelId":"route/model","name":"Model"}]}
-            })), attempted_at: "2026-10-23T00:00:00Z".into(), last_error: None,
-        }).unwrap();
+            })),
+            attempted_at: "2026-10-23T00:00:00Z".into(),
+            last_error: None,
+        };
+        let registry = AgentRuntimeAdapterRegistry::default();
+        let hermes = registry
+            .acp_capability_snapshot(observation.clone())
+            .unwrap();
+        for models in [
+            Value::Null,
+            json!({"availableModels":[]}),
+            json!({"availableModels":[{}]}),
+        ] {
+            let mut missing = observation.clone();
+            missing.session_result = Some(json!({"sessionId":"native", "models": models}));
+            let snapshot = registry.acp_capability_snapshot(missing).unwrap();
+            assert_eq!(snapshot.probe_status, "ready");
+            assert!(
+                snapshot.models.is_empty(),
+                "do not invent a picker from missing evidence"
+            );
+        }
+        let mut partial = observation.clone();
+        partial.session_result.as_mut().unwrap()["models"]["currentModelId"] =
+            json!("another-provider/model");
+        let partial = registry.acp_capability_snapshot(partial).unwrap();
+        assert_eq!(partial.models.len(), 1);
+        assert_eq!(partial.models[0].id, "route/model");
+        assert!(!partial.models[0].is_default);
+        let mut absent_session = observation;
+        absent_session.session_result = None;
+        assert!(registry.acp_capability_snapshot(absent_session).is_err());
         validate_machine_ready_snapshot(AdapterKind::HermesCli, &hermes).unwrap();
         for capability in [
             "context.charter.first_payload",

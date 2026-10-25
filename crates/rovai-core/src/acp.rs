@@ -5287,7 +5287,23 @@ impl AcpRuntime {
                 ));
             }
         }
-        if model_source == "explicit" {
+        if model_source == "explicit" && self.host.adapter_kind == AdapterKind::HermesCli {
+            anyhow::ensure!(
+                model_options
+                    .as_object()
+                    .is_some_and(|options| options.is_empty()),
+                "Hermes ACP does not support generic per-Session model options"
+            );
+            // Use the complete native ID from this attachment, not the picker
+            // or a normalized provider/model alias. Let Hermes validate a change.
+            let current = session_result
+                .as_ref()
+                .and_then(|session| session.pointer("/models/currentModelId"))
+                .and_then(Value::as_str);
+            if current != Some(model) {
+                self.set_model(&session_id, model).await?;
+            }
+        } else if model_source == "explicit" {
             if self.host.adapter_kind == AdapterKind::DeepseekHarness {
                 let root = self
                     .host
@@ -5353,7 +5369,7 @@ impl AcpRuntime {
                 // CodeBuddy omits it from set_config_option's built-in choices.
             } else if matches!(
                 self.host.adapter_kind,
-                AdapterKind::KiroCli | AdapterKind::GrokBuild | AdapterKind::HermesCli
+                AdapterKind::KiroCli | AdapterKind::GrokBuild
             ) {
                 self.set_model(&session_id, model).await?;
             } else {
@@ -5419,7 +5435,7 @@ impl AcpRuntime {
         if model_source == "explicit"
             && !matches!(
                 self.host.adapter_kind,
-                AdapterKind::KiroCli | AdapterKind::GrokBuild
+                AdapterKind::KiroCli | AdapterKind::GrokBuild | AdapterKind::HermesCli
             )
             && let Some(options) = model_options.as_object()
         {
@@ -5502,12 +5518,18 @@ impl AcpRuntime {
                 .mode
                 .as_deref()
                 .context("Hermes edit approval mode missing")?;
-            self.host
-                .rpc(
-                    "session/set_mode",
-                    json!({"sessionId":session_id,"modeId":mode}),
-                )
-                .await?;
+            let current = session_result
+                .as_ref()
+                .and_then(|session| session.pointer("/modes/currentModeId"))
+                .and_then(Value::as_str);
+            if current != Some(mode) {
+                self.host
+                    .rpc(
+                        "session/set_mode",
+                        json!({"sessionId":session_id,"modeId":mode}),
+                    )
+                    .await?;
+            }
         }
         self.finish_session_attachment(&session_id, prebound_session)
             .await?;
@@ -13728,7 +13750,7 @@ while IFS= read -r ignored; do :; done
     }
 
     #[tokio::test]
-    async fn real_acp_session_catalog_rejects_a_missing_explicit_model_without_fallback() {
+    async fn real_acp_session_model_selection_respects_native_adapter_boundaries() {
         for configuration_rejected in [false, true] {
             let root = std::env::temp_dir().join(format!(
                 "rovai-acp-live-model-validation-{}",
@@ -13820,6 +13842,247 @@ while IFS= read -r ignored; do :; done
 
             host.shutdown().await;
             std::fs::remove_dir_all(root).unwrap();
+        }
+        // The same Host seam must allow Hermes to decide selections outside its
+        // picker, while preserving strict catalog behavior for the adapter above.
+        // A fresh Host per attachment covers both new and cold resume responses.
+        for resume in [false, true] {
+            for (case, source, current_model, current_mode, target, failure, expected) in [
+                (
+                    "default-missing",
+                    "runtime_default",
+                    None,
+                    None,
+                    "native-default",
+                    None,
+                    vec!["session/set_mode"],
+                ),
+                (
+                    "same-without-catalog",
+                    "explicit",
+                    Some("provider-a/model"),
+                    Some("dont_ask"),
+                    "provider-a/model",
+                    None,
+                    vec![],
+                ),
+                (
+                    "outside-catalog",
+                    "explicit",
+                    Some("provider-a/model"),
+                    Some("default"),
+                    "provider-a/other",
+                    None,
+                    vec!["session/set_model", "session/set_mode"],
+                ),
+                (
+                    "different-provider",
+                    "explicit",
+                    Some("provider-a/model"),
+                    Some("dont_ask"),
+                    "provider-b/model",
+                    None,
+                    vec!["session/set_model"],
+                ),
+                (
+                    "unknown-state",
+                    "explicit",
+                    None,
+                    None,
+                    "provider-b/model",
+                    None,
+                    vec!["session/set_model", "session/set_mode"],
+                ),
+                (
+                    "model-rejected",
+                    "explicit",
+                    Some("provider-a/model"),
+                    Some("dont_ask"),
+                    "provider-b/model",
+                    Some("session/set_model"),
+                    vec!["session/set_model"],
+                ),
+                (
+                    "mode-rejected",
+                    "explicit",
+                    Some("provider-a/model"),
+                    Some("default"),
+                    "provider-a/model",
+                    Some("session/set_mode"),
+                    vec!["session/set_mode"],
+                ),
+            ] {
+                let root = std::env::temp_dir()
+                    .join(format!("rovai-hermes-model-{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&root).unwrap();
+                let executable = root.join("hermes.py");
+                let log = root.join("requests.jsonl");
+                let mut session = json!({"sessionId":"hermes-session"});
+                if let Some(model) = current_model {
+                    session["models"] = json!({"currentModelId":model});
+                    if case != "same-without-catalog" {
+                        session["models"]["availableModels"] =
+                            json!([{"modelId":"provider-a/model","name":"A"}]);
+                    }
+                }
+                if let Some(mode) = current_mode {
+                    session["modes"] = json!({"currentModeId":mode});
+                }
+                std::fs::write(
+                    executable.with_extension("json"),
+                    serde_json::to_vec(&json!({
+                        "session": session, "failure":failure,
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+                make_executable(
+                    &executable,
+                    r#"#!/usr/bin/env python3
+import json, pathlib, sys
+root = pathlib.Path(__file__).parent
+config = json.loads(pathlib.Path(__file__).with_suffix('.json').read_text())
+model = 'provider-a/model'
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request['method']
+    params = request.get('params', {})
+    if method == 'session/set_model' and method != config['failure']:
+        model = params['modelId']
+    if method == 'session/prompt':
+        request['executedModel'] = model
+    with (root / 'requests.jsonl').open('a') as output:
+        output.write(json.dumps(request) + '\n')
+    response = {'jsonrpc':'2.0', 'id':request['id']}
+    if method == config['failure']:
+        response['error'] = {'code':-32602, 'message':'native configuration refused'}
+    elif method == 'initialize':
+        response['result'] = {'protocolVersion':1,'agentInfo':{'version':'0.22.4'},'agentCapabilities':{'sessionCapabilities':{'resume':{}}}}
+    elif method in ('session/new', 'session/resume'):
+        response['result'] = config['session']
+    elif method == 'session/prompt':
+        response['result'] = {'stopReason':'end_turn'}
+    elif method in ('session/set_model', 'session/set_mode', 'audit/terminal-barrier'):
+        response['result'] = {}
+    else:
+        response['error'] = {'code':-32601,'message':'unexpected method'}
+    print(json.dumps(response), flush=True)
+"#,
+                );
+                let mut frozen = frozen_trae_runtime(&executable);
+                frozen.adapter_kind = AdapterKind::HermesCli;
+                frozen.reported_version = Some("0.22.4".into());
+                frozen.permissions.adapter_kind = AdapterKind::HermesCli;
+                frozen.permissions.values = json!({"permission_mode":"dont_ask"});
+                let workspace =
+                    AgentRunWorkspace::runtime_managed_path(root.to_string_lossy().into());
+                let (incoming, mut receiver) = mpsc::unbounded_channel();
+                let host = AcpHost::spawn(
+                    &root,
+                    &workspace,
+                    PermissionSemantics::RuntimeManagedV2,
+                    &frozen,
+                    incoming,
+                    Some(exact_builtin_tools(&root)),
+                    CompactionDetectorPolicy::Disabled,
+                    true,
+                    &BTreeMap::new(),
+                    &root.join("private"),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+                let runtime = AcpRuntime::from_test_host(
+                    AcpRuntimeOwner {
+                        agent_run_id: "hermes-model-run".into(),
+                        execution_epoch: 1,
+                    },
+                    host.clone(),
+                    "compat".into(),
+                    "mcp".into(),
+                    root.clone(),
+                    Some(exact_attachment_root(&root)),
+                    "runtime_managed".into(),
+                    AcpSessionPermissions {
+                        mode: Some("dont_ask".into()),
+                        ..Default::default()
+                    },
+                    None,
+                );
+                let result = runtime
+                    .start_or_resume_session(
+                        resume.then_some("hermes-session"),
+                        AcpSessionCapabilities {
+                            can_resume: true,
+                            can_load_history: false,
+                        },
+                        source,
+                        target,
+                        &json!({}),
+                        &BTreeMap::new(),
+                    )
+                    .await;
+                if failure.is_some() {
+                    let error = result.expect_err("native rejection must stop attachment");
+                    assert!(format!("{error:#}").contains("native configuration refused"));
+                    assert!(
+                        !error.is::<AcpSessionRestoreError>(),
+                        "do not replace the Session after a setting error"
+                    );
+                } else {
+                    assert_eq!(result.unwrap(), "hermes-session", "{case}, resume={resume}");
+                    runtime
+                        .start_prompt("model-delivery", "TASK")
+                        .await
+                        .unwrap();
+                    receive_through_prompt_completion(&mut receiver).await;
+                }
+                host.rpc("audit/terminal-barrier", json!({})).await.unwrap();
+                let requests = std::fs::read_to_string(&log)
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                    .collect::<Vec<_>>();
+                let methods = requests
+                    .iter()
+                    .map(|request| request["method"].as_str().unwrap())
+                    .collect::<Vec<_>>();
+                let mut expected_methods = vec![
+                    "initialize",
+                    if resume {
+                        "session/resume"
+                    } else {
+                        "session/new"
+                    },
+                ];
+                expected_methods.extend(expected);
+                if failure.is_none() {
+                    expected_methods.push("session/prompt");
+                }
+                expected_methods.push("audit/terminal-barrier");
+                assert_eq!(methods, expected_methods, "{case}, resume={resume}");
+                for request in &requests {
+                    if request["method"] == "session/set_model" {
+                        assert_eq!(request["params"]["modelId"], target);
+                    }
+                    if request["method"] == "session/set_mode" {
+                        assert_eq!(request["params"]["modeId"], "dont_ask");
+                    }
+                    if request["method"] == "session/prompt" {
+                        assert_eq!(
+                            request["executedModel"],
+                            if source == "explicit" {
+                                target
+                            } else {
+                                "provider-a/model"
+                            }
+                        );
+                    }
+                }
+                host.shutdown().await;
+                std::fs::remove_dir_all(root).unwrap();
+            }
         }
     }
 

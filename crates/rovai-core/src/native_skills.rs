@@ -315,15 +315,7 @@ impl NativeSkillDiscoveryRequest<'_> {
             ensure!(project.is_absolute(), "project path is not absolute");
         }
         let mut roots = user_roots(adapter, &home, configuration);
-        let mut hermes_errors = Vec::new();
-        let mut hermes_disabled = HashSet::new();
-        if adapter == AdapterKind::HermesCli {
-            (roots, hermes_disabled, hermes_errors) = hermes_skill_roots(
-                &home,
-                (!user_only).then_some(project.as_deref()).flatten(),
-                configuration,
-            );
-        } else if !user_only && let Some(project) = &project {
+        if !user_only && let Some(project) = &project {
             roots.extend(project_roots(adapter, project));
         }
         let (disabled_paths, disabled_names, config_errors) =
@@ -332,7 +324,6 @@ impl NativeSkillDiscoveryRequest<'_> {
             skills: Vec::new(),
             errors: config_errors,
         };
-        scan.errors.extend(hermes_errors);
         let mut seen_roots = HashSet::new();
         let mut seen_files = HashSet::new();
         for (scope, root) in roots {
@@ -347,9 +338,6 @@ impl NativeSkillDiscoveryRequest<'_> {
             scan.errors.extend(directory.errors.iter().cloned());
             for skill in &directory.skills {
                 if !seen_files.insert(skill.canonical_path.clone()) {
-                    continue;
-                }
-                if adapter == AdapterKind::HermesCli && hermes_disabled.contains(&skill.name) {
                     continue;
                 }
                 scan.skills.push(NativeSkill {
@@ -525,130 +513,6 @@ fn configured_root(
         .unwrap_or(fallback)
 }
 
-// Match native Hermes discovery: trusted nearest Git project, profile, create_dir,
-// external_dirs. The shared ~/.agents store is opt-in, never implicitly enabled.
-fn hermes_skill_roots(
-    home: &Path,
-    project: Option<&Path>,
-    configuration: &RuntimeStartupConfiguration,
-) -> (Vec<(&'static str, PathBuf)>, HashSet<String>, Vec<String>) {
-    let native = home.join(".hermes");
-    let mut errors = Vec::new();
-    let config: serde_json::Value = match fs::read_to_string(native.join("config.yaml")) {
-        Ok(text) => serde_yaml::from_str(&text).unwrap_or_else(|_| {
-            errors.push("Hermes skills: config.yaml is invalid".to_string());
-            serde_json::Value::Null
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::Value::Null,
-        Err(_) => {
-            errors.push("Hermes skills: config.yaml is unreadable".to_string());
-            serde_json::Value::Null
-        }
-    };
-    let list = |value: &serde_json::Value| -> Vec<String> {
-        value
-            .as_str()
-            .map(|s| vec![s.to_string()])
-            .unwrap_or_else(|| {
-                value
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-    };
-    let expand = |value: &str| -> PathBuf {
-        let mut expanded = String::new();
-        let mut rest = value.trim();
-        while let Some(at) = rest.find('$') {
-            expanded.push_str(&rest[..at]);
-            rest = &rest[at + 1..];
-            let (name, consumed) = if let Some(braced) = rest.strip_prefix('{') {
-                match braced.find('}') {
-                    Some(end) => (&braced[..end], end + 2),
-                    None => {
-                        expanded.push('$');
-                        continue;
-                    }
-                }
-            } else {
-                let end = rest
-                    .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                    .unwrap_or(rest.len());
-                (&rest[..end], end)
-            };
-            if let Some(value) = runtime_variable(configuration, name) {
-                expanded.push_str(&value.to_string_lossy());
-            } else {
-                expanded.push('$');
-                expanded.push_str(&rest[..consumed]);
-            }
-            rest = &rest[consumed..];
-        }
-        expanded.push_str(rest);
-        let path = if expanded == "~" {
-            home.to_path_buf()
-        } else if let Some(suffix) = expanded.strip_prefix("~/") {
-            home.join(suffix)
-        } else {
-            PathBuf::from(expanded)
-        };
-        path
-    };
-    let skills = &config["skills"];
-    let mut roots = Vec::new();
-    if skills["project_discovery"] != false
-        && let Some(project) = project
-    {
-        let root = project
-            .ancestors()
-            .take(64)
-            .find(|path| path.join(".git").exists());
-        if let Some(root) = root.filter(|root| *root != home) {
-            let trusted = list(&skills["trusted_project_dirs"]).iter().any(|entry| {
-                // Native trust entries resolve relative to the executing cwd, unlike external roots.
-                let configured = expand(entry);
-                let configured = if configured.is_absolute() {
-                    configured
-                } else {
-                    project.join(configured)
-                };
-                configured.canonicalize().ok().as_deref() == Some(root)
-            });
-            if trusted {
-                roots.extend([
-                    ("project", root.join(".hermes/skills")),
-                    ("project", root.join(".agents/skills")),
-                ]);
-            }
-        }
-    }
-    roots.push(("user", native.join("skills")));
-    for entry in list(&skills["create_dir"])
-        .into_iter()
-        .chain(list(&skills["external_dirs"]))
-    {
-        if !entry.trim().is_empty() {
-            let path = expand(&entry);
-            roots.push((
-                "user",
-                if path.is_absolute() {
-                    path
-                } else {
-                    native.join(path)
-                },
-            ));
-        }
-    }
-    let mut disabled: HashSet<_> = list(&skills["disabled"])
-        .into_iter()
-        .chain(list(&skills["platform_disabled"]["acp"]))
-        .collect();
-    disabled.remove("hermes-agent");
-    (roots, disabled, errors)
-}
-
 fn user_roots(
     adapter: AdapterKind,
     home: &Path,
@@ -696,7 +560,10 @@ fn user_roots(
                 );
             }
         }
-        AdapterKind::HermesCli => paths.push(home.join(".hermes/skills")),
+        AdapterKind::HermesCli => {
+            paths.push(home.join(".hermes/skills"));
+            paths.push(agents);
+        }
         AdapterKind::KiroCli => paths.push(home.join(".kiro/skills")),
         AdapterKind::QoderCli => {
             paths.push(
@@ -805,7 +672,7 @@ fn project_roots(adapter: AdapterKind, project: &Path) -> Vec<(&'static str, Pat
         AdapterKind::Pi => &[".pi/skills", ".agents/skills"],
         AdapterKind::OpencodeCli => &[".opencode/skills", ".agents/skills", ".claude/skills"],
         AdapterKind::CopilotCli => &[".github/skills", ".agents/skills", ".claude/skills"],
-        AdapterKind::HermesCli => &[],
+        AdapterKind::HermesCli => &[".hermes/skills", ".agents/skills"],
         AdapterKind::KiroCli => &[".kiro/skills"],
         AdapterKind::QoderCli => &[".qoder/skills", ".agents/skills"],
         AdapterKind::CodebuddyCli => &[".codebuddy/skills"],
@@ -1079,11 +946,10 @@ mod tests {
         let native_home = home.join(".hermes");
         fs::rename(&first, &native_home).unwrap();
         let first = native_home;
-        // Hermes shared user Skills are opt-in; project .agents requires native
-        // trust and nearest-Git-root discovery, including nested working dirs.
+        // File discovery uses fixed roots, including non-Git projects. Native
+        // configuration controls Hermes loading, not these explicit candidates.
         let project = fixture.join("project");
         let nested = project.join("subdir");
-        fs::create_dir_all(project.join(".git")).unwrap();
         fs::create_dir_all(&nested).unwrap();
         for (root, name) in [
             (first.join("created"), "created"),
@@ -1097,84 +963,53 @@ mod tests {
             )
             .unwrap();
         }
-        let configuration = RuntimeStartupConfiguration {
-            custom_api_snapshot: None,
-            common_environment_unavailable: false,
-            program_path: None,
-            environment: vec![
-                RuntimeEnvironmentVariable {
-                    name: if cfg!(windows) { "USERPROFILE" } else { "HOME" }.into(),
-                    value: home.to_string_lossy().into(),
-                },
-                RuntimeEnvironmentVariable {
-                    name: "HERMES_HOME".into(),
-                    value: second.to_string_lossy().into(),
-                },
-                RuntimeEnvironmentVariable {
-                    name: "HERMES_TEST_EXTERNAL".into(),
-                    value: second.join("skills").to_string_lossy().into(),
-                },
-            ],
-        };
+        let configuration = RuntimeStartupConfiguration::default();
         let discovery = NativeSkillDiscovery::default();
-        let nested = nested.canonicalize().unwrap();
-        let names = |user_only: bool| {
-            let (roots, disabled, errors) = hermes_skill_roots(
-                &home,
-                (!user_only).then_some(nested.as_path()),
-                &configuration,
+        let names = |project: Option<&Path>| {
+            let mut roots = user_roots(AdapterKind::HermesCli, &home, &configuration);
+            assert_eq!(
+                roots,
+                vec![
+                    ("user", first.join("skills")),
+                    ("user", home.join(".agents/skills"))
+                ]
             );
-            assert!(errors.is_empty());
+            if let Some(project) = project {
+                roots.extend(project_roots(AdapterKind::HermesCli, project));
+            }
             let mut names = Vec::new();
-            for (scope, root) in roots {
-                if user_only {
-                    assert_eq!(scope, "user");
-                }
+            for (_, root) in roots {
                 let scanned =
                     discovery.ensure_directory(&directory_key(&root), AdapterKind::HermesCli, true);
                 assert!(scanned.errors.is_empty());
-                names.extend(
-                    scanned
-                        .skills
-                        .into_iter()
-                        .filter(|s| !disabled.contains(&s.name))
-                        .map(|s| s.name),
-                );
+                names.extend(scanned.skills.into_iter().map(|skill| skill.name));
             }
             names.sort();
-            names.dedup();
             names
         };
-        assert_eq!(names(false), ["one"]);
-        let mut config = serde_json::json!({"skills": {
-            "create_dir":"created", "external_dirs":["~/.agents/skills", "${HERMES_TEST_EXTERNAL}"],
-            "disabled":["one"], "platform_disabled":{"acp":["two"]}
-        }});
-        fs::write(
-            first.join("config.yaml"),
-            serde_json::to_vec(&config).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(names(false), ["created", "shared"]);
-        config["skills"]["trusted_project_dirs"] =
-            serde_json::json!([project.canonicalize().unwrap()]);
-        fs::write(
-            first.join("config.yaml"),
-            serde_json::to_vec(&config).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            names(false),
-            ["created", "project-agents", "project-hermes", "shared"]
-        );
-        assert_eq!(names(true), ["created", "shared"]);
-        config["skills"]["project_discovery"] = serde_json::json!(false);
-        fs::write(
-            first.join("config.yaml"),
-            serde_json::to_vec(&config).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(names(false), ["created", "shared"]);
+        let native_config = serde_json::json!({"skills": {
+            "create_dir":"created", "external_dirs":[second.join("skills")],
+            "disabled":["one"], "platform_disabled":{"acp":["shared"]},
+            "project_discovery":false
+        }})
+        .to_string();
+        for config in [native_config.as_str(), "skills: [invalid YAML"] {
+            fs::write(first.join("config.yaml"), config).unwrap();
+            assert_eq!(names(None), ["one", "shared"]);
+            assert_eq!(
+                names(Some(&project)),
+                ["one", "project-agents", "project-hermes", "shared"]
+            );
+            assert_eq!(
+                names(Some(&nested)),
+                ["one", "shared"],
+                "do not search ancestors"
+            );
+            assert_eq!(
+                fs::read_to_string(first.join("config.yaml")).unwrap(),
+                config
+            );
+        }
         let project = fixture.join("command-project");
         for (root, name) in [
             (home.join(".commandcode/skills"), "command-user"),

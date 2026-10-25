@@ -2345,10 +2345,7 @@ async fn run_acp_probe_with_scope(
                 .context("ACP session/new did not return sessionId")?;
             if matches!(
                 kind,
-                AdapterKind::KiroCli
-                    | AdapterKind::GrokBuild
-                    | AdapterKind::MinimaxCodeCli
-                    | AdapterKind::HermesCli
+                AdapterKind::KiroCli | AdapterKind::GrokBuild | AdapterKind::MinimaxCodeCli
             ) {
                 let current_model =
                     crate::agent_runtime_adapter::acp_runtime_model_id_from_session(&session)
@@ -4927,9 +4924,43 @@ while IFS= read -r ignored; do :; done
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn grok_and_kiro_checks_validate_current_model_without_lifecycle_rehearsals() {
-        for kind in [AdapterKind::GrokBuild, AdapterKind::KiroCli] {
-            for valid_model in [true, false] {
+    async fn acp_checks_keep_native_model_catalog_boundaries_without_lifecycle_rehearsals() {
+        for kind in [
+            AdapterKind::GrokBuild,
+            AdapterKind::KiroCli,
+            AdapterKind::HermesCli,
+        ] {
+            for case in [
+                "listed",
+                "unlisted",
+                "missing",
+                "empty",
+                "malformed",
+                "missing_current",
+                "session_error",
+            ] {
+                if kind != AdapterKind::HermesCli && !matches!(case, "listed" | "unlisted") {
+                    continue;
+                }
+                let mut result = json!({"sessionId":"s1","models":{"currentModelId":"native-model","availableModels":[{"modelId":"native-model","name":"Native"}]}});
+                match case {
+                    "unlisted" => result["models"]["currentModelId"] = json!("missing"),
+                    "missing" => result
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("models")
+                        .map(|_| ())
+                        .unwrap(),
+                    "empty" => result["models"]["availableModels"] = json!([]),
+                    "malformed" => result["models"]["availableModels"] = json!([{}]),
+                    "missing_current" => result["models"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("currentModelId")
+                        .map(|_| ())
+                        .unwrap(),
+                    _ => (),
+                }
                 let root =
                     env::temp_dir().join(format!("rovai-current-model-{}", uuid::Uuid::new_v4()));
                 let _cleanup = ProbeRootCleanup(root.clone());
@@ -4942,16 +4973,21 @@ while IFS= read -r ignored; do :; done
                 } else {
                     ""
                 };
+                let response = if case == "session_error" {
+                    json!({"jsonrpc":"2.0","id":session_id,"error":{"code":-32603,"message":"native session rejected"}})
+                } else {
+                    json!({"jsonrpc":"2.0","id":session_id,"result":result})
+                };
                 std::fs::write(&runtime, format!(r#"#!/bin/sh
 if [ "$1" = "--version" ]; then exit 42; fi
 log='{}'
 IFS= read -r init; printf '%s\n' "$init" >> "$log"
-printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{"sessionCapabilities":{{"resume":{{}}}}}},"authMethods":[{{"id":"cached_token"}}],"_meta":{{"defaultAuthMethodId":"cached_token"}}}}}}'
+printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentInfo":{{"version":"0.22.4"}},"agentCapabilities":{{"loadSession":true,"sessionCapabilities":{{"resume":{{}}}}}},"authMethods":[{{"id":"cached_token"}}],"_meta":{{"defaultAuthMethodId":"cached_token"}}}}}}'
 {}
 IFS= read -r session; printf '%s\n' "$session" >> "$log"
-printf '%s\n' '{{"jsonrpc":"2.0","id":{},"result":{{"sessionId":"s1","models":{{"currentModelId":"{}","availableModels":[{{"modelId":"native-model","name":"Native"}}]}}}}}}'
+printf '%s\n' '{}'
 while IFS= read -r extra; do printf '%s\n' "$extra" >> "$log"; exit 43; done
-"#, log.display(), auth, session_id, if valid_model { "native-model" } else { "missing" })).unwrap();
+"#, log.display(), auth, response)).unwrap();
                 std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
                 let probe = acp_capability_probe_at_for_purpose(
                     &runtime,
@@ -4962,7 +4998,7 @@ while IFS= read -r extra; do printf '%s\n' "$extra" >> "$log"; exit 43; done
                     false,
                 )
                 .await;
-                if valid_model {
+                if case == "listed" || (kind == AdapterKind::HermesCli && case != "session_error") {
                     assert_eq!(
                         probe.result.status,
                         AgentRuntimeProbeStatus::Ready,
@@ -4990,12 +5026,14 @@ while IFS= read -r extra; do printf '%s\n' "$extra" >> "$log"; exit 43; done
                         vec!["initialize", "session/new"]
                     }
                 );
-                assert!(
-                    !probe
-                        .result
-                        .capabilities
-                        .contains(&"session.set_model".to_string())
-                );
+                if kind != AdapterKind::HermesCli {
+                    assert!(
+                        !probe
+                            .result
+                            .capabilities
+                            .contains(&"session.set_model".to_string())
+                    );
+                }
             }
         }
     }

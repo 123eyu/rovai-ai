@@ -100,12 +100,20 @@ Core 在现有 invocation_gate 内定位唯一 Hermes Conversation，取得其�
 
 ## 模型、权限、Skills 与 MCP
 
-模型目录/选择使用原生 `session/set_model`，文件编辑策略使用 `session/set_mode`。
+模型目录只服务菜单，不承担执行准入：原生 Session 创建成功时，缺失、损坏或不完整的目录不使
+Hermes 不可用，也不合成猜测的模型项。原生默认沿用会话状态；显式选择的完整模型 ID 交给
+`session/set_model`，由原生确认或拒绝，失败不回退默认模型。文件编辑策略使用 `session/set_mode`。
+本次 new/resume 明确返回相同完整模型 ID 或相同 `currentModeId` 时，跳过对应设置请求；不同或
+缺失时正常设置。不归一化 Provider/别名，不增加状态查询、跨 Run 缓存或 warm 管理。
 不以通用配置空 ACK 冒充设置成功；reasoning/Fast 沿原生配置。权限请求走共享 ACP，
 文件审批模式不是命令审批或 OS sandbox；CoreEnforced read-only 仍拒绝。
 
-Skills 完全沿原生 Home、external_dirs/create_dir 和原生项目发现语义，不再由私有 Home 转换路径。
-Rovai 既有 Skill 文件/链接管理继续使用共享能力，目录索引不等于原生实际加载证明。
+Hermes 自己继续按原生配置加载 Skills。Rovai 的文件候选固定扫描执行 Host 用户 Home 下
+`.hermes/skills`、`.agents/skills`；当前对话另扫描已有项目根下的同名两个目录，不向上找 Git 根。
+全局设置只读用户级，没有项目则不读项目级。公共扫描、缓存、预览、文件去重和显式引用保持原义。
+不解析 Hermes 配置中的外部/创建目录、禁用、平台或信任条件；任意非约定目录不自动加入菜单。
+候选只证明文件已发现，不证明原生启用或加载。未启用文档也可由用户显式引用；未选中项不会
+因扫描加入模型输入。Rovai 不修改 Hermes 配置，原生加载其他目录的行为不受影响。
 
 MCP 当前分配直接随原生 new/resume 参数提供；不二次发现、不改用户配置排除同名服务。
 同名策略保持未知（`sameNamePolicy: null`），撤下旧 `rovai_wins` 能力，不承诺覆盖原生配置的同名服务。

@@ -4,13 +4,14 @@ authority: renderer-theme
 status: accepted
 theme_id: ember
 mode: dark
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
-# 余烬
+# 绯夜
 
 ## Identity and mode
 
+显示名称为绯夜 / Crimson Night，原名余烬 / Ember。
 稳定 `ThemeId` / `ThemePreference` 为 `ember`，明暗模式为 `night`，
 `color-scheme: dark`。与原有主题共享生产组件、页面、能力与状态。
 
@@ -48,6 +49,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--surface-subtle` | `#252525` |
 | `--surface-muted` | `#333333` |
 | `--surface-selected` | `#373737` |
+| `--scrollbar-thumb` | `#373737` |
 | `--surface-hover` | `#303030` |
 | `--surface-sunken` | `#191919` |
 | `--workspace-surface-subtle` | `#222222` |

@@ -4,13 +4,14 @@ authority: renderer-theme
 status: accepted
 theme_id: classic-red
 mode: light
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
-# 经典红
+# 朝霞
 
 ## Identity and mode
 
+显示名称为朝霞 / Dawn Glow，原名经典红 / Classic Red。
 稳定 `ThemeId` / `ThemePreference` 为 `classic-red`，明暗模式为 `day`，
 `color-scheme: light`。与原有主题共享生产组件、页面、能力与状态。
 
@@ -18,7 +19,7 @@ last_updated: 2026-10-23
 
 纯白阅读区、浅灰气泡与轻红侧栏，樱桃红用于实心主操作和选中勾；导航与操作文字使用中性深灰，
 Logo 保留 Steel 与 Ember 原色。User 在主题设计 Thread sequence 40 选择 A「轻红侧栏」，
-通过区域底色体现经典红，避免红字和大面积鲜红选中块。
+通过区域底色体现红色主题，避免红字和大面积鲜红选中块。
 继续遵守 sequence 18 的交互边界，不加入生产没有的聚焦效果或功能。
 
 ## Surface hierarchy and color responsibilities
@@ -27,6 +28,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
 实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
 侧栏为 `#f8f5f6`，选中区域为低饱和灰红 `#eee4e6`；会话、输入、执行台与队员浮层保持白色。
+滚动块使用独立中性灰 `--scrollbar-thumb: #dedede`，不复用淡红选中面。
 外观选项选中面由 `--settings-choice-selected-surface` 拥有，沿用生产 radio、尺寸和焦点行为。
 
 ## Complete semantic token assignments
@@ -52,6 +54,7 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 | `--surface-subtle` | `#f7f6f6` |
 | `--surface-muted` | `#f0ebec` |
 | `--surface-selected` | `#eee4e6` |
+| `--scrollbar-thumb` | `#dedede` |
 | `--surface-hover` | `#f2ebed` |
 | `--surface-sunken` | `#eae7e8` |
 | `--workspace-surface-subtle` | `#f7f7f7` |

@@ -52,7 +52,7 @@ use decoration to soften or obscure commands, diffs, approvals, errors or uncert
 - identity, status, evidence and brand colors kept semantically separate;
 - one shared component and state matrix across all themes.
 
-Horizon, Classic Red and Ember extend this same visual world through semantic palettes. They keep
+Morning Mist, Dawn Glow and Crimson Night extend this same visual world through semantic palettes. They keep
 the production component tree and interactions, including the absence of decorative input focus effects.
 Their complete values and mode mappings live in the [theme registry](docs/ui/themes/README.md).
 

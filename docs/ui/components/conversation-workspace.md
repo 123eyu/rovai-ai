@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # Camp 会话工作区
@@ -561,7 +561,7 @@ panel 保留明确的收起按钮与 `Esc`，对象菜单和确认 Dialog 打开
 
 底部、详情浮层与右侧标签中的执行台使用同一背景：外壳、队员入口区、详情操作栏、所有状态的 Run 卡片及其标题与空白区域均使用
 `--execution-surface`；运行卡片不再使用单独底色，具体色值由[主题合同](../themes/README.md)拥有。
-日间、夜间、经典红与余烬沿用原会话底色值，地平线使用中性白执行台，与轻暖会话阅读区分离。
+日间、夜间、朝霞与绯夜沿用原会话底色值，晨雾使用中性白执行台，与轻暖会话阅读区分离。
 “会话 / 地图”视图按钮仍使用原有 `--brand-soft`。选中态、状态形状、
 边框、焦点及工具结果的专用 Evidence 底色保持各自语义，不用背景分层改变执行状态或交互。
 详情操作栏与运行卡片将弱提示文字局部提升到 `--muted`，保证日夜主题的文字对比度，不改变历史 Run 与会话区文字层级。

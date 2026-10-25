@@ -47,6 +47,8 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 重点采用 sequence 45/46 的内存直传替换和 48 的收口结论；Command 当前实现已合入本分支基线
 `1028095f6`。此次核对 Hermes `34dd2e2f9`，不把参考 Thread 早期已删除的正文文件、恢复前 list
 或旧更新时机继续算作 Command 当前行为。对应[Command 收口记录](../../versions/v1.72/command-code-native-simplification.md)。
+随后同步主线 `4d8625c94`，保留 Command 的 Windows 进程所有权修复；本表所述 Hermes 接入边界未变。
+主线迁移编号整合及合流后回归见[实施记录](../../versions/v1.72/hermes-first-input-implementation.md#主线集成)。
 
 结论：Hermes 原私有 Home、启动器、第二事件通道、配置解释器、Hook/压缩补发、context.json
 投影、配置兼容摘要及逐 Run CLI 安装均已退出生产。当前没有发现需要再次重构的 Hermes

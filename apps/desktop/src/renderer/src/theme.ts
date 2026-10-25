@@ -28,20 +28,20 @@ export const THEME_OPTIONS: ReadonlyArray<{
   },
   {
     value: 'horizon',
-    label: '地平线',
-    englishLabel: 'Horizon',
+    label: '晨雾',
+    englishLabel: 'Morning Mist',
     description: ''
   },
   {
     value: 'classic-red',
-    label: '经典红',
-    englishLabel: 'Classic Red',
+    label: '朝霞',
+    englishLabel: 'Dawn Glow',
     description: ''
   },
   {
     value: 'ember',
-    label: '余烬',
-    englishLabel: 'Ember',
+    label: '绯夜',
+    englishLabel: 'Crimson Night',
     description: ''
   }
 ]

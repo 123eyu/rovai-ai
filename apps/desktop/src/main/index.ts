@@ -751,7 +751,7 @@ function publishAppearance(): AppearanceSnapshot {
   const signature = JSON.stringify(snapshot)
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setBackgroundColor(themeBackground(resolveThemeId(snapshot.preference, snapshot.resolvedTheme)))
-    applyWindowChromeAppearance(mainWindow, process.platform, snapshot.resolvedTheme)
+    applyWindowChromeAppearance(mainWindow, process.platform, snapshot)
   }
   if (signature !== lastAppearanceSignature) {
     lastAppearanceSignature = signature
@@ -791,7 +791,6 @@ function createWindow(): void {
     throw new Error('Desktop Shell preferences are not ready')
   }
   const initialAppearance = appearanceSnapshot()
-  const theme = initialAppearance.resolvedTheme
   const windowStatePath = join(app.getPath('userData'), 'window-state.json')
   const displayAreas = screen.getAllDisplays().map((display) => display.workArea)
   const savedState = sanitizeWindowState(
@@ -811,8 +810,8 @@ function createWindow(): void {
     minHeight: MIN_WINDOW_HEIGHT,
     show: false,
     title: APP_NAME,
-    ...windowChromeOptions(process.platform, theme),
-    backgroundColor: themeBackground(resolveThemeId(initialAppearance.preference, theme)),
+    ...windowChromeOptions(process.platform, initialAppearance),
+    backgroundColor: themeBackground(resolveThemeId(initialAppearance.preference, initialAppearance.resolvedTheme)),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.js'),
       contextIsolation: true,

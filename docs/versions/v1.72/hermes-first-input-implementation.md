@@ -303,6 +303,19 @@ whitespace 检查通过；文档单测 10 项、当前与 diff-aware 文档门�
 User sequence 93 要求的剩余复杂度与 14 轴对照见[当前研究记录](../../research/hermes-runtime/README.md#与-command-简化原则及-checklist-的当前对照2026-10-25)，
 本轮只核对其他 Runtime 的代码和既有证据，没有替它们重新做真实模型验收。
 
+### 主线集成
+
+同步主线 `4d8625c94` 时保留已合入的 Team 指引 Migration 214 / schema 164；未上线的 Hermes
+catalog 与规则证据迁移顺延到 215 / schema 165、216 / schema 166。没有新增业务字段、迁移旧实验
+数据或修改模型比较语义；历史验收所用的旧编号保留原义。现有 catalog、规则、Team 指引及数据库
+准入测试继续拥有升级、回滚、重开和数据保留验证。
+
+合流后重新执行默认 workspace：**480 passed / 0 failed / 1 ignored**；`--features
+slow-tests,extended-tests --lib hermes` 4 项以及 catalog、Team 指引、当前数据库准入、Bootstrap
+回滚、迁移状态矩阵、ACP 模型选择 6 个既有 owners 均通过（与默认套件有重叠，不累加）。
+Core/CLI 构建、fmt、TypeScript typecheck、Product Contract fingerprint、文档单测与文档门禁通过。
+真实模型记录仍明确归属于 `34dd2e2f9`；本次主线集成没有再调用真实模型，也没有启动日常 App。
+
 ## 历史 R1 实施
 
 按当时 R1 和 User sequence 31 实施。

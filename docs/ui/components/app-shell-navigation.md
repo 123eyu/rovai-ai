@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-app-shell-navigation
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-25
 ---
 
 # App Shell 与统一侧栏
@@ -322,7 +322,8 @@ macOS 保留 hidden title bar 与受控 drag region；新对话、设置、队�
 固定 50px 的透明拖拽带，位于顶部的交互控件保留明确的 `no-drag` 点击区域。Windows 隐去包含 App 图标与
 `Rovai AI` 的系统标题文字层和系统 menu bar 呈现，只以 Renderer 投影 `File / Edit / View / Window` 顶层入口；
 入口经受限 IPC 打开既有 Electron 原生 submenu，不重建 command 或 accelerator。顶层菜单行与 Window Controls Overlay
-都使用 `--rail` 对应色并跟随 Day / Night，行高读取系统 WCO environment value 适配 DPI；侧栏顶部预留仅在 Windows
+都使用当前有效 `ThemeId` 的 `--rail` 对应色，caption 图标使用对应 `--ink`；建窗与切换均覆盖五套配色，
+`system` 跟随 Day / Night。行高读取系统 WCO environment value 适配 DPI；侧栏顶部预留仅在 Windows
 从 38px 收至 8px。Windows caption buttons、Snap Layout、Alt+Space、双击拖拽区和多屏 DPI 仍由系统拥有，Renderer
 不复制 submenu、窗口按钮或第二个 App 标题，其他页面结构和内容不因平台变化。
 

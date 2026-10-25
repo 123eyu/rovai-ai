@@ -64,8 +64,8 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
         anyhow::ensure!(
             matches!(classify_database_contract(&tx)?,
             DatabaseContractClassification::SupportedMigrationSource(ref marker)
-                if marker.contract_version == "v1.72" && marker.projection_schema_version == 163),
-            "Hermes catalog migration requires v1.72/schema 163"
+                if marker.contract_version == "v1.72" && marker.projection_schema_version == 164),
+            "Hermes catalog migration requires v1.72/schema 164"
         );
         let tables: Vec<_> = DSH_RUNTIME_TABLES
             .iter()
@@ -89,13 +89,13 @@ pub(super) fn migrate(database: &mut Database) -> Result<()> {
                 "Hermes catalog migration changed {table} rows"
             );
         }
-        tx.execute_batch("INSERT INTO schema_migration VALUES(214,datetime('now'));
-            UPDATE rovai_data_contract SET projection_schema_version=164,updated_at=datetime('now') WHERE singleton=1;")?;
+        tx.execute_batch("INSERT INTO schema_migration VALUES(215,datetime('now'));
+            UPDATE rovai_data_contract SET projection_schema_version=165,updated_at=datetime('now') WHERE singleton=1;")?;
         validate_migration_foreign_keys(&tx, &tables)?;
         anyhow::ensure!(
             matches!(
                 classify_database_contract(&tx)?,
-                DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 164
+                DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 165
             ),
             "Hermes catalog migration failed schema admission"
         );
@@ -113,7 +113,7 @@ pub(super) fn downgrade_for_test(c: &Connection) {
     downgrade_rules_for_test(c);
     let applied: bool = c
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=214)",
+            "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=215)",
             [],
             |r| r.get(0),
         )
@@ -124,7 +124,7 @@ pub(super) fn downgrade_for_test(c: &Connection) {
     c.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
     let tx = c.unchecked_transaction().unwrap();
     rewrite(&tx, true).unwrap();
-    tx.execute_batch("DELETE FROM schema_migration WHERE version=214; UPDATE rovai_data_contract SET projection_schema_version=163 WHERE singleton=1;").unwrap();
+    tx.execute_batch("DELETE FROM schema_migration WHERE version=215; UPDATE rovai_data_contract SET projection_schema_version=164 WHERE singleton=1;").unwrap();
     tx.commit().unwrap();
     c.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
 }
@@ -173,15 +173,15 @@ pub(super) fn migrate_rules(database: &mut Database) -> Result<()> {
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     anyhow::ensure!(
         matches!(classify_database_contract(&tx)?,
-        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 164),
-        "Hermes rules migration requires schema 164"
+        DatabaseContractClassification::SupportedMigrationSource(ref marker) if marker.projection_schema_version == 165),
+        "Hermes rules migration requires schema 165"
     );
     tx.execute_batch("ALTER TABLE runtime_input_delivery ADD COLUMN hermes_rules_envelope_version INTEGER CHECK(hermes_rules_envelope_version = 1);
         ALTER TABLE runtime_input_delivery ADD COLUMN hermes_rules_digest TEXT;
         ALTER TABLE runtime_input_delivery ADD COLUMN hermes_rules_delivery_kind TEXT CHECK(hermes_rules_delivery_kind IN ('initial','update','compaction_recovery','none'));
         ALTER TABLE runtime_input_delivery ADD COLUMN hermes_runtime_payload_blob_id TEXT REFERENCES managed_blob(id);
-        INSERT INTO schema_migration VALUES(215,datetime('now'));
-        UPDATE rovai_data_contract SET projection_schema_version=165,updated_at=datetime('now') WHERE singleton=1;")?;
+        INSERT INTO schema_migration VALUES(216,datetime('now'));
+        UPDATE rovai_data_contract SET projection_schema_version=166,updated_at=datetime('now') WHERE singleton=1;")?;
     anyhow::ensure!(
         matches!(
             classify_database_contract(&tx)?,
@@ -196,7 +196,7 @@ pub(super) fn migrate_rules(database: &mut Database) -> Result<()> {
 #[cfg(test)]
 pub(super) fn downgrade_rules_for_test(c: &Connection) {
     if c.query_row(
-        "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=215)",
+        "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version=216)",
         [],
         |r| r.get::<_, bool>(0),
     )
@@ -207,8 +207,8 @@ pub(super) fn downgrade_rules_for_test(c: &Connection) {
             ALTER TABLE runtime_input_delivery DROP COLUMN hermes_rules_digest;
             ALTER TABLE runtime_input_delivery DROP COLUMN hermes_rules_delivery_kind;
             ALTER TABLE runtime_input_delivery DROP COLUMN hermes_runtime_payload_blob_id;
-            DELETE FROM schema_migration WHERE version=215;
-            UPDATE rovai_data_contract SET projection_schema_version=164 WHERE singleton=1;",
+            DELETE FROM schema_migration WHERE version=216;
+            UPDATE rovai_data_contract SET projection_schema_version=165 WHERE singleton=1;",
         )
         .unwrap();
     }
@@ -225,7 +225,7 @@ mod rules_tests {
             .connection()
             .query_row("SELECT COUNT(*) FROM agent_profile", [], |r| r.get(0))
             .unwrap();
-        database.connection().execute_batch("CREATE TEMP TRIGGER fail_rules_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=215 BEGIN SELECT RAISE(ABORT,'rules rollback'); END;").unwrap();
+        database.connection().execute_batch("CREATE TEMP TRIGGER fail_rules_receipt BEFORE INSERT ON schema_migration WHEN NEW.version=216 BEGIN SELECT RAISE(ABORT,'rules rollback'); END;").unwrap();
         assert!(
             migrate_rules(&mut database)
                 .unwrap_err()

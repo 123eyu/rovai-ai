@@ -3,10 +3,12 @@ document_type: implementation-record
 version: v1.72
 lifecycle: current
 authority: implementation-evidence
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
-# 地平线、经典红与余烬实施
+# 晨雾、朝霞与绯夜实施
+
+三款主题原名地平线、经典红、余烬；下文历史记录保留当时名称，当前显示名称见末尾更名记录。
 
 User 最初在主题设计 Thread sequence 18 确认使用独立 worktree 实施第六版配色与六项紧凑选择器，
 并明确不加入生产没有的功能、输入框聚焦装饰或原型专属行为。
@@ -131,13 +133,60 @@ Logo 恢复 Steel `#526f88` 与 Ember `#d3a45f`。会话、执行台和队员浮
 本次视觉验收使用固定数据，不启动 Host/Core/Runtime，也不读写日常 App 数据。
 未重复原生 Windows/macOS 系统明暗切换、IME 与辅助技术验收；此配色修订不改变这些入口。
 
+## Windows 窗口按钮与经典红滚动块（Thread sequence 42）
+
+User 指出 Windows 菜单栏切换主题后，右上角最小化、最大化与关闭区域没有同步，
+并质疑经典红滚动块的粉色。根因分别是 Main 只向窗口装饰传递明暗模式，以及滚动块复用了选中区域 Token。
+
+- 窗口装饰接收含具体偏好的 appearance snapshot，启动与运行时更新共用配色解析。
+  五套配色分别匹配 `--rail` / `--ink`，`system` 继续解析为日间或夜间；原生按钮、系统高度与交互不变。
+- 增加独立 `--scrollbar-thumb`，经典红使用中性灰 `#dedede`；其他四套配色保持原滚动块色值。
+  通用滚动条和 Mission 文件树使用该 Token，Memory / Automation 保留已有无彩色覆盖。
+  淡红选中面、透明轨道、尺寸与交互均不变。
+- 现有窗口装饰测试扩展为六项偏好 × 两种明暗模式，检查建窗与运行时颜色均匹配生产 Token，
+  同时保留 macOS / Linux 边界与系统默认高度检查。针对性回归 58 项通过。
+- `pnpm typecheck`、`pnpm test`、`pnpm build:desktop` 通过；Vitest 256 个文件、3005 项通过、2 项既有跳过。
+  同步主线 PR #890 后，类型检查、完整 JavaScript 测试与桌面构建复验通过。
+- 同步主线后的 `pnpm test:rust:pr` 477 项通过、1 项既有忽略；本机 Rust 1.98 工具链仍报告缺少 `libLLVM.dylib`
+  的调试信息剥离警告，不影响构建和测试结果。
+- 生产组件浏览器 fixture 验证六项切换；经典红滚动块为 `rgb(222, 222, 222)`，选中面仍为 `#eee4e6`，
+  轨道透明、可见滚动块宽 8px，实际滚动正常，无整页横向溢出和浏览器 warning/error。
+- 当前运行环境为 macOS；Windows 原生窗口按钮未做真机实测，不以浏览器 fixture 替代原生验收。
+- 文档与五套主题合同同步更新；通用文档测试、版本/决策门禁与基于本次 main 基线的 CI 门禁通过。
+  核对另发现日间/夜间附件色表分别有 8/6 项既有文档—实现偏差，已记录到任务的 palette audit；
+  本次新增滚动块 Token 的合同与实现一致，既有配色值没有变化。
+
+## 显示名称统一（Thread sequence 44–48）
+
+User 要求三款名称具有一致风格，并指出「暮色」没有体现暗色配色中的红色。
+最终采用晨雾、朝霞、绯夜，在 sequence 48 授权完成后 PR 合入 main。
+
+| 原显示名称 | 新显示名称 | 英文显示名称 | 稳定 `ThemeId` |
+|---|---|---|---|
+| 地平线 | 晨雾 | Morning Mist | `horizon` |
+| 经典红 | 朝霞 | Dawn Glow | `classic-red` |
+| 余烬 | 绯夜 | Crimson Night | `ember` |
+
+更新共用主题选项、英文翻译、既有设置测试与当前 UI 文档。稳定 ID、CSS 选择器、合同路径、
+偏好存储、所有配色值和生产交互保持原样，旧偏好无需迁移；system/day/night 继续保留。
+历史设计稿与实施记录保留当时名称；品牌 Ember 色及 Logo 地平线几何不属于主题显示名称。
+
+- `pnpm typecheck`、`pnpm test`、`pnpm build:desktop`：通过；Vitest 256 个文件、3005 项通过、2 项既有跳过，完整 Node 门禁通过。
+- `pnpm test:rust:pr`：477 项通过、1 项既有忽略；本机 Rust 1.98 工具链仍报告缺少 `libLLVM.dylib`
+  的调试信息剥离警告，不影响构建和测试结果。
+- 通用文档测试、版本/决策检查随完整测试通过；最终提交另执行基于本次 main 基线的 CI 文档门禁。
+- 生产组件浏览器 fixture 确认六个选项完整显示，新中英文名称、选中摘要及明暗模式正确；
+  仍分别提交 `horizon` / `classic-red` / `ember`，无整页横向溢出或浏览器 warning/error。
+- CSS 去除注释后与本次 main 基线完全一致，所有配色值与生产样式保持不变；仅更新既有测试的名称预期。
+- 已保存外观设置截图与命名映射检查结果；fixture 使用固定数据，不接入 Host/Core/Runtime，不改动日常 App 数据。
+
 ## Worktree handoff
 
-- Work item: 按 User sequence 40 实施经典红 A「轻红侧栏」。
-- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-classic-red`
-- Branch: `rovai/classic-red-soft-surfaces`
-- Base: `origin/main` / `984e82281ee57c5b33ac5ec320d1e4bf52e4cf4a`
-- Integrated main: `4fe005decd5eaf54b81265943f71e80a7014f75e`
-- Governance: none；User 已授权配色修订与 PR 合入，UI 合同随同提交。
+- Work item: User sequence 44–48 的三款主题显示名称统一。
+- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-theme-names`
+- Branch: `rovai/theme-display-names`
+- Base: `origin/main` / `179289b080d74a8868c7d7de8bfb5dd99508a292`
+- Governance: none；局部可逆名称修订，沿用已授权的 PR 与合入流程，UI 合同随同提交。
 - Status: ready
-- Next: 按既有授权创建 PR，CI 通过后合入 main 并清理 worktree。
+- Validation: 见上节；源码预览提交 `53b4f061eac1abd086827b11ab724f24220c7bb3`。
+- Next: 创建 PR，CI 通过后合入 main 并清理 worktree。

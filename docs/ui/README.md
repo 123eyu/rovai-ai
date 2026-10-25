@@ -4,7 +4,7 @@ authority: renderer-ui-routing
 status: accepted
 design_direction: porcelain-day-steel-night
 target_version: cross-version
-last_updated: 2026-10-17
+last_updated: 2026-10-25
 ---
 
 # Rovai AI UI 规范
@@ -14,7 +14,7 @@ last_updated: 2026-10-17
 
 ## 当前视觉系统
 
-Porcelain Day、Steel Night、地平线、经典红与余烬是同一 Rovai AI 视觉世界的五套生产配色。它们共享组件树、功能和
+Porcelain Day、Steel Night、晨雾、朝霞与绯夜是同一 Rovai AI 视觉世界的五套生产配色。它们共享组件树、功能和
 状态矩阵；`system` 跟随当前宿主 OS 的应用主题解析策略。全局排版、空间、形状、深度、色彩职责和基础组件
 规则由 [`DESIGN.md`](../../DESIGN.md) 统一拥有。
 
@@ -27,7 +27,7 @@ Porcelain Day、Steel Night、地平线、经典红与余烬是同一 Rovai AI �
 - [主题注册、首屏解析与新增流程](themes/README.md)
 - [Porcelain Day 完整 Token 合同](themes/porcelain-day.md)
 - [Steel Night 完整 Token 合同](themes/steel-night.md)
-- [地平线](themes/horizon.md)、[经典红](themes/classic-red.md)、[余烬](themes/ember.md)
+- [晨雾](themes/horizon.md)、[朝霞](themes/classic-red.md)、[绯夜](themes/ember.md)
 - [新主题模板](themes/_template.md)
 
 完整色值只在主题文档和生产 Token block 中维护。组件不得添加主题专属十六进制或按主题分叉

@@ -4,13 +4,14 @@ authority: renderer-theme
 status: accepted
 theme_id: horizon
 mode: light
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
-# 地平线
+# 晨雾
 
 ## Identity and mode
 
+显示名称为晨雾 / Morning Mist，原名地平线 / Horizon。
 稳定 `ThemeId` / `ThemePreference` 为 `horizon`，明暗模式为 `day`，
 `color-scheme: light`。与原有主题共享生产组件、页面、能力与状态。
 
@@ -55,6 +56,7 @@ User 在主题设计 Thread sequence 30 选择恢复 `rovai-horizon-refined-v7.h
 | `--surface-subtle` | `#f4f4f2` |
 | `--surface-muted` | `#eaeae7` |
 | `--surface-selected` | `#e9e9e4` |
+| `--scrollbar-thumb` | `#e9e9e4` |
 | `--surface-hover` | `#eeeeea` |
 | `--surface-sunken` | `#e9e9e6` |
 | `--workspace-surface-subtle` | `#f5f5f3` |

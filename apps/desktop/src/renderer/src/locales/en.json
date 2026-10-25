@@ -4084,7 +4084,7 @@
   "添加队员，组建你的团队。": "Add teammates to build your team.",
   "移出团队": "Remove",
   "设 {0} 为队长": "Make {0} lead",
-  "请填写团队名称，选择队员和队长；指引最多 1000 字。": "Enter a team name and select teammates and a lead. Guidelines allow up to 1,000 characters.",
+  "请填写团队名称，选择队员和队长；指引最多 10000 字。": "Enter a team name and select teammates and a lead. Guidelines allow up to 10,000 characters.",
   "请检查团队名称、队员、队长和指引长度。": "Check the team name, teammates, lead and guideline length.",
   "返回团队列表": "Back to teams",
   "选择团队": "Choose team",

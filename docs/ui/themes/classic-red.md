@@ -11,25 +11,20 @@ last_updated: 2026-10-25
 
 ## Identity and mode
 
-显示名称为朝霞 / Dawn Glow，原名经典红 / Classic Red。
-稳定 `ThemeId` / `ThemePreference` 为 `classic-red`，明暗模式为 `day`，
-`color-scheme: light`。与原有主题共享生产组件、页面、能力与状态。
+- 显示名称：朝霞 / Dawn Glow
+- 稳定 `ThemeId` / `ThemePreference`：`classic-red`
+- 明暗模式：`day`；`color-scheme: light`
 
 ## Design intent
 
-纯白阅读区、浅灰气泡与轻红侧栏，樱桃红用于实心主操作和选中勾；导航与操作文字使用中性深灰，
-Logo 保留 Steel 与 Ember 原色。User 在主题设计 Thread sequence 40 选择 A「轻红侧栏」，
-通过区域底色体现红色主题，避免红字和大面积鲜红选中块。
-继续遵守 sequence 18 的交互边界，不加入生产没有的聚焦效果或功能。
+纯白阅读区、浅灰气泡与轻红侧栏。通过区域底色表达红色主题；樱桃红用于实心主操作和选中勾。
+导航与操作文字保持中性深灰，Logo 使用既有 Steel 与 Ember 色。
 
 ## Surface hierarchy and color responsibilities
 
-Canvas、rail、conversation、raised/input 通过明度和底色形成层次；消息气泡使用生产几何与同色边线。
-品牌、状态、身份、证据色保持独立；Memory 专用工作区沿用无彩色面。
-实心操作与表面上的操作文字分别由 `--conversation-action` 与 `--conversation-action-ink` 拥有。
-侧栏为 `#f8f5f6`，选中区域为低饱和灰红 `#eee4e6`；会话、输入、执行台与队员浮层保持白色。
-滚动块使用独立中性灰 `--scrollbar-thumb: #dedede`，不复用淡红选中面。
-外观选项选中面由 `--settings-choice-selected-surface` 拥有，沿用生产 radio、尺寸和焦点行为。
+侧栏使用轻红底，选中区域使用低饱和灰红，避免大面积鲜红选中块。
+会话、输入、执行台与队员浮层保持白色；滚动块使用独立中性灰。
+控件、消息、品牌、状态、身份和 Memory 的规则继承 [DESIGN.md](../../../DESIGN.md#colors)。
 
 ## Complete semantic token assignments
 
@@ -230,16 +225,15 @@ Canvas、rail、conversation、raised/input 通过明度和底色形成层次；
 ## Contrast requirements
 
 共享主题测试验证普通正文、静音文字、状态标签、八种身份文字与消息气泡正文至少 4.5:1；
-会话控件及选择器强边界至少 3:1。原型配色仅在不满足实际表面对比度时作小幅调整。
+会话控件及选择器强边界至少 3:1。焦点行为遵循[无障碍基线](../qa/accessibility.md)。
 
 ## Prohibited substitutions
 
-不使用自动反色，不复制组件，不按主题分叉业务结构，不引入原型的聚焦光晕、额外边框变化或评审工具。
+不自动反色、不分叉组件，不增加主题专属交互或聚焦装饰。
 
 ## Implementation and verification
 
 真源：[共享 Token](../../../packages/ui/src/theme.css)、
 [主题解析](../../../apps/desktop/src/shared/appearance.ts)、
 [对比度测试](../../../apps/desktop/src/renderer/src/theme-tokens.test.ts)。
-按[共享矩阵](../qa/theme-matrix.md)验证，当前范围和证据见
-[实施记录](../../versions/v1.72/theme-palettes-implementation.md)。
+按[共享矩阵](../qa/theme-matrix.md)验证全部配色、状态、浮层与平台边界。

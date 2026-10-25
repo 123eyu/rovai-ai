@@ -849,12 +849,12 @@ impl AgentRuntimeAdapterRegistry {
             return match platform {
                 HostPlatformKey::MacosArm64
                 | HostPlatformKey::MacosX64
+                | HostPlatformKey::WindowsX64
                 | HostPlatformKey::LinuxX64 => RuntimePlatformAdmission::preview(
                     kind,
                     platform,
                     RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
                 ),
-                HostPlatformKey::WindowsX64 => unqualified(),
             };
         }
         // Deferred products retain their ACP implementation and persisted identity.

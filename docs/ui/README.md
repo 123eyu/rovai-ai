@@ -44,8 +44,6 @@ Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brie
 - [Desktop/Web 对照与验收](host-web-parity.md)
 - [Mobile WebUI](host-web-mobile.md)
 - [Windows 展示与交互差异](windows-interaction-delta.md)
-- [Runtime 目录与平台准入](../architecture/runtime-catalog-boundaries.md)：Command Code 在 macOS
-  Apple Silicon、Intel 与 Linux x64 沿 Preview 开放；Cursor 与 Cline 暂缓公开，Renderer 不另建平台白名单。
 
 平台规则只拥有窗口、输入、系统主题和本机能力差异，不建立另一套产品结构。
 
@@ -65,3 +63,9 @@ Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brie
 - [当前版本](../versions/README.md)拥有范围、进度和实施证据；Version Decisions 保存决定理由。
 - `DESIGN.md` 拥有全局设计；主题合同拥有完整 Token；组件合同拥有复杂交互；brief 拥有局部构图。
 - 代码与测试证明实现。发现文档—实现漂移时指出双方与本次修复范围；`accepted` 不代表已完成验收。
+
+## Runtime 平台路由
+
+Runtime 入口消费 Core 的[平台准入](../contracts/runtime-platform-admission-v2.md)与[产品范围](../architecture/runtime-catalog-boundaries.md)。
+Command Code 在 macOS Apple Silicon、Intel、Windows x64 与 Linux x64 沿现有 Preview 开放；
+设置、引导、队员选择和 CLI 使用同一准入。正常状态不增加实验标签，检查详情保留完整资格记录未齐备的说明。

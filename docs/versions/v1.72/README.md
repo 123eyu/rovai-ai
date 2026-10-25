@@ -1203,3 +1203,9 @@ MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口�
 同日 Windows x64 完成真实功能补验后也按 Preview 开放，Linux 保持 NotQualified，1.88.0 稳定版下限保持。
 Windows 实测与残余边界见[Windows Preview 开放](command-code-native-simplification.md#windows-preview-开放2026-10-25)，不新增专属检查或宣称完整资格。
 取舍见 [V1.72-D60](decisions.md#v1-72-d60)，本次回归与未实测项记录在同一简化报告。
+
+
+2026-10-25 Linux x64 随独立目标机验收开放 Command Code Preview，保持官方稳定版 ≥1.88.0。
+真实 Core/浏览器、能力、生命周期和已接受差异分别记录于
+[Linux 验收](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)；
+公开范围见 [V1.72-D61](decisions.md#v1-72-d61)，不增加 Runtime 管理机制。

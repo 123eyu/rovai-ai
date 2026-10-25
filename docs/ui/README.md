@@ -67,5 +67,5 @@ Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brie
 ## Runtime 平台路由
 
 Runtime 入口消费 Core 的[平台准入](../contracts/runtime-platform-admission-v2.md)与[产品范围](../architecture/runtime-catalog-boundaries.md)。
-Command Code 在 macOS Apple Silicon、Intel 与 Windows x64 沿现有 Preview 开放，Linux 保持限制；
+Command Code 在 macOS Apple Silicon、Intel、Windows x64 与 Linux x64 沿现有 Preview 开放；
 设置、引导、队员选择和 CLI 使用同一准入。正常状态不增加实验标签，检查详情保留完整资格记录未齐备的说明。

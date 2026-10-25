@@ -1293,3 +1293,20 @@ Preview。保留原生 Windows MCP 路径／参数及拒绝后缺少最终回复
 公开入口共用现有产品目录和 Core 平台准入，不增加 Renderer 平台白名单、专属检查、实验标签或启动分支。
 拒绝继续全平台隐藏 Command，也不凭单平台原生试验直接标为 qualified。此次只改变准入范围，不调整
 Bootstrap、Host/Session 生命周期或用户原生配置；后续完整资格仍须以实际平台证据确认。
+
+
+<a id="v1-72-d61"></a>
+## V1.72-D61：Command Code Linux 随目标机验收开放 Preview
+
+- 状态：accepted
+- 日期：2026-10-25
+- 确认：维护者要求“剩下的赶紧跑完”，随后要求 Linux 完成后更新到 macOS 开放分支。
+- 当前权威：[Runtime Platform Admission v2](../../contracts/runtime-platform-admission-v2.md#9-command-code-linux-preview)、[Command Code ACP 边界](../../architecture/runtime-catalog-boundaries.md#command-code-acp-实施边界)。
+
+GNU x64 目标机已用官方 1.88.0、真实 Sub2API 与隔离 Core/浏览器执行验收。选择沿既有 Preview
+开放 Linux，保持稳定版 ≥1.88.0、原生配置所有权和共享 Fleet；不继续全平台隐藏，也不把单台机器
+证据扩张为所有发行版或子代理的完整资格。Windows 的公开范围独立决定。
+
+官方 ACP 将 shell `exit 7` 的 Tool 状态报告为 completed，输出仍包含实际 Exit code: 7；Core 如实
+采用该状态。维护者明确接受这项差异，本轮不再以它阻断开放；不从输出文本另造退出码解析或状态管理。
+其余未通过或未覆盖项按实际证据记录，不由这一接受决定自动豁免。

@@ -238,6 +238,109 @@ user 为零。四次 codemode 调用均以同一原生 Tool ID 关联 ACP comple
 关闭 stdin 并执行夹具进程组清理后，8 个已记录 PID 均不存在，隔离目录已删除；仅导出脱敏结果。
 这证明当前原生 ACP 与 Mod/MCP 交付，不冒称已经经过产品 Core/App 的完整 AgentRun、审批取消或跨平台资格。
 
+## Bootstrap 直接传输验证（2026-10-25，仅方案验证）
+
+**固定 1.88.0 已找到并验证逐轮直接传输的候选：通过现有 ACP 调用官方 Mod 命令，更新 Mod 内存中的
+Bootstrap，再由原有 System hook 交付。它通过了同 PID／Session 的 A→B→A，不只是启动参数传一次。**
+本节只记录试验，不改变生产接入；当前实现仍使用 binding 文件，公开资格不变。
+
+对照 worktree HEAD 为 `9807c9261786b95cf72cf838ac5ea30d2fb99fa7`。使用官方 npm
+[`command-code@1.88.0`](https://registry.npmjs.org/command-code/-/command-code-1.88.0.tgz)，实际 executable 的
+`--version` 与 ACP initialize 均为 1.88.0。发布包完整性及 `dist/cli.mjs` SHA-256 记录在既有证据 JSON；
+bundle SHA-256 为 `600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd`。
+环境为 macOS arm64、独立 HOME/cwd、本地确定性模型和合成认证占位值；没有外部模型请求、真实凭据
+或日常配置写入。这不验证原生账号／BYOK 认证，也不把测试 HOME 变为生产方案。
+
+### A：实际入口与消费位置
+
+核对[官方 CLI](https://commandcode.ai/docs/reference/cli)、[Mod API](https://commandcode.ai/docs/mods)、
+[ACP](https://commandcode.ai/docs/acp)及固定发布包。官网的
+[1.87.2 变更记录](https://commandcode.ai/changelog)只是查找线索，以下结论来自 1.88 包和实际请求：
+
+| 入口 | 固定包的实际行为 | 判断 |
+| --- | --- | --- |
+| `--mod-option name=value` | ACP 启动路径传入 Mod host；按第一个 `=` 分开，已声明 string flag 的其余内容原样保留。 | 可交付初始正文；不是运行中更新接口。 |
+| `addFlag/getFlag/appendSystemPrompt` | flags 在 Mod factory 注册后应用，hook 调用时读取 `getFlag()`；返回值进入原生 System。 | 不能在 factory 执行时提前复制尚未应用的 flag 值。 |
+| Session new/load/resume、set_config_option 与 ACP dispatcher | 所检查路径没有消费 System/developerInstructions 字段；配置入口处理模型和推理强度。 | 没找到 Codex 式直接指令字段；不猜测未知参数。 |
+| `addCommand` → `resolveCommand` → `servePrompt` | 已注册 Mod 命令先执行 handler；handler 不返回 `prompt` 或 `message` 时，直接回复 end_turn，不进入 runTurn。 | 官方已有通道可用于只更新内存，不生成用户／模型对话。 |
+| `parseSlashCommand` | 只接受一个 text block，拒绝含实际换行的命令文本。 | 正文使用一个 JSON string literal 表达换行、引号等；不是 Shell 拼接、Base64 或分片。 |
+
+试验 Mod 的核心如下；`rovai-bootstrap` 是本次 Mod 自己声明的名称，不是 Command 内置参数或标准 ACP 字段：
+
+```js
+let current;
+cmd.addFlag('rovai-bootstrap', { type: 'string', default: '' });
+cmd.addCommand({
+  name: 'rovai-bootstrap',
+  description: 'Set synthetic System text for the following probe Run.',
+  handler({ args }) {
+    current = JSON.parse(args);
+    if (typeof current !== 'string') throw new Error('probe bootstrap must be a string');
+  },
+});
+cmd.hooks({
+  onSessionStart() {
+    cmd.setActiveTools(cmd.getActiveTools().filter(name => name !== 'ask_user_question'));
+  },
+  appendSystemPrompt() { return current ?? cmd.getFlag('rovai-bootstrap'); },
+});
+```
+
+试验沿用一次 ready 握手，验证后删除。以上只是验证副本；未改写生产 Mod。启动参数组用结构化 argv
+传递 `acp --mod <probe-mod.mjs> --mod-option <rovai-bootstrap=合成正文>`。动态组经同一 stdin/stdout
+发送正常 `session/prompt` 请求，其唯一 text 为 `'/rovai-bootstrap ' + JSON.stringify(正文)`；等控制回复后，
+另发原样业务输入。没有旁路读取 stdin、额外传输服务或正文文件。
+
+### B、C：真实 System 与同进程更新
+
+最终复跑 PID `69932`、Session `7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e`，依次为启动 A、命令 B、命令 A：
+
+| 场景 | 实际模型请求 | 当轮 System | 用户输入／原生历史 |
+| --- | --- | --- | --- |
+| 首次 argv A，随后调用 read_file | 2 次，包括工具回执后的请求 | 两次均 A 一份，原生 System 保留 | 正文不在 user，业务输入原样；实际读到夹具 receipt。 |
+| 同 PID／Session 更新 B | 1 次业务请求 | B 一份，旧 A 为零 | 控制操作本身 0 模型请求、0 assistant 消息，原生 JSONL 历史字节不变。 |
+| 同 PID／Session 再更新 A | 1 次业务请求 | A 一份，旧 B 为零 | 同上；System SHA 与初次 A 相同，没有累计追加。 |
+
+模型端检查的是收到的实际请求、完整正文出现次数及解码后的 user 内容，不采用模型自述。
+初版夹具将 user 内容重新 JSON 序列化后搜索多行正文，检查力度不足；改为检查解码字符串并断言业务
+输入精确相等后，完整 B/C/D 再跑通过。没有把该断言修正描述成原生缺陷。
+
+### D：有希望替换的路线及边界
+
+| 边界 | 结果 | 证据范围 |
+| --- | --- | --- |
+| 字符与容量 | 小正文及 10 KiB、131072 字节正文完整到达 System，均恰好一份 | ACP 命令保持中文、首尾空白、换行、引号、反斜杠、`=`、`${literal}`；没有缩小 128 KiB 预算。 |
+| 启动参数容量 | 官方 npm executable 直接启动，131072 字节 argv 正文通过 | 未绕过 executable 直接运行 Node；没有走产品 Core 的 ManagedProcess/App 启动链，Windows/Linux 未测。 |
+| 首次与 cold 都只走控制通道 | 空正文启动 → 控制 A → 首次业务请求；新 PID 精确 resume 同 ID → 控制 C → 业务请求，均通过 | PID `69976`→`69984`，Session `303114cf-a6a8-4177-8d8f-457c162f5f72` 不变；没有 session/list，不必保留“argv 首次＋RPC 后续”双路线。 |
+| 执行边界 | 模型执行 A 时发更新 B，被原生以 -32600 拒绝；当前请求仍为 A，结束后更新 B 生效 | 证明按 Run 间隙更新可行；运行中不能用此方法 steer，也不需要新增锁来模拟更新。 |
+| 同值重送 | 连续两次交付 B 均无模型／历史副作用，后继请求只含 B 一份 | 这是原生控制重送，不是完整 Core 故障重试验收；Run 冻结字节仍应来自已有 Context。 |
+| 工具组合 | 保留问卷过滤，普通 read_file 和一次真实 MCP ping 均通过 | MCP tools/call 计数为 1，`ROVAI_MCP_PROBE_OK` 进入后继模型请求；不是仅 discovery 成功。 |
+| 取消与清理 | 原生 session/cancel 返回 cancelled；记录的 Host 进程组与 MCP 子进程均已退出 | 夹具关闭 stdin，并沿既有试验进程组清理；不把它替代生产 ManagedProcess 全故障矩阵。 |
+| 正文中转文件 | Mod 不读写 binding，所有 Host 的握手材料目录最终为空 | 仍有试验 Mod、ready 的短暂写入、CLI 原生配置／历史和测试脚本／日志；不是“完全没有文件”。 |
+| 正常日志／参数采样 | 正常启动、更新、取消的 stderr 未观察到完整合成正文；非空 argv 的启动后和 initialize 后 ps 采样未显示正文 | 原生设置 process.title；采样不能保证启动窗口、系统审计或其他平台不可见。Core 诊断、公开 command 与 UI 未做端到端验收。 |
+| 错误正文可见性 | 故意传无效 JSON，ACP -32603 错误与 stderr **会包含合成输入片段** | 裸 JSON.parse 异常不可直接作为最终错误文案；失败没有模型／历史副作用，下一轮仍用原 A。此项不是隐私全通过。 |
+
+最终 B/C/D 与错误路径复跑共记录 16 次前台本地模型请求；10 次成功控制操作全部没有额外模型请求、
+agent_message 或历史写入。工具 schema 查询的前期探索与最终 tools/call 分开，不将查询算作调用。
+这些结果是 macOS arm64 原生夹具证据，未运行完整 Core/App；当前无跨平台资格变更。
+
+### 是否值得替换，以及最小范围
+
+**建议将“官方 Mod 控制命令”作为后续最小替换方案；不采用仅靠启动 argv 的方案，也不立即删除生产 binding。**
+本轮已证明每轮 Bootstrap 可通过已有 ACP 通道到达 System，无正文中转文件、无额外对话或模型请求；
+没有发现标准 `developerInstructions` 对应字段。它在“已有通道逐轮交付”的目标上可行，接线形式与 Codex 不同。
+
+后续若实施，范围只需落在现有 Mod 和 Run 发送前的 Bootstrap 交付点：Mod 接收字符串并保存在内存，
+Core 先等控制回复，再提交原始业务输入；首次、warm、cold 都用这一条通道。这样可删除 binding 正文
+序列化、写入／rename、Mod 文件读取与正文 SHA；继续保留现有 Mod、问卷过滤和一次 ready。
+代价是一轮既有 ACP 控制往返、一次 JSON 编解码和一个内存值；没有测量性能，不能宣称必然更快。
+
+接入时仍需核对三个具体边界：控制回复的 end_turn／usage_update 不能归约成业务 Run 终态或新增用量；
+解码失败应沿已有错误路径返回固定说明，避免原始解析异常带出正文；Mod 闭包是进程级状态，本次只验证
+同一 Host 的根 Session，与当前按 Native Binding 隔离 Host 的生产范围一致，不证明跨 Session／子代理隔离。
+这些是有限的接线与语义确认，不要求新锁、缓存、扫描、控制服务或自动 fallback。生产路径和平台验证
+尚未执行，所以本轮结论是“候选可行，值得最小接入”，不是“现有文件已经可以直接删除”。
+
 ## 验证记录
 
 脱敏数据见[原生接入证据](evidence/command-code-native-simplification-2026-10-24.json)。
@@ -316,3 +419,8 @@ PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试�
 未修改共享锁、事件顺序或其他 Runtime 的生产交付方式。没有新增 Rust 测试函数或仓库文件。
 10 项文档测试、基于 PR base 的文档治理、格式和差异检查通过。官方 1.88 的六个记录进程组均已退出，
 隔离材料已删除；本轮没有外部模型请求、Renderer 点击验收或平台资格变更。
+
+同日直接传输跟进仅追加本页与既有证据 JSON，不改生产代码。最终原生复跑结果见本页直接传输验证；
+所有记录进程组与 MCP 子进程退出后，精确删除本次隔离根目录。`cargo test --workspace` 整套通过：
+核心 431 通过／0 失败／1 忽略，其余目标 46 通过，doc-tests 通过。10 项文档测试、当前文档治理、
+基于 PR base 的差异治理与差异检查通过。没有创建新仓库文件或提高公开资格。

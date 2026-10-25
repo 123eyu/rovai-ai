@@ -1164,5 +1164,1146 @@
         "Retired the obsolete Command Host-lifetime immutable binding assertion."
       ]
     }
+  },
+  "followupDirectBootstrap20261025": {
+    "scope": "Verification only; production binding transport and public qualification unchanged",
+    "date": "2026-10-25",
+    "platform": {
+      "system": "Darwin",
+      "release": "25.6.0",
+      "machine": "arm64"
+    },
+    "identity": {
+      "baselineCommit": "9807c9261786b95cf72cf838ac5ea30d2fb99fa7",
+      "version": "1.88.0",
+      "tarball": "https://registry.npmjs.org/command-code/-/command-code-1.88.0.tgz",
+      "integrity": "sha512-8es7pmDlw1YYbUYUW3RHDGyI3zBQAhvkZaBh2ZxSnuuzZY1mavrN4e5+SICi8nBqah6GYThMLtvfqmFnL95i3A==",
+      "cliSha256": "600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd",
+      "sourceReview": [
+        {
+          "symbol": "function parseSlashCommand",
+          "offsets": [
+            51634
+          ]
+        },
+        {
+          "symbol": "async function servePrompt",
+          "offsets": [
+            41283
+          ]
+        },
+        {
+          "symbol": "async function handleSetConfigOption",
+          "offsets": [
+            43786
+          ]
+        },
+        {
+          "symbol": "async function handleNewSession",
+          "offsets": [
+            38028
+          ]
+        },
+        {
+          "symbol": "async function handleLoadSession",
+          "offsets": [
+            38325
+          ]
+        },
+        {
+          "symbol": "async function handleResumeSession",
+          "offsets": [
+            38843
+          ]
+        },
+        {
+          "symbol": "async function resolveCommand(",
+          "offsets": [
+            2348413
+          ]
+        },
+        {
+          "symbol": "function loadCommandModHost(",
+          "offsets": [
+            2339923
+          ]
+        },
+        {
+          "symbol": "function applyModLaunchOptions",
+          "offsets": [
+            2339737
+          ]
+        },
+        {
+          "symbol": "setFlagValue:",
+          "offsets": [
+            277328
+          ]
+        },
+        {
+          "symbol": "SESSION_SET_CONFIG_OPTION",
+          "offsets": [
+            35667,
+            1622212
+          ]
+        },
+        {
+          "symbol": "runCommand:",
+          "offsets": [
+            276857
+          ]
+        },
+        {
+          "symbol": "function setStableProcessTitle(",
+          "offsets": [
+            2388535
+          ]
+        }
+      ],
+      "offsetUnit": "Python character index in UTF-8 decoded dist/cli.mjs, not byte offsets or line numbers"
+    },
+    "model": "Deterministic loopback OpenAI-compatible provider; synthetic native-auth env value; no external paid model",
+    "officialSources": [
+      "https://commandcode.ai/docs/reference/cli",
+      "https://commandcode.ai/docs/mods",
+      "https://commandcode.ai/docs/acp",
+      "https://commandcode.ai/changelog"
+    ],
+    "stageA": {
+      "directSystemFieldFound": false,
+      "checkedConsumers": [
+        "ACP dispatcher",
+        "session/new",
+        "session/load",
+        "session/resume",
+        "session/set_config_option"
+      ],
+      "initialArgv": [
+        "<official npm command-code executable>",
+        "acp",
+        "--mod",
+        "<probe-mod.mjs>",
+        "--mod-option",
+        "rovai-bootstrap=<synthetic UTF-8 body>"
+      ],
+      "flagRule": "Declared string flag; first equals separates name; getFlag read lazily in System hook after launch overrides",
+      "dynamicEntry": "Official addCommand handler, reached through session/prompt slash-command dispatch before runTurn",
+      "dynamicWire": {
+        "method": "session/prompt",
+        "params": {
+          "sessionId": "<same native session id>",
+          "prompt": [
+            {
+              "type": "text",
+              "text": "/rovai-bootstrap <JSON string literal of frozen Bootstrap>"
+            }
+          ]
+        }
+      },
+      "dynamicHandler": "JSON.parse(args) assigns a process-local variable; returns no prompt or message",
+      "literalNewlineInCommandSupported": false,
+      "singleLineJsonStringPreservesNewline": true,
+      "newServiceOrProtocolReader": false
+    },
+    "syntheticBodies": {
+      "A": {
+        "utf8Bytes": 107,
+        "sha256": "e21f47b7dacc0c2d4aaadd7a21aecfc5edc8293ddbf28bf0888a0e3e0f0f48e4"
+      },
+      "B": {
+        "utf8Bytes": 75,
+        "sha256": "59305351af656d46393aea7552346c8a1806eacea5626a6aec80117b02c38819"
+      },
+      "C": {
+        "utf8Bytes": 72,
+        "sha256": "4e5d15757c40f84c3c4f4e3b813f1046147f8185f4e2e68c0ac753ec55308fc7"
+      }
+    },
+    "stageBC": {
+      "pid": 69932,
+      "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+      "methods": [
+        "initialize",
+        "session/new",
+        "session/set_model",
+        "session/set_mode",
+        "session/prompt",
+        "session/prompt",
+        "session/prompt",
+        "session/prompt",
+        "session/prompt"
+      ],
+      "cases": [
+        {
+          "label": "initial-A",
+          "pid": 69932,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "initial-A",
+              "foreground": true,
+              "systemBytes": 40532,
+              "systemSha256": "1afdbba0956e04ebfda1cae6b8084de92dea93b5dbd7343895b447f7c54c3181",
+              "expectedBytes": 107,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 1,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            },
+            {
+              "label": "initial-A",
+              "foreground": true,
+              "systemBytes": 40532,
+              "systemSha256": "1afdbba0956e04ebfda1cae6b8084de92dea93b5dbd7343895b447f7c54c3181",
+              "expectedBytes": 107,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 1,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "warm-B",
+          "pid": 69932,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "warm-B",
+              "foreground": true,
+              "systemBytes": 40500,
+              "systemSha256": "56efc8bff00e865a1ec9bb6b0dbbdcf2c91dc64215b47acf88868eb235ccc9c0",
+              "expectedBytes": 75,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 1,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "warm-A",
+          "pid": 69932,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "warm-A",
+              "foreground": true,
+              "systemBytes": 40532,
+              "systemSha256": "1afdbba0956e04ebfda1cae6b8084de92dea93b5dbd7343895b447f7c54c3181",
+              "expectedBytes": 107,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 1,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        }
+      ],
+      "controls": [
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        }
+      ],
+      "bindingFiles": [],
+      "steadyMaterialFiles": [],
+      "controlInHistory": false,
+      "validBootstrapInStderr": false,
+      "processGroupAbsent": true
+    },
+    "stageD": {
+      "cases": [
+        {
+          "label": "cold-C",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "cold-C",
+              "foreground": true,
+              "systemBytes": 40552,
+              "systemSha256": "dff0de67d35f87e9a186d9e5f32bfe4e649f85d31192aaeda6c14a6f316cc4c9",
+              "expectedBytes": 72,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 1
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "mcp-actual",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "mcp-actual",
+              "foreground": true,
+              "systemBytes": 40552,
+              "systemSha256": "dff0de67d35f87e9a186d9e5f32bfe4e649f85d31192aaeda6c14a6f316cc4c9",
+              "expectedBytes": 72,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 1
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            },
+            {
+              "label": "mcp-actual",
+              "foreground": true,
+              "systemBytes": 40552,
+              "systemSha256": "dff0de67d35f87e9a186d9e5f32bfe4e649f85d31192aaeda6c14a6f316cc4c9",
+              "expectedBytes": 72,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 1
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "size-TYPICAL",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "size-TYPICAL",
+              "foreground": true,
+              "systemBytes": 50720,
+              "systemSha256": "410172b6cec19cf968182bbea9d2889fe8355b100780501bef68d2622cc13249",
+              "expectedBytes": 10240,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "size-MAX",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "size-MAX",
+              "foreground": true,
+              "systemBytes": 171552,
+              "systemSha256": "eaac74776c0755d838d58eca37ac8904aa381fdc2841e452c5eeffa78ba4ba85",
+              "expectedBytes": 131072,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "active-A",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "active-A",
+              "foreground": true,
+              "systemBytes": 40587,
+              "systemSha256": "b098bca9c50250b620d7d2ad4bebfbeaab214b024bc622b0d1c2818f6741709a",
+              "expectedBytes": 107,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 1,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "following-B",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "following-B",
+              "foreground": true,
+              "systemBytes": 40555,
+              "systemSha256": "7089b084a705feab6ee132198947c1d834fdd4de22e80ae78be634dd10f07e25",
+              "expectedBytes": 75,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 1,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "cancel-B",
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "stopReason": "cancelled",
+          "requests": [
+            {
+              "label": "cancel-B",
+              "foreground": true,
+              "systemBytes": 40555,
+              "systemSha256": "7089b084a705feab6ee132198947c1d834fdd4de22e80ae78be634dd10f07e25",
+              "expectedBytes": 75,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 1,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "codemode",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "argv-128",
+          "pid": 69964,
+          "sessionId": "a1475543-043d-4343-b0fc-e234164f6bd3",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "argv-128",
+              "foreground": true,
+              "systemBytes": 171497,
+              "systemSha256": "a3cb41013320177c0676b10581c2e434dfdcbb9dc0327a310be4452bbba0ec3b",
+              "expectedBytes": 131072,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "channel-first-A",
+          "pid": 69976,
+          "sessionId": "303114cf-a6a8-4177-8d8f-457c162f5f72",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "channel-first-A",
+              "foreground": true,
+              "systemBytes": 40532,
+              "systemSha256": "579e9374d6c6dbd8793af3359e152c4336d090f9fd5f6f579b6f2ab41fc982a8",
+              "expectedBytes": 107,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 1,
+                "B": 0,
+                "C": 0
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "channel-cold-C",
+          "pid": 69984,
+          "sessionId": "303114cf-a6a8-4177-8d8f-457c162f5f72",
+          "stopReason": "end_turn",
+          "requests": [
+            {
+              "label": "channel-cold-C",
+              "foreground": true,
+              "systemBytes": 40497,
+              "systemSha256": "31094def93399697e68903dd89964152bc589645eeada1f44cfddc0432e58edf",
+              "expectedBytes": 72,
+              "expectedExactCount": 1,
+              "expectedInUser": false,
+              "markerCounts": {
+                "A": 0,
+                "B": 0,
+                "C": 1
+              },
+              "nativeSystemRetained": true,
+              "questionToolPresent": false,
+              "controlInModelUser": false,
+              "userInputUnchanged": true,
+              "toolNames": [
+                "read_file",
+                "write_file",
+                "edit_file",
+                "read_directory",
+                "glob",
+                "grep",
+                "shell_command",
+                "schedule_wakeup",
+                "activate_skill",
+                "agent",
+                "agent_output",
+                "search_tools"
+              ]
+            }
+          ]
+        }
+      ],
+      "controls": [
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        },
+        {
+          "stopReason": "end_turn",
+          "modelRequests": 0,
+          "historyUnchanged": true,
+          "controlBodyInEvents": false,
+          "agentMessageEvents": 0
+        }
+      ],
+      "sizes": [
+        {
+          "bytes": 10240,
+          "sha256": "37262abcf5b0f58127420e71e0f1b8a72867a9f88f8d3e653006c4ae70cb0ce5",
+          "exact": true,
+          "path": "ACP Mod command"
+        },
+        {
+          "bytes": 131072,
+          "sha256": "ec08014a45b426c129e41f0d826841e2f4c0ed4215ec73c1ac8ccbdf6f8bed6f",
+          "exact": true,
+          "path": "ACP Mod command"
+        },
+        {
+          "bytes": 131072,
+          "sha256": "3e9da49fa5d7e55201b241a0ac9a5d8c7c50992dbb89ddc1dc7c2f703caeac6c",
+          "exact": true,
+          "path": "official npm executable argv"
+        }
+      ],
+      "hosts": [
+        {
+          "pid": 69949,
+          "sessionId": "7e1dc3b6-e11f-412e-aaf5-0fc0fab6714e",
+          "methods": [
+            "initialize",
+            "session/resume",
+            "session/set_model",
+            "session/set_mode",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt",
+            "session/prompt"
+          ],
+          "argvBodyBytes": 72,
+          "argvBodyVisibleEarly": false,
+          "argvBodyVisibleSteady": false,
+          "processGroupAbsent": true,
+          "bootstrapInStderr": false,
+          "controlInHistory": false,
+          "materialFiles": []
+        },
+        {
+          "pid": 69964,
+          "sessionId": "a1475543-043d-4343-b0fc-e234164f6bd3",
+          "methods": [
+            "initialize",
+            "session/new",
+            "session/set_model",
+            "session/set_mode",
+            "session/prompt"
+          ],
+          "argvBodyBytes": 131072,
+          "argvBodyVisibleEarly": false,
+          "argvBodyVisibleSteady": false,
+          "processGroupAbsent": true,
+          "bootstrapInStderr": false,
+          "controlInHistory": false,
+          "materialFiles": []
+        },
+        {
+          "pid": 69976,
+          "sessionId": "303114cf-a6a8-4177-8d8f-457c162f5f72",
+          "methods": [
+            "initialize",
+            "session/new",
+            "session/set_model",
+            "session/set_mode",
+            "session/prompt",
+            "session/prompt"
+          ],
+          "argvBodyBytes": 0,
+          "argvBodyVisibleEarly": null,
+          "argvBodyVisibleSteady": null,
+          "processGroupAbsent": true,
+          "bootstrapInStderr": false,
+          "controlInHistory": false,
+          "materialFiles": []
+        },
+        {
+          "pid": 69984,
+          "sessionId": "303114cf-a6a8-4177-8d8f-457c162f5f72",
+          "methods": [
+            "initialize",
+            "session/resume",
+            "session/set_model",
+            "session/set_mode",
+            "session/prompt",
+            "session/prompt"
+          ],
+          "argvBodyBytes": 0,
+          "argvBodyVisibleEarly": null,
+          "argvBodyVisibleSteady": null,
+          "processGroupAbsent": true,
+          "bootstrapInStderr": false,
+          "controlInHistory": false,
+          "materialFiles": []
+        }
+      ],
+      "actualMcpToolsCalls": 1,
+      "mcpReceipt": "ROVAI_MCP_PROBE_OK",
+      "mcpReceiptInFollowingModelRequest": true,
+      "mcpProcesses": [
+        {
+          "pid": 69958,
+          "parentPid": 69949,
+          "group": 69958
+        }
+      ],
+      "remainingMcpProcesses": [],
+      "inFlightControlError": {
+        "code": -32600,
+        "message": "A prompt is already running for this session"
+      },
+      "singleChannelFirstAndCold": true,
+      "cancelStopReason": "cancelled",
+      "newSessionListPreflight": false
+    },
+    "errorVisibility": {
+      "validControl": {
+        "stopReason": "end_turn",
+        "modelRequests": 0,
+        "historyUnchanged": true,
+        "controlBodyInEvents": false,
+        "agentMessageEvents": 0
+      },
+      "malformedRejected": true,
+      "errorCode": -32603,
+      "syntheticMarkerInError": true,
+      "malformedModelRequests": 0,
+      "malformedHistoryUnchanged": true,
+      "pid": 70001,
+      "sessionId": "5e7aef2d-34ec-4104-af3f-6ffde262b633",
+      "methods": [
+        "initialize",
+        "session/new",
+        "session/set_model",
+        "session/set_mode",
+        "session/prompt",
+        "session/prompt",
+        "session/prompt"
+      ],
+      "processGroupAbsent": true,
+      "syntheticMarkerInStderr": true,
+      "validBootstrapInStderr": false,
+      "materials": [],
+      "followingRun": {
+        "label": "after-invalid-control",
+        "pid": 70001,
+        "sessionId": "5e7aef2d-34ec-4104-af3f-6ffde262b633",
+        "stopReason": "end_turn",
+        "requests": [
+          {
+            "label": "after-invalid-control",
+            "foreground": true,
+            "systemBytes": 40532,
+            "systemSha256": "c609cf07b99f8eaf90ad8e4a85ff35552795f1db5b99a7a43b60078a3c5add9f",
+            "expectedBytes": 107,
+            "expectedExactCount": 1,
+            "expectedInUser": false,
+            "markerCounts": {
+              "A": 1,
+              "B": 0,
+              "C": 0
+            },
+            "nativeSystemRetained": true,
+            "questionToolPresent": false,
+            "controlInModelUser": false,
+            "userInputUnchanged": true,
+            "toolNames": [
+              "read_file",
+              "write_file",
+              "edit_file",
+              "read_directory",
+              "glob",
+              "grep",
+              "shell_command",
+              "schedule_wakeup",
+              "activate_skill",
+              "agent",
+              "agent_output",
+              "search_tools"
+            ]
+          }
+        ]
+      },
+      "interpretation": "A malformed synthetic JSON payload is rejected without model/history writes, but raw JSON.parse error exposes its input fragment in ACP error and stderr. A production handler must use a fixed error message."
+    },
+    "visibilityLimits": [
+      "Non-empty argv payload absent in sampled ps output after spawn and initialize; native process.title overwrites display. Startup window and OS auditing not proven private.",
+      "Empty argv body has no disclosure observation; None is not a positive ps visibility result.",
+      "Normal stderr observation covered synthetic A/B/C and cancellation; it is not a universal guarantee for every diagnostic.",
+      "Core/App managed startup, public command and diagnostic UI not exercised; Windows/Linux untested."
+    ],
+    "assertionRefinement": {
+      "issue": "Initial user-role check searched re-serialized JSON for a multiline body, which could miss an escaped match.",
+      "correction": "Search decoded string values, assert exact unmodified user input, rerun complete B/C/D and error probe.",
+      "nativeFailure": false,
+      "finalRerunPassed": true,
+      "previousRecordedGroups": [
+        67915,
+        68165,
+        68519,
+        68524,
+        68533,
+        68544,
+        68555,
+        69612
+      ]
+    },
+    "finalRerunForegroundRequests": 16,
+    "successfulControls": 10,
+    "controlModelRequests": 0,
+    "decision": {
+      "startupArgvAloneEquivalent": false,
+      "officialModCommandCandidateFeasible": true,
+      "recommendedRoute": "Single existing ACP Mod-command route for first, warm and cold; do not put Bootstrap in argv.",
+      "productionReplacementComplete": false,
+      "minimalScope": [
+        "Existing Mod command and memory value",
+        "Run pre-input ACP request using current frozen Context",
+        "Remove binding serialization/write/rename/read/SHA only after integration verification"
+      ],
+      "cost": "One control roundtrip and JSON encode/decode per Run replaces body file publication and hook read; no performance benchmark",
+      "remainingIntegrationBoundaries": [
+        "Keep control end_turn and usage_update separate from business Run completion/usage",
+        "Fixed decode error without raw payload",
+        "Process-local state validated only for one root Native Binding per Host; subagent/multiple-session behavior not qualified",
+        "Full Core frozen-input/retry/ManagedProcess paths and target platforms not exercised"
+      ],
+      "additionalLocksProcessesCachesWatchers": false
+    },
+    "fixtureSourceSha256": {
+      "probe-mod.mjs": "281c92a5e16aeb99640f5d5e8de1de00531d193194483336e45165ce581821fb",
+      "probe.py": "5c106e15e710777f3abdbd8b3db78dda1f9d7a64512ded2c1d5fbc324594be1d",
+      "boundaries.py": "8613937273fb4fd477d4c2531fcc0983ee7e1628dbd3a2ee2c2345e19a78b2c6",
+      "error-probe.py": "07f06f12ae9f4aa669fe854d9ffa7a142ebefb1f86ca1e090c8355ec82120692",
+      "mcp-server.py": "16158d3056dec4d9e0593bc9db5b423c2827a314d6f9169c329b6b473ad9ec17"
+    },
+    "cleanup": {
+      "recordedGroupsConfirmedAbsent": [
+        67915,
+        68165,
+        68519,
+        68524,
+        68533,
+        68544,
+        68555,
+        69612,
+        69932,
+        69949,
+        69958,
+        69964,
+        69976,
+        69984,
+        70001
+      ],
+      "mcpProcessAbsent": true,
+      "steadyMaterialInventory": {
+        "d-channel": [],
+        "bc": [],
+        "d-argv-128": [],
+        "error-probe": [],
+        "d-cold": [],
+        "d-channel-cold": []
+      },
+      "fixtureRemoved": true,
+      "removalScope": "Exact owned isolated probe root only; native daily HOME and installation untouched"
+    },
+    "validation": {
+      "docsTests": {
+        "passed": 10,
+        "failed": 0
+      },
+      "docsCheck": "passed",
+      "docsCheckCi": {
+        "status": "passed",
+        "base": "cd3cc99119c45f8ee47e55fe763bab773447a75c"
+      },
+      "workspaceDefault": {
+        "command": "cargo test --workspace",
+        "status": "passed",
+        "corePassed": 431,
+        "coreFailed": 0,
+        "coreIgnored": 1,
+        "otherTargetsPassed": 46,
+        "docTests": "passed",
+        "logSha256": "760ac9dc2705ff763b6b8a5ed7847c6d1e2dfd75daf40a2fac14a04bbaf86a55"
+      },
+      "diffCheck": "passed"
+    },
+    "productionCodeChanged": false,
+    "qualificationChanged": false
   }
 }

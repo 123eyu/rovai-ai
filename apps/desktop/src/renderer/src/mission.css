@@ -243,7 +243,7 @@ button.mission-tag { cursor: pointer; }
 .mission-worktree-cleanup-dialog p { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
 .mission-delete-workspace-option { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--ink); font-size: 12px; cursor: pointer; }
 .mission-delete-workspace-option:has(input:disabled) { color: var(--faint); cursor: default; }
-.mission-delete-workspace-option input { accent-color: var(--brand); }
+.mission-delete-workspace-option input { accent-color: var(--conversation-action); }
 .mission-inline-help { position: relative; display: inline-grid; width: 17px; height: 17px; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); font-size: 10px; line-height: 1; cursor: help; }
 .mission-inline-help::after { position: absolute; z-index: 460; bottom: calc(100% + 7px); left: 50%; display: none; width: max-content; max-width: 280px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--surface-raised); box-shadow: var(--shadow-float); content: attr(data-tooltip); font-size: 11px; line-height: 1.55; transform: translateX(-50%); }
 .mission-inline-help:is(:hover,:focus-visible)::after { display: block; }

@@ -42,6 +42,44 @@ MCP 成员集合使用实际增减成员；关闭 Server 的定义、分配、�
 检查登录状态或凭据配置，仍优先显示现有脱敏原生原因。共享 ACP 仅在策略提供 MCP 摘要时比较它，
 Native Binding 不再执行 `None == None`，没有增加 Command 特例或新的复用条件。
 
+## 收口复核（2026-10-25）
+
+User 后续清单引用 `ce140e684`；以下核对的是已推送的 `abf8f4cdc`。前五行已有修复，
+本次只补注释和说明，不再扩展 Runtime 行为。
+
+| 问题 | 当前结果与边界 |
+| --- | --- |
+| 持锁等待 Fleet | `save_runtime_startup` 显式释放 `runtime_search_update`，安装更新结束数据库锁作用域后，才等待 Fleet。安装路径有受控并发回归；启动设置路径由调用链复核，不声称已真实复现原死锁。 |
+| 非空设置请求重试 | `prepare_save` 保留字段合法性、重复字段和实际冲突检查，剔除当前值已等于目标的字段；全无变化沿既有返回路径退出，不检查程序文件、不增加 revision/generation、不退役。覆盖 A→B 成功后入口暂时消失再重试。 |
+| 安装更新重放 | `execution.replayed` 不触发后续失效；新命令保存相同目标也返回 `adapter_installation.unchanged`，不增加 version/generation。与上一行是两个分别覆盖的入口。 |
+| 版本误拒绝 | 使用共享版本解析器；接受 `v`、产品名前缀与 build metadata，仍要求稳定版至少 1.88。 |
+| MCP 退役范围 | 已启用 Server 从 A、B 改为 A、B、C，只影响 C；修改前后仍关闭的定义、单成员分配、删除和导入替换不退役。`setMembers` 非空集合会按既有语义启用 Server，此时新分配成员的有效配置确实变化。 |
+| 认证文案与 BYOK 注释 | 认证失败沿共享分类和脱敏原因展示，不一律要求网页登录。本次删除代码注释中“Command BYOK 选模仍不支持”的旧结论；原生默认模型占位分支仍处理当前模型未出现在返回目录中的情况，不影响目录内 BYOK 的显式选择。 |
+
+不继续整理空摘要比较或 binding 目录。`session/list` 精确恢复确认、一次 ready 握手、binding 正文
+完整性校验、stdio cwd 包装及 wire 转义继续只承担已验证的原生适配职责。没有新增 Runtime 文件、
+认证探针或配置比较；Mod 读取 binding 仍是 System 交付，不增加缓存。
+
+### 成员身份与长期指令何时生效
+
+共享规则区分“本轮准备了什么”与“Adapter 实际投递什么”，见
+[Bootstrap 不变量](../../architecture/foundational-invariants.md#context-session-bootstrap)和
+[补发门禁](../../architecture/native-session-bootstrap-redelivery.md#delivery-gate-与-prepared-cutoff)。
+`members.update` 只保存成员资料并发布名册事件，不创建 Run、补发要求、Session 或 Fleet 退役。
+专业职责、工作原则等完整 self identity 仍只在 Bootstrap；Dynamic Context 的 peers 不代替它。
+
+| 时点 | 当前 Command 行为 |
+| --- | --- |
+| 身份编辑前已 claim 的公开 Run | 继续使用该 Run 已冻结的身份；编辑不回写既有输入。 |
+| 身份编辑后 claim 的公开 Run | 共享 Context 准备新身份；旧／非 batch Run 沿准备时读取规则。准备新 B 本身不等于已向模型投递。 |
+| 同一 Host／Session warm 续用 | 使用该 Host 首次绑定的完整 B；身份编辑不重写 binding，模型的这份 System 仍是旧内容。 |
+| 后续新 Host 冷恢复，或新 Session 首次绑定 | 写入该 Run 准备的 B。若该 Run 在编辑后取得身份，就使用新内容；冷恢复保留精确原 Session ID，不要求新旧 B 相等。 |
+
+因此，当前 Command **不保证成员编辑在下一次 warm 执行中进入 System**；生效取决于后续新 Host／Session
+首次绑定所用的 Run 内容。共享规则没有要求所有 Runtime 在身份编辑后立即热更新，本轮不改变这一产品行为。
+若要求“下一轮 warm 也必定使用新指令”，需要另行确定投递规则；不能用隐式重启、摘要或跨 Host 冻结管理器代替该决定。
+以上是现有调用链核对，不是新增的真实模型验收。
+
 ## 与其他 Runtime 对照
 
 | 边界 | Command 本轮结果 | 已有 Runtime 的职责 |
@@ -111,3 +149,9 @@ PR 后续控制边界回归在隔离夹具中完成：42 项定向 Rust 测试�
 其余工作区目标分开运行 46 项通过，doc-tests 与文档治理通过；失败测试的临时夹具已删除。
 本轮没有新增仓库文件或生产文件种类；增加一个无 I/O 的版本解析 owner，其余扩展既有 owner。
 未重跑真实模型/MCP 或平台资格，完整证据继续见上面的 JSON 记录。
+
+同日基于 `abf8f4cdc` 的收口复核只修改两处代码注释及既有报告/导航，没有新增文件、测试或 Runtime 行为。
+文档治理（含 10 项测试和真实 base 差异检查）、Rust 格式检查通过。提交前默认 workspace 再跑为
+核心 429 通过/1 个相同 Cursor 身份探针超时/1 忽略；同一二进制单独复跑通过（0.25 秒），其余目标
+46 项及 doc-tests 通过。仅清理本次失败夹具，不改 Cursor 探针或阈值，不把整套标绿。
+本次身份生效时机为共享合同与生产调用链核对；没有新增真实模型/MCP 或跨平台验收。

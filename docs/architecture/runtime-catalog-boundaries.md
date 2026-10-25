@@ -79,6 +79,9 @@ revision/局部 nonce/PID 并删除 ready 文件。缺失或损坏 binding 在�
 全局文件、HOME fallback、专属池/锁/缓存。原输入确认见 [revision 5](../versions/v1.72/model-context-change-command-code-acp.md)；
 其中旧物理交付描述由 v72 替代，冻结内容、选择、上下文版本和证据边界不变。
 已有 binding 直接复用，不再比较本轮新 Bootstrap；cold 使用现有 Context 准备的 B，不另建冻结管理器。
+成员身份编辑沿共享规则进入后续 Run 准备内容，不触发 Host 退役或额外补发；Command warm 仍使用原 binding，
+新 Host／Session 首次绑定才采用该 Run 的 B。因此不能将下一 Run 准备了新身份等同于下一次 warm 已投递新身份，
+具体时点见[实施记录](../versions/v1.72/command-code-native-simplification.md#成员身份与长期指令何时生效)。
 大小预算只作用于正文，不因 JSON 转义增长而拒绝有效内容。状态检查与其他 ACP 共用错误分类和脱敏，
 不将认证、协议或网络错误统一改写成 provider 配置提示。
 

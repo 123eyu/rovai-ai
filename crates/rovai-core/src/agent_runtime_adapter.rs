@@ -846,7 +846,8 @@ impl AgentRuntimeAdapterRegistry {
             };
         }
         // Deferred products retain their ACP implementation and persisted identity.
-        // Cline ACP compaction and Command Code BYOK selection remain incomplete.
+        // Public admission still requires the outstanding platform qualification;
+        // Command Code 1.88 supports BYOK models through the ACP catalog.
         if matches!(
             kind,
             AdapterKind::CursorAgent | AdapterKind::ClineCli | AdapterKind::CommandCodeCli
@@ -2816,11 +2817,10 @@ pub fn acp_model_catalog_for_adapter(
     ) && acp_runtime_model_id_from_session(session_result).is_some()
         && !models.iter().any(|model| model.is_default)
     {
-        // Native configuration can select a custom BYOK model omitted from
-        // ACP's switchable catalog. Keep the shared native-default sentinel;
-        // do not advertise that custom ID as explicitly selectable (the
-        // official set_model RPC rejects it). Actual Run model is observed
-        // from the Session independently of this picker placeholder.
+        // If the current model has no matching catalog entry, keep a native-default
+        // choice without inventing a selectable model ID. Explicit choices still
+        // come from the returned catalog, including Command Code 1.88 BYOK models.
+        // Actual Run model is observed from the Session, not this placeholder.
         models.insert(
             0,
             ModelDescriptor {

@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -612,8 +612,9 @@ Claude 继续使用既有私有 settings 文件与子进程 env 双重覆盖，F
 Command Code 与 Cline 一样撤回 Preview，所有平台 NotQualified；设置、新手引导、队员/Skill 选择、
 安装引导和监控筛选不再展示。旧身份、配置与公开历史不删除、不迁移，隐藏不改变旧 Run 事实。
 
-Cline ACP 自动压缩仍未接通；Command ACP 自定义 BYOK 目录/切换、`acp --model` 启动选择及已测 BYOK
-MCP 实际调用仍有缺口。精确版本、通过范围与未知项见[兼容性清单](../../runtime-compatibility.md)。
+Cline ACP 自动压缩仍未接通；当时 Command 1.74/1.79 的 ACP 自定义 BYOK 目录/切换及已测 BYOK MCP
+实际调用有缺口。1.88 已有新的目录/标准选模支持与真实 MCP 调用证据，不再沿用这些旧阻塞；
+`acp --model` 仍不作为选模路径。精确版本、通过范围与未知项见[兼容性清单](../../runtime-compatibility.md)。
 这是公开范围收敛，没有更换 Runtime 或新增后备链路；下文 Preview/headless 是实施历史。
 
 2026-10-10 合流主干内部续做请求等后续修复；190/schema 140 兼容主干与 Preview 的同号旧收据，
@@ -1178,3 +1179,8 @@ User 进一步确认保留 App 运行期间的 Run 异常退出提醒，统一�
 官方 1.88.0、用户原生 HOME、官方 Mod、ACP MCP 和共享 Fleet 身份复用作为同一交付；删除配置镜像与
 摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
 [Command Code 简化记录](command-code-native-simplification.md)。
+
+2026-10-25 已修复配置/数据库持锁等待 Fleet、非空已生效设置重试、安装命令 replay、版本文本误拒绝及
+MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口只修正旧 BYOK 注释与报告，保留原生默认模型占位。
+成员指令的准备与实际投递时点见同一记录：warm 使用既有 binding，新 Host 使用该 Run 准备的内容；
+不承诺编辑后下一次 warm 自动更新。暂停 binding 布局和空摘要比较的进一步整理。

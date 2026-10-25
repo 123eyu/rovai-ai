@@ -16,7 +16,7 @@
 - 【修复】**修复消息中的部分文字被隐藏。** 尖括号占位符和 HTML 原文按文字显示，不再被当作标签丢弃，同时修正相关引用选文和文件链接间距。
 - 【修复】**补全 TRAE 等智能体的错误详情。** 配额不足等错误可显示服务方返回的具体原因，不再只留下笼统的 `Internal error`。
 - 【优化】**调整 Claude Code 和 CodeBuddy 的后台任务收尾。** 优先前台执行必要任务，并要求收集后台任务结果后再结束回复，减少工作尚未完成就提前收尾的情况。
-- 【修复】**修复设置开关保存时的布局跳动。** 切换“世界地图”和“会话任务”时，设置行保持原位。
+- 【修复】**修复设置页的布局问题。** 切换“世界地图”和“会话任务”时，设置行保持原位；放大界面后，默认团队选择框可换行显示，避免横向溢出。
 - 【修复】**修复 Web 端部分智能体图标无法显示的问题。** 补齐 ICO 图标资源的读取支持。
 
 [完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.16...v0.5.0)
@@ -39,7 +39,7 @@ This release adds team presets, conversation and mission references, re-editing 
 - [Fix] **Preserve text that was incorrectly hidden in messages.** Display angle-bracket placeholders and literal HTML as text instead of dropping them as tags. Correct related quote selection and spacing around file links.
 - [Fix] **Show more complete error details from TRAE and other agents.** Keep provider explanations for errors such as exhausted quotas instead of showing only a generic `Internal error`.
 - [Improvement] **Adjust background-task completion for Claude Code and CodeBuddy.** Favor foreground execution for required work and instruct agents to collect background results before their final reply, reducing premature completion.
-- [Fix] **Keep settings rows stable while saving.** Toggling World Map or Conversation Tasks no longer shifts the settings layout.
+- [Fix] **Fix settings layout issues.** Toggling World Map or Conversation Tasks no longer shifts the settings layout. The default-team picker wraps at high zoom to avoid horizontal overflow.
 - [Fix] **Restore missing agent icons on Web.** Serve packaged ICO logo resources alongside the existing image formats.
 
 [Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.16...v0.5.0)

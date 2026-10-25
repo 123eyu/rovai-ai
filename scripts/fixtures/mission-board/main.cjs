@@ -119,6 +119,7 @@ app.whenReady().then(async () => {
       document.querySelector('.mission-board-card').click()
     })()`, true)
     await waitFor("!!document.querySelector('.mission-drawer .mission-drawer-resize-handle')", 'Wide Mission drawer did not open')
+    await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))', true)
     const point = await window.webContents.executeJavaScript(`(() => {
       const handle = document.querySelector('.mission-drawer-resize-handle')
       const drawer = document.querySelector('.mission-drawer')

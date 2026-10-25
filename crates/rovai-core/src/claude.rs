@@ -2926,12 +2926,19 @@ mod tests {
             permission_semantics: PermissionSemantics::RuntimeManagedV2,
             runtime: FrozenAgentRuntimeConfig {
                 environment: cfg!(windows).then(|| {
+                    let overlay: BTreeMap<String, String> = BTreeMap::from([(
+                        "claude_code_disable_background_tasks".into(),
+                        "0".into(),
+                    )]);
+                    let mut values =
+                        rovai_core::runtime_discovery::capture_host_runtime_environment();
+                    for (name, value) in &overlay {
+                        values.retain(|key, _| !key.eq_ignore_ascii_case(name));
+                        values.insert(name.clone(), value.clone());
+                    }
                     rovai_core::member_environment::LaunchEnvironment {
-                        values: None,
-                        overlay: Some(BTreeMap::from([(
-                            "claude_code_disable_background_tasks".into(),
-                            "0".into(),
-                        )])),
+                        values: Some(values),
+                        overlay: Some(overlay),
                     }
                 }),
                 custom_api: None,

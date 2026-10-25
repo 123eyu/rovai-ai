@@ -46206,6 +46206,7 @@ mod tests {
                 SkillDeliveryGroupKey::Trae
                     | SkillDeliveryGroupKey::Cursor
                     | SkillDeliveryGroupKey::Kimi
+                    | SkillDeliveryGroupKey::Minimax
                     | SkillDeliveryGroupKey::Grok
                     | SkillDeliveryGroupKey::Pi
                     | SkillDeliveryGroupKey::Zcode
@@ -46424,6 +46425,7 @@ mod tests {
                 group,
                 SkillDeliveryGroupKey::Cursor
                     | SkillDeliveryGroupKey::Kimi
+                    | SkillDeliveryGroupKey::Minimax
                     | SkillDeliveryGroupKey::Grok
                     | SkillDeliveryGroupKey::Pi
                     | SkillDeliveryGroupKey::Zcode
@@ -46607,6 +46609,7 @@ mod tests {
             !matches!(
                 *group,
                 SkillDeliveryGroupKey::Kimi
+                    | SkillDeliveryGroupKey::Minimax
                     | SkillDeliveryGroupKey::Grok
                     | SkillDeliveryGroupKey::Pi
                     | SkillDeliveryGroupKey::Zcode
@@ -46969,6 +46972,7 @@ mod tests {
             !matches!(
                 *group,
                 SkillDeliveryGroupKey::Grok
+                    | SkillDeliveryGroupKey::Minimax
                     | SkillDeliveryGroupKey::Pi
                     | SkillDeliveryGroupKey::Zcode
                     | SkillDeliveryGroupKey::Dsh

@@ -143,6 +143,8 @@ Fast 直接保存三态偏好，运行时传递原生参数；页面、浮层及
 [Camp Member Fast v3](../contracts/camp-member-fast-v3.md)拥有。
 
 
-Cline 与 Command Code 暂缓公开：设置、新手引导、队员/Skill 选择、安装引导和监控筛选均不提供新入口。
-既有配置、历史 Run 和用量标签保持可读，不用隐藏策略改写历史名称。Renderer 共用可见产品目录，
-Core 沿共享平台准入处理未公开 Runtime；范围与未完成项见[Runtime Catalog Boundaries](../architecture/runtime-catalog-boundaries.md)。
+Cursor 与 Cline 暂缓公开：设置、新手引导、队员/Skill 选择、安装引导和监控筛选均不提供新入口。
+Command Code 进入共享可见产品目录，macOS Apple Silicon 与 Intel 沿现有 Preview 准入开放使用，
+Windows/Linux 沿 Core 的 NotQualified 状态限制使用。正常状态不增加实验标签；检查详情保留资格记录未齐备的说明。
+既有配置、历史 Run 和用量标签保持可读，不用隐藏策略改写历史名称。Renderer 不另建平台白名单；
+范围与未完成项见[Runtime Catalog Boundaries](../architecture/runtime-catalog-boundaries.md)。

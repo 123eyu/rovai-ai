@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:6a98a0b9bfb3ec24b48cad2885d005b797f7be0ba14cdb1e8fb2a8d4a5a34071";
+    "sha256:028c5e082aa395b5dc77feef341b9857c32560db0700250e36cbd48d47346499";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -582,11 +582,18 @@ mod tests {
             }
         }
         for platform in [HostPlatformKey::MacosArm64, HostPlatformKey::MacosX64] {
-            for kind in [
-                AdapterKind::CursorAgent,
-                AdapterKind::ClineCli,
-                AdapterKind::CommandCodeCli,
-            ] {
+            let command = registry.platform_admission(AdapterKind::CommandCodeCli, platform);
+            assert_eq!(command.status(), RuntimePlatformAdmissionStatus::Preview);
+            assert!(command.allows_runtime_use());
+            assert!(!command.is_qualified());
+            assert_eq!(command.blocker_code(), None);
+            assert_eq!(
+                command.reason_code(),
+                Some(RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing)
+            );
+            assert_eq!(command.evidence_revision(), None);
+
+            for kind in [AdapterKind::CursorAgent, AdapterKind::ClineCli] {
                 let admission = registry.platform_admission(kind, platform);
                 assert_eq!(
                     admission.status(),

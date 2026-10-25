@@ -7,7 +7,8 @@ last_updated: 2026-10-25
 # Command Code 1.88 原生接入简化
 
 当前实现以[启动合同 v72](../../contracts/runtime-launch-and-verification-v72.md)为准。
-只保留原生 HOME、官方 Mod、标准 ACP 与共享 Fleet。公开状态仍为所有平台 NotQualified。
+只保留原生 HOME、官方 Mod、标准 ACP 与共享 Fleet。当前 macOS arm64/x64 按 User seq61 开放 Preview，
+Windows/Linux 保持 NotQualified；该开放不代替完整平台资格，具体范围见文末。
 
 ## 实际减少
 
@@ -407,7 +408,7 @@ Mod 先解析到局部变量，沿用非空字符串和 UTF-8 128 KiB 正文限�
 完整测试归属见[测试指南](../../development/testing.md#command-code-188-简化测试归属2026-10-24)。
 
 本次没有重跑 MCP 或外部真实模型；前次同一官方通道的 MCP/取消证据仍单独保留。共享回归不替代
-完整 Core/App、Windows/Linux、子代理范围或平台资格；Command 继续所有平台 NotQualified。
+完整 Core/App、Windows/Linux、子代理范围或平台资格；当时 Command 继续所有平台 NotQualified。
 没有测量延迟、CPU 或内存，准确收益是删除正文文件及读写责任，代价是每 Run 一次现有 ACP 控制往返。
 
 ## 验证记录
@@ -522,3 +523,33 @@ override；正式平台准入不变。以下五项均通过完整 Core AgentRun 
 
 已扩展的 ready 与 Windows Job 定向 owners 通过；原生登录副本在结束后删除，原 mcode 配置哈希未变。
 Command Code 1.88.0 原生 MCP 的 Windows 路径／argv 问题属于另一项，本修复未改其投影和启动逻辑。
+
+## macOS 双架构开放（2026-10-25）
+
+User seq61 要求 macOS 两个架构开放。以主干 `51da43668fa9b9e50cd94c86a29825db8666f79a` 为基线，
+在独立 worktree 的 `rovai/command-code-macos-preview` 分支实施；本项是公开准入调整，不新增原生模型验收结论。
+
+| 平台 | 当前准入 | 行为 |
+| --- | --- | --- |
+| macOS arm64 / Apple Silicon | Preview | 允许正常发现、配置、检查和执行。 |
+| macOS x64 / Intel | Preview | 同上；不将本机 Renderer 平台夹具当作 Intel 真机证明。 |
+| Windows x64、Linux x64 | NotQualified | 沿现有平台限制，不因可见目录恢复而开放执行。 |
+
+两条 Preview 行保留 `qualification_evidence_missing` 与空 evidenceRevision，不增加资格文件。
+最低版本仍为 1.88.0 稳定版。共享可见目录恢复设置、新手引导、队员/Skill 选择和监控入口；
+安装引导仅链接 [Command 官方说明](https://commandcode.ai/docs)，不增加安装脚本或认证探针。
+App CLI 删除 Command 的旧全平台拒绝分支，配置请求交由 Core 判断目标平台；Cline 继续暂缓公开。
+界面使用现有状态与检查详情，不增加常驻实验标签。没有更改 Bootstrap 传输、Host/Session 生命周期，
+也没有新增生产文件、锁、池、缓存或监听器。当前决定见 [V1.72-D60](decisions.md#v1-72-d60)。
+
+验证复用现有 owners：前端全套 256 文件 / 3005 项通过、2 项既有跳过；TypeScript 与桌面/Web 构建通过。
+隔离 Electron Runtime Picker 实际选中 Command 并保留原生默认模型，原有键盘、IME、日夜主题、尺寸及
+200% 缩放回归通过；其 userData 位于独立临时目录，不启动 Core/Skill Library/真实 Runtime，结束后已清理。
+最终 `cargo test --workspace --quiet` 通过：Core 431 项通过、1 项既有忽略，其余目标 46 项通过，
+doc-tests 通过；其中 App CLI 31 项包含 Command 原生默认配置解析。文档治理测试 10 项、格式检查及
+基于上述 base 的 `docs:check:ci` 通过。
+兼容性清单更新同步既有 register revision，平台证据 owner 五项复验通过；Command Preview 不引用该摘要，
+也不恢复配置摘要式 Host/Session 判断。
+
+未新增 Intel 原生模型、完整 macOS Core/App、子代理或跨平台 MCP 资格验收；已有原生证据仍见本报告
+前文。本次不安装、重启或改写日常 App，也不自动升级 Command。Preview 开放和完整资格通过分别记录。

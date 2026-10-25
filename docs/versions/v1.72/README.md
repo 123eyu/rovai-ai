@@ -617,6 +617,8 @@ Cline ACP 自动压缩仍未接通；当时 Command 1.74/1.79 的 ACP 自定义 
 实际调用有缺口。1.88 已有新的目录/标准选模支持与真实 MCP 调用证据，不再沿用这些旧阻塞；
 `acp --model` 仍不作为选模路径。精确版本、通过范围与未知项见[兼容性清单](../../runtime-compatibility.md)。
 这是公开范围收敛，没有更换 Runtime 或新增后备链路；下文 Preview/headless 是实施历史。
+后续 Command 在 1.88 简化完成后按 [V1.72-D60](decisions.md#v1-72-d60)重新开放 macOS 两架构 Preview；
+本节保留 2026-10-09 的实施记录，Cline 的暂缓公开继续有效。
 
 2026-10-10 合流主干内部续做请求等后续修复；190/schema 140 兼容主干与 Preview 的同号旧收据，
 保留用户历史与 ACP 身份，不改变上述隐藏范围。迁移与验证见[实施计划](implementation-plan.md#2026-10-10-两个隐藏-acp-与最新主干合流)。
@@ -1178,7 +1180,7 @@ User 进一步确认保留 App 运行期间的 Run 异常退出提醒，统一�
 ## Command Code 原生接入简化（2026-10-24）
 
 官方 1.88.0、用户原生 HOME、官方 Mod、ACP MCP 和共享 Fleet 身份复用作为同一交付；删除配置镜像与
-摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
+摘要兼容性链。旧 Session/Binding 保留，结构简化本身不恢复公开准入。实现、复杂度对照及定向验证见
 [Command Code 简化记录](command-code-native-simplification.md)。
 
 2026-10-25 已修复配置/数据库持锁等待 Fleet、非空已生效设置重试、安装命令 replay、版本文本误拒绝及
@@ -1194,4 +1196,9 @@ MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口�
 
 后续 sub2api 实模型补验通过默认/自定义 cwd stdio、HTTP、warm 及 exact cold 的四次 MCP 回执闭环；
 11 次前台请求 System 中合成 B 恰好一份，cold 保留模型并回忆首轮回执。现有报告另补接入 Checklist 的
-14 能力轴方案对照，区分当前实现、旧版本证据，以及原生提问、Skills、压缩、用量等尚未验证的子项；公开资格不变。
+14 能力轴方案对照，区分当前实现、旧版本证据，以及原生提问、Skills、压缩、用量等尚未验证的子项。
+
+2026-10-25 按 User seq61 开放 macOS Apple Silicon 与 Intel，Core 两个平台采用既有 Preview 准入；
+共享产品目录恢复 Command 的设置、引导、成员/Skill 选择和监控入口，安装引导指向官方说明。
+Windows/Linux 保持 NotQualified，1.88.0 稳定版下限保持，不新增平台资格证据或专属检查。
+取舍见 [V1.72-D60](decisions.md#v1-72-d60)，本次回归与未实测项记录在同一简化报告。

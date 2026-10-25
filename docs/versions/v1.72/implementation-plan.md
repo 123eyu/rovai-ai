@@ -4134,3 +4134,9 @@ Mission 抽屉和 Diff 文件树已有最终指针提交与缩放换算，保留
 2026-10-25 User seq61 另行确认 macOS 两架构开放，沿现有 Preview 准入与共享产品目录实施；
 Windows/Linux 保持 NotQualified。最低版本、原生接入和生命周期不变，不新增资格门禁或证据文件。
 完整 Intel/Core/App 验收不由此次开放推导，决定见 [V1.72-D60](decisions.md#v1-72-d60)。
+
+
+2026-10-25 Linux x64 随独立目标机验收开放 Command Code Preview，保持官方稳定版 ≥1.88.0。
+真实 Core/浏览器、能力、生命周期和已接受差异分别记录于
+[Linux 验收](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)；
+公开范围见 [V1.72-D61](decisions.md#v1-72-d61)，不增加 Runtime 管理机制。

@@ -59,9 +59,9 @@ describe('applying a saved member Runtime configuration', () => {
     }
     const commandMember = { ...member, runtimeConfiguration: { ...configuration, adapterKind: 'command-code-cli' as const } }
     for (const platform of ['macos-arm64', 'macos-x64', 'windows-x64', 'linux-x64'] as const) {
-      const mac = platform.startsWith('macos-')
-      const admissions: RuntimePlatformAdmission[] = [{ runtimeKind: 'command-code-cli', platform, status: mac ? 'preview' : 'not_qualified', reasonCode: 'runtime_platform.qualification_evidence_missing', evidenceRevision: null }]
-      expect(runtimeApplyEligibility(commandMember, configuration, undefined, { hostPlatform: platform, admissions })).toBe(mac ? 'available' : 'locked')
+      const admitted = platform !== 'windows-x64'
+      const admissions: RuntimePlatformAdmission[] = [{ runtimeKind: 'command-code-cli', platform, status: admitted ? 'preview' : 'not_qualified', reasonCode: 'runtime_platform.qualification_evidence_missing', evidenceRevision: null }]
+      expect(runtimeApplyEligibility(commandMember, configuration, undefined, { hostPlatform: platform, admissions })).toBe(admitted ? 'available' : 'locked')
     }
     const target = { ...member, runtimeConfiguration: configuration }
     const admissions = [{ platform: 'windows-x64', runtimeKind: 'codex-cli', status: 'not_qualified' }] as RuntimePlatformAdmission[]

@@ -45,7 +45,7 @@ Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brie
 - [Mobile WebUI](host-web-mobile.md)
 - [Windows 展示与交互差异](windows-interaction-delta.md)
 - [Runtime 目录与平台准入](../architecture/runtime-catalog-boundaries.md)：Command Code 在 macOS
-  Apple Silicon 与 Intel 沿 Preview 开放；Cursor 与 Cline 暂缓公开，Renderer 不另建平台白名单。
+  Apple Silicon、Intel 与 Linux x64 沿 Preview 开放；Cursor 与 Cline 暂缓公开，Renderer 不另建平台白名单。
 
 平台规则只拥有窗口、输入、系统主题和本机能力差异，不建立另一套产品结构。
 

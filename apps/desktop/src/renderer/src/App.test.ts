@@ -8418,7 +8418,7 @@ function runtimeAdmissionRows(
   ]
   return runtimeKinds.map((runtimeKind) => {
     const effectiveStatus = status === 'qualified' && ['cursor-agent', 'cline-cli', 'command-code-cli'].includes(runtimeKind)
-      ? runtimeKind === 'command-code-cli' && (platform === 'macos-arm64' || platform === 'macos-x64') ? 'preview' : 'not_qualified'
+      ? runtimeKind === 'command-code-cli' && platform !== 'windows-x64' ? 'preview' : 'not_qualified'
       : status
     return {
       runtimeKind,

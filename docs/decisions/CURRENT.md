@@ -297,6 +297,8 @@ Command Code 官方 ACP、System 门禁及此前的 macOS arm64 Preview 由 [V1.
 保留 ACP 并删除 headless 实验代码；2026-10-25 macOS 两架构重新开放 Preview 的理由见
 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)，当前准入见
 [Runtime Platform Admission v2](../contracts/runtime-platform-admission-v2.md#8-command-code-macos-preview)。
+Linux 目标机验收后的 Preview 开放与已接受非零退出差异见
+[V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)及[当前准入](../contracts/runtime-platform-admission-v2.md#9-command-code-linux-preview)。
 
 
 macOS ACP detached 后代与 Core 重启回收当前规范见

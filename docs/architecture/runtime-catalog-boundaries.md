@@ -47,7 +47,7 @@ Windows x64 与 Linux x64 分别绑定平台专属证据并取得 qualified。
 产品目录的机器可判数量、全量检查、诊断分母和
 普通执行仍只来自逐平台 Admission。Cursor 与暂缓公开的 Cline 保留 closed identity 和历史 reader，但不进入
 Settings Runtime Preview Catalog；隐藏该 row 不删除持久 identity，也不改变未准入状态。普通成员 Runtime
-selector 同样不展示 Cursor 与 Cline；Command Code 进入公开目录，macOS arm64/x64 为 Preview，Windows/Linux
+selector 同样不展示 Cursor 与 Cline；Command Code 进入公开目录，macOS arm64/x64 与 Linux x64 为 Preview，Windows
 保持 NotQualified。成员选项在当前主机上继续经过 Runtime Platform Admission，Renderer 不另建平台白名单。
 
 `qualified` 与 `preview` 可以进入 Product Runtime Availability；`preview` 保留缺失资格证据，检查详情说明记录未齐备。
@@ -99,9 +99,9 @@ schema 与拒绝调用，不追加 fallback 或原生问卷界面。Skills 发�
 `.commandcode/skills`、`.agents/skills` 来源；原生同名选择由 CLI 拥有，不生成投影副本。
 
 Migration 185 的闭集 identity 与既有历史保持。2026-10-25 按 User seq61 开放 macOS Apple Silicon 与 Intel，
-两行均采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。Windows/Linux
+macOS 两行采用既有 Preview 准入，可发现、配置、检查和执行；最低版本仍为 1.88.0 稳定版。Linux x64 经独立目标机验收后同样开放 Preview，Windows
 继续 NotQualified，Cline 的暂缓公开不变。Preview 不代表完整 App/Intel 资格验收通过；不绑定虚构证据，
-不显示常驻实验标签。取舍见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。旧 1.74.1/1.79.1 BYOK
+不显示常驻实验标签。开放范围见 [V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)，macOS 取舍见 [V1.72-D60](../versions/v1.72/decisions.md#v1-72-d60)。旧 1.74.1/1.79.1 BYOK
 目录缺口属于历史证据；1.88 的原生证据与尚未覆盖范围见[实施记录](../versions/v1.72/command-code-native-simplification.md)。
 
 ## Cline 实施边界

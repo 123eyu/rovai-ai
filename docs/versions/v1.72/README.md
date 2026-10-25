@@ -1202,3 +1202,9 @@ MCP 无关成员退役，认证展示沿共享原生错误分类。后续收口�
 共享产品目录恢复 Command 的设置、引导、成员/Skill 选择和监控入口，安装引导指向官方说明。
 Windows/Linux 保持 NotQualified，1.88.0 稳定版下限保持，不新增平台资格证据或专属检查。
 取舍见 [V1.72-D60](decisions.md#v1-72-d60)，本次回归与未实测项记录在同一简化报告。
+
+
+2026-10-25 Linux x64 随独立目标机验收开放 Command Code Preview，保持官方稳定版 ≥1.88.0。
+真实 Core/浏览器、能力、生命周期和已接受差异分别记录于
+[Linux 验收](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)；
+公开范围见 [V1.72-D61](decisions.md#v1-72-d61)，不增加 Runtime 管理机制。

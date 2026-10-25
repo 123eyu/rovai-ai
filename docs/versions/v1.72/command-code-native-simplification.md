@@ -553,3 +553,11 @@ doc-tests 通过；其中 App CLI 31 项包含 Command 原生默认配置解析�
 
 未新增 Intel 原生模型、完整 macOS Core/App、子代理或跨平台 MCP 资格验收；已有原生证据仍见本报告
 前文。本次不安装、重启或改写日常 App，也不自动升级 Command。Preview 开放和完整资格通过分别记录。
+
+
+## Linux x64 目标机验收与开放（2026-10-25）
+
+独立目标机使用官方 1.88.0 与真实 Sub2API，Core 数据、Skills、MCP 与原生 HOME 均隔离。
+[验收报告](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)区分真实模型、浏览器、
+受控故障、已接受差异与未覆盖范围。维护者要求本次 Linux 开放与上述 macOS 分支一同交付；
+采用同一 Preview 状态，稳定版下限、原生配置和共享生命周期不变。前节的平台表保留 macOS 开放时的事实。

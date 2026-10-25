@@ -93,7 +93,7 @@ describe('first-run onboarding flow', () => {
 
   it.each(['ready', 'light_ready'] as const)('keeps incomplete qualification detail visible for a %s Runtime', (status) => {
     for (const runtimeKind of ['codex-cli', 'command-code-cli'] as const) {
-      for (const platform of ['macos-arm64', 'macos-x64'] as const) {
+      for (const platform of ['macos-arm64', 'macos-x64', 'linux-x64'] as const) {
         const admission = { ...previewAdmission(), runtimeKind, platform }
         const availability = { ...readyAvailability(), runtimeKind, status }
         const health = { ...healthWithRuntime(availability, admission), hostPlatform: platform }

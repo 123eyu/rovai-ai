@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: team-workspace-ui
 status: accepted
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 ---
 
 # Team 工作区
@@ -43,7 +43,9 @@ Web 团队列表只随团队变更或连接重新同步刷新；其他业务失�
 共享偏好回执内容未变时保留原 state，避免同一失效观察因回执对象变化而反复提交；刷新中不使用旧名册判断失效。
 失效请求期间收到的新观察合并为一次补查；请求完成后使用最新偏好与名册重新判断。
 没有新观察时不重试；最新名册已恢复可用时不提交失效请求。
-新对话主动作使用日间深色、夜间浅色中性按钮。
+团队主动作、队员选中框及团队选中标记使用当前主题的 `conversation-action` 系列 token，
+包括挂载到 Portal 的选择菜单与确认弹窗。日间深色、夜间浅色，其他主题沿用各自的 action 色；
+删除保留 danger 语义，主侧栏“新对话”保留普通导航样式。
 
 记忆入口移入“设置 → 应用”，保留待审核计数；主侧栏设置旁仅在有待审核项时出现记忆快捷入口。
 数据和旧 Memory 深链不迁移。数据与上下文语义由 [Team Templates v1](../../contracts/team-templates-v1.md)

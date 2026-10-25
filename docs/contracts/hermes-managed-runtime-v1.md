@@ -134,9 +134,13 @@ MCP 当前分配直接随原生 new/resume 参数提供；不二次发现、不�
 工具通知按原生字段投影，可展示有原生依据的工具事件、输出和文件路径。当前官方 ACP 路径未接通
 Hermes 的结构化 `reported_mutation` / Diff 生成；原生预览不能冒充完整状态。旧控制器的文件验收
 不代表当前生产能力，历史证据仍可读取。缺少参数、Diff 或文件完整状态保持未知，不扫描磁盘补证。
-原生 PromptResponse usage 的 Session 累计值不冒充本 prompt 消耗，失败前缺少可归属 delta 也不估算。
-缺少可靠的逐 Run 用量或费用时显示未知，不以 Session 总量补齐。
-原生 `usage_update` 仅作上下文 gauge。ACP 图片沿原生媒体流程，能力取决于配置及模型。
+原生 PromptResponse usage 不冒充本 prompt 消耗：已验版本返回驻留 Agent 的累计计数，同一 Session
+也可能因 Agent 重建而从零开始；没有计数代次/请求前基线时，不直接取总数或跨 Run 相减。
+失败前缺少可归属 usage 也不估算。缺少可靠的逐 Run 用量或费用时显示未知，不以累计总量补齐。
+原生 `usage_update` 仅作上下文 gauge，不能替代消费统计或压缩完成事件。
+当前已验官方 ACP 未发送实时压缩生命周期；恢复历史中的摘要标记只代表历史内容，不产生当前 Run
+的压缩事件或补发需求。能力限制与复现见[原生观测验证](../research/hermes-runtime/README.md#原生-acp-观测验证2026-10-25)。
+ACP 图片沿原生媒体流程，能力取决于配置及模型。
 
 ## 准入
 

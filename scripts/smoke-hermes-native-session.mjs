@@ -1,6 +1,7 @@
 // Official, unpatched Hermes with one native Home and a pre-existing shared Gateway.
 // Usage: node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python>
 // Opt-in real model: append --real-model <second-model-id>; requires explicit model-use authorization.
+// Append --observations for ACP-only compaction/usage inspection, failure and counter-reset cases.
 import assert from 'node:assert/strict'
 import {createServer} from 'node:http'
 import {spawn, spawnSync, execFileSync} from 'node:child_process'
@@ -11,9 +12,11 @@ import {DatabaseSync} from 'node:sqlite'
 import {createHash, randomUUID} from 'node:crypto'
 import {startQualificationCore} from './lib/qualification-core.mjs'
 import {createConfiguredCampAndSend, composerDocumentForAddress} from './lib/create-configured-camp.mjs'
+import {createHermesAcpObserver, holdHermesSession} from './lib/hermes-acp-observer.mjs'
 
 const [officialSource, python] = process.argv.slice(2)
 assert([officialSource, python].every(p => p && isAbsolute(p)))
+const inspectObservations = process.argv.includes('--observations')
 if (process.argv[4] === '--real-model') {
   const {runRealModelProbe} = await import('./lib/hermes-real-model-probe.mjs')
   await runRealModelProbe(officialSource, python, process.argv[5])
@@ -35,12 +38,19 @@ const sh = s => "'" + s.replaceAll("'", "'\\''") + "'"
 // A test installation entry selecting the existing prepared interpreter; no upstream code changes.
 const launcher = join(root, 'hermes')
 const bootstrap = `import sys; sys.path.insert(0, ${JSON.stringify(source)}); sys._hermes_pin_default_home = True; import hermes_bootstrap; import runpy; runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)`
-await writeFile(launcher, `#!/bin/sh\nexec ${sh(python)} -I -B -c ${sh(bootstrap)} "$@"\n`, {mode: 0o700})
+const observer = inspectObservations ? await createHermesAcpObserver(root) : null
+await writeFile(launcher, observer
+  ? `#!/bin/sh\ncase "$*" in *' acp') exec ${sh(process.execPath)} ${sh(observer.script)} ${sh(python)} -I -B -c ${sh(bootstrap)} "$@";; *) exec ${sh(python)} -I -B -c ${sh(bootstrap)} "$@";; esac\n`
+  : `#!/bin/sh\nexec ${sh(python)} -I -B -c ${sh(bootstrap)} "$@"\n`, {mode: 0o700})
 const wire = [], calls = new Map(), runs = [], checks = {}, threads = {}, sessions = {}
-let core, gateway, database, wireError, gatewayLog = '', summaries = 0
+const providerUsage = []
+let core, gateway, database, heldViewer, wireError, gatewayLog = '', summaries = 0, manualCompaction = null
 const text = value => ({id: randomUUID(), type: 'message', role: 'assistant', status: 'completed', content: [{type: 'output_text', text: value, annotations: []}]})
 function respond(res, body, item, tokens = 100) {
   const id = 'response-' + randomUUID(), output = {id, object: 'response', status: 'completed', output: [item], usage: {input_tokens: tokens, output_tokens: 10, total_tokens: tokens + 10}}
+  if (inspectObservations) providerUsage.push({
+    label: [...JSON.stringify(body.input ?? []).matchAll(/SESSION_PROBE:([AB][0-9]+)/g)].at(-1)?.[1] ?? null,
+    main: (body.tools?.length ?? 0) > 0, model: body.model, ...output.usage})
   if (!body.stream) {res.writeHead(200, {'content-type': 'application/json'}); res.end(JSON.stringify(output)); return}
   res.writeHead(200, {'content-type': 'text/event-stream'}); let sequence = 0
   const emit = event => res.write('data: ' + JSON.stringify({...event, sequence_number: sequence++}) + '\n\n')
@@ -60,6 +70,10 @@ const server = createServer(async (req, res) => {
     if (!main) {if (JSON.stringify(body.input).includes('You are a summarization agent creating a context checkpoint.')) summaries++; respond(res, body, text('Earlier isolated tasks completed. Continue the current task.')); return}
     const label = [...JSON.stringify(body.input).matchAll(/SESSION_PROBE:([AB][0-9]+)/g)].at(-1)?.[1]
     const n = calls.get(label) ?? 0; calls.set(label, n + 1)
+    if (inspectObservations && label === 'B5' && n > 0) {
+      res.writeHead(404, {'content-type': 'application/json'})
+      res.end(JSON.stringify({error: {message: 'Observation fixture fails after one successful tool call', type: 'invalid_request_error', code: 'model_not_found'}})); return
+    }
     if (label && n === 0) {
       const contexts = join(data, 'runtime', 'builtin-tools')
       const processes = await readdir(contexts)
@@ -79,11 +93,12 @@ const server = createServer(async (req, res) => {
     if (!label || n > 0) {respond(res, body, text('Done.')); return}
     const observation = `import os,json,pathlib; pathlib.Path(${JSON.stringify(join(root, label + '.json'))}).write_text(json.dumps({k:os.environ.get(k) for k in ['HERMES_SESSION_CHAT_ID','HERMES_SESSION_ID','HERMES_HOME','ROVAI_CLI_CONTEXT']}))`
     let command = `rovai --version > ${sh(join(root, label + '.version'))}; python3 -c ${sh(observation)}; rovai send --public-only --body NATIVE_OK_${label}`
+    if (inspectObservations && label === 'B5') command = `printf 'known usage before native failure' > ${sh(join(root, 'failure-tool-completed'))}`
     if (label === 'A0') command += `; python3 -c ${sh(`import subprocess; subprocess.Popen(['python3',${JSON.stringify(join(root, 'late.py'))}],start_new_session=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)`)}`
     if (label === 'A1') command += `; touch ${sh(join(root, 'release-old'))}; python3 -c ${sh(`import pathlib,time; p=pathlib.Path(${JSON.stringify(join(root, 'late.json'))}); end=time.time()+20\nwhile not p.exists() and time.time()<end: time.sleep(.05)\nassert p.exists()`)}`
     if (label === 'B2') command += `; touch ${sh(join(root, 'crash-started'))}; python3 -c ${sh(`import pathlib,time; p=pathlib.Path(${JSON.stringify(join(root,'crash-release'))}); end=time.time()+30\nwhile not p.exists() and time.time()<end: time.sleep(.05)\nassert p.exists()`)}; touch ${sh(join(root, 'crash-finished'))}`
     if (label === 'A5') command += `; touch ${sh(join(root, 'cancel-started'))}; sleep 15; touch ${sh(join(root, 'cancel-finished'))}`
-    respond(res, body, {id: randomUUID(), type: 'function_call', call_id: randomUUID(), name: 'terminal', arguments: JSON.stringify({command}), status: 'completed'}, ['A3', 'A4'].includes(label) ? 60000 : 100)
+    respond(res, body, {id: randomUUID(), type: 'function_call', call_id: randomUUID(), name: 'terminal', arguments: JSON.stringify({command}), status: 'completed'}, ['A3', 'A4'].includes(label) ? 60000 : inspectObservations && label === 'A7' ? 1000 : 100)
   } catch (error) {wireError = error; res.writeHead(500); res.end()}
 })
 await new Promise(done => server.listen(0, '127.0.0.1', done))
@@ -228,6 +243,7 @@ try {
   gateway.stdout.on('data', d => gatewayLog += d); gateway.stderr.on('data', d => gatewayLog += d)
   await until(() => exists(join(nativeHome, 'gateway.lock')))
   core = startQualificationCore(options); await core.request('health.check')
+  if (inspectObservations) heldViewer = await holdHermesSession(launcher, env, project, sessions.A)
   await settled(await send('A', 6))
   assert(wire.some(body => JSON.stringify(body.input ?? []).includes('HERMES_MCP:NATIVE_MCP_A6')))
   checks.mcpRebindAfterNativeGatewayRestart = true
@@ -245,6 +261,35 @@ try {
   assert.equal(calls.get('B2'), 2, 'Restart must not replay the interrupted task')
   checks.coreKillDoesNotKillGatewayOrReplay = true
 
+  if (inspectObservations) {
+    // Model changes can replace the resident native agent without changing the logical Session.
+    const member = await core.request('members.get', {agentId: 'agent_2'})
+    assert.equal((await core.request('members.runtime.set', {commandId: randomUUID(), command: {
+      agentId: 'agent_2', expectedVersion: member.version, adapterKind: 'hermes-cli',
+      model: {mode: 'explicit', modelId: 'custom:fixture:other-native-probe', options: {}}, permissions: installation.memberRuntimeDefaults.permissions}})).status, 'applied')
+    await settled(await send('A', 7))
+    await settled(await send('A', 8))
+    // Test-only native command: also check a client that explicitly opts in to
+    // standard compaction notifications. This does not add a Core Run or change
+    // production initialize capabilities, inputs, hooks or transport.
+    const before = summaries
+    const compressed = await heldViewer.request('session/prompt', {sessionId: sessions.A,
+      prompt: [{type: 'text', text: '/compress'}]})
+    assert.equal(compressed.stopReason, 'end_turn')
+    assert.equal(summaries, before + 1, 'The opt-in probe must really invoke native compression')
+    manualCompaction = {clientCompactionOptIn: true, summaryRequests: summaries - before, stopReason: compressed.stopReason}
+    await heldViewer.close(); heldViewer = null
+    const failed = await send('B', 5)
+    await waitForToolStart(threads.B, 'failure-tool-completed')
+    const outcome = await until(() => {
+      const r = row('SELECT id,status FROM agent_run WHERE camp_id=? AND rowid>? ORDER BY rowid DESC LIMIT 1', failed.thread, failed.previousRunRow)
+      return r && ['failed', 'succeeded', 'cancelled'].includes(r.status) && r
+    })
+    assert.equal(outcome.status, 'failed')
+    assert(await exists(join(root, 'failure-tool-completed')))
+    checks.failedAfterKnownUsage = true
+  }
+
   for (const run of runs) {
     const payload = wire.filter(body => body.tools?.length && Array.isArray(body.input))
       .map(body => body.input.findLast(item => item.role === 'user')?.content)
@@ -255,10 +300,41 @@ try {
     assert.equal(payload.includes('[Rovai 协作规则更新]'), run.rules === 'update')
     assert(!payload.includes('[Rovai 协作规则恢复]'))
   }
-  assert.equal(row('SELECT COUNT(*) AS n FROM agent_run').n, 12)
+  assert.equal(row('SELECT COUNT(*) AS n FROM agent_run').n, inspectObservations ? 15 : 12)
   checks.actualModelInputsMatchRulesDelivery = true
   checks.noHermesCompatibilityDigests = true
   checks.cliEntryInstalledBeforeRuns = true
+
+  if (observer) {
+    const frames = (await readFile(observer.log, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse)
+    const completions = frames.filter(f => f.direction === 'out' && f.method === 'session/prompt')
+    const terminal = label => completions.find(f => f.label === label)
+    const actual = label => providerUsage.filter(u => u.main && u.label === label)
+      .reduce((total, u) => ({inputTokens: total.inputTokens + u.input_tokens,
+        outputTokens: total.outputTokens + u.output_tokens}), {inputTokens: 0, outputTokens: 0})
+    assert.equal(actual('A8').inputTokens, 200)
+    assert.equal(terminal('A7').usage.inputTokens, actual('A7').inputTokens, 'Model change resets the resident counter')
+    assert.equal(terminal('A8').usage.inputTokens, actual('A7').inputTokens + actual('A8').inputTokens,
+      'A retained native viewer makes usage accumulate across Core Runs')
+    assert.equal(terminal('B5').errorCode, -32603)
+    assert.equal(terminal('B5').usage, undefined, 'Official failed PromptResponse omits the known first-call usage')
+    const compactionFrames = frames.filter(f => ['compaction_update', 'compaction_summary_chunk'].includes(f.sessionUpdate))
+    const coreConsumption = database.prepare('SELECT usage_quality,prompt_input_total_tokens,output_tokens,cost_amount_decimal FROM runtime_usage_run_summary').all()
+    assert(coreConsumption.every(u => Object.values(u).every(v => v === null)), 'Ambiguous totals must remain unknown')
+    const observations = {nativeCommit, providerUsage, completions, manualCompaction, compactionFrames,
+      comparison: ['A6', 'A7', 'A8', 'B2', 'B4', 'B5'].map(label => ({label, provider: actual(label),
+        terminalUsage: terminal(label)?.usage ?? null, errorCode: terminal(label)?.errorCode ?? null})),
+      attaches: frames.filter(f => f.direction === 'out' && ['session/new', 'session/resume', 'session/load'].includes(f.method)),
+      updateShapes: [...new Set(frames.filter(f => f.method === 'session/update').map(f => JSON.stringify({
+        kind: f.sessionUpdate, keys: f.updateKeys, meta: f.metaKeys, hermesMeta: f.hermesMetaKeys})))].map(JSON.parse),
+      summaryFrames: frames.filter(f => f.compactionSummary),
+      coreConsumption,
+      coreCompactions: row('SELECT COUNT(*) AS n FROM native_session_compaction_observation').n,
+      nativeCommittedCompressions: compressions.filter(c => c.commit_status === 'committed' && c.session_id === sessions.A).length,
+    }
+    await writeFile(join(root, 'observations.json'), JSON.stringify(observations, null, 2))
+    checks.cumulativeAndResetUsageNotMisattributed = true
+  }
 
   await core.stop(); core = null; assert(alive(gateway))
   checks.originalSessionColdResume = true
@@ -268,6 +344,7 @@ try {
 } catch (error) {checks.failure = String(error); throw error}
 finally {
   if (core) await core.stop().catch(() => {})
+  if (heldViewer) await heldViewer.close().catch(() => {})
   database?.close()
   if (alive(gateway)) {gateway.kill('SIGTERM'); await until(() => !alive(gateway), 15000).catch(() => gateway.kill('SIGKILL'))}
   server.closeAllConnections(); await new Promise(r => server.close(r))

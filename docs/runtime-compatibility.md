@@ -12,6 +12,9 @@ last_updated: 2026-10-25
 历史条目的旧控制入口、进程树回收与补发保证不再适用。现行边界见
 [合同](contracts/hermes-managed-runtime-v1.md)，本轮验证结果见 [实施记录](versions/v1.72/hermes-first-input-implementation.md)。
 macOS arm64 保持 Preview；不使用下面历史路径的通过结果补全本轮未验证能力。
+同日[原生 ACP 观测验证](research/hermes-runtime/README.md#原生-acp-观测验证2026-10-25)确认当前
+官方 0.22.4 未暴露实时压缩完成，usage 是可重置的驻留 Agent 累计值且失败响应缺失；这两项尚未
+端到端接通，不能用旧控制器的压缩/消费验收替代。原生会话与生产接入方式保持不变。
 
 ## 2026-10-23 Hermes 显式 unknown 恢复补修
 

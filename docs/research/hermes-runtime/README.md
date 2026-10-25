@@ -21,6 +21,54 @@ CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增�
 17 次主任务请求：原选择保持完整命名 ID，原 Session 冷恢复与后继轮均零重复设置；真实改选时完整 ID
 原样发送，实际请求切到 `gpt-5.6-sol`。不同命名 Provider 的拒绝相等由定向单测覆盖。
 
+## 原生 ACP 观测验证（2026-10-25）
+
+按 User sequence 100，尝试沿当前官方 ACP 接通压缩观测与逐 Run 消耗。生产基线 `376f3c22e`，
+官方源码仍为上述未修改的 0.22.4；这次只增加既有 smoke 的 `--observations` 分支与白名单 stdio
+记录器，不改生产入口、用户配置、B/P、共享 Gateway 生命周期或其他 Runtime。
+结果见[观测证据](acp-observations-2026-10-25.json)。这是生产 Core/CLI + 官方 ACP/Gateway + 本地
+受控 Responses 的协议验证，**不是新增一次真实付费模型验收**。
+
+压缩实际完成，但当前官方 ACP 没有实时完成通知。正常两次自动压缩的 native committed telemetry
+与摘要请求可互证；ACP 恢复历史出现 `_meta.hermes.compactionSummary`，属于重放内容，不能按出现
+次数计新压缩，也不能归入恢复后的 Run。`sessionProvenance.compressionDepth` 表示物理会话链深度，
+这次原地压缩仍为 0，不能代替压缩次数。原生日志只用于隔离验收，生产没有新增日志读取。
+补充原生客户端显式发送 `clientCapabilities.session.compaction: {}`，再执行一次 `/compress`；
+实际新增一次摘要请求并正常返回，但仍没有生命周期事件。最终矩阵共 15 个 Core Run：
+12 succeeded、1 cancelled、2 failed（Core 强杀与工具后模型失败），均符合场景预期。
+额外维护命令没有创建 Core Run；两次自动压缩与一次手动压缩分别计数。
+
+官方 [Issue #137752](https://github.com/NousResearch/hermes-agent/issues/137752) 与
+[PR #137950](https://github.com/NousResearch/hermes-agent/pull/137950) 在本次查询时仍 Open。
+[标准 ACP 压缩通知](https://agentclientprotocol.com/rfds/session-compaction)已经定义，但 v1 的
+`clientCapabilities.session.compaction: {}` 同时承诺 ID、状态、摘要 patch/chunk 和 replay 语义。
+本轮没有为未发送的事件添加只认 completed 的接收器，也没有宣称 Rovai 已实现完整标准通知能力。
+现有“不补发规则”是产品选择；“无法实时展示压缩”是当前协议接线缺口，两者分别记录。
+
+消费计数确实存在，但不能用简单映射得到可靠的本 Run 用量：
+
+| 受控场景 | 本轮 Provider 已报告 input / output | ACP 终态 input / output | 含义 |
+| --- | --- | --- | --- |
+| A6 → A7：保留原生客户端并切换模型 | A7 为 1100 / 20 | A6 为 500 / 50；A7 为 1100 / 20 | 原生 Agent 重建后计数从零开始，不能一律减上一轮 |
+| A8：保留另一客户端，再续一轮 | 200 / 20 | 1300 / 40 | 驻留 Agent 没有重建，结果包含 A7，不能直接当本轮 |
+| B4：Core 强杀后恢复 | 200 / 20 | 400 / 40 | 可能包含前一未知执行已经产生的计数 |
+| B5：一次模型调用与工具成功，下一调用失败 | 100 / 10 | error -32603，无 usage | 失败前已知计数没有穿过官方 ACP 错误响应 |
+
+`usage_update` 只包含 `used` / `size`，没有消费基线、计数代次或逐调用用量。上述返回由官方
+[`turn_usage`](https://github.com/NousResearch/hermes-agent/blob/4d04303818b61bf3aa09278af48356315515965b/acp_adapter/gateway_session_meta.py#L106-L124)
+将原生计数投影；[prompt 失败分支](https://github.com/NousResearch/hermes-agent/blob/4d04303818b61bf3aa09278af48356315515965b/acp_adapter/gateway_server.py#L696-L704)
+在 usage 返回前抛错。计数是否重置取决于原生 Agent 生命周期，不能从 Core 每轮关闭 ACP 推导。
+测试核对 Core 的消费字段保持 null；“未知”不等于没有消耗。没有费用字段就不估算费用。
+
+本轮没有可靠的仅改 Rovai 映射的生产修复；若保持当前边界，需要官方 ACP 提供可归属当前 prompt
+的用量（包含失败前已知计数），或具有明确计数代次的完整基线。压缩需要官方实际发送对应事件。
+不新增 Gateway 第二通道、隐藏 `/usage` 调用、文本猜测、文件采集或 Hook。
+
+复现命令为 `node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python> --observations`。
+该分支延伸既有矩阵，覆盖两成员、计数保留/重置、失败前 usage 和未知执行，不增加 Rust 测试 owner。
+第一轮附加案例的 ModelSelection 测试参数写成字符串，12 个既有 Run 后夹具报错；修正为正式 DTO 后重跑，
+不把夹具错误归为 Hermes 缺陷。完整执行次数、补充订阅验证与实际检查记录在上述 JSON。
+
 ## 交付与执行边界
 
 独立分支 `rovai/hermes-runtime`，PR [#878](https://github.com/murray17/rovai-ai/pull/878)。
@@ -80,14 +128,14 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 | 2. Host / Fleet / LRU | 共享 Fleet、Native Binding 身份；无 Host/Binding/runtime 配置摘要；每 Run 关闭 ACP | Command 同样不用配置摘要但可 warm；Codex/Cline 等仍有配置摘要。Hermes 当前付出重连成本，不管理共享 Gateway 的 LRU |
 | 3. Session / Continuation | 原 ID 直接 resume/load；共享 replay 隔离；失败不自动新建 Session 冒充恢复 | 与一般 ACP 一样直接恢复；当前 Command 也已去掉恢复前 list。Hermes 不使用版本/指纹相等作为 resume 前提 |
 | 4. Bootstrap / Context | 首次 B+P、真实规则变化 B 更新+P，其余 P；user 层；接受账本跨重启保持 | Command 用小 Mod 和已有 ACP 控制请求逐轮更新内存中的 System；Codex 用 developerInstructions；Claude 用启动参数文件。Hermes 没有 Mod/ready/正文中转文件，但指令层级较低 |
-| 5. Compaction | 原生压缩照常，Core detector 关闭，无补发或永久保留承诺 | Command/System hook 与 Codex/Claude 的原生高权限指令路径不同；同样关闭 detector 不代表保留保证相同。此项是已选产品边界，未满足通用清单的永久连续性要求 |
+| 5. Compaction | 原生压缩照常；已验官方 ACP 无实时完成通知；历史摘要标记不是当前事件；Core detector 关闭，无补发或永久保留承诺 | 实时展示缺口与不补发的产品选择分开；Command/System hook 与 Codex/Claude 的原生高权限指令路径不同，同样关闭 detector 不代表保留保证相同 |
 | 6. Skills | 用户/当前项目各 .hermes/skills 与 .agents/skills；公共扫描、预览、显式文件引用 | 与 Command 的固定目录发现方向一致；不还原原生启用/信任结果，不列任意 external_dirs。真实读取已验证，文件候选不等于原生启用 |
 | 7. External MCP | 共享分配随 ACP new/resume 交付；原生部分发现失败可继续；不改配置 | Command 自定义 cwd 需要包装且有原生优先策略；Hermes 未传自定义 cwd、同名优先级未知，空 resume 列表不能宣称撤销。没有第二次绑定或额外发现 |
 | 8. Tool / Action / Output | 直接消费官方 ACP 工具、输出、路径；原生终态决定任务结算 | Codex 有更丰富的结构化 item，Command 可映射部分编辑片段；Hermes 当前无结构化 Diff，缺详情不会反改明确成功的任务 |
 | 9. Narration / Final / Missing-Send | ACP 当前请求结果，加共享 Explicit Send/收尾规则；不按自然语言判断成功 | 与其他 ACP 共用产品收尾；没有第二条 Gateway 事件流、receipt 对账或全证据收齐门槛 |
 | 10. Permission / Approval / Workspace | 原生文件编辑模式；权限请求经共享审批桥；不把 dont_ask 当作所有命令自动允许 | 不同于 Codex 的 sandbox 或 Command 的 bypass；Hermes 无已接通的 Core read-only 保证，不能从模式成功推导工作区隔离或问卷支持 |
 | 11. Built-in CLI | 固定安装入口、实例端点、原生逻辑 Session 一次定位当前 Run；无 context.json | Command/Codex 等主要使用逐 Run context/环境。Hermes 明确采用调用时归属：旧后台程序到下一 Run 才首次调用，会归入下一 Run，不追溯来源执行 |
-| 12. Usage / Cache / Cost | Session 上下文观测可用；缺少可靠本 Run 数据时未知，无原生日志补账 | Command 消费 result._meta.usage；Codex/Claude 有各自结构化计数。Hermes 当前消费统计较弱，不能把 Session 累计当本轮，也不靠新增采集器补齐承诺 |
+| 12. Usage / Cache / Cost | Session 上下文观测可用；终态原生计数会累计/重置，失败响应可缺已知 usage；无法可靠归属本 Run 时未知 | Command 消费 result._meta.usage；Codex/Claude 有各自结构化计数。Hermes 已做真实原生协议探针，不是没有检查字段；不取累计总数/盲目差分，也不加采集器补账 |
 | 13. Retry / Queue / Cancel / Cleanup | 官方 cancel、共享去重/队列；只清理自有 ACP。无私有 steer/unknown 维护通道 | 当前 Hermes 与 Command 都不承诺已接通同轮 steer；Codex 等有相应原生路径。共享 Gateway/已提交工具可能继续；无法确认执行结果保持未知，不自动重放 |
 | 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64 Preview | Command 最低稳定版 1.88、一次 Mod ready，macOS 两架构与 Windows x64 已开放 Preview；Hermes 无插件 ready，其余平台未获资格。Preview 均不代表全部能力已验收 |
 

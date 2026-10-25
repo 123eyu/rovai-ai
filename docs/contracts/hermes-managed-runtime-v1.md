@@ -103,8 +103,11 @@ Core 在现有 invocation_gate 内定位唯一 Hermes Conversation，取得其�
 模型目录只服务菜单，不承担执行准入：原生 Session 创建成功时，缺失、损坏或不完整的目录不使
 Hermes 不可用，也不合成猜测的模型项。原生默认沿用会话状态；显式选择的完整模型 ID 交给
 `session/set_model`，由原生确认或拒绝，失败不回退默认模型。文件编辑策略使用 `session/set_mode`。
-本次 new/resume 明确返回相同完整模型 ID 或相同 `currentModeId` 时，跳过对应设置请求；不同或
-缺失时正常设置。不归一化 Provider/别名，不增加状态查询、跨 Run 缓存或 warm 管理。
+本次 new/resume 返回相同完整模型 ID 时跳过设置；用户选择裸模型名时只比较完整模型名。
+双方明确报告 Provider 时比较 Provider 与模型名；兼容 `custom:<命名Provider>:<模型>` 与
+`custom:<模型>` 的已知报告差异，两个不同的命名 Provider 不视为相同。不做任意后缀、大小写或
+别名模糊匹配；不同或缺失时把用户选择的完整 ID 原样交给原生设置。
+相同 `currentModeId` 同样跳过模式设置。不增加状态查询、跨 Run 缓存或 warm 管理。
 不以通用配置空 ACK 冒充设置成功；reasoning/Fast 沿原生配置。权限请求走共享 ACP，
 文件审批模式不是命令审批或 OS sandbox；CoreEnforced read-only 仍拒绝。
 

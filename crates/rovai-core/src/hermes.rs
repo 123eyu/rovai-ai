@@ -9,6 +9,35 @@ pub fn supported_version(version: Option<&str>) -> bool {
         .is_some_and(|(version, _)| version >= [0, 22, 4])
 }
 
+/// Compare the native choice without changing the ID sent to session/set_model.
+/// A generic custom:<model> report may omit the configured custom provider name.
+pub fn model_selection_matches(selected: &str, current: Option<&str>) -> bool {
+    let Some(current) = current else {
+        return false;
+    };
+    if selected == current {
+        return true;
+    }
+    fn parts(id: &str) -> (Option<&str>, &str) {
+        let Some((provider, model)) = id.split_once(':') else {
+            return (None, id);
+        };
+        if provider == "custom"
+            && let Some((name, model)) = model.split_once(':')
+        {
+            return (Some(&id[.."custom:".len() + name.len()]), model);
+        }
+        (Some(provider), model)
+    }
+    let (selected_provider, selected_model) = parts(selected);
+    let (current_provider, current_model) = parts(current);
+    selected_model == current_model
+        && (selected_provider.is_none()
+            || selected_provider == current_provider
+            || selected_provider == Some("custom") && current.starts_with("custom:")
+            || current_provider == Some("custom") && selected.starts_with("custom:"))
+}
+
 /// Only launch selection: never copy config, write native instructions, or own
 /// the user's Gateway. The native launcher keeps its own bootstrap semantics.
 pub fn configure_command(command: &mut Command) -> Result<()> {
@@ -56,6 +85,37 @@ pub fn input_acceptance_uncertain(message: &Value) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn model_selection_matches_native_provider_forms_without_suffix_matching() {
+        for (selected, current, matches) in [
+            ("custom:sub2api:A", "custom:A", true),
+            ("custom:sub2api:A", "custom:sub2api:A", true),
+            ("A", "custom:A", true),
+            ("custom:sub2api:A", "custom:other:A", false),
+            ("custom:sub2api:B", "custom:A", false),
+            ("A", "custom:sub2api:A", true),
+            ("A", "openai:A", true),
+            ("openai:A", "openai:A", true),
+            ("openai:A", "anthropic:A", false),
+            ("openai:A", "custom:A", false),
+            ("custom:A", "custom:sub2api:A", true),
+            ("custom:sub2api:A", "A", false),
+            ("custom:sub2api:org/A", "custom:org/A", true),
+            ("org/A", "custom:sub2api:org/A", true),
+            ("A", "custom:org/A", false),
+            ("custom:sub2api:A", "custom:other:prefix:A", false),
+            ("custom:sub2api:A:v1", "custom:sub2api:A:v2", false),
+            ("custom:sub2api:A", "custom:sub2api:a", false),
+        ] {
+            assert_eq!(
+                model_selection_matches(selected, Some(current)),
+                matches,
+                "{selected} / {current}"
+            );
+        }
+        assert!(!model_selection_matches("A", None));
+    }
 
     #[test]
     fn native_entry_preserves_the_launcher_and_uses_logical_session_identity() {

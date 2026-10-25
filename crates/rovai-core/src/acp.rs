@@ -5294,13 +5294,12 @@ impl AcpRuntime {
                     .is_some_and(|options| options.is_empty()),
                 "Hermes ACP does not support generic per-Session model options"
             );
-            // Use the complete native ID from this attachment, not the picker
-            // or a normalized provider/model alias. Let Hermes validate a change.
+            // Compare native provider forms locally; pass a changed choice intact.
             let current = session_result
                 .as_ref()
                 .and_then(|session| session.pointer("/models/currentModelId"))
                 .and_then(Value::as_str);
-            if current != Some(model) {
+            if !crate::hermes::model_selection_matches(model, current) {
                 self.set_model(&session_id, model).await?;
             }
         } else if model_source == "explicit" {
@@ -13876,6 +13875,24 @@ while IFS= read -r ignored; do :; done
                     vec!["session/set_model", "session/set_mode"],
                 ),
                 (
+                    "custom-provider-omitted",
+                    "explicit",
+                    Some("custom:model"),
+                    Some("dont_ask"),
+                    "custom:sub2api:model",
+                    None,
+                    vec![],
+                ),
+                (
+                    "custom-model-changed",
+                    "explicit",
+                    Some("custom:model"),
+                    Some("dont_ask"),
+                    "custom:sub2api:other",
+                    None,
+                    vec!["session/set_model"],
+                ),
+                (
                     "different-provider",
                     "explicit",
                     Some("provider-a/model"),
@@ -13942,7 +13959,7 @@ while IFS= read -r ignored; do :; done
 import json, pathlib, sys
 root = pathlib.Path(__file__).parent
 config = json.loads(pathlib.Path(__file__).with_suffix('.json').read_text())
-model = 'provider-a/model'
+model = config['session'].get('models', {}).get('currentModelId') or 'provider-a/model'
 for line in sys.stdin:
     request = json.loads(line)
     method = request['method']
@@ -14056,7 +14073,7 @@ for line in sys.stdin:
                         "session/new"
                     },
                 ];
-                expected_methods.extend(expected);
+                expected_methods.extend(&expected);
                 if failure.is_none() {
                     expected_methods.push("session/prompt");
                 }
@@ -14072,10 +14089,10 @@ for line in sys.stdin:
                     if request["method"] == "session/prompt" {
                         assert_eq!(
                             request["executedModel"],
-                            if source == "explicit" {
+                            if expected.contains(&"session/set_model") {
                                 target
                             } else {
-                                "provider-a/model"
+                                current_model.unwrap_or("provider-a/model")
                             }
                         );
                     }

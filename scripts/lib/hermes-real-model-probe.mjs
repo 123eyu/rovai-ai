@@ -208,18 +208,18 @@ process.stdin.on('data',b=>observe('in',b));child.stdout.on('data',b=>observe('o
     const namedChoice = current.A
     await core.stop(); core = null; assert(alive(gateway))
     core = startQualificationCore(options); await core.request('health.check')
-    // Observed official 0.22.4 behavior: after real generation this fixture's
-    // named provider is reported as custom:<model>. Select that exact native row
-    // for equality coverage; production must not normalize it to the named route.
-    await configure('agent_2', {mode: 'explicit', modelId: `custom:${firstModel}`, options: {}}, 'dont_ask')
+    // Keep the complete named choice: native resume may omit the custom provider.
+    await configure('agent_2', {mode: 'explicit', modelId: namedChoice, options: {}}, 'dont_ask')
     await run('A1', firstModel, [])
+    assert.equal(runs.find(v => v.label === 'A1').attachedModelId, `custom:${firstModel}`)
+    assert.notEqual(namedChoice, `custom:${firstModel}`)
     const nextId = namedChoice.slice(0, -firstModel.length) + secondModel
     await configure('agent_2', {mode: 'explicit', modelId: nextId, options: {}}, 'default')
     await run('A2', secondModel, ['session/set_model', 'session/set_mode'])
-    await configure('agent_2', {mode: 'explicit', modelId: `custom:${secondModel}`, options: {}}, 'default')
     await run('A3', secondModel, [])
+    assert.equal(runs.find(v => v.label === 'A2').setters.find(v => v.method === 'session/set_model').modelId, nextId)
     assert.equal(runs.find(v => v.label === 'A2').catalogContainsTarget, false, 'Explicit model should be outside the attachment picker')
-    checks.originalSessionColdResume = true; checks.exactSettingsSkipped = true; checks.explicitUnlistedModelUsed = true
+    checks.originalSessionColdResume = true; checks.customProviderSettingsSkipped = true; checks.explicitUnlistedModelUsed = true
     checks.explicitUntrustedSkillFileUsed = true
     await core.stop(); core = null; assert(alive(gateway)); checks.sharedGatewaySurvivesCore = true
     assert.equal(hash(await readFile(join(nativeHome, 'config.yaml'))), baseline)

@@ -255,6 +255,30 @@ whitespace 通过，文档单测 **10 passed**，当前及 diff-aware 文档门�
 安装缓存变化没有逐文件审计，不能声称本轮完全未触碰日常安装。后续所有启动使用隔离 Home 和源码
 副本；测试说明已明确依赖探针也必须隔离。日常配置在真实验收前后按字节摘要核对。
 
+## custom Provider 模型比较（2026-10-25）
+
+User sequence 92 将上节的完整 ID 比较收窄为局部字符串兼容。仅 Hermes 使用
+`hermes::model_selection_matches`：完整相同直接跳过，裸模型选择只比完整模型名；明确 Provider
+不同仍设置。兼容 `custom:<name>:<model>` 与 `custom:<model>`，不做任意后缀、大小写或
+别名匹配。真正设置时仍传用户原始完整 ID，默认模型、模式设置和其他 Adapter 保持原义。
+没有新增状态、数据库字段、缓存、查询或上游改动。上节旧测试假设与实际失败记录保留原义。
+
+新增纯函数 owner `hermes::tests::model_selection_matches_native_provider_forms_without_suffix_matching`，
+覆盖五个指定例子以及不同 Provider、不同模型、命名空间、后缀、大小写和未知状态。原有入口/Session
+测试不拥有模型比较；新 owner 以无 I/O 的表驱动测试承担这个已复现兼容回归，避免为每个输入启动进程。
+既有 `acp::tests::real_acp_session_model_selection_respects_native_adapter_boundaries` 只扩展两组
+seam：new/resume 的 custom 简写零设置，以及真实模型变化时原样传完整 ID；原拒绝路径仍保留。
+
+最小命令：
+
+```sh
+cargo test -p rovai-core --lib hermes::tests::model_selection_matches_native_provider_forms_without_suffix_matching -- --exact
+cargo test -p rovai-core --features slow-tests,extended-tests --lib acp::tests::real_acp_session_model_selection_respects_native_adapter_boundaries -- --exact
+```
+
+现有真实 smoke 保留原始命名 Provider 选择，在 Core 重启、原 Session resume 后断言无重复设置；
+改变模型时断言完整选择进入设置请求，下一轮继续同 Session 再次零设置。无需新的验收框架。
+
 ## 历史 R1 实施
 
 按当时 R1 和 User sequence 31 实施。

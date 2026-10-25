@@ -4,7 +4,7 @@ authority: renderer-theme
 status: accepted
 theme_id: horizon
 mode: light
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # 地平线
@@ -55,6 +55,7 @@ User 在主题设计 Thread sequence 30 选择恢复 `rovai-horizon-refined-v7.h
 | `--surface-subtle` | `#f4f4f2` |
 | `--surface-muted` | `#eaeae7` |
 | `--surface-selected` | `#e9e9e4` |
+| `--scrollbar-thumb` | `#e9e9e4` |
 | `--surface-hover` | `#eeeeea` |
 | `--surface-sunken` | `#e9e9e6` |
 | `--workspace-surface-subtle` | `#f5f5f3` |

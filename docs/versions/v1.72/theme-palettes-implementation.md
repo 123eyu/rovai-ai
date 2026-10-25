@@ -3,7 +3,7 @@ document_type: implementation-record
 version: v1.72
 lifecycle: current
 authority: implementation-evidence
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 ---
 
 # 地平线、经典红与余烬实施
@@ -131,13 +131,37 @@ Logo 恢复 Steel `#526f88` 与 Ember `#d3a45f`。会话、执行台和队员浮
 本次视觉验收使用固定数据，不启动 Host/Core/Runtime，也不读写日常 App 数据。
 未重复原生 Windows/macOS 系统明暗切换、IME 与辅助技术验收；此配色修订不改变这些入口。
 
+## Windows 窗口按钮与经典红滚动块（Thread sequence 42）
+
+User 指出 Windows 菜单栏切换主题后，右上角最小化、最大化与关闭区域没有同步，
+并质疑经典红滚动块的粉色。根因分别是 Main 只向窗口装饰传递明暗模式，以及滚动块复用了选中区域 Token。
+
+- 窗口装饰接收含具体偏好的 appearance snapshot，启动与运行时更新共用配色解析。
+  五套配色分别匹配 `--rail` / `--ink`，`system` 继续解析为日间或夜间；原生按钮、系统高度与交互不变。
+- 增加独立 `--scrollbar-thumb`，经典红使用中性灰 `#dedede`；其他四套配色保持原滚动块色值。
+  通用滚动条和 Mission 文件树使用该 Token，Memory / Automation 保留已有无彩色覆盖。
+  淡红选中面、透明轨道、尺寸与交互均不变。
+- 现有窗口装饰测试扩展为六项偏好 × 两种明暗模式，检查建窗与运行时颜色均匹配生产 Token，
+  同时保留 macOS / Linux 边界与系统默认高度检查。针对性回归 58 项通过。
+- `pnpm typecheck`、`pnpm test`、`pnpm build:desktop` 通过；Vitest 256 个文件、3005 项通过、2 项既有跳过。
+  同步主线 PR #890 后，类型检查、完整 JavaScript 测试与桌面构建复验通过。
+- 同步主线后的 `pnpm test:rust:pr` 477 项通过、1 项既有忽略；本机 Rust 1.98 工具链仍报告缺少 `libLLVM.dylib`
+  的调试信息剥离警告，不影响构建和测试结果。
+- 生产组件浏览器 fixture 验证六项切换；经典红滚动块为 `rgb(222, 222, 222)`，选中面仍为 `#eee4e6`，
+  轨道透明、可见滚动块宽 8px，实际滚动正常，无整页横向溢出和浏览器 warning/error。
+- 当前运行环境为 macOS；Windows 原生窗口按钮未做真机实测，不以浏览器 fixture 替代原生验收。
+- 文档与五套主题合同同步更新；通用文档测试、版本/决策门禁与基于本次 main 基线的 CI 门禁通过。
+  核对另发现日间/夜间附件色表分别有 8/6 项既有文档—实现偏差，已记录到任务的 palette audit；
+  本次新增滚动块 Token 的合同与实现一致，既有配色值没有变化。
+
 ## Worktree handoff
 
-- Work item: 按 User sequence 40 实施经典红 A「轻红侧栏」。
-- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-classic-red`
-- Branch: `rovai/classic-red-soft-surfaces`
-- Base: `origin/main` / `984e82281ee57c5b33ac5ec320d1e4bf52e4cf4a`
-- Integrated main: `4fe005decd5eaf54b81265943f71e80a7014f75e`
-- Governance: none；User 已授权配色修订与 PR 合入，UI 合同随同提交。
+- Work item: User sequence 42 的 Windows 窗口按钮配色遗漏与经典红滚动块修正。
+- Worktree: `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-theme-chrome`
+- Branch: `rovai/theme-chrome-scrollbars`
+- Base: `origin/main` / `c73c79423da12d2ac4aa154a1ff4742c69206f2d`
+- Integrated main: `1028095f6d318f1d77802c518ec76f97c036f402`
+- Governance: none；沿用已授权的主题修订、PR 与合入流程，UI 合同随同提交。
 - Status: ready
-- Next: 按既有授权创建 PR，CI 通过后合入 main 并清理 worktree。
+- Validation: 见上节；源码预览提交 `1635838d051fb7d9246b02386c9ee8cd31e80008`。
+- Next: 创建 PR，CI 通过后合入 main 并清理 worktree；真机 Windows 视觉范围保留为未实测。

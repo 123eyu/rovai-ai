@@ -14,9 +14,11 @@ last_updated: 2026-10-25
 
 # Command Code 官方 ACP：System Bootstrap revision 5
 
-本页保留 2026-10-05 已确认的前/后输入快照。当前 Host 文件、预算与恢复实现已由
+本页保留 2026-10-05 已确认的前/后输入快照。当前 Bootstrap 经已有 ACP 控制命令更新 Mod 内存；
+首次/warm/cold 不再使用正文文件。Host 材料、预算与恢复实现已由
 [Runtime Launch v72](../../contracts/runtime-launch-and-verification-v72.md)收敛；
-下文初次确认时的物理细节不作为新旧 Bootstrap 比较、256 KiB 外层限制或配置 fence 的当前要求。
+下文初次确认时的正文文件／坏文件退出、新旧 Bootstrap 比较、256 KiB 外层限制或配置 fence
+不作为当前物理交付要求。
 最新实施与能力对照见[当前简化记录](command-code-native-simplification.md#按接入-checklist-对照其余方案2026-10-25)。
 
 User 已明确要求修复 System Bootstrap、warm，并继续完成所有可接能力；本次按此授权实施，不重复询问。

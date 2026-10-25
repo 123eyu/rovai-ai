@@ -1704,8 +1704,8 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 ## Command Code 1.88 简化测试归属（2026-10-24）
 
 退役 `native_configuration_tracks_scoped_mod_sources_without_hashing_history`：其唯一生产路径（配置扫描、
-HOME 镜像和原生文件合并）已删除。同模块现有 owner 当前为 `native_home_and_run_bootstrap_materials`，
-验证原生 HOME 不被改写、一次握手清理和 Run 边界 bindings。health owner 中的 `mcp list` 格式矩阵随已删除
+HOME 镜像和原生文件合并）已删除。同模块 owner 后续更名为 `native_home_and_bootstrap_control`，
+验证原生 HOME 不被改写、一次握手清理和直接控制正文编码。health owner 中的 `mcp list` 格式矩阵随已删除
 解析器退役；真实 1.88 原生同名优先验证由隔离 native-contract 探针承接。
 
 扩展既有 `member_sessions_reuse_only_within_their_camp_and_current_session` 覆盖显式身份策略与跨 cwd/owner；
@@ -1722,7 +1722,8 @@ HOME 镜像和原生文件合并）已删除。同模块现有 owner 当前为 `
 warm 不调用、cold 失败不创建进程/材料。
 终态矩阵移除基线已失效的 14 个 Adapter 固定计数（实际为 15），改验非空后继续遍历全部 Adapter；
 目录数量仍由 Registry owner 拥有。保留取消/终态 owner，不新增等价 Rust 测试。真实控制面继续使用既有 ignored
-`isolated_command_code_acp_bootstrap_gate_and_resident_sessions`，基线更新到 1.88、BYOK 选模改为成功。
+`isolated_command_code_acp_direct_bootstrap_and_cold_resume`（原 bootstrap_gate owner 更名），
+基线为 1.88，以实际 ManagedProcess/ACP Host 和本地确定性 Provider 验证逐轮直接交付。
 
 最小命令：`cargo test -p rovai-core --features slow-tests --lib`，分别过滤上述 owner 与 `command_code`；
 Core dispatcher owner 使用 `cargo test -p rovai-core --features slow-tests --lib runtime_configuration_writes`；
@@ -1773,3 +1774,27 @@ owner 不经过 MCP wire，`runtime_mcp` 的原生文件 owner 也不拥有 Comm
 真实 cwd 与进程父子关系由隔离官方 1.88 控制探针验证：CLI 初始 cwd 与 Session cwd 不同，分别执行
 `session/new` 和同 ID 的 `session/load`，检查 MCP `tools/list` 回执及停止后回收；这不替代历史恢复、
 真实模型工具调用或 Windows/Linux 资格。证据追加到已有 Command JSON，不新增测试文件或常驻验收服务。
+
+
+2026-10-25 Bootstrap 直接传输接入继续复用上述 owners，Rust 测试函数和文件均未增加：
+
+- `native_home_and_bootstrap_control` 拥有中文／换行／引号等控制编码、完整 128 KiB UTF-8 正文预算、
+  无效输入拒绝、原生 HOME 和 ready 清理；原 binding 文件发布／不同文件名断言随正文文件路径退役。
+- `history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input` 保留 TRAE/Command 恢复
+  回放隔离，扩展生产交付调用：控制 end_turn、usage、mode 仅属准备，错误／cancelled 返回不提交业务
+  prompt；成功后只有原业务输入生成接受和终态。复用 Ready 路由与普通 RPC waiter，没有新状态机。
+- 既有真实 ignored owner 更名为 `isolated_command_code_acp_direct_bootstrap_and_cold_resume`。
+  使用实际官方 1.88 executable、ManagedProcess、生产 Mod 与 AcpRuntime；保留五种 mode 和本地
+  `rovai-probe/model` 显式 BYOK 选模，同 PID/Session A→B→A、
+  128 KiB 引号正文、新 PID 精确 ID cold，以及四类无效控制参数。每次控制后业务事件为空，每轮原始
+  user 输入仅接受一次；Host 材料只含 Mod，shutdown 清除。测试所需隔离 HOME 由调用者提供，不能替代
+  完整 Core/App 或跨平台资格。旧文件缺失／坏 SHA 时退出及多 binding 文件断言随唯一生产路径删除；
+  所属范围仍由既有 Fleet/Native Binding owner 负责，不新增跨 Session 内存管理器。
+- `long_bootstrap_bindings_preserve_utf8_and_enforce_body_limits` 保留 Cline 的文件交付断言，删除 Command
+  文件分支；Command 容量由其控制 owner 和既有 Node Mod owner 承接。
+- `scripts/lib/command-code-bootstrap.test.mjs` 验证注册完成后才写 ready、A→B→A 直接替换、失败保留旧值、
+  固定错误不含输入、完整 128 KiB 和原问卷过滤。删除旧文件读写／SHA／文件名门禁测试。
+
+定向命令仍为 `cargo test -p rovai-core --features extended-tests --lib <owner>` 和上述 Node 文件；
+真实 owner 显式 `--ignored --nocapture`，需 `ROVAI_COMMAND_CODE_SMOKE_ROOT` 与
+`ROVAI_COMMAND_CODE_SMOKE_EXECUTABLE` 指向一次性原生夹具与官方 CLI。默认 workspace 和文档门禁继续运行。

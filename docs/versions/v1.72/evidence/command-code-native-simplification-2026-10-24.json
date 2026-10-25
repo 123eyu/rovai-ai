@@ -2305,5 +2305,288 @@
     },
     "productionCodeChanged": false,
     "qualificationChanged": false
+  },
+  "followupDirectBootstrapImplementation20261025": {
+    "baseline": "02ac0a514ddce88cfaeceec7d2b931779182d586",
+    "scope": "Production replacement in existing Command Mod and AcpRuntime delivery; no public qualification change",
+    "officialPackage": {
+      "name": "command-code",
+      "version": "1.88.0",
+      "registryTarball": "https://registry.npmjs.org/command-code/-/command-code-1.88.0.tgz",
+      "cliSha256": "600725f967cc98f6144066c24e850d934bd4a1f503c3bf82f2bd2584a8757dfd"
+    },
+    "productionMod": {
+      "revision": "command-code-system-bootstrap-v2",
+      "sha256": "bca8cadca01d225914b2c6b7ee8b1f201db593a05df47206dcb917caf77379ea",
+      "controlCommand": "rovai-bootstrap",
+      "initialWarmCold": "same existing ACP session/prompt command dispatch",
+      "bodyStorage": "one Host-owned Mod memory value",
+      "bodyArgv": false,
+      "bodyFiles": false,
+      "fallback": false
+    },
+    "deleted": [
+      "bindings directory and body JSON",
+      "temporary body writes and rename",
+      "Mod body file reads and SHA-256",
+      "filename-only native Session ID restrictions",
+      "file corruption/missing-body process-exit branches and obsolete test assertions"
+    ],
+    "environment": {
+      "platform": "macOS arm64",
+      "channel": "automated acceptance",
+      "isolation": "new temporary native HOME and cwd",
+      "model": "deterministic loopback OpenAI-completions fixture",
+      "credentials": "synthetic local-only placeholder",
+      "externalModelRequests": 0,
+      "dailyAppOrConfigurationModified": false,
+      "fullCoreOrAppStarted": false
+    },
+    "nativeProductionPath": {
+      "testOwner": "acp::tests::isolated_command_code_acp_direct_bootstrap_and_cold_resume",
+      "entry": "official executable through production ManagedProcess -> AcpHost -> AcpRuntime and embedded Mod",
+      "result": "passed three times; final run retains native mode and BYOK checks",
+      "receipts": [
+        {
+          "accepted": 1,
+          "bootstrapBytes": 51,
+          "host": 0,
+          "pid": 80689,
+          "run": 0,
+          "sessionId": "05ace62d-09b0-47c9-b9c7-d771ab304246"
+        },
+        {
+          "accepted": 1,
+          "bootstrapBytes": 30,
+          "host": 0,
+          "pid": 80689,
+          "run": 1,
+          "sessionId": "05ace62d-09b0-47c9-b9c7-d771ab304246"
+        },
+        {
+          "accepted": 1,
+          "bootstrapBytes": 51,
+          "host": 0,
+          "pid": 80689,
+          "run": 2,
+          "sessionId": "05ace62d-09b0-47c9-b9c7-d771ab304246"
+        },
+        {
+          "accepted": 1,
+          "bootstrapBytes": 131072,
+          "host": 0,
+          "pid": 80689,
+          "run": 3,
+          "sessionId": "05ace62d-09b0-47c9-b9c7-d771ab304246"
+        },
+        {
+          "accepted": 1,
+          "bootstrapBytes": 30,
+          "host": 1,
+          "pid": 80699,
+          "run": 0,
+          "sessionId": "05ace62d-09b0-47c9-b9c7-d771ab304246"
+        }
+      ],
+      "successfulControlUpdates": 5,
+      "invalidControlUpdates": 4,
+      "invalidKinds": [
+        "malformed JSON",
+        "number",
+        "null",
+        "object"
+      ],
+      "controlBusinessEvents": 0,
+      "businessInputsAccepted": 5,
+      "foregroundModelRequests": [
+        {
+          "index": 1,
+          "label": "0_0",
+          "toolCount": 12,
+          "path": "/v1/chat/completions",
+          "bootstrapBytes": 51,
+          "systemCount": 1,
+          "bodyInUser": false,
+          "nativeSystemRetained": true,
+          "questionToolAbsent": true,
+          "controlInMessages": false,
+          "systemSha256": "4e5a24f4f26db4a7a8a14517e2bf126d44295b20f8459ddb4c96454ef332d971",
+          "staleMarkers": []
+        },
+        {
+          "index": 2,
+          "label": "0_0",
+          "toolCount": 12,
+          "path": "/v1/chat/completions",
+          "bootstrapBytes": 51,
+          "systemCount": 1,
+          "bodyInUser": false,
+          "nativeSystemRetained": true,
+          "questionToolAbsent": true,
+          "controlInMessages": false,
+          "systemSha256": "4e5a24f4f26db4a7a8a14517e2bf126d44295b20f8459ddb4c96454ef332d971",
+          "staleMarkers": [],
+          "toolReceiptPresent": true
+        },
+        {
+          "index": 4,
+          "label": "0_1",
+          "toolCount": 12,
+          "path": "/v1/chat/completions",
+          "bootstrapBytes": 30,
+          "systemCount": 1,
+          "bodyInUser": false,
+          "nativeSystemRetained": true,
+          "questionToolAbsent": true,
+          "controlInMessages": false,
+          "systemSha256": "7817a5de1cd551141d9ea7e2391015fd9aefe6f832ea90aa404ec6bc3e38771e",
+          "staleMarkers": []
+        },
+        {
+          "index": 5,
+          "label": "0_2",
+          "toolCount": 12,
+          "path": "/v1/chat/completions",
+          "bootstrapBytes": 51,
+          "systemCount": 1,
+          "bodyInUser": false,
+          "nativeSystemRetained": true,
+          "questionToolAbsent": true,
+          "controlInMessages": false,
+          "systemSha256": "4e5a24f4f26db4a7a8a14517e2bf126d44295b20f8459ddb4c96454ef332d971",
+          "staleMarkers": []
+        },
+        {
+          "index": 6,
+          "label": "0_3",
+          "toolCount": 12,
+          "path": "/v1/chat/completions",
+          "bootstrapBytes": 131072,
+          "systemCount": 1,
+          "bodyInUser": false,
+          "nativeSystemRetained": true,
+          "questionToolAbsent": true,
+          "controlInMessages": false,
+          "systemSha256": "97042471056c9d1e150dfd7dee9fac6fd8d0c72e9405970438d24f4f257dae44",
+          "staleMarkers": []
+        },
+        {
+          "index": 7,
+          "label": "1_0",
+          "toolCount": 12,
+          "path": "/v1/chat/completions",
+          "bootstrapBytes": 30,
+          "systemCount": 1,
+          "bodyInUser": false,
+          "nativeSystemRetained": true,
+          "questionToolAbsent": true,
+          "controlInMessages": false,
+          "systemSha256": "f46c42fecd76faa197841d217ad2c04b3371119037e1fa7262475486450c6904",
+          "staleMarkers": []
+        }
+      ],
+      "backgroundModelRequests": [
+        {
+          "index": 3,
+          "kind": "native session title",
+          "toolCount": 0,
+          "derivedFrom": "first business user input and its assistant result",
+          "controlContentPresent": false
+        }
+      ],
+      "invalidInputInNativeErrorOrStderr": false,
+      "controlTextInNativeHistory": false,
+      "steadyHostFiles": [
+        "rovai-bootstrap.mjs"
+      ],
+      "hostShutdownRemovedMaterials": true,
+      "privateFilesAfterShutdown": 0,
+      "modeUpdates": [
+        "default",
+        "auto-accept",
+        "plan",
+        "dont-ask",
+        "bypass"
+      ],
+      "explicitByokModel": "rovai-probe/model"
+    },
+    "fixtureCorrection": {
+      "initialRustOwner": "passed",
+      "initialObserver": "flagged one additional no-tool model request",
+      "inspection": "rerun captured its native session-title System and business-derived user input; classified separately, not ignored as a control success",
+      "firstHostPids": [
+        78244,
+        78277
+      ],
+      "firstForegroundRequests": 6,
+      "firstNativeTitleRequests": 1,
+      "productionFixRequired": false
+    },
+    "regression": {
+      "targetedExtendedRust": {
+        "passed": 5,
+        "ignored": 1,
+        "owners": [
+          "command_code_acp (3 pure/material owners)",
+          "history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input (TRAE plus Command success/error/cancelled)",
+          "cline::long_bootstrap_bindings_preserve_utf8_and_enforce_body_limits"
+        ]
+      },
+      "realNativeIgnoredOwnerExplicitRun": {
+        "passed": 1,
+        "runs": 3
+      },
+      "nodeModOwner": {
+        "passed": 1,
+        "checks": [
+          "ready after both registrations",
+          "A-B-A replaces value",
+          "128 KiB UTF-8 and quoted payload",
+          "invalid input preserves value and fixed error",
+          "question filter retained"
+        ]
+      },
+      "newRustTestFunctions": 0,
+      "newRepositoryFiles": 0,
+      "workspace": {
+        "corePassed": 431,
+        "coreFailed": 0,
+        "coreIgnored": 1,
+        "otherTargetsPassed": 46,
+        "docTests": "passed"
+      },
+      "cargoCheckWorkspace": "passed",
+      "rustFmt": "passed",
+      "nodeDocsTests": {
+        "passed": 10
+      },
+      "documentationCheck": "passed",
+      "documentationCi": {
+        "result": "passed",
+        "base": "cd3cc99119c45f8ee47e55fe763bab773447a75c"
+      },
+      "diffCheck": "passed"
+    },
+    "cleanup": {
+      "nativePids": [
+        78244,
+        78277,
+        78449,
+        78487,
+        80689,
+        80699
+      ],
+      "allRecordedPidsExited": true,
+      "materialFilesRemovedByProductionShutdown": true,
+      "fixtureDeleted": true
+    },
+    "notClaimed": [
+      "full Core/App queue or fault-retry acceptance",
+      "external real model or MCP rerun for this implementation",
+      "Windows/Linux and other platforms",
+      "subagent or multi-root-Session isolation",
+      "latency CPU or memory improvement",
+      "public qualification"
+    ]
   }
 }

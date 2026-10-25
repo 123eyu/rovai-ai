@@ -26,7 +26,7 @@ projects/sessions、不读取认证/provider/settings/Mod/MCP 来计算兼容性
 Command 新投影不生成 `hostConfigDigest`、`bindingCompatibilityDigest` 或带摘要的 Native Session key；
 共享冻结结构的这两个字段允许 null。历史字符串继续反序列化，不清库、不回填、不因旧值不同换代。
 Binding 提交根据冻结 Run 的 Runtime kind 明确选择此策略，忽略旧配置摘要相等条件；完整载荷、幂等请求、
-凭据和 Bootstrap 内容完整性校验保留，不能决定 Host 或 Session 选择。
+凭据和共享 Context Evidence 的完整性校验保留，不能决定 Host 或 Session 选择。
 
 Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 恢复，Bootstrap 由既有 Context 为本轮
 准备并冻结；Command 不比较历史 Bootstrap，也不另建跨 Host 冻结恢复状态。直接调用原生
@@ -55,19 +55,29 @@ Host 退出、应用重启或容量回收后，新 Host 用精确旧 Session ID 
   继续执行。新进程使用当前安装证据和公共启动验证；不重绑已 claim 的 Run，不改变冻结的模型/权限意图
   或 Native Binding/Session。启动事件报告实际 Host 的版本。其他 Runtime 的预检策略不变。
 
-## Bootstrap 材料
+## Bootstrap 交付
 
 每个新 Host 只写一次 `rovai-bootstrap.mjs`，通过官方 `acp --mod <absolute-path>` 加载。
-初始化局部 nonce 经环境传给 Mod；initialize 后只校验一次 revision、nonce 和实际 PID，删除 `ready.json`
-并丢弃预期 nonce。没有 nonce 文件，也没有长期 nonce map/数据库字段。
+Mod 注册 `rovai-bootstrap` 控制命令和 System hook 后才写 ready。初始化局部 nonce 经环境传给 Mod；
+initialize 后只校验一次 revision、nonce 和实际 PID，删除 `ready.json` 并丢弃预期 nonce。
+没有 nonce 文件、逐轮探针或长期 nonce map/数据库字段；稳态材料只有该 Mod。
 
-每个 Run 在发送原生输入前，将共享 Context 为该 Run 冻结的 Bootstrap 原子发布到现有
-`bindings/<native-session-id>.json`。成员编辑不改写执行中的 Run；后继 Run 使用其准备的新内容，
-同 Run 重试沿共享 Evidence 读取原冻结字节。不读旧正文作相等判断，不因此换 Host 或 Session。
-稳态只有 Mod 与实际使用的 bindings。hook 按 `state.sessionId` 读取目标 binding，校验 schema、ID、预算及
-内容 SHA-256；缺少或损坏时在模型请求前退出。冻结 B 仍追加到原生 System 一次，user 只含动态 P。
-预算只约束 UTF-8 正文的 128 KiB，不再给 JSON 封装设置第二道大小门槛。
-此交付方式不改变 B/P 字节、选择规则、上下文版本或证据权威。
+首次、warm、cold 都在建立／恢复 Session 后、发送业务输入前，经已有 ACP `session/prompt`
+调用已注册的 `/rovai-bootstrap <JSON string>`。handler 先将参数解析到局部变量，确认非空字符串和
+UTF-8 正文不超过共享 128 KiB 预算，再一次性替换 Mod 内存值；失败只返回固定
+`command_code_bootstrap_invalid`，不转发输入片段或解析异常。命令不返回业务 prompt/message，
+由原生直接回复 `end_turn`，不进入模型执行或聊天历史。Core 等控制成功后才发送原始 P；失败停止本轮
+准备，不使用上一轮 B 继续执行，也不回退文件或 argv 路线。
+
+控制请求沿既有普通 RPC waiter 返回；Session 准备阶段的 metadata 路由吸收状态／用量通知。
+控制 `end_turn` 不生成业务输入接受、输出、终态或 Run 用量，不新增请求队列、锁或状态管理器。
+共享 Context 为本轮冻结的 B 由 hook 原样追加到原生 System 一次，user 只含动态 P。
+成员编辑不更新执行中的 Run；后继 Run 交付其已准备的新 B，同 Run 重试沿共享 Evidence 取回原冻结字节。
+不比较历史正文，不因此更换 Host 或 Session，也不建立跨 Host／Session 的正文缓存。
+
+内存正文沿现有 Native Binding 所属 Host 使用；该路径验证根 Session，未承诺多根 Session 共享或子代理
+隔离。删除 bindings 目录、正文文件／临时写入／rename／读取、正文文件 SHA 与文件名专用 Session ID
+限制；保留共享身份归属。此替换不改变 B/P 字节、选择规则、上下文版本、Evidence 权威或正文预算。
 
 同一 Mod 在官方 `onSessionStart` 时使用 `getActiveTools` / `setActiveTools`，只移除
 `ask_user_question`。保留当前启用的其他工具，不以硬编码白名单启用更多工具。1.88 ACP 已验证过滤器

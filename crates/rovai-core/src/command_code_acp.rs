@@ -5,10 +5,9 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 pub const MINIMUM_VERSION: &str = "1.88.0";
-pub const BOOTSTRAP_REVISION: &str = "command-code-system-bootstrap-v1";
+pub const BOOTSTRAP_REVISION: &str = "command-code-system-bootstrap-v2";
 const BOOTSTRAP: &str = include_str!("command_code/bootstrap.mjs");
 
 /// Native ACP sends the proposed edit only on tool_call. Its old/new strings
@@ -83,8 +82,7 @@ pub fn enrich_tool_update(update: &mut Value, initial: Option<&Value>) {
 /// authentication, configuration and history remain entirely CLI-owned.
 /// The returned nonce belongs only to the initialize handshake.
 pub fn configure_host(command: &mut tokio::process::Command, root: &Path) -> Result<String> {
-    fs::create_dir_all(root.join("bindings"))?;
-    private_mode(&root.join("bindings"), 0o700)?;
+    fs::create_dir_all(root)?;
     let plugin = root.join("rovai-bootstrap.mjs");
     write_private(&plugin, BOOTSTRAP.as_bytes())?;
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -157,33 +155,18 @@ pub(crate) fn adapt_mcp_server(
     }
 }
 
-/// Publish the current Run's frozen instructions before dispatch. Reusing a
-/// Session does not freeze its instructions for the lifetime of the Host.
-pub fn bind_bootstrap(root: &Path, session_id: &str, bootstrap: &str) -> Result<()> {
-    anyhow::ensure!(
-        !session_id.is_empty()
-            && session_id.len() <= 128
-            && session_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-'),
-        "command_code_bootstrap_binding_invalid"
-    );
-    let path = root.join("bindings").join(format!("{session_id}.json"));
+/// The registered Mod command consumes one JSON string without starting a
+/// model turn. Escaping keeps multiline instructions in a single slash command.
+pub fn bootstrap_prompt(bootstrap: &str) -> Result<String> {
     anyhow::ensure!(
         !bootstrap.trim().is_empty()
             && bootstrap.len() <= crate::context::MAX_SESSION_BOOTSTRAP_BYTES,
-        "command_code_bootstrap_binding_invalid"
+        "command_code_bootstrap_invalid"
     );
-    let payload = serde_json::to_vec(
-        &json!({"schemaVersion":1, "sessionId":session_id, "bootstrap":bootstrap,
-        "sha256":format!("{:x}",Sha256::digest(bootstrap.as_bytes()))}),
-    )?;
-    let temporary = root
-        .join("bindings")
-        .join(format!("{}.tmp", uuid::Uuid::new_v4()));
-    write_private(&temporary, &payload)?;
-    fs::rename(temporary, path)?;
-    Ok(())
+    Ok(format!(
+        "/rovai-bootstrap {}",
+        serde_json::to_string(bootstrap)?
+    ))
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -277,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn native_home_and_run_bootstrap_materials() {
+    fn native_home_and_bootstrap_control() {
         let root =
             std::env::temp_dir().join(format!("command-code-profile-{}", uuid::Uuid::new_v4()));
         let mut command = tokio::process::Command::new("command-code");
@@ -313,25 +296,28 @@ mod tests {
         assert!(verify_ready(&root, &nonce, 456).is_err());
         verify_ready(&root, &nonce, 123).unwrap();
         assert!(!ready.exists());
-        bind_bootstrap(&root, "session-a", "frozen A").unwrap();
-        let binding = root.join("bindings/session-a.json");
-        for next in ["frozen A", "changed", "changed"] {
-            bind_bootstrap(&root, "session-a", next).unwrap();
-            let value: Value = serde_json::from_slice(&fs::read(&binding).unwrap()).unwrap();
-            assert_eq!(value["bootstrap"], next);
+        for text in [
+            "  中文\n\"quotes\" \\ = ${literal}\n  ".to_owned(),
+            "😀".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES / 4),
+            "\"".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES),
+        ] {
+            let prompt = bootstrap_prompt(&text).unwrap();
+            assert!(!prompt.contains('\n'));
             assert_eq!(
-                value["sha256"],
-                format!("{:x}", Sha256::digest(next.as_bytes()))
+                serde_json::from_str::<String>(prompt.strip_prefix("/rovai-bootstrap ").unwrap())
+                    .unwrap(),
+                text
             );
         }
-        let original = fs::read(&binding).unwrap();
-        assert!(bind_bootstrap(&root, "session-a", "").is_err());
-        assert_eq!(fs::read(&binding).unwrap(), original);
-        bind_bootstrap(&root, "session-b", "frozen B").unwrap();
-        assert_eq!(fs::read(&binding).unwrap(), original);
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
-        assert_eq!(fs::read_dir(root.join("bindings")).unwrap().count(), 2);
-        assert!(bind_bootstrap(&root, "../escape", "invalid").is_err());
+        for text in [
+            String::new(),
+            " \n".into(),
+            "x".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES + 1),
+        ] {
+            assert!(bootstrap_prompt(&text).is_err());
+        }
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        assert!(!root.join("bindings").exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

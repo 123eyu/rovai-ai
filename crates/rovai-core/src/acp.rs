@@ -4920,14 +4920,25 @@ impl AcpRuntime {
             );
         }
         if self.host.adapter_kind == AdapterKind::CommandCodeCli {
-            return crate::command_code_acp::bind_bootstrap(
-                self.host
-                    .private_config_root
-                    .as_deref()
-                    .context("Command Code private Host missing")?,
-                session_id,
-                bootstrap,
+            // Session preparation leaves the route Ready. Its notifications are
+            // metadata, and PendingRpc::Response returns only to this waiter;
+            // the control end_turn never accepts or completes a business input.
+            let prompt = crate::command_code_acp::bootstrap_prompt(bootstrap)?;
+            let result = self
+                .host
+                .rpc(
+                    "session/prompt",
+                    json!({
+                        "sessionId": session_id,
+                        "prompt": [{"type":"text", "text":prompt}],
+                    }),
+                )
+                .await?;
+            ensure!(
+                result["stopReason"] == "end_turn",
+                "command_code_bootstrap_update_failed"
             );
+            return Ok(());
         }
         if self.host.adapter_kind != AdapterKind::DeepseekHarness {
             bail!("DSH Bootstrap requires the DSH Adapter");
@@ -12162,12 +12173,11 @@ while IFS= read -r ignored; do :; done
         }
     }
 
-    // Native process / Mod loading / ACP routing cannot be proved by a fake
-    // transport. This opt-in smoke never sends an LLM prompt: /acp is an
-    // advertised native control command. Generation is verified separately.
+    // Opt-in generation smoke through the actual managed process and ACP Host.
+    // The caller supplies an isolated HOME with a local deterministic Provider.
     #[tokio::test]
-    #[ignore = "requires isolated Command Code 1.88.0 native Home and executable"]
-    async fn isolated_command_code_acp_bootstrap_gate_and_resident_sessions() {
+    #[ignore = "requires isolated Command Code 1.88.0 and a local deterministic Provider"]
+    async fn isolated_command_code_acp_direct_bootstrap_and_cold_resume() {
         use crate::runtime_startup::{RuntimeEnvironmentVariable, RuntimeStartupConfiguration};
         let root = PathBuf::from(
             std::env::var_os("ROVAI_COMMAND_CODE_SMOKE_ROOT").expect("isolated root required"),
@@ -12176,7 +12186,7 @@ while IFS= read -r ignored; do :; done
             std::env::var_os("ROVAI_COMMAND_CODE_SMOKE_EXECUTABLE")
                 .expect("isolated executable required"),
         );
-        assert!(root.is_absolute() && root.join("home/.commandcode/auth.json").is_file());
+        assert!(root.is_absolute() && root.join("home/.commandcode/providers.json").is_file());
         let paths = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
         let search = crate::runtime_discovery::RuntimeSearchEnvironment::for_test_paths(1, paths)
             .with_startup_configuration(
@@ -12197,208 +12207,115 @@ while IFS= read -r ignored; do :; done
             async {
                 let cwd = root.join("workspace");
                 std::fs::create_dir_all(&cwd).unwrap();
-                let workspace =
-                    AgentRunWorkspace::runtime_managed_path(cwd.to_string_lossy().into_owned());
+                let workspace = AgentRunWorkspace::runtime_managed_path(cwd.to_string_lossy().into_owned());
                 let mut frozen = frozen_trae_runtime(&executable);
                 frozen.adapter_kind = AdapterKind::CommandCodeCli;
                 frozen.reported_version = Some("1.88.0".into());
                 frozen.permissions.adapter_kind = AdapterKind::CommandCodeCli;
                 frozen.permissions.values = json!({"permission_mode":"bypass"});
-                let (incoming, mut receiver) = mpsc::unbounded_channel();
-                let host = AcpHost::spawn(
-                    &cwd,
-                    &workspace,
-                    PermissionSemantics::RuntimeManagedV2,
-                    &frozen,
-                    incoming,
-                    Some(exact_builtin_tools(&root)),
-                    CompactionDetectorPolicy::Disabled,
-                    true,
-                    &BTreeMap::new(),
-                    &root.join("private"),
-                    None,
-                    None,
-                )
-                .await
-                .unwrap();
-                let host_root = host.private_config_root.as_ref().unwrap();
-                assert!(!host_root.join("home").exists());
-                assert!(!host_root.join("nonce").exists());
-                assert!(!host_root.join("ready.json").exists());
-                assert_eq!(std::fs::read_dir(host_root).unwrap().count(), 2);
-                let pid = host.pid();
-                let mut sessions = Vec::new();
-                for i in 0..2 {
+                let mut session_id = None;
+                let mut previous_pid = None;
+                // Same-Host A→B→A, a full-budget value, then a new Host/exact ID.
+                for (host_index, bodies) in [
+                    vec!["ROVAI_DIRECT_A\n合成指令 \"引号\" \\ = ${literal}".to_owned(),
+                         "ROVAI_DIRECT_B\n下一轮指令".into(),
+                         "ROVAI_DIRECT_A\n合成指令 \"引号\" \\ = ${literal}".into(),
+                         "\"".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES)],
+                    vec!["ROVAI_DIRECT_C\n冷恢复指令".to_owned()],
+                ].into_iter().enumerate() {
+                    let (incoming, mut receiver) = mpsc::unbounded_channel();
+                    let host = AcpHost::spawn(
+                        &cwd, &workspace, PermissionSemantics::RuntimeManagedV2,
+                        &frozen, incoming, Some(exact_builtin_tools(&root)),
+                        CompactionDetectorPolicy::Disabled, true, &BTreeMap::new(),
+                        &root.join("private"), None, None,
+                    ).await.unwrap();
+                    let host_root = host.private_config_root.as_ref().unwrap();
+                    assert_eq!(std::fs::read_dir(host_root).unwrap().count(), 1);
+                    assert!(host_root.join("rovai-bootstrap.mjs").is_file());
+                    assert!(!host_root.join("bindings").exists());
+                    let pid = host.pid();
+                    assert_ne!(pid, previous_pid);
+                    previous_pid = pid;
                     let runtime = AcpRuntime::from_test_host(
-                        AcpRuntimeOwner {
-                            agent_run_id: format!("command-control-{i}"),
-                            execution_epoch: 1,
-                        },
-                        host.clone(),
-                        "compatibility".into(),
-                        "mcp".into(),
-                        cwd.clone(),
-                        Some(exact_attachment_root(&root)),
-                        "runtime_managed".into(),
-                        AcpSessionPermissions::from_frozen(&frozen).unwrap(),
-                        frozen.model.dsh_source,
+                        AcpRuntimeOwner { agent_run_id: format!("command-direct-{host_index}"), execution_epoch: 1 },
+                        host.clone(), "compatibility".into(), "mcp".into(), cwd.clone(),
+                        Some(exact_attachment_root(&root)), "runtime_managed".into(),
+                        AcpSessionPermissions::from_frozen(&frozen).unwrap(), frozen.model.dsh_source,
                     );
-                    let id = runtime
-                        .start_or_resume_session(
-                            None,
-                            AcpSessionCapabilities::default(),
-                            "runtime_default",
-                            "runtime_default",
-                            &json!({}),
-                            &BTreeMap::new(),
-                        )
-                        .await
-                        .unwrap();
-                    runtime
-                        .bind_managed_bootstrap(&id, &format!("SYSTEM-SESSION-{i}"))
-                        .await
-                        .unwrap();
-                    runtime
-                        .bind_managed_bootstrap(&id, "CHANGED")
-                        .await
-                        .unwrap();
-                    for mode in ["default", "auto-accept", "plan", "dont-ask", "bypass"] {
-                        host.rpc("session/set_mode", json!({"sessionId":id, "modeId":mode}))
-                            .await
-                            .unwrap();
-                    }
-                    host.rpc(
-                        "session/set_model",
-                        json!({"sessionId":id, "modelId":"sub2api/gpt-6-sol"}),
-                    )
-                    .await
-                    .unwrap();
-                    sessions.push((runtime, id));
-                }
-                assert_ne!(sessions[0].1, sessions[1].1);
-                for i in [0usize, 1, 0] {
-                    let (runtime, id) = &sessions[i];
-                    assert_eq!(
-                        runtime
-                            .start_or_resume_session(
-                                Some(id),
-                                AcpSessionCapabilities {
-                                    can_resume: true,
-                                    can_load_history: true
-                                },
-                                "runtime_default",
-                                "runtime_default",
-                                &json!({}),
-                                &BTreeMap::new()
-                            )
-                            .await
-                            .unwrap(),
-                        *id
-                    );
-                    let prompt = runtime
-                        .start_prompt(&format!("control-{i}"), "/acp")
-                        .await
-                        .unwrap();
-                    let mut context = None;
-                    loop {
-                        let incoming =
-                            tokio::time::timeout(Duration::from_secs(60), receiver.recv())
-                                .await
-                                .unwrap()
-                                .unwrap();
-                        if let AcpIncoming::Message {
-                            native_prompt_id,
-                            message,
-                            ..
-                        } = incoming
-                        {
-                            if native_prompt_id != prompt {
-                                continue;
+                    for (run_index, body) in bodies.into_iter().enumerate() {
+                        let id = runtime.start_or_resume_session(
+                            session_id.as_deref(), runtime.session_capabilities().await,
+                            "runtime_default", "runtime_default", &json!({}), &BTreeMap::new(),
+                        ).await.unwrap();
+                        if let Some(expected) = &session_id { assert_eq!(&id, expected); }
+                        session_id = Some(id.clone());
+                        if run_index == 0 {
+                            // Retain this native owner's mode and explicit BYOK controls.
+                            for mode in ["default", "auto-accept", "plan", "dont-ask", "bypass"] {
+                                host.rpc("session/set_mode", json!({"sessionId":id, "modeId":mode}))
+                                    .await.unwrap();
                             }
-                            if message["params"]["update"]["sessionUpdate"] == "usage_update" {
-                                context = Some(message["params"]["update"].clone());
-                            }
-                            if message["method"] == "rovai/acp_prompt_completed" {
-                                assert_eq!(message["params"]["result"]["stopReason"], "end_turn");
-                                break;
+                            host.rpc("session/set_model", json!({"sessionId":id, "modelId":"rovai-probe/model"}))
+                                .await.unwrap();
+                        }
+                        if host_index == 0 && run_index == 1 {
+                            for args in ["PRIVATE_INVALID_JSON", "42", "null", "{}"] {
+                                let error = host.rpc("session/prompt", json!({"sessionId":id,
+                                    "prompt":[{"type":"text","text":format!("/rovai-bootstrap {args}")}]}))
+                                    .await.unwrap_err();
+                                assert!(error.to_string().contains("command_code_bootstrap_invalid"));
+                                assert!(!error.to_string().contains(args));
                             }
                         }
+                        runtime.bind_managed_bootstrap(&id, &body).await.unwrap();
+                        // Ready-route metadata and the control result cannot
+                        // enter business input receipts, output or usage.
+                        while let Ok(event) = receiver.try_recv() {
+                            match event {
+                                AcpIncoming::HostDiagnostic { text, .. } => assert!(!text.contains("PRIVATE_INVALID_JSON")),
+                                other => panic!("control emitted business event: {other:?}"),
+                            }
+                        }
+                        assert!(!host.protocol_violated.load(Ordering::Acquire));
+                        let marker = format!("USER_INPUT_UNCHANGED_{host_index}_{run_index}");
+                        let prompt = runtime.start_prompt(&format!("input-{host_index}-{run_index}"), &marker).await.unwrap();
+                        let mut accepted = 0;
+                        let mut output = String::new();
+                        loop {
+                            let event = timeout(Duration::from_secs(45), receiver.recv()).await.unwrap().unwrap();
+                            match event {
+                                AcpIncoming::InputAccepted { native_prompt_id, .. } => {
+                                    assert_eq!(native_prompt_id, prompt);
+                                    accepted += 1;
+                                }
+                                AcpIncoming::Message { native_prompt_id, message, .. } => {
+                                    assert_eq!(native_prompt_id, prompt);
+                                    if message["params"]["update"]["sessionUpdate"] == "agent_message_chunk" {
+                                        output.push_str(message["params"]["update"]["content"]["text"].as_str().unwrap());
+                                    }
+                                    if message["method"] == "rovai/acp_prompt_completed" {
+                                        assert_eq!(message["params"]["result"]["stopReason"], "end_turn");
+                                        break;
+                                    }
+                                }
+                                AcpIncoming::HostDiagnostic { text, .. } => assert!(!text.contains("PRIVATE_INVALID_JSON")),
+                                other => panic!("unexpected business event: {other:?}"),
+                            }
+                        }
+                        assert_eq!(accepted, 1);
+                        assert!(output.contains("PROBE_DONE"));
+                        assert_eq!(host.pid(), pid);
+                        assert_eq!(std::fs::read_dir(host_root).unwrap().count(), 1);
+                        eprintln!("COMMAND_DIRECT {}", json!({"host":host_index,"run":run_index,
+                            "sessionId":id,"pid":pid,"bootstrapBytes":body.len(),"accepted":accepted}));
+                        runtime.detach().await;
                     }
-                    assert!(
-                        context
-                            .as_ref()
-                            .and_then(|v| v["size"].as_u64())
-                            .is_some_and(|v| v > 0)
-                    );
-                    eprintln!(
-                        "COMMAND_CONTROL {}",
-                        json!({"sessionId":id,"pid":pid,"context":context})
-                    );
-                    runtime.detach().await;
-                    assert_eq!(host.pid(), pid);
+                    host.shutdown().await;
+                    assert!(!host_root.exists());
                 }
-                // Native best-effort resume accepts nonexistent IDs in 1.88.
-                // There is no extra catalog proof or continuity guarantee.
-                for id in [uuid::Uuid::new_v4().to_string(), "12345678".into()] {
-                    let resumed = sessions[0]
-                        .0
-                        .start_or_resume_session(
-                            Some(&id),
-                            AcpSessionCapabilities {
-                                can_resume: true,
-                                can_load_history: true,
-                            },
-                            "runtime_default",
-                            "runtime_default",
-                            &json!({}),
-                            &BTreeMap::new(),
-                        )
-                        .await
-                        .unwrap();
-                    assert_eq!(resumed, id);
-                    sessions[0].0.detach().await;
-                }
-                // The native Mod runner swallows ordinary hook exceptions.
-                // A missing binding must kill the real Host before it can
-                // reach the Provider, rather than emit an unprotected request.
-                let (runtime, id) = &sessions[0];
-                runtime
-                    .start_or_resume_session(
-                        Some(id),
-                        AcpSessionCapabilities {
-                            can_resume: true,
-                            can_load_history: true,
-                        },
-                        "runtime_default",
-                        "runtime_default",
-                        &json!({}),
-                        &BTreeMap::new(),
-                    )
-                    .await
-                    .unwrap();
-                std::fs::remove_file(
-                    host.private_config_root
-                        .as_ref()
-                        .unwrap()
-                        .join("bindings")
-                        .join(format!("{id}.json")),
-                )
-                .unwrap();
-                let _ = runtime
-                    .start_prompt("missing-bootstrap", "Reply once.")
-                    .await;
-                tokio::time::timeout(Duration::from_secs(20), async {
-                    while host.is_alive() {
-                        tokio::time::sleep(Duration::from_millis(20)).await;
-                    }
-                })
-                .await
-                .expect("missing Bootstrap must stop the native process before generation");
-                eprintln!("COMMAND_BOOTSTRAP_MISSING_HOST_STOPPED");
-                host.shutdown().await;
             },
-        )
-        .await;
+        ).await;
     }
 
     // This is an opt-in real Runtime smoke, never part of the fixture suite.
@@ -13786,7 +13703,12 @@ while IFS= read -r ignored; do :; done
     async fn history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input() {
         // Command uses the same transport and goes straight to native restore;
         // the fixture deliberately has no session/list response.
-        for kind in [AdapterKind::TraeCnCli, AdapterKind::CommandCodeCli] {
+        for (kind, control_outcome) in [
+            (AdapterKind::TraeCnCli, "end_turn"),
+            (AdapterKind::CommandCodeCli, "end_turn"),
+            (AdapterKind::CommandCodeCli, "error"),
+            (AdapterKind::CommandCodeCli, "cancelled"),
+        ] {
             let root = std::env::temp_dir().join(format!(
                 "rovai-acp-resume-quarantine-{}",
                 uuid::Uuid::new_v4()
@@ -13794,12 +13716,17 @@ while IFS= read -r ignored; do :; done
             std::fs::create_dir_all(&root).unwrap();
             let executable = root.join("traecli");
             let protocol_log = root.join("protocol.jsonl");
+            let control_reply = if control_outcome == "error" {
+                json!({"jsonrpc":"2.0","id":4,"error":{"code":-32603,"message":"command_code_bootstrap_invalid"}})
+            } else {
+                json!({"jsonrpc":"2.0","id":4,"result":{"stopReason":control_outcome,"usage":{"totalTokens":999999}}})
+            };
             make_executable(
                 &executable,
                 &format!(
                     r#"#!/bin/sh
 if [ -n "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT" ]; then
-  printf '{{"revision":"command-code-system-bootstrap-v1","nonce":"%s","pid":%s}}' "$ROVAI_COMMAND_CODE_BOOTSTRAP_NONCE" "$$" > "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT/ready.json"
+  printf '{{"revision":"command-code-system-bootstrap-v2","nonce":"%s","pid":%s}}' "$ROVAI_COMMAND_CODE_BOOTSTRAP_NONCE" "$$" > "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT/ready.json"
 fi
 IFS= read -r initialize || exit 1
 printf '%s\n' "$initialize" >> '{}'
@@ -13819,6 +13746,14 @@ sleep 0.2
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"historical"}}}}}}}}'
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"tool_call","toolCallId":"historical-tool","kind":"execute","title":"historical"}}}}}}'
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"usage_update","used":999}}}}}}'
+if [ -n "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT" ]; then
+  IFS= read -r control || exit 1
+  printf '%s\n' "$control" >> '{}'
+  printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"usage_update","used":999999,"size":1000000}}}}}}'
+  printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"current_mode_update","currentModeId":"default"}}}}}}'
+  printf '%s\n' '{}'
+  prompt_id=5
+fi
 IFS= read -r prompt || exit 1
 printf '%s\n' "$prompt" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-old","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"current"}}}}}}}}'
@@ -13827,6 +13762,8 @@ while IFS= read -r ignored; do :; done
 "#,
                     protocol_log.display(),
                     protocol_log.display(),
+                    protocol_log.display(),
+                    control_reply,
                     protocol_log.display(),
                 ),
             );
@@ -13890,6 +13827,38 @@ while IFS= read -r ignored; do :; done
                 .unwrap();
             assert_eq!(session_id, "session-old");
             assert!(receiver.try_recv().is_err());
+
+            if kind == AdapterKind::CommandCodeCli {
+                let result = runtime
+                    .bind_managed_bootstrap(&session_id, "  Charter 中文\n\"literal\" = ${value}  ")
+                    .await;
+                // Control end_turn, usage and mode metadata are preparation;
+                // none may acknowledge input or enter the Run event stream.
+                assert!(receiver.try_recv().is_err());
+                assert!(matches!(
+                    host.routes.read().await[&session_id].phase,
+                    AcpSessionPhase::Ready
+                ));
+                assert!(!host.protocol_violated.load(Ordering::Acquire));
+                let protocol = std::fs::read_to_string(&protocol_log).unwrap();
+                let control: Value =
+                    serde_json::from_str(protocol.lines().last().unwrap()).unwrap();
+                let text = control["params"]["prompt"][0]["text"].as_str().unwrap();
+                assert_eq!(control["method"], "session/prompt");
+                assert_eq!(
+                    serde_json::from_str::<String>(text.strip_prefix("/rovai-bootstrap ").unwrap())
+                        .unwrap(),
+                    "  Charter 中文\n\"literal\" = ${value}  "
+                );
+                if control_outcome != "end_turn" {
+                    assert!(result.is_err());
+                    host.shutdown().await;
+                    assert_eq!(std::fs::read_to_string(&protocol_log).unwrap(), protocol);
+                    std::fs::remove_dir_all(root).unwrap();
+                    continue;
+                }
+                result.unwrap();
+            }
 
             let prompt_id = runtime
                 .start_prompt("delivery-current", "continue")

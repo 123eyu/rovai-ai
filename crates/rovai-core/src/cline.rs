@@ -1051,25 +1051,18 @@ pub fn parse_observations(record: &Value) -> Vec<crate::monitoring::ParsedRuntim
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Both adapters formerly rejected valid long identities at 32 KiB. Exercise
-    // the native binding files and immutable retry boundary without a model call.
+    // Cline retains its native rule file and immutable retry boundary; Command
+    // control encoding is owned by command_code_acp::tests.
     #[test]
     fn long_bootstrap_bindings_preserve_utf8_and_enforce_body_limits() {
         let root =
             std::env::temp_dir().join(format!("rovai-bootstrap-capacity-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(root.join("bindings")).unwrap();
         let text = format!(
             "[MEMBER_IDENTITY]\n{}\n[/MEMBER_IDENTITY]",
             serde_json::to_string(&json!({"professionalResponsibilities":"😀".repeat(10_000)}))
                 .unwrap()
         );
         assert!(text.len() > 32 * 1024);
-        crate::command_code_acp::bind_bootstrap(&root, "long-session", &text).unwrap();
-        crate::command_code_acp::bind_bootstrap(&root, "long-session", &text).unwrap();
-        let binding: Value =
-            serde_json::from_slice(&fs::read(root.join("bindings/long-session.json")).unwrap())
-                .unwrap();
-        assert_eq!(binding["bootstrap"], text);
         fs::create_dir_all(root.join("config/rules")).unwrap();
         fs::create_dir_all(root.join("bootstrap")).unwrap();
         bind_bootstrap(&root, "long-session", &text).unwrap();
@@ -1084,16 +1077,7 @@ mod tests {
             String::new(),
         ] {
             assert!(bind_bootstrap(&root, "invalid", &invalid).is_err());
-            assert!(crate::command_code_acp::bind_bootstrap(&root, "invalid", &invalid).is_err());
         }
-        let escaped = "\"".repeat(crate::context::MAX_SESSION_BOOTSTRAP_BYTES);
-        crate::command_code_acp::bind_bootstrap(&root, "escaped", &escaped).unwrap();
-        let serialized = fs::read(root.join("bindings/escaped.json")).unwrap();
-        assert!(serialized.len() > 256 * 1024);
-        assert_eq!(
-            serde_json::from_slice::<Value>(&serialized).unwrap()["bootstrap"],
-            escaped
-        );
         assert!(bind_bootstrap(&root, "long-session", "changed").is_err());
         fs::remove_dir_all(root).unwrap();
     }

@@ -4125,7 +4125,8 @@ Mission 抽屉和 Diff 文件树已有最终指针提交与缩放换算，保留
 摘要兼容性链。旧 Session/Binding 保留，结构简化不恢复公开准入。实现、复杂度对照及定向验证见
 [Command Code 简化记录](command-code-native-simplification.md)。
 
-2026-10-25 按 User 收口继续删除冷恢复 `session/list`，Run 发送前原子更新原 Session binding，补共享
+2026-10-25 按 User 收口继续删除冷恢复 `session/list`，Run 发送前通过已有 ACP 控制命令更新 Mod 内存，
+首次/warm/cold 同路，删除 Bootstrap binding 文件及专属读写、SHA 与文件名限制；补共享
 `.agents/skills` user/project 来源。问卷通过现有 Mod 的官方 active-tools 过滤器移除；原生明确 edit
 新建与普通编辑片段进入现有 Diff 展示，write 创建状态不明确时不推测。没有新生产文件、专属状态或锁。
 固定 1.88 的确定性原生验证与既有 sub2api 真实模型证据分开，详见上述报告。

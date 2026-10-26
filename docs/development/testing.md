@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # 测试与 Smoke Test
@@ -1238,17 +1238,20 @@ Dialog 验收，专项结果不能替代默认全套结果。
 
 ### 主动检查的环境刷新
 
-当前语义由 [Runtime Launch v42](../contracts/runtime-launch-and-verification-v42.md) 继承 v41 并拥有。
+当前语义由 [Runtime Launch v73](../contracts/runtime-launch-and-verification-v73.md) 拥有。
 `runtime_check_refresh_tests` 是 macOS/Windows Check Manager、保存 CAS、正式状态与草稿隔离的集成 owner：使用可注入的
 基础环境读取器、UUID 临时目录、私有 SQLite 和合成程序，不读取真实 Runtime 安装或账号。
-它覆盖目录变化、原路径升级、指定路径失效不回退、进程 PATH 不参与主程序选择、草稿/恢复自动不发布、
+它覆盖旧入口仍存在时主动检查刷新 PATH、未变输入不推进代次及独立检查继续执行、目录变化、原路径升级、
+指定路径失效不回退、进程 PATH 不参与主程序选择、草稿/恢复自动不发布、
 保存及新请求与旧探测交错、环境读取失败不沿用缓存。程序替换继续复用既有 identity-checked probe owner。
 恢复自动的回归在基础查找目录变化后预览并保存，直接断言保存后的正式路径与版本，不追加正式检查；
 同时验证其他 Runtime 设置保留、CAS 拒绝和环境读取失败不发布、同配置重试幂等。
 这些跨 manager/数据库的断言不能降为单独的发现函数测试；不新增第二套协议模拟或真实模型 Smoke。
+Issue #891 扩展上述 owner，旧“只有显式重扫才采集”断言随合同替换，保留配置保存、并发与过期结果案例。
+既有 shell capture owner 同时验证交互式登录参数、启动噪声、含空格 PATH、失败与超时清理；Rust 测试函数净增零。
 
 ```bash
-cargo test -p rovai-core --bin rovai-core --features slow-tests runtime_check_environment::tests
+cargo test -p rovai-core --lib --features slow-tests runtime_check_environment::tests
 pnpm exec vitest run apps/desktop/src/renderer/src/runtime-check.test.ts
 pnpm test:settings-workspace
 ```

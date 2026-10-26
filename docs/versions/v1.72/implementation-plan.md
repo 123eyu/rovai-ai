@@ -8,6 +8,31 @@ last_updated: 2026-10-26
 
 # v1.72 实施与验收
 
+## Runtime PATH 与主动检查一致性（2026-10-26）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-issue-891-runtime-path`；
+  分支 `rovai/issue-891-runtime-path`，基线 `db8cd6e34aa9e0348fa750020105acf8f04869fd`；Governance：none；Status：ready（未合入）。
+- Issue #891：启动复用公共采集策略，macOS/Linux 只采集交互式登录 shell PATH；主动单项检查总是先刷新。
+  旧 `interactiveShell` 字段兼容接收，策略由 Core 决定。Windows、超时、输出处理、回退和候选排序沿用原实现。
+- 环境输入比较、未变代次、发布时重读最新配置、结果围栏和检查合并保持；普通运行不逐消息重扫，
+  不增加全局检查门禁或持久环境。额外变量继续由用户的通用／队员配置承接。
+- 更新 [Runtime Launch v73](../../contracts/runtime-launch-and-verification-v73.md) 及当前 Architecture／路由；
+  v64 已接受语义保留，由 v73 替代其检查复用规则。局部可逆修复，不新增 Version Decision。
+- 扩展既有 shell capture 与 `runtime_check_environment::tests` owners，替换旧跳过刷新断言，
+  保留原并发、配置保存、文件身份与草稿隔离；Rust 测试函数净增零。
+- 定向验证通过：`runtime_check_environment::tests` 8 项、`runtime_discovery::` 12 项、
+  `member_environment::tests` 4 项，以及 `launch_version_uses_the_frozen_program_without_blocking_ordinary_execution` 1 项。
+  使用 `cargo test -p rovai-core --features slow-tests --lib runtime_check_environment::tests -- --list`
+  确认 owner 已编译，再执行同一测试二进制的各过滤器。慢速刷新夹具默认线程栈发生溢出，
+  设置 `RUST_MIN_STACK=33554432`、`--test-threads=2` 后 8 项全部通过；没有改变生产线程栈或测试断言。
+- `pnpm test:rust:pr` 默认 workspace：477 passed / 1 ignored；`cargo check --workspace`、
+  `cargo fmt --all --check`、`pnpm typecheck`、`pnpm docs:test`、`pnpm docs:check` 及以上述基线执行的
+  `DOCS_BASE_REF=<base> pnpm docs:check:ci` 均通过。
+- 完整 `pnpm test`：256 个 Vitest 文件、3005 passed / 2 skipped；末组脚本 358 passed / 2 skipped。
+  首次执行的文件预览 watcher 用例等待通知超时，单独复跑和完整复跑均通过，未修改该功能。
+- 验收只使用既有临时数据库与合成程序；未执行用户实际 asdf 安装、Dock 重启或真实模型任务，
+  也不代表 Windows/Linux 真机验收。后续复用本 worktree；依用户偏好提交并推送任务分支，不自动创建 PR。
+
 ## Run 启动与停止展示（2026-10-26）
 
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-run-start-stop-ui`；
@@ -3688,7 +3713,8 @@ Host 验收使用独立临时 data、Skill Library 与 MCP 路径，不启动模
 
 ### 删除或合并的工作
 
-- 单项检查复用当前有效入口与搜索环境，无有效入口才补充搜索；显式重新检测捕获一次环境。
+- 本批原规则为单项检查复用有效入口与搜索环境、无有效入口才补充搜索；2026-10-26 已由
+  [Issue #891 修复](#runtime-path-与主动检查一致性2026-10-26)替代为主动单项检查总是先刷新。显式重新检测仍捕获一次环境。
   有效输入未变化时保留搜索 generation，同目标请求继续由既有 pending/active 队列合并。
 - 静态发现直接复用已有文件身份，原生稳定文件完整哈希为未变 0 次、首次或升级 1 次。
   必要校验与手动版本补读均留在各 Runtime 工作任务，形成既有 `VerifiedDiscoveredRuntimeEntry` 后短提交；

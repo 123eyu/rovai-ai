@@ -330,14 +330,14 @@ impl RuntimeSearchEnvironment {
     }
 
     pub fn capture_initial() -> Self {
-        Self::capture(1, false)
+        Self::rescan(1)
     }
 
-    pub fn rescan(generation: u64, interactive: bool) -> Self {
-        Self::capture(generation.max(1), interactive)
+    pub fn rescan(generation: u64) -> Self {
+        Self::capture(generation.max(1))
     }
 
-    fn capture(generation: u64, interactive: bool) -> Self {
+    fn capture(generation: u64) -> Self {
         let mut diagnostic_codes = Vec::new();
         let mut entries = Vec::new();
         if let Some(inherited) = env::var_os("PATH") {
@@ -367,7 +367,7 @@ impl RuntimeSearchEnvironment {
         }
 
         let shell_start = Instant::now();
-        let (shell_status, shell_name, shell_paths) = capture_shell_path(interactive);
+        let (shell_status, shell_name, shell_paths) = capture_shell_path();
         #[cfg(unix)]
         if shell_status != ShellPathStatus::Captured {
             diagnostic_codes.push("runtime_shell_path_capture_incomplete");
@@ -406,7 +406,7 @@ impl RuntimeSearchEnvironment {
             created_at: chrono::Utc::now().to_rfc3339(),
             shell_diagnostic: ShellPathDiagnostic {
                 status: shell_status,
-                interactive,
+                interactive: cfg!(unix),
                 shell_name,
                 entry_count: shell_entry_count,
                 elapsed_millis: shell_start.elapsed().as_millis(),
@@ -1349,7 +1349,7 @@ async fn bounded_version_command(
 }
 
 #[cfg(unix)]
-fn capture_shell_path(interactive: bool) -> (ShellPathStatus, Option<String>, Vec<PathBuf>) {
+fn capture_shell_path() -> (ShellPathStatus, Option<String>, Vec<PathBuf>) {
     let Some(shell) = env::var_os("SHELL").filter(|value| !value.is_empty()) else {
         return (ShellPathStatus::Unavailable, None, Vec::new());
     };
@@ -1363,18 +1363,17 @@ fn capture_shell_path(interactive: bool) -> (ShellPathStatus, Option<String>, Ve
             Vec::new(),
         );
     }
-    capture_shell_path_from(&shell_path, interactive, SHELL_PATH_TIMEOUT)
+    capture_shell_path_from(&shell_path, SHELL_PATH_TIMEOUT)
 }
 
 #[cfg(not(unix))]
-fn capture_shell_path(_interactive: bool) -> (ShellPathStatus, Option<String>, Vec<PathBuf>) {
+fn capture_shell_path() -> (ShellPathStatus, Option<String>, Vec<PathBuf>) {
     (ShellPathStatus::Unavailable, None, Vec::new())
 }
 
 #[cfg(unix)]
 fn capture_shell_path_from(
     shell_path: &Path,
-    interactive: bool,
     timeout: Duration,
 ) -> (ShellPathStatus, Option<String>, Vec<PathBuf>) {
     let shell_name = shell_path
@@ -1384,7 +1383,7 @@ fn capture_shell_path_from(
     let script = format!("printf '%s\\n%s\\n%s\\n' '{marker}' \"$PATH\" '{marker}'");
     let mut command = Command::new(shell_path);
     command
-        .arg(if interactive { "-ilc" } else { "-lc" })
+        .arg("-ilc")
         .arg(script)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2181,13 +2180,37 @@ mod tests {
     }
 
     #[test]
-    fn shell_path_capture_times_out_and_terminates_its_process_group() {
+    fn shell_path_capture_uses_interactive_login_and_bounds_failures() {
         let directory = env::temp_dir().join(format!("rovai-shell-timeout-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
-        let shell = directory.join("slow-shell");
+        let shell = directory.join("fixture-shell");
+        let tools = directory.join("tools with spaces");
+        fs::create_dir_all(&tools).unwrap();
+        executable(
+            &shell,
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = '-ilc' ] || exit 1\nprintf 'shell startup output\\n'\nexport PATH='{}'\nexec /bin/sh -c \"$2\"\n",
+                tools.display()
+            ),
+        );
+        let (status, _, paths) = capture_shell_path_from(&shell, Duration::from_secs(1));
+        assert_eq!(status, ShellPathStatus::Captured);
+        assert_eq!(paths, vec![tools]);
+
+        executable(
+            &shell,
+            "#!/bin/sh\nprintf 'incomplete shell output\\n'\nexit 1\n",
+        );
+        let (status, _, paths) = capture_shell_path_from(&shell, Duration::from_secs(1));
+        assert_eq!(status, ShellPathStatus::Failed);
+        assert!(
+            paths.is_empty(),
+            "failed capture leaves inherited/known PATH fallback intact"
+        );
+
         executable(&shell, "#!/bin/sh\nsleep 30\n");
         let started = Instant::now();
-        let (status, _, paths) = capture_shell_path_from(&shell, false, Duration::from_millis(100));
+        let (status, _, paths) = capture_shell_path_from(&shell, Duration::from_millis(100));
         assert_eq!(status, ShellPathStatus::TimedOut);
         assert!(paths.is_empty());
         assert!(started.elapsed() < Duration::from_secs(2));

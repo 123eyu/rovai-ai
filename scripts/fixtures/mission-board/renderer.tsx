@@ -1,3 +1,4 @@
+import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
 import { missionDescriptionText, missionMentionIds } from '../../../apps/desktop/src/renderer/src/mission-description'
 import {runMissionMentionAcceptance,runMissionAcceptance,runMissionCheckoutViewAcceptance,runMissionDeleteTraceAcceptance,runMissionLargeDiffAcceptance} from './acceptance'
 import React from 'react'
@@ -71,6 +72,18 @@ const populatedProjects=projects.map((project,index)=>({...project,totalCount:1,
 const nav={schemaVersion:3,throughGlobalSequence:10,quickChat:{totalCount:0,recentThreads:[]},projects:populatedProjects}
 const prefs={...DEFAULT_GENERAL_PREFERENCES,interfaceLanguagePreference:'zh-CN',interfaceLanguage:'zh-CN',systemLanguage:'zh-CN',languageRevision:0,readError:null,newConversationDefaults:{memberAgentIds:profiles.map(a=>a.agentId),defaultLeadAgentId:profiles[0].agentId}}
 const navigationPrefs={...structuredClone(EMPTY_SNAPSHOT),registeredProjects:projects.map(p=>p.projectPath),legacyProjectsSynced:true,projectOrder:projects.map(p=>p.projectKey)}
+// Team mode uses the production BusinessApp handoff with controllable list replies.
+const missionTeams = [
+ {id:'team-alpha',name:'日常开发',memberAgentIds:profiles.slice(0,6).map(a=>a.agentId),defaultLeadAgentId:profiles[1].agentId,guidance:Array.from({length:40},(_,i)=>`${i+1}. 先确认目标与现有实现，再完成实现、复核和回报。保留证据，明确未完成的范围。`).join('\n\n'),version:1},
+ {id:'team-beta',name:'小组复核',memberAgentIds:profiles.slice(0,2).map(a=>a.agentId),defaultLeadAgentId:profiles[0].agentId,guidance:'先验证，再回报。',version:4}
+]
+let holdTeams = query.has('missionTeams'), failTeams = false
+let createFailure: 'team.conflict' | 'transport' | null = null
+const teamReplies: Array<(teams: typeof missionTeams) => void> = []
+if (query.has('missionTeams')) {
+ prefs.newConversationTeamId = missionTeams[0].id
+ prefs.newConversationDefaults = {memberAgentIds:profiles.slice(0,2).map(a=>a.agentId),defaultLeadAgentId:profiles[0].agentId}
+}
 const changed=()=>events.forEach(fn=>fn({method:'missions.invalidated',params:{}}))
 const seedScrollableLanes=(count=10)=>{
  if(items.some(item=>item.missionId.startsWith('scroll-')))return
@@ -132,7 +145,13 @@ const client={...model.client,onInvalidated:undefined,onEvent:(fn:any)=>{events.
   projectDescription(m,m);items.unshift(m);changed();return applied({threadId:m.threadId,missionId:m.missionId})
  }
 },request:async(method:string,p:any={})=>{
- calls.push({method,p});const c=p.command??p,m=items.find(m=>m.missionId===c.missionId||m.threadId===c.threadId)
+ calls.push({method,p})
+ if (method==='teams.list' && query.has('missionTeams')) {
+  if (holdTeams) return new Promise(resolve => teamReplies.push(resolve))
+  if (failTeams) throw new Error('fixture team list unavailable')
+  return structuredClone(missionTeams)
+ }
+ const c=p.command??p,m=items.find(m=>m.missionId===c.missionId||m.threadId===c.threadId)
  if(method==='missions.list'){
   if(failNextMissionRefresh){failNextMissionRefresh=false;missionRefreshPending=true;await new Promise(resolve=>setTimeout(resolve,150));missionRefreshPending=false;throw new Error('fixture mission refresh failed')}
   return structuredClone(items)
@@ -208,7 +227,9 @@ const client={...model.client,onInvalidated:undefined,onEvent:(fn:any)=>{events.
   return {file:structuredClone(file),hunks:[{oldStart:1,newStart:1,lines:[{kind:'deletion',text:`old-${file.id}`,oldLine:1,newLine:null},{kind:'addition',text:`new-${file.id}`,oldLine:null,newLine:1}]}],patch:''}
  }
  if(method==='missions.diffSession.release')return {released:true}
- if(method==='missions.create'){const m={...items[0],...c,number:Math.max(0,...items.map(item=>item.number))+1,missionId:'created-'+items.length,threadId:'rvcamp_01h47kvsy5fk1shh6w1g60eed'+items.length,status:'not_started',hasUnread:false,workspaceEverCreated:false,workspaceResourcesPresent:false,cleanupAvailable:false};projectDescription(m,m);items.unshift(m);changed();return applied({threadId:m.threadId,missionId:m.missionId})}
+ if(method==='missions.create'){
+  if (createFailure) { const failure=createFailure; createFailure=null; if(failure==='transport')throw new Error('fixture uncertain create');return {status:'rejected',code:failure,payload:{}} }
+  const m={...items[0],...c,number:Math.max(0,...items.map(item=>item.number))+1,missionId:'created-'+items.length,threadId:'rvcamp_01h47kvsy5fk1shh6w1g60eed'+items.length,status:'not_started',hasUnread:false,workspaceEverCreated:false,workspaceResourcesPresent:false,cleanupAvailable:false};projectDescription(m,m);items.unshift(m);changed();return applied({threadId:m.threadId,missionId:m.missionId})}
  if(method==='threads.changeDefaultLead'){m!.defaultLeadAgentId=c.successorAgentId;snapshot(m!).thread.defaultLeadAgentId=c.successorAgentId;changed();return applied()}
  if(method==='threads.delete'){
   if(c.workspaceDisposition==='cleanup'&&m!.workspaceResourcesPresent)orphanCleanups.push(workspaceFor(m!,'cleanup_pending'))
@@ -216,10 +237,19 @@ const client={...model.client,onInvalidated:undefined,onEvent:(fn:any)=>{events.
  }
  return model.client.request(method as any,p)
 }}
-const preferences:any={appearance:{get:async()=>appearance,onChanged:()=>()=>{}},generalPreferences:new Proxy({}, {get:(_,key)=>key==='onChanged'?()=>()=>{}:async(...args:any[])=>{if(key==='setNewConversationDefaults')prefs.newConversationDefaults=args[0];return prefs}}),navigationPreferences:new Proxy({}, {get:(_,key)=>key==='onChanged'?()=>()=>{}:async()=>navigationPrefs})}
+const preferences:any={appearance:{get:async()=>appearance,onChanged:()=>()=>{}},generalPreferences:new Proxy({}, {get:(_,key)=>key==='onChanged'?()=>()=>{}:async(...args:any[])=>{if(key==='setInterfaceLanguagePreference')Object.assign(prefs,{interfaceLanguage:args[0],interfaceLanguagePreference:args[0],languageRevision:prefs.languageRevision+1});if(String(key).startsWith('set'))calls.push({method:`preferences.${String(key)}`,p:args});if(key==='setNewConversationDefaults')prefs.newConversationDefaults=args[0];return structuredClone(prefs)}}),navigationPreferences:new Proxy({}, {get:(_,key)=>key==='onChanged'?()=>()=>{}:async()=>navigationPrefs})}
 const navigationHistory={initial:{entries:[{kind:'missions' as const}],index:0},write:(state:any)=>state,go:async()=>false,listen:()=>()=>{}}
 const environment:any={client,files:{...model.fileApi,open:async(req:any)=>{calls.push({method:"fixture.file.open",p:req});return model.fileApi.open({...req,...(req.threadId?{threadId:initial.thread.id}:{})} as any)}},preferences,navigationHistory,selectWorkspaceDirectory:async()=>({name:'rovai-ai',projectPath:'/workspace/rovai-ai'})}
 ;(window as any).missionQA={items,calls,errors:[],runMentions:runMissionMentionAcceptance,failNextMissionSave:()=>{failNextMissionSave=true},run:runMissionAcceptance,runCheckoutView:runMissionCheckoutViewAcceptance,runDeleteTrace:runMissionDeleteTraceAcceptance,runLargeDiff:runMissionLargeDiffAcceptance,admitMissionNotification,
+ missionTeams, prefs, profiles,
+ setLanguage:(language:'en'|'zh-CN')=>changeInterfaceLanguage(preferences.generalPreferences,language),
+ setTheme:(theme:any)=>applyAppearanceSnapshot(document.documentElement,{...appearance,preference:theme,resolvedTheme:['night','ember'].includes(theme)?'night':'day'}),
+ resolveTeams:()=>{holdTeams=false;teamReplies.splice(0).forEach(resolve=>resolve(structuredClone(missionTeams)))},
+ holdTeamRefresh:()=>{holdTeams=true;events.forEach(fn=>fn({method:'teams.changed',params:{}}))},
+ restoreTeams:()=>{failTeams=false;events.forEach(fn=>fn({method:'teams.changed',params:{}}))},
+ failTeamRefresh:()=>{failTeams=true;events.forEach(fn=>fn({method:'teams.changed',params:{}}))},
+ upgradeTeam:()=>{missionTeams[0]={...missionTeams[0],version:2};events.forEach(fn=>fn({method:'teams.changed',params:{}}))},
+ failMissionCreate:(failure:'team.conflict'|'transport')=>{createFailure=failure},
  seedScrollableLanes,clearScrollableLanes,
  failNextMissionRefresh:()=>{failNextMissionRefresh=true},missionRefreshPending:()=>missionRefreshPending,
  failNextMissionStart:()=>{failNextMissionStart=true},

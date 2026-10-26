@@ -74,7 +74,21 @@ Project, the combined member/lead control and tags sit as compact property chips
 team popovers have focused search fields and bounded, vertically scrollable result lists; project matching uses
 name and path, while team matching uses name, role and availability. Tag choices use a prominent Mission-label color
 dot with tight dot/name spacing, and choosing a tag remains inside the current picker and definition dialog.
-The team popover selects members and lead together and retains the existing default-team preference. The split
+The team chip initializes from General's Team/Custom source. It shows a Team name, compact avatars and overflow.
+Its popover shows the selected Team's read-only roster and Lead; “更换” opens a source list with Custom first.
+Custom edits members and Lead together and retains its draft across Team switches. Source changes and list
+refreshes preserve the Mission title, description, workspace, tags and attachments. A late Team list may fill a
+missing initial snapshot but never replaces a selected Team or an explicit Custom choice. Pending/failed reads
+remain visible and retryable while Custom stays available; an explicit missing Team blocks creation.
+Mission creation has no global one-click checkbox and does not save General defaults. Ordinary New Conversation
+and General preferences retain their existing behavior. Unknown creation outcomes restore the original Team
+snapshot together with the exact definition and command identity.
+
+Team guidance is collapsed by default. Expanding shows at most five lines, preserving paragraphs; actual text
+overflow reveals “查看全文”. That action switches the same popover to a larger read-only reader with a fixed Back
+header and one scrollable, selectable text region. Escape returns to the roster first, then closes the picker,
+without closing the Mission dialog. Short guidance needs no full-reader link. Mobile uses the same component
+and theme tokens with 44px targets; landscape keeps the bounded picker within the viewport. The split
 primary button defaults to 新建; its dropdown offers 开始使命. Both paths stay on the board without opening the
 new Camp. No independent-workspace checkbox is offered; Core decides from the selected project. One unfinished
 Mission draft is retained for the lifetime of the mounted creation flow, including title, description, project,

@@ -4140,9 +4140,9 @@ export function BusinessApp({
   const missionSource = (messageId: string): void => {
     setNotificationFocus({ requestId: ++notificationFocusSequence.current, kind: 'camp_message', threadTurnId: null, messageId, active: true })
   }
-  async function createMission(draft: Omit<CreateThreadRequest, 'commandId' | 'activationState'>, saveTeam: boolean, definition?: {description: string; descriptionContent: MissionDescriptionContent; start: boolean; tags: string[]; attachments: MissionAttachmentDraft[]}): Promise<void> {
+  async function createMission(draft: Omit<CreateThreadRequest, 'commandId' | 'activationState'>, _enableOneClick: boolean, definition?: {description: string; descriptionContent: MissionDescriptionContent; start: boolean; tags: string[]; attachments: MissionAttachmentDraft[]}): Promise<void> {
     if (!definition) throw new Error(uiAttribute('缺少使命定义'))
-    const command: MissionCreate = { title: draft.name ?? '', description: definition.description, descriptionContent: definition.descriptionContent, memberAgentIds: draft.memberAgentIds, defaultLeadAgentId: draft.defaultLeadAgentId, projectBindingKind: draft.workspace ? 'directory' : 'quick_chat', projectPath: draft.workspace?.projectPath ?? '', tags: definition.tags }
+    const command: MissionCreate = { ...(draft.team ? { team: draft.team } : {}), title: draft.name ?? '', description: definition.description, descriptionContent: definition.descriptionContent, memberAgentIds: draft.memberAgentIds, defaultLeadAgentId: draft.defaultLeadAgentId, projectBindingKind: draft.workspace ? 'directory' : 'quick_chat', projectPath: draft.workspace?.projectPath ?? '', tags: definition.tags }
     const attachmentSignature = JSON.stringify(definition.attachments.map(({ id, file, kindHint }) => [id, file.name, file.size, file.lastModified, file.type, kindHint]))
     // Unknown transport outcomes retry the exact command. A different draft cannot
     // accidentally create a second Mission while the first result is unresolved.
@@ -4163,17 +4163,16 @@ export function BusinessApp({
       const threadId = stringField(result.payload, 'threadId'), missionId = stringField(result.payload, 'missionId')
       if (!threadId || !missionId) throw new Error(uiAttribute('使命已保存，但返回的标识不完整。请刷新使命板。'))
       missionCreation.current = null; setNewMissionOpen(false)
-      if (saveTeam) {
-        try { setGeneralPreferences(await uiPreferences.generalPreferences.setNewConversationDefaults({ memberAgentIds: draft.memberAgentIds, defaultLeadAgentId: draft.defaultLeadAgentId }, true)) }
-        catch { notifyError(uiAttribute('使命已创建，但默认队伍设置未保存。可在设置中重试。')) }
-      }
       if (definition.start) {
         try { await missionCommand(client, 'missions.start', { missionId }) }
         catch (error) { notifyError(uiAttribute("使命已保存，暂时未开始：{0}", String(missionError(error)))) }
       }
       await missionList.refresh()
     } catch (error) {
-      if (error instanceof MissionCommandRejected) missionCreation.current = null
+      if (error instanceof MissionCommandRejected) {
+        missionCreation.current = null
+        if (error.result.code.startsWith('team.')) void teamLibrary.refresh().catch(() => undefined)
+      }
       throw error
     } finally { setBusy(null) }
   }
@@ -4743,6 +4742,9 @@ export function BusinessApp({
       <NewConversationDialog purpose="mission" open={newMissionOpen} recovery={missionCreation.current?.command ?? null} recoveryAttachments={missionCreation.current?.attachments ?? []}
         initialWorkspace={currentProjectWorkspace(displayNavigation, currentProject)}
         initialSelection={generalPreferences?.newConversationDefaults ?? null}
+        initialTeamId={generalPreferences?.newConversationTeamId ?? null}
+        teams={teamLibrary.teams} teamsLoading={teamLibrary.loading} teamsError={teamLibrary.error}
+        onRetryTeams={() => { void teamLibrary.refresh().catch(() => undefined) }}
         projects={displayNavigation?.projects ?? []} missionTagCatalog={[...new Set(missionList.missions.flatMap(mission => mission.tags))]} preflight={campCreationPreflight} agents={agents} installations={installations}
         busy={busy === 'create-mission'} projectAccessReady={removedProjectAuthorityReady}
         onOpenChange={open => { if (!busy) setNewMissionOpen(open) }}

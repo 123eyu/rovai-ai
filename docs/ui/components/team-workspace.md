@@ -48,5 +48,5 @@ Web 团队列表只随团队变更或连接重新同步刷新；其他业务失�
 删除保留 danger 语义，主侧栏“新对话”保留普通导航样式。
 
 记忆入口移入“设置 → 应用”，保留待审核计数；主侧栏设置旁仅在有待审核项时出现记忆快捷入口。
-数据与上下文语义由 [Team Templates v1](../../contracts/team-templates-v1.md)
+数据与上下文语义由 [Team Templates v2](../../contracts/team-templates-v2.md)
 和 [Bootstrap v6](../../contracts/native-session-bootstrap-v6.md)拥有。

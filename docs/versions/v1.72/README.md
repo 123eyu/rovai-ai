@@ -45,6 +45,16 @@ Core 首发事务捕获，正文沿既有 projector 输出链接，无 Context/C
 当前合同见 [Thread Reference v1](../../contracts/thread-reference-v1.md)，取舍见 [V1.72-D58](decisions.md#v1-72-d58)，
 进度和验证见[实施记录](thread-reference-implementation.md)。更新 Contract、Architecture、UI 和导航；发布版本与 Runtime 平台资格不变。
 
+## Mission 接入 Team（2026-10-26）
+
+User 在 Team 设计 Thread sequence 90 确认默认主题 V2 交互并授权 worktree、PR、合入 main。
+使命新增 Team/Custom 来源，读取 General 默认值；已保存 Team 只读，Custom 保留独立成员与 Lead 草稿。
+长指引采用五行预览及同浮层全文阅读，去掉使命中修改全局 one-click 的勾选。Core 复用现有 Thread
+Team 创建事务，并入描述提及的成员，同步冻结指引；旧 Mission 不补写。协议为
+[Mission v13](../../contracts/mission-v13.md)与[Team Templates v2](../../contracts/team-templates-v2.md)，
+不改变数据库、Bootstrap 或 Runtime 版本轴。范围、测试与原 Gate 边界见
+[实施记录](mission-team-implementation.md)。既有 seam 的局部扩展，不新增 Version Decision。
+
 ## Team 管理（2026-10-18）
 
 User 在 Team 设计 Thread sequence 29 确认开启 worktree 实施。当前范围为具名团队、General 的

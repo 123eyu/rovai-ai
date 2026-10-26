@@ -2064,9 +2064,7 @@ async fn run_acp_probe_with_scope(
         // Global options precede `acp serve` in TRAE CLI 2.0.
         command.args(["--permission-mode", "default"]);
     }
-    if kind == AdapterKind::HermesCli {
-        crate::hermes::configure_command(&mut command)?;
-    } else if kind == AdapterKind::DeepseekHarness {
+    if kind == AdapterKind::DeepseekHarness {
         crate::dsh::configure_probe(&mut command, &probe_root)?;
     } else if kind == AdapterKind::OpencodeCli && catalog_only {
         crate::opencode_compat::configure_catalog_command(&mut command);

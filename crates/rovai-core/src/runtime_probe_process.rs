@@ -215,10 +215,6 @@ impl RuntimeProbeProcess {
         })
     }
 
-    pub fn pid(&self) -> Option<u32> {
-        self.child.id()
-    }
-
     pub fn stdin_mut(&mut self) -> Result<&mut ManagedChildStdin> {
         self.stdin
             .as_mut()

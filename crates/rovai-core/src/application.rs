@@ -7420,6 +7420,7 @@ impl Core {
                             request.runtime_tool_call_id,
                             &authenticated_run,
                             CreateAutomationCommand {
+                                thread_naming: Default::default(),
                                 name: input.name,
                                 prompt: input.prompt,
                                 member_id,
@@ -7616,6 +7617,7 @@ impl Core {
                             request.runtime_tool_call_id,
                             &authenticated_run,
                             UpdateAutomationCommand {
+                                thread_naming: None,
                                 automation_id,
                                 expected_version: input.expected_version,
                                 name: input.name,
@@ -7689,7 +7691,18 @@ impl Core {
                     );
                 }
             }
-            Ok(operation_result)
+            Ok(if matches!(
+                evidence_tool_name.as_str(),
+                AUTOMATION_LIST_TOOL_NAME
+                    | AUTOMATION_GET_TOOL_NAME
+                    | AUTOMATION_CREATE_TOOL_NAME
+                    | AUTOMATION_UPDATE_TOOL_NAME
+                    | AUTOMATION_CLOSE_TOOL_NAME
+            ) {
+                crate::automation_naming::without_desktop_settings(operation_result)
+            } else {
+                operation_result
+            })
         }
         .await;
         if result.is_ok() && member_roster_changed {

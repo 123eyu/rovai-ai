@@ -12,8 +12,11 @@ use std::{
 
 #[cfg(unix)]
 use std::{
-    io::Read,
-    os::unix::{fs::PermissionsExt, process::CommandExt},
+    io::{self, Read},
+    os::{
+        fd::AsRawFd,
+        unix::{fs::PermissionsExt, process::CommandExt},
+    },
     process::Command,
     thread,
 };
@@ -1389,58 +1392,75 @@ fn capture_shell_path_from(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
+    let deadline = Instant::now() + timeout;
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => return (ShellPathStatus::Failed, shell_name, Vec::new()),
     };
-    let stdout = child.stdout.take();
-    let reader = stdout.map(|stdout| {
-        thread::spawn(move || {
-            let mut output = Vec::new();
-            let result = stdout
-                .take(MAX_SHELL_PATH_BYTES + 1)
-                .read_to_end(&mut output);
-            (result, output)
-        })
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-            Ok(None) => {
-                let pid = child.id();
-                // SAFETY: pid identifies only the child process group created immediately above.
-                unsafe {
-                    libc::kill(-(pid as i32), libc::SIGKILL);
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-                if let Some(reader) = reader {
-                    let _ = reader.join();
-                }
-                return (ShellPathStatus::TimedOut, shell_name, Vec::new());
+    let capture = (|| {
+        let mut stdout = child.stdout.take().ok_or(ShellPathStatus::Failed)?;
+        let fd = stdout.as_raw_fd();
+        // SAFETY: stdout owns this live pipe descriptor throughout the capture.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1
+        {
+            return Err(ShellPathStatus::Failed);
+        }
+        let mut output = Vec::new();
+        let mut buffer = [0; 4096];
+        let mut stdout_closed = false;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(ShellPathStatus::TimedOut);
             }
-            Err(_) => {
-                if let Some(reader) = reader {
-                    let _ = reader.join();
-                }
-                return (ShellPathStatus::Failed, shell_name, Vec::new());
+            let status = child.try_wait().map_err(|_| ShellPathStatus::Failed)?;
+            if status.is_some_and(|status| !status.success()) {
+                return Err(ShellPathStatus::Failed);
             }
+            if !stdout_closed {
+                match stdout.read(&mut buffer) {
+                    Ok(0) => stdout_closed = true,
+                    Ok(count) => {
+                        output.extend_from_slice(&buffer[..count]);
+                        if output.len() as u64 > MAX_SHELL_PATH_BYTES {
+                            return Err(ShellPathStatus::Failed);
+                        }
+                        continue;
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(_) => return Err(ShellPathStatus::Failed),
+                }
+            }
+            // A successful shell can leave a background job holding stdout. Both the
+            // shell exit and EOF must arrive within the same capture deadline.
+            if stdout_closed && status.is_some() {
+                return Ok(output);
+            }
+            thread::sleep(
+                Duration::from_millis(20).min(deadline.saturating_duration_since(Instant::now())),
+            );
+        }
+    })();
+    let output = match capture {
+        Ok(output) => output,
+        Err(status) => {
+            // The capture scope has already closed stdout; cleanup must not wait for
+            // inherited writers or add another blocking wait after the deadline.
+            let pid = child.id();
+            // SAFETY: pid is the process group created for this shell capture.
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+            let _ = child.kill();
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+            return (status, shell_name, Vec::new());
         }
     };
-    let Some(reader) = reader else {
-        return (ShellPathStatus::Failed, shell_name, Vec::new());
-    };
-    let Ok((read_result, output)) = reader.join() else {
-        return (ShellPathStatus::Failed, shell_name, Vec::new());
-    };
-    if !status.is_some_and(|status| status.success()) {
-        return (ShellPathStatus::Failed, shell_name, Vec::new());
-    }
-    if read_result.is_err() || output.len() as u64 > MAX_SHELL_PATH_BYTES {
-        return (ShellPathStatus::Failed, shell_name, Vec::new());
-    }
     let text = String::from_utf8_lossy(&output);
     let mut lines = text.lines();
     let Some(start) = lines.position(|line| line == marker) else {
@@ -2197,16 +2217,22 @@ mod tests {
         assert_eq!(status, ShellPathStatus::Captured);
         assert_eq!(paths, vec![tools]);
 
-        executable(
-            &shell,
-            "#!/bin/sh\nprintf 'incomplete shell output\\n'\nexit 1\n",
-        );
-        let (status, _, paths) = capture_shell_path_from(&shell, Duration::from_secs(1));
-        assert_eq!(status, ShellPathStatus::Failed);
-        assert!(
-            paths.is_empty(),
-            "failed capture leaves inherited/known PATH fallback intact"
-        );
+        for script in [
+            "#!/bin/sh\nprintf 'incomplete shell output\\n'\nexit 1\n".to_owned(),
+            "#!/bin/sh\nprintf 'incomplete shell output\\n'\n".to_owned(),
+            format!(
+                "#!/bin/sh\nprintf '%s' '{}'\nexec /bin/sh -c \"$2\"\n",
+                "x".repeat(MAX_SHELL_PATH_BYTES as usize + 1)
+            ),
+        ] {
+            executable(&shell, &script);
+            let (status, _, paths) = capture_shell_path_from(&shell, Duration::from_secs(1));
+            assert_eq!(status, ShellPathStatus::Failed);
+            assert!(
+                paths.is_empty(),
+                "failed capture leaves inherited/known PATH fallback intact"
+            );
+        }
 
         executable(&shell, "#!/bin/sh\nsleep 30\n");
         let started = Instant::now();
@@ -2214,6 +2240,28 @@ mod tests {
         assert_eq!(status, ShellPathStatus::TimedOut);
         assert!(paths.is_empty());
         assert!(started.elapsed() < Duration::from_secs(2));
+
+        // An exited shell's background job must not prolong output or failure cleanup.
+        for (script, expected) in [
+            (
+                "#!/bin/sh\n/bin/sleep 3 &\nexec /bin/sh -c \"$2\"\n",
+                ShellPathStatus::TimedOut,
+            ),
+            (
+                "#!/bin/sh\n/bin/sleep 3 &\nexit 1\n",
+                ShellPathStatus::Failed,
+            ),
+        ] {
+            executable(&shell, script);
+            let started = Instant::now();
+            let (status, _, paths) = capture_shell_path_from(&shell, Duration::from_millis(100));
+            assert_eq!(status, expected);
+            assert!(
+                paths.is_empty(),
+                "incomplete output must use the PATH fallback"
+            );
+            assert!(started.elapsed() < Duration::from_secs(2));
+        }
         fs::remove_dir_all(directory).unwrap();
     }
 

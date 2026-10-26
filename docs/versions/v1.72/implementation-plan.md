@@ -32,6 +32,18 @@ last_updated: 2026-10-26
   首次执行的文件预览 watcher 用例等待通知超时，单独复跑和完整复跑均通过，未修改该功能。
 - 验收只使用既有临时数据库与合成程序；未执行用户实际 asdf 安装、Dock 重启或真实模型任务，
   也不代表 Windows/Linux 真机验收。后续复用本 worktree；依用户偏好提交并推送任务分支，不自动创建 PR。
+- 评审后补齐 shell 采集的总期限：原实现只限制主 shell 等待，退出后的 stdout reader join 可能被
+  后台进程持有的管道拖住。采集函数改为非阻塞读取，进程退出与 EOF 共用原期限；失败时关闭管道并
+  终止采集进程组，尚未回收的主进程交后台 wait，不让收尾继续阻塞调用方。保留原输出上限、标记解析及回退。
+- 在原 `shell_path_capture_uses_interactive_login_and_bounds_failures` owner 内补入 shell 退出后
+  后台进程持有 stdout 的成功／失败场景，以及缺失标记、输出超限；不增加测试函数或环境管理机制。
+  修复前新增回归在 100 ms 期限下等待约 3.5 秒后错误返回 Captured。
+- 用同一采集函数构建隔离探针，`HOME`／`ZDOTDIR` 指向本 worktree 的临时目录，`.zshrc` 运行
+  `/bin/sleep 5 &`：`5d937a757` 返回 Captured / 5463 ms；修复后返回 TimedOut / 3000 ms，空结果交给原回退。
+  探针没有启动 App、Core 或真实 Runtime，也没有修改日常 shell 配置。
+- 追加修复复跑 `pnpm test:rust:pr`：477 passed / 1 ignored；`cargo check --workspace`、
+  `cargo fmt --all --check`、`pnpm docs:test` 与 `pnpm docs:check` 通过。本次没有前端改动，未重复前端整套回归。
+  最小复验为 `cargo test -p rovai-core --lib shell_path_capture_uses_interactive_login_and_bounds_failures`。
 
 ## Run 启动与停止展示（2026-10-26）
 

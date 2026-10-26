@@ -3,10 +3,27 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-23
+last_updated: 2026-10-26
 ---
 
 # v1.72 实施与验收
+
+## Run 启动与停止展示（2026-10-26）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-run-start-stop-ui`；
+  分支 `rovai/run-start-stop-ui`，基线 `e5b80b28408fcb73d82058b1d7e45730d088ba57`；Governance：none。
+- 只修改前端共享展示及组件。Run 创建与 Runtime 初始化统一“启动中…”，Delivery 默认“准备中…”，
+  执行台已有的同队员执行／清理事实沿用“排队中”，具体原因降为悬浮说明。
+- Run Card 复用启动与执行布局；停止提交时隐藏停止按钮，只在卡头显示中性文字，保留既有过程。
+  单聊移除有色提示，步骤组保留原摘要，终态不被本地停止标记覆盖。图标保留时间线。
+- 不增加 Core 读投影或业务字段，不改变调度、取消、恢复与 cleanup；不建立全局阶段引擎。
+- 验证沿用现有展示单测、真实组件浏览器测试、类型检查及通用文档门禁；本次没有 Rust 变更。
+- 已通过 `pnpm typecheck`、完整 Vitest（3005 passed / 2 skipped）、`pnpm docs:test` 与基于上述 SHA 的
+  `pnpm docs:check:ci`。`execution-state-transition` 浏览器回归通过；生产组件的 Desktop/Web 启动、
+  当前轮次内容、停止悬浮、取消终态及日夜字体检查通过，状态图标仍在时间线。
+- `test:run-presence-ui` 中独立的 reply-details 导航用例在 `scroll-after-opening` 场景等待
+  `[data-reply-message-id=reply-a]` 超时；任务分支和未改动的 `e5b80b284` 前端基线均复现，
+  作为既有回归问题记录，不修改回复定位逻辑。
 
 ## 撤回消息两分钟重新编辑（2026-10-23）
 

@@ -2394,7 +2394,15 @@ button.file-preview-html-feedback:hover { background: var(--surface-hover); }
 .execution-batch-count svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; }
 .execution-run-trailing { display: flex; min-width: 0; min-height: 44px; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 9px; }
 .execution-run-metric { color: var(--faint); font: 600 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.execution-run-metric.is-queued { color: var(--attention); }
+.execution-run-status, .run-stop-feedback { color: var(--muted); font-family: inherit; font-size: 11px; font-weight: 400; line-height: 1.4; letter-spacing: normal; white-space: nowrap; }
+.execution-run-toggle.is-starting { cursor: default; }
+.execution-process-stage.status-running.is-stopping .execution-run-trailing { width: auto; }
+.execution-process-stage.status-running.is-stopping .execution-run-operations { position: static; opacity: 1; pointer-events: auto; }
+.run-stop-feedback { padding: 2px 0; }
+:is(.process-content, .single-chat-agent-response).is-stopping .running-text { animation: none; background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
+:is(.process-content, .single-chat-agent-response).is-stopping .tool-group-copy::after { animation: none; }
+:is(.process-content, .single-chat-agent-response, .tool-activity-group).is-stopping :is(.tool-group-current, .tool-group-state.status-running, .tool-group-state.status-waiting, .tool-call-state.status-running, .tool-call-state.status-waiting) { color: var(--muted); }
+:is(.process-content, .single-chat-agent-response, .tool-activity-group).is-stopping :is(.tool-group-state, .tool-call-state, .tool-call-icon) svg { animation: none; }
 .execution-run-metric-group { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .execution-usage-trigger { min-height: 26px; padding: 2px 7px; border: 1px solid transparent; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer; font: 400 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 .execution-usage-trigger:is(:hover, [data-state="open"]) { color: var(--ink); border-color: var(--line); background: var(--surface-hover); }
@@ -4049,7 +4057,6 @@ button.task-event-card:focus-visible .task-card-chevron { color: var(--brand-ink
 .process-action.current.is-phase-feedback { min-height: 0; }
 .process-action.current.is-phase-feedback .process-spinner { order: 1; }
 .process-action.history-load-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--danger); }
-.process-action.cancelling { padding: 7px 9px; border-left: 2px solid var(--muted); background: var(--neutral-soft); }
 .process-spinner { width: 11px; height: 11px; margin: 1px; border: 1.5px solid var(--line-strong); border-top-color: var(--muted); border-radius: 50%; animation: camp-marker-spin 900ms linear infinite; }
 .tool-activity-group { min-width: 0; }
 .tool-activity-group > summary { list-style: none; cursor: pointer; user-select: none; }

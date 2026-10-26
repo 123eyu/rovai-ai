@@ -198,7 +198,17 @@ function updateComposerAtomDOM(
     interactive: false,
     ariaLabel: fallback
   }
-  dom.textContent = presentation.label
+  if (isReferenceAtom(atom)) {
+    let label = dom.querySelector<HTMLElement>(':scope > .reference-token-label')
+    if (!label) {
+      label = dom.ownerDocument.createElement('span')
+      label.className = 'reference-token-label'
+      dom.replaceChildren(label)
+    }
+    if (label.textContent !== presentation.label) label.textContent = presentation.label
+  } else {
+    dom.textContent = presentation.label
+  }
   dom.contentEditable = 'false'
   dom.spellcheck = false
   dom.className = [

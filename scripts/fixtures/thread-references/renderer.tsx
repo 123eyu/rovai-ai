@@ -9,22 +9,27 @@ import { ThreadWorkspace } from '../../../apps/desktop/src/renderer/src/ThreadWo
 import { ThreadClientProvider } from '../../../apps/desktop/src/renderer/src/camp-client'
 import { FilePreviewProvider, useFilePreview } from '../../../apps/desktop/src/renderer/src/FilePreviewContext'
 import { CurrentUserProfileContext } from '../../../apps/desktop/src/renderer/src/CurrentUserProfile'
-import { MobileLayoutProvider } from '../../../apps/desktop/src/renderer/src/MobileLayout'
+import { MobileLayoutProvider, useMobileViewport } from '../../../apps/desktop/src/renderer/src/MobileLayout'
 import { model, profiles, installations } from './model'
 import { ThreadReferencePreviewProvider } from '../../../apps/desktop/src/renderer/src/ThreadReferencePreview'
 import { SafeMarkdown } from '../../../apps/desktop/src/renderer/src/SafeMarkdown'
 import { MarkdownCodeFrame } from '../../../apps/desktop/src/renderer/src/MarkdownCodeFrame'
-import { projectQuoteBody } from '../../../apps/desktop/src/renderer/src/message-quote-selection'
+import { projectQuoteBody, readMessageQuoteSelection } from '../../../apps/desktop/src/renderer/src/message-quote-selection'
 import { createFileFindDomIndex } from '../../../apps/desktop/src/renderer/src/file-find-dom'
 import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
 import '../../../apps/desktop/src/renderer/src/styles.css'
+import '../../../apps/web/src/mobile.css'
 import './fixture.css'
+import './title-scenes'
 
 document.documentElement.dataset.platform = 'darwin'
 document.documentElement.dataset.rovaiPlatform = 'darwin'
-document.documentElement.dataset.rovaiSurface = 'desktop'
 const params = new URLSearchParams(location.search)
+const surface = params.get('surface') === 'web' ? 'web' : 'desktop'
+document.documentElement.dataset.rovaiSurface = surface
+Object.assign(window, { __referenceChecks: { projectQuoteBody, readMessageQuoteSelection } })
 function Workbench() {
+  const mobile = useMobileViewport(surface === 'web')
   const state = useSyncExternalStore(model.subscribe, model.get)
   const [theme, setTheme] = useState(params.get('theme') === 'night' ? 'night' : 'day')
   const [inspector, setInspector] = useState<any>(null)
@@ -41,13 +46,13 @@ function Workbench() {
     quickChat: { totalCount: 2, recentThreads: ['整理本周的想法', '试试新的交互'].map((title, i) => ({ ...current, id: `quick-${i}`, title, projectBindingKind: 'quick_chat', projectPath: '' })) },
     projects: [{ projectKey: 'copy-project', name: 'rovai-ai', projectPath: '/prototype/rovai-ai', lastActivityAt: current.lastActivityAt, lastActivityGlobalSequence: 2, totalCount: 3,
       recentThreads: [current, ...['会话工作区优化', '发布前检查'].map((title, i) => ({ ...current, id: `other-${i}`, title }))] }] }
-  return <MobileLayoutProvider value={false}><ThreadClientProvider client={model.client as any}>
+  return <MobileLayoutProvider value={mobile}><ThreadClientProvider client={model.client as any}>
     <CurrentUserProfileContext.Provider value={{ profile, ready: true, error: null, reload() {}, save: async next => { setProfile(next as any); return next } }}>
     <FilePreviewProvider threadId={state.snapshot.thread.id} resolvedTheme={theme as any} api={model.fileApi as any}>
       <ThreadReferencePreviewProvider threadId={state.snapshot.thread.id} onOpen={async reference => { model.opened.push(reference) }}>
       <div className="copy-workbench">
-        <NavigationShell platform="darwin" className="app-shell-camp" navigation={navigation}>
-          <div className="copy-window-lights" aria-hidden="true"><i /><i /><i /></div>
+        <NavigationShell platform="darwin" browser={surface === 'web'} data-mobile-view={mobile ? 'camp' : undefined} className="app-shell-camp" navigation={navigation}>
+          {surface === 'desktop' && <div className="copy-window-lights" aria-hidden="true"><i /><i /><i /></div>}
           <ThreadNavigation view="camp" platform="darwin" state="ready" navigation={navSnapshot} activeThreadId={state.snapshot.thread.id} currentProjectKey="copy-project" pendingMemoryCount={0}
             onNewConversation={stub} onMembers={() => setInspector('members')} onMemory={stub} onAutomations={stub} onMissions={stub} onSettings={stub} onOpenProject={stub} onCreateInProject={stub}
             onThread={thread => thread.id === current.id ? setInspector(null) : stub()} onRemoveProject={async () => stub()} onDelete={async () => stub()}

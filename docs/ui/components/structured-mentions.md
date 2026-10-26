@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-composer-atoms-and-structured-mentions
 status: accepted
-last_updated: 2026-10-23
+last_updated: 2026-10-26
 ---
 
 # 结构化 Mention 与 Composer Atom
@@ -38,7 +38,8 @@ Member 的唯一身份是 `agentId`，显示名称/头像从当前 Camp 成员�
 `@`、`@a`、`@alice` 只在折叠光标、普通 TextNode、非 composition，且 `@` 位于文本开头或允许分隔符之后时
 打开。Member 与 Skill 共用一个 Trigger Plugin 和一个 Editor update listener；查询不得跨 Atom、换行或 Paragraph，
 从当前 TextNode 的 caret 位置只分配光标左侧最多 128 个字符。方向键移动候选，Enter 选择，Esc 关闭；菜单消费
-按键时不得触发发送。Enter/Tab 的归属不读取 React `menuOpen` 或渲染后的候选数组，而由 Typeahead 的 Lexical
+按键时不得触发发送。公开三类别 `@` 面板中的 Tab/Shift+Tab 切换类别，Enter 选择；其他面板仍用 Enter/Tab 选择。
+按键的归属不读取 React `menuOpen` 或渲染后的候选数组，而由 Typeahead 的 Lexical
 critical-priority command 从当前 selection 同步重算 trigger：Catalog loading 时消费按键但不选择，ready 且有候选时
 选择当前项，无 trigger 或 ready/error 且无候选时才交给普通发送行为。
 当前候选必须保持在滚动区域内，并通过稳定 option ID 与编辑器的 `aria-activedescendant` 对应；
@@ -99,7 +100,9 @@ All Members 候选继续显示广播说明，范围仍是发送时 Camp 中的�
 中文、日文、韩文 composition 期间，Typeahead 暂停更新，Atom 不插入，EditorState 不替换，Enter 不发送，
 也不执行 DOM selection 恢复。compositionend 后基于最终普通文本重新计算查询。
 
-- Enter：Typeahead 先同步决定是否消费；其返回 false 后，非 Shift、非 composition、Composer 非空且允许发送时提交；
+- Enter：Typeahead 先同步决定是否消费；单独键盘选中的会话／使命 Atom 打开引用详情；其余非 Shift、非 composition、Composer 非空且允许发送时提交；
+- Tab/Shift+Tab：公开 `@` 面板按队员、对话、使命循环／反向切换，保持查询和编辑器焦点，loading/empty 时同样生效；
+  Escape 关闭后恢复普通 Tab 导航。Skills、单类别面板与私聊保持既有选择方式；
 - Shift+Enter：插入 LineBreak，领域文档导出为 Text 中的 `\n`；
 - Escape：候选/链接菜单优先；输入历史浏览时恢复原结构化草稿并消费事件，其余沿用 Atom 激活态关闭；
 - Arrow Up/Down：Typeahead 优先；会话输入在文档绝对起点用 Up 回看，浏览中在绝对终点用 Down 前进。
@@ -242,5 +245,15 @@ Agent 消息中的 Current User Mention 可为前缀，也可位于任意已解�
 键盘当前项必须挂载且可见，50 条之后仍可选择。
 
 引用 Atom 共用现有输入法、撤销/重做、光标、删除、剪贴板与恢复机制，前置对应对话/使命图标。
-历史显示发布标题；详情按当前 ID 读取可用性并打开来源，不按同名绑定。不可用保留标签及移除/重选入口。
+根节点采用保留文字基线的行内布局，最大宽度统一为 `min(18rem, calc(100% - 1rem))`，百分比来自所在容器，
+不代表当前行剩余宽度。只有独立标题子节点单行省略；图标与不可用标记始终可见。短标题保持既有行高，
+整个 Atom 可换行、选择和删除，完整 label/identity 不变。历史引用使用相同规则，不增加分端宽度或通用 Atom 框架。
+
+草稿详情显示当前解析标题，历史正文与详情使用完整 `titleAtSend`；来源改名不覆盖历史标题。
+详情按稳定 ID 读取可用性、项目及打开来源，不按同名绑定；来源不可用时保留完整 fallback/发布标题。
+详情标题可多行折行，浮层最高为 `min(28rem, available-height)`，内部滚动使窄屏操作可达，不增加 Tooltip。
+无障碍名称包含完整标题，图标不重复朗读。键盘选中的单一引用 Atom 可用 Enter 打开详情，Escape 返回编辑器
+及有效原选区；移除／重选保留操作后的光标，外部点击或打开来源不抢回焦点。历史按钮保留原生键盘激活。
+复制整条消息仍含完整 Markdown 定位链接，选文使用完整标题语义及原标量选区，不夹带 URI 或写入视觉省略号。
+不可用草稿保留移除/重选入口。手动点击或 Tab 切类别固定本次查询，搜索响应不覆盖选择。
 私聊和使命描述不提供引用候选。内容与事务权威见 [Thread Reference v1](../../contracts/thread-reference-v1.md)。

@@ -8,7 +8,15 @@ import { projectReference, referenceIdentity, referenceProject, type ReferenceSe
 import { uiAttribute } from './interface-language'
 import './thread-reference.css'
 
-interface PreviewRequest { reference: ReferenceIdentity; title: string; trigger: HTMLElement; remove?(): void; replace?(): void }
+interface PreviewRequest {
+  reference: ReferenceIdentity
+  title: string
+  titleMode: 'current' | 'at-send'
+  trigger: HTMLElement
+  restoreFocus?(): void
+  remove?(): void
+  replace?(): void
+}
 const PreviewContext = createContext<((request: PreviewRequest) => void) | null>(null)
 export const useReferencePreview = () => useContext(PreviewContext)
 
@@ -19,9 +27,11 @@ export function ThreadReferencePreviewProvider({ threadId, onOpen, children }: {
   const [request, setRequest] = useState<PreviewRequest | null>(null)
   const [result, setResult] = useState<{ item: ReferenceCandidate | null; error: boolean } | null>(null)
   const [opening, setOpening] = useState(false)
-  const returnFocus = useRef<HTMLElement | null>(null)
+  const returnFocus = useRef<Pick<PreviewRequest, 'trigger' | 'restoreFocus'> | null>(null)
   const show = useCallback((next: PreviewRequest) => {
-    returnFocus.current = next.trigger
+    returnFocus.current = next
+    setResult(null)
+    setOpening(false)
     setRequest(next)
   }, [])
   const virtualRef = useRef<{ getBoundingClientRect(): DOMRect } | null>(null)
@@ -46,11 +56,13 @@ export function ThreadReferencePreviewProvider({ threadId, onOpen, children }: {
         onInteractOutside={() => { returnFocus.current = null }}
         onCloseAutoFocus={event => {
           event.preventDefault()
-          if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true })
+          const target = returnFocus.current
           returnFocus.current = null
+          if (target?.restoreFocus) target.restoreFocus()
+          else if (target?.trigger.isConnected) target.trigger.focus({ preventScroll: true })
         }}>
         {request && <>
-          <div className="ref-popover-title">{request.reference.kind === 'mission' ? <MissionIcon /> : <NavigationIcon name="messages" />}<strong>{result?.item?.title ?? request.title}</strong></div>
+          <div className="ref-popover-title">{request.reference.kind === 'mission' ? <MissionIcon /> : <NavigationIcon name="messages" />}<strong>{request.titleMode === 'at-send' ? request.title : result?.item?.title ?? request.title}</strong></div>
           {result?.item && <p className="ref-meta">{referenceProject(result.item)}</p>}
           {!result ? <p className="ref-meta" role="status">{uiAttribute('读取中…')}</p>
             : !result.item && <p className="ref-unavailable-text" role="status">{uiAttribute(result.error ? '暂时无法读取' : '引用不可用')}</p>}
@@ -72,9 +84,12 @@ export function InlineThreadReference({ segment }: { segment: ReferenceSegment }
   const show = useReferencePreview()
   const reference = referenceIdentity(segment)
   const icon = reference.kind === 'mission' ? <MissionIcon /> : <NavigationIcon name="messages" />
+  const label = <span className="reference-token-label">{segment.titleAtSend}</span>
+  const ariaLabel = uiAttribute(reference.kind === 'mission' ? '使命引用：{0}' : '会话引用：{0}', segment.titleAtSend)
   return show ? <button className="message-mention-token ref-message-link" type="button" data-reference-id={reference.id}
+    aria-label={ariaLabel}
     data-quote-reference-source={projectReference(segment)}
-    onClick={event => { if (!window.getSelection()?.toString()) show({ reference, title: segment.titleAtSend, trigger: event.currentTarget }) }}>
-    {icon}{segment.titleAtSend}
-  </button> : <span className="message-mention-token ref-message-link" data-quote-reference-source={projectReference(segment)}>{icon}{segment.titleAtSend}</span>
+    onClick={event => { if (!window.getSelection()?.toString()) show({ reference, title: segment.titleAtSend, titleMode: 'at-send', trigger: event.currentTarget }) }}>
+    {icon}{label}
+  </button> : <span className="message-mention-token ref-message-link" aria-label={ariaLabel} data-quote-reference-source={projectReference(segment)}>{icon}{label}</span>
 }

@@ -11,15 +11,32 @@
 .ref-candidate-icon svg { width:16px; height:16px; }
 .ref-menu .ref-candidate-title { min-width:0; font-size:12px; font-weight:500; }
 .ref-menu .ref-candidate-project { max-width:108px; justify-self:end; text-align:right; font-family:inherit; font-size:11px; }
-.structured-mention-token.thread-reference, .ref-message-link { color:var(--mention-ink); }
+:root {
+  --reference-token-max-inline-size:18rem;
+  --reference-token-inline-reserve:1rem;
+}
+.structured-mention-token.thread-reference, .message-mention-token.ref-message-link {
+  box-sizing:border-box;
+  display:inline-grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:baseline;
+  min-inline-size:0;
+  max-inline-size:min(var(--reference-token-max-inline-size),calc(100% - var(--reference-token-inline-reserve)));
+  vertical-align:baseline;
+  white-space:nowrap;
+  color:var(--mention-ink);
+}
+.reference-token-label { min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.structured-mention-token.thread-reference::before, .ref-message-link > svg { align-self:center; }
 .structured-mention-token.thread-reference::before { content:''; display:inline-block; width:13px; height:13px; margin-right:3px; vertical-align:-2px; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='1.7' stroke-linejoin='round' d='M8.1 4.75h7.8c3.13 0 5.35 2.15 5.35 5.1v2.3c0 2.95-2.22 5.1-5.35 5.1H9.45l-3.68 2.14c-.39.23-.87-.05-.87-.5v-2.28a4.94 4.94 0 0 1-2.15-4.16v-2.6c0-2.95 2.22-5.1 5.35-5.1Z'/%3E%3C/svg%3E") center/contain no-repeat; }
-.ref-message-link { display:inline; vertical-align:baseline; padding:0 2px; border:0; border-radius:3px; background:transparent; font:inherit; cursor:pointer; white-space:nowrap; }
+.ref-message-link { padding:0 2px; border:0; border-radius:3px; background:transparent; font:inherit; cursor:pointer; }
 .ref-message-link svg { width:13px; height:13px; margin-right:3px; vertical-align:-2px; }
 .ref-message-link:hover { background:var(--mention-feedback); }
 .ref-message-link.is-unavailable,.structured-mention-token.thread-reference.is-unavailable { color:var(--muted); text-decoration:none; }
 .ref-unavailable-mark { margin-left:3px; color:var(--danger); }
 .ref-inline-error { margin:3px 0 7px; font-size:12px; line-height:1.6; color:var(--danger); }
 .ref-popover { z-index:90; width:322px; max-width:calc(100vw - 24px); padding:14px; background:var(--surface-raised); border:1px solid var(--line-strong); border-radius:10px; box-shadow:var(--shadow-float); }
+.ref-popover { max-block-size:min(28rem,var(--radix-popover-content-available-height,calc(100dvh - 1.5rem))); overflow-y:auto; overscroll-behavior:contain; }
 .ref-popover-title { display:flex; align-items:center; gap:7px; min-width:0; }
 .ref-popover-title > svg { width:17px; height:17px; flex:none; color:var(--muted); }
 .ref-popover-title strong { flex:1; min-width:0; font-size:13px; font-weight:600; overflow-wrap:anywhere; }

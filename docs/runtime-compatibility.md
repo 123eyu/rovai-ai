@@ -1,10 +1,29 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-26 Copilot ACP 启动参数兼容
+
+Rovai 的生产 ACP 启动与健康检查统一移除 `--no-remote`、`--no-remote-export`，
+ACP reconciliation 实验脚本同步；不按版本分支，不添加 `--sync-session` 或注入 `/remote off`。
+保留 `--acp --stdio --no-auto-update --no-color --log-level error`，权限参数仍由原有策略决定。
+
+macOS arm64 官方 npm 二进制 `@github/copilot-darwin-arm64` 的 **1.0.102 / 1.0.103**
+在独立 Home、cache、workspace 与日志目录下，使用上述生产参数均完成 ACP v1 `initialize`，
+关闭 stdin 后正常退出。未读取日常凭据、创建模型会话或调用真实 LLM。
+1.0.103 单独携带任一旧开关都会在初始化前拒绝启动；1.0.102 不接受新 `--sync-session=off`。
+
+这两个版本官方分发的 `cli-main.js` 中，ACP 分支先返回，后续交互/Prompt 远程导出初始化不执行；
+ACP `buildBootOptions` 也不传递 remote/export/sync 开关。因此本次只删除 ACP 路径的无效传参，
+不改变用户的 Copilot 配置，也不宣称所有模式均关闭历史同步。Prompt 模式的 MCP Smoke 不属于该路径。
+参数与权限的版本无关性扩展既有 `health::tests::additive_acp_launch_shapes_match_the_verified_cli_contracts`
+owner，不新增 Rust 测试函数；真实二进制验证只覆盖本次启动兼容，不扩大模型或平台资格。
+官方语义见 [CLI 命令参考](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
+及 [ACP 启动方式](https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server)。
 
 ## 2026-10-20 ZCode 与 OpenCode V2 原生问卷禁用
 

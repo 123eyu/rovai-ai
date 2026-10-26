@@ -1071,6 +1071,7 @@ impl CollaborationService {
                 envelope.execution_epoch,
                 &envelope.payload,
                 &camp_id,
+                &[],
             )
         })
     }
@@ -3541,6 +3542,7 @@ pub(crate) fn create_camp_in_tx(
     execution_epoch: Option<i64>,
     command: &CreateThreadCommand,
     camp_id: &ThreadId,
+    additional_member_ids: &[String],
 ) -> Result<CommandHandlerResult> {
     validate_project_path(&command.project_path)?;
     let normalized_name = normalize_camp_name(command.name.as_deref().unwrap_or(""));
@@ -3562,9 +3564,9 @@ pub(crate) fn create_camp_in_tx(
             "This collaboration mode is not available",
         ));
     }
-    let resolved;
+    let mut resolved = command.clone();
     let mut guidance = None;
-    let command = if let Some(selection) = &command.team {
+    if let Some(selection) = &command.team {
         let Some(team) = crate::teams::get_on_connection(transaction, &selection.team_id)? else {
             return Ok(rejected(
                 "team.unavailable",
@@ -3577,18 +3579,20 @@ pub(crate) fn create_camp_in_tx(
                 "The selected Team has changed. Review it before creating a Thread",
             ));
         }
-        resolved = CreateThreadCommand {
-            member_agent_ids: team.roster.member_agent_ids,
-            default_lead_agent_id: team.roster.default_lead_agent_id,
-            ..command.clone()
-        };
+        resolved.member_agent_ids = team.roster.member_agent_ids;
+        resolved.default_lead_agent_id = team.roster.default_lead_agent_id;
         if !team.guidance.is_empty() {
             guidance = Some(team.guidance);
         }
-        &resolved
-    } else {
-        command
-    };
+    }
+    // Mission description mentions join the resolved roster, never replace the
+    // Team's members or Lead with the caller's cached projection.
+    for id in additional_member_ids {
+        if !resolved.member_agent_ids.contains(id) {
+            resolved.member_agent_ids.push(id.clone());
+        }
+    }
+    let command = &resolved;
     if command.member_agent_ids.is_empty() {
         return Ok(rejected(
             "camp.no_present_members",

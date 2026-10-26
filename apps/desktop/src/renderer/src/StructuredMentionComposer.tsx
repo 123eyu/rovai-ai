@@ -17,10 +17,14 @@ import {
   $getNodeByKey,
   $createTextNode,
   $getSelection,
+  $isNodeSelection,
+  $setSelection,
   $isRangeSelection,
   $isTextNode,
   $nodesOfType,
   CLEAR_HISTORY_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
+  KEY_ENTER_COMMAND,
   HISTORIC_TAG,
   HISTORY_PUSH_TAG,
   PASTE_TAG,
@@ -318,10 +322,16 @@ function ComposerBridge({
   const referencePreview = useReferencePreview()
   const [referenceIdentities, setReferenceIdentities] = useState(() => composerReferenceIdentities(document))
   const referenceAvailability = useReferenceAvailability(referenceScope, referenceIdentities)
-  const onActivateReference = (node: ComposerAtomNode, trigger: HTMLElement): void => {
+  const onActivateReference = (node: ComposerAtomNode, trigger: HTMLElement): boolean => {
     const atom = node.getAtom()
-    if (!isReferenceAtom(atom) || !referenceScope) return
+    if (!isReferenceAtom(atom) || !referenceScope || !referencePreview) return false
+    const savedSelection = $getSelection()?.clone()
+    const selectionKeys = $isRangeSelection(savedSelection)
+      ? [savedSelection.anchor.key, savedSelection.focus.key]
+      : savedSelection?.getNodes().map(selected => selected.getKey()) ?? []
+    let edited = false
     const edit = (replace: boolean): void => {
+      edited = true
       editor.update(() => {
         const current = $getNodeByKey(node.getKey())
         if (!$isComposerAtomNode(current)) return
@@ -330,8 +340,21 @@ function ComposerBridge({
       }, { discrete: true, tag: HISTORY_PUSH_TAG })
       editor.focus()
     }
-    referencePreview?.({ reference: referenceIdentity(atom), title: atom.labelFallback ?? referenceIdentity(atom).id,
-      trigger, remove: () => edit(false), replace: () => edit(true) })
+    referencePreview({ reference: referenceIdentity(atom), title: atom.labelFallback ?? referenceIdentity(atom).id,
+      titleMode: 'current', trigger, remove: () => edit(false), replace: () => edit(true),
+      restoreFocus: () => {
+        const root = editor.getRootElement()
+        if (!root?.isConnected) return
+        // NodeSelection alone does not focus the contenteditable DOM root.
+        root.focus({ preventScroll: true })
+        if (!edited && savedSelection) {
+          editor.update(() => {
+            if (selectionKeys.every(key => $getNodeByKey(key)?.isAttached())) $setSelection(savedSelection.clone())
+          }, { discrete: true })
+        } else editor.focus()
+      }
+    })
+    return true
   }
   const mobile = useMobileLayout()
   const mobileRef = useRef(mobile)
@@ -402,6 +425,19 @@ function ComposerBridge({
     onActivateAllMembersMention,
     onActivateSkillMention
   }
+
+  useEffect(() => editor.registerCommand(KEY_ENTER_COMMAND, event => {
+    if (editor.isComposing() || event?.isComposing || event?.shiftKey) return false
+    const selection = $getSelection()
+    if (!$isNodeSelection(selection)) return false
+    const nodes = selection.getNodes()
+    const node = nodes.length === 1 ? nodes[0] : null
+    if (!$isComposerAtomNode(node) || !isReferenceAtom(node.getAtom())) return false
+    const trigger = editor.getElementByKey(node.getKey())
+    if (!trigger || !callbacks.current.onActivateReference(node, trigger)) return false
+    event?.preventDefault()
+    return true
+  }, COMMAND_PRIORITY_CRITICAL), [editor])
 
   const [triggerMatch, setTriggerMatch] = useState<ComposerTriggerMatch | null>(null)
   const [inviteLayer, setInviteLayer] = useState(false)
@@ -685,6 +721,12 @@ function ComposerBridge({
     <ComposerTypeaheadPlugin match={triggerMatch} memberOnly={purpose === 'mission'}
       menuAnchor={purpose === 'mission' ? 'caret' : 'editor'}
       selectionScope={`${inviteLayer ? 'inviting' : 'camp'}:${referencePicker.filter}`}
+      onCycleCategory={referenceScope ? direction => {
+        const categories = ['members', 'thread', 'mission'] as const
+        const index = categories.indexOf(pickerRef.current.filter)
+        changeInviteLayer(false)
+        pickerRef.current.selectFilter(categories[(index + direction + categories.length) % categories.length])
+      } : undefined}
       optionCount={mentionOpen ? mentionMenuOptions.length : skillMenuOptions.length}
       getOptionState={(match) => match.kind === 'member'
         ? {
@@ -901,7 +943,8 @@ function atomPresentation(
     const item = input.referenceAvailability?.get(id)
     const unavailable = item === null
     const label = item?.title ?? atom.labelFallback ?? id
-    return { label, availability: unavailable ? 'unavailable' : 'available', interactive: !!input.onActivateReference, ariaLabel: unavailable ? uiAttribute('{0}，引用不可用', label) : label }
+    const ariaLabel = uiAttribute(atom.type === 'mission_reference' ? '使命引用：{0}' : '会话引用：{0}', label)
+    return { label, availability: unavailable ? 'unavailable' : 'available', interactive: !!input.onActivateReference, ariaLabel: unavailable ? uiAttribute('{0}，引用不可用', ariaLabel) : ariaLabel }
   }
   if (atom.type === 'member') {
     const member = input.members.find((candidate) => candidate.agentId === atom.agentId)

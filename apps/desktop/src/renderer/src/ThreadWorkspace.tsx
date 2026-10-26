@@ -151,6 +151,8 @@ export {
 } from './attachment-drop'
 import {
   agentRunPresentation,
+  agentRunIsStarting,
+  agentRunHasCurrentActivity,
   agentRunWaitDetail,
   buildLiveExecutionProgress,
   executionEvidenceResultText,
@@ -235,9 +237,10 @@ import { UiText, getInterfaceLanguage, uiAttribute, useInterfaceLanguage, useUiT
 
 function localizedAgentRunPresentation(
   run: Parameters<typeof agentRunPresentation>[0],
-  cancelling = false
+  cancelling = false,
+  hasCurrentActivity = false
 ): ReturnType<typeof agentRunPresentation> {
-  const presentation = agentRunPresentation(run, cancelling)
+  const presentation = agentRunPresentation(run, cancelling, hasCurrentActivity)
   return { ...presentation, label: uiAttribute(presentation.label) }
 }
 
@@ -695,7 +698,7 @@ export function runningAgentRunForWorkspaceEntry(
   runs: readonly AgentRunView[]
 ): AgentRunView | null {
   return runs
-    .filter((run) => run.status === 'running')
+    .filter((run) => run.status === 'running' || agentRunIsStarting(run))
     .sort((left, right) =>
       right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
     )[0] ?? null
@@ -6788,23 +6791,31 @@ export function runPulseMemberNameLines(
 
 type RunPulseStateShape = ExecutionStatusShape
 
-function pendingRuntimeCleanupLabel(runs: readonly AgentRunView[]): string | null {
-  const pending = runs.find(run =>
-    ['succeeded', 'failed', 'cancelled'].includes(run.status)
-    && run.cancelRequestedAt !== null
-    && run.cancelAcknowledgedAt === null
-  )
-  if (!pending) return null
-  const age = Date.now() - Date.parse(pending.cancelRequestedAt!)
-  return age >= 5_000
-    ? uiAttribute('上次执行清理未确认，正在重试')
-    : uiAttribute('等待上次执行清理')
+/** Use only the work already visible in this member's execution pane. */
+export function executionDeliveryQueuePresentation(process: AgentExecutionProcess, agentId = process.agentId): {
+  label: string
+  detail: string | null
+  blocked: boolean
+  tone: 'neutral'
+} {
+  const runs = process.runs.filter(run => run.agentId === agentId && run.invocationKind !== 'single_chat')
+  const active = runs.some(run => NON_TERMINAL_RUNS.has(run.status))
+  const cleanup = runs.some(run => !NON_TERMINAL_RUNS.has(run.status)
+    && run.cancelRequestedAt !== null && run.cancelAcknowledgedAt === null)
+  const blocked = active || cleanup || process.waitingDeliveries.some(delivery =>
+    delivery.recipientAgentId === agentId && delivery.waitCondition != null)
+  return {
+    label: blocked ? '排队中' : '准备中…',
+    tone: 'neutral',
+    blocked,
+    detail: active ? '等待上一轮完成' : cleanup ? '等待上次执行清理完成' : null
+  }
 }
 
 function runPulseStateShape(run: AgentRunView, stopping: boolean): RunPulseStateShape {
   if (stopping && NON_TERMINAL_RUNS.has(run.status)) return 'cancelling'
   if (run.status === 'running') return 'running'
-  if (run.status === 'queued') return 'queued'
+  if (run.status === 'queued') return 'running'
   if (run.status === 'waiting') return 'waiting'
   if (run.status === 'succeeded') return 'completed'
   if (run.status === 'failed') return 'failed'
@@ -6823,15 +6834,12 @@ function runPulseProcessState(
 } {
   const run = preferredAgentProcessRun(process.runs)
   if (run && NON_TERMINAL_RUNS.has(run.status)) {
-    if (run.status === 'queued') {
-      const cleanupLabel = pendingRuntimeCleanupLabel(process.runs)
-      if (cleanupLabel) return { run, label: cleanupLabel, tone: 'attention', shape: 'queued' }
-    }
     const presentation = localizedAgentRunPresentation(run, stopping && NON_TERMINAL_RUNS.has(run.status))
     return { run, label: presentation.label, tone: presentation.tone, shape: runPulseStateShape(run, stopping) }
   }
   if (process.waitingDeliveries.length > 0) {
-    return { run: null, label: pendingRuntimeCleanupLabel(process.runs) ?? uiAttribute("排队中"), tone: 'attention', shape: 'queued' }
+    const queue = executionDeliveryQueuePresentation(process)
+    return { run: null, label: uiAttribute(queue.label), tone: queue.tone, shape: queue.blocked ? 'queued' : 'running' }
   }
   if (run) {
     const presentation = localizedAgentRunPresentation(run)
@@ -7111,12 +7119,6 @@ function ExecutionPlacementSwitchIcon(): JSX.Element {
   </svg>
 }
 
-type ExecutionQueueBatch = {
-  agentId: string
-  runs: AgentRunView[]
-  createdAt: string
-}
-
 type ExecutionDeliveryQueueBatch = {
   agentId: string
   deliveries: MessageDeliveryView[]
@@ -7183,22 +7185,6 @@ export function executionEmptyStateShouldRender(
   runHistoryComplete: boolean
 ): boolean {
   return currentEntryCount === 0 && historyRunCount === 0 && runHistoryComplete
-}
-
-export function executionQueueBatches(runs: readonly AgentRunView[]): ExecutionQueueBatch[] {
-  const byAgent = new Map<string, AgentRunView[]>()
-  for (const run of runs) {
-    if (run.status !== 'queued') continue
-    byAgent.set(run.agentId, [...(byAgent.get(run.agentId) ?? []), run])
-  }
-  return [...byAgent.entries()].map(([agentId, queuedRuns]) => {
-    const newestFirst = queuedRuns.slice().sort((left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-    )
-    return { agentId, runs: newestFirst, createdAt: newestFirst[0]?.createdAt ?? '' }
-  }).sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt) || left.agentId.localeCompare(right.agentId)
-  )
 }
 
 export function executionDeliveryQueueBatches(
@@ -7321,11 +7307,25 @@ function ExecutionContextPopover({ context }: { context: SessionContext | null }
   </Popover.Root>
 }
 
-function ExecutionRunMetric({ run, usage }: {
+function ExecutionRunMetric({ run, usage, cancelling, starting, threadId, windowedEvidence, liveRevision, hasCurrentActivity, onActivity }: {
   run: AgentRunView
   usage: RunUsage | null
+  cancelling: boolean
+  starting: boolean
+  threadId: string
+  windowedEvidence: boolean
+  liveRevision: unknown
+  hasCurrentActivity: boolean
+  onActivity(runId: string, epoch: number): void
 }): JSX.Element {
-  const live = NON_TERMINAL_RUNS.has(run.status) && run.status !== 'queued'
+  // Reuse the conversation preview's bounded tail reader while the empty card
+  // is collapsed. Web snapshots may only invalidate evidence, without live events.
+  const tail = useExecutionWindow(starting && windowedEvidence, threadId, run, liveRevision, null, true)
+  const tailHasActivity = agentRunHasCurrentActivity(run, tail.evidence.map(liveRuntimeEventFromExecutionEvidence))
+  useEffect(() => {
+    if (hasCurrentActivity || tailHasActivity) onActivity(run.id, run.executionEpoch)
+  }, [hasCurrentActivity, tailHasActivity, run.id, run.executionEpoch, onActivity])
+  const live = NON_TERMINAL_RUNS.has(run.status) && !starting
   const [duration, setDuration] = useState(() => executionRunDurationLabel(run, Date.now()))
   useEffect(() => {
     if (!live) return undefined
@@ -7335,11 +7335,14 @@ function ExecutionRunMetric({ run, usage }: {
     }, 1_000)
     return () => window.clearInterval(timer)
   }, [live, run.id, run.executionEpoch, run.startedAt, run.createdAt])
-  if (run.status === 'queued') return <span className="execution-run-metric is-queued">{uiAttribute('排队中')}</span>
+  if (cancelling || starting) return <span className="execution-run-status" role="status">
+    {uiAttribute(cancelling ? '正在停止…' : '启动中…')}
+  </span>
   if (live) return <span className="execution-run-metric">{duration}</span>
   const hasUsage = usage !== null && [usage.promptInputTotalTokens, usage.outputTokens,
     usage.cacheReadTokens, usage.cacheWriteTokens].some(value => value !== null)
   return <span className="execution-run-metric-group">
+    {run.status === 'cancelled' && <span className="execution-run-status">{localizedAgentRunPresentation(run).label}</span>}
     {hasUsage ? <ExecutionUsagePopover run={run} usage={usage} /> : <ExecutionDurationPopover run={run} />}
   </span>
 }
@@ -7542,6 +7545,10 @@ function ExecutionDrawer({
   const [submittingStopRunIds, setSubmittingStopRunIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
+  const [activeEpochs, setActiveEpochs] = useState<ReadonlyMap<string, number>>(() => new Map())
+  const recordActivity = useCallback((runId: string, epoch: number): void => {
+    setActiveEpochs(current => current.get(runId) === epoch ? current : new Map(current).set(runId, epoch))
+  }, [])
   const processRef = useRef(process)
   processRef.current = process
   const resolvedFocusedRun = process.runs.find((run) => run.id === focusedRunId)
@@ -7572,9 +7579,8 @@ function ExecutionDrawer({
     : metrics?.sessions.find((session) => session.conversationId === currentConversationId
         && session.agentId === process.agentId) ?? null
   const currentRuns = newestFirstRuns.filter((run) =>
-    NON_TERMINAL_RUNS.has(run.status) && run.status !== 'queued'
+    NON_TERMINAL_RUNS.has(run.status)
   )
-  const queueBatches = executionQueueBatches(newestFirstRuns)
   const deliveryQueueBatches = executionDeliveryQueueBatches(process.waitingDeliveries)
   const historyRuns = newestFirstRuns.filter((run) => !NON_TERMINAL_RUNS.has(run.status))
   const latestRun = resolvedFocusedRun ?? currentRuns[0] ?? null
@@ -7906,8 +7912,11 @@ function ExecutionDrawer({
     )
     const focused = run.id === resolvedFocusedRunId
     const expanded = expandedRunIds.has(run.id)
-    const state = localizedAgentRunPresentation(run, cancelling)
+    const hasCurrentActivity = activeEpochs.get(run.id) === run.executionEpoch
+      || agentRunHasCurrentActivity(run, executionEventsByRunId.get(run.id) ?? [])
+    const state = localizedAgentRunPresentation(run, cancelling, hasCurrentActivity)
     const stateShape = runPulseStateShape(run, cancelling)
+    const starting = !cancelling && agentRunIsStarting(run, hasCurrentActivity)
     const sourceMessage = executionTriggerMessage(run, turns, messageById)
     const inputMessageIds = executionRunInputMessageIds(run, turns)
     const summary = executionMessageSummary(sourceMessage, run)
@@ -7917,7 +7926,7 @@ function ExecutionDrawer({
     const contentId = `execution-run-content-${run.id}`
     return (
       <li
-        className={`execution-process-stage status-${run.status}${focused ? ' is-focused' : ''}`}
+        className={`execution-process-stage status-${starting ? 'starting' : run.status}${cancelling ? ' is-stopping' : ''}${focused ? ' is-focused' : ''}`}
         data-agent-run-id={run.id}
         key={run.id}
         tabIndex={-1}
@@ -7930,7 +7939,11 @@ function ExecutionDrawer({
         <article className="execution-process-card">
           <header className="execution-run-card-header">
             <h3 className="execution-run-heading">
-              <button
+              {starting ? (<span className="execution-run-toggle is-starting" title={`${runMemberName} · ${summary}`}>
+                  {overview && <MemberAvatar agentId={run.agentId} avatarRef={runMember?.avatarRef ?? null}
+                    displayName={runMemberName} size="execution" decorative />}
+                  <span className="execution-run-summary">{summary}</span>
+                </span>) : (<button
                 className="execution-run-toggle"
                 type="button"
                 aria-expanded={expanded}
@@ -7941,7 +7954,7 @@ function ExecutionDrawer({
                 {overview && <MemberAvatar agentId={run.agentId} avatarRef={runMember?.avatarRef ?? null}
                   displayName={runMemberName} size="execution" decorative />}
                 <span className="execution-run-summary">{summary}</span>
-              </button>
+              </button>)}
             </h3>
             <ExecutionInputCountPopover
               messageIds={inputMessageIds}
@@ -7951,18 +7964,20 @@ function ExecutionDrawer({
               subject={uiAttribute("本次执行")}
             />
             <span className="execution-run-trailing">
-              <ExecutionRunMetric run={run} usage={usageByRunId.get(run.id)?.executionEpoch === run.executionEpoch
+              <ExecutionRunMetric run={run} cancelling={cancelling} starting={starting}
+                threadId={threadId} windowedEvidence={windowedEvidence} liveRevision={executionEventsByRunId.get(run.id)}
+                hasCurrentActivity={hasCurrentActivity} onActivity={recordActivity} usage={usageByRunId.get(run.id)?.executionEpoch === run.executionEpoch
                 ? usageByRunId.get(run.id)! : null} />
               <span className="execution-run-operations">
-                <button type="button" aria-label={expanded ? uiAttribute("收起卡片") : uiAttribute("展开卡片")} aria-expanded={expanded}
+                {!starting && (<button type="button" aria-label={expanded ? uiAttribute("收起卡片") : uiAttribute("展开卡片")} aria-expanded={expanded}
                   aria-controls={contentId} onClick={() => toggleRun(run.id)}>
                   <ExecutionCardChevron expanded={expanded} />
-                </button>
+                </button>)}
                 {run.invocationKind === 'batch' && run.failure?.code !== 'context_payload_too_large'
                   && (run.status === 'failed' || run.status === 'cancelled') && inputMessageIds.length > 0 && (
                   <ContinueAgentRunButton threadId={threadId} agentRunId={run.id} onError={onFileOpenError} />
                 )}
-                {(stopState === 'available' || stopState === 'stopping' || stopState === 'confirming') && (
+                {(stopState === 'available' || stopState === 'confirming') && (
                   <button className="is-danger" type="button" aria-label={uiAttribute("终止{0}的本次执行", String(runMemberName))}
                     title={uiAttribute("终止本次执行")} disabled={stopState !== 'available'} onClick={() => stopRun(run)}>
                     <ExecutionStopIcon />
@@ -7971,7 +7986,7 @@ function ExecutionDrawer({
               </span>
             </span>
           </header>
-          <div id={contentId} hidden={!expanded}>
+          <div id={contentId} hidden={starting || !expanded}>
             <RunExecutionDisclosure
               run={run}
               windowedEvidence={windowedEvidence}
@@ -7997,93 +8012,20 @@ function ExecutionDrawer({
     )
   }
 
-  const renderQueueBatch = (batch: ExecutionQueueBatch): JSX.Element => {
-    const expansionKey = `run:${batch.agentId}`
-    const expanded = expandedQueueAgents.has(expansionKey)
-    const runMember = memberById.get(batch.agentId)
-    const runMemberName = runMember?.displayName ?? batch.agentId
-    const batchMessageIds = [...new Set(batch.runs.flatMap((run) =>
-      executionRunInputMessageIds(run, turns)
-    ))]
-    const summary = executionMessageSummary(
-      batchMessageIds.flatMap((messageId) => {
-        const message = messageById.get(messageId)
-        return message ? [message] : []
-      })[0] ?? null,
-      batch.runs[0]
-    )
-    const stoppingBatch = batch.runs.some((run) => runStopState(run) !== 'available')
-    const queueLabel = pendingRuntimeCleanupLabel(process.runs)
-      ?? uiAttribute('排队中')
-    const contentId = `execution-queue-content-${batch.agentId}`
-    const toggle = (): void => setExpandedQueueAgents((current) => {
-      const next = new Set(current)
-      if (next.has(expansionKey)) next.delete(expansionKey)
-      else next.add(expansionKey)
-      return next
-    })
-    return (
-      <li className="execution-process-stage status-queued" data-queue-agent-id={batch.agentId} key={`queue:${batch.agentId}`}>
-        <span className="execution-process-node tone-attention state-queued" aria-hidden="true">
-          <ExecutionStatusGlyph status="queued" />
-        </span>
-        <article className="execution-process-card">
-          <header className="execution-run-card-header">
-            <h3 className="execution-run-heading">
-              <button className="execution-run-toggle" type="button" aria-expanded={expanded}
-                aria-controls={contentId} title={`${runMemberName} · ${summary}`} onClick={toggle}>
-                {overview && <MemberAvatar agentId={batch.agentId} avatarRef={runMember?.avatarRef ?? null}
-                  displayName={runMemberName} size="execution" decorative />}
-                <span className="execution-run-summary">{summary}</span>
-              </button>
-            </h3>
-            <ExecutionInputCountPopover
-              messageIds={batchMessageIds}
-              messageById={messageById}
-              memberById={memberById}
-              onRevealMessage={onRevealMessage}
-              subject={uiAttribute("排队批次")}
-            />
-            <span className="execution-run-trailing">
-              <span className="execution-run-metric is-queued">{queueLabel}</span>
-              <span className="execution-run-operations">
-                <button type="button" aria-label={expanded ? uiAttribute("收起排队批次") : uiAttribute("展开排队批次")}
-                  aria-expanded={expanded} aria-controls={contentId} onClick={toggle}>
-                  <ExecutionCardChevron expanded={expanded} />
-                </button>
-                <button className="is-danger" type="button" aria-label={uiAttribute("终止{0}的本批排队", String(runMemberName))}
-                  title={uiAttribute("终止本批排队")} disabled={stoppingBatch} onClick={() => {
-                    for (const run of batch.runs) stopRun(run)
-                  }}>
-                  <ExecutionStopIcon />
-                </button>
-              </span>
-            </span>
-          </header>
-          <div className="execution-queue-inputs" id={contentId} hidden={!expanded}>
-            {batchMessageIds.length > 0
-              ? <ExecutionInputList messageIds={batchMessageIds} messageById={messageById}
-                  memberById={memberById} onRevealMessage={onRevealMessage} />
-              : <p className="execution-queue-empty"><UiText zh={"排队输入当前未载入。"} /></p>}
-          </div>
-        </article>
-      </li>
-    )
-  }
-
   const renderDeliveryQueueBatch = (batch: ExecutionDeliveryQueueBatch): JSX.Element => {
     const expansionKey = `delivery:${batch.deliveries[0].id}`
     const expanded = expandedQueueAgents.has(expansionKey)
     const runMember = memberById.get(batch.agentId)
     const runMemberName = runMember?.displayName ?? batch.agentId
-    const queueLabel = pendingRuntimeCleanupLabel(process.runs)
-      ?? uiAttribute('排队中')
+    const queue = executionDeliveryQueuePresentation(process, batch.agentId)
+    const queueLabel = uiAttribute(queue.label)
+    const queueDetail = queue.detail ? uiAttribute(queue.detail) : undefined
     const sourceMessage = messageById.get(batch.messageIds[0]) ?? null
     const summary = sourceMessage
       ? sourceMessage.body.trim().replace(/\s+/gu, ' ')
         || sourceMessage.attachments.map((item) => item.displayName).join('、')
-        || uiAttribute('排队消息')
-      : uiAttribute('排队消息')
+        || uiAttribute(queue.blocked ? '排队消息' : '待处理消息')
+      : uiAttribute(queue.blocked ? '排队消息' : '待处理消息')
     const contentId = `execution-delivery-queue-content-${batch.deliveries[0].id}`
     const toggle = (): void => setExpandedQueueAgents((current) => {
       const next = new Set(current)
@@ -8092,10 +8034,10 @@ function ExecutionDrawer({
       return next
     })
     return (
-      <li className="execution-process-stage status-queued" data-delivery-queue-agent-id={batch.agentId}
+      <li className={`execution-process-stage status-${queue.blocked ? 'queued' : 'preparing'}`} data-delivery-queue-agent-id={batch.agentId}
         key={`delivery-queue:${batch.deliveries[0].id}`}>
-        <span className="execution-process-node tone-attention state-queued" aria-hidden="true">
-          <ExecutionStatusGlyph status="queued" />
+        <span className={`execution-process-node tone-neutral state-${queue.blocked ? 'queued' : 'running'}`} aria-hidden="true">
+          <ExecutionStatusGlyph status={queue.blocked ? 'queued' : 'running'} />
         </span>
         <article className="execution-process-card">
           <header className="execution-run-card-header">
@@ -8112,12 +8054,12 @@ function ExecutionDrawer({
               messageById={messageById}
               memberById={memberById}
               onRevealMessage={onRevealMessage}
-              subject={uiAttribute("排队消息")}
+              subject={uiAttribute(queue.blocked ? '排队消息' : '待处理消息')}
             />
             <span className="execution-run-trailing">
-              <span className="execution-run-metric is-queued">{queueLabel}</span>
+              <span className="execution-run-status" title={queueDetail}>{queueLabel}</span>
               <span className="execution-run-operations">
-                <button type="button" aria-label={expanded ? uiAttribute("收起排队消息") : uiAttribute("展开排队消息")}
+                <button type="button" aria-label={expanded ? uiAttribute(queue.blocked ? '收起排队消息' : '收起待处理消息') : uiAttribute(queue.blocked ? '展开排队消息' : '展开待处理消息')}
                   aria-expanded={expanded} aria-controls={contentId} onClick={toggle}>
                   <ExecutionCardChevron expanded={expanded} />
                 </button>
@@ -8135,7 +8077,6 @@ function ExecutionDrawer({
 
   const currentEntries = [
     ...currentRuns.map((run) => ({ kind: 'run' as const, createdAt: run.createdAt, id: run.id, run })),
-    ...queueBatches.map((batch) => ({ kind: 'queue' as const, createdAt: batch.createdAt, id: batch.agentId, batch })),
     ...deliveryQueueBatches.map((batch) => ({
       kind: 'delivery_queue' as const,
       createdAt: batch.createdAt,
@@ -8245,9 +8186,7 @@ function ExecutionDrawer({
             <ol className="execution-process-timeline">{currentEntries.map((entry) =>
               entry.kind === 'run'
                 ? renderRunCard(entry.run)
-                : entry.kind === 'queue'
-                  ? renderQueueBatch(entry.batch)
-                  : renderDeliveryQueueBatch(entry.batch)
+                : renderDeliveryQueueBatch(entry.batch)
             )}</ol>
           </section>}
           {(historyRuns.length > 0 || !runHistoryComplete) && <section className={`execution-history-section${currentEntries.length === 0 ? ' is-first' : ''}`} aria-label={uiAttribute("执行历史")}>
@@ -8374,7 +8313,7 @@ function ThreadMessageDeliveryFooter({
 
 function userMessageRunStatusLabel(run: AgentRunView | null): string {
   if (!run) return uiAttribute("未读")
-  if (run.status === 'queued') return uiAttribute("待处理")
+  if (agentRunIsStarting(run)) return uiAttribute("启动中")
   if (run.status === 'running') return uiAttribute("处理中")
   if (run.status === 'waiting') return uiAttribute("等待中")
   if (run.status === 'succeeded') return uiAttribute("已完成")
@@ -8416,7 +8355,8 @@ function UserMessageDeliveryReceipt({
       : delivery?.status === 'failed' || delivery?.status === 'cancelled' || run?.status === 'failed' || run?.status === 'cancelled' ? 'incomplete'
       : delivery?.requestedMode === 'steer' && delivery.status === 'claimed' ? delivery.dispatchPhase === 'attempting' ? 'steerSending' : 'steerPending'
       : run?.status === 'succeeded' || (!run && delivery?.status === 'settled') ? 'completed'
-      : delivery?.status === 'waiting' || !run || (run.status === 'queued' && !run.cancelRequestedAt) ? 'pending'
+      : run && agentRunIsStarting(run) ? 'starting'
+      : delivery?.status === 'waiting' || !run ? 'pending'
       : 'inProgress'
     return { agentId, delivery, run, status }
   })
@@ -8424,6 +8364,7 @@ function UserMessageDeliveryReceipt({
   const unknown = ordered.filter(item => item.status === 'unknown')
   const steerPending = ordered.filter(item => item.status === 'steerPending')
   const steerSending = ordered.filter(item => item.status === 'steerSending')
+  const starting = ordered.filter(item => item.status === 'starting')
   const pending = ordered.filter(item => item.status === 'pending')
   const inProgress = ordered.filter(item => item.status === 'inProgress')
   const incomplete = ordered.filter(item => item.status === 'incomplete')
@@ -8433,6 +8374,7 @@ function UserMessageDeliveryReceipt({
     steered.length ? (ordered.length === 1 ? uiAttribute('已插话') : uiAttribute('已插话 {0}', String(steered.length))) : '',
     steerPending.length ? (ordered.length === 1 ? uiAttribute('待插话') : uiAttribute('待插话 {0}', String(steerPending.length))) : '',
     steerSending.length ? (ordered.length === 1 ? uiAttribute('发送中') : uiAttribute('发送中 {0}', String(steerSending.length))) : '',
+    starting.length ? uiAttribute('启动中 {0}', String(starting.length)) : '',
     inProgress.length ? uiAttribute('处理中 {0}', String(inProgress.length)) : '',
     pending.length ? uiAttribute('待处理 {0}', String(pending.length)) : '',
     unknown.length ? uiAttribute('待核对 {0}', String(unknown.length)) : '',
@@ -8440,10 +8382,10 @@ function UserMessageDeliveryReceipt({
   ].filter(Boolean).join(' · ')
   if (!receiptLabel) return null
   const presentation = {
-    className: unknown.length ? 'is-unknown' : incomplete.length ? 'is-incomplete' : steerSending.length ? 'is-sending' : inProgress.length ? 'is-progress' : pending.length || steerPending.length ? 'is-queued' : 'is-confirmed',
+    className: unknown.length ? 'is-unknown' : incomplete.length ? 'is-incomplete' : steerSending.length ? 'is-sending' : inProgress.length || starting.length ? 'is-progress' : pending.length || steerPending.length ? 'is-queued' : 'is-confirmed',
     label: receiptLabel
   }
-  const hasMixedStatus = [steered, steerPending, steerSending, inProgress, pending, unknown, incomplete].filter(items => items.length > 0).length > 1
+  const hasMixedStatus = [steered, steerPending, steerSending, starting, inProgress, pending, unknown, incomplete].filter(items => items.length > 0).length > 1
   return (
     <div className="user-message-receipt-row">
       {canWithdraw && <button className="user-message-withdraw" type="button" aria-label={uiAttribute("撤回尚未领取的消息")} title={uiAttribute("撤回消息")} onClick={onWithdraw}>
@@ -10832,6 +10774,7 @@ function RunExecutionContent({
   historyStatus,
   finalBody,
   cancelling,
+  showStopFeedback,
   onLoadHistoricalEvidence,
   onFileOpenError
 }: {
@@ -10846,6 +10789,7 @@ function RunExecutionContent({
   historyStatus: RunExecutionHistoryStatus
   finalBody: string | null
   cancelling: boolean
+  showStopFeedback: boolean
   onLoadHistoricalEvidence(): Promise<void>
   onFileOpenError(message: string): void
 }): JSX.Element {
@@ -10993,7 +10937,7 @@ function RunExecutionContent({
 
   return (
     <ExecutionContentContext.Provider value={windowedEvidence ? windowPage.contentCache : null}>
-    <div className="process-content" ref={windowPage.root}
+    <div className={`process-content${cancelling && nonTerminal ? ' is-stopping' : ''}`} ref={windowPage.root}
       data-execution-run-id={run.id}
       data-execution-loaded-count={windowedEvidence ? windowPage.blocks.length : undefined}
       data-execution-first-sequence={windowedEvidence ? windowPage.blocks[0]?.sequence : undefined}>
@@ -11186,8 +11130,8 @@ function RunExecutionContent({
             <RunningText text={feedback} />
           </div>
         )}
-      {cancelling && nonTerminal && (
-        <div className="process-action cancelling" role="status"><UiText zh={"正在提交停止请求，完成后即可继续发送。"} /></div>
+      {cancelling && nonTerminal && showStopFeedback && (
+        <div className="run-stop-feedback" role="status"><UiText zh="正在停止…" /></div>
       )}
       {publicFailure && <RuntimeFailureNotice failure={publicFailure} presentation="agent-run" />}
     </div>
@@ -11238,7 +11182,7 @@ export function RunExecutionDisclosure({
   const recoveryKey = `mobile-run:${threadId}:${run.id}`
   const nonTerminal = NON_TERMINAL_RUNS.has(run.status)
   const active = executionDisclosureIsLiveOpen(run.status, focused, cancelling)
-  const cancellingActive = nonTerminal && cancelling && focused
+  const cancellingActive = nonTerminal && cancelling
   const publicFailure = run.status === 'failed' ? run.failure : null
   const hasPublicFailure = publicFailure !== null
   const defaultOpen = (mobile ? nonTerminal : active) || hasPublicFailure
@@ -11329,6 +11273,7 @@ export function RunExecutionDisclosure({
       historyStatus={historyStatus}
       finalBody={finalBody}
       cancelling={cancelling}
+      showStopFeedback={!hideSummary}
       onLoadHistoricalEvidence={loadHistoricalEvidence}
       onFileOpenError={onFileOpenError}
     />

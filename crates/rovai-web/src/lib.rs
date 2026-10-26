@@ -737,6 +737,7 @@ async fn static_file(state: &WebState, relative: &str) -> Response {
         Some("webp") => "image/webp",
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("svg") => "image/svg+xml",
+        Some("ico") => "image/vnd.microsoft.icon",
         _ => return error(StatusCode::NOT_FOUND, "asset_not_found"),
     };
     let Ok(metadata) = tokio::fs::metadata(&path).await else {

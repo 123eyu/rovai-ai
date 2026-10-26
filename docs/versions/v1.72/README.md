@@ -6,10 +6,17 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## Run 启动与停止展示（2026-10-26）
+
+按 User 确认的交互稿收敛为前端展示修正：启动阶段统一文案，Delivery 简化准备／排队提示，
+停止时移除有色提示与重复停止按钮，状态图标保留时间线。无 Core 字段、状态机或调度变更。
+当前规则见 [Run Process Detail Surface v56](../../contracts/run-process-detail-surface-v56.md)，
+实施与验证见[实施记录](implementation-plan.md#run-启动与停止展示2026-10-26)。
 
 ## Hermes Runtime（2026-10-25）
 
@@ -53,6 +60,21 @@ User 确认在独立 worktree 实施地平线、经典红与余烬，保留原�
 Core 首发事务捕获，正文沿既有 projector 输出链接，无 Context/Composer 版本兼容层、schema 迁移或自动摘要。
 当前合同见 [Thread Reference v1](../../contracts/thread-reference-v1.md)，取舍见 [V1.72-D58](decisions.md#v1-72-d58)，
 进度和验证见[实施记录](thread-reference-implementation.md)。更新 Contract、Architecture、UI 和导航；发布版本与 Runtime 平台资格不变。
+
+2026-10-26 按 User sequence 30、32 确认的交互稿收敛长标题：只省略引用标题文字、保留图标/状态及正文基线，
+草稿与历史详情分别使用当前标题与发送时标题，公开 `@` 的 Tab/Shift+Tab 切换类别。
+当前规则见[结构化 Mention UI](../../ui/components/structured-mentions.md#公开引用候选)，验证继续记入同一实施记录。
+仅 Renderer 展示和交互，不修改 Core、标题生成、协议版本或数据。
+
+## Mission 接入 Team（2026-10-26）
+
+User 在 Team 设计 Thread sequence 90 确认默认主题 V2 交互并授权 worktree、PR、合入 main。
+使命新增 Team/Custom 来源，读取 General 默认值；已保存 Team 只读，Custom 保留独立成员与 Lead 草稿。
+长指引采用五行预览及同浮层全文阅读，去掉使命中修改全局 one-click 的勾选。Core 复用现有 Thread
+Team 创建事务，并入描述提及的成员，同步冻结指引；旧 Mission 不补写。协议为
+[Mission v13](../../contracts/mission-v13.md)与[Team Templates v2](../../contracts/team-templates-v2.md)，
+不改变数据库、Bootstrap 或 Runtime 版本轴。范围、测试与原 Gate 边界见
+[实施记录](mission-team-implementation.md)。既有 seam 的局部扩展，不新增 Version Decision。
 
 ## Team 管理（2026-10-18）
 

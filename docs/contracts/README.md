@@ -19,7 +19,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 ## Team 与启动指引
 
-- [Team Templates v1](team-templates-v1.md)：创建预设、独立 Custom 默认值、CAS 与旧偏好迁移。
+- [Team Templates v2（当前）](team-templates-v2.md)：Thread/Mission 创建预设、独立 Custom 默认值与不可变指引。
+- [Team Templates v1（历史）](team-templates-v1.md)：初始 Thread 创建预设、CAS 与旧偏好迁移。
 - [Native Session Bootstrap v6](native-session-bootstrap-v6.md)：唯一可选 TEAM_GUIDANCE、冻结文本和恢复边界。
 
 ## 会话 Task 能力（当前）
@@ -68,7 +69,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 
 | 合同 | 范围 |
 | --- | --- |
-| [Mission v12（当前）](mission-v12.md) | 结构化个人提及与描述原子保存、自动加入队外成员；Agent 仍读取 description 文本 |
+| [Mission v13（当前）](mission-v13.md) | Mission 复用 Team 创建、权威名册与描述邀请合并、不可变 Thread 指引 |
+| [Mission v12（历史）](mission-v12.md) | 结构化个人提及与描述原子保存、自动加入队外成员；Agent 仍读取 description 文本 |
 | [Mission v11（历史）](mission-v11.md) | 继承 v10；清理请求只做领域准入，worker 的正常成功路径最多启动 4 个 Git 进程，安全拒绝保留可用工作区与可重试诊断 |
 | [Mission v10（历史）](mission-v10.md) | 继承 v9；Worktree 归属与受管分支删除解耦，安全保留非受管分支、脏现场与不可达 detached 提交，并恢复未发生删除的失败状态；其重复预检与同步拒绝由 v11 替代 |
 | [Mission v9（历史）](mission-v9.md) | 继承 v8；持久 Worktree 的当前检出不再作为执行门禁，实时 checkout 与受管分支身份分离，Diff 视图不复用旧临时 index；其非受管 checkout 清理拒绝由 v10 替代 |
@@ -673,7 +675,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Execution Record Storage v3（当前）](execution-record-storage-v3.md) | 新操作去掉同结果重复 diff、预览总预算、独立摘要减少进度正文写入；旧格式保持 |
 | [Execution Record Storage v2（历史）](execution-record-storage-v2.md) | 新操作与活动共用一行、小字段兼容读取、按需 diff，保留旧格式与 v1 回收 |
 | [Execution Record Storage v1（历史）](execution-record-storage-v1.md) | 新操作独立输入／结果、按页组合预览、旧格式收尾与会话删除 Blob 候选登记 |
-| [Run Process Detail Surface v55（当前）](run-process-detail-surface-v55.md) | 执行行按 Run 输入引用原消息，支持批量、按需历史定位，共用会话“回到最新”；保留身份、模型与执行控制 |
+| [Run Process Detail Surface v56（当前）](run-process-detail-surface-v56.md) | 启动文案统一、Delivery 准备／排队简化、中性停止反馈；仅改展示，图标保留在时间线上 |
+| [Run Process Detail Surface v55（历史）](run-process-detail-surface-v55.md) | 执行行按 Run 输入引用原消息，支持批量、按需历史定位，共用会话“回到最新”；保留身份、模型与执行控制 |
 | [Run Process Detail Surface v54（历史）](run-process-detail-surface-v54.md) | 独立执行行复用队员卡片与模型浮层，显示本 Run 的模型与强度；精确 Run 身份衔接不变 |
 | [Run Process Detail Surface v53（历史）](run-process-detail-surface-v53.md) | 执行行固定启动时公开消息边界；任何 Run 均不能拆开回复与附属卡片 |
 | [Run Process Detail Surface v52（历史）](run-process-detail-surface-v52.md) | 当前轮次活动优先于晚到的输入受理回执，保留新轮次连接反馈；Desktop / Web 共用 |

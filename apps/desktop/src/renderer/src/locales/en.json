@@ -4100,6 +4100,8 @@
   "搜索中…": "Searching…",
   "无匹配结果": "No matches",
   "引用详情": "Reference details",
+  "会话引用：{0}": "Thread reference: {0}",
+  "使命引用：{0}": "Mission reference: {0}",
   "引用不可用": "Reference unavailable",
   "{0}，引用不可用": "{0}, reference unavailable",
   "移除引用": "Remove reference",

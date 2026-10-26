@@ -37,6 +37,7 @@ export interface ComposerTypeaheadPluginProps {
   getOptionState(match: ComposerTriggerMatch): ComposerTypeaheadOptionState
   onMatchChange(match: ComposerTriggerMatch | null): void
   onSelect(index: number, match: ComposerTriggerMatch): boolean
+  onCycleCategory?(direction: 1 | -1): void
   renderMenu(state: ComposerTypeaheadRenderState): ReactNode
 }
 
@@ -65,6 +66,7 @@ export function ComposerTypeaheadPlugin({
   getOptionState,
   onMatchChange,
   onSelect,
+  onCycleCategory,
   renderMenu
 }: ComposerTypeaheadPluginProps): JSX.Element | null {
   const [editor] = useLexicalComposerContext()
@@ -94,8 +96,8 @@ export function ComposerTypeaheadPlugin({
     dismissedMatch.current = null
     return memberOnlyRef.current && found?.kind !== 'member' ? null : found
   }, [editor])
-  const current = useRef({ match, optionCount, getOptionState, onMatchChange, onSelect })
-  current.current = { match, optionCount, getOptionState, onMatchChange, onSelect }
+  const current = useRef({ match, optionCount, getOptionState, onMatchChange, onSelect, onCycleCategory })
+  current.current = { match, optionCount, getOptionState, onMatchChange, onSelect, onCycleCategory }
   selectedIndexRef.current = selectedIndex
 
   const close = useCallback(() => {
@@ -172,10 +174,15 @@ export function ComposerTypeaheadPlugin({
         return true
       }, COMMAND_PRIORITY_CRITICAL),
       editor.registerCommand(KEY_TAB_COMMAND, (event) => {
-        if (editor.isComposing()) return false
+        if (editor.isComposing() || event?.isComposing) return false
         const state = current.current
         const freshMatch = findMatch()
         if (!freshMatch) return false
+        if (freshMatch.kind === 'member' && state.onCycleCategory) {
+          event?.preventDefault()
+          state.onCycleCategory(event?.shiftKey ? -1 : 1)
+          return true
+        }
         const optionState = state.getOptionState(freshMatch)
         const action = composerTypeaheadEnterAction(optionState)
         if (action === 'pass') return false

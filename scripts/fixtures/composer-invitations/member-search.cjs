@@ -42,11 +42,17 @@ module.exports = async ({ evaluate, wait, key, click, window, evidence }) => {
     // Native typing after selection proves the caret is after the trailing space.
     await insert('@als')
     await candidate(); await ready()
-    await key('Tab', 9)
+    for (const category of ['对话', '使命', '队员']) {
+      await key('Tab', 9)
+      await wait(`document.querySelector('.ref-filters [aria-selected=true]').textContent === '${category}'`)
+      await ready()
+      assert.equal((await state()).atoms, 1, 'Tab changes category without inserting')
+    }
+    await key('Enter', 13)
     assert.equal((await expectSelection(2)).text, '@爱丽丝 @爱丽丝 ')
     await insert('完成')
     await wait("invitationTest.state().text === '@爱丽丝 @爱丽丝 完成'")
-    checks.push((pending ? 'Pending' : 'Public') + ': pinyin Enter, initials Tab, repeat identity, caret, pending invitation and no send')
+    checks.push((pending ? 'Pending' : 'Public') + ': pinyin Enter, Tab categories, repeat identity, caret, pending invitation and no send')
   }
 
   for (const query of ['AILI', 'ＡＩＬＩ', '爱li', 'ai丽']) {

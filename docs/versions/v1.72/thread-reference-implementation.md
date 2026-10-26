@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: thread-reference-implementation-and-verification
 status: verified
-last_updated: 2026-10-23
+last_updated: 2026-10-26
 ---
 
 # 对话与使命引用、紧凑 Skills
@@ -161,3 +161,46 @@ node --test scripts/lib/host-web.test.mjs
 
 交付 PR：[#881](https://github.com/murray17/rovai-ai/pull/881)。修复不包含真实模型读取行为验收或
 大目录耗时结论；这两项仍保持前述验证边界。
+
+## 长标题与键盘交互收敛（2026-10-26）
+
+User 在同一 Thread sequence 30 要求独立 worktree 和生产 UI 风格交互稿，sequence 32 授权实现、PR 与合入 main。
+沿用 `rovai/reference-title-interaction`，基于 `7c5ee1b299491194b9be72e3f37284c03672f9cc`。
+按已有 UI seam 局部修复，无新增 Version Decision、Core/数据库/上下文/Composer 版本或标题生成改动。
+
+- 只给 Thread/Mission Atom 与历史引用增加标题子节点，统一 `min(18rem, calc(100% - 1rem))` 上限，
+  根节点保留图标及不可用标记。标题 CSS 省略，完整数据与复制投影不变；生产历史 Mention 样式的优先级单独覆盖，
+  避免构建中的 CSS 顺序让历史引用退回普通 inline。
+- Renderer 本地 `titleMode` 区分草稿当前标题与历史发送时标题；详情按 ID 解析可用性和打开来源。
+  长详情限制可用高度并内部滚动。选中单个引用 Atom 后 Enter 打开，Escape 恢复有效选区及 editor focus；
+  移除、重选、外部点击和打开来源各自保留操作后的焦点。
+- 公开三类别 `@` 的 Tab/Shift+Tab 切换类别并保持查询，Enter 插入；沿用当前 Typeahead 的同步 trigger 和
+  手动分类机制。Skills、使命描述等单类别选择器及面板关闭后的 Tab 行为不变。
+
+生产组件验证入口：
+
+```bash
+pnpm typecheck
+pnpm exec vitest run
+pnpm test:composer-input
+pnpm test:message-quotes
+pnpm build:desktop
+node scripts/fixtures/thread-references/build.mjs /tmp/rovai-reference-title-acceptance
+node scripts/smoke-thread-references.mjs /tmp/rovai-reference-title-acceptance
+node scripts/smoke-thread-reference-layout.mjs /tmp/rovai-reference-title-acceptance
+pnpm docs:test
+pnpm docs:check
+DOCS_BASE_REF=7c5ee1b299491194b9be72e3f37284c03672f9cc pnpm docs:check:ci
+```
+
+验证结果：TypeScript、256 个 Vitest 文件（3005 通过，2 既有 skip）、生产 Composer/邀请/Web 链接三项 Electron
+验收、消息选文 Electron 验收及 Desktop/Web 构建通过。旧邀请验收中的“公开 @ Tab 插入”按新需求改为
+Tab 切三类别后 Enter 插入，并继续验证使命描述的 Tab 插入。文档通用门禁通过。
+引用原有 36 项浏览器回归与新增 60 项布局/交互检查通过，无浏览器异常。
+
+新增检查包含 300/260/220px 输入区及历史正文、320/375px 和横屏 Mobile WebUI、日夜主题、短标题
+19.5px 行高和 1px 内基线差、完整 accessibility tree 名称、80 scalar 会话与 200 scalar 使命标题、
+连续英文/Emoji/Markdown 标点、独立 Renderer 300 字符压力用例、改名后草稿/历史详情、不可用状态、
+键盘选中/删除/撤销/移除/重选及焦点、完整复制/部分选文及原 bodyAtSelection。截图复核包含历史气泡。
+实际生产组件通过隔离数据与临时浏览器/Electron profile 运行；不连接 Core、真实 Runtime 或日常 App。
+300 字符用例不用于真实发布，不扩大标题合同。本次未做物理手机软键盘、屏幕阅读器或真实模型验收。

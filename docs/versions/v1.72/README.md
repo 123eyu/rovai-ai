@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -44,6 +44,11 @@ User 确认在独立 worktree 实施地平线、经典红与余烬，保留原�
 Core 首发事务捕获，正文沿既有 projector 输出链接，无 Context/Composer 版本兼容层、schema 迁移或自动摘要。
 当前合同见 [Thread Reference v1](../../contracts/thread-reference-v1.md)，取舍见 [V1.72-D58](decisions.md#v1-72-d58)，
 进度和验证见[实施记录](thread-reference-implementation.md)。更新 Contract、Architecture、UI 和导航；发布版本与 Runtime 平台资格不变。
+
+2026-10-26 按 User sequence 30、32 确认的交互稿收敛长标题：只省略引用标题文字、保留图标/状态及正文基线，
+草稿与历史详情分别使用当前标题与发送时标题，公开 `@` 的 Tab/Shift+Tab 切换类别。
+当前规则见[结构化 Mention UI](../../ui/components/structured-mentions.md#公开引用候选)，验证继续记入同一实施记录。
+仅 Renderer 展示和交互，不修改 Core、标题生成、协议版本或数据。
 
 ## Mission 接入 Team（2026-10-26）
 

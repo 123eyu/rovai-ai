@@ -4154,5 +4154,14 @@
   "设为队长：{0}": "Make lead: {0}",
   "团队已变化，请重新选择后创建。": "This team has changed. Select it again before creating.",
   "团队已不可用，请选择其他团队或自定义。": "This team is unavailable. Choose another team or Custom.",
-  "团队与队员：{0}，{1} 位队员": "Team and members: {0}, {1} members"
+  "团队与队员：{0}，{1} 位队员": "Team and members: {0}, {1} members",
+  "启动中…": "Starting…",
+  "启动中": "Starting",
+  "启动中 {0}": "Starting {0}",
+  "准备中…": "Preparing…",
+  "等待上一轮完成": "Waiting for the previous run",
+  "等待上次执行清理完成": "Waiting for the previous run to finish cleaning up",
+  "待处理消息": "Pending message",
+  "展开待处理消息": "Expand pending message",
+  "收起待处理消息": "Collapse pending message"
 }

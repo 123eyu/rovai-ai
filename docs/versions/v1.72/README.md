@@ -11,6 +11,13 @@ last_updated: 2026-10-26
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Run 启动与停止展示（2026-10-26）
+
+按 User 确认的交互稿收敛为前端展示修正：启动阶段统一文案，Delivery 简化准备／排队提示，
+停止时移除有色提示与重复停止按钮，状态图标保留时间线。无 Core 字段、状态机或调度变更。
+当前规则见 [Run Process Detail Surface v56](../../contracts/run-process-detail-surface-v56.md)，
+实施与验证见[实施记录](implementation-plan.md#run-启动与停止展示2026-10-26)。
+
 ## 撤回消息两分钟重新编辑（2026-10-23）
 
 按 User 确认，以客户端 localStorage 短期副本支持重新编辑，Core 保持撤回原文擦除。

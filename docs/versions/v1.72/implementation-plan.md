@@ -58,6 +58,26 @@ last_updated: 2026-10-26
 
 ## 定时任务对话命名（2026-10-26）
 
+本功能初次实现及颜色修正分别经 PR #913、#915 合入。User 随后要求先隐藏功能，并明确
+“同时停用日期标题，恢复任务名”；以下初次交付记录不再代表当前开放状态。
+
+- 本次 worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-disable-automation-titles`；
+  分支 `rovai/disable-automation-titles`；基线 `17a7fbba9dc55dbff1ad77837033968decef5b63`；
+  Governance：none；Status：ready。User 已授权 PR 合入 main、安装本机后停止，交互稿后续再讨论。
+- Desktop/Web 的共享编辑器撤下命名入口；Core 的手动和定时 occurrence 均直接采用任务名。
+  已有 schema 165 不回退；本次没有迁移、历史数据回填或新增兼容分支。
+- 不新增、删除或禁用 Rust 测试函数：扩展既有 manual snapshot/replay、once overlap 和 delayed schedule
+  owners，验证默认配置、保留的非默认配置、80 个 Unicode scalar 名称均不加日期，重放和已有标题不变。
+  标题时间来源断言随该生产行为停用而替换；计划推进、去重、CAS 和 overlap 断言保留。
+  最小命令：`cargo test -p rovai-core --features extended-tests --lib automation`。
+- 生产 Electron fixture 改验入口隐藏，并保留保存失败、手势取消、主题、宽度与缩放验收。
+  `pnpm typecheck`、`pnpm test:automation-splitter` 已通过；使用独立临时 userData 和 Skill Library，
+  memory-only RPC，无真实 Runtime。Day 与窄屏截图已人工核对。
+- Core automation 定向回归 16 项通过，`cargo fmt --all --check`、`git diff --check`、
+  `pnpm docs:test`、`pnpm docs:check` 及基于本次基线的 `pnpm docs:check:ci` 通过。
+
+初次交付记录：
+
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-issue-875-automation-title`；
   分支 `rovai/issue-875-automation-title`，基线 `db8cd6e34aa9e0348fa750020105acf8f04869fd`；Governance：none。
 - Core 持有命名配置，创建 occurrence 时按定时/手动来源生成并持久化标题；Renderer 只提供格式预览和编辑。

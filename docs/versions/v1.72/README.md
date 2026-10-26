@@ -11,6 +11,13 @@ last_updated: 2026-10-26
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## Runtime PATH 与主动检查一致性（2026-10-26）
+
+Issue #891 按 User 确认的范围统一启动／重新检测／主动检查的基础 PATH 采集，主动检查不再因旧入口存在
+跳过刷新。沿用现有配置、代次和超时回退；不自动导入 shell 变量或增加版本管理器适配。
+当前约定见 [Runtime Launch v73](../../contracts/runtime-launch-and-verification-v73.md)，实施与验证见
+[实施记录](implementation-plan.md#runtime-path-与主动检查一致性2026-10-26)。无新 Migration 或模型上下文变化。
+
 ## Run 启动与停止展示（2026-10-26）
 
 按 User 确认的交互稿收敛为前端展示修正：启动阶段统一文案，Delivery 简化准备／排队提示，

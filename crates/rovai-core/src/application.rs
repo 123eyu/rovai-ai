@@ -2024,8 +2024,9 @@ struct RefreshAdapterInstallationParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeDiscoveryRescanParams {
-    #[serde(default)]
-    interactive_shell: bool,
+    // Older clients may still send this flag; Core now owns the capture policy.
+    #[serde(default, rename = "interactiveShell")]
+    _interactive_shell: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3971,9 +3972,8 @@ impl Core {
                 .is_none_or(|current| current == executable_fingerprint)
     }
 
-    async fn rescan_runtime_discovery(&self, interactive_shell: bool) -> Result<Value> {
-        self.refresh_runtime_check_environment(interactive_shell)
-            .await?;
+    async fn rescan_runtime_discovery(&self) -> Result<Value> {
+        self.refresh_runtime_check_environment().await?;
         self.discover_runtime_installations(true).await;
         self.runtime_health_payload().await
     }
@@ -4406,27 +4406,11 @@ impl Core {
         if let Some(blocker) = current_runtime_platform_blocker(kind) {
             anyhow::bail!("{}: {}", blocker.code, blocker.payload);
         }
-        let mut search = self.runtime_search_environment.read().await.clone();
-        if trigger == RuntimeCheckTrigger::UserCheck {
-            let saved = {
-                let database = self.database.lock().await;
-                AgentProfileService::default().managed_installation(&database, kind, "default")?
-            };
-            let current = search.clone();
-            let has_entry = tokio::task::spawn_blocking(move || {
-                let saved_path =
-                    saved.map(|installation| PathBuf::from(installation.executable_path));
-                current
-                    .candidates(kind, saved_path)
-                    .iter()
-                    .any(|candidate| is_runtime_entrypoint_file(&candidate.path))
-            })
-            .await
-            .context("Runtime entry lookup worker failed")?;
-            if !has_entry {
-                search = self.refresh_runtime_check_environment(true).await?;
-            }
-        }
+        let search = if trigger == RuntimeCheckTrigger::UserCheck {
+            self.refresh_runtime_check_environment().await?
+        } else {
+            self.runtime_search_environment.read().await.clone()
+        };
         let (acknowledged, acknowledgement) = oneshot::channel();
         let (completed, completion) = oneshot::channel();
         self.runtime_check_requests
@@ -12262,10 +12246,9 @@ impl Core {
             }
             "runtime.status.get" => self.runtime_health_payload().await,
             "runtime.discovery.rescan" => {
-                let params: RuntimeDiscoveryRescanParams =
+                let _params: RuntimeDiscoveryRescanParams =
                     serde_json::from_value(request.params.clone())?;
-                self.rescan_runtime_discovery(params.interactive_shell)
-                    .await
+                self.rescan_runtime_discovery().await
             }
             "runtime.product.ensure" => {
                 let params: CheckProductRuntimeParams =
@@ -16007,7 +15990,7 @@ impl Core {
                     return Ok::<(), anyhow::Error>(());
                 }
                 if attempt == 0 {
-                    search = self.refresh_runtime_check_environment(true).await?;
+                    search = self.refresh_runtime_check_environment().await?;
                 } else {
                     anyhow::bail!(
                         "Runtime entry {} could not be resolved or executed: {}",

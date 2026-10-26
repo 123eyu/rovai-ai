@@ -2,6 +2,7 @@
 // Usage: node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python>
 // Opt-in real model: append --real-model <second-model-id>; requires explicit model-use authorization.
 // Append --observations for ACP-only compaction/usage inspection, failure and counter-reset cases.
+// Append --questionnaires to enable native clarify in the fixture and verify unsupported handling.
 import assert from 'node:assert/strict'
 import {createServer} from 'node:http'
 import {spawn, spawnSync, execFileSync} from 'node:child_process'
@@ -17,6 +18,8 @@ import {createHermesAcpObserver, holdHermesSession} from './lib/hermes-acp-obser
 const [officialSource, python] = process.argv.slice(2)
 assert([officialSource, python].every(p => p && isAbsolute(p)))
 const inspectObservations = process.argv.includes('--observations')
+const inspectQuestionnaires = process.argv.includes('--questionnaires')
+assert(!(inspectObservations && inspectQuestionnaires), 'Choose one focused extension per fixture')
 if (process.argv[4] === '--real-model') {
   const {runRealModelProbe} = await import('./lib/hermes-real-model-probe.mjs')
   await runRealModelProbe(officialSource, python, process.argv[5])
@@ -38,7 +41,7 @@ const sh = s => "'" + s.replaceAll("'", "'\\''") + "'"
 // A test installation entry selecting the existing prepared interpreter; no upstream code changes.
 const launcher = join(root, 'hermes')
 const bootstrap = `import sys; sys.path.insert(0, ${JSON.stringify(source)}); sys._hermes_pin_default_home = True; import hermes_bootstrap; import runpy; runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)`
-const observer = inspectObservations ? await createHermesAcpObserver(root) : null
+const observer = inspectObservations || inspectQuestionnaires ? await createHermesAcpObserver(root) : null
 await writeFile(launcher, observer
   ? `#!/bin/sh\ncase "$*" in *' acp') exec ${sh(process.execPath)} ${sh(observer.script)} ${sh(python)} -I -B -c ${sh(bootstrap)} "$@";; *) exec ${sh(python)} -I -B -c ${sh(bootstrap)} "$@";; esac\n`
   : `#!/bin/sh\nexec ${sh(python)} -I -B -c ${sh(bootstrap)} "$@"\n`, {mode: 0o700})
@@ -68,8 +71,15 @@ const server = createServer(async (req, res) => {
     if (!Array.isArray(body.input)) {res.end('{}'); return}
     const main = Array.isArray(body.tools) && body.tools.length > 0
     if (!main) {if (JSON.stringify(body.input).includes('You are a summarization agent creating a context checkpoint.')) summaries++; respond(res, body, text('Earlier isolated tasks completed. Continue the current task.')); return}
-    const label = [...JSON.stringify(body.input).matchAll(/SESSION_PROBE:([AB][0-9]+)/g)].at(-1)?.[1]
+    const label = [...JSON.stringify(body.input).matchAll(/SESSION_PROBE:([ABQ][0-9]+)/g)].at(-1)?.[1]
     const n = calls.get(label) ?? 0; calls.set(label, n + 1)
+    if (inspectQuestionnaires && ((['Q0', 'Q1'].includes(label) && n === 0) || (label === 'Q2' && n === 1))) {
+      assert(body.tools.some(tool => tool.name === 'clarify'), 'Native config must expose the real clarify tool')
+      const question = {question: label === 'Q1' ? 'What should the fixture do?' : 'Which fixture color?',
+        ...(label === 'Q1' ? {} : {choices: ['Blue', 'Green']})}
+      respond(res, body, {id: randomUUID(), type: 'function_call', call_id: randomUUID(), name: 'clarify',
+        arguments: JSON.stringify({questions: [question]}), status: 'completed'}); return
+    }
     if (inspectObservations && label === 'B5' && n > 0) {
       res.writeHead(404, {'content-type': 'application/json'})
       res.end(JSON.stringify({error: {message: 'Observation fixture fails after one successful tool call', type: 'invalid_request_error', code: 'model_not_found'}})); return
@@ -107,6 +117,7 @@ const config = {model: {provider: 'fixture', default: 'native-probe', context_le
   updates: {check: false}, platform_toolsets: {acp: ['terminal', 'skills', 'mcp']}, session_title: {enabled: false},
   agent: {max_turns: 8, system_prompt: 'NATIVE_CONFIG_SYSTEM_RETAINED'},
   compression: {enabled: true, threshold: 0.5, protect_first_n: 0, protect_last_n: 2}}
+if (inspectQuestionnaires) config.platform_toolsets.acp.push('clarify')
 await writeFile(join(nativeHome, 'config.yaml'), JSON.stringify(config), {mode: 0o600})
 await writeFile(join(nativeHome, '.env'), 'PROBE_SENTINEL=unchanged\n', {mode: 0o600})
 const mcpId = randomUUID(), brokenId = randomUUID()
@@ -258,6 +269,54 @@ try {
   assert.notEqual(recovered.status, 'succeeded')
   assert.equal(row("SELECT COUNT(*) AS n FROM camp_message WHERE body='NATIVE_OK_B2'").n, 1)
   await settled(await send('B', 4))
+  if (inspectQuestionnaires) {
+    const approvalsBefore = row('SELECT COUNT(*) AS n FROM approval').n
+    for (const round of [0, 1, 2]) {
+      const test = await send('Q', round)
+      const run = await until(async () => {
+        const snapshot = await core.request('threads.snapshot', {threadId: test.thread})
+        assert.equal(snapshot.approvals.filter(a => a.status === 'pending').length, 0, 'Question must not become an execution Approval')
+        const r = row('SELECT id,status,execution_epoch,last_error_code,manual_retry_allowed FROM agent_run WHERE camp_id=? AND rowid>? ORDER BY rowid DESC LIMIT 1', test.thread, test.previousRunRow)
+        return r && ['succeeded', 'failed', 'cancelled'].includes(r.status) && r
+      })
+      assert.equal(run.status, 'failed')
+      assert.equal(run.last_error_code, 'runtime_questionnaire_unsupported')
+      assert.equal(run.manual_retry_allowed, 0, 'An accepted questionnaire must not replay automatically')
+      const sid = row('SELECT native_session_id FROM conversation WHERE camp_id=? AND agent_id=?', test.thread, test.agentId).native_session_id
+      if (sessions.Q) assert.equal(sid, sessions.Q); else sessions.Q = sid
+      const messages = row("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body=? AND source_agent_run_id=?", test.thread, 'NATIVE_OK_' + test.label, run.id).n
+      assert.equal(messages, round === 2 ? 1 : 0, 'A completed public Send must survive the questionnaire failure')
+      runs.push({...test, run: run.id, epoch: run.execution_epoch, nativeSessionId: sid, status: run.status, code: run.last_error_code})
+    }
+    assert.equal(row('SELECT COUNT(*) AS n FROM approval').n, approvalsBefore)
+    const frames = (await readFile(observer.log, 'utf8')).trim().split('\n').map(JSON.parse)
+    const questions = frames.filter(f => f.direction === 'out' && f.method === 'session/request_permission' && f.permissionToolId?.startsWith('clarify-'))
+    assert.equal(questions.length, 3)
+    for (const question of questions) {
+      const replies = frames.filter(f => f.pid === question.pid && f.direction === 'in' && f.method === 'session/request_permission' && f.id === question.id)
+      assert.equal(replies.length, 1)
+      assert.deepEqual(replies[0].permissionOutcome, {outcome: 'cancelled'}, 'Do not select a user answer or Skip option')
+    }
+    assert.deepEqual(questions.map(q => q.permissionOptions.length), [3, 1, 3])
+    const results = new Map()
+    for (const body of wire) for (const item of body.input ?? []) {
+      if (item.type !== 'function_call_output' || typeof item.output !== 'string') continue
+      let value; try {value = JSON.parse(item.output)} catch {continue}
+      if (Array.isArray(value.responses)) results.set(item.call_id, value)
+    }
+    assert.equal(results.size, 3, 'Observe all native clarify results in subsequent model requests')
+    for (const result of results.values()) for (const response of result.responses) {
+      assert.equal(response.status, 'skipped')
+      assert.equal(response.user_response, null)
+    }
+    await core.stop(); core = startQualificationCore(options); await core.request('health.check')
+    await settled(await send('Q', 3))
+    checks.questionnaires = {choices: true, open: true, exactCancelReceipts: 3, noUserAnswers: true,
+      noApprovals: true, publicSendPreserved: true, originalSessionColdResume: true}
+    await writeFile(join(root, 'questionnaires.json'), JSON.stringify({nativeCommit, checks: checks.questionnaires,
+      runs: runs.filter(r => r.name === 'Q'), permissionRequests: questions,
+      nativeResults: [...results.values()]}, null, 2))
+  }
   assert.equal(calls.get('B2'), 2, 'Restart must not replay the interrupted task')
   checks.coreKillDoesNotKillGatewayOrReplay = true
 

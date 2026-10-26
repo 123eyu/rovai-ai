@@ -1732,6 +1732,15 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 现版的缺口、数字及失败尝试见[原生观测验证](../research/hermes-runtime/README.md#原生-acp-观测验证2026-10-25)；
 此分支是版本行为刻画，若上游改变计数/通知语义，应重新核验断言，不能把旧限制永久固化为能力合同。
 
+2026-10-26 `clarify` 分类修复扩展既有 `approval_selects_the_exact_native_option_id`，不新增 Rust
+测试函数：官方选择题 fixture、开放题、字段缺失/冲突、普通审批及其他 Adapter 不误分类均由该 owner
+负责。修复前 Hermes 两种提问都落入 Execution；最小命令为
+`cargo test -p rovai-core --features extended-tests --lib approval_selects_the_exact_native_option_id`。
+共享终态 owner 继续覆盖问卷失败不能被 final/Send 掩盖及原生错误/取消优先。
+上述原生 smoke 追加 `--questionnaires`，仅在一次性测试用户配置启用 clarify，验证真实官方提问、
+精确取消回执、零 Approval、无用户答案、已发送消息保留，以及后继 Core 冷恢复原 Session。
+它使用本地受控 Responses，不能替代真实模型或完整 Renderer 验收；与 `--observations` 分开运行。
+
 User 明确授权真实模型后，同一入口追加 `--real-model <第二个模型 ID>`：
 
 ```sh

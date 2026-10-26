@@ -844,6 +844,9 @@ Hermes 以 `hermes-cli` 进入产品闭集，macOS arm64 Preview。共享 ACP �
 使用用户原生 `~/.hermes` 与精确 Session resume；无私有 Home、启动器或专用 Gateway。
 Fleet 只拥有 ACP 客户端根进程，原生共享执行端不随 Run 回收。
 
+原生配置启用 `clarify` 后，官方 ACP 的选择题及开放题权限卡片进入共享问卷不支持处理，
+不创建执行审批、不代选答案；已识别的损坏问卷也不回落授权。后继输入沿原 Session 继续。
+
 模型的普通 CLI 调用通过原生逻辑 Session 定位唯一 Conversation/活动 Run，并复用现有 lease、
 Router、回复和回执。按调用时归属，不追溯旧后台程序最初属于哪轮。其他 Runtime 不改。
 FirstPayload 只保留首次及真实规则更新，不进行压缩补发。未确认的 MCP 撤销、原生工具终止和

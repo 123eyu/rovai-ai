@@ -4,7 +4,7 @@ name: Hermes Managed Runtime
 version: v1
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # Hermes Managed Runtime v1
@@ -130,6 +130,15 @@ MCP 当前分配直接随原生 new/resume 参数提供；不二次发现、不�
 当前请求以官方 ACP 的关联响应为准：明确成功不因增强详情缺失改成失败；原生失败/取消保留终态；
 断线未知不自动重放；其他 Session/请求不串联。公开 Send 与任务结算仍遵守共享产品规则。
 不靠模型自然语言判成功，不追加 Gateway 事件订阅、receipt 对账或连续序号成功门禁。
+
+原生 ACP 默认不启用 `clarify`；用户原生配置启用后的问卷不转为执行审批。当前客户端不广告
+elicitation form，按官方 `clarify-*` toolCallId 识别权限卡片，再核对问题、choices、`choice-N` 与
+`skip` 结构；无 choices 的开放题也属于问卷。已识别但字段缺失或冲突时仍按不支持处理，不回落授权。
+归属校验后复用共享问卷取消回执与 Prompt 观察，返回 `cancelled`，不选择答案或 Skip option。
+Hermes 将该取消解释为跳过，不能宣称收到用户答案。原生正常结束时记录
+`runtime_questionnaire_unsupported` 并引导 User 在 Thread 补充信息；已有 Send 和工具效果保留，
+原生错误及真实取消优先。不自动重放，下一条真实输入仍恢复原 Session。
+普通执行审批及其他 Runtime 保持各自规则；不修改原生配置、不安装 Hook，也不增加问卷表单。
 
 工具通知按原生字段投影，可展示有原生依据的工具事件、输出和文件路径。当前官方 ACP 路径未接通
 Hermes 的结构化 `reported_mutation` / Diff 生成；原生预览不能冒充完整状态。旧控制器的文件验收

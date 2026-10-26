@@ -8883,6 +8883,38 @@ pub fn classify_permission_request(
     let tool = &request["toolCall"];
     let meta = &tool["_meta"];
     let valid = match adapter_kind {
+        AdapterKind::HermesCli
+            if tool["toolCallId"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("clarify-")) =>
+        {
+            // Official ACP falls back to a permission card when form elicitation
+            // is unavailable. An open question has no choices, only Skip.
+            tool["toolCallId"].as_str().unwrap().len() > "clarify-".len()
+                && tool["kind"] == "other"
+                && tool["rawInput"]["question"]
+                    .as_str()
+                    .is_some_and(|question| !question.trim().is_empty())
+                && tool["title"] == tool["rawInput"]["question"]
+                && tool["rawInput"]["choices"]
+                    .as_array()
+                    .is_some_and(|choices| {
+                        options.is_some_and(|options| {
+                            options.len() == choices.len() + 1
+                                && choices.iter().zip(options).enumerate().all(
+                                    |(index, (choice, option))| {
+                                        choice.as_str().is_some()
+                                            && option["optionId"] == format!("choice-{index}")
+                                            && option["kind"] == "allow_once"
+                                            && option["name"] == *choice
+                                    },
+                                )
+                                && options.last().is_some_and(|option| {
+                                    option["optionId"] == "skip" && option["kind"] == "reject_once"
+                                })
+                        })
+                    })
+        }
         AdapterKind::KimiCodeCli if tool["title"] == "AskUserQuestion" => {
             // kimi-code 2.1.1's ACP fallback exposes only the first question.
             options.is_some_and(|options| {
@@ -16500,6 +16532,10 @@ while IFS= read -r ignored; do :; done
                 AdapterKind::QwenCode,
                 include_str!("../tests/fixtures/runtime-questionnaire/qwen-0.25.0.json"),
             ),
+            (
+                AdapterKind::HermesCli,
+                include_str!("../tests/fixtures/runtime-questionnaire/hermes-0.22.4.json"),
+            ),
         ] {
             let question: Value = serde_json::from_str(fixture).unwrap();
             if adapter == AdapterKind::QwenCode {
@@ -16536,13 +16572,42 @@ while IFS= read -r ignored; do :; done
                 AcpPermissionRequestKind::MalformedQuestionnaire
             );
             let mut conflicting = question.clone();
-            conflicting["toolCall"]["_meta"] =
-                json!({"toolName":"write_file","qwenInteractionKind":"user_question"});
+            if adapter == AdapterKind::HermesCli {
+                conflicting["toolCall"]["kind"] = json!("execute");
+            } else {
+                conflicting["toolCall"]["_meta"] =
+                    json!({"toolName":"write_file","qwenInteractionKind":"user_question"});
+            }
             assert_eq!(
                 classify_permission_request(adapter, &conflicting),
                 AcpPermissionRequestKind::MalformedQuestionnaire
             );
-            for params in [&question, &malformed, &conflicting] {
+            let mut questions = vec![question.clone(), malformed, conflicting];
+            if adapter == AdapterKind::HermesCli {
+                let mut open = question.clone();
+                open["toolCall"]["rawInput"]["choices"] = json!([]);
+                open["options"] = json!([question["options"].as_array().unwrap().last().unwrap()]);
+                assert_eq!(
+                    classify_permission_request(adapter, &open),
+                    AcpPermissionRequestKind::Questionnaire
+                );
+                questions.push(open);
+                for pointer in [
+                    "/toolCall/rawInput/question",
+                    "/toolCall/rawInput/choices",
+                    "/options/0/optionId",
+                    "/options/0/name",
+                ] {
+                    let mut missing = question.clone();
+                    *missing.pointer_mut(pointer).unwrap() = Value::Null;
+                    assert_eq!(
+                        classify_permission_request(adapter, &missing),
+                        AcpPermissionRequestKind::MalformedQuestionnaire
+                    );
+                    questions.push(missing);
+                }
+            }
+            for params in &questions {
                 for approved in [false, true] {
                     assert_eq!(
                         legacy_approval_result(adapter, params, approved).unwrap(),
@@ -16567,6 +16632,7 @@ while IFS= read -r ignored; do :; done
             let mut ordinary = question.clone();
             ordinary["toolCall"]["title"] = json!("Question about a command");
             ordinary["toolCall"]["_meta"] = json!({"toolName":"run_shell_command"});
+            ordinary["toolCall"]["toolCallId"] = json!("tc-ordinary");
             assert_eq!(
                 classify_permission_request(adapter, &ordinary),
                 AcpPermissionRequestKind::Execution

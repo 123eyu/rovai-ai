@@ -10,7 +10,7 @@ export async function createHermesAcpObserver(root) {
   await writeFile(script, `import {spawn} from 'node:child_process';
 import {appendFileSync} from 'node:fs';
 const child=spawn(process.argv[2],process.argv.slice(3),{stdio:['pipe','pipe','inherit']});
-const buffers={out:'',in:''}, requests=new Map();
+const buffers={out:'',in:''}, requests=new Map(), permissions=new Map();
 const numeric=(value)=>Object.fromEntries(Object.entries(value||{}).filter(([key,v])=>
   ['inputTokens','outputTokens','totalTokens','thoughtTokens','cachedReadTokens','cachedWriteTokens'].includes(key)&&Number.isSafeInteger(v)&&v>=0));
 function observe(direction,bytes){
@@ -20,12 +20,17 @@ function observe(direction,bytes){
     try{
       const m=JSON.parse(line),p=m.params||{},r=m.result||{},u=p.update||{};
       if(direction==='in'&&m.method)requests.set(m.id,{method:m.method,sessionId:p.sessionId,
-        label:JSON.stringify(p.prompt||[]).match(/(?:SESSION|REAL)_PROBE:([AB][0-9]+)/)?.[1]});
-      const request=requests.get(m.id),method=m.method||request?.method;
-      if(!['initialize','session/new','session/resume','session/load','session/set_model','session/set_mode','session/prompt','session/update'].includes(method))continue;
+        label:JSON.stringify(p.prompt||[]).match(/(?:SESSION|REAL)_PROBE:([ABQ][0-9]+)/)?.[1]});
+      if(direction==='out'&&m.method==='session/request_permission')permissions.set(m.id,{sessionId:p.sessionId});
+      const permission=direction==='in'&&!m.method?permissions.get(m.id):undefined;
+      const request=requests.get(m.id),method=m.method||(permission?'session/request_permission':request?.method);
+      if(!['initialize','session/new','session/resume','session/load','session/set_model','session/set_mode','session/prompt','session/update','session/request_permission'].includes(method))continue;
       const meta=r._meta||u._meta||{},native=meta.hermes||{},provenance=native.sessionProvenance;
       const record={pid:process.pid,direction,id:m.id,method,label:request?.label,
-        sessionId:p.sessionId||r.sessionId||request?.sessionId,modelId:p.modelId,modeId:p.modeId,
+        sessionId:p.sessionId||r.sessionId||permission?.sessionId||request?.sessionId,modelId:p.modelId,modeId:p.modeId,
+        permissionToolId:method==='session/request_permission'?p.toolCall?.toolCallId:undefined,
+        permissionOptions:p.options?.map(o=>({optionId:o.optionId,kind:o.kind})),
+        permissionOutcome:r.outcome?{outcome:r.outcome.outcome,optionId:r.outcome.optionId}:undefined,
         currentModelId:r.models?.currentModelId,currentModeId:r.modes?.currentModeId,
         catalog:r.models?.availableModels?.map(v=>v.modelId),errorCode:m.error?.code,
         compactionOptIn:method==='initialize'&&direction==='in'?p.clientCapabilities?.session?.compaction:undefined,

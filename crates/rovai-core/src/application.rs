@@ -2024,8 +2024,9 @@ struct RefreshAdapterInstallationParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeDiscoveryRescanParams {
-    #[serde(default)]
-    interactive_shell: bool,
+    // Older clients may still send this flag; Core now owns the capture policy.
+    #[serde(default, rename = "interactiveShell")]
+    _interactive_shell: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3971,9 +3972,8 @@ impl Core {
                 .is_none_or(|current| current == executable_fingerprint)
     }
 
-    async fn rescan_runtime_discovery(&self, interactive_shell: bool) -> Result<Value> {
-        self.refresh_runtime_check_environment(interactive_shell)
-            .await?;
+    async fn rescan_runtime_discovery(&self) -> Result<Value> {
+        self.refresh_runtime_check_environment().await?;
         self.discover_runtime_installations(true).await;
         self.runtime_health_payload().await
     }
@@ -4406,27 +4406,11 @@ impl Core {
         if let Some(blocker) = current_runtime_platform_blocker(kind) {
             anyhow::bail!("{}: {}", blocker.code, blocker.payload);
         }
-        let mut search = self.runtime_search_environment.read().await.clone();
-        if trigger == RuntimeCheckTrigger::UserCheck {
-            let saved = {
-                let database = self.database.lock().await;
-                AgentProfileService::default().managed_installation(&database, kind, "default")?
-            };
-            let current = search.clone();
-            let has_entry = tokio::task::spawn_blocking(move || {
-                let saved_path =
-                    saved.map(|installation| PathBuf::from(installation.executable_path));
-                current
-                    .candidates(kind, saved_path)
-                    .iter()
-                    .any(|candidate| is_runtime_entrypoint_file(&candidate.path))
-            })
-            .await
-            .context("Runtime entry lookup worker failed")?;
-            if !has_entry {
-                search = self.refresh_runtime_check_environment(true).await?;
-            }
-        }
+        let search = if trigger == RuntimeCheckTrigger::UserCheck {
+            self.refresh_runtime_check_environment().await?
+        } else {
+            self.runtime_search_environment.read().await.clone()
+        };
         let (acknowledged, acknowledgement) = oneshot::channel();
         let (completed, completion) = oneshot::channel();
         self.runtime_check_requests
@@ -12275,10 +12259,9 @@ impl Core {
             }
             "runtime.status.get" => self.runtime_health_payload().await,
             "runtime.discovery.rescan" => {
-                let params: RuntimeDiscoveryRescanParams =
+                let _params: RuntimeDiscoveryRescanParams =
                     serde_json::from_value(request.params.clone())?;
-                self.rescan_runtime_discovery(params.interactive_shell)
-                    .await
+                self.rescan_runtime_discovery().await
             }
             "runtime.product.ensure" => {
                 let params: CheckProductRuntimeParams =
@@ -16020,7 +16003,7 @@ impl Core {
                     return Ok::<(), anyhow::Error>(());
                 }
                 if attempt == 0 {
-                    search = self.refresh_runtime_check_environment(true).await?;
+                    search = self.refresh_runtime_check_environment().await?;
                 } else {
                     anyhow::bail!(
                         "Runtime entry {} could not be resolved or executed: {}",
@@ -35861,55 +35844,96 @@ for line in sys.stdin:
             assert!(update.pointer("/_meta/rovaiCommandMutation").is_none());
         }
 
-        // Only the native edit_file creation receipt proves nonexistence.
-        // write_file uses its "created" message even for an existing empty file.
-        for (input, status, receipt, has_diff) in [
+        // edit_file can prove creation; write_file's created receipt proves only
+        // an empty previous body. Both can provide counts without inventing add.
+        for (input, status, receipt, expected_old_text) in [
             (
                 json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
                 "completed",
                 "Created /repo/new.txt (3 lines)",
-                true,
+                Some(Value::Null),
             ),
             (
                 json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
                 "failed",
                 "Created /repo/new.txt (3 lines)",
-                false,
+                None,
             ),
             (
                 json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
                 "in_progress",
                 "Created /repo/new.txt (3 lines)",
-                false,
+                None,
             ),
             (
                 json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
                 "completed",
                 "Created /repo/other.txt (3 lines)",
-                false,
+                None,
             ),
             (
                 json!({"file_path":"/repo/new.txt","old_string":"","new_string":"one\ntwo\n"}),
                 "completed",
                 "Edited /repo/new.txt (replaced empty file content)",
-                false,
+                None,
             ),
             (
                 json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
                 "completed",
                 "File created successfully at: /repo/new.txt",
-                false,
+                Some(json!("")),
+            ),
+            (
+                json!({"file_path":"/repo/中文 space.txt","content":"one\r\ntwo\r\n"}),
+                "completed",
+                "File created successfully at: /repo/中文 space.txt",
+                Some(json!("")),
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":""}),
+                "completed",
+                "File created successfully at: /repo/new.txt",
+                None,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
+                "failed",
+                "File created successfully at: /repo/new.txt",
+                None,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
+                "in_progress",
+                "File created successfully at: /repo/new.txt",
+                None,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
+                "completed",
+                "File created successfully at: /repo/other.txt",
+                None,
+            ),
+            (
+                json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
+                "completed",
+                "Write succeeded",
+                None,
             ),
             (
                 json!({"file_path":"/repo/new.txt","content":"one\ntwo\n"}),
                 "completed",
                 "The file /repo/new.txt has been updated successfully.",
-                false,
+                None,
             ),
         ] {
+            let expected_new_text = input
+                .get("new_string")
+                .or_else(|| input.get("content"))
+                .unwrap()
+                .clone();
             let mut initial = json!({"sessionUpdate":"tool_call","toolCallId":"command-create","status":"pending","kind":"edit",
-                "locations":[{"path":"/repo/new.txt"}],"rawInput":input,
-                "content":[{"type":"diff","path":"/repo/new.txt","oldText":null,"newText":"one\ntwo\n"}]});
+                "locations":[{"path":input["file_path"]}],"rawInput":input,
+                "content":[{"type":"diff","path":input["file_path"],"oldText":null,"newText":expected_new_text}]});
             crate::command_code_acp::enrich_tool_update(&mut initial, None);
             assert_eq!(initial["content"], json!([]));
             let mut update = json!({"sessionUpdate":"tool_call_update","toolCallId":"command-create","status":status,
@@ -35925,19 +35949,26 @@ for line in sys.stdin:
             );
             assert_eq!(
                 !payload["runtimeDiff"].is_null(),
-                has_diff,
+                expected_old_text.is_some(),
                 "{status}: {receipt}"
             );
-            if has_diff {
+            if let Some(old_text) = expected_old_text {
+                assert_eq!(payload["runtimeDiff"]["entries"][0]["oldText"], old_text);
                 let admitted = crate::runtime_diff::admit_runtime_diff(
                     &payload,
                     std::path::Path::new("/repo"),
                     Some("command-code-cli"),
-                )
-                .unwrap()
-                .unwrap();
-                assert_eq!(admitted.evidence_entries[0]["changeKind"], "add");
-                assert_eq!(admitted.evidence_entries[0]["after"], "one\ntwo\n");
+                );
+                let admitted = admitted.unwrap().unwrap();
+                assert_eq!(
+                    admitted.evidence_entries[0]["changeKind"],
+                    if old_text.is_null() { "add" } else { "update" }
+                );
+                assert_eq!(admitted.evidence_entries[0]["after"], expected_new_text);
+                assert_eq!(
+                    (admitted.entries[0].additions, admitted.entries[0].deletions),
+                    (2, 0)
+                );
             }
         }
 

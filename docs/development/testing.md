@@ -1831,7 +1831,10 @@ owner 不经过 MCP wire，`runtime_mcp` 的原生文件 owner 也不拥有 Comm
 拒绝缺失 ID。`native_resume_consumes_only_adapter_evidence` 保留原生明确拒绝与模糊错误的分类，删除专属目录案例。
 `runtime_directory_overrides_change_native_candidates_without_explicit_refresh` 增加 Command 的四处原址发现；
 `acp_tool_events_expose_only_the_public_command_and_payload_digests` 增加 edit 新建、失败/提案/异路径、已有空文件
-和 write 回执不明确的矩阵，并检查新增内容进入共享 Diff 准入。Node Mod owner 验证过滤问卷且保留其余 active tools。
+和 write 回执矩阵，并检查内容进入共享 Diff 准入。2026-10-26 在同一 owner 补齐 write 的精确 created
+成功回执：空旧正文到非空 content 显示 update、准确增删统计，含中文空格路径及 CRLF；空 content、
+非空覆盖、未知/异路径回执、未完成与失败仍无 Diff。修复前成功 write 行数案例失败；无新增 Rust owner。
+Node Mod owner 验证过滤问卷且保留其余 active tools。
 固定官方 1.88 的 active-tools、真实文件回执、warm B 更新和 cold 同 ID 证据记录在
 [实施报告](../versions/v1.72/command-code-native-simplification.md#run-边界与原生能力补齐2026-10-25)。
 最小命令沿用 `cargo test -p rovai-core --features extended-tests --lib <owner>`、Node Mod owner 与默认 workspace。

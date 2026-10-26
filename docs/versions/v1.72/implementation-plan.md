@@ -8,6 +8,32 @@ last_updated: 2026-10-26
 
 # v1.72 实施与验收
 
+## 定时任务对话命名（2026-10-26）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-issue-875-automation-title`；
+  分支 `rovai/issue-875-automation-title`，基线 `db8cd6e34aa9e0348fa750020105acf8f04869fd`；Governance：none。
+- Core 持有命名配置，创建 occurrence 时按定时/手动来源生成并持久化标题；Renderer 只提供格式预览和编辑。
+  默认日期+时间后置，支持四种日期、三种时间格式，允许完整长标题；旧对话不变。
+- Migration 215 原子新增定义配置并将当前 schema 升为 165。既有定义默认开启；不补写旧 Thread/occurrence。
+  Agent automation 输入/输出保留原形状，旧命令 canonical payload/digest 与历史回执保持兼容，
+  没有 Bootstrap、Context、Manifest 或工具目录版本变化。
+- Rust 扩展既有命名纯函数 owner、manual snapshot/replay owner、once overlap/time-source owner 和 current schema
+  admission owners。新增一个 schema-only migration owner，独立验证 DDL/receipt 回滚、旧标题保留与生产重开；
+  其他 owner 无法证明升级失败语义，不启动 Runtime。最小命令：`cargo test -p rovai-core --lib automation`，
+  `cargo test -p rovai-core --features extended-tests --lib database_contract` 和 `cargo test -p rovai-core --features extended-tests --lib current_schema_contains_required_contract_objects`。
+- 前端扩展生产 Automation fixture，覆盖保存失败保留、重试、重新进入、键盘单选、五套主题、最小宽度和缩放。
+  格式矩阵使用纯函数单测；共享表单类型检查、语言目录和通用文档门禁同步验证。
+- 已通过 Core automation 16 项扩展回归（包含旧版迁移、原子性、重放与新配置），migration admission matrix、
+  当前数据库准入/结构、旧 Team schema 升级各 1 项；`cargo check --workspace` 与 Rust 格式检查通过。
+- `pnpm typecheck`、11 项定向 Vitest、生产 Electron fixture、文档单测及基于上述基线的通用文档门禁通过。
+  fixture 使用新建的临时 userData/Skill Library，memory-only RPC，无 Core/真实 Runtime；五套主题、
+  320px 详情、700px 窗口和 125% 缩放截图已人工查看。
+- 初次全量 Vitest 与 Rust workspace 编译并行时，既有 `core-client` 启动重试的 6 秒等待超时
+  （3006 passed / 1 failed / 2 skipped）；该文件及实现与基线相同，单独复测 21 项全部通过。
+  后续完整 `pnpm test` 通过：Vitest 3007 passed / 2 skipped，Node 358 passed / 2 skipped，
+  文档、Skills 和 Electron sandbox 检查全部通过。schema fingerprint owner 已同步到 165。
+- Worktree 状态：ready；保留供后续 review。只推送独立分支，不自动创建 PR、合入或关闭 issue。
+
 ## Run 启动与停止展示（2026-10-26）
 
 - Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-run-start-stop-ui`；

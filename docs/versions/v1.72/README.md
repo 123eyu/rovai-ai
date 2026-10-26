@@ -11,6 +11,14 @@ last_updated: 2026-10-26
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 定时任务对话命名（2026-10-26）
+
+按 User 对 issue #875 原型的确认，默认在自动生成的对话标题后加日期和时间，提供格式、开关与位置设置。
+完整标题可超过 80 字符，手动运行使用实际 admission 时间，既有 Thread 标题保持不变。
+当前合同见 [Scheduled Automation v4](../../contracts/scheduled-automation-v4.md)，
+范围与验证见[实施记录](implementation-plan.md#定时任务对话命名2026-10-26)。
+Core schema 164→165 / migration 215；没有模型输入模板或发布版本变化。局部命名偏好不新增 Version Decision。
+
 ## Run 启动与停止展示（2026-10-26）
 
 按 User 确认的交互稿收敛为前端展示修正：启动阶段统一文案，Delivery 简化准备／排队提示，

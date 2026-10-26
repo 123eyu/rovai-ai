@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
+    automation_naming::AutomationThreadNaming,
     channel::ClaimedChannelDelivery,
     collaboration::{CollaborationService, ProjectBindingKind, ScheduledAutomationAdmissionInput},
     command::{
@@ -155,6 +156,9 @@ pub struct CreateAutomationCommand {
     pub schedule: AutomationSchedule,
     #[serde(default)]
     pub notify_channels: Vec<AutomationNotifyChannel>,
+    // Keep pre-naming command digests stable across an upgrade and replay.
+    #[serde(default, skip_serializing_if = "AutomationThreadNaming::is_default")]
+    pub thread_naming: AutomationThreadNaming,
 }
 
 impl sealed::Sealed for CreateAutomationCommand {}
@@ -195,6 +199,8 @@ pub struct UpdateAutomationCommand {
     pub notify_channels: Option<Vec<AutomationNotifyChannel>>,
     #[serde(default)]
     pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_naming: Option<AutomationThreadNaming>,
 }
 
 impl sealed::Sealed for UpdateAutomationCommand {}
@@ -291,6 +297,7 @@ pub struct AutomationView {
     pub member_id: String,
     pub project_ref: AutomationProjectRef,
     pub schedule: AutomationSchedule,
+    pub thread_naming: AutomationThreadNaming,
     pub notify_channels: Vec<AutomationNotifyChannel>,
     pub next_run_at: Option<String>,
     pub last_run: Option<AutomationRunSummary>,
@@ -522,6 +529,7 @@ struct AutomationRecord {
     member_id: String,
     project_ref: AutomationProjectRef,
     schedule: AutomationSchedule,
+    thread_naming: AutomationThreadNaming,
     notify_channels: Vec<AutomationNotifyChannel>,
     next_run_at: Option<String>,
     created_at: String,
@@ -602,8 +610,8 @@ impl AutomationService {
                 INSERT INTO automation(
                     id, version, name, prompt, enabled, member_id,
                     project_ref_json, schedule_json, notify_channels_json,
-                    next_run_at, created_at, updated_at
-                ) VALUES (?1, 1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+                    next_run_at, created_at, updated_at, thread_naming_json
+                ) VALUES (?1, 1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10)
                 "#,
                 params![
                     automation_id,
@@ -615,6 +623,7 @@ impl AutomationService {
                     serde_json::to_string(&notify_channels)?,
                     next_run_at.map(timestamp),
                     now_text,
+                    serde_json::to_string(&command.thread_naming)?,
                 ],
             )?;
             let view = load_automation_view(transaction, &automation_id)?
@@ -707,6 +716,10 @@ impl AutomationService {
                 .as_ref()
                 .map(|channels| normalize_channels(channels))
                 .unwrap_or(current.notify_channels.clone());
+            let thread_naming = command
+                .thread_naming
+                .clone()
+                .unwrap_or(current.thread_naming.clone());
             let enabled = command.enabled.unwrap_or(current.enabled);
             let now = Utc::now();
             let schedule_changed = schedule != current.schedule;
@@ -737,7 +750,7 @@ impl AutomationService {
                 UPDATE automation
                 SET version = version + 1, name = ?2, prompt = ?3, enabled = ?4,
                     member_id = ?5, project_ref_json = ?6, schedule_json = ?7,
-                    notify_channels_json = ?8, next_run_at = ?9, updated_at = ?10
+                    notify_channels_json = ?8, next_run_at = ?9, updated_at = ?10, thread_naming_json = ?11
                 WHERE id = ?1
                 "#,
                 params![
@@ -751,6 +764,7 @@ impl AutomationService {
                     serde_json::to_string(&notify_channels)?,
                     next_run_at.map(timestamp),
                     now_text,
+                    serde_json::to_string(&thread_naming)?,
                 ],
             )?;
             let view = load_automation_view(transaction, &command.automation_id)?
@@ -1363,7 +1377,16 @@ fn claim_occurrence_in_tx(
         transaction,
         ScheduledAutomationAdmissionInput {
             automation_run_id: run_id.clone(),
-            automation_name: record.name.clone(),
+            automation_name: record.thread_naming.title(
+                &record.name,
+                (if trigger_kind == "manual" {
+                    now
+                } else {
+                    scheduled_for
+                })
+                .with_timezone(&Local)
+                .fixed_offset(),
+            ),
             prompt: record.prompt.clone(),
             member_id: record.member_id.clone(),
             project_binding_kind: record.project_ref.binding_kind(),
@@ -2258,13 +2281,13 @@ fn load_automation_record(
     automation_id: &str,
 ) -> Result<Option<AutomationRecord>> {
     connection.query_row(
-        "SELECT id, version, name, prompt, enabled, member_id, project_ref_json, schedule_json, notify_channels_json, next_run_at, created_at, updated_at, runtime_timeout_seconds FROM automation WHERE id = ?1",
+        "SELECT id, version, name, prompt, enabled, member_id, project_ref_json, schedule_json, notify_channels_json, next_run_at, created_at, updated_at, runtime_timeout_seconds, thread_naming_json FROM automation WHERE id = ?1",
         [automation_id],
         |row| Ok((
             row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?,
             row.get::<_, String>(3)?, row.get::<_, bool>(4)?, row.get::<_, String>(5)?,
             row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?,
-            row.get::<_, Option<String>>(9)?, row.get::<_, String>(10)?, row.get::<_, String>(11)?, row.get::<_, Option<i64>>(12)?,
+            row.get::<_, Option<String>>(9)?, row.get::<_, String>(10)?, row.get::<_, String>(11)?, row.get::<_, Option<i64>>(12)?, row.get::<_, String>(13)?,
         )),
     ).optional()?.map(|row| Ok(AutomationRecord {
         id: row.0,
@@ -2280,6 +2303,7 @@ fn load_automation_record(
         created_at: row.10,
         updated_at: row.11,
         runtime_timeout_seconds: row.12,
+        thread_naming: serde_json::from_str(&row.13)?,
     })).transpose()
 }
 
@@ -2352,6 +2376,7 @@ fn load_automation_view(
         member_id: record.member_id,
         project_ref: record.project_ref,
         schedule: record.schedule,
+        thread_naming: record.thread_naming,
         notify_channels: record.notify_channels,
         next_run_at: record.next_run_at,
         last_run,
@@ -2848,6 +2873,7 @@ mod tests {
         let envelope = user_command(
             command_id,
             CreateAutomationCommand {
+                thread_naming: Default::default(),
                 name: None,
                 prompt: prompt.to_string(),
                 member_id: "agent_1".to_string(),
@@ -2878,6 +2904,98 @@ mod tests {
             derive_name("一二三四五六七八九十一二三四五六七八九十一"),
             "一二三四五六七八九十一二三四五六七八九十…"
         );
+        // Extend the existing naming owner: Unicode and calendar formatting need no DB.
+        use crate::automation_naming::{
+            AutomationDateFormat as D, AutomationDatePosition as P, AutomationTimeFormat as T,
+        };
+        let at = DateTime::parse_from_rfc3339("2026-10-26T15:04:09+08:00").unwrap();
+        let mut naming = AutomationThreadNaming::default();
+        for (format, expected) in [
+            (D::Iso, "2026-10-26"),
+            (D::Slash, "2026/10/26"),
+            (D::Short, "10-26"),
+            (D::Chinese, "10月26日"),
+        ] {
+            naming.date_format = format;
+            naming.include_time = false;
+            assert_eq!(naming.title("周报", at), format!("周报 · {expected}"));
+        }
+        naming.include_date = false;
+        naming.include_time = true;
+        naming.position = P::Prefix;
+        for (format, expected) in [
+            (T::TwentyFour, "15:04"),
+            (T::Twelve, "下午 3:04"),
+            (T::Seconds, "15:04:09"),
+        ] {
+            naming.time_format = format;
+            assert_eq!(naming.title("周报", at), format!("{expected} · 周报"));
+        }
+        naming.time_format = T::Twelve;
+        for (input, expected) in [
+            ("2026-01-01T00:01:00+08:00", "上午 12:01 · 周报"),
+            ("2026-01-01T12:01:00+08:00", "下午 12:01 · 周报"),
+        ] {
+            assert_eq!(
+                naming.title("周报", DateTime::parse_from_rfc3339(input).unwrap()),
+                expected
+            );
+        }
+        naming.include_time = false;
+        assert_eq!(naming.title("周报", at), "周报");
+        let long_name = "🌸".repeat(80);
+        assert_eq!(
+            AutomationThreadNaming::default().title(&long_name, at),
+            format!("{long_name} · 2026-10-26 15:04")
+        );
+        let legacy_create: CreateAutomationCommand = serde_json::from_value(json!({
+            "prompt":"Run", "memberId":"member", "projectRef":{"kind":"quick_chat"}, "schedule":{"kind":"manual"}
+        })).unwrap();
+        assert_eq!(
+            legacy_create.thread_naming,
+            AutomationThreadNaming::default()
+        );
+        assert_eq!(
+            serde_json::to_value(&legacy_create).unwrap(),
+            json!({
+                "name":null, "prompt":"Run", "memberId":"member", "projectRef":{"kind":"quick_chat"},
+                "schedule":{"kind":"manual"}, "notifyChannels":[]
+            }),
+            "old create command canonical payload survives the upgrade"
+        );
+        let legacy_update = json!({"automationId":"kept", "expectedVersion":1, "name":null,
+            "prompt":null, "memberId":null, "projectRef":null, "schedule":null, "notifyChannels":null, "enabled":null});
+        let parsed: UpdateAutomationCommand =
+            serde_json::from_value(legacy_update.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap(),
+            legacy_update,
+            "old update command digest is unchanged"
+        );
+        let value = serde_json::to_value(AutomationThreadNaming::default()).unwrap();
+        assert_eq!(
+            serde_json::from_value::<AutomationThreadNaming>(value.clone()).unwrap(),
+            AutomationThreadNaming::default()
+        );
+        for (key, bad) in [
+            ("dateFormat", json!("unix")),
+            ("includeTime", json!("yes")),
+            ("extra", json!(true)),
+        ] {
+            let mut invalid = value.clone();
+            invalid[key] = bad;
+            assert!(serde_json::from_value::<AutomationThreadNaming>(invalid).is_err());
+        }
+        // Desktop configuration must not change Agent CLI result shapes.
+        for shape in [
+            json!({"threadNaming": value, "name": "kept"}),
+            json!({"automations":[{"threadNaming": value,"name":"kept"}],"nextCursor":null}),
+            json!({"payload":{"threadNaming":value,"name":"kept"},"status":"applied"}),
+        ] {
+            let stripped = crate::automation_naming::without_desktop_settings(shape).to_string();
+            assert!(!stripped.contains("threadNaming"));
+            assert!(stripped.contains("kept"));
+        }
     }
 
     #[test]
@@ -2935,6 +3053,23 @@ mod tests {
             .expect("run replay should succeed");
         assert!(replayed_run.replayed);
         assert_eq!(replayed_run.result.payload, first.result.payload);
+
+        let frozen_title: (String, String) = database.connection().query_row(
+            "SELECT camp.title, run.created_at FROM automation_run run JOIN camp ON camp.id=run.camp_id WHERE run.id=?1", [&automation_run_id], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(
+            frozen_title.0,
+            AutomationThreadNaming::default().title(
+                &derive_name(original_prompt),
+                parse_timestamp(&frozen_title.1)
+                    .unwrap()
+                    .with_timezone(&Local)
+                    .fixed_offset()
+            )
+        );
+        assert_eq!(
+            replayed_create.result.payload["threadNaming"],
+            serde_json::to_value(AutomationThreadNaming::default()).unwrap()
+        );
 
         let normalized_prompt = original_prompt.trim();
         let snapshot: (i64, String, String, String, String, String, bool, bool) = database
@@ -3007,6 +3142,11 @@ mod tests {
                 &user_command(
                     "automation-update-1",
                     UpdateAutomationCommand {
+                        thread_naming: Some(AutomationThreadNaming {
+                            include_date: false,
+                            include_time: false,
+                            ..Default::default()
+                        }),
                         automation_id: automation_id.clone(),
                         expected_version: 1,
                         name: None,
@@ -3108,6 +3248,26 @@ mod tests {
             (2, "Use the revised instruction for future runs.".into())
         );
         assert_ne!(next.result.payload["threadId"], camp_id);
+        let next_title: String = database
+            .connection()
+            .query_row(
+                "SELECT title FROM camp WHERE id=?1",
+                [next.result.payload["threadId"].as_str().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(next_title, original_name);
+        let old_title: String = database
+            .connection()
+            .query_row("SELECT title FROM camp WHERE id=?1", [&camp_id], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            old_title, frozen_title.0,
+            "naming changes do not rewrite history"
+        );
+        assert_eq!(updated.result.payload["threadNaming"]["includeDate"], false);
         service
             .interrupt_before_runtime(&mut database, next_run_id)
             .expect("test run should settle");
@@ -3224,6 +3384,7 @@ mod tests {
                     &user_command(
                         "automation-delete-create",
                         CreateAutomationCommand {
+                            thread_naming: Default::default(),
                             name: None,
                             prompt: "Summarize today's papers.".to_string(),
                             member_id: "agent_1".to_string(),
@@ -3493,7 +3654,8 @@ mod tests {
                 &user_command(
                     "automation-once-create",
                     CreateAutomationCommand {
-                        name: Some("Once overlap".to_string()),
+                        thread_naming: Default::default(),
+                        name: Some("🌸".repeat(80)),
                         prompt: "Run exactly once.".to_string(),
                         member_id: "agent_1".to_string(),
                         project_ref: AutomationProjectRef::QuickChat,
@@ -3526,6 +3688,23 @@ mod tests {
             )
             .expect("manual run should start");
         assert_eq!(manual.result.payload["status"], "started");
+        let (manual_title, admitted): (String, String) = database.connection().query_row(
+            "SELECT camp.title, run.created_at FROM automation_run run JOIN camp ON camp.id=run.camp_id WHERE run.id=?1", [manual.result.payload["runId"].as_str().unwrap()], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        let naming = AutomationThreadNaming::default();
+        assert_eq!(
+            manual_title,
+            naming.title(
+                &"🌸".repeat(80),
+                parse_timestamp(&admitted)
+                    .unwrap()
+                    .with_timezone(&Local)
+                    .fixed_offset()
+            )
+        );
+        assert_ne!(
+            manual_title,
+            naming.title(&"🌸".repeat(80), due.with_timezone(&Local).fixed_offset())
+        );
 
         let dispatches = service
             .claim_due(
@@ -3600,6 +3779,37 @@ mod tests {
             .interrupt_before_runtime(&mut database, closed_manual_run_id)
             .expect("closed manual run should settle for cleanup");
 
+        // Claim a delayed scheduled occurrence directly at the atomic admission seam.
+        let record = load_automation_record(database.connection(), &automation_id)
+            .unwrap()
+            .unwrap();
+        let tx = database.connection_mut().transaction().unwrap();
+        let scheduled_at = due + Duration::days(1);
+        let admitted = claim_occurrence_in_tx(
+            &tx,
+            &record,
+            scheduled_at,
+            "scheduled",
+            true,
+            CURRENT_USER_ID,
+            &quick_chat_path,
+        )
+        .unwrap();
+        let title: String = tx
+            .query_row(
+                "SELECT title FROM camp WHERE id=?1",
+                [admitted.camp_id.unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            title,
+            naming.title(
+                &"🌸".repeat(80),
+                scheduled_at.with_timezone(&Local).fixed_offset()
+            )
+        );
+        tx.commit().unwrap();
         remove_test_database(database, directory);
     }
 
@@ -3616,6 +3826,7 @@ mod tests {
                 &user_command(
                     "automation-delayed-tick-create",
                     CreateAutomationCommand {
+                        thread_naming: Default::default(),
                         name: Some("Delayed tick".to_string()),
                         prompt: "Run after an ordinary scheduler delay.".to_string(),
                         member_id: "agent_1".to_string(),
@@ -3645,6 +3856,10 @@ mod tests {
                 &user_command(
                     "automation-delayed-tick-update",
                     UpdateAutomationCommand {
+                        thread_naming: Some(AutomationThreadNaming {
+                            include_time: false,
+                            ..Default::default()
+                        }),
                         automation_id: automation_id.clone(),
                         expected_version: 1,
                         name: Some("Delayed tick renamed".to_string()),
@@ -3662,6 +3877,14 @@ mod tests {
             )
             .expect("full-form update should succeed");
         assert_eq!(updated.result.payload["nextRunAt"], timestamp(due));
+        assert!(
+            !service
+                .get(&database, &automation_id)
+                .unwrap()
+                .unwrap()
+                .thread_naming
+                .include_time
+        );
         assert_eq!(
             service.next_wake_at(&database, due).unwrap(),
             Some(parse_timestamp(&timestamp(due)).unwrap())
@@ -3725,6 +3948,7 @@ mod tests {
                     &user_command(
                         &format!("replace-deadline-{days}"),
                         UpdateAutomationCommand {
+                            thread_naming: None,
                             automation_id: automation_id.clone(),
                             expected_version: version,
                             name: None,
@@ -4041,6 +4265,7 @@ mod tests {
                 &user_command(
                     "automation-missed-create",
                     CreateAutomationCommand {
+                        thread_naming: Default::default(),
                         name: Some("Missed once".to_string()),
                         prompt: "Run if the app is awake.".to_string(),
                         member_id: "agent_1".to_string(),
@@ -4068,6 +4293,7 @@ mod tests {
                     &user_command(
                         &format!("missed-batch-{index}"),
                         CreateAutomationCommand {
+                            thread_naming: Default::default(),
                             name: None,
                             prompt: "missed backlog".into(),
                             member_id: "agent_1".into(),

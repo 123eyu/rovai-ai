@@ -98,7 +98,9 @@ export function MissionTeamPicker({ busy, members, availableMembers, selectedMem
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
     if (!buttons.length) return
     event.preventDefault()
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === 'ArrowDown' ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : index < 0 ? (event.key === 'ArrowUp' ? buttons.length - 1 : 0)
+      : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
     buttons[next].focus()
     buttons[next].scrollIntoView({ block: 'nearest' })
   }

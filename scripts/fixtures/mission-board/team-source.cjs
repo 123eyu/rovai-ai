@@ -16,10 +16,18 @@ module.exports = async ({ window, userData, waitFor, click: nativeClick }) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(title)});
     input.dispatchEvent(new Event('input', {bubbles:true}));
   })()`)
+  let checkedSourceKeyboard = false
   const source = async id => {
     await click('[data-change-source]')
     await waitFor("!!document.querySelector('.mission-team-source-list')", 'Source chooser opens')
     assert.equal(await evaluate("document.querySelector('.mission-team-source-list button').dataset.teamId"), 'custom')
+    if (!checkedSourceKeyboard) {
+      await key('Up')
+      assert.equal(await evaluate('document.activeElement.dataset.teamId'), 'team-beta', 'Up from search focuses last source')
+      await key('Home')
+      assert.equal(await evaluate('document.activeElement.dataset.teamId'), 'custom', 'Home focuses Custom without choosing it')
+      checkedSourceKeyboard = true
+    }
     await click(`[data-team-id="${id}"]`)
     await waitFor("!!document.querySelector('.mission-team-heading')", 'Source choice returns to roster')
   }

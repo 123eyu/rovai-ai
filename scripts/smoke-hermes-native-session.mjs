@@ -48,6 +48,7 @@ await writeFile(launcher, observer
 const wire = [], calls = new Map(), runs = [], checks = {}, threads = {}, sessions = {}
 const providerUsage = []
 let core, gateway, database, heldViewer, wireError, gatewayLog = '', summaries = 0, manualCompaction = null
+let commandForSendBeforeQuestion
 const text = value => ({id: randomUUID(), type: 'message', role: 'assistant', status: 'completed', content: [{type: 'output_text', text: value, annotations: []}]})
 function respond(res, body, item, tokens = 100) {
   const id = 'response-' + randomUUID(), output = {id, object: 'response', status: 'completed', output: [item], usage: {input_tokens: tokens, output_tokens: 10, total_tokens: tokens + 10}}
@@ -108,6 +109,7 @@ const server = createServer(async (req, res) => {
     if (label === 'A1') command += `; touch ${sh(join(root, 'release-old'))}; python3 -c ${sh(`import pathlib,time; p=pathlib.Path(${JSON.stringify(join(root, 'late.json'))}); end=time.time()+20\nwhile not p.exists() and time.time()<end: time.sleep(.05)\nassert p.exists()`)}`
     if (label === 'B2') command += `; touch ${sh(join(root, 'crash-started'))}; python3 -c ${sh(`import pathlib,time; p=pathlib.Path(${JSON.stringify(join(root,'crash-release'))}); end=time.time()+30\nwhile not p.exists() and time.time()<end: time.sleep(.05)\nassert p.exists()`)}; touch ${sh(join(root, 'crash-finished'))}`
     if (label === 'A5') command += `; touch ${sh(join(root, 'cancel-started'))}; sleep 15; touch ${sh(join(root, 'cancel-finished'))}`
+    if (label === 'Q2') commandForSendBeforeQuestion = command
     respond(res, body, {id: randomUUID(), type: 'function_call', call_id: randomUUID(), name: 'terminal', arguments: JSON.stringify({command}), status: 'completed'}, ['A3', 'A4'].includes(label) ? 60000 : inspectObservations && label === 'A7' ? 1000 : 100)
   } catch (error) {wireError = error; res.writeHead(500); res.end()}
 })
@@ -271,11 +273,20 @@ try {
   await settled(await send('B', 4))
   if (inspectQuestionnaires) {
     const approvalsBefore = row('SELECT COUNT(*) AS n FROM approval').n
+    const ordinaryApprovals = new Set()
     for (const round of [0, 1, 2]) {
       const test = await send('Q', round)
       const run = await until(async () => {
         const snapshot = await core.request('threads.snapshot', {threadId: test.thread})
-        assert.equal(snapshot.approvals.filter(a => a.status === 'pending').length, 0, 'Question must not become an execution Approval')
+        for (const approval of snapshot.approvals.filter(a => a.status === 'pending')) {
+          assert.equal(test.label, 'Q2', 'Question-only Runs must not create Approvals')
+          assert.equal(approval.canonicalInput.kind, 'shell_command', 'A question must not become execution authorization')
+          assert(approval.canonicalInput.argv.includes(commandForSendBeforeQuestion), 'Only the fixture Send command may request approval')
+          ordinaryApprovals.add(approval.id)
+          const option = approval.options.find(o => o.kind === 'allow_once'); assert(option)
+          await core.request('action.approvals.resolve', {commandId: randomUUID(), threadId: test.thread,
+            approvalId: approval.id, expectedVersion: approval.version, optionId: option.optionId, reason: 'Isolated Send before questionnaire'})
+        }
         const r = row('SELECT id,status,execution_epoch,last_error_code,manual_retry_allowed FROM agent_run WHERE camp_id=? AND rowid>? ORDER BY rowid DESC LIMIT 1', test.thread, test.previousRunRow)
         return r && ['succeeded', 'failed', 'cancelled'].includes(r.status) && r
       })
@@ -286,9 +297,13 @@ try {
       if (sessions.Q) assert.equal(sid, sessions.Q); else sessions.Q = sid
       const messages = row("SELECT COUNT(*) AS n FROM camp_message WHERE camp_id=? AND author_type='agent' AND body=? AND source_agent_run_id=?", test.thread, 'NATIVE_OK_' + test.label, run.id).n
       assert.equal(messages, round === 2 ? 1 : 0, 'A completed public Send must survive the questionnaire failure')
-      runs.push({...test, run: run.id, epoch: run.execution_epoch, nativeSessionId: sid, status: run.status, code: run.last_error_code})
+      const delivery = row("SELECT hermes_rules_delivery_kind AS kind FROM runtime_input_delivery WHERE agent_run_id=? AND status='accepted' ORDER BY rowid LIMIT 1", run.id)
+      assert.equal(delivery?.kind, round === 0 ? 'initial' : 'none')
+      runs.push({...test, run: run.id, epoch: run.execution_epoch, nativeSessionId: sid,
+        status: run.status, code: run.last_error_code, rules: delivery.kind})
     }
-    assert.equal(row('SELECT COUNT(*) AS n FROM approval').n, approvalsBefore)
+    assert.equal(row('SELECT COUNT(*) AS n FROM approval').n, approvalsBefore + ordinaryApprovals.size)
+    assert.equal(row("SELECT COUNT(*) AS n FROM approval WHERE native_request_id LIKE 'clarify-%'").n, 0)
     const frames = (await readFile(observer.log, 'utf8')).trim().split('\n').map(JSON.parse)
     const questions = frames.filter(f => f.direction === 'out' && f.method === 'session/request_permission' && f.permissionToolId?.startsWith('clarify-'))
     assert.equal(questions.length, 3)
@@ -306,13 +321,14 @@ try {
     }
     assert.equal(results.size, 3, 'Observe all native clarify results in subsequent model requests')
     for (const result of results.values()) for (const response of result.responses) {
-      assert.equal(response.status, 'skipped')
+      assert(['skipped', 'unanswered'].includes(response.status), 'Native cancellation must not become a user answer')
       assert.equal(response.user_response, null)
     }
     await core.stop(); core = startQualificationCore(options); await core.request('health.check')
     await settled(await send('Q', 3))
     checks.questionnaires = {choices: true, open: true, exactCancelReceipts: 3, noUserAnswers: true,
-      noApprovals: true, publicSendPreserved: true, originalSessionColdResume: true}
+      noQuestionnaireApprovals: true, ordinaryApprovals: ordinaryApprovals.size,
+      publicSendPreserved: true, originalSessionColdResume: true}
     await writeFile(join(root, 'questionnaires.json'), JSON.stringify({nativeCommit, checks: checks.questionnaires,
       runs: runs.filter(r => r.name === 'Q'), permissionRequests: questions,
       nativeResults: [...results.values()]}, null, 2))
@@ -359,12 +375,12 @@ try {
     assert.equal(payload.includes('[Rovai 协作规则更新]'), run.rules === 'update')
     assert(!payload.includes('[Rovai 协作规则恢复]'))
   }
-  assert.equal(row('SELECT COUNT(*) AS n FROM agent_run').n, inspectObservations ? 15 : 12)
+  assert.equal(row('SELECT COUNT(*) AS n FROM agent_run').n, inspectObservations ? 15 : inspectQuestionnaires ? 16 : 12)
   checks.actualModelInputsMatchRulesDelivery = true
   checks.noHermesCompatibilityDigests = true
   checks.cliEntryInstalledBeforeRuns = true
 
-  if (observer) {
+  if (inspectObservations) {
     const frames = (await readFile(observer.log, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse)
     const completions = frames.filter(f => f.direction === 'out' && f.method === 'session/prompt')
     const terminal = label => completions.find(f => f.label === label)

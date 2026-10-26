@@ -135,7 +135,7 @@ MCP 当前分配直接随原生 new/resume 参数提供；不二次发现、不�
 elicitation form，按官方 `clarify-*` toolCallId 识别权限卡片，再核对问题、choices、`choice-N` 与
 `skip` 结构；无 choices 的开放题也属于问卷。已识别但字段缺失或冲突时仍按不支持处理，不回落授权。
 归属校验后复用共享问卷取消回执与 Prompt 观察，返回 `cancelled`，不选择答案或 Skip option。
-Hermes 将该取消解释为跳过，不能宣称收到用户答案。原生正常结束时记录
+官方 ACP 将取消转换为空答复，原生工具可能报告 skipped 或 unanswered，不能宣称收到用户答案。原生正常结束时记录
 `runtime_questionnaire_unsupported` 并引导 User 在 Thread 补充信息；已有 Send 和工具效果保留，
 原生错误及真实取消优先。不自动重放，下一条真实输入仍恢复原 Session。
 普通执行审批及其他 Runtime 保持各自规则；不修改原生配置、不安装 Hook，也不增加问卷表单。

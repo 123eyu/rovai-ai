@@ -1,7 +1,7 @@
 ---
 document_type: research-note
 authority: non-normative
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # Hermes 接入与验证
@@ -68,6 +68,31 @@ CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增�
 该分支延伸既有矩阵，覆盖两成员、计数保留/重置、失败前 usage 和未知执行，不增加 Rust 测试 owner。
 第一轮附加案例的 ModelSelection 测试参数写成字符串，12 个既有 Run 后夹具报错；修正为正式 DTO 后重跑，
 不把夹具错误归为 Hermes 缺陷。完整执行次数、补充订阅验证与实际检查记录在上述 JSON。
+
+## 原生问卷识别（2026-10-26）
+
+原生配置启用 `clarify` 时，官方 ACP 会将选择题和开放题都投递成 `session/request_permission`。
+本次在既有分类器识别官方 `clarify-*` 卡片，复用共享问卷不支持处理；不再把选择答案或开放题的
+唯一 Skip 当作执行审批。已识别但字段损坏的问卷也取消，不回落授权。没有新增表单、修改配置或改变接入方式。
+
+[隔离验收证据](clarify-unsupported-2026-10-26.json)使用生产 `b2d963618`、未修改的官方 0.22.4，
+通过既有 smoke 的 `--questionnaires` 分支完成 16 个 Run：11 成功、4 预期失败、1 预期取消。
+其中 3 个真实原生问卷均收到精确 `cancelled` 回执，Core 记录 `runtime_questionnaire_unsupported`，
+没有问卷 Approval 或自动重试；发送后提问保留已发消息，Core 冷恢复后新任务仍在同一 Session 成功。
+发送命令本身的一次正常执行审批照常保留。默认排除 clarify 的行为没有改变。
+
+原生工具在这次验收中报告 `unanswered` / `user_response: null`，其 outcome 是 `timed_out`，
+并附带原生超时文案；这不代表实际等待了文案中的 60 分钟，也不是用户选择了 Skip 或提交了答案。
+本轮验证的是生产 Core/CLI 与真实官方 ACP/Gateway、本地受控 Responses；没有新增真实付费模型或桌面 UI 验收。
+
+原生 fixture 与官方 `build_clarify_permission` 输出比对一致。既有 Rust owner
+`approval_selects_the_exact_native_option_id` 覆盖正常/损坏问卷、普通审批和其他 Adapter 的隔离；
+共享终态与免审批 owner 各通过。合流后 workspace 480 项通过、1 项既有忽略，相关 Renderer 199 项通过。
+首轮夹具错误拒绝合法命令审批，第二轮四个问卷场景通过但总收尾缺少规则统计字段；修正测试后第三轮全程通过。
+两次夹具失败与最终结果均记录在上述证据中，不将失败尝试表述为完整通过。
+
+复现：`node scripts/smoke-hermes-native-session.mjs <official-source> <prepared-python> --questionnaires`。
+仅隔离测试配置启用 clarify，用户日常安装、配置和 Gateway 未参与；测试自有进程已退出。
 
 ## 交付与执行边界
 
@@ -147,7 +172,8 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 [Core CLI 解析](../../../crates/rovai-core/src/application.rs)、
 [用量映射](../../../crates/rovai-core/src/monitoring.rs)与当前合同。
 
-原生提问应单列未验证项：当前没有 Hermes 专属问卷禁用/取消形状接线，不能用文件审批通过替代。
+2026-10-26 补齐原生提问分类与共享不支持处理，见[问卷验收](#原生问卷识别2026-10-26)；
+支持的是准确取消和提示，不是让 User 在 Rovai 填写原生问卷，不能用文件审批通过替代问卷验收。
 原生记忆、画像、后台能力按用户配置保留，与部分适配器关闭原生自动记忆的策略有差异；共享 Home
 不承诺成员长期记忆隔离。完整 Diff、逐 Run 用量、MCP 自定义 cwd/明确撤销和其他终端后端属于
 能力缺口，不应包装成“必须再增加封装”的整改理由。

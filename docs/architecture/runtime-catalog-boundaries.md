@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # Runtime Catalog Boundaries

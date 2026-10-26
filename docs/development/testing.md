@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: test-policy-and-command-routing
-last_updated: 2026-10-25
+last_updated: 2026-10-26
 ---
 
 # 测试与 Smoke Test

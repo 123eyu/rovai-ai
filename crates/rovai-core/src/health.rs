@@ -2789,12 +2789,12 @@ pub fn configure_acp_command(
             crate::opencode_compat::Generation::require(version)?.configure_command(command);
         }
         AdapterKind::CopilotCli => {
+            // ACP uses the child process's stdio; interactive remote/session-sync
+            // flags are unnecessary here and were removed in Copilot 1.0.103.
             command.args([
                 "--acp",
                 "--stdio",
                 "--no-auto-update",
-                "--no-remote",
-                "--no-remote-export",
                 "--no-color",
                 "--log-level",
                 "error",
@@ -4188,6 +4188,34 @@ while IFS= read -r ignored; do :; done
 
     #[test]
     fn additive_acp_launch_shapes_match_the_verified_cli_contracts() {
+        for version in [
+            None,
+            Some("GitHub Copilot CLI 1.0.102."),
+            Some("GitHub Copilot CLI 1.0.103."),
+        ] {
+            for allow_all in [false, true] {
+                let mut command = Command::new("/selected/copilot");
+                configure_acp_command(&mut command, AdapterKind::CopilotCli, allow_all, version)
+                    .unwrap();
+                let args = command
+                    .as_std()
+                    .get_args()
+                    .map(|arg| arg.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                let mut expected = vec![
+                    "--acp",
+                    "--stdio",
+                    "--no-auto-update",
+                    "--no-color",
+                    "--log-level",
+                    "error",
+                ];
+                if allow_all {
+                    expected.push("--allow-all");
+                }
+                assert_eq!(args, expected, "Copilot version={version:?}");
+            }
+        }
         for (version, v1) in [
             ("1.18.32", true),
             ("opencode v1.99.1", true),

@@ -10065,9 +10065,12 @@ function MessageActions({
 function MessageReplyIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M16.7 17.3H10l-4.2 3.1v-3.1h-.7a2.6 2.6 0 0 1-2.6-2.6V7.6A2.6 2.6 0 0 1 5.1 5h11.8a2.6 2.6 0 0 1 2.6 2.6v2.2" />
-      <path d="m15.2 9.2-3.6 3.5 3.6 3.5" />
-      <path d="M11.8 12.7h8.7" />
+      <path d="M6.4 5.3h11.2a1.9 1.9 0 0 1 1.9 1.9v7a1.9 1.9 0 0 1-1.9 1.9h-6.4l-4.5 2.8v-2.8h-.3a1.9 1.9 0 0 1-1.9-1.9v-7a1.9 1.9 0 0 1 1.9-1.9Z" />
+      <g fill="currentColor" stroke="none">
+        <circle cx="8" cy="10.7" r=".7" />
+        <circle cx="12" cy="10.7" r=".7" />
+        <circle cx="16" cy="10.7" r=".7" />
+      </g>
     </svg>
   )
 }

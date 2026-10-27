@@ -62,7 +62,11 @@ Issue #891 按 User 确认的范围统一启动／重新检测／主动检查的
 FirstPayload 保留首次/真实更新，取消压缩补发；ACP 清理不拥有原生执行端。
 当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D67](decisions.md#v1-72-d67)，
 正文确认见 [R2](model-context-change-hermes-first-input.md)，验证见 [实施记录](hermes-first-input-implementation.md)。
-最低版本 0.22.4，macOS arm64 保持 Preview，不把未覆盖平台/工具路径声明为完整兼容。
+最低版本 0.22.4。2026-10-27 按 User sequence 122 暂缓全部平台公开，取代 sequence 113 的
+macOS 开放决定。macOS 两架构、Windows x64、Linux x64 均为 NotQualified；用户入口完全隐藏，
+普通发现、检查、配置与执行关闭。内部实现和已有记录保留，状态见[平台准入](../../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
+按同 Thread sequence 116，所有 Runtime 的引导、成员配置及检查反馈移除 Preview 资格说明小字，
+只呈现实际机器状态和可处理的错误；内部准入与诊断证据保留。
 
 ## 撤回消息两分钟重新编辑（2026-10-23）
 

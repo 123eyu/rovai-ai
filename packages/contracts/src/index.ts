@@ -4482,8 +4482,6 @@ export type CoreMethod =
   | 'singleChat.pendingInputs.edit'
   | 'agentRuns.cancel'
   | 'agentRuns.continue'
-  | 'agentRuns.hermesRecovery.inspect'
-  | 'agentRuns.hermesRecovery.resolve'
   | 'agentRuns.diagnostic.get'
   | 'executionTrace.export'
   | 'threads.snapshot'

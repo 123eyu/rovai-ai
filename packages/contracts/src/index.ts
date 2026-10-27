@@ -4170,8 +4170,8 @@ export type AutomationProjectRef =
 export interface AutomationThreadNaming {
   includeDate: boolean
   includeTime: boolean
-  dateFormat: 'iso' | 'slash' | 'short' | 'chinese'
-  timeFormat: '24' | '12' | 'seconds'
+  dateFormat: 'iso'
+  timeFormat: '24'
   position: 'prefix' | 'suffix'
 }
 

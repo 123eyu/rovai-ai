@@ -13,7 +13,7 @@ last_updated: 2026-10-22
 继承 [v43](builtin-tool-transport-v43.md) 的输入来源、IPC、授权、完整交付、幂等与 Send 来源语义。
 Transport/CLI **44**、capability `builtin_cli.transport.v44`；IPC **3**、Envelope **2**、Agent Output **14** 保持。
 
-`thread.read` 增加可选 `after` / `--after`，精确输入和分页行为由 [History v15](camp-history-v15.md) 拥有。
+`thread.read` 增加可选 `after` / `--after`，精确输入和分页行为由 [History v16](camp-history-v16.md) 拥有。
 CLI 与 Core 使用同一封闭 catalog 校验 before/after 互斥；直接参数、JSON stdin 与 input-file 一致。
 description 增加排他 sequence、升序分页和同方向 nextCursor；示例以 after 替换重复的 limit 示例。
 不增加根命令、Bootstrap、RUN_FACTS、工具输出字段或通用方向参数。

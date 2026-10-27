@@ -303,8 +303,8 @@ SESSION_CHARTER、MEMBER_IDENTITY、COLLABORATION_STATE、RUN_INPUT、RUN_FACTS�
 
 ## 合同、迁移与恢复
 
-[History v15](../../contracts/camp-history-v15.md)、[Transport v44](../../contracts/builtin-tool-transport-v44.md)
-拥有当前输入规则。History 14→15；Transport/CLI 43→44、capability builtin_cli.transport.v44；
+[History v16](../../contracts/camp-history-v16.md)、[Transport v44](../../contracts/builtin-tool-transport-v44.md)
+拥有当前输入规则。History 14→16（主线 v15 已拥有引用投影，正向分页顺延）；Transport/CLI 43→44、capability builtin_cli.transport.v44；
 IPC 3、Envelope 2、Agent Output 14 不变。配套 CLI/Core 仍执行版本准入。
 无数据库迁移、历史回填、旧 receipt 改写、Session clean break 或 Native Binding 恢复规则变化。
 局部可逆参数扩展不满足新增 Version Decision 的三项准入条件。
@@ -330,7 +330,7 @@ IPC 3、Envelope 2、Agent Output 14 不变。配套 CLI/Core 仍执行版本准
 | --- | --- | --- |
 | Version lifecycle | 确认无需更新 | 保持 v1.72 current；概览/实施记录增加本次范围 |
 | Decisions | 确认无需更新 | 局部可逆扩展，无新决定；CURRENT 路由更新 |
-| Contracts | 已更新 | History v15、Transport v44 |
+| Contracts | 已更新 | History v16、Transport v44 |
 | Architecture | 已更新 | Built-in Runtime 路由及 History/运输不变量 |
 | UI | 确认无需更新 | 无 Renderer 变更 |
 | Runtime Activity | 确认无需更新 | operation identity、活动类型保持 |
@@ -360,3 +360,10 @@ IPC 3、Envelope 2、Agent Output 14 不变。配套 CLI/Core 仍执行版本准
 真实任务 Gate 尚未执行：检查到的现有通用 Gate 配置均为 judge=null，当前环境没有已配置的
 可验证固定模型版本 Judge。按评测合同，这只能产生证据不足，不能替代通过。
 在取得可用配置并通过完整 Gate，或 User 明确豁免本次该项之前，不把它记为通过或完成合并。
+
+## 清理前主线集成（2026-10-27）
+
+同步主线 `67780b44a`，保留现有引用消息投影的 History v15，将本次 after 增量合同顺延到
+History v16；Transport/CLI 仍为 44。合并两个版本的当前路由与实施记录，保留已合入的
+Automation、MCP、主题和界面行为。输入与分页语义沿用已确认 r1，未增加新的模型可见文本。
+既有真实任务 Gate 缺口仍保留，不将确定性回归冒充真实模型 Gate。

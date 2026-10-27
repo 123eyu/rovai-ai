@@ -1,3 +1,8 @@
+import { ThreadReferencePreviewProvider } from './ThreadReferencePreview'
+import { MessageReeditStore } from './message-reedit-store'
+import { MessageWithdrawal } from './message-withdrawal'
+import { useTeams } from './useTeams'
+import { TeamWorkspace, type TeamLeaveGuard } from './TeamWorkspace'
 import { MemoryChangeNotice } from './MemoryChangeNotice'
 import { collectMemoryChanges, memoryChangeText, resolveMemoryChangeScope, type MemoryChange } from './memory-change-notice'
 import { useTaskCapability } from './TaskCapabilityProvider'
@@ -26,6 +31,7 @@ import type {
   AdapterInstallation,
   AdapterKind,
   AgentProfile,
+  Team,
   AgentRunView,
   ActionApprovalView,
   AppUpdatePrompt as AppUpdatePromptValue,
@@ -299,7 +305,7 @@ export function requestAuthoritativeThreadOpenProjection(
 type LoadState = 'loading' | 'ready' | 'error'
 export type StartupStatus = 'loading' | 'waiting' | 'resolved'
 export const SHUTDOWN_FEEDBACK_DELAY_MS = 400
-export type View = 'compose' | 'camp' | 'members' | 'automations' | 'missions' | 'memory' | 'settings'
+export type View = 'compose' | 'camp' | 'members' | 'teams' | 'automations' | 'missions' | 'memory' | 'settings'
 type ActivateThreadOptions = {
   memberPrepared?: boolean
   reconcileDefaultLead?: boolean
@@ -356,11 +362,12 @@ export async function prepareActiveAutomationForAppQuit(
 }
 
 export type SettingsSection = NavigationSettingsSection
-export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'automations' | 'missions' | 'memory' | 'settings'>
+export type WindowDragStripPage = Extract<View, 'compose' | 'teams' | 'members' | 'automations' | 'missions' | 'memory' | 'settings'>
 
 export function windowDragStripPage(view: View): WindowDragStripPage | null {
   return view === 'compose'
     || view === 'members'
+    || view === 'teams'
     || view === 'automations'
     || view === 'missions'
     || view === 'memory'
@@ -749,7 +756,7 @@ export function authoritativeWorkspaceIsAvailable(
 }
 
 function startupView(target: RestorableLocation | null): View {
-  return target?.kind === 'camp' || target?.kind === 'members' || target?.kind === 'memory'
+  return target?.kind === 'camp' || target?.kind === 'members' || target?.kind === 'teams' || target?.kind === 'memory'
     ? target.kind
     : 'compose'
 }
@@ -1009,6 +1016,8 @@ export function BusinessApp({
   const taskCapabilityRef = useRef(taskCapability.enabled)
   taskCapabilityRef.current = taskCapability.enabled
   const { client, preferences: uiPreferences, desktop } = environment
+  const reeditStore = useMemo(() => new MessageReeditStore(client.reeditScope ?? '',
+    client.reeditScope ? undefined : null), [client])
   const userAnchorNavigationFor = useThreadUserAnchorCache(client)
   const interfaceLanguage = useInterfaceLanguage()
   const onboardingLanguageRequest = useRef(0)
@@ -1119,7 +1128,8 @@ export function BusinessApp({
   const [generalPreferences, setGeneralPreferencesState] = useState<GeneralPreferencesSnapshot | null>(null)
   const setGeneralPreferences = useCallback((snapshot: GeneralPreferencesSnapshot): void => {
     initializeInterfaceLanguage(snapshot)
-    setGeneralPreferencesState(snapshot)
+    // Host reads return fresh objects, including when an invalidation was ignored.
+    setGeneralPreferencesState(current => JSON.stringify(current) === JSON.stringify(snapshot) ? current : snapshot)
   }, [])
   const [currentProject, setCurrentProject] = useState<CurrentProject>(() => readCurrentProject())
   const [currentWorkspaceHint, setCurrentWorkspaceHint] = useState<WorkspaceSelection | null>(null)
@@ -1136,6 +1146,11 @@ export function BusinessApp({
     agentRuns: readonly AgentRunView[]
     tasks: readonly import('@contracts').TaskView[]
   } | null>(null)
+  const teamLibrary = useTeams(client, startupStatus === 'resolved')
+  const teamLeaveGuard = useRef<TeamLeaveGuard | null>(null)
+  const registerTeamLeaveGuard = useCallback((guard: TeamLeaveGuard | null): void => { teamLeaveGuard.current = guard }, [])
+  const [newConversationInitialTeamId, setNewConversationInitialTeamId] = useState<string | null>(null)
+  const [newConversationInitialTeam, setNewConversationInitialTeam] = useState<Team | null>(null)
   const missionList = useMissions(client, startupStatus === 'resolved')
   const [missionPresentation, setMissionPresentation] = useState<'drawer' | 'full'>('full')
   const [missionOpenRequest, setMissionOpenRequest] = useState(0)
@@ -1206,6 +1221,8 @@ export function BusinessApp({
   const startupResolvedSessionId = useRef<string | null>(null)
   const pendingRestorableLocation = useRef<RestorableLocation | null>(null)
   const invalidatingNewConversationDefaults = useRef(false)
+  const newConversationDefaultsRecheckPending = useRef(false)
+  const [newConversationDefaultsRecheck, setNewConversationDefaultsRecheck] = useState(0)
   const campCreationPreflight = useMemo(
     () => campCreationPreflightFromAgents(agents),
     [agents]
@@ -1353,6 +1370,7 @@ export function BusinessApp({
 
   const prepareForAppQuit = useCallback(async (): Promise<void> => {
     try {
+      if (viewRef.current === 'teams' && teamLeaveGuard.current && !await teamLeaveGuard.current()) throw new Error(uiAttribute('团队更改尚未保存。'))
       await prepareActiveThreadForAppQuit(
         viewRef.current,
         activeThreadIdRef.current,
@@ -1748,6 +1766,8 @@ export function BusinessApp({
         setStartupRouteTarget(target)
         if (target.kind === 'camp') {
           setView('camp')
+        } else if (target.kind === 'teams') {
+          setView('teams')
         } else if (target.kind === 'members') {
           setSelectedMemberId(target.agentId)
           setMemberTab(target.tab)
@@ -2117,16 +2137,27 @@ export function BusinessApp({
   }, [onboardingRuntimePhase, onboardingSnapshot, refreshOnboardingRuntime])
 
   useEffect(() => {
-    if (
-      !shouldInvalidateNewConversationDefaults(generalPreferences, agents, state === 'ready')
-      || invalidatingNewConversationDefaults.current
-    ) return
+    if (invalidatingNewConversationDefaults.current) {
+      newConversationDefaultsRecheckPending.current = true
+      return
+    }
+    if (!shouldInvalidateNewConversationDefaults(generalPreferences, agents, state === 'ready' && !teamLibrary.loading && !teamLibrary.error, teamLibrary.teams)) return
     invalidatingNewConversationDefaults.current = true
-    void uiPreferences.generalPreferences.invalidateNewConversationDefaults(generalPreferences?.newConversationDefaults ?? null)
+    void uiPreferences.generalPreferences.invalidateNewConversationDefaults({
+      expectedTeamId: generalPreferences?.newConversationTeamId ?? null,
+      expectedDefaults: generalPreferences?.newConversationDefaults ?? null
+    })
       .then(setGeneralPreferences)
       .catch((nextError) => setError(errorMessage(nextError)))
-      .finally(() => { invalidatingNewConversationDefaults.current = false })
-  }, [agents, generalPreferences, state])
+      .finally(() => {
+        invalidatingNewConversationDefaults.current = false
+        // Coalesce observations received in flight; an unchanged receipt alone never retries.
+        if (newConversationDefaultsRecheckPending.current) {
+          newConversationDefaultsRecheckPending.current = false
+          setNewConversationDefaultsRecheck(current => current + 1)
+        }
+      })
+  }, [agents, generalPreferences, state, teamLibrary.loading, teamLibrary.error, teamLibrary.teams, newConversationDefaultsRecheck])
 
   const currentProjectPath = currentProject.kind === 'directory'
     ? currentProject.projectPath
@@ -2239,6 +2270,8 @@ export function BusinessApp({
       } else if (target.kind === 'memory') {
         scheduleOverview()
         return
+      } else if (target.kind === 'teams') {
+        setView('teams'); scheduleOverview(); completeStartup(startupSnapshot.sessionId); return
       } else if (target.kind === 'members') {
         const agentsRequest = loadAgents()
         scheduleOverview()
@@ -2349,14 +2382,15 @@ export function BusinessApp({
     const target: NavigationTarget = view === 'camp' && activeThreadId
       ? { kind: 'camp', threadId: activeThreadId }
       : view === 'members' ? { kind: 'members', agentId: restoredMemberId(selectedMemberId, agents), tab: memberTab }
+      : view === 'teams' ? { kind: 'teams' }
       : view === 'memory' ? memoryTarget
       : { kind: 'quick_chat' }
     desktopNavigation.reset(target)
   }, [startupStatus, desktopNavigation, view, activeThreadId, selectedMemberId, agents, memberTab, memoryTarget])
 
   useEffect(() => {
-    if (startupStatus !== 'resolved' || view !== 'compose') return
-    void commitRestorableLocation({ kind: 'quick_chat' })
+    if (startupStatus !== 'resolved' || (view !== 'compose' && view !== 'teams')) return
+    void commitRestorableLocation(view === 'teams' ? { kind: 'teams' } : { kind: 'quick_chat' })
   }, [commitRestorableLocation, startupStatus, view])
 
   useEffect(() => {
@@ -2804,9 +2838,12 @@ export function BusinessApp({
   const openNewConversation = (
     workspace: WorkspaceSelection | null,
     attentionMessage: string | null = null,
-    preferences = generalPreferences
+    preferences = generalPreferences,
+    team: Team | null = null
   ): void => {
     setNewConversationInitialWorkspace(workspace)
+    setNewConversationInitialTeamId(team?.id ?? preferences?.newConversationTeamId ?? null)
+    setNewConversationInitialTeam(team)
     setNewConversationInitialSelection(preferences?.newConversationDefaults ?? null)
     setNewConversationAttention(attentionMessage)
     setNewConversationOpen(true)
@@ -2819,16 +2856,22 @@ export function BusinessApp({
     newConversationRequestBusy.current = true
     const intent = desktopNavigation.beginIntent()
     try {
-      // Another device may have changed the team since this page mounted.
       const preferences = await uiPreferences.generalPreferences.get()
       if (!intent.isCurrent()) return 'ignored'
       setGeneralPreferences(preferences)
-      const defaults = resolveAvailableNewConversationDefaults(preferences, agents)
+      // Only a Team-backed one-click creation needs the latest library first.
+      const requiresTeam = preferences.oneClickNewConversationEnabled
+        && !preferences.newConversationDefaultsRequireConfirmation && Boolean(preferences.newConversationTeamId)
+      const teams = requiresTeam ? await teamLibrary.refresh().catch(() => null) : []
+      if (!intent.isCurrent()) return 'ignored'
+      const defaults = teams && resolveAvailableNewConversationDefaults(preferences, agents, teams)
+      let attentionMessage: string | null = null
       if (preferences.oneClickNewConversationEnabled && defaults) {
         try {
           await createThread({
             name: null,
             workspace: workspace ? { projectPath: workspace.projectPath } : null,
+            ...(defaults.team ? { team: defaults.team } : {}),
             memberAgentIds: defaults.defaults.memberAgentIds,
             defaultLeadAgentId: defaults.defaults.defaultLeadAgentId,
             collaborationMode: 'peer',
@@ -2837,11 +2880,11 @@ export function BusinessApp({
           return 'created'
         } catch (nextError) {
           if (!intent.isCurrent()) return 'ignored'
-          openNewConversation(workspace, uiAttribute("一键创建未完成：{0} 请重新确认项目、队员与默认负责人。", String(errorMessage(nextError))), preferences)
-          return 'dialog'
+          attentionMessage = uiAttribute("一键创建未完成：{0} 请重新确认项目、队员与默认负责人。", String(errorMessage(nextError)))
         }
       }
-      openNewConversation(workspace, null, preferences)
+      if (!requiresTeam) void teamLibrary.refresh().catch(() => undefined)
+      openNewConversation(workspace, attentionMessage, preferences, teams?.find(team => team.id === preferences.newConversationTeamId) ?? null)
       return 'dialog'
     } catch (nextError) {
       if (!intent.isCurrent()) return 'ignored'
@@ -2875,6 +2918,9 @@ export function BusinessApp({
   const requestMemberTransition = useCallback((
     action: () => void | Promise<void>
   ): Promise<boolean> => {
+    if (viewRef.current === 'teams') {
+      return (teamLeaveGuard.current?.() ?? Promise.resolve(true)).then(async allowed => { if (allowed) await action(); return allowed })
+    }
     if (viewRef.current !== 'members' && !commonEnvironmentReturnRef.current) {
       return Promise.resolve().then(action).then(() => true)
     }
@@ -2890,6 +2936,7 @@ export function BusinessApp({
     }
     const target: NavigationTarget = nextView === 'members'
       ? { kind: 'members', agentId: selectedMemberId, tab: memberTab }
+      : nextView === 'teams' ? { kind: 'teams' }
       : nextView === 'memory' ? { kind: 'memory', memoryId: null }
       : nextView === 'automations' ? { kind: 'automations' }
       : nextView === 'missions' ? { kind: 'missions' }
@@ -2926,7 +2973,7 @@ export function BusinessApp({
   const closeSettings = (): void => { void desktopNavigation.push(lastMainTarget.current) }
 
   const chooseSettingsSection = (section: SettingsSection): void => {
-    if (viewRef.current === 'settings') void desktopNavigation.push({ kind: 'settings', section })
+    if (viewRef.current === 'settings' || viewRef.current === 'memory') void desktopNavigation.push(section === 'memory' ? { kind: 'memory', memoryId: null } : { kind: 'settings', section })
     void uiPreferences.generalPreferences.setLastSettingsSection(section)
       .then(setGeneralPreferences)
       .catch((nextError) => setError(errorMessage(nextError)))
@@ -2957,7 +3004,7 @@ export function BusinessApp({
         return
       }
       const previous = desktopNavigation.getSnapshot()
-      if (target.kind === 'settings' && viewRef.current !== 'settings') {
+      if ((target.kind === 'settings' || target.kind === 'memory') && viewRef.current !== 'settings' && viewRef.current !== 'memory') {
         lastMainTarget.current = previous.entries[previous.index] ?? { kind: 'quick_chat' }
       }
       if (!transaction.commit()) return
@@ -2965,12 +3012,13 @@ export function BusinessApp({
       context?.beforeCommit?.()
       setNotificationFocus(null)
       switch (target.kind) {
-        case 'settings': setSettingsSection(target.section); setMobileSettingsList(target.overview === true); setView('settings'); break
+        case 'settings': setSettingsSection(target.section); setMobileSettingsList(target.overview === true); setView(target.section === 'memory' && !target.overview ? 'memory' : 'settings'); break
         case 'members':
           if (viewRef.current !== 'members') setMemberRosterEntryReady(false)
           membersViewRef.current?.showSelectedMember()
           setSelectedMemberId(target.agentId); setMemberTab(target.tab); setView('members'); break
         case 'memory': setMemoryTarget(target); setView('memory'); break
+        case 'teams': setView('teams'); break
         case 'automations': setView('automations'); break
         case 'missions': setView('missions'); break
         case 'quick_chat': setView('compose'); break
@@ -2984,7 +3032,7 @@ export function BusinessApp({
       else await leaveActiveSurface(() => Promise.race([apply(), transaction.superseded]))
     }
     try {
-      if ((viewRef.current === 'members' || (commonEnvironmentReturnRef.current && target.kind !== 'settings')) && target.kind !== 'members' && !context?.prepared && !context?.memberPrepared) await requestMemberTransition(leave)
+      if (((viewRef.current === 'members' || (commonEnvironmentReturnRef.current && target.kind !== 'settings')) && target.kind !== 'members' || viewRef.current === 'teams' && target.kind !== 'teams') && !context?.prepared && !context?.memberPrepared) await requestMemberTransition(leave)
       else await leave()
     } catch (nextError) {
       if (transaction.isCurrent()) setError(errorMessage(nextError))
@@ -3699,7 +3747,9 @@ export function BusinessApp({
       let preferencesSaveFailed = false
       if (enableOneClick) {
         try {
-          const saved = await uiPreferences.generalPreferences.setNewConversationDefaults({
+          const saved = draft.team
+            ? await uiPreferences.generalPreferences.setNewConversationTeam(draft.team.teamId, true)
+            : await uiPreferences.generalPreferences.setNewConversationDefaults({
             memberAgentIds: draft.memberAgentIds,
             defaultLeadAgentId: draft.defaultLeadAgentId
           }, true)
@@ -3773,6 +3823,7 @@ export function BusinessApp({
   }
 
   function hideAcceptedThreadDeletion(threadId: string): void {
+    reeditStore.deleteThread(threadId)
     deletingThreadIdsRef.current.add(threadId)
     const currentNavigation = navigationSnapshotRef.current
     if (currentNavigation) {
@@ -3897,20 +3948,31 @@ export function BusinessApp({
     }
   }
 
-  const withdrawThreadMessage = async (message: ThreadMessageView): Promise<void> => {
+  const withdrawalCallbacks = useRef({ refresh: refreshActiveThreadSnapshot, notify })
+  withdrawalCallbacks.current = { refresh: refreshActiveThreadSnapshot, notify }
+  const messageWithdrawal = useMemo(() => new MessageWithdrawal({
+    store: reeditStore,
+    request: request => client.withdrawMessage ? client.withdrawMessage(request)
+      : client.request<StoredCommandResult>('thread.messages.withdraw', request).then(result => ({ result, source: 'direct' })),
+    accepted: (_threadId, messageId) => {
+      setOptimisticThreadMessages(current => current.filter(entry => entry.message.id !== messageId))
+    },
+    refresh: threadId => withdrawalCallbacks.current.refresh(threadId),
+    notify: message => withdrawalCallbacks.current.notify(message),
+    rejectionMessage: commandFailureMessage
+  }), [client, reeditStore])
+  useEffect(() => {
+    const stop = reeditStore.start()
+    messageWithdrawal.recoverPending()
+    const recover = (): void => { reeditStore.sweep(); messageWithdrawal.recoverPending() }
+    window.addEventListener('online', recover)
+    window.addEventListener('focus', recover)
+    const unsubscribe = client.onInvalidated?.(recover)
+    return () => { stop(); unsubscribe?.(); window.removeEventListener('online', recover); window.removeEventListener('focus', recover) }
+  }, [client, reeditStore, messageWithdrawal])
+  const withdrawThreadMessage = (message: ThreadMessageView): Promise<void> => {
     const threadId = activeThreadIdRef.current
-    if (!threadId || message.id.startsWith('optimistic:') || !message.canWithdraw) return
-    const result = await client.request<StoredCommandResult>('thread.messages.withdraw', {
-      commandId: newCommandId(),
-      command: {
-        threadId,
-        messageId: message.id,
-        expectedVersion: message.version
-      }
-    })
-    if (result.status === 'rejected') throw new Error(commandFailureMessage(result))
-    setOptimisticThreadMessages((current) => current.filter((entry) => entry.message.id !== message.id))
-    await refreshActiveThreadSnapshot(threadId)
+    return threadId ? messageWithdrawal.withdraw(threadId, message) : Promise.resolve()
   }
 
   const resolveActionApproval = async (
@@ -4078,9 +4140,9 @@ export function BusinessApp({
   const missionSource = (messageId: string): void => {
     setNotificationFocus({ requestId: ++notificationFocusSequence.current, kind: 'camp_message', threadTurnId: null, messageId, active: true })
   }
-  async function createMission(draft: Omit<CreateThreadRequest, 'commandId' | 'activationState'>, saveTeam: boolean, definition?: {description: string; descriptionContent: MissionDescriptionContent; start: boolean; tags: string[]; attachments: MissionAttachmentDraft[]}): Promise<void> {
+  async function createMission(draft: Omit<CreateThreadRequest, 'commandId' | 'activationState'>, _enableOneClick: boolean, definition?: {description: string; descriptionContent: MissionDescriptionContent; start: boolean; tags: string[]; attachments: MissionAttachmentDraft[]}): Promise<void> {
     if (!definition) throw new Error(uiAttribute('缺少使命定义'))
-    const command: MissionCreate = { title: draft.name ?? '', description: definition.description, descriptionContent: definition.descriptionContent, memberAgentIds: draft.memberAgentIds, defaultLeadAgentId: draft.defaultLeadAgentId, projectBindingKind: draft.workspace ? 'directory' : 'quick_chat', projectPath: draft.workspace?.projectPath ?? '', tags: definition.tags }
+    const command: MissionCreate = { ...(draft.team ? { team: draft.team } : {}), title: draft.name ?? '', description: definition.description, descriptionContent: definition.descriptionContent, memberAgentIds: draft.memberAgentIds, defaultLeadAgentId: draft.defaultLeadAgentId, projectBindingKind: draft.workspace ? 'directory' : 'quick_chat', projectPath: draft.workspace?.projectPath ?? '', tags: definition.tags }
     const attachmentSignature = JSON.stringify(definition.attachments.map(({ id, file, kindHint }) => [id, file.name, file.size, file.lastModified, file.type, kindHint]))
     // Unknown transport outcomes retry the exact command. A different draft cannot
     // accidentally create a second Mission while the first result is unresolved.
@@ -4101,17 +4163,16 @@ export function BusinessApp({
       const threadId = stringField(result.payload, 'threadId'), missionId = stringField(result.payload, 'missionId')
       if (!threadId || !missionId) throw new Error(uiAttribute('使命已保存，但返回的标识不完整。请刷新使命板。'))
       missionCreation.current = null; setNewMissionOpen(false)
-      if (saveTeam) {
-        try { setGeneralPreferences(await uiPreferences.generalPreferences.setNewConversationDefaults({ memberAgentIds: draft.memberAgentIds, defaultLeadAgentId: draft.defaultLeadAgentId }, true)) }
-        catch { notifyError(uiAttribute('使命已创建，但默认队伍设置未保存。可在设置中重试。')) }
-      }
       if (definition.start) {
         try { await missionCommand(client, 'missions.start', { missionId }) }
         catch (error) { notifyError(uiAttribute("使命已保存，暂时未开始：{0}", String(missionError(error)))) }
       }
       await missionList.refresh()
     } catch (error) {
-      if (error instanceof MissionCommandRejected) missionCreation.current = null
+      if (error instanceof MissionCommandRejected) {
+        missionCreation.current = null
+        if (error.result.code.startsWith('team.')) void teamLibrary.refresh().catch(() => undefined)
+      }
       throw error
     } finally { setBusy(null) }
   }
@@ -4134,6 +4195,7 @@ export function BusinessApp({
     compose: 'task-content compose-content',
     'camp': 'task-content camp-content',
     members: 'members-content',
+    teams: 'members-content',
     automations: 'automation-content',
     missions: 'mission-board-content',
     memory: 'memory-content',
@@ -4275,7 +4337,7 @@ export function BusinessApp({
     navigationId={drawer ? 'mobile-conversation-navigation' : 'global-navigation'}
     platform={client.platform}
     footer={sidebarFooter}
-    view={view === 'camp' && missionThread ? 'missions' : view}
+    view={view === 'memory' ? 'settings' : view === 'camp' && missionThread ? 'missions' : view}
     state={startupStatus === 'resolved' ? navigationState : 'loading'}
     navigation={displayNavigation}
     groupLimits={navigationGroupLimits}
@@ -4291,14 +4353,15 @@ export function BusinessApp({
     threadReadStates={threadReadStates}
     onSetThreadUnread={setThreadUnread}
     onRevealProject={environment.revealProjectDirectory ? project => environment.revealProjectDirectory!(project.projectPath) : undefined}
-    settingsSection={settingsSection}
+    settingsSection={view === 'memory' ? 'memory' : settingsSection}
     updateSnapshot={appUpdates.snapshot}
     onNewConversation={() => { setMobileConversationDrawerOpen(false); beginNewConversation() }}
     onMembers={() => { setMobileConversationDrawerOpen(false); chooseView('members') }}
+    onTeams={() => { setMobileConversationDrawerOpen(false); chooseView('teams') }}
     onAutomations={() => { setMobileConversationDrawerOpen(false); chooseView('automations') }}
     onMissions={() => { setMobileConversationDrawerOpen(false); chooseView('missions') }}
     unreadMissionCount={unreadMissionCount(missionList.missions)}
-    onMemory={() => { setMobileConversationDrawerOpen(false); chooseView('memory') }}
+    onMemory={() => { setMobileConversationDrawerOpen(false); openMemoryReviews() }}
     pendingMemoryCount={pendingMemoryCount}
     onSettings={() => { setMobileConversationDrawerOpen(false); openSettings() }}
     onOpenUpdates={() => { setMobileConversationDrawerOpen(false); void openUpdateSettings() }}
@@ -4341,11 +4404,19 @@ export function BusinessApp({
     <MobileLayoutProvider value={mobile}>
     <FilePreviewProvider api={environment.files} threadId={view === 'camp' ? activeThreadId : null} resolvedTheme={appearance.resolvedTheme}
       missionActivity={activeMission && view === 'camp' ? <MissionActivityDocument mission={activeMission} agents={agents} onSource={missionSource} onNotify={notify} onWorkspaceCleanupRequested={refreshMissionAfterWorkspaceCleanup}/> : null}>
+    <ThreadReferencePreviewProvider threadId={view === 'camp' ? activeThreadId : null} onOpen={async reference => {
+      if (reference.kind === 'thread') await activateThread(reference.id, { reconcileDefaultLead: false })
+      else {
+        const mission = await client.request<MissionRecord | null>('missions.get', { missionId: reference.id })
+        if (!mission) throw new Error('引用不可用')
+        await openMission(mission)
+      }
+    }}>
     <MissionInteractionProvider missions={missionList.missions} projects={displayNavigation?.projects ?? []} agents={agents} installations={installations} onChanged={refreshMission} onWorkspaceCleaned={refreshMissionAfterWorkspaceCleanup} onDeleted={onMissionDeleted} onOpen={mission => { void openMission(mission).catch(error => notifyError(missionError(error))) }} onError={notifyError}>
-    <NavigationShell platform={client.platform} settings={view === 'settings'} navigation={desktopNavigation} nativeWindowControls={desktop?.windowControls} browser={!desktop} disabled={startupStatus !== 'resolved' || shuttingDown} className={view === 'camp' && !missionDrawer ? 'app-shell-camp' : ''} data-mobile-view={mobile ? view : undefined} data-mobile-settings-list={mobile && view === 'settings' && mobileSettingsList || undefined}>
+    <NavigationShell platform={client.platform} settings={view === 'settings' || view === 'memory'} navigation={desktopNavigation} nativeWindowControls={desktop?.windowControls} browser={!desktop} disabled={startupStatus !== 'resolved' || shuttingDown} className={view === 'camp' && !missionDrawer ? 'app-shell-camp' : ''} data-mobile-view={mobile ? view : undefined} data-mobile-settings-list={mobile && view === 'settings' && mobileSettingsList || undefined}>
       {!mobile && renderNavigation()}
-      {!startupGateVisible && mobile && ['compose', 'members', 'memory', 'automations'].includes(view) && <MobilePageHeader
-        title={({ compose:uiAttribute("新对话"), members:uiAttribute("队员"), memory:uiAttribute("记忆"), automations:uiAttribute("定时任务") } as Record<string, string>)[view]}
+      {!startupGateVisible && mobile && ['compose', 'members', 'teams', 'automations'].includes(view) && <MobilePageHeader
+        title={({ compose:uiAttribute("新对话"), members:uiAttribute("队员"), teams:uiAttribute("团队"), automations:uiAttribute("定时任务") } as Record<string, string>)[view]}
         onOpenMenu={openMobileMenu} menuOpen={mobileConversationDrawerOpen} triggerRef={mobileConversationListButtonRef} />}
       {!startupGateVisible && view === 'camp' && !missionThread && <AppHeader
         threadTitle={activeThreadTitle ||uiAttribute("对话")}
@@ -4428,6 +4499,7 @@ export function BusinessApp({
               return result.status
             }}
             onWithdrawMessage={withdrawThreadMessage}
+            reeditStore={reeditStore}
             onPendingDraftPersisted={refreshPendingThreadNavigation}
             onPendingThreadLeave={settlePendingThreadOnLeave}
             onThreadLeaveGuardChange={registerThreadLeaveGuard}
@@ -4503,6 +4575,7 @@ export function BusinessApp({
         )}
 
         {!startupGateVisible && view === 'memory' && (
+          <MobileSettingsLayout pendingMemoryCount={pendingMemoryCount} overview={false} section="memory" appearance={appearance} menuOpen={mobileConversationDrawerOpen} triggerRef={mobileConversationListButtonRef} onOpenMenu={openMobileMenu} onBack={returnToMobileSettings} onSectionChange={chooseSettingsSection}>
           <MemoryLibrary
             agents={agents}
             topNotices={inlineNotices}
@@ -4518,13 +4591,15 @@ export function BusinessApp({
             onReady={commitMemoryLocation}
             startupFeedbackVisible={startupRoutePending?.kind !== 'memory' || startupFeedbackVisible}
           />
+          </MobileSettingsLayout>
         )}
 
         {!startupGateVisible && view === 'settings' && (
-          <MobileSettingsLayout overview={mobileSettingsList} section={settingsSection} appearance={appearance}
+          <MobileSettingsLayout pendingMemoryCount={pendingMemoryCount} overview={mobileSettingsList} section={settingsSection} appearance={appearance}
             menuOpen={mobileConversationDrawerOpen} triggerRef={mobileConversationListButtonRef}
             onOpenMenu={openMobileMenu} onBack={returnToMobileSettings} onSectionChange={chooseSettingsSection}>
           <SettingsView
+            teams={teamLibrary.teams}
             preferencesApi={uiPreferences.generalPreferences}
             nativeSettings={environment.desktop && { windowControls: environment.desktop.windowControls, windowClose: environment.desktop.windowClose }}
             remoteConnection={environment.desktop?.hostWeb ? <HostWebSettings portDraft={remotePort} onPortDraftChange={setRemotePort} api={environment.desktop.hostWeb} /> : remoteConnection}
@@ -4552,6 +4627,11 @@ export function BusinessApp({
           </MobileSettingsLayout>
         )}
 
+        {!startupGateVisible && view === 'teams' && <TeamWorkspace teams={teamLibrary.teams} agents={agents} loading={teamLibrary.loading} loadError={teamLibrary.error}
+          defaultTeamId={generalPreferences?.newConversationTeamId ?? null} customDefaults={generalPreferences?.newConversationDefaults ?? null}
+          refresh={teamLibrary.refresh} onLeaveGuardChange={registerTeamLeaveGuard} onNewConversation={team => {
+            openNewConversation(currentProjectWorkspace(displayNavigation, currentProject), null, generalPreferences, team)
+          }}/>}
         {!startupGateVisible && (view === 'members' || commonEnvironmentReturn !== null) && (
           startupRoutePending?.kind === 'members'
             ? startupStatus === 'waiting'
@@ -4639,6 +4719,12 @@ export function BusinessApp({
         open={newConversationOpen}
         initialWorkspace={newConversationInitialWorkspace}
         initialSelection={newConversationInitialSelection}
+        teams={teamLibrary.teams}
+        teamsLoading={teamLibrary.loading}
+        teamsError={teamLibrary.error}
+        onRetryTeams={() => { void teamLibrary.refresh().catch(() => undefined) }}
+        initialTeamId={newConversationInitialTeamId}
+        initialTeam={newConversationInitialTeam}
         attentionMessage={newConversationAttention}
         projects={displayNavigation?.projects ?? []}
         preflight={campCreationPreflight}
@@ -4656,6 +4742,9 @@ export function BusinessApp({
       <NewConversationDialog purpose="mission" open={newMissionOpen} recovery={missionCreation.current?.command ?? null} recoveryAttachments={missionCreation.current?.attachments ?? []}
         initialWorkspace={currentProjectWorkspace(displayNavigation, currentProject)}
         initialSelection={generalPreferences?.newConversationDefaults ?? null}
+        initialTeamId={generalPreferences?.newConversationTeamId ?? null}
+        teams={teamLibrary.teams} teamsLoading={teamLibrary.loading} teamsError={teamLibrary.error}
+        onRetryTeams={() => { void teamLibrary.refresh().catch(() => undefined) }}
         projects={displayNavigation?.projects ?? []} missionTagCatalog={[...new Set(missionList.missions.flatMap(mission => mission.tags))]} preflight={campCreationPreflight} agents={agents} installations={installations}
         busy={busy === 'create-mission'} projectAccessReady={removedProjectAuthorityReady}
         onOpenChange={open => { if (!busy) setNewMissionOpen(open) }}
@@ -4690,6 +4779,7 @@ export function BusinessApp({
     </NavigationShell>
     {startupStatus !== 'waiting' && <StartupLoadingCanvas visible={startupLoadingVisible} route={startupLoadingRoute} />}
     </MissionInteractionProvider>
+    </ThreadReferencePreviewProvider>
     </FilePreviewProvider>
     </MobileLayoutProvider>
     </ThreadInterruptionAttentionContext.Provider>
@@ -4810,6 +4900,7 @@ export function StartupRouteLoading({
 
 
 export function SettingsView({
+  teams = [],
   preferencesApi,
   remoteConnection,
   nativeSettings,
@@ -4831,6 +4922,7 @@ export function SettingsView({
   onReload,
   onAppearanceChange
 }: {
+  teams?: Team[]
   remoteConnection?: React.ReactNode
   preferencesApi: import('@contracts').GeneralPreferencesApi
   nativeSettings?: { windowControls: import('@contracts').WindowControlsApi; windowClose?: import('@contracts').WindowCloseApi; browserAccess?: React.ReactNode }
@@ -4859,6 +4951,7 @@ export function SettingsView({
         {section === 'general' && (
           <GeneralSettings
             api={preferencesApi}
+            teams={teams}
             windowControls={nativeSettings?.windowControls}
             windowClose={platform === 'win32' ? nativeSettings?.windowClose : undefined}
             browserAccess={nativeSettings?.browserAccess}
@@ -5192,6 +5285,9 @@ export function campCreationPreflightFromAgents(
 }
 
 export function commandFailureMessage(result: StoredCommandResult): string {
+  if (result.code === 'team.conflict' || result.code === 'team.unavailable') {
+    return uiAttribute('团队已更改或不可用，请重新选择。')
+  }
   if (result.code === 'reply_recipient_required') {
     return uiAttribute("原作者当前不可接收，请选择其他成员。")
   }

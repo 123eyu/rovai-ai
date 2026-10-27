@@ -32,14 +32,22 @@ describe('general preferences', () => {
     expect(resolveInterfaceLanguage('en', ['zh'])).toBe('en')
   })
 
-  it('preserves schema 5 languages and keeps only the preference on disk across system changes', async () => {
+  it('preserves schema 5–6 languages and keeps only the preference on disk across system changes', async () => {
     const file = join(await temporaryDirectory(), 'general.json')
-    const { interfaceLanguagePreference: _preference, ...common } = DEFAULT_STORED_GENERAL_PREFERENCES
+    const { interfaceLanguagePreference: _preference, newConversationTeamId: _team, ...common } = DEFAULT_STORED_GENERAL_PREFERENCES
     for (const language of ['zh-CN', 'en'] as const) {
       await writeFile(file, JSON.stringify({ ...common, schemaVersion: 5, interfaceLanguage: language }))
       const store = await GeneralPreferencesStore.load(file, () => ['zh-Hant'])
       expect(store.get()).toMatchObject({ interfaceLanguagePreference: language, interfaceLanguage: language })
     }
+    for (const preference of ['system', 'zh-CN', 'en'] as const) {
+      await writeFile(file, JSON.stringify({ ...common, schemaVersion: 6, interfaceLanguagePreference: preference }))
+      const store = await GeneralPreferencesStore.load(file, () => ['zh-Hant'])
+      expect(store.get()).toMatchObject({ schemaVersion: 7, interfaceLanguagePreference: preference, newConversationTeamId: null, readError: null })
+    }
+    expect(parseGeneralPreferences({ ...DEFAULT_STORED_GENERAL_PREFERENCES, newConversationTeamId: 'team-a', oneClickNewConversationEnabled: true }))
+      .toMatchObject({ newConversationDefaults: null, newConversationTeamId: 'team-a', oneClickNewConversationEnabled: true })
+    expect(parseGeneralPreferences({ ...DEFAULT_STORED_GENERAL_PREFERENCES, newConversationTeamId: 123 })).toBeNull()
     await rm(file)
     let tags = ['zh-CN', 'en']
     const store = await GeneralPreferencesStore.load(file, () => tags)
@@ -131,7 +139,8 @@ describe('general preferences', () => {
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'diagnostics'
     })).toEqual({
-      schemaVersion: 6,
+      schemaVersion: 7,
+      newConversationTeamId: null,
       interfaceLanguagePreference: 'zh-CN',
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'diagnostics',
@@ -167,7 +176,8 @@ describe('general preferences', () => {
       newConversationDefaultsRequireConfirmation: true,
       oneClickNewConversationEnabled: true
     })).toEqual({
-      schemaVersion: 6,
+      schemaVersion: 7,
+      newConversationTeamId: null,
       interfaceLanguagePreference: 'zh-CN',
       startupLocationMode: 'quick_chat',
       lastSettingsSection: 'diagnostics',
@@ -261,7 +271,8 @@ describe('general preferences', () => {
     ])
 
     expect(store.get()).toEqual({
-      schemaVersion: 6,
+      schemaVersion: 7,
+      newConversationTeamId: null,
       interfaceLanguagePreference: 'en', interfaceLanguage: 'en', systemLanguage: 'en', languageRevision: 6, readError: null,
       startupLocationMode: 'last_location',
       lastSettingsSection: 'toolbox',

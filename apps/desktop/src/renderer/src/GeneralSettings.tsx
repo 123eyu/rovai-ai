@@ -1,3 +1,4 @@
+import { TeamPicker, TeamMemberPicker, TeamAvatarSummary } from './TeamPicker'
 import { LanguagePreferenceOptions } from './LanguagePreferenceControl'
 import { useTaskCapability } from './TaskCapabilityProvider'
 import { WindowCloseSettings } from './WindowCloseSettings'
@@ -7,6 +8,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type {
   AgentProfile,
+  Team,
   GeneralPreferencesSnapshot,
   GeneralPreferencesApi,
   InterfaceLanguagePreference,
@@ -25,7 +27,6 @@ import {
   AppDialogHeader,
   DialogControlIcon
 } from './AppDialog'
-import { MemberAvatar } from './MemberAvatar'
 import { SettingsPageHeader } from './SettingsPageHeader'
 import { resolveNewConversationDefaults } from './new-conversation-preferences'
 import { UiText, changeInterfaceLanguage, uiAttribute, useInterfaceLanguage, useUiText } from './interface-language'
@@ -38,7 +39,6 @@ export const ONE_CLICK_ENTRY_DESCRIPTIONS = [
 ] as const
 
 export const ONE_CLICK_PROJECT_HELP = '左上角“新对话”使用当前选中的项目；已有项目文件夹后的 ＋ 使用对应项目；快速对话文件夹后的 ＋ 使用快速对话；“项目”标题后的 ＋ 使用新选择的工作目录。'
-export const DEFAULT_MEMBER_COLLAPSE_THRESHOLD = 10
 const ignorePreferencesChange = (): void => undefined
 
 export function GeneralSettings({
@@ -47,6 +47,7 @@ export function GeneralSettings({
   windowClose,
   browserAccess,
   agents = [],
+  teams = [],
   initialPreferences = null,
   onPreferencesChange = ignorePreferencesChange
 }: {
@@ -55,6 +56,7 @@ export function GeneralSettings({
   windowClose?: import('@contracts').WindowCloseApi
   browserAccess?: ReactNode
   agents?: AgentProfile[]
+  teams?: Team[]
   initialPreferences?: GeneralPreferencesSnapshot | null
   onPreferencesChange?(preferences: GeneralPreferencesSnapshot): void
 }): React.JSX.Element {
@@ -73,7 +75,6 @@ export function GeneralSettings({
   const [defaultLeadId, setDefaultLeadId] = useState(
     () => initialPreferences?.newConversationDefaults?.defaultLeadAgentId ?? ''
   )
-  const [defaultMemberQuery, setDefaultMemberQuery] = useState('')
   const [defaultsDirty, setDefaultsDirty] = useState(false)
   const [defaultsBusy, setDefaultsBusy] = useState(false)
   const [defaultsError, setDefaultsError] = useState<string | null>(null)
@@ -173,15 +174,6 @@ export function GeneralSettings({
     }
   }
 
-  const toggleDefaultMember = (agentId: string): void => {
-    if (defaultsBusy) return
-    setDefaultsError(null)
-    setDefaultsDirty(true)
-    setDefaultMemberIds((current) => current.includes(agentId)
-      ? current.filter((id) => id !== agentId)
-      : [...current, agentId])
-  }
-
   const saveNewConversationDefaults = async (): Promise<void> => {
     if (!preferences || defaultsBusy) return
     const orderedMemberIds = defaultMemberIds.slice().sort((left, right) => {
@@ -213,7 +205,7 @@ export function GeneralSettings({
   const setOneClickEnabled = async (enabled: boolean): Promise<void> => {
     if (!preferences || oneClickBusy) return
     if (enabled) {
-      if (!resolveNewConversationDefaults(preferences, agents) || defaultsDirty) return
+      if (!resolveNewConversationDefaults(preferences, agents, teams) || (!preferences.newConversationTeamId && defaultsDirty)) return
       setOneClickConfirmOpen(true)
       return
     }
@@ -293,72 +285,14 @@ export function GeneralSettings({
     defaultLeadAgentId: defaultLeadId
   }
   const defaultsDraftError = newConversationDefaultsDraftError(defaultsDraft, agents)
-  const savedDefaults = resolveNewConversationDefaults(preferences, agents)
-  const savedMemberNames = preferences?.newConversationDefaults?.memberAgentIds.map(
+  const savedDefaults = resolveNewConversationDefaults(preferences, agents, teams)
+  const savedMemberNames = savedDefaults?.defaults.memberAgentIds.map(
     (agentId) => profileById.get(agentId)?.displayName ?? agentId
   ) ?? []
-  const savedLeadName = preferences?.newConversationDefaults
-    ? profileById.get(preferences.newConversationDefaults.defaultLeadAgentId)?.displayName
-      ?? preferences.newConversationDefaults.defaultLeadAgentId
-    : null
+  const savedLeadName = savedDefaults?.lead.displayName ?? null
   const oneClickEnabled = preferences?.oneClickNewConversationEnabled ?? false
   const worldMapEnabled = preferences?.worldMapEnabled ?? false
-  const oneClickCanEnable = Boolean(savedDefaults) && !defaultsDirty && !oneClickBusy
-  const shouldCollapseMembers = defaultMemberCandidates.length > DEFAULT_MEMBER_COLLAPSE_THRESHOLD
-  const normalizedMemberQuery = defaultMemberQuery.trim().toLocaleLowerCase('zh-CN')
-  const visibleMemberCandidates = !shouldCollapseMembers || normalizedMemberQuery.length === 0
-    ? defaultMemberCandidates
-    : defaultMemberCandidates.filter((agent) => [agent.displayName, agent.teamRole, agent.agentId]
-        .join(' ')
-        .toLocaleLowerCase('zh-CN')
-        .includes(normalizedMemberQuery))
-  const selectedMemberNames = defaultMemberIds.map(
-    (agentId) => profileById.get(agentId)?.displayName ?? agentId
-  )
-  const memberSeparator = interfaceLanguage === 'en' ? ', ' : '、'
-  const memberPickerSummary = selectedMemberNames.length === 0
-    ? t('尚未选择队员')
-    : selectedMemberNames.length <= 2
-      ? selectedMemberNames.join(memberSeparator)
-      : t('{0}等 {1} 位', selectedMemberNames.slice(0, 2).join(memberSeparator), selectedMemberNames.length)
-  const defaultMemberList = (
-    <div className="general-default-member-list" role="group" aria-label={uiAttribute("默认队员")}>
-      {visibleMemberCandidates.map((agent) => {
-        const selected = defaultMemberIds.includes(agent.agentId)
-        const available = agent.presence === 'present' && agent.removedAt === null
-        const unavailableLabel = agent.presence === 'away'
-          ? uiAttribute('暂时离队')
-          : agent.presence === 'removed'
-            ? uiAttribute('已永久移除')
-            : agent.displayName === agent.agentId
-              ? uiAttribute('队员不存在')
-              : null
-        return (
-          <label className={`general-default-member ${!available ? 'unavailable' : ''}`} key={agent.agentId}>
-            <input
-              type="checkbox"
-              checked={selected}
-              disabled={defaultsBusy || (!available && !selected)}
-              onChange={() => toggleDefaultMember(agent.agentId)}
-            />
-            <MemberAvatar
-              agentId={agent.agentId}
-              avatarRef={agent.avatarRef}
-              displayName={agent.displayName}
-              size="mention"
-              decorative
-            />
-            <span><strong>{agent.displayName}</strong><small>{unavailableLabel ? t(unavailableLabel) : (agent.teamRole || t('队员'))}</small></span>
-          </label>
-        )
-      })}
-      {visibleMemberCandidates.length === 0 && (
-        <p className="general-default-members-empty">
-          {defaultMemberCandidates.length === 0 ? uiAttribute("当前没有可选择的在队队员。") : uiAttribute("没有匹配的队员。")}
-        </p>
-      )}
-    </div>
-  )
+  const oneClickCanEnable = Boolean(savedDefaults) && (!!preferences?.newConversationTeamId || !defaultsDirty) && !oneClickBusy
 
   return (
     <>
@@ -419,36 +353,12 @@ export function GeneralSettings({
           <div className="section-heading"><div><h2 id="general-new-conversation-heading"><UiText zh={"新对话"} /></h2><p><UiText zh={"默认队员与创建方式"} /></p></div></div>
           <div className="general-section-body">
             <div className="general-configurator">
-              <div className="general-config-head">
-                <div><h3><UiText zh={"默认队员"} /></h3><p><UiText zh={"选择创建新对话时默认加入的队员。"} /></p></div>
-                <span>{defaultMemberIds.length > 0 ? t('已选 {0} 位', defaultMemberIds.length) : t('尚未配置')}</span>
-              </div>
-
-              {shouldCollapseMembers
-                ? (
-                  <details className="general-default-member-picker">
-                    <summary>
-                      <span><strong>{memberPickerSummary}</strong><small>{t('共 {0} 位队员，展开后可多选', defaultMemberCandidates.length)}</small></span>
-                      <span><UiText zh={"管理队员"} /></span>
-                      <ChevronDownIcon />
-                    </summary>
-                    <div className="general-default-member-picker-panel">
-                      <label className="general-default-member-search">
-                        <SearchIcon />
-                        <input
-                          type="search"
-                          value={defaultMemberQuery}
-                          placeholder={uiAttribute("搜索队员")}
-                          aria-label={uiAttribute("搜索默认队员")}
-                          onChange={(event) => setDefaultMemberQuery(event.target.value)}
-                        />
-                      </label>
-                      {defaultMemberList}
-                    </div>
-                  </details>
-                )
-                : defaultMemberList}
-
+              <div className="team-general-choice"><strong>{uiAttribute('默认配置')}</strong><TeamPicker teams={teams} agents={agents} value={preferences?.newConversationTeamId ?? null} busy={!preferences || defaultsBusy} onChange={teamId => {
+                setDefaultsBusy(true); setDefaultsError(null)
+                void api.setNewConversationTeam(teamId).then(acceptPreferences).catch(error => setDefaultsError(errorMessage(error))).finally(() => setDefaultsBusy(false))
+              }}/></div>
+              {preferences?.newConversationTeamId ? <div className="team-conversation-summary"><TeamAvatarSummary ids={savedDefaults?.defaults.memberAgentIds ?? []} agents={agents}/><span>{savedDefaults ? t('{0} 位默认队员 · 队长 {1}', savedDefaults.members.length, savedDefaults.lead.displayName) : uiAttribute('团队不可用')}</span></div> : <>
+              <TeamMemberPicker agents={defaultMemberCandidates} roster={defaultsDraft} busy={defaultsBusy} onChange={roster => { setDefaultMemberIds(roster.memberAgentIds); setDefaultLeadId(roster.defaultLeadAgentId); setDefaultsDirty(true); setDefaultsError(null) }}/>
               <div className="general-default-lead general-default-lead-row">
                 <span><strong><UiText zh={"默认队长"} /></strong><small><UiText zh={"队长必须是已选择的默认队员。"} /></small></span>
                 <GeneralLeadSelect agents={defaultMemberIds.map((agentId) => profileById.get(agentId) ?? missingAgentProfile(agentId))}
@@ -478,6 +388,8 @@ export function GeneralSettings({
                 </button>
               </div>
 
+              </>}
+              {preferences?.newConversationTeamId && defaultsError && <p className="general-inline-status is-error" role="alert">{defaultsError}</p>}
               <div className="general-one-click-setting">
                 <div className="general-one-click-row">
                   <span>
@@ -510,7 +422,7 @@ export function GeneralSettings({
                     ? <p className="general-effective-summary">{t('{0} 位默认队员 · 队长 {1}', savedDefaults.members.length, savedDefaults.lead.displayName)}</p>
                     : <p className="general-effective-summary attention" role="status"><UiText zh={"默认队员配置需要重新确认。一键创建时将改为打开创建弹窗。"} /></p>
                 )}
-                {!preferences?.newConversationDefaults && (
+                {!preferences?.newConversationDefaults && !preferences?.newConversationTeamId && (
                   <p className="general-one-click-unavailable"><UiText zh={"请先保存默认队员与默认队长，再开启一键创建。"} /></p>
                 )}
               </div>
@@ -521,7 +433,7 @@ export function GeneralSettings({
         <section className="section-block general-settings-section" aria-labelledby="general-conversation-heading">
           <div className="section-heading"><div><h2 id="general-conversation-heading"><UiText zh={"会话"} /></h2><p><UiText zh={"阅读面与沉浸视图"} /></p></div></div>
           <div className="general-section-body">
-            <label className="general-world-map-setting">
+            <label className="general-world-map-setting" aria-busy={worldMapBusy}>
               <span>
                 <strong><UiText zh={"世界地图"} /></strong>
                 <small id="general-world-map-description"><UiText zh={"在对话中显示地图视图及切换入口。"} /></small>
@@ -536,18 +448,18 @@ export function GeneralSettings({
                 onChange={(event) => void setWorldMapEnabled(event.target.checked)}
               />
             </label>
-            {worldMapBusy && <p className="general-inline-status" role="status"><UiText zh={"正在保存会话偏好…"} /></p>}
+            <div className="sr-only" role="status">{worldMapBusy && <UiText zh={"正在保存会话偏好…"} />}</div>
             {worldMapError && (
               <div className="general-inline-status is-error" role="alert">
                 <span>{worldMapError}</span>
                 <button className="quiet-button compact" type="button" onClick={() => void loadPreferences()}><UiText zh={"重新读取"} /></button>
               </div>
             )}
-            <label className="general-world-map-setting general-task-setting">
+            <label className="general-world-map-setting general-task-setting" aria-busy={tasks.saving}>
               <span><strong><UiText zh="会话任务" /></strong><small id="general-task-description"><UiText zh="在所有会话中提供任务面板和队员任务工具；关闭不删除已有任务记录。" /></small></span>
               <input type="checkbox" role="switch" aria-label={uiAttribute('会话任务')} aria-describedby="general-task-description" checked={tasks.enabled} disabled={!tasks.ready || tasks.saving} onChange={event => void tasks.setEnabled(event.target.checked)} />
             </label>
-            {tasks.saving && <p className="general-inline-status" role="status"><UiText zh="正在保存…" /></p>}
+            <div className="sr-only" role="status">{tasks.saving && <UiText zh="正在保存…" />}</div>
             {tasks.error && <div className="general-inline-status is-error" role="alert"><span><UiText zh={tasks.error === 'save' ? '未能保存，请重试。' : '无法读取会话任务设置，请重试。'} /></span><button className="quiet-button compact" type="button" onClick={() => void tasks.retry()}><UiText zh="重试" /></button></div>}
           </div>
         </section>
@@ -645,13 +557,7 @@ export function newConversationDefaultsDraftIsValid(
   return newConversationDefaultsDraftError(defaults, agents) === null
 }
 
-function SearchIcon(): React.JSX.Element {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
-}
 
-function ChevronDownIcon(): React.JSX.Element {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-}
 
 function HelpCircleIcon(): React.JSX.Element {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 0 1 4.65.8c0 1.8-2.45 2.05-2.45 3.7" /><path d="M12 17h.01" /></svg>

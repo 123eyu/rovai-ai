@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
-pub const NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION: &str = "native_session_bootstrap_v5";
-pub const BOOTSTRAP_FORMATTER_VERSION: i64 = 5;
+pub const NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION: &str = "native_session_bootstrap_v6";
+pub const BOOTSTRAP_FORMATTER_VERSION: i64 = 6;
 pub const SESSION_CHARTER_REVISION: i64 = 25;
 const NATIVE_BINDING_CHARTER_COMPATIBILITY_REVISION: i64 = 16;
 pub const AGENT_RUN_CONTEXT_FORMATTER_VERSION: i64 = 42;
@@ -62,8 +62,8 @@ mod tests {
         assert_eq!(
             current,
             json!({
-                "nativeSessionBootstrap": "native_session_bootstrap_v5",
-                "bootstrapFormatterVersion": 5,
+                "nativeSessionBootstrap": "native_session_bootstrap_v6",
+                "bootstrapFormatterVersion": 6,
                 "sessionCharterRevision": SESSION_CHARTER_REVISION,
                 "agentRunContextFormatterVersion": 42,
                 "contextManifestVersion": 42,

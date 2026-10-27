@@ -38,13 +38,13 @@ describe('browser-local language preference', () => {
 
   it('preserves schema 5 values while missing storage alone gets the system default', async () => {
     const { entries } = browser()
-    const { interfaceLanguagePreference: _preference, ...common } = DEFAULT_STORED_GENERAL_PREFERENCES
+    const { interfaceLanguagePreference: _preference, newConversationTeamId: _team, ...common } = DEFAULT_STORED_GENERAL_PREFERENCES
     for (const language of ['zh-CN', 'en'] as const) {
       entries.set('rovai.presentation:owner:general', JSON.stringify({ ...common, schemaVersion: 5, interfaceLanguage: language }))
       const api = browserGeneralPreferences('owner')
       expect(await api.getInterfaceLanguage()).toMatchObject({ interfaceLanguagePreference: language, interfaceLanguage: language })
       await api.setLastSettingsSection('runtime')
-      expect(JSON.parse(entries.get('rovai.presentation:owner:general')!)).toMatchObject({ schemaVersion: 6, interfaceLanguagePreference: language })
+      expect(JSON.parse(entries.get('rovai.presentation:owner:general')!)).toMatchObject({ schemaVersion: 7, interfaceLanguagePreference: language })
     }
   })
 

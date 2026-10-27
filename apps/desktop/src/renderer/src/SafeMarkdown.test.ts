@@ -24,6 +24,15 @@ describe('SafeMarkdown literal HTML policy', () => {
     }))
     expect(markup).toContain('&lt;div&gt;\n<button class="trusted-mention">@用户</button>\n&lt;/div&gt;')
     expect(markup).not.toContain(token)
+
+    const dropped = renderToStaticMarkup(createElement(SafeMarkdown, {
+      children: `<div>\n${token}\n</div>`,
+      rawHtmlPolicy: 'drop',
+      inlineContent: { [token]: createElement('button', { className: 'trusted-mention' }, '@用户') }
+    }))
+    expect(dropped).not.toContain('trusted-mention')
+    expect(dropped).not.toContain(token)
+    expect(dropped).not.toContain('&lt;div&gt;')
   })
 
   it('drops raw metadata only when explicitly requested, regardless of layout mode', () => {
@@ -94,7 +103,8 @@ describe('SafeMarkdown file preview references', () => {
       onFileReference: () => undefined,
       children: [
         '[配置](config.toml) [代码](src/App.tsx:20) [原型](docs/prototype.html)',
-        '`config.toml` `src/App.tsx:20` `./docs/prototype.html` `/Users/name/Downloads/demo.html`'
+        '`config.toml` `src/App.tsx:20` `./docs/prototype.html` `/Users/name/Downloads/demo.html`',
+        '<div>[原样文字](hidden.md)</div>'
       ].join('\n\n')
     }))
 
@@ -108,6 +118,7 @@ describe('SafeMarkdown file preview references', () => {
     expect(markup).toContain('<code>./docs/prototype.html</code>')
     expect(markup).toContain('<code>/Users/name/Downloads/demo.html</code>')
     expect(markup).not.toContain('inline-code-file-reference')
+    expect(markup).toContain('&lt;div&gt;[原样文字](hidden.md)&lt;/div&gt;')
   })
 
   it.each([
@@ -118,6 +129,8 @@ describe('SafeMarkdown file preview references', () => {
     ['inline code on both sides', '`前`[文件](docs/plan.md)`后`', true, true],
     ['text only before the link', '前[文件](docs/plan.md)，', true, false],
     ['text only after the link', '（[文件](docs/plan.md)后', false, true],
+    ['literal HTML before the link', '文</b>[文件](README.md)', false, false],
+    ['literal HTML after the link', '[文件](README.md)<b>文', false, false],
     ['existing whitespace', '前 [文件](docs/plan.md) 后', false, false],
     ['punctuation', '（[文件](docs/plan.md)）。', false, false],
     ['a soft line break', '前\n[文件](docs/plan.md)\n后', false, false],
@@ -134,6 +147,21 @@ describe('SafeMarkdown file preview references', () => {
     if (marginInlineStart && marginInlineEnd) {
       expect(markup.replace(/<[^>]*>/gu, '')).toBe(source.includes('A[') ? 'A文件9' : '前文件后')
     }
+  })
+
+  it.each([
+    ['文</b>[文件](README.md)', true, false],
+    ['[文件](README.md)<b>文', false, true]
+  ])('ignores dropped HTML when spacing %s', (source, marginInlineStart, marginInlineEnd) => {
+    const markup = renderToStaticMarkup(createElement(SafeMarkdown, {
+      onFileReference: () => undefined,
+      rawHtmlPolicy: 'drop',
+      children: source
+    }))
+    const className = /<a class="([^"]*markdown-file-reference[^"]*)"/u.exec(markup)?.[1] ?? ''
+    expect(className.includes('has-adjacent-text-before')).toBe(marginInlineStart)
+    expect(className.includes('has-adjacent-text-after')).toBe(marginInlineEnd)
+    expect(markup).not.toContain('&lt;')
   })
 
   it('keeps spacing markers scoped to message file references', () => {

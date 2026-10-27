@@ -272,6 +272,7 @@ pub struct PreparedSessionBootstrap {
 
 #[derive(Debug, Clone)]
 struct PreparedBootstrapEvidence {
+    team_guidance: Option<String>,
     evidence_id: String,
     session_charter: String,
     platform_skills: Option<String>,
@@ -3301,7 +3302,10 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
         {
             anyhow::bail!("Native Session Bootstrap evidence Blob digest mismatch");
         }
-        if contract_version == NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION {
+        if matches!(
+            contract_version.as_str(),
+            "native_session_bootstrap_v5" | NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION
+        ) {
             let section = platform_skills
                 .as_deref()
                 .context("new Bootstrap platform Skills are missing")?;
@@ -3315,6 +3319,8 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
                 "unsupported frozen Bootstrap Skills evidence"
             );
         }
+        let team_guidance =
+            frozen_team_guidance(database.connection(), snapshot, &contract_version)?;
         return Ok(PreparedBootstrapEvidence {
             evidence_id,
             session_charter: charter,
@@ -3325,7 +3331,9 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
                 &charter_digest,
                 platform_digest.as_deref(),
                 &entrypoint_digest,
+                team_guidance.as_deref(),
             )?,
+            team_guidance,
             native_binding_id: native_binding_id.to_string(),
             native_binding_generation,
             delivery_mode,
@@ -3343,6 +3351,7 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
             snapshot,
         )?,
     };
+    let team_guidance = contents.team_guidance;
     let charter = contents.session_charter;
     let entrypoint = contents.memory_entrypoint;
     let observed = contents.observed_memory_revisions;
@@ -3438,7 +3447,9 @@ fn prepare_session_bootstrap_evidence_for_snapshot(
             &charter_digest,
             Some(&platform_digest),
             &entrypoint_digest,
+            team_guidance.as_deref(),
         )?,
+        team_guidance,
         native_binding_id: native_binding_id.to_string(),
         native_binding_generation,
         delivery_mode,
@@ -3457,6 +3468,7 @@ fn format_session_bootstrap_for_snapshot(
     let payload = render_session_bootstrap(
         &evidence.session_charter,
         &member_identity,
+        evidence.team_guidance.as_deref(),
         evidence.platform_skills.as_deref(),
         &evidence.memory_entrypoint,
     )?;
@@ -3514,6 +3526,7 @@ fn load_latest_member_identity<R: ContextReadConnection>(
 fn render_session_bootstrap(
     charter: &str,
     member_identity: &MemberIdentityBootstrapProjection,
+    team_guidance: Option<&str>,
     platform_skills: Option<&str>,
     memory_entrypoint: &str,
 ) -> Result<String> {
@@ -3522,6 +3535,11 @@ fn render_session_bootstrap(
         charter.trim(),
         serde_json::to_string_pretty(member_identity)?,
     );
+    if let Some(guidance) = team_guidance.filter(|text| !text.is_empty()) {
+        bootstrap.push_str(&format!(
+            "\n\n[TEAM_GUIDANCE]\n{guidance}\n[/TEAM_GUIDANCE]"
+        ));
+    }
     if let Some(platform_skills) = platform_skills {
         bootstrap.push_str("\n\n");
         bootstrap.push_str(platform_skills);
@@ -3586,18 +3604,37 @@ fn bootstrap_evidence_digest_for(
     charter_digest: &str,
     platform_digest: Option<&str>,
     memory_entrypoint_digest: &str,
+    team_guidance: Option<&str>,
 ) -> Result<String> {
     match contract_version {
         "native_session_bootstrap_v4" => Ok(bootstrap_evidence_digest(
             charter_digest,
             memory_entrypoint_digest,
         )),
-        NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION => Ok(sha256_text(&format!(
+        "native_session_bootstrap_v5" => Ok(sha256_text(&format!(
             "{contract_version}\n{charter_digest}\n{}\n{memory_entrypoint_digest}",
+            platform_digest.context("Bootstrap platform digest is missing")?
+        ))),
+        NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION => Ok(sha256_text(&format!(
+            "{contract_version}\n{charter_digest}\n{}\n{}\n{memory_entrypoint_digest}",
+            sha256_text(team_guidance.unwrap_or("")),
             platform_digest.context("Bootstrap platform digest is missing")?
         ))),
         _ => anyhow::bail!("unsupported Native Session Bootstrap contract"),
     }
+}
+
+fn frozen_team_guidance(
+    connection: &rusqlite::Connection,
+    snapshot: &RunSnapshot,
+    contract: &str,
+) -> Result<Option<String>> {
+    if contract != NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION
+        || snapshot.invocation_kind == "single_chat"
+    {
+        return Ok(None);
+    }
+    crate::teams::thread_guidance(connection, &snapshot.camp_id)
 }
 
 fn bootstrap_required_for_snapshot<R: ContextReadConnection>(
@@ -7453,11 +7490,13 @@ fn load_existing_manifest(
         [&row.7],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
+    let team_guidance = frozen_team_guidance(database.connection(), snapshot, &bootstrap_contract)?;
     let bootstrap_digest = bootstrap_evidence_digest_for(
         &bootstrap_contract,
         &row.9,
         platform_digest.as_deref(),
         &row.11,
+        team_guidance.as_deref(),
     )?;
     let bootstrap_required = requires_new_native_session
         || snapshot.native_charter_digest.as_deref() != Some(bootstrap_digest.as_str());
@@ -7484,6 +7523,7 @@ fn load_existing_manifest(
         let bootstrap = render_session_bootstrap(
             &charter,
             &member_identity,
+            team_guidance.as_deref(),
             platform_section.as_deref(),
             &entrypoint,
         )?;
@@ -8132,7 +8172,9 @@ fn load_delivery_target(
                    runtime_input_delivery.bootstrap_redelivery_revision,
                    context_manifest.mission_details_version,
                    bootstrap.contract_version,
-                   platform.section_digest, context_manifest.id, context_manifest.source_delivery_id, runtime_input_delivery.input_sequence
+                   platform.section_digest, context_manifest.id, context_manifest.source_delivery_id, runtime_input_delivery.input_sequence,
+                   CASE WHEN agent_run.invocation_kind <> 'single_chat' AND bootstrap.contract_version='native_session_bootstrap_v6'
+                       THEN (SELECT guidance FROM thread_team_bootstrap WHERE camp_id=COALESCE(agent_run.camp_id,camp_turn.camp_id)) END
             FROM runtime_input_delivery
             JOIN context_manifest
               ON context_manifest.id = runtime_input_delivery.context_manifest_id
@@ -8164,6 +8206,7 @@ fn load_delivery_target(
                         &row.get::<_, String>(8)?,
                         row.get::<_, Option<String>>(18)?.as_deref(),
                         &row.get::<_, String>(9)?,
+                        row.get::<_, Option<String>>(22)?.as_deref(),
                     )
                     .map_err(|error| {
                         rusqlite::Error::FromSqlConversionFailure(
@@ -8769,6 +8812,7 @@ mod tests {
                     expected_versions: Vec::new(),
                     execution_epoch: None,
                     payload: crate::mission::CreateMissionCommand {
+                        team: None,
                         description_content: None,
                         title: "Context identity".to_string(),
                         description: "Use the internal Mission ID in new context.".to_string(),
@@ -9075,7 +9119,8 @@ mod slow_tests {
             working_principles: String::new(),
             growth_topic: String::new(),
         };
-        let formatted = render_session_bootstrap("charter", &identity, None, "entrypoint").unwrap();
+        let formatted =
+            render_session_bootstrap("charter", &identity, None, None, "entrypoint").unwrap();
         assert_eq!(
             formatted,
             "[SESSION_CHARTER]\ncharter\n[/SESSION_CHARTER]\n\n\
@@ -9083,6 +9128,58 @@ mod slow_tests {
 \"teamRole\": \"\",\n  \"professionalResponsibilities\": \"line one\\nline two\",\n  \
 \"personalityTraits\": [],\n  \"workingPrinciples\": \"\",\n  \"growthTopic\": \"\"\n}\n\
 [/MEMBER_IDENTITY]\n\n[MEMORY_ENTRYPOINT]\nentrypoint\n[/MEMORY_ENTRYPOINT]"
+        );
+        let guidance = "简洁回答。\n先验证关键假设。";
+        let with_guidance = render_session_bootstrap(
+            "charter",
+            &identity,
+            Some(guidance),
+            Some("[ROVAI_PLATFORM_SKILLS]\n{}\n[/ROVAI_PLATFORM_SKILLS]"),
+            "entrypoint",
+        )
+        .unwrap();
+        assert!(with_guidance.contains(&format!("[/MEMBER_IDENTITY]\n\n[TEAM_GUIDANCE]\n{guidance}\n[/TEAM_GUIDANCE]\n\n[ROVAI_PLATFORM_SKILLS]")));
+        assert_eq!(with_guidance.matches("[TEAM_GUIDANCE]").count(), 1);
+        assert_eq!(
+            render_session_bootstrap("charter", &identity, Some(""), None, "entrypoint").unwrap(),
+            formatted
+        );
+        let legacy = bootstrap_evidence_digest_for(
+            "native_session_bootstrap_v5",
+            "charter",
+            Some("skills"),
+            "memory",
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            legacy,
+            bootstrap_evidence_digest_for(
+                "native_session_bootstrap_v5",
+                "charter",
+                Some("skills"),
+                "memory",
+                Some(guidance)
+            )
+            .unwrap()
+        );
+        assert_ne!(
+            bootstrap_evidence_digest_for(
+                NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION,
+                "charter",
+                Some("skills"),
+                "memory",
+                None
+            )
+            .unwrap(),
+            bootstrap_evidence_digest_for(
+                NATIVE_SESSION_BOOTSTRAP_CONTRACT_VERSION,
+                "charter",
+                Some("skills"),
+                "memory",
+                Some(guidance)
+            )
+            .unwrap()
         );
         for mode in [
             CharterDeliveryMode::NativeAppend,
@@ -9117,7 +9214,7 @@ mod slow_tests {
             growth_topic: String::new(),
         };
         let formatted =
-            render_session_bootstrap("single chat charter", &identity, None, "").unwrap();
+            render_session_bootstrap("single chat charter", &identity, None, None, "").unwrap();
         assert!(formatted.contains("[SESSION_CHARTER]"));
         assert!(formatted.contains("[MEMBER_IDENTITY]"));
         assert!(!formatted.contains("[MEMORY_ENTRYPOINT]"));
@@ -11337,6 +11434,17 @@ mod slow_tests {
             if expected_version >= 36 {
                 fixture.database.connection().execute("UPDATE camp_message SET author_type='agent',author_id='agent_2' WHERE id=(SELECT message_id FROM agent_run_input WHERE agent_run_id=?1)", [&fixture.run_id]).unwrap();
                 freeze_fixture_claim(&mut fixture);
+                if expected_version == 38 {
+                    // Construct an actual historical claim; the current fixture now claims v40.
+                    let connection = fixture.database.connection();
+                    let guard: String = connection.query_row("SELECT sql FROM sqlite_master WHERE name='agent_run_input_context_projection_immutable'", [], |row| row.get(0)).unwrap();
+                    let tx = connection.unchecked_transaction().unwrap();
+                    tx.execute_batch("DROP TRIGGER agent_run_input_context_projection_immutable")
+                        .unwrap();
+                    tx.execute("UPDATE agent_run_input SET context_manifest_version=38 WHERE agent_run_id=?1", [&fixture.run_id]).unwrap();
+                    tx.execute_batch(&guard).unwrap();
+                    tx.commit().unwrap();
+                }
                 if expected_version == 36 {
                     let mut claimed = claim::load(fixture.database.connection(), &fixture.run_id)
                         .unwrap()
@@ -11652,7 +11760,7 @@ mod slow_tests {
             .unwrap();
         assert_eq!(
             (manifest_version, formatter_version, facts_version),
-            (39, 39, 10)
+            (40, 40, 11)
         );
         assert_eq!(profile_json, None);
         assert_eq!(
@@ -12675,7 +12783,46 @@ mod slow_tests {
 
     #[test]
     fn context_manifest_recovers_redacted_frozen_mcp_exposure_without_digests() {
+        // Both creation layouts must recover their frozen bytes after reopening.
+        for run_scoped in [false, true] {
+            assert_frozen_mcp_recovery(run_scoped);
+        }
+    }
+
+    fn assert_frozen_mcp_recovery(run_scoped: bool) {
         let mut fixture = fixture();
+        let config_json: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT effective_config_json FROM agent_run WHERE id = ?1",
+                [&fixture.run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut effective_config: Value = serde_json::from_str(&config_json).unwrap();
+        assert_eq!(effective_config["mcpSnapshotLayout"], "run_v1");
+        if !run_scoped {
+            effective_config
+                .as_object_mut()
+                .unwrap()
+                .remove("mcpSnapshotLayout");
+            effective_config
+                .as_object_mut()
+                .unwrap()
+                .remove("configDigest");
+            effective_config["configDigest"] =
+                json!(canonical_json_digest(&effective_config).unwrap());
+        }
+        let config_json = serde_json::to_string(&effective_config).unwrap();
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET effective_config_json = ?2 WHERE id = ?1",
+                params![fixture.run_id, config_json],
+            )
+            .unwrap();
         let config_store = McpConfigStore::new(fixture.directory.join("home/.rovai/mcp.json"));
         let known = ["agent_1".to_string()].into_iter().collect();
         let config = config_store.get(&known).unwrap();
@@ -12739,6 +12886,17 @@ mod slow_tests {
         let projection = projection_service
             .prepare(&fixture.database, &config_store, &projection_request)
             .unwrap();
+        let snapshot_root = fixture.directory.join("runtime/mcp").join(&fixture.run_id);
+        assert_eq!(
+            projection.canonical_path,
+            snapshot_root
+                .join(if run_scoped {
+                    "snapshot".to_string()
+                } else {
+                    fixture.execution_epoch.to_string()
+                })
+                .join("canonical.json")
+        );
         let skill_snapshot = SkillExposureSnapshot::default();
         let skill_exposure = PreparedSkillExposure {
             digest: canonical_json_digest(&serde_json::to_value(&skill_snapshot).unwrap()).unwrap(),
@@ -12779,6 +12937,30 @@ mod slow_tests {
         assert_eq!(persisted.2, None);
         assert!(!persisted.0.contains("must-not-enter-sqlite"));
 
+        let current = config_store.get(&known).unwrap();
+        let server_id = current
+            .servers
+            .iter()
+            .find(|server| server.name == "private-docs")
+            .unwrap()
+            .server_id
+            .clone();
+        assert!(matches!(
+            config_store
+                .update(
+                    crate::mcp::UpdateMcpServerParams {
+                        expected_config_digest: current.config_digest,
+                        server_id,
+                        definition_json:
+                            r#"{"mcpServers":{"private-docs":{"command":"new-global-command"}}}"#
+                                .into(),
+                    },
+                    &known
+                )
+                .unwrap(),
+            McpMutationResult::Ok { .. }
+        ));
+
         // The real Manifest writer leaves both retired digests NULL. The next
         // prepare must still recover the original private configuration.
         let repeated = projection_service
@@ -12796,7 +12978,7 @@ mod slow_tests {
         assert_eq!(reopened.snapshot, projection.snapshot);
         assert_eq!(reopened.servers, projection.servers);
 
-        // A new execution epoch copies the same Run's original projection.
+        // A new execution epoch reuses the same bytes; only legacy Runs copy them.
         let redispatched = reopened_service
             .prepare(
                 &fixture.database,
@@ -12810,6 +12992,10 @@ mod slow_tests {
         assert_eq!(redispatched.snapshot, projection.snapshot);
         assert_eq!(redispatched.servers, projection.servers);
         assert_eq!(
+            redispatched.canonical_path == projection.canonical_path,
+            run_scoped
+        );
+        assert_eq!(
             std::fs::read(&redispatched.canonical_path).unwrap(),
             std::fs::read(&projection.canonical_path).unwrap()
         );
@@ -12822,6 +13008,107 @@ mod slow_tests {
         assert_eq!(diagnostic.context_manifest.mcp_exposure_digest, None);
         assert_eq!(diagnostic.context_manifest.mcp_projection_digest, None);
         assert_eq!(diagnostic.context_manifest.attachment_digest, None);
+        let persisted_config: String = fixture
+            .database
+            .connection()
+            .query_row(
+                "SELECT effective_config_json FROM agent_run WHERE id = ?1",
+                [&fixture.run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted_config, config_json);
+
+        // A malformed/future marker is local to this Run, never a startup gate.
+        for unsupported in [json!("future-layout"), json!(null), json!(2)] {
+            let mut invalid = effective_config.clone();
+            invalid["mcpSnapshotLayout"] = unsupported;
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE agent_run SET effective_config_json = ?2 WHERE id = ?1",
+                    params![fixture.run_id, invalid.to_string()],
+                )
+                .unwrap();
+            let error = reopened_service
+                .prepare(&fixture.database, &config_store, &projection_request)
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsupported MCP snapshot layout")
+            );
+        }
+        let other_run = Uuid::new_v4().to_string();
+        assert!(
+            reopened_service
+                .prepare(
+                    &fixture.database,
+                    &config_store,
+                    &McpProjectionRequest {
+                        agent_run_id: &other_run,
+                        ..projection_request.clone()
+                    }
+                )
+                .is_ok()
+        );
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET effective_config_json = ?2 WHERE id = ?1",
+                params![fixture.run_id, config_json],
+            )
+            .unwrap();
+        assert!(
+            reopened_service
+                .prepare(&fixture.database, &config_store, &projection_request)
+                .is_ok()
+        );
+
+        // Existing maintenance removes crashed staging without retiring a live Run.
+        let staging = snapshot_root.join(".interrupted.tmp");
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(staging.join("canonical.json"), b"partial").unwrap();
+        reopened_service
+            .cleanup_terminal_and_orphaned(&fixture.database)
+            .unwrap();
+        assert!(!staging.exists());
+        assert!(projection.canonical_path.exists());
+
+        if run_scoped {
+            assert_eq!(std::fs::read_dir(&snapshot_root).unwrap().count(), 1);
+            // Losing a frozen snapshot must not fall back to global config or
+            // import an epoch directory, even if one contains identical bytes.
+            let legacy = snapshot_root.join("99");
+            std::fs::create_dir(&legacy).unwrap();
+            let bytes = std::fs::read(&projection.canonical_path).unwrap();
+            std::fs::write(legacy.join("canonical.json"), &bytes).unwrap();
+            std::fs::remove_dir_all(projection.canonical_path.parent().unwrap()).unwrap();
+            let error = reopened_service
+                .prepare(&fixture.database, &config_store, &projection_request)
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("unavailable for frozen AgentRun")
+            );
+            assert_eq!(std::fs::read(legacy.join("canonical.json")).unwrap(), bytes);
+            assert!(!snapshot_root.join("snapshot").exists());
+        }
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET status = 'failed', ended_at = updated_at WHERE id = ?1",
+                [&fixture.run_id],
+            )
+            .unwrap();
+        reopened_service
+            .cleanup_terminal_and_orphaned(&fixture.database)
+            .unwrap();
+        assert!(!snapshot_root.exists());
         fixture.cleanup();
     }
 
@@ -13602,6 +13889,16 @@ mod slow_tests {
     #[test]
     fn newly_bound_session_bootstraps_on_its_current_generation() {
         let mut fixture = fixture();
+        // Max-length Unicode guidance consumes its full 40000 UTF-8 bytes.
+        let guidance = "🌸".repeat(10000);
+        fixture
+            .database
+            .connection()
+            .execute(
+                "INSERT INTO thread_team_bootstrap(camp_id,guidance) VALUES(?1,?2)",
+                params![fixture.camp_id, guidance],
+            )
+            .unwrap();
         // Worst JSON expansion: each valid scalar becomes six serialized bytes.
         let long_responsibilities = "\0".repeat(10_000);
         fixture
@@ -13617,6 +13914,28 @@ mod slow_tests {
 
         let store = ManagedBlobStore::new(&fixture.directory);
         freeze_fixture_claim(&mut fixture);
+        let error = ContextService
+            .materialize(
+                &mut fixture.database,
+                &store,
+                &MaterializeContextRequest {
+                    agent_run_id: &fixture.run_id,
+                    execution_epoch: fixture.execution_epoch,
+                    charter_delivery_mode: CharterDeliveryMode::FirstPayload,
+                    max_payload_bytes: guidance.len(),
+                },
+            )
+            .unwrap_err();
+        assert!(error.downcast_ref::<ContextPayloadTooLarge>().is_some());
+        assert_eq!(
+            fixture
+                .database
+                .connection()
+                .query_row("SELECT COUNT(*) FROM context_manifest", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
         let materialized = ContextService
             .materialize(
                 &mut fixture.database,
@@ -13632,6 +13951,26 @@ mod slow_tests {
         let ContextMaterialization::Ready(prepared) = materialized else {
             panic!("newly bound Session should materialize without another generation")
         };
+        assert!(
+            prepared
+                .runtime_payload
+                .contains(&format!("[TEAM_GUIDANCE]\n{guidance}\n[/TEAM_GUIDANCE]"))
+        );
+        assert_eq!(
+            prepared.runtime_payload.matches("[TEAM_GUIDANCE]").count(),
+            1
+        );
+        assert!(!prepared.rendered_payload.contains("TEAM_GUIDANCE"));
+        assert!(
+            fixture
+                .database
+                .connection()
+                .execute(
+                    "UPDATE thread_team_bootstrap SET guidance='changed' WHERE camp_id=?1",
+                    [&fixture.camp_id]
+                )
+                .is_err()
+        );
         let full_json = serde_json::to_string(&long_responsibilities).unwrap();
         assert!(prepared.runtime_payload.contains(&full_json));
         assert_eq!(
@@ -14003,6 +14342,7 @@ mod slow_tests {
     #[test]
     fn single_chat_materializes_conversation_input_with_a_memory_free_bootstrap() {
         let mut fixture = fixture();
+        fixture.database.connection().execute("INSERT INTO thread_team_bootstrap(camp_id,guidance) VALUES(?1,'固定指引：先验证，再交付。')", [&fixture.camp_id]).unwrap();
         send_explicit_public_output(
             &mut fixture,
             "shared-sender-before-claim",
@@ -14190,6 +14530,7 @@ mod slow_tests {
         );
         assert!(prepared.runtime_payload.starts_with("[SESSION_CHARTER]\n"));
         assert!(prepared.runtime_payload.contains("[MEMBER_IDENTITY]"));
+        assert!(!prepared.runtime_payload.contains("[TEAM_GUIDANCE]"));
         assert!(!prepared.runtime_payload.contains("[MEMORY_ENTRYPOINT]"));
         assert!(prepared.rendered_payload.contains("只检查当前单聊输入"));
         assert!(prepared.rendered_payload.contains("[SINGLE_CHAT_GUIDANCE]"));
@@ -16007,9 +16348,10 @@ mod slow_tests {
                             execution.runtime.installation_id.clone(),
                         ),
                         previous_native_session_id: Some("generation-one".to_string()),
-                        previous_binding_compatibility_digest: Some(
-                            execution.runtime.binding_compatibility_digest.clone(),
-                        ),
+                        previous_binding_compatibility_digest: execution
+                            .runtime
+                            .binding_compatibility_digest
+                            .clone(),
                         proposed_binding_id: None,
                         adapter_installation_id: execution.runtime.installation_id.clone(),
                         native_session_id: "generation-two".to_string(),

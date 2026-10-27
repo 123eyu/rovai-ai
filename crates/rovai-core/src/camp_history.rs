@@ -30,7 +30,7 @@ pub const CAMP_LIST_TOOL_NAME: &str = "thread.list";
 pub const CAMP_SEARCH_TOOL_NAME: &str = "thread.search";
 pub const HISTORY_SEARCH_TOOL_NAME: &str = "history.search";
 pub const CAMP_READ_TOOL_NAME: &str = "thread.read";
-pub const CAMP_HISTORY_CONTRACT_VERSION: u32 = 15;
+pub const CAMP_HISTORY_CONTRACT_VERSION: u32 = 16;
 
 const CAMP_LIST_DEFAULT_LIMIT: usize = 20;
 const CAMP_LIST_MAX_LIMIT: usize = 50;

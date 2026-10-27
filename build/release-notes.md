@@ -1,39 +1,37 @@
-# Rovai AI v0.4.16
+# Rovai AI v0.5.1
 
 <!-- lang:zh-CN -->
 
-本次更新新增智能体通用环境变量、输入历史和回复详情，支持长文本粘贴转附件，并调整会话提醒、设置入口与操作反馈。
+本次更新支持在创建使命时选用团队，改善会话引用与执行状态展示，并修复多项智能体运行问题。
 
-- 【功能】**支持智能体通用环境变量。** 在智能体启动设置中保存通用配置，使用同一种智能体的队员可选择继承或独立配置；同名变量以队员设置为准，并可查看合并结果。修改在新进程启动时生效，不打断正在运行的任务。
-- 【交互】**环境变量填写更方便。** 支持直接输入字符串、数字和布尔值，保存时统一转为字符串。编辑器直接显示变量值，空配置提供简短 JSON 示例；保存失败时保留原始草稿。
-- 【功能】**公屏和单聊支持查看历史输入。** 在输入框起点按 ↑ 浏览已加载的历史输入，可修改后再次发送；按 Esc 或向下翻过最新一条，可恢复原草稿和光标位置。
-- 【功能】**新增回复详情。** 点击消息中的回复块，可集中查看同一回复链的内容和相关执行过程，支持调整宽度、完整阅读、复制和回到原文，查看时保留当前输入草稿。
-- 【功能】**长文本粘贴自动转为附件。** 桌面端公屏单次粘贴超过 10,000 个字符的纯文本时，自动生成保留全文的 `.txt` 附件，卡片显示内容开头。已修正 Windows 路径处理，支持附件预览、重启恢复和移除。
-- 【功能】**界面语言支持“跟随系统”。** 桌面端根据本机语言、Web 端根据浏览器语言选择简体中文或英文，也可手动指定；切换时不重载页面、不清空草稿或中断执行。
-- 【功能】**增加执行中断提醒。** 因应用退出或已确认的执行异常中断时，侧栏会话显示提醒蓝点；打开并查看会话后自动确认，也可手动标记已读。
-- 【界面】**调整设置入口与会话展示。** “智能体”移至设置中“能力”分组的首项；会话顶栏调整字号与字重，区分项目名和会话名。用户附件卡片更紧凑，队员交付的文件列表保留原有宽度。
-- 【交互】**统一会话浮层的收起操作。** 单聊、执行、队员和任务浮层使用一致的收起按钮与 Esc 提示；修正打开回复详情后，执行和队员浮层收起按钮无法点击的问题。
-- 【交互】**减少重复的操作提示。** 移除复制、撤回、成员管理、定时任务及长文本转换等操作的重复成功提示；执行来源定位统一使用已有的“回到最新”按钮。
-- 【修复】**修复部分合法文件名无法作为附件发送的问题。** 包含时间冒号等字符的附件名称会原样保留，不再被错误拒绝或改写。
+- 【功能】**创建使命时支持选用团队。** 可直接使用已保存的队员组合、队长和协作指引，也可自定义成员。较长的指引支持展开阅读全文，描述中额外 @ 的队员也会加入使命。
+- 【交互】**优化会话与使命引用。** 长标题自动省略显示，避免撑开输入框和消息气泡，详情中仍可查看完整标题。在公屏 `@` 列表中，可用 Tab、Shift+Tab 切换队员、会话和使命，用 Enter 插入引用。
+- 【交互】**统一执行启动与停止时的提示。** 启动阶段显示“启动中”，尚未开始处理的消息显示“准备中”或“排队中”。停止时保留已有内容和执行步骤，减少重复提示。
+- 【修复】**修复 Claude Code 审批通过后可能一直显示运行中的问题。** 当原生进程已经退出、工具结果未返回时，执行会结束为中断状态，并保留操作结果未知的记录。
+- 【修复】**修复新版 Copilot CLI 无法启动的问题。** 调整启动参数，兼容 Copilot CLI 1.0.103。
+- 【修复】**修复运行时检测使用的路径不一致问题。** 应用启动、重新检测和单项检查统一使用相同的命令搜索路径；主动点击“检查”时会刷新路径，减少 macOS 从 Dock 启动后反复检测失败的情况。
+- 【修复】**补齐 Command Code 写入文件的差异展示。** 对新建文件或空文件写入内容并成功后，可查看新增行数和完整差异，不再只显示一次文件操作。
+- 【优化】**减少 MCP 配置快照的重复写入。** 同一次执行恢复时复用配置快照，并补齐 Grok 临时 MCP 插件的启动清理。
 
-[完整变更](https://github.com/murray17/rovai-ai/compare/v0.4.15...v0.4.16)
+感谢 @arschlochnop 反馈的 Claude Code 审批与运行时检测问题（[#889](https://github.com/murray17/rovai-ai/issues/889)、[#891](https://github.com/murray17/rovai-ai/issues/891)）。
+
+[完整变更](https://github.com/murray17/rovai-ai/compare/v0.5.0...v0.5.1)
 
 ---
 
 <!-- lang:en -->
 
-This release adds shared agent environment settings, input history, reply details, and text attachments for long pastes. It also updates conversation reminders, settings navigation, and action feedback.
+This release brings team presets to mission creation, improves conversation references and execution status, and fixes several agent runtime issues.
 
-- [Feature] **Share environment variables between teammates using the same agent.** Save common settings in the agent's startup settings. Teammates can inherit them or use independent settings, override matching names, and inspect the merged result. Changes apply when a new process starts without interrupting running tasks.
-- [Interaction] **Enter environment variables more easily.** Values can be strings, numbers, or booleans and are converted to strings when saved. The editor displays values directly and shows a short JSON example for empty settings. Failed saves preserve the original draft.
-- [Feature] **Recall previous input in public conversations and direct chats.** Press the up arrow at the start of the input to browse inputs from loaded messages, edit them, and send again. Press Esc or move down past the newest entry to restore the original draft and cursor position.
-- [Feature] **Read related messages in reply details.** Click a message's reply block to read its reply chain and inspect related executions. Resize the pane, switch to full reading, copy messages, or return to their original locations without losing the current input draft.
-- [Feature] **Turn long text pastes into attachments.** A single plain-text paste exceeding 10,000 characters in a Desktop public conversation becomes a complete `.txt` attachment, with the beginning of its contents shown on the card. Windows path handling has been corrected, including attachment preview, recovery after restarting, and removal.
-- [Feature] **Follow the system interface language.** Desktop uses the local device's language and Web uses the browser's language to select Simplified Chinese or English, with manual selection still available. Switching does not reload the page, clear drafts, or interrupt executions.
-- [Feature] **Show reminders for interrupted executions.** A conversation's sidebar entry displays a reminder dot when an execution is interrupted by an App exit or a confirmed execution loss. Opening and viewing the conversation acknowledges the reminder; it can also be marked as read manually.
-- [UI] **Adjust settings navigation and conversation presentation.** Move Agents to the first item in the Capabilities settings group. Distinguish project and conversation names with updated header typography. User attachment cards are more compact, while teammate file lists retain their existing width.
-- [Interaction] **Make conversation panel dismissal consistent.** Direct chat, execution, teammate, and task panels use consistent collapse buttons and Esc hints. Fix collapse buttons becoming unclickable in execution and teammate panels after opening reply details.
-- [Interaction] **Remove repeated action notices.** Remove redundant success notices for copying, withdrawing messages, managing teammates, scheduled tasks, and converting long pastes. Execution source navigation uses the existing return-to-latest button.
-- [Fix] **Accept valid attachment filenames that were previously rejected.** Preserve display names containing characters such as colons in timestamps instead of rejecting or rewriting them.
+- [Feature] **Use saved teams when creating missions.** Choose an existing teammate lineup, lead, and collaboration guidance, or set up a custom roster. Expand long guidance to read it in full. Additional teammates mentioned in the description also join the mission.
+- [Interaction] **Improve conversation and mission references.** Long titles are ellipsized to fit the input and message bubble, with full titles available in the details. In the public `@` picker, use Tab or Shift+Tab to switch between teammates, conversations, and missions, then Enter to insert a reference.
+- [Interaction] **Make startup and stop feedback consistent.** Show a single startup status, distinguish preparation from queued messages, and retain existing content and execution steps while stopping, with fewer duplicate notices.
+- [Fix] **Fix Claude Code remaining in a running state after approval.** If the native process has exited without returning its tool result, finish the execution as interrupted while retaining an unknown result for the affected operation.
+- [Fix] **Restore startup with newer Copilot CLI releases.** Update launch arguments for compatibility with Copilot CLI 1.0.103.
+- [Fix] **Use consistent command search paths for runtime checks.** Startup, rediscovery, and individual checks now use the same path capture policy. Clicking Check refreshes the paths, reducing repeated detection failures when launching from the macOS Dock.
+- [Fix] **Show complete diffs for Command Code writes from empty content.** Successful writes to new or empty files now show added line counts and the full diff instead of only a file operation.
+- [Improvement] **Reduce duplicate MCP configuration snapshots.** Reuse the snapshot when recovering the same execution, and clean up abandoned temporary Grok MCP plugins at startup.
 
-[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.4.15...v0.4.16)
+Thanks to @arschlochnop for reporting the Claude Code approval and runtime detection issues ([#889](https://github.com/murray17/rovai-ai/issues/889), [#891](https://github.com/murray17/rovai-ai/issues/891)).
+
+[Full changelog](https://github.com/murray17/rovai-ai/compare/v0.5.0...v0.5.1)

@@ -60,7 +60,7 @@ import {
   resolvedTheme,
   themeBackground
 } from './appearance-preference'
-import { DEFAULT_APPEARANCE } from '../shared/appearance'
+import { DEFAULT_APPEARANCE, resolveThemeId } from '../shared/appearance'
 import {
   readWindowStateFile,
   resetWindowBounds,
@@ -213,6 +213,9 @@ const allowedMethods = new Set<CoreMethod>([
   'members.removalPreview',
   'members.remove',
   'members.reorder',
+  'teams.list',
+  'teams.save',
+  'teams.delete',
   'automations.list',
   'automations.runs.list',
   'automations.get',
@@ -247,6 +250,8 @@ const allowedMethods = new Set<CoreMethod>([
   'nativeSkills.list',
   'nativeSkills.read',
   'skills.candidates',
+  'threadReferences.list',
+  'threadReferences.resolve',
   'skills.content.read',
   'skills.deliveryGroups.list',
   'skills.import.inspect',
@@ -744,8 +749,8 @@ function publishAppearance(): AppearanceSnapshot {
   const snapshot = appearanceSnapshot()
   const signature = JSON.stringify(snapshot)
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.setBackgroundColor(themeBackground(snapshot.resolvedTheme))
-    applyWindowChromeAppearance(mainWindow, process.platform, snapshot.resolvedTheme)
+    mainWindow.setBackgroundColor(themeBackground(resolveThemeId(snapshot.preference, snapshot.resolvedTheme)))
+    applyWindowChromeAppearance(mainWindow, process.platform, snapshot)
   }
   if (signature !== lastAppearanceSignature) {
     lastAppearanceSignature = signature
@@ -784,7 +789,7 @@ function createWindow(): void {
   if (!generalPreferences || !restorableLocations) {
     throw new Error('Desktop Shell preferences are not ready')
   }
-  const theme = appearanceSnapshot().resolvedTheme
+  const initialAppearance = appearanceSnapshot()
   const windowStatePath = join(app.getPath('userData'), 'window-state.json')
   const displayAreas = screen.getAllDisplays().map((display) => display.workArea)
   const savedState = sanitizeWindowState(
@@ -804,8 +809,8 @@ function createWindow(): void {
     minHeight: MIN_WINDOW_HEIGHT,
     show: false,
     title: APP_NAME,
-    ...windowChromeOptions(process.platform, theme),
-    backgroundColor: themeBackground(theme),
+    ...windowChromeOptions(process.platform, initialAppearance),
+    backgroundColor: themeBackground(resolveThemeId(initialAppearance.preference, initialAppearance.resolvedTheme)),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -1503,6 +1508,12 @@ ipcMain.handle('rovai:general-preferences-set-execution-placement', (_event, pla
   )
 })
 
+ipcMain.handle('rovai:general-preferences-set-team', (_event, teamId: unknown, enableOneClick: unknown = false) => {
+  if (typeof enableOneClick !== 'boolean') throw new Error('Invalid one-click preference')
+  if (teamId !== null && (typeof teamId !== 'string' || !teamId || teamId.length > 200)) throw new Error('Invalid Team')
+  return hostGeneralPreferences().setNewConversationTeam(teamId as string | null, enableOneClick)
+})
+
 ipcMain.handle('rovai:general-preferences-set-new-conversation-defaults', (_event, defaults: unknown, enableOneClick: unknown = false) => {
   if (!isNewConversationDefaults(defaults)) throw new Error('Invalid default new conversation configuration')
   if (typeof enableOneClick !== 'boolean') throw new Error('Invalid one-click new conversation preference')
@@ -1519,9 +1530,12 @@ ipcMain.handle('rovai:general-preferences-set-world-map', (_event, enabled: unkn
   return hostGeneralPreferences().setWorldMapEnabled(enabled)
 })
 
-ipcMain.handle('rovai:general-preferences-invalidate-new-conversation-defaults', (_event, expectedDefaults: unknown) => {
-  if (expectedDefaults !== undefined && expectedDefaults !== null && !isNewConversationDefaults(expectedDefaults)) throw new Error('Invalid expected default team')
-  return hostGeneralPreferences().invalidateNewConversationDefaults(expectedDefaults)
+ipcMain.handle('rovai:general-preferences-invalidate-new-conversation-defaults', (_event, expected: unknown) => {
+  if (!expected || typeof expected !== 'object' || !('expectedTeamId' in expected) || !('expectedDefaults' in expected)) throw new Error('Invalid expected conversation defaults')
+  const { expectedTeamId, expectedDefaults } = expected
+  if (expectedTeamId !== null && (typeof expectedTeamId !== 'string' || !expectedTeamId || expectedTeamId.length > 200)) throw new Error('Invalid expected Team')
+  if (expectedDefaults !== null && !isNewConversationDefaults(expectedDefaults)) throw new Error('Invalid expected conversation defaults')
+  return hostGeneralPreferences().invalidateNewConversationDefaults({ expectedTeamId, expectedDefaults })
 })
 
 ipcMain.handle('rovai:channels-get', (event) => {

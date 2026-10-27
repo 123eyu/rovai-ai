@@ -92,7 +92,7 @@ try {
   await waitForSelector(running.cdp, '.onboarding-member-layout', 5_000)
   const memberPage = await evaluate(running.cdp, `(() => ({
     rows: document.querySelectorAll('.onboarding-member-row').length,
-    portraits: document.querySelectorAll('.onboarding-selected-portrait').length,
+    portraits: document.querySelectorAll('.onboarding-selected-avatar').length,
     hasSkip: ['跳过', 'Skip'].some((text) => document.body.textContent?.includes(text)),
     hasStepNavigation: Boolean(document.querySelector('.onboarding-step, .onboarding-progress button, .onboarding-progress a')),
     horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,

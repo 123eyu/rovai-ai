@@ -3,7 +3,7 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # v1.72 实施与验收
@@ -56,10 +56,33 @@ last_updated: 2026-10-26
 - 后续 User 明确授权创建 PR、合入 main 并安装本机 App。整合主线 `71f915be4` 时只需合并新增文档章节，
   保留双方记录；本次生产代码没有冲突。安装遵循 daily 构建、隔离验收及非终止交接流程。
 
+## 简化对话命名恢复（2026-10-27）
+
+- User 确认 HTML 交互稿并授权独立 worktree 实现、PR 到 main 并合入。
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-automation-title-simple`；
+  Branch：`rovai/automation-title-simple`；Base：`f73a70cf675142313b23f4f90c63727db24acbb5`；
+  Governance：none；Status：ready。
+- 共享编辑器恢复默认折叠入口：日期/时间两个勾选、前后分段单选与完整实时预览，复用已确认的样式。
+  保留生产总览、保存与通知行为；交互稿的主题切换工具、模拟运行提示和示例数据不进入产品。
+- Core 恢复 admission 标题生成，定时取计划时间、手动取实际时间；格式固定为 `YYYY-MM-DD` / `HH:mm`。
+  存取结构沿用 schema 165，格式枚举收敛为 `iso` / `24`；无迁移、回填或旧格式兼容逻辑。
+- Rust 不新增、删除或禁用测试函数。既有纯命名 owner 覆盖四种勾选组合、前后位置、零点/正午、Unicode、
+  closed schema；旧格式正例随生产枚举退出，改为拒绝输入断言。既有 manual snapshot/replay、once overlap
+  与 delayed schedule owners 覆盖时间来源、长标题、关闭两项、历史保留及 schedule 不变。
+  最小命令：`cargo test -p rovai-core --features extended-tests --lib automation`。
+- 生产 Electron fixture 扩展既有 owner：勾选/键盘单选、自动保存失败与重试、任务切换、五主题 action 色、
+  最小详情宽度、1040/1440/2560 窗口与 200% 缩放；独立临时 userData/Skill Library，无真实 Runtime。
+- 验证通过：`pnpm typecheck`、`pnpm test`（Vitest 257 文件 / 3007 passed / 2 skipped；Node 358 passed / 2 skipped）、
+  `pnpm test:automation-splitter`；Core automation 定向 16 passed；`cargo test --workspace`
+  478 passed / 1 ignored；跳过和忽略均为既有平台/人工用例。
+- `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`、`pnpm docs:check` 和基于本节 Base 的
+  `pnpm docs:check:ci` 通过。Day/Night、最小详情宽度与 200% 缩放截图已核对。
+  本次不安装本机 App、不发布版本。
+
 ## 定时任务对话命名（2026-10-26）
 
 本功能初次实现及颜色修正分别经 PR #913、#915 合入。User 随后要求先隐藏功能，并明确
-“同时停用日期标题，恢复任务名”；以下初次交付记录不再代表当前开放状态。
+“同时停用日期标题，恢复任务名”；以下保留该次停用与初次交付记录；当前开放状态见上方 2026-10-27 恢复记录。
 
 - 本次 worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-disable-automation-titles`；
   分支 `rovai/disable-automation-titles`；基线 `17a7fbba9dc55dbff1ad77837033968decef5b63`；

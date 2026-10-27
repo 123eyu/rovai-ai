@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -23,11 +23,13 @@ last_updated: 2026-10-26
 
 ## 定时任务对话命名（2026-10-26）
 
-Issue #875 的初次实现已合入；按 User 后续确认，暂时撤下对话命名入口并停用日期标题，
-手动和定时运行均恢复直接使用任务名。交互稿改良另行讨论；不新增历史数据兼容逻辑。
-当前合同见 [Scheduled Automation v4](../../contracts/scheduled-automation-v4.md)，
-范围与验证见[实施记录](implementation-plan.md#定时任务对话命名2026-10-26)。
-已有 Core schema 165 / migration 215 保持不变；没有模型输入模板或发布版本变化。局部可逆停用不新增 Version Decision。
+Issue #875 经 PR #916 暂停后，User 于 2026-10-27 确认简化交互稿并授权实现及合入。
+Desktop/Web 恢复命名入口，日期/时间只保留勾选，固定格式并保留名称前后位置与实时预览；
+Core 恢复使用定时 occurrence 的计划时间或手动实际触发时间生成标题。
+当前合同见 [Scheduled Automation v5](../../contracts/scheduled-automation-v5.md)，
+范围与验证见[实施记录](implementation-plan.md#简化对话命名恢复2026-10-27)。
+沿用 Core schema 165 / migration 215，没有历史数据回填、旧格式兼容或模型输入模板变化。
+局部交互简化与恢复不新增 Version Decision，也不改变发布版本。
 
 ## Runtime PATH 与主动检查一致性（2026-10-26）
 

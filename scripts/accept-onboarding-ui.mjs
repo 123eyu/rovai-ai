@@ -273,7 +273,7 @@ try {
       runtimeConfigured
     })
   }
-  const beforeProjection = await request(running.cdp, 'camps.open', {
+  const beforeProjection = await request(running.cdp, 'threads.open', {
     traceId: randomUUID(),
     threadId: completed.quickChatThreadId
   })
@@ -357,7 +357,7 @@ try {
   await waitForExpression(running.cdp,
     `JSON.parse(window.localStorage.getItem('rovai.camp-composer-draft.v1:' + ${JSON.stringify(completed.quickChatThreadId)}) || 'null')?.body === ${JSON.stringify(expectedStarter)}`,
     10_000)
-  const afterProjection = await request(running.cdp, 'camps.open', {
+  const afterProjection = await request(running.cdp, 'threads.open', {
     traceId: randomUUID(),
     threadId: completed.quickChatThreadId
   })
@@ -402,7 +402,7 @@ try {
     `document.querySelector('#camp-message')?.textContent === ${JSON.stringify(expectedStarter)}`,
     10_000)
   const restarted = await onboardingGet(running.cdp)
-  const restartedProjection = await request(running.cdp, 'camps.open', {
+  const restartedProjection = await request(running.cdp, 'threads.open', {
     traceId: randomUUID(),
     threadId: completed.quickChatThreadId
   })

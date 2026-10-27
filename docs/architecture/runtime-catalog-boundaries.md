@@ -41,7 +41,7 @@ Antigravity 适配器通过 `--print-timeout 0` 等待原生整轮结束，保�
 | Product Runtime Availability | Core 对某一 Product Runtime 的 discovery、静态身份或 deep-verification snapshot | light ready、checking、legacy installed unverified、ready、needs login、not installed、incompatible、transient failure 等当前机器状态 | 新产品身份、把静态可尝试误作深检 Ready 或静默 Runtime fallback |
 | Settings Runtime Preview Catalog | Renderer 内受审查的静态 presentation rows | Runtime 设置页中的名称、图标、`待支持`文案和 disabled 状态 | Contracts、Core request、数据库、成员选择、诊断、Probe、AgentRun 或支持数量 |
 
-Product Runtime Catalog 当前包含十九种已实现 Adapter。Preview 与它不是“同一目录的另一种状态”；
+Product Runtime Catalog 当前包含二十种已实现 Adapter。Preview 与它不是“同一目录的另一种状态”；
 Renderer 当前不展示 Settings Preview row。DeepSeek Harness 通过官方 ACP profile 接入；macOS arm64、macOS x64、
 Windows x64 与 Linux x64 分别绑定平台专属证据并取得 qualified。
 产品目录的机器可判数量、全量检查、诊断分母和
@@ -844,3 +844,19 @@ Usage 通过 Host 冻结的原生 data root、SQLite 精确 Session/cwd/root 身
 沿共享异步 baseline/poll 策略，短 Run 或结束尾部可能缺数；未观测保持未知，不以零补齐。
 ACP Session 累计费用仅作 Session gauge，不冒充 Run 费用。Skills 只读发现原生 `.minimax`、
 `.claude`、`.codex`、`.agents` 兼容来源，MCP 使用 ACP Session 追加投影；完整隔离和真实模型资格仍按矩阵记录。
+
+## Hermes 受管 ACP
+
+Hermes 以 `hermes-cli` 进入产品闭集，macOS arm64 Preview。共享 ACP 直接启动官方入口，
+使用用户原生 `~/.hermes` 与精确 Session resume；无私有 Home、启动器或专用 Gateway。
+Fleet 只拥有 ACP 客户端根进程，原生共享执行端不随 Run 回收。
+
+原生配置启用 `clarify` 后，官方 ACP 的选择题及开放题权限卡片进入共享问卷不支持处理，
+不创建执行审批、不代选答案；已识别的损坏问卷也不回落授权。后继输入沿原 Session 继续。
+
+模型的普通 CLI 调用通过原生逻辑 Session 定位唯一 Conversation/活动 Run，并复用现有 lease、
+Router、回复和回执。按调用时归属，不追溯旧后台程序最初属于哪轮。其他 Runtime 不改。
+FirstPayload 只保留首次及真实规则更新，不进行压缩补发。未确认的 MCP 撤销、原生工具终止和
+增强详情不声明成功；未知输入不自动重放。具体合同见
+[Hermes Managed Runtime v1](../contracts/hermes-managed-runtime-v1.md)，理由见
+[原生会话定位决定](../versions/v1.72/decisions.md#v1-72-d67)。

@@ -7,7 +7,7 @@ confirmed_revision: 1
 confirmed_by: local_user
 confirmed_at: 2026-10-22
 confirmation_message_id: db6478ff-b52c-40ad-a8e7-c32985463e2e
-last_updated: 2026-10-22
+last_updated: 2026-10-27
 ---
 
 # Thread read 正向增量读取与提示词 r1
@@ -367,3 +367,22 @@ IPC 3、Envelope 2、Agent Output 14 不变。配套 CLI/Core 仍执行版本准
 History v16；Transport/CLI 仍为 44。合并两个版本的当前路由与实施记录，保留已合入的
 Automation、MCP、主题和界面行为。输入与分页语义沿用已确认 r1，未增加新的模型可见文本。
 既有真实任务 Gate 缺口仍保留，不将确定性回归冒充真实模型 Gate。
+
+User 在当前清理 Thread 的消息 `5a046fd9-aa7e-4642-b2c0-20d5e31fc872` 明确要求
+PR #878、#872「这两个都合入后清掉」。本次依据该合入指令收口；这是本次交付授权，
+不是十二个真实任务 Gate 通过的证据，也不修改通用评测规则。现有周回归已配置 CLI Judge，
+但只提供模型目录声明摘要，未提供可验证固定模型快照；本次不执行或宣称通过该 Gate。
+
+在 PR #878 的 Hermes 主线内容上完成组合回归：
+
+| 验证 | 结果 |
+| --- | --- |
+| `pnpm test:rust:pr` | 481 passed、1 个既有 ignored；0 failed |
+| `cargo test -p rovai-core --features slow-tests --lib camp_history::` | 7 passed |
+| `cargo test -p rovai-core --features slow-tests --lib current_history_reads_live_state_without_id_guessing` | 1 passed |
+| `cargo check --workspace` / `cargo fmt --all --check` / `pnpm typecheck` | 通过 |
+| `pnpm test` | 完整复跑通过；Vitest 3009 passed / 2 skipped，Node 主集 358 passed / 2 skipped；文档与 Skill 子集通过 |
+
+本次首轮 JS 回归有一个既有文件监听测试未在等待窗口内收到事件；该模块与主线一致。
+未修改生产代码、测试断言或超时，单独重跑该文件 59 项通过，随后完整 `pnpm test` 通过。
+首轮失败和复跑日志均保留在本次清理 Thread 附件中。

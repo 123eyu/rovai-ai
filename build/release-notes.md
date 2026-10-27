@@ -9,7 +9,7 @@
 - 【交互】**明确区分手动停止与执行失败。** 手动停止后，消息回执和执行卡片统一显示“已停止”；失败单独标识为“执行失败”。发送给多位队员时，分别统计各自状态。
 - 【界面】**调整消息回复图标。** 回复按钮改用更紧凑的三点气泡样式。
 
-感谢 [@liuqiong0319](https://github.com/liuqiong0319) 反馈的 Copilot 无法运行问题，以及 [@liangxyz](https://github.com/liangxyz) 提出的定时任务会话标题建议（[#875](https://github.com/murray17/rovai-ai/issues/875)）。
+感谢 [@liangxyz](https://github.com/liangxyz) 提出的定时任务会话标题建议（[#875](https://github.com/murray17/rovai-ai/issues/875)），以及 [@liuqiong0319](https://github.com/liuqiong0319) 反馈的 Copilot 无法运行问题。
 
 [完整变更](https://github.com/murray17/rovai-ai/compare/v0.5.1...v0.5.2)
 
@@ -24,6 +24,6 @@ This release adds date and time options for conversations created by scheduled t
 - [Interaction] **Distinguish stopped executions from failures.** Message receipts and execution cards now use Stopped for manual stops. Failures are identified separately as Execution failed, and messages sent to multiple teammates show counts for each status.
 - [UI] **Update the message reply icon.** The reply button now uses a compact speech bubble with three dots.
 
-Thanks to [@liuqiong0319](https://github.com/liuqiong0319) for reporting the Copilot startup issue, and [@liangxyz](https://github.com/liangxyz) for suggesting dates in scheduled-task conversation titles ([#875](https://github.com/murray17/rovai-ai/issues/875)).
+Thanks to [@liangxyz](https://github.com/liangxyz) for suggesting dates in scheduled-task conversation titles ([#875](https://github.com/murray17/rovai-ai/issues/875)), and [@liuqiong0319](https://github.com/liuqiong0319) for reporting the Copilot startup issue.
 
 [Full changelog](https://github.com/murray17/rovai-ai/compare/v0.5.1...v0.5.2)

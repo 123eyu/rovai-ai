@@ -65,7 +65,9 @@ jobs:
             assert.ok(Number.isSafeInteger(file.size) && file.size > 0)
           }
           const draft = async () => {
-            const release = await api(`releases/tags/v${manifest.version}`)
+            const matches = (await api('releases?per_page=100')).filter(release => release.tag_name === `v${manifest.version}`)
+            assert.equal(matches.length, 1, 'Require one existing release draft')
+            const release = matches[0]
             assert.equal(release.draft, true, 'Transfer only to an unpublished draft')
             assert.equal(release.prerelease, false)
             assert.equal(release.target_commitish, manifest.source)

@@ -1,10 +1,19 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Agent Runtime 兼容性清单
+
+## 2026-10-27 Hermes macOS 入口开放
+
+按 User sequence 113，Hermes 在 macOS arm64 与 x64 均采用 Preview，允许正常发现、检查、配置与执行；
+两架构均不绑定完整资格 evidence revision。Windows x64 与 Linux x64 仍未开放。
+现有真实 Hermes 执行证据来自下方记录的 arm64 环境，Intel 入口开放不代表完成 Intel 目标机实测。
+本次不改变官方 ACP、原生 Home、原 Session resume、CLI 归属或既有能力限制。
+同 Thread sequence 116 统一移除所有 Runtime 的 Preview 资格提示小字，内部资格与机器检查不变。
+当前边界见 [平台准入合同](contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
 
 ## 2026-10-26 Copilot ACP 启动参数兼容
 

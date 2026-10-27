@@ -4,7 +4,7 @@ name: Runtime Platform Admission
 version: v2
 status: accepted
 source_version: v1.39
-last_updated: 2026-10-25
+last_updated: 2026-10-27
 ---
 
 # Runtime Platform Admission v2
@@ -59,7 +59,7 @@ Admission，不是 Renderer-only Settings Preview；后者仍没有 Adapter、In
 | --- | --- | --- | --- | --- |
 | discovery / availability check | allowed | allowed | omitted | omitted |
 | managed Installation create/relocate | allowed | allowed | denied | denied |
-| Onboarding / Member selection | enabled | enabled; qualification detail remains available | disabled: platform unverified | disabled: platform unsupported |
+| Onboarding / Member selection | enabled | enabled; actual machine status only | disabled: platform unverified | disabled: platform unsupported |
 | diagnostics | platform row + machine facts | platform row + machine facts | platform row only | platform row only |
 | AgentRun preflight | continue | continue with all ordinary runtime/capability blockers | `runtime_platform_not_qualified` | `runtime_platform_unsupported` |
 | migration/default materialization | allowed | allowed | forbidden | forbidden |
@@ -68,8 +68,9 @@ Machine facts remain independent. `preview` does not manufacture installation, a
 evidence; all ordinary checks and fail-closed Runtime blockers still apply.
 
 Runtime management presents admitted rows with the reported version and actual machine-state badge. It does not
-add testing, trial or experimental labels. For `preview`, detailed check feedback may explain that the platform
-is available while its complete qualification record remains pending; this presentation never promotes Core admission.
+add testing, trial or experimental labels. Onboarding, member configuration and check feedback also omit
+Preview qualification notices. They retain actionable installation, authentication and execution failures.
+Core admission and its evidence remain available in diagnostics; removing UI copy never promotes admission.
 
 ## 4. Current Pi qualification
 
@@ -163,9 +164,11 @@ ARM64、Windows、子代理或未来版本；Preview 不冒充完整平台资格
 
 ## Hermes 初始准入
 
-`hermes-cli × macos-arm64` 为 `preview / qualification_evidence_missing`，其余三个平台为
-`not_qualified / qualification_evidence_missing`。当前资格证据仅覆盖已记录的官方 source install 0.22.4
-安装；兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
+2026-10-27 按 User sequence 113 同时开放 Apple Silicon 与 Intel：`hermes-cli × macos-arm64`
+及 `hermes-cli × macos-x64` 均为 `preview / qualification_evidence_missing`，Windows x64 与 Linux x64
+仍为 `not_qualified / qualification_evidence_missing`。两条 Preview 的 evidenceRevision 均为 null。
+当前原生执行证据仅覆盖已记录的 macOS arm64 官方 source install 0.22.4 安装，未完成 Intel 目标机
+实测；开放入口不等于通过完整平台资格。兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
 [当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
 Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
 初始准入理由见 [V1.72-D62](../versions/v1.72/decisions.md#v1-72-d62)，当前接入边界见

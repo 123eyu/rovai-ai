@@ -784,11 +784,13 @@ impl AgentRuntimeAdapterRegistry {
         };
         if kind == AdapterKind::HermesCli {
             return match platform {
-                HostPlatformKey::MacosArm64 => RuntimePlatformAdmission::preview(
-                    kind,
-                    platform,
-                    RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
-                ),
+                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64 => {
+                    RuntimePlatformAdmission::preview(
+                        kind,
+                        platform,
+                        RuntimePlatformAdmissionReasonCode::QualificationEvidenceMissing,
+                    )
+                }
                 _ => unqualified(),
             };
         }

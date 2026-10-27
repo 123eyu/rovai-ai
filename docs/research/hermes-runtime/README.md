@@ -1,14 +1,15 @@
 ---
 document_type: research-note
 authority: non-normative
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Hermes 接入与验证
 
 当前接入是 User sequence 56/60 确认的官方 ACP、原生 Home、原生 Session 定位。
 CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增加表或模型参数。
-原生版本 0.22.4，源码 `4d04303818b61bf3aa09278af48356315515965b`；macOS arm64 保持 Preview。
+已验原生版本 0.22.4，源码 `4d04303818b61bf3aa09278af48356315515965b`，执行证据来自 macOS arm64。
+2026-10-27 按 User sequence 113 开放 Intel，macOS arm64 与 x64 均为 Preview；尚未完成 Intel 目标机实测。
 当前合同见 [Hermes Runtime](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D67](../../versions/v1.72/decisions.md#v1-72-d67)。
 最新执行结果见 [实施记录](../../versions/v1.72/hermes-first-input-implementation.md)。
 此前 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、
@@ -163,7 +164,7 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 | 11. Built-in CLI | 固定安装入口、实例端点、原生逻辑 Session 一次定位当前 Run；无 context.json | Command/Codex 等主要使用逐 Run context/环境。Hermes 明确采用调用时归属：旧后台程序到下一 Run 才首次调用，会归入下一 Run，不追溯来源执行 |
 | 12. Usage / Cache / Cost | Session 上下文观测可用；终态原生计数会累计/重置，失败响应可缺已知 usage；无法可靠归属本 Run 时未知 | Command 消费 result._meta.usage；Codex/Claude 有各自结构化计数。Hermes 已做真实原生协议探针，不是没有检查字段；不取累计总数/盲目差分，也不加采集器补账 |
 | 13. Retry / Queue / Cancel / Cleanup | 官方 cancel、共享去重/队列；只清理自有 ACP。无私有 steer/unknown 维护通道 | 当前 Hermes 与 Command 都不承诺已接通同轮 steer；Codex 等有相应原生路径。共享 Gateway/已提交工具可能继续；无法确认执行结果保持未知，不自动重放 |
-| 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64 Preview | Command 最低稳定版 1.88、一次 Mod ready，macOS 两架构、Windows x64 与 Linux x64 已开放 Preview；Hermes 无插件 ready，其余平台未获资格。Preview 均不代表全部能力已验收 |
+| 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64/x64 Preview（Intel 尚未实测） | Command 最低稳定版 1.88、一次 Mod ready，macOS 两架构、Windows x64 与 Linux x64 已开放 Preview；Hermes 无插件 ready，其余平台未获资格。Preview 均不代表全部能力已验收 |
 
 这次没有为比较其他 Runtime 重跑它们的真实模型。实际检查入口为
 [ACP](../../../crates/rovai-core/src/acp.rs)、[Hermes 局部适配](../../../crates/rovai-core/src/hermes.rs)、

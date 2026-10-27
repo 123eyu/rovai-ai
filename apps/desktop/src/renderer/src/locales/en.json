@@ -2233,7 +2233,6 @@
   "尚无最近一次检查结果，系统将在后台继续确认。": "No recent check result is available. Checking will continue in the background.",
   "已找到可执行文件，但轻度启动验证尚未形成有效结果。": "An executable was found, but the basic startup check has not produced a valid result.",
   "旧安装尚未形成轻度启动证据；请重新检测或检查状态。": "This older installation has no basic startup evidence. Scan again or check its status.",
-  "当前平台已开放使用，完整的平台资格验证记录尚未齐备。": "Available on this platform; the full platform qualification record is not yet complete.",
   "已加载本机原生配置并连接成功；本次检查未调用模型，生成能力、余额和高级能力将在实际任务中确认。": "Local configuration loaded and connection established. This check did not call a model. Generation, balance, and advanced capabilities will be verified during a task.",
   "请检查该智能体的登录状态或凭据配置。": "Check this Agent’s sign-in status or credentials.",
   "该智能体已停用。": "This Agent is disabled.",

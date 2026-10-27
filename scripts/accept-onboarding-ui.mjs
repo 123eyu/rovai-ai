@@ -146,8 +146,13 @@ try {
       label: row.querySelector('strong')?.textContent?.trim(),
       status: row.querySelector('.onboarding-runtime-state')?.textContent?.trim(),
       className: row.querySelector('.onboarding-runtime-state')?.className,
+      detail: row.querySelector('small')?.textContent?.trim() ?? null,
+      title: row.title,
       disabled: row.disabled
     }))`)
+  assert(runtimeAvailability.every((runtime) => !/资格验证记录|qualification record|Preview|实验性|试运行/i.test(
+    `${runtime.label} ${runtime.status} ${runtime.detail} ${runtime.title}`
+  )), 'Runtime onboarding still exposes a Preview qualification notice')
   captures.runtimeReadyDay = join(outputDir, '05-runtime-ready-day-1040x700.png')
   await capture(running.cdp, captures.runtimeReadyDay)
   await setTheme(running.cdp, 'night')

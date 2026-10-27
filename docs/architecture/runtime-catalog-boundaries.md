@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Runtime Catalog Boundaries
@@ -847,7 +847,7 @@ ACP Session 累计费用仅作 Session gauge，不冒充 Run 费用。Skills 只
 
 ## Hermes 受管 ACP
 
-Hermes 以 `hermes-cli` 进入产品闭集，macOS arm64 Preview。共享 ACP 直接启动官方入口，
+Hermes 以 `hermes-cli` 进入产品闭集，macOS arm64 与 x64 均为 Preview。共享 ACP 直接启动官方入口，
 使用用户原生 `~/.hermes` 与精确 Session resume；无私有 Home、启动器或专用 Gateway。
 Fleet 只拥有 ACP 客户端根进程，原生共享执行端不随 Run 回收。
 

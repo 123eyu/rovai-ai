@@ -4,7 +4,7 @@ name: Hermes Managed Runtime
 version: v1
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Hermes Managed Runtime v1
@@ -153,5 +153,6 @@ ACP 图片沿原生媒体流程，能力取决于配置及模型。
 
 ## 准入
 
-macOS arm64 保持 Preview，其他平台 Not Qualified。具体执行证据与未覆盖路径见
+macOS arm64 与 x64 均开放 Preview，Windows x64 与 Linux x64 保持 Not Qualified。原生执行证据仍限于
+已记录的 arm64 安装，本次开放 Intel 入口不宣称完成 Intel 实测。具体执行证据与未覆盖路径见
 [验证记录](../research/hermes-runtime/README.md)。本轮不新增数据库迁移；既有迁移、输入账本及历史证据保留。

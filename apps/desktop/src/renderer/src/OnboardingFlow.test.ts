@@ -91,8 +91,8 @@ describe('first-run onboarding flow', () => {
     expect(onboardingHasUsableRuntime('ready', emptyHealth(), [])).toBe(false)
   })
 
-  it.each(['ready', 'light_ready'] as const)('keeps incomplete qualification detail visible for a %s Runtime', (status) => {
-    for (const runtimeKind of ['codex-cli', 'command-code-cli'] as const) {
+  it.each(['ready', 'light_ready'] as const)('keeps a %s preview Runtime selectable without qualification notices', (status) => {
+    for (const runtimeKind of ['codex-cli', 'command-code-cli', 'hermes-cli'] as const) {
       for (const platform of ['macos-arm64', 'macos-x64', 'windows-x64', 'linux-x64'] as const) {
         const admission = { ...previewAdmission(), runtimeKind, platform }
         const availability = { ...readyAvailability(), runtimeKind, status }
@@ -104,8 +104,7 @@ describe('first-run onboarding flow', () => {
         const markup = renderOnboarding(snapshot('runtime'), 'ready', health, [installation])
         expect(onboardingHasUsableRuntime('ready', health, [installation])).toBe(true)
         expect(onboardingRuntimeCanContinue('ready', onboardingRuntimeSelectionFor(runtimeKind, [installation]), availability, installation, admission)).toBe(true)
-        expect(markup).toContain('<small>当前平台已开放使用，完整的平台资格验证记录尚未齐备。')
-        expect(markup).not.toMatch(/测试|试运行|实验性/)
+        expect(markup).not.toMatch(/测试|试运行|实验性|资格验证记录/)
       }
     }
   })

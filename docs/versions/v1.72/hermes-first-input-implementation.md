@@ -2,7 +2,7 @@
 document_type: implementation-plan
 version: v1.72
 authority: implementation-status
-last_updated: 2026-10-25
+last_updated: 2026-10-27
 ---
 
 # Hermes 首次输入规则实施与验证
@@ -10,6 +10,21 @@ last_updated: 2026-10-25
 当前实现为 [已确认 R2](model-context-change-hermes-first-input.md) 与 [D67](decisions.md#v1-72-d67)。
 下面 R1 与私有 Home 的原始验收是历史记录，其 Hook、恢复 CLI 和树回收保证不适用于原生共享 Gateway。
 原生接入与后续减量结果分别在“原生会话定位”和“接入减量”节记录，旧证据不改写。
+
+## 清理前主线集成（2026-10-27）
+
+按 User 在清理会话中的明确指令合入 PR #878 后移除 worktree。同步主线 `67780b44a` 时，
+保留已发布的 Automation 命名 Migration 215 / schema 165，Hermes catalog 与规则证据迁移
+分别顺延到 216 / schema 166、217 / schema 167。迁移按主线原顺序执行，既有 downgrade 与
+回滚、数据保留和重开 owner 一并对齐；没有为未上线实验数据库增加兼容路径。
+此前原生模型与压缩探针的历史结果仍绑定各自原提交，不冒充此次集成的复测。
+
+集成验证：默认 Rust workspace **481 passed / 1 existing ignored / 0 failed**；
+`extended-tests` 下的迁移状态矩阵、catalog receipt 回滚与数据保留、当前/未来数据库准入三个
+既有 owner 均通过。类型检查、生产 workspace check、Rust 格式、Desktop 构建、
+Vitest **3009 passed / 2 skipped**、Node 主集 **358 passed / 2 skipped**，以及十项文档测试、
+当前与基于 `67780b44a` 的 diff-aware 文档门禁通过。首次定向矩阵命令未启用 feature，
+实际选择零项；已按 owner 配置重跑并确认执行一项，不将零项运行计为验证证据。
 
 ## 原生观测接通尝试（2026-10-25）
 

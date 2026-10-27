@@ -1718,9 +1718,9 @@ CLI 解析与教学 owner 保留文件输入矩阵并覆盖旧 taskId 兼容；`
 摘要、接受状态和冻结最终输入的组合合同。旧共享 Bootstrap owner 的稳定摘要刻意不含身份，不能证明
 身份单独变化、prepared/unknown 去重及旧实验记录不参与规则基线的行为；复用现有 Context fixture，
 不引入完整 Core/进程 fixture。覆盖首次、重复、身份更新、未知恢复、冻结正文和旧 pending 不消费。
-`db::hermes::rules_tests::rules_migration_preserves_data_and_rolls_back_with_receipt` 拥有 Migration 216
+`db::hermes::rules_tests::rules_migration_preserves_data_and_rolls_back_with_receipt` 拥有 Migration 217
 新增 FK/nullable 字段与 receipt 的 DDL 原子性；现有 catalog owner 验证的是闭集表重建，不能替代它。
-使用既有 seeded database；catalog owner 从 schema 164 验证 Hermes Migration 215，保留原有 rollback 矩阵。
+使用既有 seeded database；catalog owner 从 schema 165 验证 Hermes Migration 216，保留原有 rollback 矩阵。
 
 最低命令：`cargo test -p rovai-core --features slow-tests,extended-tests --lib hermes`。
 原 compaction policy owner 验证 Hermes 完成事件不再准入；共享 CLI outbox 的其他 Runtime case 保留。

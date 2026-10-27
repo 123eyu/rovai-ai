@@ -6696,6 +6696,7 @@ impl AcpCliRuntimeAdapter {
         if matches!(
             kind,
             AdapterKind::CopilotCli
+                | AdapterKind::GrokBuild
                 | AdapterKind::KiroCli
                 | AdapterKind::QoderCli
                 | AdapterKind::CodebuddyCli

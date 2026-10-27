@@ -6,10 +6,30 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## MCP Run 快照与 Grok 启动清理（2026-10-26）
+
+按 User 确认的增量边界，新 Run 在既有配置中冻结布局，使用一份 `snapshot/canonical.json`；
+已有 Run 继续使用 epoch 路径，不迁移或回填。Grok 只生成和启动回收 `grok-mcp-plugin-v2-`，
+保留旧目录、原生配置与 Host 复用生命周期。当前合同见
+[Input Snapshot Storage](../../contracts/input-snapshot-storage-v1.md#mcp-snapshot-storage-layout)，
+验证与可用性边界见[实施记录](implementation-plan.md#mcp-run-快照与-grok-启动清理2026-10-26)。
+本次不改变数据库 schema、模型输入、UI、Runtime 平台资格或 Root README；属于现有存储机制的
+局部增量，无需新增 Version Decision。
+
+## 定时任务对话命名（2026-10-26）
+
+Issue #875 经 PR #916 暂停后，User 于 2026-10-27 确认简化交互稿并授权实现及合入。
+Desktop/Web 恢复命名入口，日期/时间只保留勾选，固定格式并保留名称前后位置与实时预览；
+Core 恢复使用定时 occurrence 的计划时间或手动实际触发时间生成标题。
+当前合同见 [Scheduled Automation v5](../../contracts/scheduled-automation-v5.md)，
+范围与验证见[实施记录](implementation-plan.md#简化对话命名恢复2026-10-27)。
+沿用 Core schema 165 / migration 215，没有历史数据回填、旧格式兼容或模型输入模板变化。
+局部交互简化与恢复不新增 Version Decision，也不改变发布版本。
 
 ## Runtime PATH 与主动检查一致性（2026-10-26）
 

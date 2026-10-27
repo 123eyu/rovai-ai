@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-automation-workspace
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-27
 ---
 
 # Automation 工作区
@@ -39,6 +39,15 @@ last_updated: 2026-10-21
 已有定义就地显示保存状态。表单通常最大 900px；详情容器至少 1100px 时最大 1440px。
 队员与运行项目在每组至少 280px 时并排，再窄时各占一整行，选择框延伸至右边缘。
 运行时间、通知到渠道、执行历史和新建保存区域始终与 Prompt 等宽。
+
+运行时间之后提供默认折叠的“对话命名”区域，新建、模板与已有定义使用同一组件。
+展开后“添加内容”一行仅有日期、时间两个带 label 的勾选项；日期固定 `YYYY-MM-DD`、时间固定
+`HH:mm`，不再提供格式下拉。下一行以紧凑分段单选选择“名称前”或“名称后”，默认后置；
+两项都不勾选时禁用位置选择但保留原选项。下方实时预览完整标题，长标题自然换行。
+两项默认勾选，全部取消时预览及新对话标题仅使用任务名。
+控件沿用当前主题 action 色、现有输入表面和分段选择样式，不增加额外提示或焦点装饰。
+命名编辑参与同一自动保存、失败保留、离开前 flush 与重试链路；历史标题不重写。
+Core 的时间来源及固定序列化格式见 [Scheduled Automation v5](../../contracts/scheduled-automation-v5.md)。
 
 时间选择使用小时/分钟分栏、加减按钮、直接输入和快捷时间；分钟步进 5 分钟并跨小时进位。
 Enter 或“完成”提交并收起，Escape 收起，不额外回焦触发控件。日期选择采用月历，支持方向键、Home/End 和 PageUp/PageDown。
@@ -81,6 +90,6 @@ Renderer 使用 `cron-parser` 提供就地反馈，最终接受与求值仍由 C
 ## References
 
 - [App Shell 与统一侧栏](app-shell-navigation.md)
-- [Scheduled Automation v1](../../contracts/scheduled-automation-v1.md)
+- [Scheduled Automation v5](../../contracts/scheduled-automation-v5.md)
 - [Scheduled Automation Architecture](../../architecture/scheduled-automation.md)
 - [Rovai AI Design](../../../DESIGN.md)

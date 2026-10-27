@@ -241,6 +241,7 @@ export function AutomationWorkspace({
             memberId: snapshot.memberId,
             projectRef: snapshot.projectRef,
             schedule: snapshot.schedule,
+            threadNaming: snapshot.threadNaming,
             notifyChannels: snapshot.notifyChannels
           }
         })

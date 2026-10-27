@@ -901,6 +901,7 @@ mod tests {
                             expected_versions: Vec::new(),
                             execution_epoch: None,
                             payload: CreateAutomationCommand {
+                                thread_naming: Default::default(),
                                 name: None,
                                 prompt: "missed backlog".into(),
                                 member_id: member.clone(),

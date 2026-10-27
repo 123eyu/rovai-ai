@@ -1,5 +1,7 @@
 #[path = "db_attachment_paths.rs"]
 mod attachment_paths;
+#[path = "db_automation_naming.rs"]
+mod automation_naming;
 #[path = "db_claim_context.rs"]
 mod claim_context;
 #[path = "db_compact_execution.rs"]
@@ -497,7 +499,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 166;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 167;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -988,6 +990,7 @@ struct CurrentMigrationState {
     v214: bool,
     v215: bool,
     v216: bool,
+    v217: bool,
 }
 
 impl CurrentMigrationState {
@@ -1009,6 +1012,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v217 {
+            let mut previous = *self;
+            previous.v217 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 167
+                && self.v216
+                && previous.admits("v1.72", 166, classifier);
+        }
         if self.v216 {
             let mut previous = *self;
             previous.v216 = false;
@@ -3304,6 +3315,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
                         | 164
                         | 165
                         | 166
+                        | 167
                 )
         })
     {
@@ -3734,6 +3746,7 @@ pub(crate) fn classify_database_contract(
                 | 164
                 | 165
                 | 166
+                | 167
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3743,9 +3756,11 @@ pub(crate) fn classify_database_contract(
             |row| row.get(0),
         )?;
         let valid = completed
-            && (marker.projection_schema_version < 166
+            && (marker.projection_schema_version < 167
                 || hermes::rules_schema_matches(connection)?)
-            && (marker.projection_schema_version < 165 || hermes::schema_matches(connection)?)
+            && (marker.projection_schema_version < 166 || hermes::schema_matches(connection)?)
+            && (marker.projection_schema_version < 165
+                || automation_naming::schema_matches(connection)?)
             && (marker.projection_schema_version < 163
                 || teams::schema_matches(
                     connection,
@@ -6055,7 +6070,8 @@ fn load_current_migration_state(
             EXISTS(SELECT 1 FROM schema_migration WHERE version=213),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=214),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=215),
-            EXISTS(SELECT 1 FROM schema_migration WHERE version=216)
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=216),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=217)
         "#,
         [],
         |row| {
@@ -6207,6 +6223,7 @@ fn load_current_migration_state(
                 v214: row.get(144)?,
                 v215: row.get(145)?,
                 v216: row.get(146)?,
+                v217: row.get(147)?,
             })
         },
     )
@@ -9509,10 +9526,13 @@ impl Database {
                 migration_step!("migration_214", teams::migrate_guidance_limit(self));
             }
             if !self.schema_migration_applied(215)? {
-                migration_step!("migration_215", hermes::migrate(self));
+                migration_step!("migration_215", automation_naming::migrate(self));
             }
             if !self.schema_migration_applied(216)? {
-                migration_step!("migration_216", hermes::migrate_rules(self));
+                migration_step!("migration_216", hermes::migrate(self));
+            }
+            if !self.schema_migration_applied(217)? {
+                migration_step!("migration_217", hermes::migrate_rules(self));
             }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
@@ -10382,10 +10402,13 @@ impl Database {
             migration_step!("migration_214", teams::migrate_guidance_limit(self));
         }
         if !self.schema_migration_applied(215)? {
-            migration_step!("migration_215", hermes::migrate(self));
+            migration_step!("migration_215", automation_naming::migrate(self));
         }
         if !self.schema_migration_applied(216)? {
-            migration_step!("migration_216", hermes::migrate_rules(self));
+            migration_step!("migration_216", hermes::migrate(self));
+        }
+        if !self.schema_migration_applied(217)? {
+            migration_step!("migration_217", hermes::migrate_rules(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -41873,8 +41896,8 @@ mod tests {
                 run_continuation::migrate as Migrate,
             ),
             (
-                215,
-                164,
+                216,
+                165,
                 false,
                 hermes::rewrite as Rewrite,
                 hermes::schema_matches as Matches,
@@ -41890,7 +41913,7 @@ mod tests {
             ),
         ] {
             let (mut database, directory) = crate::test_support::seeded_runtime_database();
-            if version == 215 {
+            if version == 216 {
                 hermes::downgrade_rules_for_test(database.connection());
             } else if version == 205 {
                 task_capability::downgrade_for_test(database.connection());
@@ -41920,12 +41943,12 @@ mod tests {
                     .unwrap();
                 Some((id, content))
             } else {
-                if !matches!(version, 205 | 215) {
+                if !matches!(version, 205 | 216) {
                     mission_description::downgrade_for_test(database.connection());
                 }
                 None
             };
-            if !main_continuation && !matches!(version, 205 | 215) {
+            if !main_continuation && !matches!(version, 205 | 216) {
                 run_continuation::downgrade_for_test(database.connection());
             }
             if version == 184 {
@@ -42198,6 +42221,7 @@ mod tests {
             v214: version >= 214,
             v215: version >= 215,
             v216: version >= 216,
+            v217: version >= 217,
         }
     }
 
@@ -42300,12 +42324,18 @@ mod tests {
     fn current_migration_state_admission_matrix() {
         let supported = [
             (
-                "v1.72/schema 165 before Hermes user rules",
+                "v1.72/schema 166 before Hermes user rules",
                 "v1.72",
-                165,
-                215,
+                166,
+                216,
             ),
-            ("v1.72/schema 164 before Hermes catalog", "v1.72", 164, 214),
+            ("v1.72/schema 165 before Hermes catalog", "v1.72", 165, 215),
+            (
+                "v1.72/schema 164 before Automation naming",
+                "v1.72",
+                164,
+                214,
+            ),
             ("v1.72/schema 162 before Teams", "v1.72", 162, 212),
             ("v1.72/schema 161 before Web pasted text", "v1.72", 161, 211),
             (
@@ -42420,12 +42450,18 @@ mod tests {
                 163,
                 213,
             ),
+            (
+                "v1.72/schema 164 before Automation naming",
+                "v1.72",
+                164,
+                214,
+            ),
             ("v1.68/schema 122 before Skills rebuild", "v1.68", 122, 172),
             (
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
-                216,
+                217,
             ),
             (
                 "v1.72/schema 152 before compact operations",
@@ -43001,7 +43037,7 @@ mod tests {
         }
 
         assert!(migration_state_through(141).admits("v1.52", 92, V142_CLASSIFIER_VERSION));
-        let current = migration_state_through(216);
+        let current = migration_state_through(217);
         assert!(current.admits(
             CURRENT_DATA_CONTRACT_VERSION,
             CURRENT_PROJECTION_SCHEMA_VERSION,
@@ -43064,19 +43100,28 @@ mod tests {
         missing_pending_draft.v183 = false;
         let mut missing_convergence = current;
         missing_convergence.v186 = false;
+        let mut missing_automation_naming = current;
+        missing_automation_naming.v215 = false;
         let mut missing_team_guidance_limit = current;
         missing_team_guidance_limit.v214 = false;
         let mut missing_teams = current;
         missing_teams.v213 = false;
         let mut missing_hermes = current;
-        missing_hermes.v215 = false;
+        missing_hermes.v216 = false;
         let mut missing_hermes_rules = current;
-        missing_hermes_rules.v216 = false;
+        missing_hermes_rules.v217 = false;
         let mut missing_interruption = current;
         missing_interruption.v209 = false;
         let mut missing_single_chat_facts = current;
         missing_single_chat_facts.v208 = false;
         let rejected = [
+            (
+                "current marker without Automation naming",
+                missing_automation_naming,
+                CURRENT_DATA_CONTRACT_VERSION,
+                CURRENT_PROJECTION_SCHEMA_VERSION,
+                V147_CLASSIFIER_VERSION,
+            ),
             (
                 "current marker without Team guidance limit migration",
                 missing_team_guidance_limit,
@@ -43733,7 +43778,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(216));
+        assert_eq!(state, migration_state_through(217));
         assert!(state.admits(&contract, schema, &classifier));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -43757,6 +43802,7 @@ mod tests {
             "member_inheritance",
             "web_pasted_text",
             "hermes_rules",
+            "automation_naming",
         ] {
             connection
                 .execute_batch("SAVEPOINT current_admission")
@@ -43794,7 +43840,7 @@ mod tests {
                 }
                 "current_receipt" => {
                     connection
-                        .execute("DELETE FROM schema_migration WHERE version=216", [])
+                        .execute("DELETE FROM schema_migration WHERE version=217", [])
                         .unwrap();
                 }
                 "steer_identity" => {
@@ -43829,6 +43875,11 @@ mod tests {
                         .execute_batch("DROP TABLE member_environment_inheritance")
                         .unwrap();
                 }
+                "automation_naming" => {
+                    connection
+                        .execute_batch("ALTER TABLE automation DROP COLUMN thread_naming_json")
+                        .unwrap();
+                }
                 "web_pasted_text" => {
                     connection
                         .execute_batch("DROP TABLE web_pasted_text_attachment")
@@ -43853,6 +43904,7 @@ mod tests {
                         | "member_inheritance"
                         | "web_pasted_text"
                         | "hermes_rules"
+                        | "automation_naming"
                 ),
                 "{change}"
             );
@@ -43881,7 +43933,7 @@ mod tests {
         database
             .connection()
             .execute_batch(
-                "DELETE FROM schema_migration WHERE version<216;
+                "DELETE FROM schema_migration WHERE version<217;
              DROP TABLE runtime_usage_run_summary;",
             )
             .unwrap();
@@ -56305,7 +56357,7 @@ mod tests {
             &[
                 58, 59, 60, 61, 62, 67, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
                 102, 103, 104, 105, 106, 107, 108, 145, 146, 147, 205, 206, 207, 208, 209, 210,
-                211, 212, 213, 214, 215, 216,
+                211, 212, 213, 214, 215, 216, 217,
             ],
         );
         for table in [

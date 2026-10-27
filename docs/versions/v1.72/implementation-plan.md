@@ -3,10 +3,128 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # v1.72 实施与验收
+
+## MCP Run 快照与 Grok 启动清理（2026-10-26）
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-mcp-run-snapshot`；
+  分支 `rovai/mcp-run-snapshot`，基线 `db8cd6e34aa9e0348fa750020105acf8f04869fd`；Governance：none。
+- 共用 effective-config 构造入口写入 `mcpSnapshotLayout: "run_v1"` 并参与原摘要；
+  缺标记走旧布局，未知值只在该 Run 准备时拒绝。恢复、重绑定和历史记录不回填。
+- 新路径为 `runtime/mcp/<run-id>/snapshot/canonical.json`，沿用私有临时目录与目录发布；
+  新布局不扫描旧 epoch。竞争失败方读取并校验胜出文件，已有快照不覆盖；格式、摘要和冻结恢复保持。
+- 并发回归实际复现 Unix `mkdir` 到 `chmod` 之间的权限窗口；既有目录准备函数改为创建时设置
+  `0700` 并复核权限。只在目录提交竞争失败后复用胜出文件，不掩盖本次写入或同步错误。
+- Grok 的生成与清理共用新前缀常量，沿既有 Adapter 初始化门禁执行。旧插件目录不动，
+  正常 Host 生命周期与复用保留，清理失败仅影响对应可选 Runtime 子系统。
+- Contract 与外部 MCP 架构不变量同步；不新增迁移、注册器、后台服务、租约或数据库字段。
+
+验证归属：
+
+- 扩展既有 Context MCP 恢复 owner：真实创建与 Manifest 持久化、旧布局缺标记、新布局、数据库重开、
+  跨 epoch、未知布局拒绝、冻结材料丢失和隐藏 staging 回收；SQLite/文件边界不能由纯解析测试代替。
+- 扩展既有 Runtime rebind、MCP epoch 复用和 Grok 插件生命周期 owner；保留其原有权限、凭据、
+  原生配置与旧布局断言，新增 Grok Adapter 初始化接线与旧前缀保留检查。
+- 原 Pi optional-storage owner 扩展为 Pi/Grok 矩阵，并更名为
+  `private_storage_failure_is_isolated_from_core_and_peer_runtimes`：保留失败隔离，补齐健康子系统
+  不重复初始化、失败后原进程重试和恢复健康；没有新增可选服务或失败全局升级。
+- 既有 Node `optional startup failures` 进程矩阵增加 Grok 的 `external-mcp` 非目录故障；
+  用真实隔离 Core 验证 authority ready、业务 RPC 与同进程恢复，不调用真实模型。
+- 唯一新增 `concurrent_run_snapshot_publishers_reuse_one_complete_winner`，位于 `extended-tests`：
+  两个文件发布者必须读到同一完整快照；原先只存在顺序 epoch 复制 owner，不能证明并发原子发布。
+  只创建私有临时文件，不使用数据库或真实 Runtime；同时验证损坏胜出文件和错误 Run 身份拒绝。
+- 最小命令：`cargo test -p rovai-core --features slow-tests --lib mcp`、
+  `cargo test -p rovai-core --features slow-tests --lib rebind`、
+  `cargo test -p rovai-core --features slow-tests --lib private_storage_failure_is_isolated`。
+  另运行 `pnpm test:core-startup`、默认 workspace、扩展回归与通用文档门禁。
+- 上述三个定向 Rust owner 分别通过 39、5、1 项；`pnpm typecheck` 与 `pnpm test` 通过，
+  包括 Vitest 3005 passed / 2 skipped、Node 358 passed / 2 skipped。
+- `pnpm test:rust:extended` workspace 1075 passed / 8 ignored；`pnpm test:rust:pr` workspace
+  477 passed / 1 ignored。ignored 均为既有用例。
+- 真实隔离 Core 的新增 Grok 启动故障、业务 RPC 可达及同进程恢复场景通过。完整
+  `pnpm test:core-startup` 为 7 passed / 6 failed / 1 skipped；未修改基线的独立源码归档构建
+  为 6 passed / 6 failed / 1 skipped，复现相同五个叶子失败与一个父测试失败：原生 sandbox
+  Probe 未生成结果、Skill 故障夹具未降级、两个已移除的 `camp.composerDraft` RPC，以及旧 Runtime
+  environment settings 接口。没有修改、跳过或移除这些既有测试，不将整套启动验收记为通过。
+- `cargo check --workspace`、`cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`、
+  `pnpm docs:check` 和以本节基线为 `DOCS_BASE_REF` 的 `pnpm docs:check:ci` 通过。
+- 初次交付状态：`ready`。提交并推送功能分支，保留该 worktree 供后续评审；按当时 User 偏好不自动创建 PR。
+  未调用真实 Grok 模型、未做 Windows/Linux 实机验收，也未合入或安装日常 App。
+- 后续 User 明确授权创建 PR、合入 main 并安装本机 App。整合主线 `71f915be4` 时只需合并新增文档章节，
+  保留双方记录；本次生产代码没有冲突。安装遵循 daily 构建、隔离验收及非终止交接流程。
+
+## 简化对话命名恢复（2026-10-27）
+
+- User 确认 HTML 交互稿并授权独立 worktree 实现、PR 到 main 并合入。
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-automation-title-simple`；
+  Branch：`rovai/automation-title-simple`；Base：`f73a70cf675142313b23f4f90c63727db24acbb5`；
+  Governance：none；Status：ready。
+- 共享编辑器恢复默认折叠入口：日期/时间两个勾选、前后分段单选与完整实时预览，复用已确认的样式。
+  保留生产总览、保存与通知行为；交互稿的主题切换工具、模拟运行提示和示例数据不进入产品。
+- Core 恢复 admission 标题生成，定时取计划时间、手动取实际时间；格式固定为 `YYYY-MM-DD` / `HH:mm`。
+  存取结构沿用 schema 165，格式枚举收敛为 `iso` / `24`；无迁移、回填或旧格式兼容逻辑。
+- Rust 不新增、删除或禁用测试函数。既有纯命名 owner 覆盖四种勾选组合、前后位置、零点/正午、Unicode、
+  closed schema；旧格式正例随生产枚举退出，改为拒绝输入断言。既有 manual snapshot/replay、once overlap
+  与 delayed schedule owners 覆盖时间来源、长标题、关闭两项、历史保留及 schedule 不变。
+  最小命令：`cargo test -p rovai-core --features extended-tests --lib automation`。
+- 生产 Electron fixture 扩展既有 owner：勾选/键盘单选、自动保存失败与重试、任务切换、五主题 action 色、
+  最小详情宽度、1040/1440/2560 窗口与 200% 缩放；独立临时 userData/Skill Library，无真实 Runtime。
+- 验证通过：`pnpm typecheck`、`pnpm test`（Vitest 257 文件 / 3007 passed / 2 skipped；Node 358 passed / 2 skipped）、
+  `pnpm test:automation-splitter`；Core automation 定向 16 passed；`cargo test --workspace`
+  478 passed / 1 ignored；跳过和忽略均为既有平台/人工用例。
+- `cargo fmt --all --check`、`git diff --check`、`pnpm docs:test`、`pnpm docs:check` 和基于本节 Base 的
+  `pnpm docs:check:ci` 通过。Day/Night、最小详情宽度与 200% 缩放截图已核对。
+  本次不安装本机 App、不发布版本。
+
+## 定时任务对话命名（2026-10-26）
+
+本功能初次实现及颜色修正分别经 PR #913、#915 合入。User 随后要求先隐藏功能，并明确
+“同时停用日期标题，恢复任务名”；以下保留该次停用与初次交付记录；当前开放状态见上方 2026-10-27 恢复记录。
+
+- 本次 worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-disable-automation-titles`；
+  分支 `rovai/disable-automation-titles`；基线 `17a7fbba9dc55dbff1ad77837033968decef5b63`；
+  Governance：none；Status：ready。User 已授权 PR 合入 main、安装本机后停止，交互稿后续再讨论。
+- Desktop/Web 的共享编辑器撤下命名入口；Core 的手动和定时 occurrence 均直接采用任务名。
+  已有 schema 165 不回退；本次没有迁移、历史数据回填或新增兼容分支。
+- 不新增、删除或禁用 Rust 测试函数：扩展既有 manual snapshot/replay、once overlap 和 delayed schedule
+  owners，验证默认配置、保留的非默认配置、80 个 Unicode scalar 名称均不加日期，重放和已有标题不变。
+  标题时间来源断言随该生产行为停用而替换；计划推进、去重、CAS 和 overlap 断言保留。
+  最小命令：`cargo test -p rovai-core --features extended-tests --lib automation`。
+- 生产 Electron fixture 改验入口隐藏，并保留保存失败、手势取消、主题、宽度与缩放验收。
+  `pnpm typecheck`、`pnpm test:automation-splitter` 已通过；使用独立临时 userData 和 Skill Library，
+  memory-only RPC，无真实 Runtime。Day 与窄屏截图已人工核对。
+- Core automation 定向回归 16 项通过，`cargo fmt --all --check`、`git diff --check`、
+  `pnpm docs:test`、`pnpm docs:check` 及基于本次基线的 `pnpm docs:check:ci` 通过。
+
+初次交付记录：
+
+- Worktree：`/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-issue-875-automation-title`；
+  分支 `rovai/issue-875-automation-title`，基线 `db8cd6e34aa9e0348fa750020105acf8f04869fd`；Governance：none。
+- Core 持有命名配置，创建 occurrence 时按定时/手动来源生成并持久化标题；Renderer 只提供格式预览和编辑。
+  默认日期+时间后置，支持四种日期、三种时间格式，允许完整长标题；旧对话不变。
+- Migration 215 原子新增定义配置并将当前 schema 升为 165。既有定义默认开启；不补写旧 Thread/occurrence。
+  Agent automation 输入/输出保留原形状，旧命令 canonical payload/digest 与历史回执保持兼容，
+  没有 Bootstrap、Context、Manifest 或工具目录版本变化。
+- Rust 扩展既有命名纯函数 owner、manual snapshot/replay owner、once overlap/time-source owner 和 current schema
+  admission owners。新增一个 schema-only migration owner，独立验证 DDL/receipt 回滚、旧标题保留与生产重开；
+  其他 owner 无法证明升级失败语义，不启动 Runtime。最小命令：`cargo test -p rovai-core --lib automation`，
+  `cargo test -p rovai-core --features extended-tests --lib database_contract` 和 `cargo test -p rovai-core --features extended-tests --lib current_schema_contains_required_contract_objects`。
+- 前端扩展生产 Automation fixture，覆盖保存失败保留、重试、重新进入、键盘单选、五套主题、最小宽度和缩放。
+  格式矩阵使用纯函数单测；共享表单类型检查、语言目录和通用文档门禁同步验证。
+- 已通过 Core automation 16 项扩展回归（包含旧版迁移、原子性、重放与新配置），migration admission matrix、
+  当前数据库准入/结构、旧 Team schema 升级各 1 项；`cargo check --workspace` 与 Rust 格式检查通过。
+- `pnpm typecheck`、11 项定向 Vitest、生产 Electron fixture、文档单测及基于上述基线的通用文档门禁通过。
+  fixture 使用新建的临时 userData/Skill Library，memory-only RPC，无 Core/真实 Runtime；五套主题、
+  320px 详情、700px 窗口和 125% 缩放截图已人工查看。
+- 初次全量 Vitest 与 Rust workspace 编译并行时，既有 `core-client` 启动重试的 6 秒等待超时
+  （3006 passed / 1 failed / 2 skipped）；该文件及实现与基线相同，单独复测 21 项全部通过。
+  后续完整 `pnpm test` 通过：Vitest 3007 passed / 2 skipped，Node 358 passed / 2 skipped，
+  文档、Skills 和 Electron sandbox 检查全部通过。schema fingerprint owner 已同步到 165。
+- Worktree 状态：ready；User 已授权创建 PR 并合入 main，[PR #913](https://github.com/murray17/rovai-ai/pull/913)
+  待 CI 通过后合并并清理 worktree。Issue #875 保持开启至发布；issue 回复先提供署名爱丽丝的草稿。
 
 ## Runtime PATH 与主动检查一致性（2026-10-26）
 

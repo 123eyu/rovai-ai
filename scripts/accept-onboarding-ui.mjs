@@ -263,8 +263,9 @@ try {
         `Initial member ${profile.agentId} ${field} does not match the ${initialLanguage} preset: ${JSON.stringify(profile[field])}`)
     }
     const runtimeConfigured = profile.runtimeConfiguration !== null
-    assert(runtimeConfigured === (profile.agentId === completed.memberAgentId),
-      `Unexpected Runtime configuration on initial member ${profile.agentId}`)
+    assert(runtimeConfigured
+      && JSON.stringify(profile.runtimeConfiguration) === JSON.stringify(member.runtimeConfiguration),
+      `Initial member ${profile.agentId} did not inherit the selected Runtime configuration`)
     report.initialMembers.push({
       agentId: profile.agentId,
       displayName: profile.displayName,

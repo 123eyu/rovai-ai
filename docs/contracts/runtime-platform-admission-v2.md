@@ -164,11 +164,13 @@ ARM64、Windows、子代理或未来版本；Preview 不冒充完整平台资格
 
 ## Hermes 初始准入
 
-2026-10-27 按 User sequence 113 同时开放 Apple Silicon 与 Intel：`hermes-cli × macos-arm64`
-及 `hermes-cli × macos-x64` 均为 `preview / qualification_evidence_missing`，Windows x64 与 Linux x64
-仍为 `not_qualified / qualification_evidence_missing`。两条 Preview 的 evidenceRevision 均为 null。
-当前原生执行证据仅覆盖已记录的 macOS arm64 官方 source install 0.22.4 安装，未完成 Intel 目标机
-实测；开放入口不等于通过完整平台资格。兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
+2026-10-27 按 User sequence 122 暂缓公开，取代同日 sequence 113 的 macOS 开放决定。
+`hermes-cli` 在 macOS arm64、macOS x64、Windows x64 与 Linux x64 全部为
+`not_qualified / qualification_evidence_missing`，evidenceRevision 均为 null。
+设置、新手引导、成员和 Skills 选择、安装引导、监控筛选均隐藏 Hermes，不显示占位或待支持提示；
+普通 discovery、检查、安装配置和执行由共享 Admission 拒绝。内部 Adapter、历史身份和既有证据保留。
+现有执行证据只覆盖已记录的 macOS arm64 安装，不构成公开准入。兼容策略仍为 >=0.22.4，
+不锁 commit；重新开放需另行确认。
 [当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
 Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
 初始准入理由见 [V1.72-D62](../versions/v1.72/decisions.md#v1-72-d62)，当前接入边界见

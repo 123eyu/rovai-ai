@@ -8,7 +8,7 @@ use crate::{agent_profile::AdapterKind, platform::HostPlatformKey};
 /// that evidence even when their Adapter identity exists in the Product Catalog.
 /// Every register revision receives a new digest.
 pub const MACOS_RUNTIME_COMPATIBILITY_EVIDENCE_REVISION: &str =
-    "sha256:24e61032735dc8a9cf00bd2326788c223ba0db20630fb937ed86c3d553d8647e";
+    "sha256:065f420712e9f99b0721dba110a8b6a2684aadf3a1fbd7b9e1dcbabf3d91a31c";
 
 /// Immutable digest of the sanitized, adapter-scoped Windows x64 evidence.
 /// The source qualifies only the Runtime rows named in that evidence; shared
@@ -508,28 +508,16 @@ mod tests {
         let registry = AgentRuntimeAdapterRegistry::default();
         for platform in HostPlatformKey::ALL {
             let hermes = registry.platform_admission(AdapterKind::HermesCli, platform);
-            let macos = matches!(
-                platform,
-                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64
-            );
             assert_eq!(
                 hermes.status(),
-                if macos {
-                    RuntimePlatformAdmissionStatus::Preview
-                } else {
-                    RuntimePlatformAdmissionStatus::NotQualified
-                }
+                RuntimePlatformAdmissionStatus::NotQualified
             );
             assert!(hermes.evidence_revision().is_none());
             assert!(!hermes.is_qualified());
-            assert_eq!(hermes.allows_runtime_use(), macos);
+            assert!(!hermes.allows_runtime_use());
             assert_eq!(
                 hermes.blocker_code(),
-                if macos {
-                    None
-                } else {
-                    Some("runtime_platform_not_qualified")
-                }
+                Some("runtime_platform_not_qualified")
             );
         }
 

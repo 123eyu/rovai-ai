@@ -7939,7 +7939,7 @@ describe('task event projections', () => {
       onOpenRuntimeSettings: () => undefined
     }))
 
-    expect(VISIBLE_PRODUCT_RUNTIMES).toEqual(['claude-code-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'kiro-cli', 'qoder-cli', 'codebuddy-cli', 'qwen-code', 'trae-cn-cli', 'kimi-code-cli', 'minimax-code-cli', 'hermes-cli', 'grok-build', 'deepseek-harness', 'command-code-cli', 'zcode-app', 'antigravity-app', 'pi'])
+    expect(VISIBLE_PRODUCT_RUNTIMES).toEqual(['claude-code-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'kiro-cli', 'qoder-cli', 'codebuddy-cli', 'qwen-code', 'trae-cn-cli', 'kimi-code-cli', 'minimax-code-cli', 'grok-build', 'deepseek-harness', 'command-code-cli', 'zcode-app', 'antigravity-app', 'pi'])
     expect(markup).toContain('member-runtime-picker')
     expect(markup).toContain('aria-label="智能体类型，暂不配置"')
     expect(markup).toContain('aria-haspopup="menu"')
@@ -8108,7 +8108,8 @@ describe('task event projections', () => {
   it.each([
     ['macos-arm64', 'macOS Apple Silicon'],
     ['macos-x64', 'macOS Intel'],
-    ['windows-x64', 'Windows x64']
+    ['windows-x64', 'Windows x64'],
+    ['linux-x64', 'Linux x64']
   ] as const)('renders platform-aware product copy and checks on %s', (hostPlatform, platformLabel) => {
     const health: HealthStatus = {
       core: { ok: true, version: '0.0.1', dataDir: '/tmp/rovai' },
@@ -8161,7 +8162,7 @@ describe('task event projections', () => {
     expect(markup).toContain('TRAE CLI')
     expect(markup).toContain('DeepSeek Harness')
     expect(markup).toContain('MiniMax Code')
-    expect(markup).toContain('Hermes')
+    expect(markup).not.toContain('Hermes')
     expect(markup).not.toContain('Cursor Agent')
     expect(markup).not.toContain('Cline')
     expect(markup).toContain('Command Code')

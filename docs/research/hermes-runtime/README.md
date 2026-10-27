@@ -9,7 +9,8 @@ last_updated: 2026-10-27
 当前接入是 User sequence 56/60 确认的官方 ACP、原生 Home、原生 Session 定位。
 CLI 单次业务请求由 Core 查现有 Conversation/活动 Run/lease，不增加表或模型参数。
 已验原生版本 0.22.4，源码 `4d04303818b61bf3aa09278af48356315515965b`，执行证据来自 macOS arm64。
-2026-10-27 按 User sequence 113 开放 Intel，macOS arm64 与 x64 均为 Preview；尚未完成 Intel 目标机实测。
+2026-10-27 按 User sequence 122 暂缓所有平台公开，取代 sequence 113 的 macOS 开放；
+内部实现和下面的研究证据保留，不能据此推导当前用户可选择或执行 Hermes。
 当前合同见 [Hermes Runtime](../../contracts/hermes-managed-runtime-v1.md)，取舍见 [D67](../../versions/v1.72/decisions.md#v1-72-d67)。
 最新执行结果见 [实施记录](../../versions/v1.72/hermes-first-input-implementation.md)。
 此前 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、

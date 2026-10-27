@@ -6,7 +6,15 @@ last_updated: 2026-10-27
 
 # Agent Runtime 兼容性清单
 
-## 2026-10-27 Hermes macOS 入口开放
+## 2026-10-27 Hermes 暂缓公开
+
+按 User sequence 122，Hermes 在 macOS arm64/x64、Windows x64、Linux x64 全部撤回公开入口，
+采用既有 NotQualified 准入并从所有新使用入口隐藏，不显示待支持或实验提示。内部实现与历史证据保留；
+两轮真实模型文件生成/修改通过并不等于完成全部能力或平台验收。已知 Diff、压缩观测、逐 Run 用量、
+同轮插话和 MCP 清空确认的边界不通过额外封装掩盖。此决定取代下面同日早期开放记录。
+当前边界见 [平台准入合同](contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
+
+## 2026-10-27 Hermes macOS 入口开放（已撤回）
 
 按 User sequence 113，Hermes 在 macOS arm64 与 x64 均采用 Preview，允许正常发现、检查、配置与执行；
 两架构均不绑定完整资格 evidence revision。Windows x64 与 Linux x64 仍未开放。

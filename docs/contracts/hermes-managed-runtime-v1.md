@@ -153,6 +153,8 @@ ACP 图片沿原生媒体流程，能力取决于配置及模型。
 
 ## 准入
 
-macOS arm64 与 x64 均开放 Preview，Windows x64 与 Linux x64 保持 Not Qualified。原生执行证据仍限于
-已记录的 arm64 安装，本次开放 Intel 入口不宣称完成 Intel 实测。具体执行证据与未覆盖路径见
-[验证记录](../research/hermes-runtime/README.md)。本轮不新增数据库迁移；既有迁移、输入账本及历史证据保留。
+2026-10-27 按 User sequence 122 暂缓公开：macOS arm64/x64、Windows x64、Linux x64 全部为
+Not Qualified，用户设置、引导、选择菜单、安装指南与监控筛选不展示 Hermes。普通发现、检查、
+配置与执行服从共享准入；内部实现及已有身份、输入账本和证据保留，不新增迁移或运行回退。
+现有原生执行证据仍限于已记录的 arm64 安装，不能替代公开准入。具体未覆盖路径见
+[验证记录](../research/hermes-runtime/README.md)，平台状态见[准入合同](runtime-platform-admission-v2.md#hermes-初始准入)。

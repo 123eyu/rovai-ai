@@ -5500,6 +5500,10 @@ describe('task event projections', () => {
       tag: '正在停止',
       tone: 'neutral'
     })
+    expect(agentRunPresentation({ status: 'cancelled', waitReason: null }, true)).toEqual({
+      label: '已停止',
+      tone: 'neutral'
+    })
     expect(agentRunPresentation({
       status: 'cancelled',
       waitReason: null,

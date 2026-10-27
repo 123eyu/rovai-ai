@@ -45,6 +45,15 @@ Issue #891 按 User 确认的范围统一启动／重新检测／主动检查的
 当前规则见 [Run Process Detail Surface v56](../../contracts/run-process-detail-surface-v56.md)，
 实施与验证见[实施记录](implementation-plan.md#run-启动与停止展示2026-10-26)。
 
+## Hermes Runtime（2026-10-25）
+
+按 User sequence 56/60 直接替换未上线实验：官方 ACP、用户原生 Home、共享 Gateway；
+通过逻辑 Session 在 Core 定位当前 Run，普通 CLI 不增加参数、表或上下文交换。
+FirstPayload 保留首次/真实更新，取消压缩补发；ACP 清理不拥有原生执行端。
+当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D67](decisions.md#v1-72-d67)，
+正文确认见 [R2](model-context-change-hermes-first-input.md)，验证见 [实施记录](hermes-first-input-implementation.md)。
+最低版本 0.22.4，macOS arm64 保持 Preview，不把未覆盖平台/工具路径声明为完整兼容。
+
 ## 撤回消息两分钟重新编辑（2026-10-23）
 
 按 User 确认，以客户端 localStorage 短期副本支持重新编辑，Core 保持撤回原文擦除。

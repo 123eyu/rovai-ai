@@ -13,6 +13,10 @@ User 的主称呼、结构化提及及冻结恢复见 [User Naming v1](user-nami
 本目录保存跨版本、字段级且可由测试直接验证的接口合同。[Version Decisions](../decisions/README.md)解释为什么选择某个边界，
 Architecture 解释组件如何组成，Version 概览记录交付范围；它们都不复制本目录的完整 wire shape。
 
+## Hermes Runtime
+
+- [Hermes Managed Runtime v1](hermes-managed-runtime-v1.md)：官方 ACP、原生 Home、会话定位 CLI、user 层规则及共享 Gateway 边界。
+
 ## Team 与启动指引
 
 - [Team Templates v2（当前）](team-templates-v2.md)：Thread/Mission 创建预设、独立 Custom 默认值与不可变指引。

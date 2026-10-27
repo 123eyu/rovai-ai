@@ -160,3 +160,13 @@ reason 为 `runtime_platform.qualification_evidence_missing`，evidenceRevision 
 ARM64、Windows、子代理或未来版本；Preview 不冒充完整平台资格。
 已接受的原生命令非零退出状态差异及公开范围理由见
 [V1.72-D61](../versions/v1.72/decisions.md#v1-72-d61)。
+
+## Hermes 初始准入
+
+`hermes-cli × macos-arm64` 为 `preview / qualification_evidence_missing`，其余三个平台为
+`not_qualified / qualification_evidence_missing`。当前资格证据仅覆盖已记录的官方 source install 0.22.4
+安装；兼容策略为 >=0.22.4，不锁 commit，具体能力仍由运行时检查确认。
+[当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
+Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
+初始准入理由见 [V1.72-D62](../versions/v1.72/decisions.md#v1-72-d62)，当前接入边界见
+[V1.72-D67](../versions/v1.72/decisions.md#v1-72-d67)。

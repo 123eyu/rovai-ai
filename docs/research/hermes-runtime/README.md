@@ -33,6 +33,51 @@ Windows x64 与 Linux x64 继续隐藏并拒绝普通执行。Intel 入口开放
   见[完成格式化](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/acp_adapter/tools.py#L675)
   与[Gateway 投影](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/acp_adapter/gateway_reply.py#L20)。
 
+### 0.22.4 原生 ACP Steer 实测（2026-10-28）
+
+按 User sequence 128，在不改接入方式的前提下验证 `/steer` 能否接入。结论是：**正常文字插话可用，
+但当前官方 ACP 的结束竞态不满足 Rovai 固定 Run／epoch 的投递规则，生产 Steer 保持未开放。**
+这次没有修改上游、用户配置、Core Runtime、Run 生命周期或 Gateway 管理方式；新增的是
+[可复现原生探针](../../../scripts/probe-hermes-steer.mjs)与[脱敏证据](steer-acp-2026-10-28.json)。
+
+原生版本固定为官方 tag `v0.22.4` / `4d04303818b61bf3aa09278af48356315515965b`，macOS arm64。
+每个夹具使用一个新建测试用户 Home 和一份原生 `.hermes`，Session 共用该夹具 Gateway；
+启动普通官方 `hermes --profile default acp`，未启动生产 Core 或桌面。
+最终受控 Provider 验证 5 项；真实模型 `gpt-6.1-sol` 另验证接口拒绝与 2 个同 Session 原生任务，
+后者共 6 次主模型调用，分别把文件输出从 RED 改为 GREEN、冷恢复后改为 BLUE。
+每轮使用不同指导标记，模型请求从未包含该轮标记变为包含，避免把上一轮历史误认为本轮接受。
+
+| 场景 | 实际证据 | 对接含义 |
+| --- | --- | --- |
+| 直接 `session/steer` | 返回 `-32601`，没有原生 admission | 该版提供 slash 路径，没有该专用 ACP 方法 |
+| 活跃工具期间 `/steer` | 插话响应早于原 prompt 终态；原生仅一条 admission；后续模型请求收到指导 | 正常文字插话可用，真实模型文件结果也通过 |
+| 关闭 ACP 后 resume 同 Session，再次插话 | 原 Session 不变；每个原 prompt 各一条 admission，插话没有新增 admission | 冷连接本身不阻止插话 |
+| 原任务已结束，但客户端尚未处理终态 | 延迟向测试调用方交付原响应后提交 `/steer`，原生生成 generation 2 的新 admission | 本地提交前检查活跃状态不能消除竞态，原生会自行启动后继任务 |
+| 上述后继开始后关闭 ACP | 共享 Gateway 仍执行工具、写出完成文件，第二 admission 正常结束 | 退役 ACP 连接不能阻止或撤回已经发生的后继执行 |
+| 活跃期间提交 `/steer` + ACP image block | 第一 admission 为 started 时第二条已 queued，保留一张图片，随后独立执行；没有 steer notice | 图片块绕过 ACP slash 处理；不能把原生图片 prompt 当成同轮插话 |
+
+结束竞态使用测试客户端延迟交付原终态，确定性模拟“调用方仍认为目标活跃，但原生已经结束”的运输窗口；
+没有修改 Hermes 代码。原生 `state.db` 只在夹具中只读核对 admission／generation；不是生产查询通道。
+图片案例是原生协议边界；当前 Rovai 共享 ACP Steer 提交文字及文件引用，并不直接提交 image block，
+因此不能把这项原生媒体限制直接说成现有文件引用路径必然失败。
+
+成功回执只有 `{"stopReason":"end_turn"}`，通知为无 requestId／generation 的普通 agent 文本
+`⏩ Steer queued for the active turn: …`。它可作为探针中的已知通知观测，但 generic `end_turn`
+不能证明同轮接受；事后识别提示也不能取消原生已自动创建的下一轮。
+官方 [ACP prompt](https://github.com/NousResearch/hermes-agent/blob/4d04303818b61bf3aa09278af48356315515965b/acp_adapter/gateway_server.py#L621)
+与 [slash 控制](https://github.com/NousResearch/hermes-agent/blob/4d04303818b61bf3aa09278af48356315515965b/acp_adapter/gateway_commands.py#L158)
+没有暴露“目标结束就拒绝、禁止转普通 prompt”的 ACP 选项。
+
+接入所缺的是官方 ACP 中对目标执行的明确接受／拒绝、且拒绝时不执行下一轮的语义。
+本地多查一次、检查通知文本或关闭 ACP 都不能补齐这一点。没有新增私有 Gateway 控制通道、
+插件、映射表或把多个原生任务拼成一个 Run 的状态机制，当前继续使用 Rovai 普通后续队列。
+
+复现命令见[测试说明](../../development/testing.md#hermes-原生-steer-边界探针)。证据保留两次探针自身的
+错误断言及修正原因：首次误读持久化媒体字段，第二次误认为 slash 字面量会一直保留到模型输入。
+最终原生媒体判定依据实际 queued admission 与缺少 steer notice，不依赖该字面量。
+早期真实模型通过记录也保留；最终用逐轮唯一标记与不同文件值补强验证。以上均不是完整 Core/CLI/桌面
+Steer 验收，不把原生成功路径扩大为生产能力声明。
+
 此前 [原生会话定位验收](native-session-acceptance-2026-10-25.json)记录两个真实成员、12 个受控 Run、
 两次原生压缩、原 Session 冷恢复、MCP 部分失败/恢复、取消隔离及 Core 强杀不重放。
 此前 [真实模型验收](real-model-acceptance-2026-10-25.json)在生产 `37f017b68` 上通过 5 个 Run、
@@ -184,7 +229,7 @@ MCP resume 空列表不是已确认撤销。原生 memory/Skills/system 配置�
 | 10. Permission / Approval / Workspace | 原生文件编辑模式；权限请求经共享审批桥；不把 dont_ask 当作所有命令自动允许 | 不同于 Codex 的 sandbox 或 Command 的 bypass；Hermes 无已接通的 Core read-only 保证，不能从模式成功推导工作区隔离或问卷支持 |
 | 11. Built-in CLI | 固定安装入口、实例端点、原生逻辑 Session 一次定位当前 Run；无 context.json | Command/Codex 等主要使用逐 Run context/环境。Hermes 明确采用调用时归属：旧后台程序到下一 Run 才首次调用，会归入下一 Run，不追溯来源执行 |
 | 12. Usage / Cache / Cost | Session 上下文观测可用；终态原生计数会累计/重置，失败响应可缺已知 usage；无法可靠归属本 Run 时未知 | Command 消费 result._meta.usage；Codex/Claude 有各自结构化计数。Hermes 已做真实原生协议探针，不是没有检查字段；不取累计总数/盲目差分，也不加采集器补账 |
-| 13. Retry / Queue / Cancel / Cleanup | 官方 cancel、共享去重/队列；只清理自有 ACP。无私有 steer/unknown 维护通道 | 当前 Hermes 与 Command 都不承诺已接通同轮 steer；Codex 等有相应原生路径。共享 Gateway/已提交工具可能继续；无法确认执行结果保持未知，不自动重放 |
+| 13. Retry / Queue / Cancel / Cleanup | 官方 cancel、共享去重/队列；只清理自有 ACP。原生 slash steer 已实测，但自动后继竞态阻止生产接通；无私有维护通道 | 当前 Hermes 与 Command 都不承诺已接通同轮 steer；Codex 等有相应原生路径。共享 Gateway/已提交工具可能继续；无法确认执行结果保持未知，不自动重放 |
 | 14. Ready / Version / Platform | 官方 >=0.22.4、正常发现与 ACP 探测；无旧实验快照黑名单；macOS arm64/x64 Preview（Intel 尚未实测） | Command 最低稳定版 1.88、一次 Mod ready，macOS 两架构、Windows x64 与 Linux x64 已开放 Preview；Hermes 无插件 ready，其余平台未获资格。Preview 均不代表全部能力已验收 |
 
 这次没有为比较其他 Runtime 重跑它们的真实模型。实际检查入口为

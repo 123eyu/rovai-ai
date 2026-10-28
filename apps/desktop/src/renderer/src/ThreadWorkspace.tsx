@@ -1774,6 +1774,8 @@ export function ThreadWorkspace({
   const { profile: currentUserProfile } = useCurrentUserProfile()
   const currentUserName = currentUserDisplayName(currentUserProfile)
   const filePreview = useOptionalFilePreview()
+  const rightPreviewBlocksExecutionAutoOpen = executionPlacement === 'right'
+    && Boolean(filePreview?.paneVisible && filePreview.activeTab && filePreview.activeTab.kind !== 'execution')
   const replyReader = useMemo(() => new ThreadReplyReader(snapshot.thread.id, client), [snapshot.thread.id, client])
   const replyDetail = useSyncExternalStore(replyReader.subscribe, replyReader.getSnapshot, replyReader.getSnapshot)
   const [replyFull, setReplyFull] = useState(false)
@@ -2135,7 +2137,7 @@ export function ThreadWorkspace({
   const [worldMapRoutesVisible, setWorldMapRoutesVisible] = useState(false)
   const [localInspectorTab, setLocalInspectorTab] = useState<ThreadInspectorTab>('tasks')
   const [workspaceEntrySelection] = useState(() =>
-    workspaceEntrySnapshotReady && !suppressExecutionAutoOpen
+    workspaceEntrySnapshotReady && !suppressExecutionAutoOpen && !rightPreviewBlocksExecutionAutoOpen
       ? executionWorkspaceEntrySelection(snapshot.agentRuns)
       : null
   )
@@ -2454,10 +2456,11 @@ export function ThreadWorkspace({
 
   useEffect(() => setMentionPopover(null), [snapshot.thread.id])
   useLayoutEffect(() => {
-    if (workspaceEntrySnapshotHandled.current || !workspaceEntrySnapshotReady) return
+    if (workspaceEntrySnapshotHandled.current) return
+    if (!workspaceEntrySnapshotReady && !rightPreviewBlocksExecutionAutoOpen) return
     workspaceEntrySnapshotHandled.current = true
     if (executionEntryInteractionThreadId.current === snapshot.thread.id) return
-    if (suppressExecutionAutoOpen) return
+    if (suppressExecutionAutoOpen || rightPreviewBlocksExecutionAutoOpen) return
     const entrySelection = executionWorkspaceEntrySelection(snapshot.agentRuns)
     const runningRun = entrySelection?.focusedRun ?? null
     setExecutionDrawerAgentId(entrySelection?.selectedAgentId ?? null)
@@ -2486,13 +2489,14 @@ export function ThreadWorkspace({
     filePreview,
     snapshot.agentRuns,
     workspaceEntrySnapshotReady,
-    suppressExecutionAutoOpen
+    suppressExecutionAutoOpen,
+    rightPreviewBlocksExecutionAutoOpen
   ])
   useLayoutEffect(() => {
     if (workspaceEntryInspectorHandled.current) return
-    if (!workspaceEntrySnapshotReady) return
+    if (!workspaceEntrySnapshotReady && !rightPreviewBlocksExecutionAutoOpen) return
     workspaceEntryInspectorHandled.current = true
-    if (suppressExecutionAutoOpen) return
+    if (suppressExecutionAutoOpen || rightPreviewBlocksExecutionAutoOpen) return
     if (!mobile && workspaceEntryRunningRun && executionPlacement === 'inspector') {
       onOpenInspector?.(inspectorTab)
     } else if (workspaceEntryRunningRun && executionPlacement === 'right') {
@@ -2506,14 +2510,15 @@ export function ThreadWorkspace({
     filePreview,
     workspaceEntryRunningRun,
     workspaceEntrySnapshotReady,
-    suppressExecutionAutoOpen
+    suppressExecutionAutoOpen,
+    rightPreviewBlocksExecutionAutoOpen
   ])
   useLayoutEffect(() => {
     if (mountedThreadId.current === snapshot.thread.id) return
     mountedThreadId.current = snapshot.thread.id
     executionEntryInteractionThreadId.current = null
-    workspaceEntrySnapshotHandled.current = workspaceEntrySnapshotReady
-    const entrySelection = workspaceEntrySnapshotReady && !suppressExecutionAutoOpen
+    workspaceEntrySnapshotHandled.current = workspaceEntrySnapshotReady || rightPreviewBlocksExecutionAutoOpen
+    const entrySelection = workspaceEntrySnapshotReady && !suppressExecutionAutoOpen && !rightPreviewBlocksExecutionAutoOpen
       ? executionWorkspaceEntrySelection(snapshot.agentRuns)
       : null
     const runningRun = entrySelection?.focusedRun ?? null
@@ -2532,7 +2537,7 @@ export function ThreadWorkspace({
     } else if (runningRun && executionPlacement === 'right') {
       filePreview?.openExecution()
     }
-  }, [executionPlacement, filePreview, inspectorTab, mobile, onOpenInspector, snapshot.agentRuns, snapshot.thread.id, suppressExecutionAutoOpen, workspaceEntrySnapshotReady])
+  }, [executionPlacement, filePreview, inspectorTab, mobile, onOpenInspector, snapshot.agentRuns, snapshot.thread.id, suppressExecutionAutoOpen, rightPreviewBlocksExecutionAutoOpen, workspaceEntrySnapshotReady])
   useLayoutEffect(() => {
     if (executionDrawerAgentId !== null) return
     const trigger = executionDrawerTriggerRef.current
@@ -5031,7 +5036,9 @@ export function ThreadWorkspace({
     const submittedExecutionRequest = submittedExecutionRequests[0]
     if (!submittedExecutionRequest) return
     const consumeRequest = (): void => { setSubmittedExecutionRequests((current) => current.slice(1)) }
-    if (suppressExecutionAutoOpen) { consumeRequest(); return }
+    // Consume even before the Run arrives so leaving the preview cannot replay
+    // an automatic navigation that was declined while the user was reading.
+    if (suppressExecutionAutoOpen || rightPreviewBlocksExecutionAutoOpen) { consumeRequest(); return }
     if (taskCreationBlocksSubmittedRunAutoFocus(
       taskCreationActive,
       inspectorVisible,
@@ -5079,7 +5086,8 @@ export function ThreadWorkspace({
     initializePreviewMinimumWidth,
     mobile,
     taskCreationActive,
-    suppressExecutionAutoOpen
+    suppressExecutionAutoOpen,
+    rightPreviewBlocksExecutionAutoOpen
   ])
 
   const conversationFindTotal = conversationFind.snapshot?.totalMatchCount ?? 0

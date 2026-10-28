@@ -676,10 +676,17 @@ selection 不算“正在查看 non-terminal Run”。从其他 Camp、一级页
 权威 snapshot 含 running Run，则自动选择总览，并以 `createdAt + id` 最新者作为精确 focused Run 展开；
 `inspector` placement 激活首个“执行”
 入口，`right` placement 打开右侧“执行”标签，底部 placement 直接展开
-Drawer，均不移动 DOM 键盘焦点。Mission 仍先打开“活动”；若 `right` 位置有 running Run，再选择“执行”，
-活动标签继续保留。打开后执行阅读区定位到最新指令，并在用户停留底部时跟随新增指令。没有 running Run 时不自动
+Drawer，均不移动 DOM 键盘焦点。Mission 的活动标签继续保留，已可见的文件或活动页优先遵循下述保护。
+打开后执行阅读区定位到最新指令，并在用户停留底部时跟随新增指令。没有 running Run 时不自动
 打开；`queued`、`waiting`、`recovery_blocked` 与 terminal 均不具备资格。用户已经停留在同一 workspace 时，
 后台 A2A、Runtime 事件、refresh 或后续状态变化不得自动打开、切换或抢焦点。
+
+`right` placement 下，当前共享预览 Pane 可见且选中普通文件、File Change 或 Mission 活动时，
+发送后的 Run 自动聚焦与进入／返回 Thread 的自动打开均保留当前 Tab、Pane、阅读位置和键盘焦点。
+保护依据是当前可见选择，不依据 DOM 焦点、文件加载状态或后台是否还留有文件标签。
+被保护的发送请求和本次进入请求直接消费；Run 晚到、关闭文件或收起 Pane 后不补跳。
+仅有隐藏标签、空预览或当前已选执行时，继续原自动打开规则。显式执行入口、位置切换与执行通知定位
+仍可切到执行；`bottom`、`inspector` 及 Mobile 的既有规则不变。
 
 使命板上的 Mission 抽屉在 `bottom` placement 下是进入与提交后自动聚焦的例外：已有 running Run 或本抽屉
 新提交消息产生 Run 时，底部队员入口继续显示真实状态，但不自动选中队员或展开 Drawer。用户显式点击总览或

@@ -7951,12 +7951,11 @@ describe('task event projections', () => {
 
     expect(VISIBLE_PRODUCT_RUNTIMES).toEqual(['claude-code-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'kiro-cli', 'qoder-cli', 'codebuddy-cli', 'qwen-code', 'trae-cn-cli', 'kimi-code-cli', 'minimax-code-cli', 'hermes-cli', 'grok-build', 'deepseek-harness', 'command-code-cli', 'zcode-app', 'antigravity-app', 'pi'])
     for (const platform of ['macos-arm64', 'macos-x64', 'windows-x64', 'linux-x64'] as const) {
-      const admitted = platform.startsWith('macos-')
       const admissions: HealthStatus['runtimePlatformAdmission'] = [{
-        runtimeKind: 'hermes-cli', platform, status: admitted ? 'preview' : 'not_qualified',
-        reasonCode: 'runtime_platform.qualification_evidence_missing', evidenceRevision: null
+        runtimeKind: 'hermes-cli', platform, status: 'enabled',
+        reasonCode: null, evidenceRevision: null
       }]
-      expect(visibleProductRuntimes(platform, admissions).includes('hermes-cli')).toBe(admitted)
+      expect(visibleProductRuntimes(platform, admissions)).toContain('hermes-cli')
     }
     expect(visibleProductRuntimes(null, [])).not.toContain('hermes-cli')
     expect(markup).toContain('member-runtime-picker')
@@ -8181,8 +8180,7 @@ describe('task event projections', () => {
     expect(markup).toContain('TRAE CLI')
     expect(markup).toContain('DeepSeek Harness')
     expect(markup).toContain('MiniMax Code')
-    if (health.hostPlatform === 'macos-arm64' || health.hostPlatform === 'macos-x64') expect(markup).toContain('Hermes Agent')
-    else expect(markup).not.toContain('Hermes')
+    expect(markup).toContain('Hermes Agent')
     expect(markup).not.toContain('Cursor Agent')
     expect(markup).not.toContain('Cline')
     expect(markup).toContain('Command Code')
@@ -8227,7 +8225,7 @@ describe('task event projections', () => {
     expect(markup).not.toContain('/opt/homebrew/bin/codex')
 
     // Admitted rows show versions and machine status, without release-stage labels.
-    for (const status of ['qualified', 'preview'] as const) {
+    for (const status of ['enabled', 'qualified', 'preview'] as const) {
       for (const reportedVersion of [null, '   ', 'codex-cli 1.0.0']) {
         const versionMarkup = renderToStaticMarkup(createElement(RuntimeInstallationsPanel, {
           health: {
@@ -8451,7 +8449,7 @@ function runtimeAdmissionRows(
   ]
   return runtimeKinds.map((runtimeKind) => {
     const effectiveStatus = runtimeKind === 'hermes-cli'
-      ? (status === 'qualified' || status === 'preview') && (platform === 'macos-arm64' || platform === 'macos-x64') ? 'preview' : 'not_qualified'
+      ? (status === 'qualified' || status === 'preview' || status === 'enabled') ? 'enabled' : status
       : status === 'qualified' && ['cursor-agent', 'cline-cli', 'command-code-cli'].includes(runtimeKind)
         ? runtimeKind === 'command-code-cli' ? 'preview' : 'not_qualified'
         : status
@@ -8459,7 +8457,7 @@ function runtimeAdmissionRows(
       runtimeKind,
       platform,
       status: effectiveStatus,
-      reasonCode: effectiveStatus === 'qualified'
+      reasonCode: effectiveStatus === 'qualified' || effectiveStatus === 'enabled'
         ? null
         : 'runtime_platform.qualification_evidence_missing',
       evidenceRevision: effectiveStatus === 'qualified' ? 'sha256:test-macos-evidence' : null

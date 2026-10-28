@@ -43,7 +43,7 @@ Windows x64 与 Linux x64 继续隐藏并拒绝普通执行。Intel 入口开放
 原生版本固定为官方 tag `v0.22.4` / `4d04303818b61bf3aa09278af48356315515965b`，macOS arm64。
 每个夹具使用一个新建测试用户 Home 和一份原生 `.hermes`，Session 共用该夹具 Gateway；
 启动普通官方 `hermes --profile default acp`，未启动生产 Core 或桌面。
-最终受控 Provider 验证 5 项；真实模型 `gpt-6.1-sol` 另验证接口拒绝与 2 个同 Session 原生任务，
+最终受控 Provider 验证 5 项；最终真实模型 `gpt-6.1-sol` 验证接口拒绝与 2 个同 Session 原生任务，
 后者共 6 次主模型调用，分别把文件输出从 RED 改为 GREEN、冷恢复后改为 BLUE。
 每轮使用不同指导标记，模型请求从未包含该轮标记变为包含，避免把上一轮历史误认为本轮接受。
 

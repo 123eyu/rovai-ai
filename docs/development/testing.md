@@ -60,6 +60,25 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 不用“最低兼容”。合并后产品证据见[Steer 收口报告](../research/runtime-monitoring/steer-hardening-2026-10-15.md)，
 此前低版本边界见[低版本验证报告](../research/runtime-monitoring/steer-low-versions-2026-10-15.md)。
 
+### Hermes 原生 Steer 边界探针
+
+Hermes 0.22.4 的 slash Steer 尚未接通生产 Core。下面的原生探针不经过 Core、CLI 或 UI，
+不能替代上面的共享 Steer 产品验收：
+
+```sh
+node scripts/probe-hermes-steer.mjs /absolute/official-v0.22.4-source /absolute/prepared-python
+node scripts/probe-hermes-steer.mjs /absolute/official-v0.22.4-source /absolute/prepared-python --real-model
+```
+
+源码 checkout 须位于官方 tag `v0.22.4`，含原生 `install-stamp.json`；Python 须已具备该安装依赖。
+脚本在新建临时目录克隆未修改源码，并建立隔离测试用户 Home、项目和原生 `.hermes`。
+每个夹具仅有一个共享 Gateway；退出只停止夹具创建的 ACP 与 Gateway，不访问日常 Session。
+默认通过 loopback Provider 验证正常插话、冷恢复、延迟终态、ACP 关闭后的后继执行及图片排队。
+`--real-model` 需要当前任务的真实模型调用授权，只从本机现有配置读取 Responses Provider，
+通过内存 relay 使用凭据；不向夹具文件写真实凭据，不修改日常配置。它验证两个原生任务的实际文件结果，
+不重跑受控竞态。原始 `result.json` 与日志保留在私有夹具，只公开白名单脱敏摘要。
+当前结果与缺口见[Hermes 实测](../research/hermes-runtime/README.md#0224-原生-acp-steer-实测2026-10-28)。
+
 ## MiniMax Code 控制服务验收
 
 先构建配套 Core/CLI，再用实际安装入口运行：

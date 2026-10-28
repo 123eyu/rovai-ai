@@ -59,7 +59,10 @@ Ready 声明 `context.charter.first_payload`、`hermes.native_session_cli`、模
 撤下 managed system、压缩保留、signal_driven/best_effort 旧能力。缓存按现有发现机制重新探测，
 不因能力缓存变化轮换 Session。Ready 不是所有工具、终端后端或平台已验收的证明。
 
-官方 ACP 无同轮插话接口时，输入进入既有后续队列；不维护私有 steer 通道。
+当前输入仍进入既有后续队列，不开放同轮 Steer。官方 0.22.4 ACP `/steer` 的正常文字路径已实测，
+但目标结束时会自动转普通 prompt，不能保证固定 Run／epoch；关闭 ACP 也不阻止其在共享 Gateway
+执行后继任务。边界与真实模型证据见[原生 Steer 验证](../research/hermes-runtime/README.md#0224-原生-acp-steer-实测2026-10-28)。
+不维护私有 steer 通道，不用普通 `end_turn` 冒充同轮接受。
 取消直接发 `session/cancel`，按真实终态处理。ACP 退出不能证明已提交工具停止；无法确认时保留未知。
 
 ## 内置 CLI 的原生会话来源

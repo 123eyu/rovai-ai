@@ -65,6 +65,8 @@ FirstPayload 保留首次/真实更新，取消压缩补发；ACP 清理不拥�
 最低版本 0.22.4。2026-10-28 按 User sequence 126 重新开放 macOS arm64/x64，内部采用 Preview，
 不恢复资格提示。Windows x64、Linux x64 保持 NotQualified，用户入口继续隐藏，普通执行关闭。
 内部实现和已有记录保留，Intel 开放不代表完成实机验收，状态见[平台准入](../../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
+按同 Thread sequence 134 接通官方 ACP slash Steer：已知结束走普通队列；已发出的补充即使被原生
+转入下一轮，也由原 Core Run 跟踪至完成。验证与覆盖边界见[接通记录](../../research/hermes-runtime/README.md#core-steer-接通2026-10-28)。
 按同 Thread sequence 116，所有 Runtime 的引导、成员配置及检查反馈移除 Preview 资格说明小字，
 只呈现实际机器状态和可处理的错误；内部准入与诊断证据保留。
 

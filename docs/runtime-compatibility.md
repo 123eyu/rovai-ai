@@ -6,6 +6,15 @@ last_updated: 2026-10-28
 
 # Agent Runtime 兼容性清单
 
+## 2026-10-28 Hermes 运行中插话接通
+
+官方 0.22.4 ACP slash Steer 已通过生产 Core 接入，使用既有 Native Session、Run 和 CLI 授权。
+来晚的补充由原生在同 Session 接续，Core 等所有已发出请求返回后收尾；已知 Run 结束则走普通队列。
+受控 Provider 覆盖 5 个场景；真实 `gpt-6.1-sol` 验证连续更正与文件引用、冷恢复结束竞态、CLI 归属
+及普通消息后续执行（3 个成功 Core Run、12 次主模型请求）。取消、未知不重发和明确拒绝由受控场景
+独立验证。证据见 [Core Steer 验证](research/hermes-runtime/README.md#core-steer-接通2026-10-28)。
+当前只有 macOS arm64 执行证据；不扩展为 Intel/其他平台、Desktop UI 或原生 image block 验收。
+
 ## 2026-10-28 Hermes macOS 重新开放
 
 按 User sequence 126，macOS arm64/x64 重新开放发现、检查、安装配置、成员选择和普通执行，

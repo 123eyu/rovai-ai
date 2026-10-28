@@ -11,6 +11,13 @@ last_updated: 2026-10-28
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## macOS 来源标记导致的启动误拦截（2026-10-28）
+
+补齐 main/WAL/journal 的系统来源标记识别，以及 current authority 以读写方式打开后的有界重新准入。
+已有校验在发行版 0.5.1 与 0.5.2 之间未变；本次升级触发了既有兼容缺口，而非新增 schema migration 失败。
+当前规则见 [Availability-first Runtime](../../architecture/availability-first-runtime.md#database-authority-state-machine)，
+复现、测试归属与交付边界见[实施记录](implementation-plan.md#macos-来源标记启动修复2026-10-28)。
+
 ## Thread read 正向增量读取（2026-10-22）
 
 新增 `rovai thread read --after N`，按排他序列号从最早未覆盖消息向后分页；0 可从最早消息起读。

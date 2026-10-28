@@ -1,6 +1,6 @@
 import { languageTestApi } from './interface-language-test-api'
 import { RemoteConnectionStatus } from './RemoteConnectionStatus'
-import { VISIBLE_PRODUCT_RUNTIMES } from './runtime-products'
+import { VISIBLE_PRODUCT_RUNTIMES, visibleProductRuntimes } from './runtime-products'
 import { DEFAULT_APPEARANCE } from '../../shared/appearance'
 import { DEFAULT_GENERAL_PREFERENCES } from '../../shared/general-preferences-model'
 import { changeInterfaceLanguage } from './interface-language'
@@ -7939,7 +7939,16 @@ describe('task event projections', () => {
       onOpenRuntimeSettings: () => undefined
     }))
 
-    expect(VISIBLE_PRODUCT_RUNTIMES).toEqual(['claude-code-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'kiro-cli', 'qoder-cli', 'codebuddy-cli', 'qwen-code', 'trae-cn-cli', 'kimi-code-cli', 'minimax-code-cli', 'grok-build', 'deepseek-harness', 'command-code-cli', 'zcode-app', 'antigravity-app', 'pi'])
+    expect(VISIBLE_PRODUCT_RUNTIMES).toEqual(['claude-code-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'kiro-cli', 'qoder-cli', 'codebuddy-cli', 'qwen-code', 'trae-cn-cli', 'kimi-code-cli', 'minimax-code-cli', 'hermes-cli', 'grok-build', 'deepseek-harness', 'command-code-cli', 'zcode-app', 'antigravity-app', 'pi'])
+    for (const platform of ['macos-arm64', 'macos-x64', 'windows-x64', 'linux-x64'] as const) {
+      const admitted = platform.startsWith('macos-')
+      const admissions: HealthStatus['runtimePlatformAdmission'] = [{
+        runtimeKind: 'hermes-cli', platform, status: admitted ? 'preview' : 'not_qualified',
+        reasonCode: 'runtime_platform.qualification_evidence_missing', evidenceRevision: null
+      }]
+      expect(visibleProductRuntimes(platform, admissions).includes('hermes-cli')).toBe(admitted)
+    }
+    expect(visibleProductRuntimes(null, [])).not.toContain('hermes-cli')
     expect(markup).toContain('member-runtime-picker')
     expect(markup).toContain('aria-label="智能体类型，暂不配置"')
     expect(markup).toContain('aria-haspopup="menu"')
@@ -8162,7 +8171,8 @@ describe('task event projections', () => {
     expect(markup).toContain('TRAE CLI')
     expect(markup).toContain('DeepSeek Harness')
     expect(markup).toContain('MiniMax Code')
-    expect(markup).not.toContain('Hermes')
+    if (health.hostPlatform === 'macos-arm64' || health.hostPlatform === 'macos-x64') expect(markup).toContain('Hermes Agent')
+    else expect(markup).not.toContain('Hermes')
     expect(markup).not.toContain('Cursor Agent')
     expect(markup).not.toContain('Cline')
     expect(markup).toContain('Command Code')
@@ -8181,9 +8191,9 @@ describe('task event projections', () => {
     expect(markup).not.toContain('尚未检查')
     expect(markup).not.toContain('已检查')
     expect(markup).not.toMatch(/稳定|测试|实验性/)
-    expect(markup.match(/class="runtime-product-logo"/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
-    expect(markup.match(/class="quiet-button runtime-product-check"/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 2)
-    expect(markup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 2)
+    expect(markup.match(/class="runtime-product-logo"/g)).toHaveLength(visibleProductRuntimes(health.hostPlatform, health.runtimePlatformAdmission).length)
+    expect(markup.match(/class="quiet-button runtime-product-check"/g)).toHaveLength(visibleProductRuntimes(health.hostPlatform, health.runtimePlatformAdmission).length - 2)
+    expect(markup.match(/检查状态/g)).toHaveLength(visibleProductRuntimes(health.hostPlatform, health.runtimePlatformAdmission).length - 2)
     expect(markup).not.toContain('runtime-product-check" disabled="">正在检查…')
     expect(markup).toContain('Claude Code 登录指南')
     expect(markup).toContain('Antigravity 安装指南')
@@ -8224,7 +8234,7 @@ describe('task event projections', () => {
           ? `<strong>Codex CLI</strong><small title="${subtitle}">${subtitle}</small>`
           : '<strong>Codex CLI</strong></div>')
         expect(versionMarkup).toContain('status-available">可用</span>')
-        expect(versionMarkup.match(/检查状态/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
+        expect(versionMarkup.match(/检查状态/g)).toHaveLength(visibleProductRuntimes(health.hostPlatform, health.runtimePlatformAdmission).length)
         expect(versionMarkup).toContain('DeepSeek Harness')
         expect(versionMarkup).not.toMatch(/测试|试运行|实验性/)
         expect(versionMarkup).toContain('<strong>ZCode</strong></div>')
@@ -8281,8 +8291,9 @@ describe('task event projections', () => {
       onReload: async () => undefined
     }))
 
-    expect(markup.match(/Windows 尚未验证/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
-    expect(markup.match(/不可检查/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length)
+    expect(markup).not.toContain('Hermes')
+    expect(markup.match(/Windows 尚未验证/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 1)
+    expect(markup.match(/不可检查/g)).toHaveLength(VISIBLE_PRODUCT_RUNTIMES.length - 1)
     expect(markup).not.toContain('检查状态')
     expect(markup).toContain('当前平台尚无可检测的智能体')
     expect(markup).toContain('这不是本机安装、登录或扫描故障')
@@ -8429,9 +8440,11 @@ function runtimeAdmissionRows(
     'antigravity-app'
   ]
   return runtimeKinds.map((runtimeKind) => {
-    const effectiveStatus = status === 'qualified' && ['cursor-agent', 'cline-cli', 'command-code-cli'].includes(runtimeKind)
-      ? runtimeKind === 'command-code-cli' ? 'preview' : 'not_qualified'
-      : status
+    const effectiveStatus = runtimeKind === 'hermes-cli'
+      ? (status === 'qualified' || status === 'preview') && (platform === 'macos-arm64' || platform === 'macos-x64') ? 'preview' : 'not_qualified'
+      : status === 'qualified' && ['cursor-agent', 'cline-cli', 'command-code-cli'].includes(runtimeKind)
+        ? runtimeKind === 'command-code-cli' ? 'preview' : 'not_qualified'
+        : status
     return {
       runtimeKind,
       platform,

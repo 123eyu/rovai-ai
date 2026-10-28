@@ -4,13 +4,13 @@ name: Hermes Managed Runtime
 version: v1
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 ---
 
 # Hermes Managed Runtime v1
 
-`hermes-cli` 使用共享 ACP、Fleet、Run 队列、Replay Quarantine 和 Explicit Send。Hermes 尚未上线，
-原生会话定位方案直接替换私有 Home 实验，不提供迁移、旧启动器回退或双版本协商。
+`hermes-cli` 使用共享 ACP、Fleet、Run 队列、Replay Quarantine 和 Explicit Send。
+原生会话定位方案已直接替换未发布的私有 Home 实验，不提供迁移、旧启动器回退或双版本协商。
 
 ## 安装与进程
 
@@ -153,8 +153,9 @@ ACP 图片沿原生媒体流程，能力取决于配置及模型。
 
 ## 准入
 
-2026-10-27 按 User sequence 122 暂缓公开：macOS arm64/x64、Windows x64、Linux x64 全部为
-Not Qualified，用户设置、引导、选择菜单、安装指南与监控筛选不展示 Hermes。普通发现、检查、
-配置与执行服从共享准入；内部实现及已有身份、输入账本和证据保留，不新增迁移或运行回退。
-现有原生执行证据仍限于已记录的 arm64 安装，不能替代公开准入。具体未覆盖路径见
+2026-10-28 按 User sequence 126 重新开放 macOS arm64/x64，两行均为 Preview，允许普通发现、检查、
+配置与执行，不显示 Preview 资格提示。Windows x64 与 Linux x64 保持 Not Qualified，用户设置、引导、
+选择菜单、安装指南与监控筛选继续隐藏 Hermes；各入口消费共享准入。
+已有身份、输入账本和证据保留，不新增迁移或运行回退。现有原生执行证据仍限于已记录的 arm64 安装，
+Intel 开放不代表完成 Intel 实机验收。具体未覆盖路径见
 [验证记录](../research/hermes-runtime/README.md)，平台状态见[准入合同](runtime-platform-admission-v2.md#hermes-初始准入)。

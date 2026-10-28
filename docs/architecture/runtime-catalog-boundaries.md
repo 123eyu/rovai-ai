@@ -3,7 +3,7 @@ document_type: architecture
 architecture: runtime-catalog-boundaries
 authority: runtime-catalog-and-preview-boundaries
 status: accepted
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 ---
 
 # Runtime Catalog Boundaries
@@ -45,9 +45,10 @@ Product Runtime Catalog 当前包含二十种已实现 Adapter。Preview 与它�
 Renderer 当前不展示 Settings Preview row。DeepSeek Harness 通过官方 ACP profile 接入；macOS arm64、macOS x64、
 Windows x64 与 Linux x64 分别绑定平台专属证据并取得 qualified。
 产品目录的机器可判数量、全量检查、诊断分母和
-普通执行仍只来自逐平台 Admission。Cursor、暂缓公开的 Cline 与 Hermes 保留 closed identity 和历史 reader，但不进入
+普通执行仍只来自逐平台 Admission。Cursor 与暂缓公开的 Cline 保留 closed identity 和历史 reader，但不进入
 Settings Runtime Preview Catalog；隐藏该 row 不删除持久 identity，也不改变未准入状态。普通成员 Runtime
-selector 同样不展示 Cursor、Cline 与 Hermes；Command Code 进入公开目录，macOS arm64/x64、Windows x64 与 Linux x64 均为 Preview。成员选项在当前主机上继续经过 Runtime Platform Admission，Renderer 不另建平台白名单。
+selector 同样不展示 Cursor 与 Cline。Hermes 仅在 Core 已准入的主机显示，目前为 macOS arm64/x64；
+Command Code 在 macOS arm64/x64、Windows x64 与 Linux x64 均为 Preview。成员选项继续经过 Runtime Platform Admission，Renderer 不另建平台白名单。
 
 `qualified` 与 `preview` 可以进入 Product Runtime Availability；`preview` 在内部保留缺失资格证据，用户界面不显示资格记录未齐备的提示。
 `qualified` 行只在有实际 reported version 时显示版本副文案，否则仅显示居中的产品名，不再回退到静态
@@ -847,9 +848,10 @@ ACP Session 累计费用仅作 Session gauge，不冒充 Run 费用。Skills 只
 
 ## Hermes 受管 ACP
 
-Hermes 保留 `hermes-cli` 产品闭集身份，2026-10-27 按 User sequence 122 在所有平台暂缓公开。
-macOS arm64/x64、Windows x64、Linux x64 均为 NotQualified；设置、引导、成员/Skills 菜单、安装引导
-和监控筛选不提供 Hermes，也不保留占位。共享准入阻止普通发现、检查、配置和执行；不删除既有记录。
+Hermes 保留 `hermes-cli` 产品闭集身份，2026-10-28 按 User sequence 126 重新开放 macOS arm64/x64。
+两行采用 Preview，用户界面只显示实际机器状态；Windows x64 与 Linux x64 保持 NotQualified。
+设置、引导、成员/Skills 菜单和监控筛选复用 Core Admission，仅在已准入主机提供 Hermes；未准入主机不保留占位。
+共享准入继续限制普通发现、检查、配置和执行，不删除既有记录。
 平台状态见[准入合同](../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。保留的共享 ACP 实现直接启动官方入口，
 使用用户原生 `~/.hermes` 与精确 Session resume；无私有 Home、启动器或专用 Gateway。
 Fleet 只拥有 ACP 客户端根进程，原生共享执行端不随 Run 回收。

@@ -1,12 +1,20 @@
 ---
 document_type: runtime-compatibility-register
 authority: runtime-validation-evidence
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 ---
 
 # Agent Runtime 兼容性清单
 
-## 2026-10-27 Hermes 暂缓公开
+## 2026-10-28 Hermes macOS 重新开放
+
+按 User sequence 126，macOS arm64/x64 重新开放发现、检查、安装配置、成员选择和普通执行，
+内部沿用 Preview，不显示 Preview 或资格记录未齐备提示。Windows x64 与 Linux x64 继续隐藏。
+各用户入口按 Core Admission 过滤 Hermes；原生 ACP、原生 Home、Session resume 和既有能力边界保持。
+本次沿既有平台矩阵及 Renderer owners 验证入口，不重复模型验收，也不宣称完成 Intel 实机验证。
+当前边界见[平台准入合同](contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
+
+## 2026-10-27 Hermes 暂缓公开（macOS 已重新开放）
 
 按 User sequence 122，Hermes 在 macOS arm64/x64、Windows x64、Linux x64 全部撤回公开入口，
 采用既有 NotQualified 准入并从所有新使用入口隐藏，不显示待支持或实验提示。内部实现与历史证据保留；

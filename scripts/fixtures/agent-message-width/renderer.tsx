@@ -20,7 +20,8 @@ function App() {
   const [middle, setMiddle] = useState<keyof typeof examples>('prose')
   const [quote, setQuote] = useState(false)
   const [mention, setMention] = useState(false)
-  Object.assign(window, { widthFixture: { setMiddle, setQuote, setMention } })
+  const [attachments, setAttachments] = useState(false)
+  Object.assign(window, { widthFixture: { setMiddle, setQuote, setMention, setAttachments } })
   return <main className="timeline-scroll" style={{ width: 'var(--fixture-pane-width, 100%)', maxWidth: '100%', height: '100vh', margin: 'auto' }}><div className="timeline-track">
     {['before', 'middle', 'after'].map(id => <article key={id} data-fixture-id={id} className="timeline-node conversation-bubble agent public-agent-message">
       <span className="local-message-avatar" aria-hidden="true">爱</span>
@@ -29,6 +30,7 @@ function App() {
           {quote && id === 'middle' && <MessageQuotePreview authorLabel="Murray" body={'请检查这条很长的回复引用。'.repeat(30)} />}
           <SafeMarkdown>{id === 'middle' ? examples[middle] : prose}</SafeMarkdown>
         </AgentMessageContent>
+        {attachments && id === 'middle' && <div className="message-attachments agent-message-outputs">独立附件轨道</div>}
       </div></div></div>
     </article>)}
   </div></main>

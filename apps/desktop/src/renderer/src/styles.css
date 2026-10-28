@@ -9506,7 +9506,7 @@ button.skill-file-current:hover, .skill-file-current[aria-expanded="true"] { bac
 /* Public agent prose and artifacts share one bounded message width. */
 .public-agent-message { --agent-message-prose-width: var(--conversation-prose-width); width: 100%; max-width: none; }
 .public-agent-message > .message-body { width: 100%; max-width: none; }
-.public-agent-message .message-surface > .agent-message-content {
+.public-agent-message .message-surface > :is(.final-copy, .message-bubble).agent-message-content {
   --agent-message-artifact-width: 0px;
   max-width: min(100%, calc(max(var(--agent-message-prose-width), min(var(--agent-message-artifact-width, 0px), var(--conversation-artifact-width))) + 26px));
 }

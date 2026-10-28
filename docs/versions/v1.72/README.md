@@ -62,8 +62,9 @@ Issue #891 按 User 确认的范围统一启动／重新检测／主动检查的
 FirstPayload 保留首次/真实更新，取消压缩补发；ACP 清理不拥有原生执行端。
 当前规范见 [Hermes 合同](../../contracts/hermes-managed-runtime-v1.md)，理由见 [D67](decisions.md#v1-72-d67)，
 正文确认见 [R2](model-context-change-hermes-first-input.md)，验证见 [实施记录](hermes-first-input-implementation.md)。
-最低版本 0.22.4。2026-10-28 按 User sequence 126 重新开放 macOS arm64/x64，内部采用 Preview，
-不恢复资格提示。Windows x64、Linux x64 保持 NotQualified，用户入口继续隐藏，普通执行关闭。
+最低版本 0.22.4。2026-10-28 按维护者要求在 macOS arm64/x64、Windows x64、Linux x64 均普通开放，
+统一采用 `enabled`，不采用 Preview 或实验标签。入口消费共享准入；Windows ACP 仅拥有连接根进程，
+不将原生共享 Gateway 纳入 Job。开放与完整平台资格验证分开记录，不制造 qualification evidence。
 内部实现和已有记录保留，Intel 开放不代表完成实机验收，状态见[平台准入](../../contracts/runtime-platform-admission-v2.md#hermes-初始准入)。
 按同 Thread sequence 134 接通官方 ACP slash Steer：已知结束走普通队列；已发出的补充即使被原生
 转入下一轮，也由原 Core Run 跟踪至完成。验证与覆盖边界见[接通记录](../../research/hermes-runtime/README.md#core-steer-接通2026-10-28)。

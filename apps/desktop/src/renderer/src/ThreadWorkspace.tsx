@@ -54,6 +54,7 @@ import { isFileFindTarget, useOptionalFileFind } from './FilePreviewFind'
 import { readErrorMessage } from './error-message'
 import { collapsedMessageProjection } from './conversation-message-collapse'
 import { samePublicMessageSegment } from './public-message-grouping'
+import { messageTimeParts, useMessageTimeDate } from './message-time'
 import { usePublicMessageLayout } from './usePublicMessageLayout'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type JSX, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -1768,6 +1769,7 @@ export function ThreadWorkspace({
   const taskFocusWasRemoved = !tasksEnabled && typeof document !== 'undefined' && !!document.activeElement?.closest('.task-panel-scroll, .camp-detail-entry[data-detail="tasks"], .task-editor-dialog, .task-cancel-dialog')
   const client = useThreadClient()
   const interfaceLanguage = useInterfaceLanguage()
+  const messageTimeDate = useMessageTimeDate()
   const { profile: currentUserProfile } = useCurrentUserProfile()
   const currentUserName = currentUserDisplayName(currentUserProfile)
   const filePreview = useOptionalFilePreview()
@@ -5661,6 +5663,13 @@ export function ThreadWorkspace({
                   const joinsNextMessage = nextItem?.kind === 'camp_message'
                     && shortPublicMessages.has(campMessage.id)
                     && samePublicMessageSegment(groupingMessage(campMessage), groupingMessage(nextItem.message))
+                  const messageTime = messageTimeParts(campMessage.createdAt, interfaceLanguage, messageTimeDate)
+                  const messageTimestamp = !joinsNextMessage && messageTime ? (
+                    <time className="message-action-time" dateTime={campMessage.createdAt} tabIndex={0}
+                      title={messageTime.full} aria-label={`${messageTime.full} · #${campMessage.sequence}`}>
+                      {messageTime.short}
+                    </time>
+                  ) : undefined
                   const campMessageDeliveries = snapshot.messageDeliveries.filter((delivery) =>
                     delivery.deliveryKind === 'public_a2a'
                     && !delivery.continuationRequest
@@ -5780,11 +5789,6 @@ export function ThreadWorkspace({
                           <CurrentUserAvatar profile={currentUserProfile} className="local-message-avatar" />
                         </button>
                       )}
-                      {campMessage.authorType === 'agent' && (
-                        <time className="message-continuation-time" aria-hidden="true">
-                          {messageClockTime(campMessage.createdAt)}
-                        </time>
-                      )}
                       {(campMessage.authorType === 'user'
                         || campMessage.authorType === 'agent'
                         || campMessage.authorType === 'external_principal')
@@ -5807,10 +5811,10 @@ export function ThreadWorkspace({
                                   <MessageModelSummary message={campMessage} installations={installations}
                                     displayName={author} avatarRef={authorProfile?.avatarRef ?? null} />
                                 )}
-                                <time title={`#${campMessage.sequence}`}>{messageClockTime(campMessage.createdAt)}</time>
                               </div>
                               <div className="public-message-readout">
                               <MessageSurface
+                                timestamp={messageTimestamp}
                                 copied={copied}
                                 hasDelivery={campMessage.authorType === 'agent' && campMessageDeliveries.length > 0}
                                 showActions={campMessage.authorType !== 'agent'}
@@ -5894,6 +5898,8 @@ export function ThreadWorkspace({
                                 && trailingResultItems.length === 0 && !timelineItem.interruptedRun
                                 && (
                                   <MessageActions
+                                    timestamp={messageTimestamp}
+                                    timeAfter
                                     copied={copied}
                                     className={`agent-message-actions${campMessage.id === latestAgentMessageId ? ' is-persistent' : ''}`}
                                     onReply={handleReply}
@@ -5952,6 +5958,8 @@ export function ThreadWorkspace({
                           <RunInterruptionMarker run={timelineItem.interruptedRun} author={author} onOpen={openExecutionProcess} />
                         )}
                         <MessageActions
+                          timestamp={messageTimestamp}
+                          timeAfter
                           copied={copied}
                           className={`agent-message-output-actions${campMessage.id === latestAgentMessageId ? ' is-persistent' : ''}`}
                           onReply={handleReply}
@@ -9985,6 +9993,7 @@ function ReplyParentQuote({
 }
 
 function MessageSurface({
+  timestamp,
   copied,
   hasDelivery,
   showActions = true,
@@ -9995,6 +10004,7 @@ function MessageSurface({
   withdrawing = false,
   children
 }: {
+  timestamp?: React.ReactNode
   copied: boolean
   hasDelivery: boolean
   showActions?: boolean
@@ -10011,6 +10021,7 @@ function MessageSurface({
       {showActions && (
         <div className="message-action-line">
           <MessageActions
+            timestamp={timestamp}
             copied={copied}
             onReply={onReply}
             onCopy={onCopy}
@@ -10025,6 +10036,8 @@ function MessageSurface({
 }
 
 function MessageActions({
+  timestamp,
+  timeAfter = false,
   copied,
   className,
   onReply,
@@ -10032,6 +10045,8 @@ function MessageActions({
   onWithdraw,
   withdrawing = false
 }: {
+  timestamp?: React.ReactNode
+  timeAfter?: boolean
   copied: boolean
   className?: string
   onReply?(modality: ReplyFocusModality): void
@@ -10048,6 +10063,7 @@ function MessageActions({
       <span className="copy-feedback" role="status" aria-live="polite">
         {copied ? uiAttribute("已复制") : ''}
       </span>
+      {!timeAfter && timestamp}
       <MessageCopyButton copied={copied} onCopy={onCopy} />
       {onWithdraw && (
         <button
@@ -10075,6 +10091,7 @@ function MessageActions({
           <MessageReplyIcon />
         </button>
       )}
+      {timeAfter && timestamp}
     </div>
   )
 }

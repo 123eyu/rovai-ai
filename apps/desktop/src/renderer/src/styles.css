@@ -3681,7 +3681,6 @@ button.camp-world-map-live-caption { cursor: pointer; font: inherit; }
 .message-copy-button svg,
 .message-reply-button svg,
 .message-withdraw-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.55; }
-.message-actions > button + button { margin-left: 1px; }
 .message-copy-button:hover,
 .message-reply-button:hover { border-color: var(--line); color: var(--brand-ink); background: var(--surface-hover); }
 .message-withdraw-button:hover:not(:disabled) { border-color: var(--line); color: var(--danger); background: var(--danger-soft); }

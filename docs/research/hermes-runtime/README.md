@@ -39,6 +39,8 @@ Windows x64 与 Linux x64 继续隐藏并拒绝普通执行。Intel 入口开放
 但当前官方 ACP 的结束竞态不满足 Rovai 固定 Run／epoch 的投递规则，生产 Steer 保持未开放。**
 这次没有修改上游、用户配置、Core Runtime、Run 生命周期或 Gateway 管理方式；新增的是
 [可复现原生探针](../../../scripts/probe-hermes-steer.mjs)与[脱敏证据](steer-acp-2026-10-28.json)。
+默认 Rust 回归另外发现 macOS 开放后的兼容登记摘要未同步，本次按现有文件字节更新了该摘要，
+没有改变 Runtime 准入规则或把 Hermes 提升为已完成平台资格验证。
 
 原生版本固定为官方 tag `v0.22.4` / `4d04303818b61bf3aa09278af48356315515965b`，macOS arm64。
 每个夹具使用一个新建测试用户 Home 和一份原生 `.hermes`，Session 共用该夹具 Gateway；

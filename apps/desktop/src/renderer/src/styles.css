@@ -4856,12 +4856,6 @@ body:has(.composer-image-attachment[data-context-open="true"]) .image-action-not
   .conversation-bubble:is(.user, .agent, .runtime-image-supplement) .message-body { width: 100%; max-width: none; }
   .conversation-bubble.agent .message-surface { width: 100%; }
   .conversation-bubble.agent .final-copy { max-width: 100%; }
-  .conversation-bubble.agent .safe-markdown > :where(p, h3, h4, ul, ol, blockquote) {
-    max-width: var(--conversation-prose-width);
-  }
-  .conversation-bubble.agent .safe-markdown > :where(pre, .markdown-code-frame, table) {
-    width: min(var(--conversation-artifact-width), 100%);
-  }
 }
 .message-surface:has(.message-attachments),
 .message-surface:has(.image-gallery) { width: 100%; }
@@ -9508,3 +9502,19 @@ button.skill-file-current:hover, .skill-file-current[aria-expanded="true"] { bac
 
 .language-bootstrap { width: 100%; height: 100%; background: var(--canvas); }
 .language-preference-notice { position: fixed; z-index: 1000; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px); display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12px; }
+
+/* Public agent prose and artifacts share one bounded message width. */
+.public-agent-message { --agent-message-prose-width: var(--conversation-prose-width); width: 100%; max-width: none; }
+.public-agent-message > .message-body { width: 100%; max-width: none; }
+.public-agent-message .message-surface > .agent-message-content {
+  --agent-message-artifact-width: 0px;
+  max-width: min(100%, calc(max(var(--agent-message-prose-width), min(var(--agent-message-artifact-width, 0px), var(--conversation-artifact-width))) + 26px));
+}
+.public-agent-message .agent-message-content > .reply-parent-quote { contain: inline-size; }
+.safe-markdown .markdown-table-scroll { max-width: 100%; margin: 9px 0; overflow-x: auto; overscroll-behavior-x: contain; }
+.safe-markdown .markdown-table-scroll > table { margin: 0; }
+.public-agent-message .agent-message-content .markdown-table-scroll > table { display: table; width: max-content; max-width: none; }
+.public-agent-message .agent-message-content .markdown-table-scroll :is(th, td) { overflow-wrap: normal; }
+@media (min-width: 1800px) {
+  .public-agent-message { --agent-message-prose-width: 780px; }
+}

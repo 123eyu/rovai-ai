@@ -508,16 +508,24 @@ mod tests {
         let registry = AgentRuntimeAdapterRegistry::default();
         for platform in HostPlatformKey::ALL {
             let hermes = registry.platform_admission(AdapterKind::HermesCli, platform);
+            let admitted = matches!(
+                platform,
+                HostPlatformKey::MacosArm64 | HostPlatformKey::MacosX64
+            );
             assert_eq!(
                 hermes.status(),
-                RuntimePlatformAdmissionStatus::NotQualified
+                if admitted {
+                    RuntimePlatformAdmissionStatus::Preview
+                } else {
+                    RuntimePlatformAdmissionStatus::NotQualified
+                }
             );
             assert!(hermes.evidence_revision().is_none());
             assert!(!hermes.is_qualified());
-            assert!(!hermes.allows_runtime_use());
+            assert_eq!(hermes.allows_runtime_use(), admitted);
             assert_eq!(
                 hermes.blocker_code(),
-                Some("runtime_platform_not_qualified")
+                (!admitted).then_some("runtime_platform_not_qualified")
             );
         }
 

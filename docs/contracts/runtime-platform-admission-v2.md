@@ -4,7 +4,7 @@ name: Runtime Platform Admission
 version: v2
 status: accepted
 source_version: v1.39
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 ---
 
 # Runtime Platform Admission v2
@@ -164,13 +164,13 @@ ARM64、Windows、子代理或未来版本；Preview 不冒充完整平台资格
 
 ## Hermes 初始准入
 
-2026-10-27 按 User sequence 122 暂缓公开，取代同日 sequence 113 的 macOS 开放决定。
-`hermes-cli` 在 macOS arm64、macOS x64、Windows x64 与 Linux x64 全部为
-`not_qualified / qualification_evidence_missing`，evidenceRevision 均为 null。
-设置、新手引导、成员和 Skills 选择、安装引导、监控筛选均隐藏 Hermes，不显示占位或待支持提示；
-普通 discovery、检查、安装配置和执行由共享 Admission 拒绝。内部 Adapter、历史身份和既有证据保留。
-现有执行证据只覆盖已记录的 macOS arm64 安装，不构成公开准入。兼容策略仍为 >=0.22.4，
-不锁 commit；重新开放需另行确认。
+2026-10-28 按 User sequence 126 重新开放 macOS arm64 与 macOS x64，取代 sequence 122 对这两个平台的暂缓决定。
+两行均为 `preview / qualification_evidence_missing`，evidenceRevision 为 null，允许普通 discovery、检查、
+安装配置、成员选择与执行。用户界面仍不显示 Preview、实验或资格记录缺失提示。
+Windows x64 与 Linux x64 保持 `not_qualified / qualification_evidence_missing`；设置、引导、成员和 Skills
+选择、安装引导及监控筛选继续隐藏 Hermes，不显示占位。各入口消费 Core Admission，不另建平台白名单。
+现有执行证据只覆盖已记录的 macOS arm64 安装；Intel 入口开放不宣称完成 Intel 实机验收。
+兼容策略仍为 >=0.22.4，不锁 commit；普通机器与原生协议检查继续执行。
 [当前合同](hermes-managed-runtime-v1.md)与[验证记录](../research/hermes-runtime/README.md)区分原生共享
 Gateway 的受控验收、此前实现的真实 LLM 证据和未完成矩阵；不由一次 Ready 探测推断完整平台资格。
 初始准入理由见 [V1.72-D62](../versions/v1.72/decisions.md#v1-72-d62)，当前接入边界见

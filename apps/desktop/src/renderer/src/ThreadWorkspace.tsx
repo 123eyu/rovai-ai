@@ -179,6 +179,7 @@ import { runtimeReadinessLabel } from './runtime-status'
 import { runtimeEditorInstallation } from './MemberRuntimeParameters'
 import { mentionCandidateRuntime } from './mention-runtime'
 import { SafeMarkdown } from './SafeMarkdown'
+import { AgentMessageContent } from './AgentMessageContent'
 import { FilePreviewPane } from './FilePreviewPane'
 import { FilePreviewResizeHandle, FilePreviewWorkspace, useInitializeFilePreviewMinimumWidth, useOptionalFilePreviewLayout } from './FilePreviewLayout'
 import { useExecutionPreviewHost, useOptionalFilePreview } from './FilePreviewContext'
@@ -5860,16 +5861,23 @@ export function ThreadWorkspace({
                                     segment.kind === 'current_user_mention'
                                   )
                                     ? (
-                                        <div className="final-copy" data-message-quote-body={campMessage.id} data-quote-owner={`thread:${snapshot.thread.id}`}>
+                                        <AgentMessageContent className="final-copy" data-message-quote-body={campMessage.id} data-quote-owner={`thread:${snapshot.thread.id}`}>
                                           {replyQuote}
                                           {renderPublicMessageBody(campMessage, 'timeline')}
-                                        </div>
+                                        </AgentMessageContent>
                                       )
                                     : (
-                                        <div className="message-bubble" data-message-quote-body={campMessage.authorType === 'user' || campMessage.authorType === 'agent' ? campMessage.id : undefined} data-quote-owner={`thread:${snapshot.thread.id}`}>
-                                          {replyQuote}
-                                          {renderPublicMessageBody(campMessage, 'timeline', isConversationFindCurrent || quoteSourceId === campMessage.id)}
-                                        </div>
+                                        campMessage.authorType === 'agent' ? (
+                                          <AgentMessageContent className="message-bubble" data-message-quote-body={campMessage.id} data-quote-owner={`thread:${snapshot.thread.id}`}>
+                                            {replyQuote}
+                                            {renderPublicMessageBody(campMessage, 'timeline', isConversationFindCurrent || quoteSourceId === campMessage.id)}
+                                          </AgentMessageContent>
+                                        ) : (
+                                          <div className="message-bubble" data-message-quote-body={campMessage.authorType === 'user' ? campMessage.id : undefined} data-quote-owner={`thread:${snapshot.thread.id}`}>
+                                            {replyQuote}
+                                            {renderPublicMessageBody(campMessage, 'timeline', isConversationFindCurrent || quoteSourceId === campMessage.id)}
+                                          </div>
+                                        )
                                       )
                                 )}
                                 {!humanAuthored && (

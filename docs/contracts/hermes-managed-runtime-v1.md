@@ -59,10 +59,18 @@ Ready 声明 `context.charter.first_payload`、`hermes.native_session_cli`、模
 撤下 managed system、压缩保留、signal_driven/best_effort 旧能力。缓存按现有发现机制重新探测，
 不因能力缓存变化轮换 Session。Ready 不是所有工具、终端后端或平台已验收的证明。
 
-当前输入仍进入既有后续队列，不开放同轮 Steer。官方 0.22.4 ACP `/steer` 的正常文字路径已实测，
-但目标结束时会自动转普通 prompt，不能保证固定 Run／epoch；关闭 ACP 也不阻止其在共享 Gateway
-执行后继任务。边界与真实模型证据见[原生 Steer 验证](../research/hermes-runtime/README.md#0224-原生-acp-steer-实测2026-10-28)。
-不维护私有 steer 通道，不用普通 `end_turn` 冒充同轮接受。
+运行中补充输入通过官方 `session/prompt` 的 `/steer` 交付，普通消息仍进入既有后续队列。
+按 User sequence 130–134，接受同一原生 Session 内“当前轮插入，来晚则紧接着执行”的原生行为，
+不要求一项 Core Run 只对应一项原生 prompt。已知 Run 结束、取消或 owner 改变时不再发送；
+检查后才发生的原生结束不丢弃已提交输入，也不自动重复投递。
+Core 保留原 Run／epoch／Binding 与活动 CLI lease，直到原请求及所有已提交补充请求返回，
+再统一收尾；期间的原生事件和 CLI Send 仍归这项 Run，普通 waiting 消息不会提前启动。
+接收回执取匹配 RPC 的 `end_turn`，只表示原生已处理本次提交，不证明同一原生轮次消费；
+`admitted_turn_failed` 证明已接收但执行失败，失败保留到 Run 终态。明确协议/参数拒绝回普通队列，
+取消、连接丢失及其他不明结果保留未知，不重发。补充请求可能执行完整任务，不套用短 Steer ACK
+超时；生命周期仍使用现有 Run 取消、执行预算和连接退出处理。
+不解析 slash 通知或模型正文判断回执，不维护私有 Gateway 通道。
+边界与验证见[Core Steer 验证](../research/hermes-runtime/README.md#core-steer-接通2026-10-28)。
 取消直接发 `session/cancel`，按真实终态处理。ACP 退出不能证明已提交工具停止；无法确认时保留未知。
 
 ## 内置 CLI 的原生会话来源

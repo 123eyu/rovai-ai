@@ -62,8 +62,8 @@ node scripts/probe-steer-version.mjs /absolute/new-fixture /absolute/bin/rovai-c
 
 ### Hermes 原生 Steer 边界探针
 
-Hermes 0.22.4 的 slash Steer 尚未接通生产 Core。下面的原生探针不经过 Core、CLI 或 UI，
-不能替代上面的共享 Steer 产品验收：
+Hermes 0.22.4 的 slash Steer 已接入生产 Core。下面保留的早期原生探针不经过 Core、CLI 或 UI，
+不能替代生产链路验收：
 
 ```sh
 node scripts/probe-hermes-steer.mjs /absolute/official-v0.22.4-source /absolute/prepared-python
@@ -78,6 +78,23 @@ node scripts/probe-hermes-steer.mjs /absolute/official-v0.22.4-source /absolute/
 通过内存 relay 使用凭据；不向夹具文件写真实凭据，不修改日常配置。它验证两个原生任务的实际文件结果，
 不重跑受控竞态。原始 `result.json` 与日志保留在私有夹具，只公开白名单脱敏摘要。
 当前结果与缺口见[Hermes 实测](../research/hermes-runtime/README.md#0224-原生-acp-steer-实测2026-10-28)。
+
+生产链路使用同样的未补丁官方源码与独立测试用户 Home，先构建本分支 Core 和 CLI：
+
+```bash
+cargo build -p rovai-core --bin rovai-core --bin rovai
+node scripts/smoke-hermes-steer.mjs /absolute/official-v0.22.4-source /absolute/prepared-python
+node scripts/smoke-hermes-steer.mjs /absolute/official-v0.22.4-source /absolute/prepared-python --real-model
+```
+
+默认受控 Provider 验证连续输入与文件引用、原 Session 冷恢复、延迟原终态后的原生后继与 CLI 归属、
+普通队列、取消、丢失回执不重发和明确拒绝回队列。传输延迟/丢帧/拒绝只在验收代理中发生，不修改
+上游或生产协议。真实模型模式只转发 Provider 字节，凭据只在 relay 内存；运行前须有模型使用授权。
+最终证据与失败尝试保留在[Core Steer 验证](../research/hermes-runtime/README.md#core-steer-接通2026-10-28)。
+扩展既有 `active_input_receipts_preserve_the_original_prompt_and_fence_late_sources`，拥有多请求终态合并、
+两种返回顺序、已接受执行失败、拒绝、取消与未知；扩展 `active_inputs_preserve_initial_context_and_unsubmitted_sources`
+验证 Hermes 无配置摘要时仍复核 Run/epoch/终态。新增 Rust 测试函数为零。
+最小命令：`cargo test -p rovai-core --features extended-tests --lib active_input`。
 
 ## MiniMax Code 控制服务验收
 

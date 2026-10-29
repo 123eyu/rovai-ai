@@ -1757,27 +1757,6 @@ pub(crate) fn runtime_compatibility_digest(
     }))
 }
 
-pub(crate) fn model_reasoning_effort(options: &Value) -> Result<Option<&str>> {
-    let options = options
-        .as_object()
-        .context("Codex model options must be an object")?;
-    for key in options.keys() {
-        if key != "reasoning_effort" {
-            anyhow::bail!("Codex model option {key} has no native parameter mapping");
-        }
-    }
-    // The wire field is a string; accepted values belong to the native Runtime,
-    // including values absent from the discovery catalog.
-    options
-        .get("reasoning_effort")
-        .map(|value| {
-            value
-                .as_str()
-                .context("Codex model option reasoning_effort must be a string")
-        })
-        .transpose()
-}
-
 fn turn_start_request(
     thread_id: &str,
     text: &str,
@@ -3271,6 +3250,7 @@ for line in sys.stdin:
             response['result']['serviceTier'] = 'priority' if method == 'thread/start' else 'default'
     elif method == 'turn/start':
         if scenario == 'invalid_option': assert request['params']['effort'] == 'high'
+        if scenario in ('unknown_option', 'non_string_option'): assert 'effort' not in request['params']
         with open(os.path.join(root, 'turns'), 'a') as log: log.write(json.dumps(request['params']) + '\n')
         if scenario == 'fast_rejected':
             response = {'id': request['id'], 'error': {'code': -32602, 'message': 'serviceTierForTurn was rejected'}}
@@ -3325,16 +3305,7 @@ for line in sys.stdin:
                         "non_string_option" => json!({"reasoning_effort":123}),
                         _ => json!({"reasoning_effort":"low"}),
                     };
-                    let reasoning_effort = model_reasoning_effort(&options);
-                    if matches!(scenario, "unknown_option" | "non_string_option") {
-                        let field = if scenario == "unknown_option" {
-                            "unadvertised"
-                        } else {
-                            "reasoning_effort"
-                        };
-                        assert!(reasoning_effort.unwrap_err().to_string().contains(field));
-                    } else if authenticated {
-                        let reasoning_effort = reasoning_effort.unwrap();
+                    if authenticated {
                         runtime
                             .start_or_resume_thread_with_config(
                                 &root,
@@ -3367,7 +3338,7 @@ for line in sys.stdin:
                             .start_turn_with_config(
                                 "task-body",
                                 None,
-                                reasoning_effort,
+                                options["reasoning_effort"].as_str(),
                                 if scenario == "fast_rejected" {
                                     Some("default")
                                 } else {
@@ -3476,13 +3447,15 @@ for line in sys.stdin:
                 attempts
                     * usize::from(matches!(
                         scenario,
-                        "default" | "explicit" | "fast_rejected" | "missing" | "invalid_option"
+                        "default"
+                            | "explicit"
+                            | "fast_rejected"
+                            | "missing"
+                            | "invalid_option"
+                            | "unknown_option"
+                            | "non_string_option"
                     ))
             );
-            if matches!(scenario, "unknown_option" | "non_string_option") {
-                assert!(!requests.contains("thread/start"));
-                assert!(!requests.contains("thread/resume"));
-            }
             assert!(
                 !requests.contains("model/list"),
                 "catalogs cannot gate native execution"
@@ -4285,34 +4258,9 @@ for line in sys.stdin:
         assert_eq!(request["summary"], "auto");
         assert_eq!(request["model"], "gpt-5.6");
         assert_eq!(request["effort"], "high");
-        for (options, field) in [
-            (json!({"reasoning_effort":123}), "reasoning_effort"),
-            (json!({"reasoning_effort":null}), "reasoning_effort"),
-            (json!({"reasoning_effort":false}), "reasoning_effort"),
-            (json!({"reasoning_effort":[]}), "reasoning_effort"),
-            (json!({"reasoning_effort":{}}), "reasoning_effort"),
-            (json!({"unadvertised":"low"}), "unadvertised"),
-            (
-                json!({"reasoning_effort":"high", "unmapped":"value"}),
-                "unmapped",
-            ),
-            (json!([]), "object"),
-        ] {
-            let error = model_reasoning_effort(&options)
-                .expect_err("explicit options must not disappear in native translation");
-            assert!(error.to_string().contains(field), "{error:#}");
-        }
         for effort in [None, Some("future-native-value")] {
-            let options = effort
-                .map(|effort| json!({"reasoning_effort":effort}))
-                .unwrap_or_else(|| json!({}));
-            let request = turn_start_request(
-                "thread-1",
-                "next",
-                Some("unlisted-model"),
-                model_reasoning_effort(&options).unwrap(),
-                None,
-            );
+            let request =
+                turn_start_request("thread-1", "next", Some("unlisted-model"), effort, None);
             assert_eq!(request.get("effort").and_then(Value::as_str), effort);
             assert_eq!(request["model"], "unlisted-model");
         }

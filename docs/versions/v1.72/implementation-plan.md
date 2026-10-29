@@ -41,12 +41,30 @@ Renderer 复用参数单测与隔离 Electron Picker fixture；不使用日常 u
 
 提交 `9f10e14ae` 审查补修：既有目录矩阵复现 DSH 非对象 `_meta` 在写入 `dshSource` 时 panic；
 既有 Codex 请求 owner 复现数字 `reasoning_effort` 被 `.as_str()` 静默省略。共享归一化现局部忽略异常
-元数据，保留模型及重复条目的有效元数据；DSH 补充字段保留原元数据。Codex 在创建 Host／发送输入前
-完成参数映射，无法表达的键或类型明确报出字段，目录外字符串值原样传递，不恢复目录白名单，不新增日志。
-回归扩展原目录与请求 owner 的输入矩阵；既有 Codex 进程 fixture 证明无法表达的参数不发起原生输入，
-目录外模型与可表达参数仍发送。没有新增 Rust 测试函数；进程 fixture 只覆盖协议传递，类型矩阵由纯函数拥有。
-本轮定向命令 `cargo test -p rovai-core --features slow-tests,extended-tests --lib -- agent_runtime_adapter::tests codex::tests`
+元数据，保留模型及重复条目的有效元数据；DSH 补充字段保留原元数据。提交 `61f9f701c` 同时加入了
+Codex 键／类型提前报错；该拦截误拒绝系统 Fast 审计字段，已由下述可用性补修撤销，目录外值透传保持。
+当时扩展原目录与请求 owner 的输入矩阵，没有新增 Rust 测试函数。
+当时定向命令 `cargo test -p rovai-core --features slow-tests,extended-tests --lib -- agent_runtime_adapter::tests codex::tests`
 通过 50 项，1 项既有真实 Runtime 手动测试保持 ignored；修复前两个回归 owner 均失败。
+
+Fast 可用性补修按 User 最新取舍执行：移除 Codex 新增的键／类型启动拦截，字符串 `reasoning_effort`
+原样映射到 `effort`。`serviceTier` 保持费用审计用途，发送仍只消费 `camp_fast`；开启、关闭、未设置
+分别发送 `priority`、`default`、省略 `serviceTierForTurn`。所有共享目录归一化、DSH 元数据保留、缓存和
+草稿保留修复不变；不新增日志、审批或目录白名单。未知键与非字符串参数的完整映射／错误呈现待后续
+完善，本轮不作为交付门槛。
+
+回归保留 DSH 异常元数据矩阵、目录外参数透传与原生 RPC 拒绝；撤销“异常输入必须提前拒绝”的断言。
+新增唯一 Core 启动 owner `codex_frozen_fast_and_model_selection_reach_native_requests`：既有 Adapter
+进程 fixture 直接调用 RPC，不能覆盖 Core 的启动前拦截，终态 owner 则只拥有退出／复用语义，因此不能
+靠辅助函数或重复终态断言证明该回归。它复用现有隔离 Core／Run fixture，经过正式 Fast 保存与冻结、
+完整配置持久化与加载、`launch_agent_run`，检查实际 `thread/start`、`turn/start` 请求；覆盖 Fast 三态
+与默认／显式模型的六种组合，不调用真实模型。最小命令：
+`cargo test -p rovai-core --features slow-tests,extended-tests --lib codex_frozen_fast_and_model_selection_reach_native_requests`。
+该 owner 修复前在默认模型 + Fast 开启时复现 `serviceTier has no native parameter mapping`，修复后
+六种组合全部通过；断言未设置时字段缺席，审计 `serviceTier` 不进入原生请求，目录外字符串完整传递。
+测试专用 task-local CLI 路径使正式 Core 启动仍使用临时夹具，不修改共享构建目录或日常 CLI，发布构建不含此入口。
+本轮复验：新增启动 owner 通过全部六种组合，Adapter/Codex 定向 50 passed / 1 个既有 ignored，
+`cargo test --workspace` 479 passed / 1 个既有 ignored；格式、文档通用门禁通过，新增生产日志语句为零。
 
 ## 手动停止保留执行条（2026-10-29）
 

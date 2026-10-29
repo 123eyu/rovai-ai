@@ -16485,7 +16485,6 @@ impl Core {
         if execution.runtime.adapter_kind.as_str() != "codex-cli" {
             anyhow::bail!("AgentRun selected an unsupported Runtime Adapter");
         }
-        let reasoning_effort = codex::model_reasoning_effort(&execution.runtime.model.options)?;
         let execution_root = PathBuf::from(&execution.workspace.execution_root);
         if !execution_root.is_dir() {
             anyhow::bail!(
@@ -16689,6 +16688,9 @@ impl Core {
                 .await;
             return Ok(());
         };
+        let reasoning_effort = execution.runtime.model.options["reasoning_effort"].as_str();
+        // Frozen model.options.serviceTier is pricing audit data. The native
+        // Turn override comes only from the separately frozen Camp preference.
         let service_tier_for_turn = execution
             .runtime
             .camp_fast
@@ -35403,6 +35405,206 @@ done
             fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    // Owns the frozen configuration -> Core launch -> native request seam. The
+    // adapter's direct RPC fixtures do not exercise Core's pre-launch mapping.
+    #[cfg(all(target_os = "macos", feature = "slow-tests"))]
+    #[tokio::test]
+    async fn codex_frozen_fast_and_model_selection_reach_native_requests() {
+        use std::os::unix::fs::PermissionsExt;
+        for explicit in [false, true] {
+            for (fast, tier) in [
+                (Some(true), Some("priority")),
+                (Some(false), Some("default")),
+                (None, None),
+            ] {
+                let root = std::env::temp_dir().join(format!(
+                    "rovai-codex-frozen-launch-{}",
+                    uuid::Uuid::new_v4()
+                ));
+                let workspace = root.join("workspace");
+                fs::create_dir_all(&workspace).unwrap();
+                let executable = root.join("codex-fixture");
+                write_runtime_resolution_executable(
+                    &executable,
+                    r#"#!/usr/bin/python3
+import json, os, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    with open(os.path.join(os.path.dirname(__file__), 'requests.jsonl'), 'a') as output:
+        output.write(json.dumps(request) + '\n')
+    if 'id' not in request: continue
+    method = request['method']
+    result = {'thread': {'id': 'native-fixture'}} if method.startswith('thread/') else {'turn': {'id':'native-turn'}} if method == 'turn/start' else {}
+    if method == 'account/read': result = {'requiresOpenaiAuth': False}
+    print(json.dumps({'id':request['id'], 'result':result}), flush=True)
+"#,
+                );
+                let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
+                let (camp_id, run_id, _, epoch) =
+                    claimed_runtime_cleanup_test_run(&core, &workspace).await;
+                let execution = {
+                    let mut database = core.database.lock().await;
+                    let service = ExecutionRuntimeService::default();
+                    let mut execution = service
+                        .load_agent_run_execution(&database, &run_id, epoch)
+                        .unwrap()
+                        .unwrap();
+                    execution.runtime.executable_path = executable.to_string_lossy().into_owned();
+                    execution.runtime.model.source = if explicit {
+                        "explicit"
+                    } else {
+                        "runtime_default"
+                    }
+                    .into();
+                    execution.runtime.model.model_id = if explicit {
+                        "unlisted-model"
+                    } else {
+                        "default"
+                    }
+                    .into();
+                    execution.runtime.model.options = if explicit {
+                        json!({"reasoning_effort":"future-native-value", "unadvertised":"kept"})
+                    } else {
+                        json!({})
+                    };
+                    if fast.is_some() {
+                        let target =
+                            rovai_core::camp_fast::target(&database, &camp_id, &execution.agent_id)
+                                .unwrap()
+                                .unwrap();
+                        let mut command = user_command_envelope(
+                            uuid::Uuid::new_v4().to_string(),
+                            rovai_core::camp_fast::SetThreadMemberFastCommand {
+                                camp_id: camp_id.clone(),
+                                agent_id: execution.agent_id.clone(),
+                                expected_runtime_binding_revision: target.runtime_binding_revision,
+                                fast_override: fast,
+                            },
+                        );
+                        command.camp_id = Some(camp_id.clone());
+                        assert_eq!(
+                            rovai_core::camp_fast::set_preference(&mut database, &command)
+                                .unwrap()
+                                .result
+                                .status,
+                            CommandResultStatus::Applied
+                        );
+                    }
+                    rovai_core::camp_fast::freeze(
+                        database.connection(),
+                        &execution.conversation_id,
+                        &execution.agent_id,
+                        &mut execution.runtime,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        execution
+                            .runtime
+                            .model
+                            .options
+                            .get("serviceTier")
+                            .and_then(Value::as_str),
+                        tier
+                    );
+                    execution.runtime.refresh_config_digest().unwrap();
+                    database.connection().execute(
+                        "UPDATE agent_run SET effective_config_json = json_set(effective_config_json, '$.runtime', json(?2)),
+                            runtime_executable_path = ?3, runtime_model_selection_json = ?4 WHERE id = ?1",
+                        rusqlite::params![run_id, serde_json::to_string(&execution.runtime).unwrap(),
+                            execution.runtime.executable_path, serde_json::to_string(&execution.runtime.model).unwrap()],
+                    ).unwrap();
+                    service
+                        .load_agent_run_execution(&database, &run_id, epoch)
+                        .unwrap()
+                        .unwrap()
+                };
+                let (admission, authorization) = core
+                    .verified_camp_attachment_admission(&camp_id, &workspace)
+                    .await
+                    .unwrap();
+                let mut permit = core.planned_shutdown.enter_launch().await.unwrap();
+                assert!(
+                    core.planned_shutdown
+                        .register_active(
+                            &permit,
+                            ActiveExecutionKey::new(&run_id, epoch),
+                            AdapterKind::CodexCli
+                        )
+                        .await
+                );
+                let cli = root.join("rovai");
+                write_runtime_resolution_executable(&cli, "#!/bin/sh\nexit 1\n");
+                let launched = crate::builtin_tool_runtime::TEST_BUNDLED_CLI_EXECUTABLE
+                    .scope(
+                        cli,
+                        core.launch_agent_run(
+                            &execution,
+                            &admission,
+                            &authorization,
+                            &core.output,
+                            &mut permit,
+                        ),
+                    )
+                    .await;
+                drop(permit);
+                drop(admission);
+                let requests: Vec<Value> = fs::read_to_string(root.join("requests.jsonl"))
+                    .unwrap_or_default()
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                core.codex_cli.forget_agent_run(&run_id, epoch).await;
+                core.runtime_fleet.shutdown_all().await;
+                ThreadAttachmentStore::new(&core.data_dir)
+                    .remove_camp(&camp_id)
+                    .unwrap();
+                let view = core.attachment_views.root().join("camps").join(&camp_id);
+                for path in [
+                    &view,
+                    view.parent().unwrap(),
+                    view.parent().unwrap().parent().unwrap(),
+                ] {
+                    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+                }
+                drop(core);
+                fs::remove_dir_all(root).unwrap();
+                launched.unwrap_or_else(|error| {
+                    panic!("explicit={explicit}, fast={fast:?}: {error:#}")
+                });
+                for method in ["thread/start", "turn/start"] {
+                    let matches: Vec<_> = requests
+                        .iter()
+                        .filter(|request| request["method"] == method)
+                        .collect();
+                    assert_eq!(matches.len(), 1, "{method}: {requests:?}");
+                    let params = &matches[0]["params"];
+                    assert_eq!(
+                        params.get("model").and_then(Value::as_str),
+                        explicit.then_some("unlisted-model")
+                    );
+                    assert!(params.get("serviceTier").is_none());
+                    if method == "turn/start" {
+                        assert_eq!(
+                            params.get("serviceTierForTurn"),
+                            tier.map(|tier| json!(tier)).as_ref()
+                        );
+                        assert_eq!(
+                            params.get("effort").and_then(Value::as_str),
+                            explicit.then_some("future-native-value")
+                        );
+                    } else {
+                        assert!(params.get("serviceTierForTurn").is_none());
+                    }
+                }
+                assert!(
+                    !requests
+                        .iter()
+                        .any(|request| request["method"] == "model/list")
+                );
+            }
+        }
     }
 
     #[cfg(all(target_os = "macos", feature = "slow-tests"))]

@@ -78,5 +78,6 @@
   {"name": "user URLs retain their separating space", "authorType": "user", "source": "https://a.test https://b.test", "text": "https://a.test https://b.test"},
   {"name": "HTML inline elements retain their separating space", "source": "<div><b>one</b> <i>two</i></div>", "text": "one two"},
   {"name": "collapsed details quote only visible summary", "source": "<p>Before</p>\n<details>\n<summary>Summary</summary>\n<p>Hidden content</p>\n</details>\n<p>After</p>", "text": "Before\n\nSummary\n\nAfter", "selections": ["Summary"]},
-  {"name": "expanded details retain their body", "source": "<p>Before</p>\n<details open>\n<summary>Summary</summary>\n<p>Visible content</p>\n</details>\n<p>After</p>", "text": "Before\n\nSummary\n\nVisible content\n\nAfter", "selections": ["Visible content"]}
+  {"name": "expanded details retain their body", "source": "<p>Before</p>\n<details open>\n<summary>Summary</summary>\n<p>Visible content</p>\n</details>\n<p>After</p>", "text": "Before\n\nSummary\n\nVisible content\n\nAfter", "selections": ["Visible content"]},
+  {"name": "collapsed code controls do not block visible selection", "source": "Before\n\n<details>\n<summary>Summary</summary>\n\n```ts\nconst hidden = true;\n```\n\n</details>\n\nAfter", "text": "Before\n\nSummary\n\nAfter", "selections": ["Summary"]}
 ]

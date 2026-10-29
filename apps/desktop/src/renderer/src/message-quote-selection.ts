@@ -83,7 +83,13 @@ export function readMessageQuoteSelection(
   const { range, root } = contained
   if (!root.isConnected) return null
   const source = message(root.dataset.messageQuoteBody ?? '')
-  if ([...root.querySelectorAll(INVALID_RANGE)].some((excluded) => range.intersectsNode(excluded))) return null
+  if ([...root.querySelectorAll(INVALID_RANGE)].some((excluded) => {
+    if (!range.intersectsNode(excluded)) return false
+    for (let parent = excluded.parentElement; parent && parent !== root; parent = parent.parentElement) {
+      if (parent.matches('details:not([open])') && !parent.querySelector(':scope > summary')?.contains(excluded)) return false
+    }
+    return true
+  })) return null
   // Preserve the selection's container so layout whitespace and code spaces keep their meaning.
   const ancestor = range.commonAncestorContainer
   const element = ancestor instanceof Element ? ancestor : ancestor.parentElement

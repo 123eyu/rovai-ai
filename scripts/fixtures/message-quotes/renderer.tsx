@@ -188,6 +188,19 @@ Object.assign(window, { quoteTest: {
       }
       check(!readMessageQuoteSelection(window.getSelection(), 'thread:other', id => messages.find(message => message.id === id)), 'cross owner')
     }
+    const foldedCodeIndex = cases.findIndex(entry => entry.name === 'collapsed code controls do not block visible selection')
+    const details = root(foldedCodeIndex).querySelector('details')!
+    const controls = details.querySelector<HTMLElement>('.markdown-code-corner')!
+    check(controls?.querySelector('.markdown-code-copy'), 'folded fixture uses the real code copy controls')
+    const codeFrame = controls.parentElement!
+    details.open = true
+    select(foldedCodeIndex)
+    check(!readMessageQuoteSelection(window.getSelection(), 'thread:fixture', () => undefined), 'expanded code controls still exclude the range')
+    details.open = false
+    details.querySelector('summary')!.appendChild(controls)
+    select(foldedCodeIndex)
+    check(!readMessageQuoteSelection(window.getSelection(), 'thread:fixture', () => undefined), 'visible summary controls still exclude the range')
+    codeFrame.appendChild(controls)
     const range = select(0)
     const final = textNodes(1).at(-1)!
     range.setEnd(final, final.length)

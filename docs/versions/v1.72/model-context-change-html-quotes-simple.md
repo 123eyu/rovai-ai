@@ -149,3 +149,10 @@ Rust 测试退役：`camp_quote_projection_rechecks_source_visibility_for_each_a
 和 typecheck 通过。取文用例使用实际 FileReferenceText、SafeMarkdown 和 Chromium 选区；
 展开 details、br、表格分隔和代码空白继续通过。旧请求核对路径已静态确认，新增 Rust 断言覆盖其
 嵌套 QuoteSelection 的解析；未额外建立 Web 升级端到端测试或重跑真实 Runtime 评测。
+
+针对 User sequence 13，仅调整 INVALID_RANGE 判断：关闭 details 的非 summary 正文中，
+隐藏控件不否决跨过它的选区；可见 summary 和展开后的代码控件继续沿用原有规则。
+生产代码只改此处、净增 6 行。原 fixture 追加真实 MarkdownCodeFrame 的折叠代码块用例，
+修复前复现返回空结果；修复后 81 组取文用例及上述两种可见控件对照通过，typecheck 通过。
+首次完整交互回归在既有工具栏显示断言失败，代码不变重跑通过；未改该测试时序。
+本次未改 Core、来源语义或模型格式，也未重跑 Rust 或真实 Runtime。

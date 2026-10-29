@@ -634,7 +634,9 @@ fn copy_authority_file(source: &Path, destination: &Path) -> Result<(), Database
             "authority_migration_backup_destination_create_failed",
             "create preserved authority artifact",
             destination,
-            io::Error::other(error.to_string()),
+            error
+                .downcast::<io::Error>()
+                .unwrap_or_else(|error| io::Error::other(error.to_string())),
         )
     })?;
     io::copy(&mut input, &mut output).map_err(|error| {
@@ -669,7 +671,11 @@ fn open_existing_no_follow(path: &Path) -> io::Result<File> {
 #[cfg(windows)]
 fn open_existing_no_follow(path: &Path) -> io::Result<File> {
     crate::platform::private_storage::open_data_read_file(path)
-        .map_err(|error| io::Error::other(error.to_string()))
+        .map_err(|error| {
+            error
+                .downcast::<io::Error>()
+                .unwrap_or_else(|error| io::Error::other(error.to_string()))
+        })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -1891,6 +1897,17 @@ mod tests {
                         String::from_utf8_lossy(&output.stdout)
                     );
                 }
+                use std::os::windows::fs::OpenOptionsExt;
+                let manifest = directory.join(AUTHORITY_MIGRATION_MANIFEST_FILE);
+                let held = std::fs::OpenOptions::new()
+                    .read(true)
+                    .share_mode(0)
+                    .open(&manifest)
+                    .unwrap();
+                let error =
+                    read_manifest(&manifest).expect_err("sharing conflict must refuse the read");
+                assert!(error.retryable(), "{error:?}");
+                drop(held);
             }
 
             let lease = CoreDataDirLease::acquire(&directory).unwrap();

@@ -421,6 +421,9 @@ Agent 公共消息继续左对齐，仅正文使用与用户消息相同的雾�
 姓名颜色；不显示平台成员称呼或平台字样头像。这只是 Renderer 呈现，底层 `external_principal` 作者、Provider
 来源与权限边界保持不变，不转换为 `local_user`。
 
+用户姓名使用 `color-mix(in srgb, var(--muted) 92.5%, var(--conversation-surface))` 呈现随主题变化的浅灰，
+保留原有字号、粗细与位置。@ Mention、队员身份色和用户头像继续沿用各自的颜色语义。
+
 ## 系统消息
 
 公共时间线中的 system-authored 消息（包括定时任务触发的 Prompt）使用独立的系统消息块：标准会话列与

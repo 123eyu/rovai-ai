@@ -19,6 +19,7 @@ last_updated: 2026-10-29
 取舍见 [D68](decisions.md#v1-72-d68)，当前规则见 [Availability-first Runtime](../../architecture/availability-first-runtime.md)
 与 [Availability v3](../../contracts/desktop-runtime-availability-v3.md#数据库启动与有界重试)，验收、测试退役与交付边界见
 [实施记录](database-startup-simplification.md)。本次替代下方 10 月 28 日的来源标记特判方案，不更换当前版本指针。
+
 ## 手动停止保留执行条（2026-10-29）
 
 公开手动停止保留静态状态、最终耗时及图标继续入口；失败改为图标重试。每位队员仅保留最新未受理

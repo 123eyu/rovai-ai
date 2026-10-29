@@ -1,7 +1,7 @@
 ---
 document_type: implementation-plan
 version: v1.72
-status: in_progress
+status: implemented
 last_updated: 2026-10-29
 ---
 
@@ -10,9 +10,10 @@ last_updated: 2026-10-29
 目标来源是 2026-10-29 User 的完整要求：普通用户稳定打开；已有库失败保留数据并可恢复；不再为元数据/普通可用权限
 设置自定义启动模板；完成实现、验证、PR Review/CI、合并和遵守当前宿主保护的本地安装。
 
-基线 `4d3aba9a550f2798245a18af403d0cbaa7bea7f8`（最新 origin/main），独立 worktree/分支
+基线 `4d3aba9a550f2798245a18af403d0cbaa7bea7f8`（开始时最新 origin/main），独立 worktree/分支
 `rovai/database-startup-simplify`。原工作目录及其他任务分支保持。当前 v1.72/schema 168/receipt 218；不新增迁移、
 不更改业务数据格式/模型上下文/Runtime 平台资格，不调整版本指针或发布版本。
+最终构建已合入 main 的并行任务，包含 `1dfbd52e2`（PR #949）；未覆盖其 Renderer 改动。
 
 ## 阻断条件与数据保护归属
 
@@ -76,6 +77,11 @@ Standards 2 项：Windows 持锁文件意外共享删除、身份观察吞 I/O �
 `35adf7308` 修复全部三项独立问题，两个方向复核均无未解决发现。补充了 Windows 持锁改名拒绝、WAL BEGIN IMMEDIATE
 持续占用可重试以及 TEMP 表证明配置阶段保持同一连接的验收。Review 是代码结论，不能替代原生执行结果。测试专用的 Windows ACL 设置顺序和 live-handle 夹具调整 `d91db3093` 再经 Standards 复核无阻断。
 
+Windows 原生迁移暴露的旧恢复 ACL 模板遗漏在 `de9d24942` 修正，Standards/Spec 均复核无阻断。
+旧测试 writer 先重建其原本要求的 private root，真实强杀后启用继承 ACL，再走生产恢复；长短路径按 canonical identity
+比较。强杀测试并行读取 stdout/stderr，避免 Windows 小管道阻塞；60 秒仅是到达 failpoint 的看门狗，超时仍强杀并报错。
+`e833043a0` 进一步保留恢复 helper 的原生 I/O 错误，真实独占打开 manifest 的断言要求可重试，释放后继续恢复数据；Spec 复核确认关闭旧限制。
+
 ## 验收与交付记录
 
 已完成：
@@ -83,23 +89,25 @@ Standards 2 项：Windows 持锁文件意外共享删除、身份观察吞 I/O �
 | 验证 | 结果 |
 | --- | --- |
 | macOS admission owners | 10 passed；真实 main/WAL provenance xattr、DELETE/WAL crash recovery、短锁/持续读锁/持续 WAL 写锁、原库保留、TEMP 表连接复用 |
-| macOS migration owners | 7 passed；历史来源矩阵、事务回滚、断点续跑、旧 switch 两侧、metadata 与路径保护；Windows 夹具调整后再跑相关 4 项通过（含真实强杀） |
+| macOS migration owners | 7 passed；历史来源矩阵、事务回滚、断点续跑、旧 switch 两侧、metadata 与路径保护；恢复修正后再跑相关 4 项通过（含真实强杀，126.27s） |
 | 默认 Rust workspace | `RUST_TEST_THREADS=2 pnpm test:rust:pr`：431 + 31 + 4 + 11 = 477 passed、1 existing ignored，无失败 |
 | Supervisor | 21 passed；一次自动重试、显式重试重置、generation 与已见 authority fence |
 | Host 进程 | 2 passed；首次显式初始化、第二实例拒绝、停机结算与重开 |
 | Server / Web | 原生 standalone Server 首次启动、HTTP 协议 v5 登录/成员及 navigation 读取、重开后 roster 完全保留，见 [报告](../../../.github/assets/database-startup/server-macos.json) |
 | Core 恢复进程 | 2 passed；实际恢复错误进入结构化恢复入口，已见库缺失不建替代空库 |
 | Renderer 启动呈现 | 1 passed；真实 Electron 的首帧画布与恢复门禁 |
-| typecheck / docs | typecheck、docs:test、docs:check:ci 通过；最终文档更新后继续运行相同通用门禁 |
-| macOS arm64 daily 包 | 构建、App/Host/CLI 签名架构门通过；隔离打包 App 首次初始化、带来源标记重开、成员/Thread 保留、quick_check=ok |
+| typecheck / docs | typecheck、docs:test、docs:check、docs:check:ci、Rust format/check 通过；PR CI 采用相同通用门禁 |
+| macOS arm64 daily 包 | 最终生产代码 `e833043a0` 构建、App/Host/CLI 签名架构门通过；隔离打包 App 首次初始化、带来源标记重开、成员/Thread 保留、quick_check=ok |
 | 打包窗口锁等待 | Core starting 时 Renderer 300ms 内产生 17 个 animation frames；释放 WAL 写锁后直接 ready，无用户重试 |
-| Windows | 原生 runner 的 admission 10 项及历史迁移矩阵通过；旧中断恢复读取 ACL 模板遗漏与长短路径比较已修正，完整 native matrix 重跑中 |
+| Windows | 原生 Windows Server 2022/x86_64：admission 10、migration 6、instance lock 4 项通过；真实继承权限、额外 ACE、无 WRITE_DAC、只读失败、WAL/journal crash、manifest sharing conflict 和恢复覆盖，见 [最终代码原生 CI](https://github.com/murray17/rovai-ai/actions/runs/40848570364) |
 
 [macOS 打包报告](../../../.github/assets/database-startup/packaged-macos.json)与[截图](../../../.github/assets/database-startup/packaged-macos.png)
 使用完全隔离 data/Skill Library/MCP，没有真实模型请求。物理系统主动写入 provenance 的事件未重复触发，证据是原生
 setxattr 注入同名属性与真实 ctime/WAL 变化；Windows GUI、真实日常宿主重启不在已验证项内。原生 Windows runner 的组授权会让仅改 Allow ACE 的夹具仍持有 WRITE_DAC；
 权限矩阵用 [icacls 的显式 WDAC deny](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)
 固定该条件，同时保留普通读写/删除，避免以模拟布尔值冒充真实权限。
+前一完整原生矩阵 [40846645109](https://github.com/murray17/rovai-ai/actions/runs/40846645109) 也通过；最后代码为
+`e833043a0`，之后仅 Rust 格式及验收文档调整。早期原生失败用于修正真实恢复入口及夹具，未跳过权限/迁移 owners。
 
 早期默认 Rust 同时与 Release 编译运行时，两项既有短时限进程测试超时；降低测试并发后完整 workspace 通过，未改测试阈值。
 全量 `core-startup-availability.test.mjs` 有 6 项失败（含父套件），保存的未修改基线二进制复现相同失败：旧草稿 RPC、
@@ -123,6 +131,10 @@ macOS arm64、Node 26.12.1、相同健康临时库、debug Core+同版本 CLI，
 源码删除旧快照/重准入路径，trace 不只是改名。首次初始化仍为安全 staging/publish 保留必要连接，历史 manifest 恢复除外。
 
 ## 安装与回滚边界
+
+[PR #948](https://github.com/murray17/rovai-ai/pull/948) 面向 `main`，记录最终 CI 与合并状态。
+完整包验收先于安装；非终止安装结果、精确备份路径、旧 App/Core 存活和日常数据只读核对结果归本次 Thread 交接，
+不把日常个人数据或进程记录提交到公开仓库。
 
 日常 App 是当前会话宿主；安装不得自动结束现有 App/Core/Runtime。必须先完成隔离安装包打开验证，再按非终止安装流程
 备份并替换 bundle，保留旧运行进程直到用户正常退出。没有新宿主实开证据时明确标为待验证，不把 bundle 安装成功称为重启完成。

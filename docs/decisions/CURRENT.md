@@ -1,10 +1,14 @@
 ---
 document_type: current-decision-navigation
 authority: current-authority-and-rationale-routing
-last_updated: 2026-10-27
+last_updated: 2026-10-29
 ---
 
 # 当前规范与决定理由导航
+
+历史进程清理与启动可用性：[Availability-first Runtime](../architecture/availability-first-runtime.md#optional-startup-boundary)、
+[Managed Process](../contracts/managed-runtime-process-v2.md#macos-acp-descendants)、[Run recovery](../architecture/agent-run-recovery.md#4-cleanuplane-与-execution-root)；
+一次后台尝试与当前任务所有权边界见 [V1.72-D69](../versions/v1.72/decisions.md#v1-72-d69)。
 
 Team 创建模板与启动指引：[Team Templates v1](../contracts/team-templates-v1.md)、[Bootstrap v6](../contracts/native-session-bootstrap-v6.md)、[架构](../architecture/team-management.md)；理由见 [V1.72-D57](../versions/v1.72/decisions.md#v1-72-d57)。
 

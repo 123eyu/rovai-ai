@@ -2,7 +2,7 @@
 document_type: architecture
 authority: camp-permanent-deletion-control-flow
 status: accepted
-last_updated: 2026-09-22
+last_updated: 2026-10-29
 ---
 
 # Camp 永久删除
@@ -34,7 +34,9 @@ Renderer、Desktop Main 和 Web Host 都不能把受理等待重新扩张为 Run
 
 删库前，Camp 行上的删除意图、现有 AgentRun 的 `runId + executionEpoch + adapterKind` 和首个 accepted command
 receipt 足以恢复安全停机、去重和重放。协调器按小批量扫描到期 Camp，并以精确 Runtime 身份停止、隔离和回收；
-未确认隔离时保留 Camp 与 marker，不能进入业务删除。
+当前所有权按现有内存 Run/epoch 快照筛选：只有本次 Core 持有的目标需要停止与确认；前代缺 ACK、
+缺进程回执或未知身份不能单独阻止删除，也不回填 ACK。当前目标未确认隔离时保留 Camp 与 marker，
+不能进入业务删除；业务提交前再次核对当前所有权。Fleet 的 Warm/Starting fence 与隔离要求保持。
 
 业务删除事务先准备既有 `camp_attachment_view_operation(kind='camp_delete_cleanup')`，再删除 Camp 聚合并写入唯一
 `camp.deleted`。cleanup journal、accepted receipt 和明确选择 cleanup 的 Mission Workspace 记录不随 Camp 级联，

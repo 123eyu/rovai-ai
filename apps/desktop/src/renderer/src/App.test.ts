@@ -4105,7 +4105,11 @@ describe('task event projections', () => {
       .toMatchObject({ label: '排队中', detail: '等待上一轮完成' })
     const cleanupRun = { ...previousRun, status: 'cancelled' as const, cancelRequestedAt: '2020-01-01T00:00:00Z', cancelAcknowledgedAt: null }
     expect(executionDeliveryQueuePresentation({ ...queueProcess, runs: [cleanupRun] }))
-      .toMatchObject({ label: '排队中', detail: '等待上次执行清理完成' })
+      .toMatchObject({ label: '准备中…', detail: null, blocked: false })
+    expect(executionDeliveryQueuePresentation({
+      ...queueProcess, runs: [cleanupRun],
+      waitingDeliveries: [{ ...waitingDelivery, waitCondition: 'target_busy' }]
+    })).toMatchObject({ label: '排队中', detail: null, blocked: true })
     expect(executionDeliveryQueuePresentation({ ...queueProcess, runs: [{ ...cleanupRun, cancelAcknowledgedAt: '2020-01-01T00:00:01Z' }] }))
       .toMatchObject({ label: '准备中…', blocked: false })
     // Overview / private history cannot supply another member's queue copy.

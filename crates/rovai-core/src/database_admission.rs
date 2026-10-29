@@ -1435,6 +1435,12 @@ mod tests {
                             ],
                         );
                     }
+                    // CI accounts can retain access via another group ACE.
+                    // A non-inheritable WDAC deny makes this fixture exact
+                    // while leaving Modify/read/write/delete rights usable.
+                    for path in [main.as_path(), lock.as_path(), root] {
+                        acl(path, &["/deny", &format!("{user}:(WDAC)"), "/Q"]);
+                    }
                     for path in [root, main.as_path()] {
                         let denied = std::fs::OpenOptions::new()
                             .access_mode(WRITE_DAC)

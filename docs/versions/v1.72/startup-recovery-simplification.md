@@ -157,4 +157,22 @@ User sequence 13 授权正常退出；重开后的 sequence 15 要求继续。�
 随后删除该会话，业务聚合和受管资源 journal 均完成。历史会话读取 183ms；大批量旧账本耗尽共享清理预算时
 后继 prompt 已启动。现场 `rovai-stop-continue-aa2PyZ/acceptance.json` 保留本次结果。
 
-上一节已安装产物尚不包含这三处修正，不能作为最终候选；最新候选构建与隔离验收随后记录。
+上一节已安装产物不包含这三处修正，已由 `c144e691c` 的最新候选替代。`pnpm package:mac:daily` 通过，
+App/Host 仍为 0.5.3、arm64、ad-hoc 签名；最终提升应核对此候选，不复用上一节旧包。
+
+| 最终候选文件 | SHA-256 |
+| --- | --- |
+| 内置 Host | `dc379920eeaa3ee6e6c5aaf983cbdfc61da4ebd3128212a33b7eddde56653e90` |
+| 内置 CLI | `606e2d8463f5f8e4dc61cdfb06ad4560a8fa8a41013e0450e9f759d8b6789f02` |
+| Renderer/主进程 app.asar | `07c3d009b6468faca7486c6c658440be8e0e3488e8a5c3c1f98ca0f7946f27b8` |
+
+同一隔离现场的真实 Codex 发布 `STARTUP_FINAL_OK`，实际运行 `sleep 120` 时停止，约 261ms 观测到真实 ACK；
+`STARTUP_FINAL_AFTER_STOP_OK` 成功，正常退出重开后 `STARTUP_FINAL_REOPEN_OK` 也成功。三次成功执行的原生证据
+均已核对；Conversation、agent_1 和 Runtime installation 保持一致，没有自动重放。8195 个检查文件与旧 ACK 空值
+保持原样，两次 App 均正常退出。`final-packaged-acceptance.json`、`final-packaged-path.png` 和
+`final-build-manifest.json` 保存在 `/tmp/rovai-startup-dev.iu5eiu/`。
+
+`c144e691c` 的 [PR CI](https://github.com/murray17/rovai-ai/actions/runs/40903096698) 与
+[原生 Windows 全目标编译](https://github.com/murray17/rovai-ai/actions/runs/40903113000) 通过。
+前述 Windows Runtime 矩阵仍属于生命周期修复提交；本次资源入口修正没有重复运行全矩阵，不能记为最新提交的全矩阵通过。
+日常原会话副本验收仍未执行，安装和隔离验收不改变这个边界。

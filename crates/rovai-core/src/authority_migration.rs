@@ -670,12 +670,11 @@ fn open_existing_no_follow(path: &Path) -> io::Result<File> {
 
 #[cfg(windows)]
 fn open_existing_no_follow(path: &Path) -> io::Result<File> {
-    crate::platform::private_storage::open_data_read_file(path)
-        .map_err(|error| {
-            error
-                .downcast::<io::Error>()
-                .unwrap_or_else(|error| io::Error::other(error.to_string()))
-        })
+    crate::platform::private_storage::open_data_read_file(path).map_err(|error| {
+        error
+            .downcast::<io::Error>()
+            .unwrap_or_else(|error| io::Error::other(error.to_string()))
+    })
 }
 
 #[cfg(not(any(unix, windows)))]

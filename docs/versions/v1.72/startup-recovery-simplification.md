@@ -26,6 +26,9 @@ Adapter 初始化还会重复执行同一清理。Fleet 构造与 Stop 确认同
 - Fleet 构造不碰历史目录，实际写新所有权时才准备存储；当前 Stop 不调用历史 sweep。
 - 四处门禁共用现有 launch/Fleet/one-shot 所有权快照，精确匹配 Run/epoch。历史未知不阻断；当前仍持有的终态执行
   若请求过清理且缺 ACK，继续只阻挡关联任务。当前清理 worker 不重试前代未知项，不批量补 ACK。
+- 当前执行从数据库 claim 起登记：claim 与现有 generation-local 登记共用数据库锁，覆盖领取后、启动前的 Stop。
+  终态回调统一核对该 Run/epoch 的待收尾请求；缺 ACK 时保留原登记，实际收尾落库后再释放。
+  ACP/Pi/Codex 异常退出先提交 Runtime loss，再决定释放；不因 Adapter/Fleet handle 消失就丢掉本次收尾责任。
 - 数据库打开、迁移、业务恢复保持各自错误。旧输入无自动重投，无新服务、表、持久队列或账本体系。
 
 ## 回归归属
@@ -41,6 +44,12 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 重开读原会话、清理预算耗尽前收到新 native prompt 并继续成功；再次功能重试后历史清理只运行一次，旧 ACK 和异常文件不变。
 隔离现场保留供复核；它不替代真实 Runtime 或安装 App 验收。
 
+评审发现当前任务异常退出会在写入清理请求前删除登记，导致过滤后的 worker 永久跳过它，Mission worktree 仍被占用。
+同一脚本的 `--unexpected-exit` 在修改前实测因等待 ACK 超时失败；此处修复的是当前任务生命周期，不扩大历史清理范围。
+既有 Core `runtime_cleanup_dispatch_is_non_blocking_and_deduplicated` owner 增加 Stop 已提交但 cleanup worker 尚未运行的
+无 handle 窗口，以及真实 ACK 后登记释放断言；没有新增 Rust 测试函数。脚本同时扩展 `--stop-during-launch` 和
+`--unexpected-exit --pi`，均通过公开请求观察同会话后继执行，并显式固定及核对合成 Runtime 路径，防止回退到本机安装。
+
 ## 验收状态
 
 | 检查 | 结果 |
@@ -55,6 +64,10 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 | 通用文档治理三项 | 通过 |
 | 合并当前主线后的默认 Rust 门禁 | 再次通过，477 通过、1 项原有 ignored |
 | arm64 打包与签名 | `pnpm package:mac:daily` 通过，隔离运行通过 |
+| P2：ACP/Pi 异常退出后收尾 | 均通过；ACK 分别在 129ms / 233ms 落库，同 Conversation/member/Runtime/installation 后继成功，无数据库修补 |
+| P2：Host 初始化途中 Stop | 通过；258ms 取得 ACK，旧输入未发送，用户显式继续后唯一新 prompt 成功 |
+| P2：无 handle 的当前收尾归属 | 扩展原 Core owner 通过；登记保留至真实 ACK，重复扫描不重复收尾 |
+| P2：历史故障与正常退出重开 | 再次通过；历史会话读取 90ms、预算耗尽仍可继续；正常退出 40ms，未重投旧输入 |
 
 `pnpm dev` 在独立目录真实启动 Desktop、Host 与 Codex。首次执行 `printf STARTUP_DEV_OK` 成功发布回执；
 第二次 `sleep 120` 在命令实际运行时通过 UI Stop，SQLite 记录真实 ACK。正常退出该开发实例后，只移除该 ACK，
@@ -71,7 +84,9 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 8194 个文件摘要不变，证据保存在同目录 `packaged-acceptance.json`。Core ready 60ms、会话进入往返约 5ms。
 这证明打包产物可用，尚不替代 `/Applications` 安装路径与日常原会话验收。
 
-| 构建核对 | 当前日常安装（未替换） | 待安装产物 |
+以下是上一轮构建核对；P2 生命周期修复后须重新构建与验收，旧产物不再作为待安装候选。
+
+| 构建核对 | 当前日常安装（未替换） | P2 修复前的隔离产物 |
 | --- | --- | --- |
 | App version/build | 0.5.3 / 0.5.3 | 0.5.3 / 0.5.3 |
 | 内置 Host（含 Core）SHA-256 | `c76fd766bb97cf8de13603699e869f3df82e7cb808fa21cecdeded61e0eee5e2` | `c9c1a4aee0ea75a69ea1fa93cc2b2c72cc95efce8e8320ea9e9faad5678113a9` |

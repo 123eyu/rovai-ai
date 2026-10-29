@@ -1,4 +1,4 @@
-// Real Core + synthetic ACP process. All user operations go through public RPC;
+// Real Core + synthetic ACP/Pi process. All user operations go through public RPC;
 // SQLite is read-only evidence. --shutdown-text verifies normal exit/reopen;
 // the default stop/continue scenario never restarts or repairs state directly.
 import assert from 'node:assert/strict'
@@ -19,6 +19,12 @@ const data = join(fixture, 'core'), home = join(fixture, 'home'), workspace = jo
 const journal = join(fixture, 'prompts.jsonl'), executable = join(fixture, 'copilot-fixture')
 const shutdownText = process.argv.includes('--shutdown-text')
 const historicalStartup = process.argv.includes('--historical-startup')
+const unexpectedExit = process.argv.includes('--unexpected-exit')
+const stopDuringLaunch = process.argv.includes('--stop-during-launch')
+const pi = process.argv.includes('--pi')
+const adapterKind = pi ? 'pi' : 'copilot-cli'
+assert.ok(!pi || unexpectedExit, '--pi currently exercises unexpected exit only')
+assert.ok(!stopDuringLaunch || (!unexpectedExit && !historicalStartup && !shutdownText), 'launch stop is a separate scenario')
 let retainedHistoricalFiles = []
 let restoreHistoricalDirectories = []
 let historicalOpenMs = null
@@ -27,23 +33,28 @@ const textFile = join(fixture, 'unfinished-text.txt')
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`
 await Promise.all([data, home, workspace].map(path => mkdir(path)))
 if (shutdownText) await writeFile(textFile, expectedText)
-await writeFile(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, 'scripts/fixtures/missing-completion-acp-runtime.mjs'))} --fixture-journal ${quote(journal)} ${shutdownText ? `--fixture-text ${quote(textFile)} ` : ''}"$@"\n`)
+await writeFile(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, 'scripts/fixtures/missing-completion-acp-runtime.mjs'))} --fixture-journal ${quote(journal)} ${pi ? '--fixture-pi ' : ''}${shutdownText ? `--fixture-text ${quote(textFile)} ` : ''}"$@"\n`)
 await chmod(executable, 0o700)
 console.error(`Automatic acceptance: data=${data}; skills=${join(data, 'managed-skill-library')}; MCP=${join(data, 'mcp.json')}`)
 let core, database
 try {
   core = startCore()
   await core.request('health.check')
+  const startup = await core.request('runtime.startup.get', { runtimeKind: adapterKind })
+  await core.request('runtime.startup.save', { runtimeKind: adapterKind, expectedRevision: startup.revision,
+    configuration: { programPath: executable, environment: [] } })
   await core.request('runtime.discovery.rescan', { interactiveShell: false })
-  await core.request('runtime.product.check', { runtimeKind: 'copilot-cli' })
+  await core.request('runtime.product.check', { runtimeKind: adapterKind })
   const installation = await until(async () => (await core.request('runtime.installations.list'))
-    .find(item => item.adapterKind === 'copilot-cli' && item.snapshot?.probeStatus === 'ready'), 'synthetic capability check')
+    .find(item => item.adapterKind === adapterKind && item.snapshot?.probeStatus === 'ready'), 'synthetic capability check')
+  assert.equal(await realpath(installation.executablePath), await realpath(executable), 'the fixture must not fall back to an installed Runtime')
   const profile = await core.request('members.get', { agentId: 'agent_1' })
   const configured = await core.request('members.runtime.set', { commandId: crypto.randomUUID(), command: {
-    agentId: 'agent_1', expectedVersion: profile.version, adapterKind: 'copilot-cli',
+    agentId: 'agent_1', expectedVersion: profile.version, adapterKind,
     model: installation.memberRuntimeDefaults.model, permissions: installation.memberRuntimeDefaults.permissions
   } })
   assert.equal(configured.status, 'applied')
+  if (stopDuringLaunch) await writeFile(`${journal}.launch-gate`, '')
   const created = await createConfiguredCampAndSend(core.request, {
     commandId: crypto.randomUUID(), name: 'Missing completion recovery', workspace: { projectPath: workspace },
     memberAgentIds: ['agent_1'], defaultLeadAgentId: 'agent_1',
@@ -56,16 +67,18 @@ try {
     throw error
   })
   const snapshot = () => core.request('threads.snapshot', { threadId })
-  await until(async () => (await prompts()).length === 1, 'first native prompt')
+  if (stopDuringLaunch) {
+    await until(() => readFile(`${journal}.launch-started`, 'utf8').catch(() => null), 'Host initialization before prompt')
+  } else await until(async () => (await prompts()).length === 1, 'first native prompt')
   const first = await until(async () => {
     const run = (await snapshot()).agentRuns.find(run => run.status === 'running')
-    return run && database.prepare("SELECT 1 FROM agent_run_execution_evidence WHERE agent_run_id=? AND event_type='agent.text.block'").get(run.id)
+    return run && (stopDuringLaunch || database.prepare("SELECT 1 FROM agent_run_execution_evidence WHERE agent_run_id=? AND event_type='agent.text.block'").get(run.id))
       ? run : null
   }, 'running source with recorded output but no completion')
-  const native = (await prompts())[0]
+  const native = stopDuringLaunch ? JSON.parse(await readFile(`${journal}.launch-started`, 'utf8')) : (await prompts())[0]
   process.kill(native.pid, 0)
   const delivery = database.prepare('SELECT status,accepted_at FROM runtime_input_delivery WHERE agent_run_id=?').get(first.id)
-  assert.equal(delivery.accepted_at, null, 'missing completion has not been accepted')
+  if (!stopDuringLaunch && !pi) assert.equal(delivery.accepted_at, null, 'missing completion has not been accepted')
   if (shutdownText) {
     const streamed = await until(async () => (await snapshot()).executionEvidence.find(item =>
       item.agentRunId === first.id && item.eventType === 'agent.text.block'
@@ -93,14 +106,26 @@ try {
     console.log(JSON.stringify({ passed: true, scenario: 'shutdown-text', elapsedMs,
       bytes: Buffer.byteLength(expectedText), appRestarted: true, databaseModifiedByTest: false }))
   } else {
-    const stopped = await core.request('agentRuns.cancel', {
-      commandId: crypto.randomUUID(), command: { threadId, agentRunId: first.id, expectedVersion: first.version }
-    })
-    assert.equal(stopped.status, 'applied')
+    const cleanupStartedAt = Date.now()
+    if (unexpectedExit) {
+      process.kill(native.pid, 'SIGKILL')
+      await until(async () => (await snapshot()).agentRuns.find(run => run.id === first.id)?.status === 'failed',
+        'failed source after unexpected Runtime exit')
+    } else {
+      const stopped = await core.request('agentRuns.cancel', {
+        commandId: crypto.randomUUID(), command: { threadId, agentRunId: first.id, expectedVersion: first.version }
+      })
+      assert.equal(stopped.status, 'applied')
+      if (stopDuringLaunch) {
+        await rm(`${journal}.launch-gate`)
+        await writeFile(`${journal}.complete`, '')
+      }
+    }
     await until(() => database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id)?.cancel_acknowledged_at,
       'owned process cleanup acknowledgment')
+    const cleanupMs = Date.now() - cleanupStartedAt
     assert.throws(() => process.kill(native.pid, 0), { code: 'ESRCH' }, 'the old process was stopped')
-    assert.equal((await prompts()).length, 1, 'stopping does not replay input')
+    assert.equal((await prompts()).length, stopDuringLaunch ? 0 : 1, 'stopping does not submit or replay input')
     if (historicalStartup) {
       await core.request('core.shutdown', { protocolVersion: 3, deadlineMs: 10_000 })
       await core.exited()
@@ -122,16 +147,20 @@ try {
       assert.equal(database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id).cancel_acknowledged_at, null)
     }
     const oldState = database.prepare('SELECT * FROM agent_run WHERE id=?').get(first.id)
-    assert.equal(oldState.status, 'cancelled')
+    assert.equal(oldState.status, unexpectedExit ? 'failed' : 'cancelled')
     const oldDelivery = database.prepare('SELECT * FROM runtime_input_delivery WHERE agent_run_id=?').get(first.id)
-    assert.equal(oldDelivery.status, 'delivery_unknown')
+    if (!stopDuringLaunch) assert.equal(oldDelivery.status, pi ? 'accepted' : 'delivery_unknown')
     const continued = await core.request('agentRuns.continue', {
       commandId: crypto.randomUUID(), command: { threadId, agentRunId: first.id }
     })
     assert.equal(continued.status, 'applied')
     const second = await until(async () => (await snapshot()).agentRuns.find(run => run.id !== first.id && run.status === 'succeeded'),
       'new successful run after user continuation')
-    assert.equal((await prompts()).length, 2, 'one user continuation creates exactly one attempt')
+    const successor = database.prepare('SELECT * FROM agent_run WHERE id=?').get(second.id)
+    for (const column of ['conversation_id', 'agent_id', 'runtime_adapter_kind', 'runtime_installation_id']) {
+      assert.equal(successor[column], oldState[column], `continuation preserves ${column}`)
+    }
+    assert.equal((await prompts()).length, stopDuringLaunch ? 1 : 2, 'one user continuation creates exactly one attempt')
     assert.deepEqual(database.prepare('SELECT * FROM agent_run WHERE id=?').get(first.id), oldState, 'source Run stays terminal and unchanged')
     assert.deepEqual(database.prepare('SELECT * FROM runtime_input_delivery WHERE agent_run_id=?').get(first.id), oldDelivery,
       'continuation preserves the unknown result of the source input')
@@ -150,8 +179,8 @@ try {
       assert.equal(database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id).cancel_acknowledged_at, null,
         'new work never manufactures a historical cleanup ACK')
     }
-    const report = { passed: true, sourceStatus: oldState.status, successorStatus: second.status,
-      cleanupAcknowledged: !historicalStartup, appRestarted: historicalStartup,
+    const report = { passed: true, adapterKind, unexpectedExit, stopDuringLaunch, sourceStatus: oldState.status, successorStatus: second.status,
+      cleanupAcknowledged: !historicalStartup, cleanupMs, appRestarted: historicalStartup,
       databaseModifiedByTest: historicalStartup, historicalFaultFilesRetained: retainedHistoricalFiles.length,
       historicalOpenMs, cleanup: historicalStartup ? core.stderr().split('\n').find(line => line.includes('stage=historical_process_cleanup')) : null }
     if (historicalStartup) await writeFile(join(fixture, 'acceptance.json'), JSON.stringify(report, null, 2))
@@ -234,7 +263,8 @@ function startCore() {
     ...coreDataDirectoryArguments(data, { homeDirectory: home }),
     '--skill-library-root', join(data, 'managed-skill-library'), '--mcp-config-path', join(data, 'mcp.json')
   ], { cwd: fixture, stdio: ['pipe', 'pipe', 'pipe'], env: {
-    HOME: home, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', TMPDIR: fixture, ROVAI_COPILOT_BIN: executable
+    HOME: home, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', TMPDIR: fixture,
+    [pi ? 'ROVAI_PI_BIN' : 'ROVAI_COPILOT_BIN']: executable
   } })
   const closed = once(child, 'close'), pending = new Map()
   let nextId = 0, stderr = '', historicalCleanupFinishedAt = null

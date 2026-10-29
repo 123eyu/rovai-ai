@@ -21989,8 +21989,11 @@ async fn persist_pi_prompt_completion(
         };
         match terminal {
             Ok(terminal) if terminal.result.status != CommandResultStatus::Rejected => {
-                core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -24734,8 +24737,11 @@ async fn persist_acp_prompt_completion(
         if let Some((execution, command)) = recovery {
             match command {
                 Ok(command) if command.result.status != CommandResultStatus::Rejected => {
-                    core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                        .await;
+                    core.release_active_execution(&ActiveExecutionKey::new(
+                        agent_run_id,
+                        execution_epoch,
+                    ))
+                    .await;
                     runtime_route_permit.complete_callback();
                     if core.planned_shutdown.shutdown_started() {
                         eprintln!(
@@ -24904,8 +24910,11 @@ async fn persist_acp_prompt_completion(
         };
         match terminal {
             Ok(terminal) if terminal.result.status != CommandResultStatus::Rejected => {
-                core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -25908,8 +25917,11 @@ async fn process_agent_run_codex_message(
             .await
         {
             Ok(settlement) => {
-                core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -26054,8 +26066,11 @@ async fn process_agent_run_codex_message(
         };
         match terminal {
             Ok(terminal) if terminal.result.status != CommandResultStatus::Rejected => {
-                core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -34745,10 +34760,10 @@ done
                 &Default::default(),
                 &current,
             )
-                .unwrap()
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| panic!("waiting Delivery did not create an AgentRun: {sent:#}"))
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("waiting Delivery did not create an AgentRun: {sent:#}"))
         };
         let (version, execution_epoch) = {
             let mut database = core.database.lock().await;
@@ -36206,7 +36221,10 @@ for line in sys.stdin:
                 |row| row.get::<_, bool>(0),
             )
             .unwrap();
-        assert!(acknowledged, "release requires the actual current cleanup ACK");
+        assert!(
+            acknowledged,
+            "release requires the actual current cleanup ACK"
+        );
         stop_tx.send(true).unwrap();
         cleanup_driver.await.unwrap();
         core.abort_agent_run_tasks().await;

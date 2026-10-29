@@ -25,14 +25,11 @@ their own `Core\runtime-files`. No attachment View is placed under user Home, ro
 directory. This exact child is the only allowed Runtime-root/data-dir containment exception and is derived data, not
 Authority Attachment storage.
 
-Core creates or admits the root through the existing native private-directory primitive: normalized native absolute path,
-local fixed NTFS volume, stable opened identity, no reparse root, current-user owner, protected DACL limited to current user
-and SYSTEM, and non-inheritable retained handles. The root marker and lock use private-at-birth file primitives. Directly
-managed `.staging`, `camps`, operation, Camp, Entry and payload container directories use the same private-directory
-admission; copied descendants inherit only the private user/SYSTEM ACL and final files are read-only hardened.
-
-Existing unknown directories with inherited/broader ACL, reparse points, wrong owner or identity drift are rejected rather
-than repaired and reused. Runtime receives only the current Camp's exact `attachments` child, never `<data_dir>`,
+Core creates new directories with protected user/SYSTEM DACLs. Existing root and directly managed containers use
+normalized native absolute paths, local fixed NTFS, stable opened identity, no reparse roots and non-inheritable handles.
+Their ordinary effective permissions decide access; inherited/broader ACLs and lack of WRITE_DAC do not reject startup.
+The marker and coordination lock do not inspect or repair existing ACLs. Final published files retain read-only hardening.
+Reparse points, invalid types and identity drift remain errors. Runtime receives only the current Camp's exact `attachments` child, never `<data_dir>`,
 `runtime-files`, `camps`, Authority Attachment or another Camp.
 
 ### Runtime Fleet owner records
@@ -47,7 +44,7 @@ publication. A failed write or replacement preserves the previous record. Real f
 the existing error paths; unavailable durable storage is not replaced by an empty or in-memory ledger. Existing Run/epoch,
 process ownership, stop receipt and cleanup acknowledgment rules are unchanged.
 
-This replaces the Fleet-only inherited-to-protected ACL migration. Core/data-root admission, other private storage,
+This replaces the Fleet-only inherited-to-protected ACL migration. Other specialized private storage,
 credentials, Named Pipes, Jobs and non-Windows storage behavior remain unchanged.
 
 ## 2. Platform qualification
@@ -61,7 +58,7 @@ same-SID isolation.
 
 [Desktop Runtime Availability v1](desktop-runtime-availability-v1.md#8-windows-pre-ready-bootstrap-assessment) 补充独立
 `LocalAppData Known Folder\\Rovai AI Bootstrap\\<instance-key>` 壳层 profile。它只容纳 Electron 本机状态与稳定实例锁，
-不承载 Core authority 或 Runtime files；使用与正式 root 相同的 creation-time protected DACL / identity admission。
+不承载 Core authority 或 Runtime files；新建使用 creation-time protected DACL，已有对象只检查路径/类型/identity 与实际访问权限。
 只有 primary 准备正式布局，失败不向该 profile 传递 Core data path。正式 v2 布局与 Runtime 平台资格不变。
 
 ## Windows Web credential exception
@@ -74,9 +71,21 @@ remains the commit point. Directory admission, file identity/type and reparse ch
 Core/Server retain initial data-directory admission; subsequent credential I/O rechecks native directory path, volume
 and stable identity without imposing the exact writable directory ACL template again on read-only Token lookup.
 
-This exception does not relax the general private-file APIs, data-root admission, Named Pipe, Job or Runtime storage
-policy, nor any non-Windows behavior. The complete lifecycle and error contract is
+This exception does not relax the general private-file APIs, Named Pipe, Job or Runtime access policy, nor any non-Windows behavior. The complete lifecycle and error contract is
 [Host Web v4](host-web-v4.md#windows-web-凭据可用性).
+
+## 启动必需存储
+
+数据库及启动必需目录不要求现有 ACL 等于 Rovai 模板。Core 实例锁、Windows 正式/Bootstrap 布局、Runtime files 根和
+协调标记、Server 布局标记及日志使用专用 data-storage 调用点：只申请实际读取、写入、创建或替换所需权限，不要求
+WRITE_DAC，不自动修权；继承权限、额外 ACE、非当前 owner 本身不构成拒绝理由。SQLite 主库/日志直接由 SQLite 打开。
+
+新目录与实例锁/布局文件仍在创建时设置用户/SYSTEM 保护；旧对象保持原权限。路径类型、reparse、local NTFS、稳定对象
+身份和不覆盖式发布不放宽。原子写入先写 sibling 后提交，实际失败保留旧文件。可写目录不代表任何操作一定成功，错误
+按真实操作传播。跨平台统一的数据库行为见 [Desktop Runtime Availability v3](desktop-runtime-availability-v3.md#数据库启动与有界重试)。
+
+不修改通用 `prepare_private_directory` / private-file APIs 的严格语义。凭据、MCP/Skill 等专门边界继续各自合同；
+历史 Server token 读取仍核对 token 文件的私有 ACL，但不要求其父目录符合模板。Web token 继续沿用上述已有例外。
 
 ## References
 

@@ -8,6 +8,12 @@ last_updated: 2026-10-29
 
 # v1.72 实施与验收
 
+## 数据库启动减重（2026-10-29）
+
+实现与验收归 [数据库启动实施记录](database-startup-simplification.md)；替代本页旧 macOS 来源标记重新准入方案。
+当前合同为 [Desktop Runtime Availability v3](../../contracts/desktop-runtime-availability-v3.md#数据库启动与有界重试)，
+不新增 Migration、不改业务格式。日常宿主保护与原有会话保留是交付边界。
+
 ## 手动停止保留执行条（2026-10-29）
 
 - Worktree：`../rovai-ai-retain-stopped-run`；

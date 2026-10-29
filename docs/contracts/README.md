@@ -238,7 +238,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Pending Camp Input v2（历史）](pending-camp-input-v2.md) | v1 FIFO/edit token 不变；原生保存 source refs，working refs 支持添加/删除/排序与附件-only，发布失败精确 needs-repair；content wire 由 v3 替代 |
 | [Pending Camp Input v1（历史）](pending-camp-input-v1.md) | 私有下一轮输入、FIFO、编辑 token、暂停、原子发布与无附件边界 |
 | [Camp Identity v1（当前）](camp-identity-v1.md) | 唯一 `rvcamp_` UUIDv7/Crockford 主键、strict boundary、SQLite/JSON/path 使用与 Native Session identity 分离 |
-| [Desktop Runtime Availability v3（当前）](desktop-runtime-availability-v3.md) | 继承 v2 的权威与恢复边界；冷启动首帧即显示整窗加载画布，删除启动反馈 400ms 延迟 |
+| [Desktop Runtime Availability v3（当前）](desktop-runtime-availability-v3.md) | 单连接 SQLite 打开与事务迁移、一次有界启动重试、普通可用目录权限；首帧整窗加载画布 |
 | [Desktop Runtime Availability v2（历史）](desktop-runtime-availability-v2.md) | 严格 lease/ticket 后原位逐版本事务、receipt 续跑、旧 manifest 恢复及独立瞬时重试；启动呈现延迟由 v3 替代 |
 | [Desktop Runtime Availability v1（历史）](desktop-runtime-availability-v1.md) | Bootstrap/Full Core、SQLite 准入、copy/switch 与结构化 failure；旧 manifest 恢复仍保留，普通升级执行策略由 v2 替代 |
 | [First-run Onboarding v7（当前）](first-run-onboarding-v7.md) | schema 4；创建检查点固定具体资料语言，迁移保留已有进度与 Runtime 复制计划 |
@@ -592,7 +592,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [App Update v3（历史）](app-update-v3.md) | v2 snapshot/API 与 updater-first staging 不变；安装接受后只收口已开始的 Renderer-local 操作 |
 | [App Update v2（历史）](app-update-v2.md) | v1 snapshot/API 与 updater-first staging 不变；安装已接受后先完成 active Composer Draft fence |
 | [App Update v1（历史）](app-update-v1.md) | Desktop 主动检查、独立 release/prompt 事实、显式下载与安装、精确提醒 dismiss、状态投影和 updater-first 受控退出；Composer 前置 fence 由 v2 替代 |
-| [Windows Private Storage v2（当前）](windows-private-storage-v2.md) | v1 私有存储不变；增加 `<data_dir>\runtime-files`、受保护 View containers 与精确 Camp root 暴露边界 |
+| [Windows Private Storage v2（当前）](windows-private-storage-v2.md) | 新对象创建时保护；数据库/启动目录按实际访问权限打开，专用凭据边界和精确 Camp root 暴露保持 |
 | [Windows Private Storage v1（历史）](windows-private-storage-v1.md) | `%LOCALAPPDATA%` 布局、local NTFS admission、创建时 protected DACL、handle identity 与 long-path blocker；不含 Runtime Files Root |
 | [Windows Skill Projection v2（当前）](windows-skill-projection-v2.md) | 继承 v1；显式清理补入登记项目中无 observation 的固定名称副本 |
 | [Windows Skill Projection v1（历史）](windows-skill-projection-v1.md) | copy backend 多阶段 journal、crash-window 幂等恢复、Execution Root Projection Gate 与 project-owned preserve |

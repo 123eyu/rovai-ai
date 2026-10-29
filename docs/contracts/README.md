@@ -1,14 +1,14 @@
 ---
 document_type: contracts-index
 authority: protocol-contract-routing
-last_updated: 2026-10-27
+last_updated: 2026-10-29
 ---
 
 # 长期接口合同
 
 User 的主称呼、结构化提及及冻结恢复见 [User Naming v1](user-naming-v1.md)。
 
-公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v34](context-manifest-evidence-v34.md)、[Built-in Tool Transport v41（历史）](builtin-tool-transport-v41.md)。
+公开命名与历史合同的关系见 [Thread Naming v1](thread-naming-v1.md)；当前模型与 CLI 版本见 [ContextManifest v43/v44](context-manifest-evidence-v44.md)、[Built-in Tool Transport v45](builtin-tool-transport-v45.md)。
 
 本目录保存跨版本、字段级且可由测试直接验证的接口合同。[Version Decisions](../decisions/README.md)解释为什么选择某个边界，
 Architecture 解释组件如何组成，Version 概览记录交付范围；它们都不复制本目录的完整 wire shape。
@@ -26,8 +26,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 ## 会话 Task 能力（当前）
 
 - [Durable Task v6](durable-task-v6.md)
-- [Built-in Tool Transport v44](builtin-tool-transport-v44.md)：Thread read 正向分页输入与精简教学；继承 [v43（历史）](builtin-tool-transport-v43.md) 的 Send 输入来源和 [v42（历史）](builtin-tool-transport-v42.md) 的 Task 发现边界。
-- [ContextManifest Evidence v40 / v42](context-manifest-evidence-v42.md)
+- [Built-in Tool Transport v45](builtin-tool-transport-v45.md)：引用输出统一为 kind/text；继承 [v44（历史）](builtin-tool-transport-v44.md) 的 Thread read 正向分页、Send 输入来源与 Task 发现边界。
+- [ContextManifest Evidence v43 / v44](context-manifest-evidence-v44.md)
 - [Context Delivery Profile v15 / v16](context-delivery-profile-v15.md)
 - [Run Facts v10](run-facts-v10.md)
 - [Camp Message Send v29](camp-message-send-v29.md)
@@ -95,7 +95,7 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 - [Camp History v12（历史）](camp-history-v12.md)：mentions 统一，作者字段保留原始身份。
 - [ContextManifest v34（历史）](context-manifest-evidence-v34.md)：路由投影精简，public 34/11/9、non-batch 35/12/6，旧输入原格式恢复。
 - [ContextManifest v33（历史）](context-manifest-evidence-v33.md)：新 Run Mention 字段、原版本恢复和现有预算/摘要。
-- [Camp History v16（当前）](camp-history-v16.md)：after 排他正向分页、同方向续页及按范围增量读取；继承 [v15](camp-history-v15.md) 的引用正文投影与既有实时读取边界。
+- [Camp History v17（当前）](camp-history-v17.md)：引用直接读取保存的文字，不过滤来源；继承 [v16（历史）](camp-history-v16.md) 的分页、消息可见性和读取预算。
 - [Camp History v13（历史）](camp-history-v13.md)：read/search 统一发送者，Agent Output 12；历史回执保持。
 
 ## 生命周期
@@ -584,7 +584,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Planned Shutdown v4（历史）](planned-shutdown-v4.md) | wire 仍为 protocol 3；先业务结算再 Runtime 清理，未知终态与原 report 保留 |
 | [Planned Shutdown v3（历史）](planned-shutdown-v3.md) | 退出、重启或更新统一取消全部非终态 AgentRun；稳定快照后立即关闭 terminal/route 准入，保留未知效果并使用 v3 report |
 | [Planned Shutdown v2（历史）](planned-shutdown-v2.md) | v1 generation-local reliable terminal 加 durable shutdown cycle、product fence、启动补偿、终态 unknown-effect 保留与 v2 report |
-| [App Update v7（当前）](app-update-v7.md) | 继承 v6；双语发布原文不变，Renderer 按界面语言选择显示副本，安全回退、空段准入与文档级链接/完整脚注 first-wins |
+| [App Update v8（当前）](app-update-v8.md) | 共用默认 HTML 清洗；继承 v7 的语言选择、发布准入及更新行为 |
+| [App Update v7（历史）](app-update-v7.md) | 继承 v6；双语发布原文不变，Renderer 按界面语言选择显示副本，安全回退、空段准入与文档级链接/完整脚注 first-wins |
 | [App Update v6（历史）](app-update-v6.md) | 当前版本发布日期随版本绑定元数据离线展示；内置日志与候选版本来源沿用 v5 |
 | [App Update v5（历史）](app-update-v5.md) | Desktop 独立投影与运行版本匹配的内置当前日志；候选日志继续复用更新检查，展示层精确去除重复首标题 |
 | [App Update v4（历史）](app-update-v4.md) | v3 snapshot/API 与 updater-first staging 不变；安装退出保留 Desktop-local Active Camp Composer snapshot，并共同回收 Scheduler/maintenance |
@@ -632,7 +633,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Skills Rebuild v1（历史）](skills-rebuild-v1.md) | 受管平台/工具箱、队员配置、原生发现、Selection/Resolution v2、动态索引与旧来源恢复 |
 | [Run Input Skill Links v2（历史）](current-input-skill-links-v2.md) | 旧 Library/Exposure 的 Structured Skill Mention 与 per-message `RUN_INPUT.messages[].skills` |
 | [Current Input Skill Links v1（历史）](current-input-skill-links-v1.md) | Direct Run send-time snapshot 与 optional sibling `CURRENT_INPUT.skills[{name,path}]` |
-| [ContextManifest Evidence v42（当前）](context-manifest-evidence-v42.md) | non-batch 42 / Facts 13 / Profile 16；public 40 / Facts 11 / Profile 15；旧冻结输入原字节恢复 |
+| [ContextManifest Evidence v43/v44（当前）](context-manifest-evidence-v44.md) | 引用仅 kind/text；public 43 / non-batch 44，Facts 11/13、Profile 15/16 保持；旧冻结输入原字节恢复 |
+| [ContextManifest Evidence v42（历史）](context-manifest-evidence-v42.md) | non-batch 42 / Facts 13 / Profile 16；public 40 / Facts 11 / Profile 15；旧冻结输入原字节恢复 |
 | [Run Facts v10（当前）](run-facts-v10.md) | 新单聊仅保留附件输出根与按条件出现的 external effect；不投递固定 singleChat 对象 |
 | [ContextManifest Evidence v31（历史 public Camp）](context-manifest-evidence-v31.md) | 公开 31/10/8、Charter revision 14；claim 冻结额外可见消息判断，保留 Skills 与旧 30/29 有界恢复 |
 | [ContextManifest Evidence v30（历史 public Camp）](context-manifest-evidence-v30.md) | 主线公开 30/10/7 与非 batch 27/7/5，冻结完整工具箱 section；旧 v29/v26 有界恢复 |
@@ -735,4 +737,5 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Run Process Detail Surface v2 (historical)](run-process-detail-surface-v2.md) | Agent 级连续执行过程与三 Tab Inspector；不作为当前 Renderer 入口 |
 | [Run Process Detail Surface v1 (historical)](run-process-detail-surface-v1.md) | Scheme C 的逐 AgentRun Run Pulse/Drawer 与四 Tab Inspector；不作为当前 Renderer 入口 |
 
-- [Message Quotes v1](message-quotes-v1.md)：多段消息选文、草稿与不可变输入快照。
+- [Message Quotes v2（当前）](message-quotes-v2.md)：直接保存选文、可选来源与统一 kind/text 模型输入。
+- [Message Quotes v1（历史）](message-quotes-v1.md)：已退役的来源证明、跨端投影与精确定位。

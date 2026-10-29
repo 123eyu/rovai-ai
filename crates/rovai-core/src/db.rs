@@ -36,6 +36,8 @@ mod notification_interruption;
 pub(crate) mod notification_model;
 #[path = "db_pending_draft.rs"]
 mod pending_draft;
+#[path = "db_quote_text.rs"]
+mod quote_text;
 #[path = "db_run_continuation.rs"]
 mod run_continuation;
 #[path = "db_shared_environment.rs"]
@@ -58,6 +60,7 @@ pub(crate) fn assert_task_capability_upgrade(database: &mut Database) {
 }
 #[cfg(test)]
 pub(crate) fn assert_single_chat_facts_upgrade(database: &mut Database) {
+    quote_text::assert_upgrade(database);
     single_chat_facts::assert_upgrade(database);
 }
 
@@ -499,7 +502,7 @@ impl MainThreadMigrationSource {
 }
 
 pub(crate) const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.72";
-pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 167;
+pub(crate) const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 168;
 const V147_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.54";
 const V147_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 96;
 const V145_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.53";
@@ -991,6 +994,7 @@ struct CurrentMigrationState {
     v215: bool,
     v216: bool,
     v217: bool,
+    v218: bool,
 }
 
 impl CurrentMigrationState {
@@ -1012,6 +1016,14 @@ impl CurrentMigrationState {
     }
 
     fn admits(&self, contract: &str, schema: i64, classifier: &str) -> bool {
+        if self.v218 {
+            let mut previous = *self;
+            previous.v218 = false;
+            return contract == CURRENT_DATA_CONTRACT_VERSION
+                && schema == 168
+                && self.v217
+                && previous.admits("v1.72", 167, classifier);
+        }
         if self.v217 {
             let mut previous = *self;
             previous.v217 = false;
@@ -3316,6 +3328,7 @@ fn connection_has_admissible_data_contract(connection: &Connection) -> rusqlite:
                         | 165
                         | 166
                         | 167
+                        | 168
                 )
         })
     {
@@ -3747,6 +3760,7 @@ pub(crate) fn classify_database_contract(
                 | 165
                 | 166
                 | 167
+                | 168
         )
     {
         let expected_migration = marker.projection_schema_version + 50;
@@ -3756,6 +3770,7 @@ pub(crate) fn classify_database_contract(
             |row| row.get(0),
         )?;
         let valid = completed
+            && (marker.projection_schema_version < 168 || quote_text::schema_matches(connection)?)
             && (marker.projection_schema_version < 167
                 || hermes::rules_schema_matches(connection)?)
             && (marker.projection_schema_version < 166 || hermes::schema_matches(connection)?)
@@ -6071,7 +6086,8 @@ fn load_current_migration_state(
             EXISTS(SELECT 1 FROM schema_migration WHERE version=214),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=215),
             EXISTS(SELECT 1 FROM schema_migration WHERE version=216),
-            EXISTS(SELECT 1 FROM schema_migration WHERE version=217)
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=217),
+            EXISTS(SELECT 1 FROM schema_migration WHERE version=218)
         "#,
         [],
         |row| {
@@ -6224,6 +6240,7 @@ fn load_current_migration_state(
                 v215: row.get(145)?,
                 v216: row.get(146)?,
                 v217: row.get(147)?,
+                v218: row.get(148)?,
             })
         },
     )
@@ -9534,6 +9551,9 @@ impl Database {
             if !self.schema_migration_applied(217)? {
                 migration_step!("migration_217", hermes::migrate_rules(self));
             }
+            if !self.schema_migration_applied(218)? {
+                migration_step!("migration_218", quote_text::migrate(self));
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -10409,6 +10429,9 @@ impl Database {
         }
         if !self.schema_migration_applied(217)? {
             migration_step!("migration_217", hermes::migrate_rules(self));
+        }
+        if !self.schema_migration_applied(218)? {
+            migration_step!("migration_218", quote_text::migrate(self));
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -42222,6 +42245,7 @@ mod tests {
             v215: version >= 215,
             v216: version >= 216,
             v217: version >= 217,
+            v218: version >= 218,
         }
     }
 

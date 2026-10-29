@@ -22,7 +22,8 @@ last_updated: 2026-10-29
 - `pnpm test` 的 Node 层为 357 passed / 2 skipped / 1 failed：Product Contract Fingerprint
   固定期望 schema 167，当前源码为 168。聚合 `test:run-presence-ui` 的 reply-details 在
   `regroup-middle` 断言失败。两者均在未改动基线 `4d3aba9a5` 独立复现；不改写无关断言。
-- 默认 Rust workspace PR 回归在同一集成轮运行，结果在合并前补齐。
+- 默认 Rust workspace PR 回归 `pnpm test:rust:pr` 通过。审查补齐了停止条未知回执保持普通入口，
+  以及 Applied 回执先于权威投影时同时恢复历史中断标记的边界；对应浏览器回归覆盖同一 commandId 核对。
 
 ## Windows Fleet 记录存储修复（2026-10-29）
 

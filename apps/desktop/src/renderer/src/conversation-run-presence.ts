@@ -13,7 +13,7 @@ export function isUserInterruptedRun(run: AgentRunView): boolean {
 }
 
 /** Keep public activity, the latest unresolved stop/failure, and input rejections at their source. */
-function eligibleConversationRuns(runs: readonly AgentRunView[]): AgentRunView[] {
+function eligibleConversationRuns(runs: readonly AgentRunView[], continuedRunIds?: ReadonlySet<string>): AgentRunView[] {
   const publicRuns = runs.filter(run => run.invocationKind !== 'single_chat')
   const latestByAgent = new Map<string, AgentRunView>()
   for (const run of publicRuns) {
@@ -25,7 +25,7 @@ function eligibleConversationRuns(runs: readonly AgentRunView[]): AgentRunView[]
     || run.status === 'waiting' && run.startedAt !== null
     || (run.status === 'failed' && run.invocationKind === 'batch' || isUserInterruptedRun(run))
       && (run.failure?.code === 'context_payload_too_large' || latestByAgent.get(run.agentId)?.id === run.id)
-      && !run.hasAcceptedContinuation)
+      && !run.hasAcceptedContinuation && !continuedRunIds?.has(run.id))
 }
 
 export interface RunPresencePreview {
@@ -55,11 +55,12 @@ function outputRunId(item: ThreadConversationTimelineItem | undefined): string |
 export function conversationRunPresenceTimeline(
   timeline: readonly ThreadConversationTimelineItem[],
   runs: readonly AgentRunView[],
-  snapshotReady = true
+  snapshotReady = true,
+  continuedRunIds?: ReadonlySet<string>
 ): ConversationPresenceTimelineItem[] {
   const messages = timeline.flatMap(item => item.kind === 'camp_message' ? [item.message] : [])
   const groups = new Map<number, ConversationRunPresenceSlot[]>()
-  for (const run of eligibleConversationRuns(runs)) {
+  for (const run of eligibleConversationRuns(runs, continuedRunIds)) {
     if (!snapshotReady && (run.status === 'failed' || run.status === 'cancelled')) continue
     const ownMessage = messages.filter(message => !message.withdrawn && message.authorType === 'agent'
       && message.sourceAgentRunId === run.id && !message.id.startsWith('optimistic:'))

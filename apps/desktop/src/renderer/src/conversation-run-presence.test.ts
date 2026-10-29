@@ -130,6 +130,10 @@ describe('conversation Run presence', () => {
     expect(slots([structuredClone(stopped)], [], false)).toEqual([])
     expect(slots([structuredClone(stopped)])).toEqual([['stopped', false]])
     expect(slots([{ ...stopped, hasAcceptedContinuation: true }])).toEqual([])
+    const oldFailure = run('older', 'alice', { status: 'failed', createdAt: '2026-10-10T11:59:00Z' })
+    const acknowledged = conversationRunPresenceTimeline([], [oldFailure, stopped], true, new Set([stopped.id]))
+    expect(acknowledged).toEqual([])
+    expect(stopped.hasAcceptedContinuation).toBeUndefined()
     for (const status of ['queued', 'running', 'waiting', 'failed', 'succeeded'] as const) {
       expect(slots([stopped, { ...next, status }]).flat()).not.toContain(stopped.id)
     }

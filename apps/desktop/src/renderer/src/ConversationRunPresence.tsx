@@ -19,7 +19,7 @@ import { useNavigationPressMenu } from './useNavigationPressMenu'
 import type { AgentRunStopViewState } from './ThreadWorkspace'
 import './conversation-run-presence.css'
 
-export function ConversationRunPresence({ snapshot, slot, profiles, installations, source, onActivateMember, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onError }: {
+export function ConversationRunPresence({ snapshot, slot, profiles, installations, source, onActivateMember, eventsByRunId, windowedEvidence, stopState, onStop, onOpen, onError, onContinued }: {
   snapshot: ThreadSnapshot
   slot: ConversationRunPresenceSlot
   profiles: readonly AgentProfile[]
@@ -32,18 +32,16 @@ export function ConversationRunPresence({ snapshot, slot, profiles, installation
   onStop(run: AgentRunView): Promise<void>
   onOpen(agentId: string, trigger: HTMLButtonElement, options: { runId: string }): void
   onError(message: string): void
+  onContinued(runId: string): void
 }): React.JSX.Element | null {
   useInterfaceLanguage()
-  // Immediate receipt feedback while the refreshed Core projection is in flight.
-  // Re-entry is owned by run.hasAcceptedContinuation, not this component Set.
-  const [continuedRunIds, setContinuedRunIds] = useState<ReadonlySet<string>>(() => new Set())
   const [stopId, setStopId] = useState<string | null>(null)
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const [stopError, setStopError] = useState('')
   const submitting = useRef(false)
   const stopTrigger = useRef<HTMLButtonElement | null>(null)
   const confirmationId = useId()
-  const slots = continuedRunIds.has(slot.run.id) ? [] : [slot]
+  const slots = [slot]
   const target = snapshot.agentRuns.find(run => run.id === stopId)
   const canConfirm = Boolean(target && stopState(target) === 'available')
   const memberName = (run: AgentRunView): string => snapshot.members.find(member => member.agentId === run.agentId)?.displayName
@@ -135,7 +133,7 @@ export function ConversationRunPresence({ snapshot, slot, profiles, installation
               </button></Popover.Anchor>}
               {canContinue &&
                 <ContinueAgentRunButton threadId={snapshot.thread.id} agentRunId={run.id} appearance={run.status === 'failed' ? 'retry' : 'continue'}
-                  onError={onError} onApplied={() => setContinuedRunIds(current => new Set(current).add(run.id))} />}
+                  onError={onError} onApplied={() => onContinued(run.id)} />}
             </div>
           </div>
         </article>

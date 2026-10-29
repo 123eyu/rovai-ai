@@ -2641,9 +2641,13 @@ export function ThreadWorkspace({
       visibleThreadMessages
     ]
   )
+  // Applied receipts update both presence and historical markers together while
+  // Core's refreshed projection is in flight; re-entry still uses the Core fact.
+  const [continuedRunIds, setContinuedRunIds] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => setContinuedRunIds(new Set()), [snapshot.thread.id])
   const presenceTimeline = useMemo(() => conversationRunPresenceTimeline(
-    conversationTimeline, snapshot.agentRuns, workspaceEntrySnapshotReady
-  ), [conversationTimeline, snapshot.agentRuns, workspaceEntrySnapshotReady])
+    conversationTimeline, snapshot.agentRuns, workspaceEntrySnapshotReady, continuedRunIds
+  ), [conversationTimeline, snapshot.agentRuns, workspaceEntrySnapshotReady, continuedRunIds])
   const retainedStopIds = useMemo(() => new Set(presenceTimeline.flatMap(item =>
     item.kind === 'run_presence' && isUserInterruptedRun(item.slot.run) ? [item.slot.run.id] : []
   )), [presenceTimeline])
@@ -5474,6 +5478,7 @@ export function ThreadWorkspace({
                         confirming: confirmingRunIds.has(run.id),
                         turnCancelling: run.threadTurnId !== null && cancellingTurnIds.has(run.threadTurnId)
                       })}
+                      onContinued={runId => setContinuedRunIds(current => new Set(current).add(runId))}
                       onStop={onCancelAgentRun} onOpen={openExecutionProcess} onError={notifyError} />)
                     continue
                   }

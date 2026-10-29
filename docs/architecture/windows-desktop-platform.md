@@ -91,7 +91,7 @@ MCP 管理初始化按[外部 MCP 配置边界](foundational-invariants.md#skill
 诊断自检不调用初始化或修复。
 
 The derived legacy Camp Published Attachment View is the explicit `<data_dir>\runtime-files` private child; Windows never
-uses the macOS Home-based instance directory. Root/managed containers use native private-directory admission, and Runtime
+uses the macOS Home-based instance directory. Root/managed containers accept effective ordinary access while retaining native type/identity/reparse checks, and Runtime
 may receive only one current-Camp `attachments` descendant. Existing Authority remains under Core `camp-attachments`;
 new Desktop user attachments instead keep source refs and use current Run Temp only when the source lies outside
 executionRoot. This storage backend does not qualify any Adapter: every `windows-x64` row remains `not_qualified` until
@@ -110,7 +110,7 @@ Windows startup 的壳层/正式 data-root 分层由
 [Availability-first Runtime](availability-first-runtime.md#windows-shell-storage-boundary)拥有。先用已打包 `rovai.exe`
 的独立原生入口建立私有 Electron bootstrap profile 并获取实例锁，只有 primary 运行完整 Core data-root preparer；正式
 准备失败仍显示壳层，但没有 Core data path。ready 后恢复必须 relaunch 到同一目标 root，不重绑 sessionData，也不创建
-临时 SQLite。两个 helper 都沿用现有 private-storage 原语，不新增可继承 ACL 或 PowerShell 后备路径。
+临时 SQLite。两个 helper 新建目录时保留原生保护，已有目录按实际可用权限处理，不要求 ACL 模板，不引入 PowerShell 后备路径。
 
 Windows keeps the system frame while hiding its App icon/title strip and native menu-bar presentation. The Renderer projects
 only four fixed top-level menu labels on the rail-colored WCO row; a closed preload/Main request maps each label back to the

@@ -2,7 +2,7 @@ use std::{
     fs::File,
     io::{self, Read},
     path::{Component, Path, PathBuf},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 #[cfg(all(test, feature = "extended-tests"))]
@@ -16,8 +16,8 @@ use crate::{
     core_data_dir_lock::CoreDataDirLease,
     database_admission::{
         AUTHORITY_MIGRATION_MANIFEST_FILE, AdmissionAssessment, AuthorityArtifactIdentityToken,
-        AuthorityArtifactKind, AuthorityBlock, AuthorityNamespace, DatabaseAdmission,
-        MigrationAuthorityOpen, MigrationAuthorityTicket, TicketValidationError,
+        AuthorityArtifactKind, AuthorityBlock, AuthorityNamespace, AuthorityPathError,
+        DatabaseAdmission, MigrationAuthorityOpen, MigrationOperation,
         observe_authority_identity_token,
     },
     db::{Database, DatabaseMigrationError, DatabaseOpenError},
@@ -47,7 +47,6 @@ pub enum AuthorityMigrationPhase {
     Migrating {
         version: u32,
     },
-    ReopeningAuthority,
     #[cfg(test)]
     CreatingSnapshot,
     #[cfg(test)]
@@ -76,7 +75,7 @@ pub struct AuthorityMigrationRunner;
 
 impl AuthorityMigrationRunner {
     pub fn run(
-        ticket: MigrationAuthorityTicket<'_>,
+        ticket: MigrationAuthorityOpen<'_>,
         runtime_camp_files_root: &Path,
         runtime_camp_files_root_identity_digest: &str,
     ) -> Result<Database, DatabaseMigrationError> {
@@ -89,109 +88,81 @@ impl AuthorityMigrationRunner {
     }
 
     pub fn run_with_progress(
-        ticket: MigrationAuthorityTicket<'_>,
+        ticket: MigrationAuthorityOpen<'_>,
         runtime_camp_files_root: &Path,
         runtime_camp_files_root_identity_digest: &str,
         mut progress: impl FnMut(AuthorityMigrationProgress),
     ) -> Result<Database, DatabaseMigrationError> {
-        run_with_progress_inner(
-            ticket,
-            runtime_camp_files_root,
-            runtime_camp_files_root_identity_digest,
-            &mut progress,
-            true,
-        )
-    }
-}
-
-fn run_with_progress_inner(
-    ticket: MigrationAuthorityTicket<'_>,
-    runtime_camp_files_root: &Path,
-    runtime_camp_files_root_identity_digest: &str,
-    progress: &mut dyn FnMut(AuthorityMigrationProgress),
-    allow_macos_provenance_refresh: bool,
-) -> Result<Database, DatabaseMigrationError> {
-    let open = ticket
-        .into_migration()
-        .map_err(DatabaseMigrationError::from_ticket)?;
-    match open {
-        MigrationAuthorityOpen::Interrupted { lease, manifest } => {
-            progress(phase(AuthorityMigrationPhase::RecoveringInterruptedSwitch));
-            recover_interrupted_switch(lease, &manifest)?;
-            progress(phase(AuthorityMigrationPhase::Reassessing));
-            continue_after_reassessment(
-                lease,
-                runtime_camp_files_root,
-                runtime_camp_files_root_identity_digest,
-                progress,
-                None,
-            )
+        match ticket.state {
+            MigrationOperation::Interrupted { lease, manifest } => {
+                progress(phase(AuthorityMigrationPhase::RecoveringInterruptedSwitch));
+                recover_interrupted_switch(lease, &manifest)?;
+                progress(phase(AuthorityMigrationPhase::Reassessing));
+                continue_after_reassessment(
+                    lease,
+                    runtime_camp_files_root,
+                    runtime_camp_files_root_identity_digest,
+                    &mut progress,
+                )
+            }
+            open @ MigrationOperation::Upgrade { .. } => {
+                progress(phase(AuthorityMigrationPhase::OpeningAuthority));
+                let source = match &open {
+                    MigrationOperation::Upgrade {
+                        source_contract, ..
+                    } => source_contract.contract_version.clone(),
+                    _ => unreachable!(),
+                };
+                let database = Database::migrate_admitted_authority(
+                    MigrationAuthorityOpen { state: open },
+                    runtime_camp_files_root,
+                    runtime_camp_files_root_identity_digest,
+                    &mut |stage, elapsed| {
+                        trace_startup_stage(stage, elapsed, Some(&source));
+                        let next = if stage == "migration_reconciliation" {
+                            AuthorityMigrationPhase::Reconciling
+                        } else if let Some(version) = stage
+                            .strip_prefix("migration_")
+                            .and_then(|v| v.parse().ok())
+                        {
+                            AuthorityMigrationPhase::Migrating { version }
+                        } else {
+                            AuthorityMigrationPhase::OpeningAuthority
+                        };
+                        progress(phase(next));
+                    },
+                )?;
+                progress(phase(AuthorityMigrationPhase::Completed));
+                Ok(database)
+            }
         }
-        open @ MigrationAuthorityOpen::Upgrade { .. } => migrate_upgrade_in_place(
-            open,
-            runtime_camp_files_root,
-            runtime_camp_files_root_identity_digest,
-            progress,
-            allow_macos_provenance_refresh,
-        ),
     }
 }
 
+// Only an interrupted historical copy/switch needs to select/open again.
 fn continue_after_reassessment(
     lease: &CoreDataDirLease,
     runtime_camp_files_root: &Path,
     runtime_camp_files_root_identity_digest: &str,
     progress: &mut dyn FnMut(AuthorityMigrationProgress),
-    expected: Option<&MigrationAuthorityOpen<'_>>,
 ) -> Result<Database, DatabaseMigrationError> {
-    if let Some(open) = expected {
-        open.revalidate_migrated_identity()
-            .map_err(DatabaseMigrationError::from_ticket)?;
-    }
-    let started = Instant::now();
-    let assessment =
-        DatabaseAdmission::assess(lease).map_err(DatabaseMigrationError::from_admission);
-    trace_startup_stage(
-        "authority_reassessment",
-        started.elapsed(),
-        assessment
-            .as_ref()
-            .ok()
-            .and_then(AdmissionAssessment::source_contract_version),
-    );
-    let assessment = assessment?;
-    if let Some(open) = expected {
-        open.revalidate_migrated_identity()
-            .map_err(DatabaseMigrationError::from_ticket)?;
-    }
-    match assessment {
-        AdmissionAssessment::AdmittedExisting(ticket) => {
-            progress(phase(AuthorityMigrationPhase::ReopeningAuthority));
-            if let Some(open) = expected {
-                open.revalidate_migrated_identity()
-                    .map_err(DatabaseMigrationError::from_ticket)?;
-            }
-            let started = Instant::now();
-            let database = Database::open_admitted_with_runtime_camp_files_root(
-                *ticket,
+    match DatabaseAdmission::assess(lease).map_err(DatabaseMigrationError::from_admission)? {
+        AdmissionAssessment::AdmittedExisting(open) => {
+            Database::open_admitted_with_runtime_camp_files_root(
+                *open,
                 runtime_camp_files_root,
                 runtime_camp_files_root_identity_digest,
             )
-            .map_err(DatabaseMigrationError::from_open);
-            trace_startup_stage(
-                "authority_reopen",
-                started.elapsed(),
-                Some(crate::db::CURRENT_DATA_CONTRACT_VERSION),
-            );
-            database
+            .map_err(DatabaseMigrationError::from_open)
         }
-        AdmissionAssessment::RequiresMigration(ticket) => run_with_progress_inner(
-            *ticket,
-            runtime_camp_files_root,
-            runtime_camp_files_root_identity_digest,
-            progress,
-            true,
-        ),
+        AdmissionAssessment::RequiresMigration(open) => {
+            AuthorityMigrationRunner::run_with_progress(
+                *open,
+                runtime_camp_files_root,
+                runtime_camp_files_root_identity_digest,
+                progress,
+            )
+        }
         AdmissionAssessment::Initializable(_) => Err(DatabaseMigrationError::operation(
             "authority_migration_reassessment_lost_authority",
             "migration recovery unexpectedly found no authority database",
@@ -199,85 +170,9 @@ fn continue_after_reassessment(
         )),
         AdmissionAssessment::Blocked(block) => Err(DatabaseMigrationError::blocked(
             *block,
-            "migration reassessment was blocked",
+            "migration recovery was blocked",
         )),
     }
-}
-
-fn migrate_upgrade_in_place(
-    open: MigrationAuthorityOpen<'_>,
-    runtime_camp_files_root: &Path,
-    runtime_camp_files_root_identity_digest: &str,
-    progress: &mut dyn FnMut(AuthorityMigrationProgress),
-    allow_macos_provenance_refresh: bool,
-) -> Result<Database, DatabaseMigrationError> {
-    let MigrationAuthorityOpen::Upgrade {
-        lease,
-        source_contract,
-        ..
-    } = &open
-    else {
-        unreachable!("upgrade path is selected by the ticket")
-    };
-    progress(phase(AuthorityMigrationPhase::OpeningAuthority));
-    let migration = Database::migrate_admitted_authority(
-        &open,
-        runtime_camp_files_root,
-        runtime_camp_files_root_identity_digest,
-        &mut |stage, elapsed| {
-            trace_startup_stage(stage, elapsed, Some(&source_contract.contract_version));
-            let next = if stage == "migration_reconciliation" {
-                AuthorityMigrationPhase::Reconciling
-            } else if let Some(version) = stage
-                .strip_prefix("migration_")
-                .and_then(|value| value.parse().ok())
-            {
-                AuthorityMigrationPhase::Migrating { version }
-            } else {
-                AuthorityMigrationPhase::OpeningAuthority
-            };
-            progress(phase(next));
-        },
-    );
-    if let Err(error) = migration {
-        if allow_macos_provenance_refresh
-            && error.code() == "authority_contract_changed"
-            && matches!(
-                error.authority_block(),
-                Some(AuthorityBlock::IdentityChanged { .. })
-            )
-            && open.macos_provenance_transition_observed()
-        {
-            // The strict ticket did its job. A new macOS provenance xattr is
-            // metadata-only, but the old ticket cannot be reused: re-admit the
-            // same source and receipts once before any application migration.
-            progress(phase(AuthorityMigrationPhase::Reassessing));
-            let reassessment =
-                DatabaseAdmission::assess(lease).map_err(DatabaseMigrationError::from_admission)?;
-            if let AdmissionAssessment::RequiresMigration(ticket) = reassessment
-                && ticket.matches_macos_provenance_refresh(&open)
-            {
-                return run_with_progress_inner(
-                    *ticket,
-                    runtime_camp_files_root,
-                    runtime_camp_files_root_identity_digest,
-                    progress,
-                    false,
-                );
-            }
-        }
-        return Err(error);
-    }
-    progress(phase(AuthorityMigrationPhase::Reassessing));
-    let database = continue_after_reassessment(
-        lease,
-        runtime_camp_files_root,
-        runtime_camp_files_root_identity_digest,
-        progress,
-        Some(&open),
-    )?;
-    progress(phase(AuthorityMigrationPhase::Completed));
-    Ok(database)
 }
 
 /// Local diagnostic timing only: never include paths, SQL or credential rows.
@@ -300,19 +195,19 @@ fn legacy_snapshot_switch_for_test(
     runtime_camp_files_root_identity_digest: &str,
     progress: &mut dyn FnMut(AuthorityMigrationProgress),
 ) -> Result<Database, DatabaseMigrationError> {
-    let MigrationAuthorityOpen::Upgrade {
+    let MigrationOperation::Upgrade {
         lease,
         path: source,
         namespace,
         source_contract,
         ..
-    } = &open
+    } = &open.state
     else {
         unreachable!("upgrade path is selected by the caller")
     };
     debug_assert!(!source_contract.contract_version.is_empty());
     open.revalidate()
-        .map_err(DatabaseMigrationError::from_ticket)?;
+        .map_err(DatabaseMigrationError::from_path)?;
     let operation_id = Uuid::new_v4();
     let staging_file_name = format!(".rovai-authority-migration-{operation_id}.sqlite");
     let staging = lease.data_dir().join(&staging_file_name);
@@ -329,7 +224,7 @@ fn legacy_snapshot_switch_for_test(
         progress(phase(AuthorityMigrationPhase::CreatingSnapshot));
         backup_authority(source, &staging, progress)?;
         open.revalidate()
-            .map_err(DatabaseMigrationError::from_ticket)?;
+            .map_err(DatabaseMigrationError::from_path)?;
 
         progress(phase(AuthorityMigrationPhase::MigratingCopy));
         Database::migrate_staged_authority_copy(
@@ -348,7 +243,7 @@ fn legacy_snapshot_switch_for_test(
             )
         })?;
         open.revalidate()
-            .map_err(DatabaseMigrationError::from_ticket)?;
+            .map_err(DatabaseMigrationError::from_path)?;
 
         progress(phase(AuthorityMigrationPhase::PreservingOriginal));
         let backup_directory = prepare_backup_directory(lease, operation_id)?;
@@ -392,7 +287,7 @@ fn legacy_snapshot_switch_for_test(
             });
         }
         open.revalidate()
-            .map_err(DatabaseMigrationError::from_ticket)?;
+            .map_err(DatabaseMigrationError::from_path)?;
 
         let manifest_path = lease.data_dir().join(AUTHORITY_MIGRATION_MANIFEST_FILE);
         let mut manifest = AuthorityMigrationManifest {
@@ -474,7 +369,6 @@ fn legacy_snapshot_switch_for_test(
             runtime_camp_files_root,
             runtime_camp_files_root_identity_digest,
             progress,
-            None,
         )
     })();
 
@@ -1201,9 +1095,9 @@ fn phase(phase: AuthorityMigrationPhase) -> AuthorityMigrationProgress {
 }
 
 impl DatabaseMigrationError {
-    pub(crate) fn from_ticket(error: TicketValidationError) -> Self {
+    pub(crate) fn from_path(error: AuthorityPathError) -> Self {
         match error {
-            TicketValidationError::Blocked(block) => {
+            AuthorityPathError::Blocked(block) => {
                 let changed = matches!(
                     *block,
                     AuthorityBlock::IdentityChanged { .. }
@@ -1217,7 +1111,7 @@ impl DatabaseMigrationError {
                 }
                 error
             }
-            TicketValidationError::Infrastructure(error) => Self::operation(
+            AuthorityPathError::Infrastructure(error) => Self::operation(
                 "authority_migration_ticket_infrastructure_failed",
                 &error.message,
                 error.retryable,
@@ -1237,14 +1131,6 @@ impl DatabaseMigrationError {
             retryable: error.retryable(),
             authority_block: block.map(Box::new),
         }
-    }
-
-    pub(crate) fn from_sqlite(code: &str, error: rusqlite::Error) -> Self {
-        Self::operation(
-            code,
-            &error.to_string(),
-            crate::database_admission::sqlite_error_is_transient(&error),
-        )
     }
 
     pub(crate) fn from_migration(error: anyhow::Error) -> Self {
@@ -1296,7 +1182,7 @@ mod tests {
     }
 
     #[test]
-    fn supported_database_is_migrated_in_place_and_readmitted_without_snapshots() {
+    fn supported_database_is_migrated_in_place_on_one_connection_without_snapshots() {
         for source in [
             "v115",
             "channel_v125",
@@ -1587,7 +1473,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_provenance_added_after_ticket_is_readmitted_without_losing_business_data() {
+    fn macos_metadata_changes_during_upgrade_preserve_business_data() {
         use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
         let directory =
@@ -1617,7 +1503,7 @@ mod tests {
         let mut attached = false;
         let mut reassessments = 0;
         let migrated = AuthorityMigrationRunner::run_with_progress(
-            (*ticket).with_initially_absent_macos_provenance_for_test(),
+            *ticket,
             &root,
             &root_identity,
             |progress| {
@@ -1645,7 +1531,7 @@ mod tests {
         )
         .unwrap();
         assert!(attached);
-        assert_eq!(reassessments, 2, "one retry and one final reassessment");
+        assert_eq!(reassessments, 0, "metadata changes need no reassessment");
         let display_name: String = migrated
             .connection()
             .query_row(
@@ -1751,11 +1637,9 @@ mod tests {
         for changed in [
             "removed",
             "replaced",
-            "sidecar",
             "other_namespace",
             "removed_after_migration",
             "replaced_after_migration",
-            "replaced_before_reopen",
         ] {
             let directory =
                 std::env::temp_dir().join(format!("rovai-migration-path-fence-{}", Uuid::new_v4()));
@@ -1780,31 +1664,23 @@ mod tests {
                     std::fs::write(&replacement, b"unrelated authority").unwrap();
                     std::fs::rename(replacement, &source).unwrap();
                 }
-                "sidecar" => std::fs::write(
-                    directory.join("rovai.sqlite-journal"),
-                    b"unexplained sidecar",
-                )
-                .unwrap(),
                 "other_namespace" => {
                     std::fs::write(directory.join("lumen.sqlite"), b"unexpected authority").unwrap()
                 }
-                "removed_after_migration"
-                | "replaced_after_migration"
-                | "replaced_before_reopen" => {}
+                "removed_after_migration" | "replaced_after_migration" => {}
                 _ => unreachable!(),
             }
             let mut before = std::fs::read(&source).ok();
             let mut interrupted = false;
             let result =
                 AuthorityMigrationRunner::run_with_progress(*ticket, &root, &identity, |update| {
-                    let after_migration = update.phase == AuthorityMigrationPhase::Reassessing
+                    let after_migration = update.phase
+                        == AuthorityMigrationPhase::Migrating { version: 218 }
                         && matches!(
                             changed,
                             "removed_after_migration" | "replaced_after_migration"
                         );
-                    let before_reopen = update.phase == AuthorityMigrationPhase::ReopeningAuthority
-                        && changed == "replaced_before_reopen";
-                    if !interrupted && (after_migration || before_reopen) {
+                    if !interrupted && after_migration {
                         interrupted = true;
                         if changed == "removed_after_migration" {
                             std::fs::remove_file(&source).unwrap();
@@ -1826,13 +1702,8 @@ mod tests {
             assert!(!directory.join(MIGRATION_BACKUP_ROOT).exists());
             assert!(!directory.join(AUTHORITY_MIGRATION_MANIFEST_FILE).exists());
             if changed == "removed" {
-                let error = match continue_after_reassessment(
-                    &lease,
-                    &root,
-                    &identity,
-                    &mut |_| {},
-                    None,
-                ) {
+                let error = match continue_after_reassessment(&lease, &root, &identity, &mut |_| {})
+                {
                     Err(error) => error,
                     Ok(_) => panic!("reassessment must not initialize"),
                 };
@@ -2015,12 +1886,7 @@ mod tests {
             }
         };
         let result = if interruption.starts_with("legacy_") {
-            legacy_snapshot_switch_for_test(
-                ticket.into_migration().unwrap(),
-                &runtime_root,
-                &runtime_identity,
-                &mut pause,
-            )
+            legacy_snapshot_switch_for_test(*ticket, &runtime_root, &runtime_identity, &mut pause)
         } else {
             AuthorityMigrationRunner::run_with_progress(
                 *ticket,

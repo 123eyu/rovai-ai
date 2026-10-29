@@ -107,7 +107,7 @@ describe('CoreClient planned shutdown', () => {
 
   it('admits only bounded transient authority retries, independently of the crash budget', () => {
     const busy = { status: 'blocked' as const, authorityState: { kind: 'blocked' as const, reason: { kind: 'busy', stage: 'open' } } }
-    expect([0, 1, 2, 3].map(attempt => coreStartupRetryDelay(busy, attempt))).toEqual([250, 750, 1500, null])
+    expect([0, 1, 2, 3].map(attempt => coreStartupRetryDelay(busy, attempt))).toEqual([250, null, null, null])
     expect(coreStartupRetryDelay({ status: 'failed', error: { code: 'authority_migration_schema_failed', message: 'SQLITE_BUSY', retryable: true, details: { stage: 'database_migration' } } }, 0)).toBe(250)
     expect(coreStartupRetryDelay({ status: 'failed', error: { code: 'authority_recovery_failed', message: 'Requires explicit recovery', retryable: true, details: { stage: 'authority_recovery' } } }, 0)).toBeNull()
     for (const kind of ['unknown_data_contract', 'ambiguous_authority_candidates', 'unsupported_authority_artifact', 'identity_changed', 'corrupt_or_unreadable']) {

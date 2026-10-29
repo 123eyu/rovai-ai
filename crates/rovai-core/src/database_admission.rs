@@ -1221,7 +1221,22 @@ mod tests {
             AdmissionAssessment::AdmittedExisting(ticket) => ticket,
             other => panic!("new authority must reopen normally, got {other:?}"),
         };
+        ticket
+            .connection
+            .execute_batch(
+                "CREATE TEMP TABLE same_connection (value); INSERT INTO same_connection VALUES (1)",
+            )
+            .unwrap();
         let reopened = crate::db::Database::open_admitted(*ticket).unwrap();
+        assert_eq!(
+            reopened
+                .connection()
+                .query_row("SELECT value FROM same_connection", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1,
+            "opening/configuration must retain the already-open SQLite connection"
+        );
         crate::test_support::assert_production_database_configuration(&reopened);
         assert_eq!(reopened.path(), lease.data_dir().join("rovai.sqlite"));
         let display_name: String = reopened
@@ -1267,6 +1282,24 @@ mod tests {
             if matches!(*block, AuthorityBlock::Busy { .. }))
         );
         writer.execute_batch("ROLLBACK").unwrap();
+        writer
+            .execute_batch("PRAGMA journal_mode=WAL; BEGIN IMMEDIATE")
+            .unwrap();
+        let AdmissionAssessment::AdmittedExisting(open) =
+            DatabaseAdmission::assess(&lease).unwrap()
+        else {
+            panic!("a WAL writer permits version reads");
+        };
+        let error = crate::db::Database::open_admitted(*open)
+            .err()
+            .expect("held WAL writer must block startup writes");
+        assert!(
+            error.retryable(),
+            "WAL write contention must remain retryable: {error}"
+        );
+        writer
+            .execute_batch("ROLLBACK; PRAGMA journal_mode=DELETE")
+            .unwrap();
         // These are recovery outcomes, never permission to replace the database.
         let source = std::fs::read(&path).unwrap();
         for problem in ["future", "unfinished", "ambiguous", "corrupt"] {

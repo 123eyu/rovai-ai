@@ -143,7 +143,7 @@ printf '%s\\n' '${JSON.stringify({ kind: 'core_startup', schemaVersion: 1, ...re
       expect(snapshots.filter(snapshot => snapshot.fullCoreState === 'blocked')).toHaveLength(1)
       expect(readFileSync(join(root, 'launches.txt'), 'utf8').trim().split('\n').map(args => args.includes('--require-existing-authority'))).toEqual([false, true])
       // Explicit retry gets a fresh startup budget, even before refusal exit.
-      const restarting = nextSnapshot(client, snapshot => snapshot.generation === 5 && snapshot.fullCoreState === 'starting')
+      const restarting = nextSnapshot(client, snapshot => snapshot.generation === 3 && snapshot.fullCoreState === 'starting')
       client.retryFullCore()
       await restarting
     } finally { client.stop() }

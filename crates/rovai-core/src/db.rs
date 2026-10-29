@@ -7654,14 +7654,23 @@ impl Database {
             runtime_camp_files_root_identity_digest: runtime_camp_files_root_identity_digest
                 .to_string(),
         };
-        database.seed_agents().map_err(|error| {
-            DatabaseOpenError::operation(
-                "authority_seed_reconciliation_failed",
-                "reconcile built-in agents in",
-                &database.path,
-                error,
-            )
-        })?;
+        database
+            .seed_agents()
+            .map_err(|error| match error.downcast::<rusqlite::Error>() {
+                Ok(error) => database_sqlite_open_error(
+                    "authority_seed_reconciliation_failed",
+                    "reconcile built-in agents in",
+                    &database.path,
+                    crate::database_admission::BusyStage::Open,
+                    error,
+                ),
+                Err(error) => DatabaseOpenError::operation(
+                    "authority_seed_reconciliation_failed",
+                    "reconcile built-in agents in",
+                    &database.path,
+                    error,
+                ),
+            })?;
         Ok(database)
     }
 

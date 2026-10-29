@@ -4,6 +4,7 @@ import type { ThreadSnapshot, StructuredThreadMessageContent, MessageQuoteSnapsh
 import { MessageQuotes, MessageQuoteSelectionToolbar } from '../../../apps/desktop/src/renderer/src/MessageQuotes'
 import { revealMessageQuote } from '../../../apps/desktop/src/renderer/src/message-quote-reveal'
 import { SafeMarkdown } from '../../../apps/desktop/src/renderer/src/SafeMarkdown'
+import { FileReferenceText } from '../../../apps/desktop/src/renderer/src/FileReferenceLink'
 import { readMessageQuoteText, readMessageQuoteSelection } from '../../../apps/desktop/src/renderer/src/message-quote-selection'
 import { AgentMessageMarkdownBody, StructuredMessageBody, TruncatedStructuredMessageBody } from '../../../apps/desktop/src/renderer/src/ThreadWorkspace'
 import { CurrentUserProfileContext } from '../../../apps/desktop/src/renderer/src/CurrentUserProfile'
@@ -98,7 +99,7 @@ function messageBody(index: number): ReactNode {
   const entry = cases[index]
   if (entry?.authorType === 'user') return entry.content
     ? <StructuredMessageBody body={entry.source} content={entry.content as StructuredThreadMessageContent}
-      members={[{ agentId: 'agent_a', displayName: '芝士*' }] as ThreadSnapshot['members']} /> : entry.source
+      members={[{ agentId: 'agent_a', displayName: '芝士*' }] as ThreadSnapshot['members']} /> : <FileReferenceText text={entry.source} />
   if (!entry?.content) return <SafeMarkdown>{messages[index].body}</SafeMarkdown>
   const content = entry.content as StructuredThreadMessageContent
   const members = [{ agentId: 'agent_a', displayName: '芝士*' }] as ThreadSnapshot['members']

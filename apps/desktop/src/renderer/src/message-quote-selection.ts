@@ -1,6 +1,6 @@
 import type { MessageQuoteSelection } from '@contracts'
 
-const BLOCKS = new Set(['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE'])
+const BLOCKS = new Set(['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'TABLE', 'DETAILS', 'SUMMARY'])
 const EXCLUDED = '[data-quote-exclude], [aria-hidden="true"], img, input, button:not(.message-mention-token), .message-quote-preview, .external-quote'
 const INVALID_RANGE = '[data-quote-exclude], img, input:not([type=checkbox]), button:not(.message-mention-token), .message-quote-preview, .external-quote'
 /** Extract only visible selected text; no source-body projection or persisted offsets. */
@@ -12,12 +12,12 @@ export function readMessageQuoteText(root: Node): string {
       const parent = node.parentElement
       let value = node.textContent?.replace(/\r\n/gu, '\n') ?? ''
       if (!value.trim() && !parent?.closest('pre, code')) {
-        const fragmentSeparator = !parent && [node.previousSibling, node.nextSibling]
+        const blockSeparator = [node.previousSibling, node.nextSibling]
           .some(sibling => sibling instanceof Element && BLOCKS.has(sibling.tagName))
-        const layout = ['DIV', 'BLOCKQUOTE', 'UL', 'OL', 'TABLE', 'THEAD', 'TBODY', 'TR'].includes(parent?.tagName ?? '')
-        const listSeparator = parent?.tagName === 'LI' && [node.previousSibling, node.nextSibling]
-          .some(sibling => sibling instanceof Element && BLOCKS.has(sibling.tagName))
-        if (layout || fragmentSeparator || listSeparator) return
+        const layout = ['UL', 'OL', 'TABLE', 'THEAD', 'TBODY', 'TR'].includes(parent?.tagName ?? '')
+        const containerEdge = ['DIV', 'BLOCKQUOTE'].includes(parent?.tagName ?? '') && (!node.previousSibling || !node.nextSibling)
+        // Spaces between inline siblings belong to the selected message text.
+        if (layout || blockSeparator || containerEdge) return
       }
       if (node.previousSibling instanceof Element && node.previousSibling.tagName === 'BR' && value.startsWith('\n')) value = value.slice(1)
       if (text && boundary) text += '\n'.repeat(Math.max(0, boundary - (text.match(/\n*$/u)?.[0].length ?? 0)))
@@ -29,6 +29,11 @@ export function readMessageQuoteText(root: Node): string {
       if (node.matches(EXCLUDED)) return
       if (node.tagName === 'BR') { text += '\n'; return }
       if (BLOCKS.has(node.tagName) && text) boundary = Math.max(boundary, 2)
+      if (node.tagName === 'DETAILS' && !node.hasAttribute('open')) {
+        const summary = [...node.children].find(child => child.tagName === 'SUMMARY')
+        if (summary) walk(summary)
+        return
+      }
     }
     for (const child of node.childNodes) walk(child)
     if (!(node instanceof Element)) return

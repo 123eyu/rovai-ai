@@ -73,10 +73,10 @@ function rehypeLeadingContent({ enabled, inline }: { enabled: boolean; inline: b
   return (tree) => {
     if (!enabled) return
     const children = tree.children ??= []
-    const firstBlock = children.find(node => node.type === 'element')
-    const paragraph: InlineHtmlNode = inline && firstBlock?.tagName === 'p'
-      ? firstBlock : { type: 'element', tagName: 'p', properties: {}, children: [] }
-    if (paragraph !== firstBlock) children.unshift(paragraph)
+    const firstVisible = children.find(node => node.type !== 'text' || node.value?.trim())
+    const paragraph: InlineHtmlNode = inline && firstVisible?.tagName === 'p'
+      ? firstVisible : { type: 'element', tagName: 'p', properties: {}, children: [] }
+    if (paragraph !== firstVisible) children.unshift(paragraph)
     paragraph.properties = { ...paragraph.properties, 'data-rovai-leading-content': 'true' }
   }
 }

@@ -137,3 +137,15 @@ Rust 测试退役：`camp_quote_projection_rechecks_source_visibility_for_each_a
 自动 UI 验收使用临时 userData，未启动 Core/真实 Runtime，未接触日常 App 数据。
 真实模型双轨 Gate 未执行；本任务未固定 Runtime/Judge 配置与评测预算。本分支记录实现与确定性验收，
 不宣称已通过模型质量 Gate 或发布验收；正式模型 Gate 继续使用仓库已有流程，不另建评测机制。
+
+## 审查后局部修正（2026-10-29）
+
+针对 User sequence 11 对 eb8591723 的反馈，仅修正三个既有入口：选文保留行内元素之间的空格，
+折叠 details 只读取 summary；QuoteSelection 忽略退役字段，以便升级前 Web pending 请求继续解析；
+前缀按首个可见节点定位，清洗后保留的开头文字不会被跳过。生产代码净增 5 行，模型格式和来源语义不变。
+
+先在原测试 owner 复现网址/HTML 空格丢失、折叠正文混入、前缀后移，以及 Rust 的
+`unknown field bodyAtSelection`；修正后 80 组可见选文用例、71 项定向 Vitest、原 Rust 捕获 owner
+和 typecheck 通过。取文用例使用实际 FileReferenceText、SafeMarkdown 和 Chromium 选区；
+展开 details、br、表格分隔和代码空白继续通过。旧请求核对路径已静态确认，新增 Rust 断言覆盖其
+嵌套 QuoteSelection 的解析；未额外建立 Web 升级端到端测试或重跑真实 Runtime 评测。

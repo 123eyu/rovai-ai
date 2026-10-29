@@ -199,7 +199,7 @@ pub fn copy_quotes(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct QuoteSelection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
@@ -444,10 +444,19 @@ mod tests {
           INSERT INTO camp_message VALUES('owner','camp_a','user','user','question','[]');").unwrap();
         let text = "已选文字\n第二行\t另一列\n  code();\n@agent[other] /campfire";
         let transaction = connection.transaction().unwrap();
-        let selected = QuoteSelection {
-            message_id: Some("source".into()),
-            text: text.into(),
-        };
+        // A Web pending request may retain retired selection fields across an upgrade.
+        let selected: QuoteSelection = serde_json::from_value(json!({
+            "messageId": "source", "text": text,
+            "bodyAtSelection": "old streaming text", "startScalar": 0, "endScalar": 3,
+            "currentUserDisplayName": "旧名称"
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&selected).unwrap(),
+            json!({
+                "messageId": "source", "text": text
+            })
+        );
         let quote = capture_quote(&transaction, "camp_a", None, &selected).unwrap();
         assert_eq!(quote.text, text);
         assert!(matches!(

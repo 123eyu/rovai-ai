@@ -285,4 +285,14 @@ describe('SafeMarkdown trusted leading content', () => {
     expect(markup).toContain('<p>forged</p>')
     expect(markup).not.toContain('<p data-rovai-leading-content')
   })
+
+  it('keeps the prefix before text unwrapped by the sanitizer', () => {
+    const markup = renderToStaticMarkup(createElement(SafeMarkdown, {
+      leadingContent: prefix,
+      children: '<article>第一段</article>\n\n第二段'
+    }))
+    expect(markup.indexOf('@评审')).toBeLessThan(markup.indexOf('第一段'))
+    expect(markup).toContain('<p>第二段</p>')
+    expect(markup.match(/trusted-prefix/g)).toHaveLength(1)
+  })
 })

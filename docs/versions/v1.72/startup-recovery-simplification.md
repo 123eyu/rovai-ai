@@ -115,6 +115,22 @@ P2 默认 Rust 门禁首次在并行打包时出现 `runtime_probe_stdout_cleanu
 可选启动矩阵中的 skills `.staging` 故障也在基线同样得到 ready 而非预期 degraded；其余四项通过。
 这些既有测试问题未通过改生产行为、移除测试或新增例外掩盖，不计为本次通过项。
 
-User sequence 8 要求先验证开发包，稍后退出日常 App；尚未复制运行中的日常数据库，也未停止当前宿主。
-最终仍需保留日常原会话的隔离副本、原队员/原 Runtime 的真实新任务、正常停止/重开，以及安装路径 App/Host 构建核对。
-开发包通过不单独代表最终验收完成。
+## 安装路径验收与剩余边界
+
+User sequence 13 授权正常退出；重开后的 sequence 15 要求继续。原退出完成，但退出窗口没有制作日常数据库副本。
+2026-10-29 通过 `pnpm install:mac:daily` 把 P2 已验收候选安装到 `/Applications/Rovai AI.app`，
+旧包保存在 `/Applications/Rovai AI.backup-before-startup-recovery-20261029-2307.app`。
+安装门完成源、暂存与目标的签名/架构检查；安装后的 Host/CLI SHA-256 与上文 P2 候选完全一致。
+当前日常 App/Host 进程保持运行，仍是此前加载的旧构建；磁盘安装不表示它们已热升级。
+
+从规范安装路径启动显式隔离实例，复用 `/tmp/rovai-startup-dev.iu5eiu/user-data` 与其独立 Skill Library：
+真实 Codex 发布 `STARTUP_INSTALLED_OK`，执行 `sleep 120` 期间停止后约 59ms 取得真实 ACK，随后
+`STARTUP_INSTALLED_AFTER_STOP_OK` 成功。正常退出并从相同安装路径重开后，原记录可读且无新增自动重放，
+`STARTUP_INSTALLED_REOPEN_OK` 再次成功。同一 Conversation、agent_1 与 Runtime installation 保持一致；
+两次会话 snapshot 请求分别为 34ms 和 16ms。原 8194 个故障文件、额外保留文件及旧 ACK 空值均未改变。
+两次隔离 App 均正常退出。证据为该目录的 `installed-acceptance.json` 与 `installed-path.png`。
+
+安装路径与停止/重开验收已通过，但这仍是先前的开发现场，不能替代日常原会话。
+最终剩余：创建日常原会话隔离副本，保留异常记录与缺失历史 ACK，验证原队员/原 Runtime 及共享目录的新任务。
+日常数据尚未复制；在线 SQLite Backup API 的一次性流程例外已向 User 提出，等待明确答复。
+在该项完成前，PR 保持草稿，整体验收仍为进行中。

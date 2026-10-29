@@ -156,26 +156,6 @@ pub(crate) fn repair_private_file(path: &Path) -> Result<()> {
     windows::repair_private_object(path, false)
 }
 
-/// Migrates only a known managed child of an already admitted private parent.
-/// Existing objects must carry the parent's exact inherited user/SYSTEM ACL;
-/// this is not admission or repair of arbitrary existing directories.
-#[cfg(windows)]
-pub(crate) fn prepare_legacy_managed_private_directory(path: &Path) -> Result<PathBuf> {
-    admit_private_directory(path.parent().context("managed directory has no parent")?)?;
-    if std::fs::symlink_metadata(path)
-        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
-    {
-        return prepare_private_directory(path);
-    }
-    windows::repair_inherited_private_object(path, true)?;
-    admit_private_directory(path)
-}
-
-#[cfg(windows)]
-pub(crate) fn repair_legacy_managed_private_file(path: &Path) -> Result<()> {
-    windows::repair_inherited_private_object(path, false)
-}
-
 #[cfg(windows)]
 pub(crate) fn commit_private_directory_temporary(source: &Path, destination: &Path) -> Result<()> {
     windows::commit_private_directory_temporary(source, destination)
@@ -313,6 +293,31 @@ pub fn atomic_write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = parent.join(format!(".{}.tmp", Uuid::new_v4()));
     let result = (|| -> Result<()> {
         let mut file = create_private_new_file(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        commit_private_temporary(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+/// Writes an ordinary Windows file with inherited permissions. No ACL admission
+/// or repair is needed, but publication retains the private writer's atomic,
+/// write-through commit so a failed update leaves the previous record intact.
+#[cfg(windows)]
+pub(crate) fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path.parent().context("file path has no parent")?;
+    let temporary = parent.join(format!(".{}.tmp", Uuid::new_v4()));
+    // Acquire our own new file before arranging cleanup: a create failure must
+    // never delete an existing object that happened to use the temporary name.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let result = (|| -> Result<()> {
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
@@ -877,23 +882,7 @@ mod windows {
         }
     }
 
-    pub(super) fn repair_inherited_private_object(path: &Path, directory: bool) -> Result<()> {
-        let parent = path
-            .parent()
-            .context("managed storage object has no parent")?;
-        admit_private_directory(parent)?;
-        repair_private_object_with_policy(path, directory, true)
-    }
-
     pub(super) fn repair_private_object(path: &Path, directory: bool) -> Result<()> {
-        repair_private_object_with_policy(path, directory, false)
-    }
-
-    fn repair_private_object_with_policy(
-        path: &Path,
-        directory: bool,
-        inherited_only: bool,
-    ) -> Result<()> {
         validate_native_absolute_path(path)?;
         admit_volume(path)?;
         let expected = if directory {
@@ -911,11 +900,6 @@ mod windows {
             .map_err(|error| blocker(PRIVATE_ACL_INVALID, format!("{error:#}")))?;
         if !policy.file_permissions_need_repair(handle.as_raw_handle() as HANDLE)? {
             return Ok(());
-        }
-        if inherited_only {
-            policy
-                .verify_inherited_file_handle(handle.as_raw_handle() as HANDLE)
-                .map_err(|error| blocker(PRIVATE_ACL_INVALID, format!("{error:#}")))?;
         }
         policy
             .apply_file_dacl(handle.as_raw_handle() as HANDLE)

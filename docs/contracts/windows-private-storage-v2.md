@@ -3,7 +3,7 @@ document_type: contract
 contract: windows-private-storage-v2
 status: accepted
 source_version: v1.15
-last_updated: 2026-10-11
+last_updated: 2026-10-29
 ---
 
 # Windows Private Storage v2
@@ -35,11 +35,20 @@ Existing unknown directories with inherited/broader ACL, reparse points, wrong o
 than repaired and reused. Runtime receives only the current Camp's exact `attachments` child, never `<data_dir>`,
 `runtime-files`, `camps`, Authority Attachment or another Camp.
 
-The Runtime Fleet's internal `runtime-fleet/owners` ledger also uses private-directory and atomic private-file primitives.
-Within an already admitted private Core root, only these known managed directories and their owner JSON files may migrate
-the old writer's exact inherited user/SYSTEM ACL to a protected DACL. Broader grants, unknown owners, reparse points and
-wrong object types remain blockers; admission of unknown storage roots is unchanged. A migration/open failure blocks
-Fleet initialization instead of silently dropping durable ownership.
+### Runtime Fleet owner records
+
+Within an already admitted Core root, the internal `runtime-fleet/owners` ledger uses ordinary Windows directory creation
+and file access. Windows decides whether the requested operation is allowed. Fleet does not require an exact ACL template,
+current-user ownership or permission to change ACLs, and does not migrate or repair existing directory/file permissions.
+New directories and record files inherit normal Windows permissions. Reads request only read access.
+
+Record updates still write and flush a unique sibling before atomically replacing the destination with write-through
+publication. A failed write or replacement preserves the previous record. Real filesystem failures still propagate through
+the existing error paths; unavailable durable storage is not replaced by an empty or in-memory ledger. Existing Run/epoch,
+process ownership, stop receipt and cleanup acknowledgment rules are unchanged.
+
+This replaces the Fleet-only inherited-to-protected ACL migration. Core/data-root admission, other private storage,
+credentials, Named Pipes, Jobs and non-Windows storage behavior remain unchanged.
 
 ## 2. Platform qualification
 
@@ -57,7 +66,7 @@ same-SID isolation.
 
 ## Windows Web credential exception
 
-Only `web-auth.json` inside an already admitted Core data directory accepts ordinary inherited file ACLs.
+For Web credentials, `web-auth.json` inside an already admitted Core data directory accepts ordinary inherited file ACLs.
 It does not require a protected flag, exact ACE count/principals/masks or permission to change the existing file's DACL.
 Reads leave the file unchanged. New atomic siblings inherit the admitted directory and attempt DACL hardening before
 writing credential bytes; failure of that optional hardening does not block real I/O. The native atomic replacement

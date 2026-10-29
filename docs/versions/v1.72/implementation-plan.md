@@ -3,10 +3,30 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-28
+last_updated: 2026-10-29
 ---
 
 # v1.72 实施与验收
+
+## Windows Fleet 记录存储修复（2026-10-29）
+
+- 基线 `6996d1042`，分支 `codex/fix-windows-fleet-storage-942`。复用当前 checkout 与本地构建缓存；
+  Windows 验证只使用临时目录和隔离 Core/Skills/MCP/Runtime Files Root，不访问日常会话数据或真实模型。
+- Issue #942 已确认 Fleet 初始化失败导致 Core 退出，但现场缺少底层 cause。此前本地已复现当前用户与
+  SYSTEM 均有 FullControl、目录缺少继承标志时的相同退出；不能将本地复现当作用户现场原因已确认。
+- Windows Fleet 直接创建目录，记录写入使用普通权限的新建临时文件、flush 和 write-through 原子替换。
+  移除仅为 Fleet 使用的旧权限迁移；其他私有存储、凭据、IPC、Job、非 Windows 行为保持。
+- 原 `windows_owner_registration_admits_only_private_or_legacy_inherited_storage` 在同一 seam 改为
+  `windows_owner_records_use_effective_file_permissions_without_rewriting_acls`，测试函数数量不变。
+  旧 ACL 模板拒绝与修权断言随对应合同退出；保留新建、继承和旧 scoped record 的 case，并加入
+  FullControl 无继承、多余 ACE、无 WRITE_DAC 但可读写、真实写入/替换失败及原记录保留。
+  实际注册、stop receipt、重建 Store 和 cleanup ACK 经过生产方法，避免只测试底层文件 helper。
+- 最小命令：`cargo test -p rovai-core --features extended-tests --lib runtime_fleet::tests::windows_owner_records_use_effective_file_permissions_without_rewriting_acls -- --exact`。
+  相关 Fleet 生命周期、私有存储/Windows 安全、默认 workspace 与文档门禁继续执行。
+- Windows 本机定向验证：上述 owner 修复前以 `private_acl_invalid` 失败，修复后通过全部权限与失败保留 case；
+  Fleet 23 项、platform 10 项、ManagedProcess 14 项通过（7 个独立 helper 入口按原规则忽略）。
+  `cargo fmt --all --check`、`pnpm docs:test`（10 项）、`pnpm docs:check` 与带基线的 `pnpm docs:check:ci` 通过。
+  完整 workspace、隔离 Core 启动对比和远端 CI 的最终回执记录在本次 PR；不将 fixture 结果宣称为真实模型验收。
 
 ## macOS 来源标记启动修复（2026-10-28）
 

@@ -6,7 +6,7 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-28
+last_updated: 2026-10-29
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
@@ -21,6 +21,13 @@ HTML 解析与默认清洗器；选文直接保存，仅保留可选来源跳转
 [架构](../../architecture/message-quotes.md)与[会话 UI](../../ui/components/conversation-workspace.md#原始-html-与字面文本)。
 影响限 Renderer、选文数据/模型入口、现有版本准入及相关测试文档；承载消息权限、预算、Runtime 协议与平台资格保持。
 不增加渲染框架、配置开关、标记系统或历史修复；替代下方 10 月 22 日的字面 HTML / 投影 v3 方案。
+
+## Windows Fleet 记录存储可用性（2026-10-29）
+
+针对 Issue #942，Windows 的 `runtime-fleet/owners` 改为按实际文件访问权限创建和读写，移除这条路径的
+ACL 模板准入与自动修权。原子替换、进程归属和停止回执保留；CLI、桌面预检、诊断及 Fleet 降级不在本次范围。
+当前规则见 [Windows Private Storage v2](../../contracts/windows-private-storage-v2.md#runtime-fleet-owner-records)，
+测试归属与实际验证见[实施记录](implementation-plan.md#windows-fleet-记录存储修复2026-10-29)。
 
 ## macOS 来源标记导致的启动误拦截（2026-10-28）
 

@@ -832,7 +832,36 @@ pub(crate) fn verify_selected_main(
         AuthorityNamespace::Lumen => AuthorityNamespace::Rovai,
     };
     let other = observe_namespace(lease, other).map_err(observation_to_path_error)?;
-    if FilesystemObjectIdentity::observe(path).is_ok_and(|actual| actual == *identity)
+    let actual = match FilesystemObjectIdentity::observe(path) {
+        Ok(actual) => Some(actual),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::InvalidData
+            ) =>
+        {
+            None
+        }
+        Err(error) if io_error_is_transient(&error) => {
+            return Err(AuthorityPathError::Infrastructure(
+                AdmissionInfrastructureError::filesystem("inspect selected database", path, &error),
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            return Err(AuthorityPathError::Blocked(Box::new(
+                AuthorityBlock::PermissionDenied {
+                    path: path.to_path_buf(),
+                    operation: "inspect selected database".into(),
+                },
+            )));
+        }
+        Err(error) => {
+            return Err(AuthorityPathError::Infrastructure(
+                AdmissionInfrastructureError::filesystem("inspect selected database", path, &error),
+            ));
+        }
+    };
+    if actual.as_ref() == Some(identity)
         && other.main.is_none()
         && other.authoritative_sidecars().is_empty()
     {

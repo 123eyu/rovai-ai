@@ -471,6 +471,10 @@ mod tests {
 
         let lock = CoreDataDirLock::acquire(&directory.0).unwrap();
         assert!(CoreDataDirLock::acquire(&directory.0).is_err());
+        assert!(
+            std::fs::rename(&lock_path, directory.0.join("renamed-lock")).is_err(),
+            "a live instance lock cannot be moved aside for a second Core"
+        );
         drop(lock);
         assert!(CoreDataDirLock::acquire(&directory.0).is_ok());
     }

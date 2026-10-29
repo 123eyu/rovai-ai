@@ -670,7 +670,7 @@ mod windows {
             CreateFileW(
                 wide.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
                 &attributes,
                 CREATE_NEW,
                 FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
@@ -689,7 +689,7 @@ mod windows {
                     CreateFileW(
                         wide.as_ptr(),
                         GENERIC_READ | GENERIC_WRITE,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
                         null(),
                         OPEN_EXISTING,
                         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,

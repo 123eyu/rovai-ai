@@ -8,6 +8,22 @@ last_updated: 2026-10-29
 
 # v1.72 实施与验收
 
+## 手动停止保留执行条（2026-10-29）
+
+- Worktree：`../rovai-ai-retain-stopped-run`；
+  分支 `rovai/retain-stopped-run`，基线 `4d3aba9a550f2798245a18af403d0cbaa7bea7f8`；Governance：none。
+- 沿用现有公开 Run 投影、继续命令与样式，手动停止保留静态状态和最终耗时；停止／失败的操作只显示图标。
+  每位队员保留最新未受理继续的停止／普通失败，输入过大拒绝仍保留原输入详情且不可重试。
+- 停止条跟随最后回复／完整产物组，没有输出则留在启动锚点；保留期间省去重复中断标记。
+  `hasAcceptedContinuation`、缓存首屏门禁与新 Run 替换负责跨会话／刷新收起，不新增状态或存储。
+- 已通过类型检查、全部 Vitest（3022 passed / 2 skipped）、文档治理单测与上述基线的差分门禁。
+  presence 浏览器 owner 独立通过 38 个状态、6 个视口以及停止／继续／刷新链路；
+  [日夜截图](../../../.github/assets/run-stop-retained/README.md)使用真实组件与固定演示数据。
+- `pnpm test` 的 Node 层为 357 passed / 2 skipped / 1 failed：Product Contract Fingerprint
+  固定期望 schema 167，当前源码为 168。聚合 `test:run-presence-ui` 的 reply-details 在
+  `regroup-middle` 断言失败。两者均在未改动基线 `4d3aba9a5` 独立复现；不改写无关断言。
+- 默认 Rust workspace PR 回归在同一集成轮运行，结果在合并前补齐。
+
 ## Windows Fleet 记录存储修复（2026-10-29）
 
 - 基线 `6996d1042`，分支 `codex/fix-windows-fleet-storage-942`。复用当前 checkout 与本地构建缓存；

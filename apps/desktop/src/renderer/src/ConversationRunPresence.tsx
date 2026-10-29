@@ -9,7 +9,7 @@ import { ToolCallIcon } from './ExecutionToolGroup'
 import { MemberAvatar } from './MemberAvatar'
 import { MessageAuthorProfileTrigger } from './MessageAuthorProfileTrigger'
 import { RunModelSummary } from './ThreadModelInformation'
-import { formatRunPresenceDuration, runPresenceElapsedSeconds, runPresencePreview, type ConversationRunPresenceSlot } from './conversation-run-presence'
+import { formatRunPresenceDuration, isUserInterruptedRun, runPresenceElapsedSeconds, runPresencePreview, type ConversationRunPresenceSlot } from './conversation-run-presence'
 import { identityColorToken } from './theme'
 import { uiAttribute, useInterfaceLanguage } from './interface-language'
 import { agentRunIsStarting, agentRunHasCurrentActivity, type LiveRuntimeEvent } from './ui-model'
@@ -102,7 +102,8 @@ export function ConversationRunPresence({ snapshot, slot, profiles, installation
         const state = submittingId === run.id && ['queued', 'running', 'waiting'].includes(run.status) ? 'stopping' : stopState(run)
         const canStop = state === 'available' || state === 'stopping' || state === 'confirming'
         const inputTooLarge = run.failure?.code === 'context_payload_too_large'
-        const canRetry = !inputTooLarge && run.status === 'failed' && run.invocationKind === 'batch' && (run.inputMessageIds?.length ?? 0) > 0
+        const canContinue = !inputTooLarge && (run.status === 'failed' || isUserInterruptedRun(run))
+          && run.invocationKind === 'batch' && (run.inputMessageIds?.length ?? 0) > 0
         const description = inputTooLarge ? uiAttribute('输入内容过大，查看详情') : run.status === 'failed' ? uiAttribute('执行中断，查看原因')
           : uiAttribute('查看执行过程')
         return <article key={run.id} className="conversation-bubble agent conversation-run-presence"
@@ -132,8 +133,8 @@ export function ConversationRunPresence({ snapshot, slot, profiles, installation
                 }}>
                 <ExecutionStopIcon />
               </button></Popover.Anchor>}
-              {canRetry &&
-                <ContinueAgentRunButton threadId={snapshot.thread.id} agentRunId={run.id} appearance="retry"
+              {canContinue &&
+                <ContinueAgentRunButton threadId={snapshot.thread.id} agentRunId={run.id} appearance={run.status === 'failed' ? 'retry' : 'continue'}
                   onError={onError} onApplied={() => setContinuedRunIds(current => new Set(current).add(run.id))} />}
             </div>
           </div>
@@ -244,7 +245,7 @@ export function RunPresenceOpen({ threadId, run, name, description, windowedEvid
     aria-describedby={starting ? undefined : elapsedId} aria-expanded={menu.open} aria-controls={menu.open ? menuId : undefined}
     onClick={event => onOpen(run.agentId, event.currentTarget, { runId: run.id })}>
     {running && <span className="run-presence-spinner" aria-hidden="true"><ExecutionStatusGlyph status="cancelling" /></span>}
-    {!running && <span className={`run-presence-status is-${run.status}`} aria-hidden="true"><ExecutionStatusGlyph status={run.status} /></span>}
+    {!running && <span className={`run-presence-status is-${run.status}`} aria-hidden="true"><ExecutionStatusGlyph status={run.status === 'cancelled' ? 'stopped' : run.status} /></span>}
     {preview.iconKind && <ToolCallIcon iconKind={preview.iconKind} />}
     <span className={`run-presence-preview is-${preview.kind}`}>{preview.text}</span>
     {!starting && <RunPresenceTime run={run} id={elapsedId} />}

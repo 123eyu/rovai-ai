@@ -8,7 +8,11 @@ export interface ConversationRunPresenceSlot {
   continuation: boolean
 }
 
-/** Keep public activity, the latest failure, and input rejections at their source. */
+export function isUserInterruptedRun(run: AgentRunView): boolean {
+  return run.status === 'cancelled' && run.cancelReasonCode === 'user_requested_agent_run_stop'
+}
+
+/** Keep public activity, the latest unresolved stop/failure, and input rejections at their source. */
 function eligibleConversationRuns(runs: readonly AgentRunView[]): AgentRunView[] {
   const publicRuns = runs.filter(run => run.invocationKind !== 'single_chat')
   const latestByAgent = new Map<string, AgentRunView>()
@@ -19,7 +23,7 @@ function eligibleConversationRuns(runs: readonly AgentRunView[]): AgentRunView[]
   }
   return publicRuns.filter(run => run.status === 'running' || agentRunIsStarting(run)
     || run.status === 'waiting' && run.startedAt !== null
-    || run.status === 'failed' && run.invocationKind === 'batch'
+    || (run.status === 'failed' && run.invocationKind === 'batch' || isUserInterruptedRun(run))
       && (run.failure?.code === 'context_payload_too_large' || latestByAgent.get(run.agentId)?.id === run.id)
       && !run.hasAcceptedContinuation)
 }
@@ -56,7 +60,7 @@ export function conversationRunPresenceTimeline(
   const messages = timeline.flatMap(item => item.kind === 'camp_message' ? [item.message] : [])
   const groups = new Map<number, ConversationRunPresenceSlot[]>()
   for (const run of eligibleConversationRuns(runs)) {
-    if (!snapshotReady && run.status === 'failed') continue
+    if (!snapshotReady && (run.status === 'failed' || run.status === 'cancelled')) continue
     const ownMessage = messages.filter(message => !message.withdrawn && message.authorType === 'agent'
       && message.sourceAgentRunId === run.id && !message.id.startsWith('optimistic:'))
       .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null)
@@ -73,8 +77,8 @@ export function conversationRunPresenceTimeline(
       .reduce<ThreadMessageView | null>((last, message) => !last || message.sequence > last.sequence ? message : last, null))
     const anchor = ownMessage ?? startAnchor
     let index = anchor ? timeline.findIndex(item => item.kind === 'camp_message' && item.id === anchor.id) : -1
-    // A failed silent Run may instead have a standalone artifact group.
-    if (!ownMessage && run.status === 'failed') {
+    // A terminal silent Run may instead have a standalone artifact group.
+    if (!ownMessage && (run.status === 'failed' || run.status === 'cancelled')) {
       const artifactIndex = timeline.findLastIndex(item => item.kind !== 'camp_message' && outputRunId(item) === run.id)
       if (artifactIndex >= 0) index = artifactIndex
     }

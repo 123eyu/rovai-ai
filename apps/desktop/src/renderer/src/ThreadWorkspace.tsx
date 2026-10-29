@@ -16,7 +16,7 @@ import { ConversationRunPresence } from './ConversationRunPresence'
 import { MessageQuotePreview } from './MessageQuotePreview'
 import { ConversationRunSource } from './ConversationRunSource'
 import { useRunSourceNavigation } from './useRunSourceNavigation'
-import { conversationRunPresenceTimeline } from './conversation-run-presence'
+import { conversationRunPresenceTimeline, isUserInterruptedRun } from './conversation-run-presence'
 import { PendingThreadDraftPersistence } from './pending-thread-draft'
 import { pastedTextFileName } from './long-text-paste'
 import { MessageModelSummary, ModelSummaryText, ProfileModelFields } from './ThreadModelInformation'
@@ -1248,10 +1248,6 @@ function compareTimelinePresentationOrder(
   return left.createdAt.localeCompare(right.createdAt)
     || TIMELINE_KIND_RANK[left.kind] - TIMELINE_KIND_RANK[right.kind]
     || left.id.localeCompare(right.id)
-}
-
-function isUserInterruptedRun(run: AgentRunView): boolean {
-  return run.status === 'cancelled' && run.cancelReasonCode === 'user_requested_agent_run_stop'
 }
 
 export function campConversationTimeline(
@@ -2648,6 +2644,9 @@ export function ThreadWorkspace({
   const presenceTimeline = useMemo(() => conversationRunPresenceTimeline(
     conversationTimeline, snapshot.agentRuns, workspaceEntrySnapshotReady
   ), [conversationTimeline, snapshot.agentRuns, workspaceEntrySnapshotReady])
+  const retainedStopIds = useMemo(() => new Set(presenceTimeline.flatMap(item =>
+    item.kind === 'run_presence' && isUserInterruptedRun(item.slot.run) ? [item.slot.run.id] : []
+  )), [presenceTimeline])
   const historyBoundaryId = anchorWindowBeforeNormal
     ? conversationTimeline.find(item => item.kind === 'camp_message' && item.message.sequence >= normalStart!)?.id : null
   const latestAgentMessageId = useMemo(() => {
@@ -5566,7 +5565,7 @@ export function ThreadWorkspace({
                             ))}
                           </div>
                         )}
-                        {isUserInterruptedRun(run) && (
+                        {isUserInterruptedRun(run) && !retainedStopIds.has(run.id) && (
                           <RunInterruptionMarker run={run} author={author} onOpen={openExecutionProcess} />
                         )}
                       </section>
@@ -5615,6 +5614,8 @@ export function ThreadWorkspace({
                     continue
                   }
                   const campMessage = timelineItem.message
+                  const interruptedRun = timelineItem.interruptedRun && !retainedStopIds.has(timelineItem.interruptedRun.id)
+                    ? timelineItem.interruptedRun : undefined
                   if (campMessage.withdrawn) {
                     previousMessageAuthorKey = null
                     items.push(
@@ -5911,7 +5912,7 @@ export function ThreadWorkspace({
                                 />
                               )}
                               {campMessage.authorType === 'agent'
-                                && trailingResultItems.length === 0 && !timelineItem.interruptedRun
+                                && trailingResultItems.length === 0 && !interruptedRun
                                 && (
                                   <MessageActions
                                     timestamp={messageTimestamp}
@@ -5941,7 +5942,7 @@ export function ThreadWorkspace({
                           )}
                     </article>
                   )
-                  if (trailingResultItems.length > 0 || timelineItem.interruptedRun) {
+                  if (trailingResultItems.length > 0 || interruptedRun) {
                     items.push(
                       <div
                         className={`agent-message-output public-message-output${followsSameAuthor ? ' same-author' : ''}${isGroupContinuation ? ' is-group-continuation' : ''}`}
@@ -5970,8 +5971,8 @@ export function ThreadWorkspace({
                             />
                           ))}
                         </div>}
-                        {timelineItem.interruptedRun && (
-                          <RunInterruptionMarker run={timelineItem.interruptedRun} author={author} onOpen={openExecutionProcess} />
+                        {interruptedRun && (
+                          <RunInterruptionMarker run={interruptedRun} author={author} onOpen={openExecutionProcess} />
                         )}
                         <MessageActions
                           timestamp={messageTimestamp}

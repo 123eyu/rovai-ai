@@ -18,7 +18,7 @@ export function ContinueAgentRunButton({ threadId, agentRunId, onError, appearan
   threadId: string
   agentRunId: string
   onError: (message: string) => void
-  appearance?: 'icon' | 'retry'
+  appearance?: 'icon' | 'retry' | 'continue'
   onApplied?: () => void
 }): React.JSX.Element {
   const client = useThreadClient()
@@ -59,10 +59,9 @@ export function ContinueAgentRunButton({ threadId, agentRunId, onError, appearan
 
   const label = appearance === 'retry' ? uiAttribute(busy ? '正在提交…' : '重试')
     : uiAttribute(busy ? '正在提交' : uncertain ? '确认提交结果' : '继续执行')
-  return <button className={appearance === 'retry' ? 'run-presence-retry' : 'execution-continue'} type="button" title={label}
+  return <button className={appearance === 'icon' ? 'execution-continue' : 'run-presence-resume'} type="button" title={label}
     aria-label={label} aria-busy={busy || undefined} disabled={busy}
     onClick={() => void submit()}>
     <DialogControlIcon name="refresh" />
-    {appearance === 'retry' && <span>{label}</span>}
   </button>
 }

@@ -48,7 +48,7 @@ SQLite busy timeout 统一 5000ms，Core 无额外数据库重试循环。Deskto
 其他宿主使用相同 Core 结果，不自行叠加数据库恢复重试。`--require-existing-authority` 跨重启保护保持。
 
 Windows 数据库、实例锁、正式/Bootstrap 目录、Runtime files 根与协调文件、Server 布局/日志以实际文件访问结果为准，
-接受继承 ACL、额外 ACE 与无 WRITE_DAC 的可用对象，不自动改写现有 ACL。新对象保持 creation-time 保护，实际读写失败
+接受继承 ACL、额外 ACE 与无 WRITE_DAC 的可用对象，不自动改写现有 ACL。新目录/锁/布局文件保持 creation-time 保护，普通日志/Fleet 文件继承目录权限；实际读写失败
 仍报错。凭据等专用 private API 不改变；具体调用范围见 [Windows Private Storage v2](windows-private-storage-v2.md#启动必需存储)。
 
 锁等待和迁移均在 Core child，Electron/Renderer 保持响应，画布辅助状态持续为“正在打开会话”；真实错误立即进入

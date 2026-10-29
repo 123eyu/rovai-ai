@@ -69,11 +69,60 @@ Core lock 原有两个 Windows 拒绝继承 ACL 的 owner 改验正常获取、�
 原生 Windows 通过 Full check 的 windows-runtime scope 执行权限/SQLite/迁移 owners，不以跨平台模拟替代。
 所有自动 fixture 使用临时 data/Skill Library/MCP 和按实例派生的独立 Runtime Files Root，不连接真实模型。
 
+## 独立 Review
+
+使用 code-review Skill，对固定基线到 `7872ec20b` 分别进行 Standards/Spec 审查。
+Standards 2 项：Windows 持锁文件意外共享删除、身份观察吞 I/O 原因；Spec 2 项：WAL 启动写 busy 不可重试、同一 I/O 分类问题。
+`35adf7308` 修复全部三项独立问题，两个方向复核均无未解决发现。补充了 Windows 持锁改名拒绝、WAL BEGIN IMMEDIATE
+持续占用可重试以及 TEMP 表证明配置阶段保持同一连接的验收。Review 是代码结论，不能替代原生执行结果。测试专用的 Windows ACL 设置顺序和 live-handle 夹具调整 `d91db3093` 再经 Standards 复核无阻断。
+
 ## 验收与交付记录
 
-正在执行最终定向/默认测试、性能对照、原生 Windows CI 和独立 Review；结果完成后补录。
-macOS 已完成真实 setxattr(main/WAL) 与迁移期间来源标记测试，首次打开成功且成员数据保留；已完成旧版本矩阵、
-逐步 rollback、实际进程中断与旧 switch 恢复。完整统计以最终提交下的运行结果为准。
+已完成：
+
+| 验证 | 结果 |
+| --- | --- |
+| macOS admission owners | 10 passed；真实 main/WAL provenance xattr、DELETE/WAL crash recovery、短锁/持续读锁/持续 WAL 写锁、原库保留、TEMP 表连接复用 |
+| macOS migration owners | 7 passed；历史来源矩阵、事务回滚、断点续跑、旧 switch 两侧、metadata 与路径保护；Windows 夹具调整后再跑相关 4 项通过（含真实强杀） |
+| 默认 Rust workspace | `RUST_TEST_THREADS=2 pnpm test:rust:pr`：431 + 31 + 4 + 11 = 477 passed、1 existing ignored，无失败 |
+| Supervisor | 21 passed；一次自动重试、显式重试重置、generation 与已见 authority fence |
+| Host 进程 | 2 passed；首次显式初始化、第二实例拒绝、停机结算与重开 |
+| Server / Web | 原生 standalone Server 首次启动、HTTP 协议 v5 登录/成员及 navigation 读取、重开后 roster 完全保留，见 [报告](../../../.github/assets/database-startup/server-macos.json) |
+| Core 恢复进程 | 2 passed；实际恢复错误进入结构化恢复入口，已见库缺失不建替代空库 |
+| Renderer 启动呈现 | 1 passed；真实 Electron 的首帧画布与恢复门禁 |
+| typecheck / docs | typecheck、docs:test、docs:check:ci 通过；最终文档更新后继续运行相同通用门禁 |
+| macOS arm64 daily 包 | 构建、App/Host/CLI 签名架构门通过；隔离打包 App 首次初始化、带来源标记重开、成员/Thread 保留、quick_check=ok |
+| 打包窗口锁等待 | Core starting 时 Renderer 300ms 内产生 18 个 animation frames；释放 WAL 写锁后直接 ready，无用户重试 |
+| Windows | 原生 runner 编译、SQLite crash recovery 已通过；ACL 夹具顺序修正后完整 native matrix 重跑中，不以模拟结果代替 |
+
+[macOS 打包报告](../../../.github/assets/database-startup/packaged-macos.json)与[截图](../../../.github/assets/database-startup/packaged-macos.png)
+使用完全隔离 data/Skill Library/MCP，没有真实模型请求。物理系统主动写入 provenance 的事件未重复触发，证据是原生
+setxattr 注入同名属性与真实 ctime/WAL 变化；Windows GUI、真实日常宿主重启不在已验证项内。原生 Windows runner 的组授权会让仅改 Allow ACE 的夹具仍持有 WRITE_DAC；
+权限矩阵用 [icacls 的显式 WDAC deny](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)
+固定该条件，同时保留 Modify 读写/删除，避免以模拟布尔值冒充真实权限。
+
+早期默认 Rust 同时与 Release 编译运行时，两项既有短时限进程测试超时；降低测试并发后完整 workspace 通过，未改测试阈值。
+全量 `core-startup-availability.test.mjs` 有 6 项失败（含父套件），保存的未修改基线二进制复现相同失败：旧草稿 RPC、
+已迁出的 Runtime 环境设置、Skill 故障位置断言及旧 sandbox probe。它们不属于本次数据库变更，未静默跳过或改成成功；
+相关恢复 seam 单独执行并通过。首次 Renderer fixture 超时，Electron 下载/构建完成后原命令通过。
+
+## 健康库耗时与连接流程
+
+[可重跑的配对脚本](../../../.github/assets/database-startup/measure.mjs)和[原始结果](../../../.github/assets/database-startup/macos-arm64.json)：
+macOS arm64、Node 26.12.1、相同健康临时库、debug Core+同版本 CLI，基线 `4d3aba9a` 对生产代码 `35adf7308`；
+排除首次建库与 executable warmup，AB/BA 交替各 9 次，仅计 spawn → Core ready，不包含模型或日常会话。
+
+| 指标 | 修改前 | 修改后 |
+| --- | --- | --- |
+| 启动中位数 | 122.73ms | 101.27ms（减少 17.5%） |
+| 9 次范围 | 119.09–135.37ms | 95.45–105.99ms |
+| 数据库阶段中位数 | 只读 assessment 14ms + 正式 open 17ms | 单次 open/version 8ms + configuration <1ms |
+| 当前库连接流程 | 只读探测 → 关闭 → 读写重开 → 重验 | 一次读写连接 → 版本 → 运行配置 |
+
+没有观察到健康库启动回退；不把这一小样本结论推广成所有机器或冷启动保证。TEMP 表跨接口断言直接证明同一连接被保留，
+源码删除旧快照/重准入路径，trace 不只是改名。首次初始化仍为安全 staging/publish 保留必要连接，历史 manifest 恢复除外。
+
+## 安装与回滚边界
 
 日常 App 是当前会话宿主；安装不得自动结束现有 App/Core/Runtime。必须先完成隔离安装包打开验证，再按非终止安装流程
 备份并替换 bundle，保留旧运行进程直到用户正常退出。没有新宿主实开证据时明确标为待验证，不把 bundle 安装成功称为重启完成。

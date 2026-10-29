@@ -20,7 +20,7 @@ Adapter 初始化还会重复执行同一清理。Fleet 构造与 Stop 确认同
 ## 实现取舍
 
 - `run_core` ready 后唯一 `spawn_blocking` 调用，共用三秒预算；每条最多 250ms、最多 16 条诊断、每条 512 字符。
-  不持数据库锁，不在 RPC 循环等待，不进入 optional maintenance 或 Adapter 重试。
+  相同诊断去重，清理/跳过按记录计数，未扫描项不计为已清理。不持数据库锁，不在 RPC 循环等待，不进入 optional maintenance 或 Adapter 重试。
 - ManagedProcess 与 Fleet 历史入口逐条容错。未知身份、权限/I/O/格式错误保持未清理；原进程已消失或 PID 复用不误杀新进程。
   当前 Core 生命周期身份/Fleet generation 排除新任务进程，正常停止原语保持真实。
 - Fleet 构造不碰历史目录，实际写新所有权时才准备存储；当前 Stop 不调用历史 sweep。
@@ -53,6 +53,8 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 | 未修改基线对照 | 同一脱敏脚本在基线重开时返回 `authority_recovery_failed`，修改后通过 |
 | 当前停止/正常退出/重开 | 合成 ACP 通过，正常退出 68ms，已收正文可读且未重放旧输入 |
 | 通用文档治理三项 | 通过 |
+| 合并当前主线后的默认 Rust 门禁 | 再次通过，477 通过、1 项原有 ignored |
+| arm64 打包与签名 | `pnpm package:mac:daily` 通过，隔离运行通过 |
 
 `pnpm dev` 在独立目录真实启动 Desktop、Host 与 Codex。首次执行 `printf STARTUP_DEV_OK` 成功发布回执；
 第二次 `sleep 120` 在命令实际运行时通过 UI Stop，SQLite 记录真实 ACK。正常退出该开发实例后，只移除该 ACK，
@@ -63,6 +65,17 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 开发现场保留于 `/tmp/rovai-startup-dev.iu5eiu/`，含隔离 DB、故障摘要与 `development-acceptance.json`；
 大批量回归现场 `rovai-stop-continue-UYhQkW` 的 `acceptance.json` 保留 cleanup 计数、预算和读取耗时。
 这些均是本次合成或开发验收数据，不包含日常原会话副本。
+
+打包产物由代码提交 `7e02f3fd5a2b1dc5b3a1d9557f7b489d3d41a5d8` 构建，App/Host 均为 0.5.3、arm64、ad-hoc 签名。
+显式隔离参数下复用同一测试会话，真实 Codex 第四次 Run 成功发布 `STARTUP_PACKAGE_OK`；正常退出后再次核对旧 ACK 仍为空、
+8194 个文件摘要不变，证据保存在同目录 `packaged-acceptance.json`。Core ready 60ms、会话进入往返约 5ms。
+这证明打包产物可用，尚不替代 `/Applications` 安装路径与日常原会话验收。
+
+| 构建核对 | 当前日常安装（未替换） | 待安装产物 |
+| --- | --- | --- |
+| App version/build | 0.5.3 / 0.5.3 | 0.5.3 / 0.5.3 |
+| 内置 Host（含 Core）SHA-256 | `c76fd766bb97cf8de13603699e869f3df82e7cb808fa21cecdeded61e0eee5e2` | `c9c1a4aee0ea75a69ea1fa93cc2b2c72cc95efce8e8320ea9e9faad5678113a9` |
+| 内置 CLI SHA-256 | `c7bf102f59af988439b4ea7ced964058b84b1a6485a68004e909fdd01eb2caf2` | `daae4bc84c0aa8fc6605d6ab34132cd0e024fa69c0cae5b60c244a62a4d5d0df` |
 
 扩展 Delivery 全组的 `steer_admission_uses_the_frozen_run_and_rejects_stale_or_unknown_capability`（Hermes 1.0.0 预期）
 和 `legacy_steer_upgrade_keeps_accepted_unknown_and_unfinished_sources`（迁移冻结行比较）在未修改的基线归档上同样失败。

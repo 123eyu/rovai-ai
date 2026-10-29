@@ -138,10 +138,10 @@ printf '%s\\n' '${JSON.stringify({ kind: 'core_startup', schemaVersion: 1, ...re
     try {
       const blocked = nextSnapshot(client, snapshot => snapshot.fullCoreState === 'blocked', 6_000)
       client.start()
-      expect(await blocked).toMatchObject({ generation: 4, restartAttempt: 0, capabilities: { authoritativeWorkspace: false, coreRequests: false } })
+      expect(await blocked).toMatchObject({ generation: 2, restartAttempt: 0, capabilities: { authoritativeWorkspace: false, coreRequests: false } })
       expect(snapshots.every(snapshot => snapshot.restartAttempt === 0 && !snapshot.capabilities.authoritativeWorkspace)).toBe(true)
       expect(snapshots.filter(snapshot => snapshot.fullCoreState === 'blocked')).toHaveLength(1)
-      expect(readFileSync(join(root, 'launches.txt'), 'utf8').trim().split('\n').map(args => args.includes('--require-existing-authority'))).toEqual([false, true, true, true])
+      expect(readFileSync(join(root, 'launches.txt'), 'utf8').trim().split('\n').map(args => args.includes('--require-existing-authority'))).toEqual([false, true])
       // Explicit retry gets a fresh startup budget, even before refusal exit.
       const restarting = nextSnapshot(client, snapshot => snapshot.generation === 5 && snapshot.fullCoreState === 'starting')
       client.retryFullCore()

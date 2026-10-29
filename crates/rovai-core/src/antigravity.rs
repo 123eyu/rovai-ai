@@ -435,14 +435,6 @@ impl AntigravityAppRuntimeAdapter {
                 preflight.result.detail.unwrap_or_default()
             );
         }
-        if request.runtime.model.source == "explicit" {
-            let models = rovai_core::agent_runtime_adapter::antigravity_models(preflight.models);
-            rovai_core::agent_runtime_adapter::validate_live_model_selection(
-                &models,
-                &request.runtime.model.model_id,
-                &request.runtime.model.options,
-            )?;
-        }
         let log_path = self.log_dir.join(format!(
             "{}-{}-{}.log",
             request.agent_run_id,
@@ -2715,7 +2707,7 @@ printf '%s\n' '{{"event":"result","result":{{"conversation_id":"{session}","stat
 case "$1" in
   --version) echo 'version query must not run' >&2; exit 99 ;;
   --help) printf '%s\n' '--print --conversation --model --mode --sandbox --add-dir --log-file --print-timeout'; exit 0 ;;
-  models) printf '%s\n' 'test-model'; exit 0 ;;
+  models) echo 'catalog must not gate execution' >&2; exit 99 ;;
 esac
 printf '%s\n' "$@" > .agy-args
 log_file=""
@@ -2743,6 +2735,8 @@ echo "finished"
             Arc::new(AntigravityAppRuntimeAdapter::new(&root).expect("Adapter should initialize"));
         let run_id = uuid::Uuid::new_v4().to_string();
         let mut request = fake_antigravity_request(&workspace, &executable, run_id.clone());
+        request.runtime.model.source = "explicit".to_string();
+        request.runtime.model.model_id = "unlisted-native-model".to_string();
         let (accepted_sender, mut accepted_receiver) = mpsc::unbounded_channel();
         let (runtime_event_sender, mut runtime_event_receiver) = mpsc::unbounded_channel();
         let (handoff_sender, handoff_receiver) = oneshot::channel();
@@ -2778,6 +2772,7 @@ echo "finished"
         let arguments = std::fs::read_to_string(workspace.join(".agy-args"))
             .expect("legacy fixture should record its arguments");
         assert!(!arguments.contains("--output-format"));
+        assert!(arguments.contains("--model\nunlisted-native-model"));
         assert!(
             runtime_event_receiver.try_recv().is_err(),
             "legacy text output must remain run-level"

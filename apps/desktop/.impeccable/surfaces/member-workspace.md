@@ -96,9 +96,9 @@ Fast changes the saved preference without starting an eligibility check. Retain 
 version ownership follows [Runtime Launch v64](../../../../docs/contracts/runtime-launch-and-verification-v64.md).
 
 For any `light_ready` installation, expose Runtime default model plus only permissions described by the
-static Adapter schema. Login, model and capability validation happens in the real task Host; do not add
+static Adapter schema. Login and protocol setup happen in the real task Host; do not add
 routine copy explaining that mechanism. Native choices require catalog evidence; manually entered IDs only record user intent
-and retain each Adapter's execution checks. TRAE uses the same model
+and are sent to the native Runtime for acceptance. TRAE uses the same model
 catalog cache and Picker behavior as every other Runtime; its permission draft still defaults to the statically
 admitted highest value `permission_mode=bypass_permissions`. Kiro exposes the existing compact switch pattern for
 `trust_all_tools`; label it “自动允许全部工具” and default it on from Core without adding a separate warning card.
@@ -112,15 +112,13 @@ rows or inferred version labels are supplied by Renderer.
 
 Opening the model Picker uses Core-owned stale-while-revalidate state. Fresh catalogs display immediately;
 stale and same-identity expired catalogs remain interactive while a single background refresh runs. Only absence
-of displayable history shows loading; identity invalidation retains Core's existing rules. Displayability never
-relaxes validation for a new selection. A failed refresh keeps the list and offers “重试”. Normal closed controls show
-only the model and parameters, not TTL maintenance copy. Saving an explicit catalog-refresh rejection waits for
-committed refresh and retries once under one continuous saving state, preserving the draft and expectedVersion.
+of displayable history shows loading; identity invalidation retains Core's existing rules. The catalog never gates a saved or explicit native selection. A failed refresh keeps the list and shows “尚未核对”, with “重试” available. Normal closed controls show
+only the model and parameters, not TTL maintenance copy. Saving explicit configuration does not wait for catalog verification.
 Switching Runtime never triggers discovery, and an older async result must not mutate the new draft.
 Runtime default remains selectable without a catalog. The search input also accepts an exact model ID. For nonempty,
 trimmed input absent from the native catalog and current manual selection, show “使用 {ID}” / “Use {ID}” in the result list.
 Do not add a permanent action, badge or second editor. The current catalog-absent ID appears as an ordinary selected row;
-choosing another model removes that manual row. Save only the current explicit selection with initially empty options, never
+choosing another model removes that manual row. Save only the current explicit selection, preserving existing explicit options within the same Runtime, never
 a custom catalog or recent-ID list. The model catalog uses native Runtime configuration plus shared Runtime variables; member overrides stay local to member execution.
 
 Keep presence and destructive removal in the header overflow menu. Removal uses its existing confirmation

@@ -11,6 +11,7 @@ last_updated: 2026-10-29
 
 User 确认以老用户原会话继续工作为终点。独立 worktree 分支 `rovai/startup-recovery-availability`，
 基线 `95c5f5f98019dc53cefef9abb64adc56b4be5798`；不修改主 checkout，无数据库格式、版本指针或发布版本变化。
+交付前纳入 `5a229a599`（PR #953 模型目录兼容与原生执行），保留其全部代码与文档；本次 PR 仍只承载历史恢复减重。
 
 前代 PID 被系统进程复用时，libproc 权限错误经 ManagedProcess 整批 `?` 传播到 `authority_recovery_failed`；
 Adapter 初始化还会重复执行同一清理。Fleet 构造与 Stop 确认同样带全局历史回收。旧任务的 cleanup ACK 缺失则

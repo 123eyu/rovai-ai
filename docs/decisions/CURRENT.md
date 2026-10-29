@@ -39,6 +39,10 @@ User 命名与旧 Session 恢复：当前规范为 [User Naming v1](../contracts
 
 选文引用与 HTML 当前边界：[Message Quotes v2](../contracts/message-quotes-v2.md)、[架构](../architecture/message-quotes.md)、[已确认变更](../versions/v1.72/model-context-change-html-quotes-simple.md)。
 
+模型目录兼容与原生配置接受：当前规范为 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md)
+及[目录边界](../architecture/runtime-catalog-boundaries.md#模型目录缓存与执行事实)；实施和验证见
+[当前版本记录](../versions/v1.72/implementation-plan.md#模型目录兼容与原生执行2026-10-29)。
+
 ## Public Camp 消息与多输入 AgentRun
 
 - Thread read 正向增量分页：[History v17](../contracts/camp-history-v17.md)；已确认输入与提示词前后对照见 [实施方案](../versions/v1.72/model-context-change-thread-read-after.md)。
@@ -313,7 +317,7 @@ macOS ACP detached 后代与 Core 重启回收当前规范见
 [Managed Runtime Process v2](../contracts/managed-runtime-process-v2.md#macos-acp-descendants)，
 内核身份、私有 ledger 和不增加常驻代理的取舍见 [V1.72-D26](../versions/v1.72/decisions.md#v1-72-d26)。
 
-Runtime 基础 PATH 采集与主动检查刷新当前规范见 [Runtime Launch v73](../contracts/runtime-launch-and-verification-v73.md)
+Runtime 基础 PATH 采集与主动检查刷新当前规范见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md)
 及 [Runtime Catalog Boundaries](../architecture/runtime-catalog-boundaries.md#安装发现与真实-host-验证)；这是既有发现流程的局部修复，无新增 Version Decision。
 
 Command 原生 HOME、官方 Mod、ACP MCP 与 Binding 身份复用的当前取舍见 [V1.72-D59](../versions/v1.72/decisions.md#v1-72-d59)，字段合同见 [Runtime Launch and Verification v72](../contracts/runtime-launch-and-verification-v72.md)。

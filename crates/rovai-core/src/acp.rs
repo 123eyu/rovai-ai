@@ -25,8 +25,8 @@ use rovai_core::{
     agent_profile::{AdapterKind, FrozenAgentRuntimeConfig},
     agent_run_image::{AcpImageAccumulator, RuntimeImageObservation},
     agent_runtime_adapter::{
-        AcpClientTerminalMode, AgentRuntimeAdapterRegistry, acp_model_catalog_for_adapter,
-        acp_runtime_model_id_from_session, write_kiro_additive_agent_config,
+        AcpClientTerminalMode, AgentRuntimeAdapterRegistry, acp_runtime_model_id_from_session,
+        write_kiro_additive_agent_config,
     },
     builtin_tool_transport::BUILTIN_TOOL_CONTRACT_VERSION,
     command::canonical_json_digest,
@@ -5428,51 +5428,25 @@ impl AcpRuntime {
                     }));
                 }
             }
-            let session_result = session_result.as_ref().ok_or_else(|| {
-                anyhow::Error::new(AcpLiveModelValidationError {
-                    code: "runtime_model_catalog_unavailable",
+            // Pass explicit intent to the native setter even when the optional
+            // catalog is absent, incomplete, or does not enumerate this value.
+            if !model_options
+                .as_object()
+                .is_some_and(|options| options.values().all(Value::is_string))
+            {
+                return Err(anyhow::Error::new(AcpLiveModelValidationError {
+                    code: "runtime_model_options_invalid",
                     model_id: model.to_string(),
-                    detail: "the real ACP Session did not expose its catalog".to_string(),
-                })
-            })?;
-            let models = acp_model_catalog_for_adapter(self.host.adapter_kind, session_result)
-                .map_err(|error| {
-                    anyhow::Error::new(AcpLiveModelValidationError {
-                        code: "runtime_model_catalog_unavailable",
-                        model_id: model.to_string(),
-                        detail: error.to_string(),
-                    })
-                })?;
-            if matches!(
-                self.host.adapter_kind,
-                AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli
-            ) {
-                if !model_options
-                    .as_object()
-                    .is_some_and(|options| options.values().all(Value::is_string))
-                {
-                    return Err(anyhow::Error::new(AcpLiveModelValidationError {
-                        code: "runtime_model_options_invalid",
-                        model_id: model.to_string(),
-                        detail: "Model options must be an object of native string values"
-                            .to_string(),
-                    }));
-                }
-                rovai_core::agent_runtime_adapter::validate_live_model_selection(
-                    &models,
-                    model,
-                    &json!({}),
-                )?;
-            } else {
-                rovai_core::agent_runtime_adapter::validate_live_model_selection(
-                    &models,
-                    model,
-                    model_options,
-                )?;
+                    detail: "Model options must be an object of native string values".to_string(),
+                }));
             }
             if self.host.adapter_kind == AdapterKind::CodebuddyCli
                 && model.starts_with("custom-local:")
-                && acp_runtime_model_id_from_session(session_result).as_deref() == Some(model)
+                && session_result
+                    .as_ref()
+                    .and_then(acp_runtime_model_id_from_session)
+                    .as_deref()
+                    == Some(model)
             {
                 // This custom model was selected by the host's --model argument.
                 // CodeBuddy omits it from set_config_option's built-in choices.
@@ -5483,32 +5457,6 @@ impl AcpRuntime {
                 self.set_model(&session_id, model).await?;
             } else {
                 self.set_config_option(&session_id, "model", model).await?;
-            }
-            if self.host.adapter_kind == AdapterKind::MinimaxCodeCli {
-                let selected = self
-                    .session_result
-                    .read()
-                    .await
-                    .clone()
-                    .context("MiniMax selected model has no option state")?;
-                rovai_core::agent_runtime_adapter::validate_live_model_selection(
-                    &acp_model_catalog_for_adapter(self.host.adapter_kind, &selected)?,
-                    model,
-                    model_options,
-                )?;
-            }
-            if self.host.adapter_kind == AdapterKind::DeepseekHarness {
-                let selected = self
-                    .session_result
-                    .read()
-                    .await
-                    .clone()
-                    .context("DSH model selection has no option state")?;
-                crate::agent_runtime_adapter::validate_dsh_model_options(
-                    &selected,
-                    model,
-                    model_options,
-                )?;
             }
             if self.host.adapter_kind == AdapterKind::CodebuddyCli {
                 // Freeze the acknowledged selection, not session/new's old
@@ -5729,44 +5677,17 @@ impl AcpRuntime {
                 }),
             )
             .await?;
-        if self.host.adapter_kind == AdapterKind::MinimaxCodeCli {
-            let options = result["configOptions"]
-                .as_array()
-                .context("Runtime did not return configuration state")?;
-            ensure!(
-                options
-                    .iter()
-                    .any(|option| option["id"] == config_id && option["currentValue"] == value),
-                "Runtime did not confirm requested configuration"
-            );
+        // Successful native replies need not repeat the catalog or selected value.
+        // Consume any returned option state without turning missing metadata into
+        // an execution failure.
+        if let Some(options) = result.get("configOptions").filter(|value| value.is_array()) {
             let mut selected = self
                 .session_result
                 .read()
                 .await
                 .clone()
-                .context("Runtime Session has no option state")?;
-            selected["configOptions"] = result["configOptions"].clone();
-            *self.session_result.write().await = Some(selected.clone());
-            self.host
-                .remember_session(session_id, Some(&selected))
-                .await;
-        }
-        if self.host.adapter_kind == AdapterKind::DeepseekHarness {
-            let previous = self
-                .session_result
-                .read()
-                .await
-                .clone()
-                .context("DSH Session has no option state")?;
-            let model = if config_id == "model" {
-                value.to_string()
-            } else {
-                acp_runtime_model_id_from_session(&previous)
-                    .context("DSH Session has no selected model")?
-            };
-            let selected = crate::agent_runtime_adapter::dsh_model_config_after_selection(
-                &previous, &result, &model,
-            )?;
+                .unwrap_or_else(|| json!({}));
+            selected["configOptions"] = options.clone();
             *self.session_result.write().await = Some(selected.clone());
             self.host
                 .remember_session(session_id, Some(&selected))
@@ -14109,15 +14030,26 @@ while IFS= read -r ignored; do :; done
             let executable = root.join("traecli");
             make_executable(
                 &executable,
-                r#"#!/bin/sh
-IFS= read -r initialize || exit 1
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
-IFS= read -r session || exit 1
-printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"}]},"sessionId":"session-live-model","models":{"currentModelId":"trae-default","availableModels":[{"modelId":"trae-default","name":"TRAE Default"}]}}}'
-IFS= read -r configuration || exit 1
-printf '%s\n' '{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"configuration refused after successful resume"}}'
-while IFS= read -r ignored; do :; done
+                &format!(
+                    r#"#!/usr/bin/python3
+import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    result = {{}}
+    if request['method'] == 'initialize': result = {{'protocolVersion':1, 'agentCapabilities':{{}}}}
+    elif request['method'] in ('session/new', 'session/resume'):
+        result = {{'sessionId':'session-live-model', 'modes':{{'currentModeId':'default','availableModes':[{{'id':'default','name':'Default'}}]}}}}
+    response = {{'jsonrpc':'2.0', 'id':request['id'], 'result':result}}
+    if request['method'] == 'session/set_config_option' and {configuration_rejected}:
+        response = {{'jsonrpc':'2.0','id':request['id'],'error':{{'code':-32602,'message':'configuration refused after successful resume'}}}}
+    print(json.dumps(response), flush=True)
 "#,
+                    configuration_rejected = if configuration_rejected {
+                        "True"
+                    } else {
+                        "False"
+                    }
+                ),
             );
             let frozen = frozen_trae_runtime(&executable);
             let workspace =
@@ -14155,7 +14087,7 @@ while IFS= read -r ignored; do :; done
                 None,
             );
 
-            let error = runtime
+            let result = runtime
                 .start_or_resume_session(
                     configuration_rejected.then_some("session-live-model"),
                     AcpSessionCapabilities {
@@ -14168,32 +14100,26 @@ while IFS= read -r ignored; do :; done
                     } else {
                         "claude-opus-5"
                     },
-                    &json!({}),
+                    &json!({"reasoning_effort":"high"}),
                     &BTreeMap::new(),
                 )
-                .await
-                .expect_err("a model absent from the real Session catalog must fail closed");
-            assert!(
-                error.downcast_ref::<AcpSessionRestoreError>().is_none(),
-                "a model/configuration error after activation must not authorize session replacement"
-            );
+                .await;
             if configuration_rejected {
+                let error = result.unwrap_err();
+                assert!(error.downcast_ref::<AcpSessionRestoreError>().is_none());
                 assert!(
                     format!("{error:#}").contains("configuration refused after successful resume")
                 );
                 assert!(host.knows_session("session-live-model").await);
             } else {
-                let validation = error
-                    .downcast_ref::<AcpLiveModelValidationError>()
-                    .expect("typed catalog failure");
-                assert_eq!(validation.code, "runtime_model_unavailable");
+                assert_eq!(result.unwrap(), "session-live-model");
             }
 
             host.shutdown().await;
             std::fs::remove_dir_all(root).unwrap();
         }
         // The same Host seam must allow Hermes to decide selections outside its
-        // picker, while preserving strict catalog behavior for the adapter above.
+        // picker, using the same native acceptance boundary as the adapter above.
         // A fresh Host per attachment covers both new and cold resume responses.
         for resume in [false, true] {
             for (case, source, current_model, current_mode, target, failure, expected) in [

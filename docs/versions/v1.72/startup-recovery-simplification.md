@@ -92,6 +92,18 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 | 内置 Host（含 Core）SHA-256 | `c76fd766bb97cf8de13603699e869f3df82e7cb808fa21cecdeded61e0eee5e2` | `c9c1a4aee0ea75a69ea1fa93cc2b2c72cc95efce8e8320ea9e9faad5678113a9` |
 | 内置 CLI SHA-256 | `c7bf102f59af988439b4ea7ced964058b84b1a6485a68004e909fdd01eb2caf2` | `daae4bc84c0aa8fc6605d6ab34132cd0e024fa69c0cae5b60c244a62a4d5d0df` |
 
+P2 修复后的 arm64 产物从 `b1ae65996` 的生产代码重新构建，App/Host 仍为 0.5.3，ad-hoc 签名校验通过。
+Host SHA-256 为 `a69ce9d48c2e0e1583bf3f0678db89320bb1123c5bb7748dd729a15d75027c80`，
+CLI 为 `35bbe7e12caaa9e1f854bd21edd5d4792cf004ce1f147894d53c5410bec6fc3e`。
+复用上述开发现场，UI 上真实 Codex 新任务 `STARTUP_P2_PACKAGE_OK` 成功；随后运行 `sleep 120` 并明确 Stop，
+当前 Run 在约 99ms 后取得 ACK；新输入 `STARTUP_P2_AFTER_STOP_OK` 再次成功。7 次 Run 的 Conversation、
+agent_1、Runtime 和 installation 相同；历史取消 Run 的 ACK 仍为空，8194 个文件摘要不变。正常退出完成，
+证据在 `p2-packaged-acceptance.json`，日常安装的两个二进制摘要仍与上表相同。
+
+P2 默认 Rust 门禁首次在并行打包时出现 `runtime_probe_stdout_cleanup_timed_out`，该测试原有清理窗口为 500ms。
+未修改探针实现或放宽断言；单独复核通过，随后完整 `pnpm test:rust:pr` 重跑 477 通过、1 项原有 ignored。
+原 Claude/native-failure Core owners 同步使用当前所有权快照验证门禁，避免空快照的历史场景测试入口误代当前执行。
+
 扩展 Delivery 全组的 `steer_admission_uses_the_frozen_run_and_rejects_stale_or_unknown_capability`（Hermes 1.0.0 预期）
 和 `legacy_steer_upgrade_keeps_accepted_unknown_and_unfinished_sources`（迁移冻结行比较）在未修改的基线归档上同样失败。
 可选启动矩阵中的 skills `.staging` 故障也在基线同样得到 ready 而非预期 degraded；其余四项通过。

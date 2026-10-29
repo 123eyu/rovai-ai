@@ -157,9 +157,12 @@ try {
     const second = await until(async () => (await snapshot()).agentRuns.find(run => run.id !== first.id && run.status === 'succeeded'),
       'new successful run after user continuation')
     const successor = database.prepare('SELECT * FROM agent_run WHERE id=?').get(second.id)
-    for (const column of ['conversation_id', 'agent_id', 'runtime_adapter_kind', 'runtime_installation_id']) {
+    for (const column of ['conversation_id', 'runtime_adapter_kind', 'runtime_installation_id']) {
+      assert.ok(oldState[column], `source has ${column}`)
       assert.equal(successor[column], oldState[column], `continuation preserves ${column}`)
     }
+    assert.equal(database.prepare('SELECT agent_id FROM conversation WHERE id=?').get(successor.conversation_id).agent_id, 'agent_1',
+      'the original member completes the new task')
     assert.equal((await prompts()).length, stopDuringLaunch ? 1 : 2, 'one user continuation creates exactly one attempt')
     assert.deepEqual(database.prepare('SELECT * FROM agent_run WHERE id=?').get(first.id), oldState, 'source Run stays terminal and unchanged')
     assert.deepEqual(database.prepare('SELECT * FROM runtime_input_delivery WHERE agent_run_id=?').get(first.id), oldDelivery,

@@ -34738,7 +34738,13 @@ done
         );
         let agent_run_id = {
             let mut database = core.database.lock().await;
-            claim_waiting_delivery_batches(&mut database, 1)
+            let current = core.current_runtime_execution_keys().await;
+            rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
+                &mut database,
+                1,
+                &Default::default(),
+                &current,
+            )
                 .unwrap()
                 .into_iter()
                 .next()
@@ -35993,10 +35999,16 @@ for line in sys.stdin:
             .unwrap();
         {
             let mut database = core.database.lock().await;
+            let current = core.current_runtime_execution_keys().await;
             assert!(
-                claim_waiting_delivery_batches(&mut database, 100)
-                    .unwrap()
-                    .is_empty()
+                rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
+                    &mut database,
+                    100,
+                    &Default::default(),
+                    &current,
+                )
+                .unwrap()
+                .is_empty()
             );
             let state: (i64, i64, String) = database.connection().query_row(
                 "SELECT (SELECT COUNT(*) FROM agent_run WHERE camp_id = ?1),

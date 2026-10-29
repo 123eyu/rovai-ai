@@ -87,7 +87,8 @@ describe('SafeMarkdown file preview references', () => {
       mode: 'document'
     }))
 
-    expect(markup).toContain('<div class="markdown-table-scroll"><table>')
+    expect(markup).toContain('class="markdown-table-scroll" tabindex="0" role="region"')
+    expect(markup).toContain('aria-label="复制表格"')
     expect(markup).toContain('<th>项目</th>')
     expect(markup).toContain('<td>宽内容</td>')
   })

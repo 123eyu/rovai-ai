@@ -12,7 +12,7 @@ last_updated: 2026-09-11
 
 Outcome 另保留同轮有序公开 Lead 交付来理解最后确认，仍不读取完整成员轨迹。评分进程或副本失败由报告单列为评测器故障；实际产物失败和证据问题分别保留。
 
-当前字段与判断规则由 [Execution Evaluation v15](../contracts/execution-evaluation-v15.md)拥有；操作见[开发指南](../development/evaluation.md)。
+当前字段与判断规则由 [Execution Evaluation v16](../contracts/execution-evaluation-v16.md)拥有；操作见[开发指南](../development/evaluation.md)。
 
 ```mermaid
 flowchart LR

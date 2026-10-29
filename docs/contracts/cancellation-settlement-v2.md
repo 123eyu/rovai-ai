@@ -52,6 +52,8 @@ cleanup ACK 不改写；普通 Recovery Blocker resolution 和 Runtime terminal 
 `ActiveExecutionKey` 去重；当前 Core 仍精确持有 Run/epoch 时，同 Conversation 的后继需等待真实 cleanup ACK，
 其他 Conversation、同轮无关 Run 与已 admitted 渠道请求不等待该清理。历史 Run 缺 ACK、记录不可读或身份未知
 本身不构成活跃冲突；重启后的新任务准入不要求先证明全部历史进程不存在。旧 ACK 保持缺失，不进入当前清理重试。
+本次执行的登记与数据库 claim 同锁发布；Host 异常退出或启动中停止后，有待收尾请求的登记保留到真实 ACK 落库。
+Adapter/Fleet handle 释放不代表该执行的收尾责任已经结束。
 Windows 的 Runtime 清理使用一次总计五秒的预算；本次有效 Job 成功查询 `ActiveProcesses == 0`
 后立即 ACK 并主动唤醒 Delivery。预算耗尽或查询持续失败进入既有局部重试，不修改已经提交的
 业务终态，也不重投旧输入；启动私有临时文件删除失败不延迟 cleanup ACK。

@@ -18,6 +18,9 @@ let sessionFile = pi ? (sessionArgument < 0 ? join(dirname(journal), 'pi-session
   : process.argv[sessionArgument + 1]) : null
 const send = (value) => process.stdout.write(`${JSON.stringify(pi ? value : { jsonrpc: '2.0', ...value })}\n`)
 function piSessionState() {
+  if (typeof sessionFile !== 'string' || !sessionFile.startsWith(`${dirname(journal)}/`)) {
+    throw new Error('Synthetic Pi Session must stay in this acceptance fixture')
+  }
   mkdirSync(dirname(sessionFile), { recursive: true })
   writeFileSync(sessionFile, JSON.stringify({ type: 'session', id: sessionId, cwd: process.cwd() }) + '\n')
   const binding = JSON.parse(readFileSync(process.env.ROVAI_PI_HOST_BINDING_FILE, 'utf8'))

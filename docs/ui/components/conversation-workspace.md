@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-10-28
+last_updated: 2026-10-29
 ---
 
 # Camp 会话工作区
@@ -13,7 +13,8 @@ last_updated: 2026-10-28
   普通 Pending 输入保存后显示侧栏草稿行；同一项目可以保留多份，清空后隐藏。AI 创建队员仍按其窗口内草稿合同运行。
   发送失败或结果未知保留当前内容，确认发送成功才清空已发送快照。
 - 等待阶段在执行台展示 Delivery 支撑的待处理消息卡，默认“准备中…”，不提供 Run 停止入口。
-  同队员已有公开执行或待清理事实时显示“排队中”，具体原因仅作悬浮说明，不显示独立清理状态或计时提示。
+  同队员有当前公开执行或 Core 给出的等待原因时显示“排队中”，具体原因仅作悬浮说明；
+  不从历史 Run 的 ACK 空值推断排队或清理原因，不显示独立清理状态或计时提示。
   Scheduler claim 后真实 Run 接管状态与停止语义；`queued` 与 Runtime 初始化统一显示“启动中…”。
 - 执行区“停止”只 CAS 当前精确 Run。没有公屏通用停止、队列暂停/恢复、Camp 全部停止或手工放行入口；终态后队列按正常规则继续。
 - accepted/outcome-unknown 对用户显示普通红色失败，不显示“结果未知”产品状态；诊断和 evidence 仍保留内部真实分类。旧执行尚未隔离时，后继消息继续显示等待，不制造必败 Run。

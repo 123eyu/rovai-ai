@@ -3225,8 +3225,12 @@ impl Core {
             let runtime_result = async {
                 let targets = {
                     let database = self.database.lock().await;
-                    ExecutionRuntimeService::default()
-                        .list_camp_runtime_cleanup_targets(&database, &candidate.camp_id)
+                    let active_executions = self.current_runtime_execution_keys().await;
+                    ExecutionRuntimeService::default().list_camp_runtime_cleanup_targets(
+                        &database,
+                        &candidate.camp_id,
+                        &active_executions,
+                    )
                 }?;
                 self.stop_deleted_camp_runtimes(&targets).await?;
                 self.runtime_fleet
@@ -3263,12 +3267,14 @@ impl Core {
                 };
                 let group_key = {
                     let mut database = self.database.lock().await;
+                    let active_executions = self.current_runtime_execution_keys().await;
                     let group_key = navigation_group_key(&database, &candidate.camp_id)?;
                     service.commit_business_delete(
                         &mut database,
                         &self.attachment_views,
                         &candidate,
                         &cleanup,
+                        &active_executions,
                     )?;
                     self.mark_skill_projections_dirty_best_effort(&mut database, true);
                     group_key
@@ -34563,7 +34569,13 @@ done
                 .next()
                 .expect("accepted Camp deletion should be due");
             ThreadDeletionService::default()
-                .commit_business_delete(&mut database, &core.attachment_views, &deletion, &cleanup)
+                .commit_business_delete(
+                    &mut database,
+                    &core.attachment_views,
+                    &deletion,
+                    &cleanup,
+                    &[],
+                )
                 .unwrap();
             cleanup
         };

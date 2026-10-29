@@ -929,6 +929,7 @@ impl Core {
                 }
                 let _guard = self.mission_workspace_gate.lock().await;
                 let mut database = self.database.lock().await;
+                let active_executions = self.current_runtime_execution_keys().await;
                 let execution = DomainCommandGateway.execute(&mut database, &envelope, |tx| {
                     let camp_id = tx
                         .query_row(
@@ -969,7 +970,7 @@ impl Core {
                         ));
                     }
                     if workspace.state == "preparing"
-                        || mission_workspace::workspace_in_use(tx, &workspace)?
+                        || mission_workspace::workspace_in_use(tx, &workspace, &active_executions)?
                     {
                         return Ok(CommandHandlerResult::rejected(
                             "mission.workspace_in_use",
@@ -1087,7 +1088,10 @@ impl Core {
             "missions.list" => {
                 let database = self.database.lock().await;
                 Ok(serde_json::to_value(
-                    MissionService::default().list(&database)?,
+                    MissionService::with_active_executions(
+                        self.current_runtime_execution_keys().await,
+                    )
+                    .list(&database)?,
                 )?)
             }
             "missions.get"
@@ -1108,9 +1112,11 @@ impl Core {
                 if request.method == "missions.diffSession.release" {
                     {
                         let database = self.database.lock().await;
-                        MissionService::default()
-                            .get(&database, &query.mission_id)?
-                            .context("mission.not_found")?;
+                        MissionService::with_active_executions(
+                            self.current_runtime_execution_keys().await,
+                        )
+                        .get(&database, &query.mission_id)?
+                        .context("mission.not_found")?;
                     }
                     let released = self
                         .mission_diff_snapshots
@@ -1124,9 +1130,11 @@ impl Core {
                     let database = self.database.lock().await;
                     let workspace_lock_ms = workspace_lock_started_at.elapsed().as_millis();
                     let workspace_read_started_at = Instant::now();
-                    let mission = MissionService::default()
-                        .get(&database, &query.mission_id)?
-                        .context("mission.not_found")?;
+                    let mission = MissionService::with_active_executions(
+                        self.current_runtime_execution_keys().await,
+                    )
+                    .get(&database, &query.mission_id)?
+                    .context("mission.not_found")?;
                     if request.method == "missions.get" {
                         return Ok(serde_json::to_value(mission)?);
                     }

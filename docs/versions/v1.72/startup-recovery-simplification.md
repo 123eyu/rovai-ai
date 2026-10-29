@@ -134,3 +134,27 @@ User sequence 13 授权正常退出；重开后的 sequence 15 要求继续。�
 最终剩余：创建日常原会话隔离副本，保留异常记录与缺失历史 ACK，验证原队员/原 Runtime 及共享目录的新任务。
 日常数据尚未复制，在线 SQLite Backup API 的流程例外未获确认。User 在 sequence 19 明确要求
 将 PR 合入 main 并安装本机，按该指令先完成合入与安装；原会话副本验收仍记为未执行，不列为通过项。
+
+
+## 历史 ACK 在资源入口的残留判断（2026-10-29）
+
+合并前复核发现 Mission 清理可用性/命令、会话删除目标与最终检查仍按全量历史缺 ACK 判断占用，
+排队提示也沿用旧推断。它们是既有入口未同步新规则，不是本轮异常退出修复引入的回归；新会话在 App
+崩溃、强制退出或断电后同样可能产生这类历史记录。
+
+清理入口和请求检查复用当前 Run/epoch 的共享占用规则；其他会话使用同一 execution root 时仍受约束。
+删除只停止本次 Core 持有的精确执行，并在业务提交前再次获取当前快照；Warm/Starting 的 Fleet fence 保持。
+前代 ACK/进程回执缺失不单独阻断操作，不补写 ACK。Renderer 按当前公开执行和 Core waitCondition 显示
+排队，不再从历史 ACK 空值生成“等待上次执行清理完成”。无新表、恢复机制或 wire 字段。
+
+扩展既有三个 Rust owners，覆盖历史缺 ACK 可清理、当前同 Run/epoch 与共享目录仍阻断、epoch 不匹配
+不阻断，以及删除事务回滚/重试。三项均通过，未新增 Rust test 函数。Renderer 现有测试扩展后 185 项通过，
+`pnpm typecheck` 通过。完整 `pnpm test:rust:pr` 再次通过：477 passed、1 项原有 ignored。
+
+`node scripts/smoke-stop-continue.mjs --historical-startup --historical-mission` 通过：在独立 Git 项目中正常停止，
+关闭 Core 后仅撤去旧 ACK 并保留异常文件；重开同 Mission/Conversation/member/Runtime，后继任务成功。
+旧 ACK 仍为空时 `cleanupAvailable=true`，真实清理命令完成 Worktree/分支双检查点，工作目录已移除；
+随后删除该会话，业务聚合和受管资源 journal 均完成。历史会话读取 183ms；大批量旧账本耗尽共享清理预算时
+后继 prompt 已启动。现场 `rovai-stop-continue-aa2PyZ/acceptance.json` 保留本次结果。
+
+上一节已安装产物尚不包含这三处修正，不能作为最终候选；最新候选构建与隔离验收随后记录。

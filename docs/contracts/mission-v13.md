@@ -4,7 +4,7 @@ contract: mission-v13
 authority: mission-team-creation
 status: accepted
 version: 13
-last_updated: 2026-10-26
+last_updated: 2026-10-29
 ---
 
 # Mission v13
@@ -30,3 +30,8 @@ The shared Desktop/Web creation dialog initializes from General's Team/Custom so
 read-only; Custom independently edits members and Lead. Creation does not write global defaults or one-click
 preferences. Unknown outcomes retain the exact command, attachments and selected Team snapshot for retry.
 Presentation and long-guidance reading are owned by the [Mission board UI](../ui/components/mission-board.md).
+
+Workspace cleanup admission and `cleanupAvailable` share the current execution ownership rule:
+nonterminal Runs, waiting Deliveries, and terminal cleanup owned by this Core block removal. Ownership
+uses the existing exact Run/epoch snapshot and includes shared execution-root conflicts. A prior-generation
+missing ACK cannot alone block cleanup, and cleanup does not fabricate or repair that historical ACK.

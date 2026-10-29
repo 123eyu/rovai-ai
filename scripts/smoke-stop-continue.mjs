@@ -4,12 +4,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { DatabaseSync } from 'node:sqlite'
-import { createConfiguredCampAndSend } from './lib/create-configured-camp.mjs'
+import { composerDocumentForAddress, createConfiguredCampAndSend } from './lib/create-configured-camp.mjs'
 import { coreDataDirectoryArguments, removeEphemeralRuntimeCampFilesRoot } from './lib/runtime-camp-files-root.mjs'
 
 if (process.platform === 'win32') throw new Error('This shell fixture requires macOS or Linux')
@@ -19,11 +19,13 @@ const data = join(fixture, 'core'), home = join(fixture, 'home'), workspace = jo
 const journal = join(fixture, 'prompts.jsonl'), executable = join(fixture, 'copilot-fixture')
 const shutdownText = process.argv.includes('--shutdown-text')
 const historicalStartup = process.argv.includes('--historical-startup')
+const historicalMission = process.argv.includes('--historical-mission')
 const unexpectedExit = process.argv.includes('--unexpected-exit')
 const stopDuringLaunch = process.argv.includes('--stop-during-launch')
 const pi = process.argv.includes('--pi')
 const adapterKind = pi ? 'pi' : 'copilot-cli'
 assert.ok(!pi || unexpectedExit, '--pi currently exercises unexpected exit only')
+assert.ok(!historicalMission || historicalStartup, '--historical-mission requires --historical-startup')
 assert.ok(!stopDuringLaunch || (!unexpectedExit && !historicalStartup && !shutdownText), 'launch stop is a separate scenario')
 let retainedHistoricalFiles = []
 let restoreHistoricalDirectories = []
@@ -55,12 +57,32 @@ try {
   } })
   assert.equal(configured.status, 'applied')
   if (stopDuringLaunch) await writeFile(`${journal}.launch-gate`, '')
-  const created = await createConfiguredCampAndSend(core.request, {
-    commandId: crypto.randomUUID(), name: 'Missing completion recovery', workspace: { projectPath: workspace },
-    memberAgentIds: ['agent_1'], defaultLeadAgentId: 'agent_1',
-    body: 'Perform the fixture work.', purpose: 'Verify stop and explicit continuation'
-  })
-  const threadId = created.payload.threadId
+  let missionId = null, threadId
+  if (historicalMission) {
+    const git = (...args) => execFileSync('git', ['-C', workspace, ...args], { stdio: 'pipe' })
+    git('init', '-b', 'main')
+    git('config', 'user.name', 'Historical Cleanup Fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    await writeFile(join(workspace, 'tracked.txt'), 'base\n')
+    git('add', 'tracked.txt'); git('commit', '-m', 'fixture base')
+    const created = await core.request('missions.create', { commandId: crypto.randomUUID(), command: {
+      title: 'Historical Mission cleanup', description: 'Perform the fixture work.', projectPath: workspace,
+      projectBindingKind: 'directory', memberAgentIds: ['agent_1'], defaultLeadAgentId: 'agent_1', tags: []
+    } })
+    assert.equal(created.status, 'applied', JSON.stringify(created))
+    missionId = created.payload.missionId; threadId = created.payload.threadId
+    const sent = await core.request('thread.messages.send', { commandId: crypto.randomUUID(), threadId,
+      content: composerDocumentForAddress({ mode: 'default' }, 'Perform the fixture work.'), sourceAttachments: [], quotes: [],
+      replyToThreadMessageId: null, execution: { taskId: null, purpose: 'Verify historical Mission cleanup', completionRole: 'required' } })
+    assert.equal(sent.commandResult.status, 'accepted', JSON.stringify(sent))
+  } else {
+    const created = await createConfiguredCampAndSend(core.request, {
+      commandId: crypto.randomUUID(), name: 'Missing completion recovery', workspace: { projectPath: workspace },
+      memberAgentIds: ['agent_1'], defaultLeadAgentId: 'agent_1',
+      body: 'Perform the fixture work.', purpose: 'Verify stop and explicit continuation'
+    })
+    threadId = created.payload.threadId
+  }
   database = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
   const prompts = async () => readFile(journal, 'utf8').then(text => text.trim().split('\n').filter(Boolean).map(JSON.parse)).catch(error => {
     if (error.code === 'ENOENT') return []
@@ -182,7 +204,25 @@ try {
       assert.equal(database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id).cancel_acknowledged_at, null,
         'new work never manufactures a historical cleanup ACK')
     }
-    const report = { passed: true, adapterKind, unexpectedExit, stopDuringLaunch, sourceStatus: oldState.status, successorStatus: second.status,
+    let historicalResourceCleanup = null
+    if (historicalMission) {
+      const mission = await core.request('missions.get', { missionId })
+      assert.equal(mission.cleanupAvailable, true, 'historical missing ACK must not hide the cleanup entry')
+      const resource = database.prepare('SELECT worktree_path,branch FROM mission_workspace WHERE mission_id=?').get(missionId)
+      const cleaned = await core.request('missions.workspace.cleanup', { commandId: crypto.randomUUID(), command: { missionId } })
+      assert.equal(cleaned.status, 'applied', JSON.stringify(cleaned))
+      await until(() => database.prepare('SELECT 1 FROM mission_workspace WHERE mission_id=? AND cleanup_worktree_removed=1 AND cleanup_branch_removed=1').get(missionId), 'historical Mission resource cleanup')
+      await assert.rejects(access(resource.worktree_path), { code: 'ENOENT' })
+      assert.equal(database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id).cancel_acknowledged_at, null)
+      const version = database.prepare('SELECT version FROM camp WHERE id=?').get(threadId).version
+      const deletionId = crypto.randomUUID()
+      const deleted = await core.request('camps.delete', { commandId: deletionId, command: { threadId, expectedVersion: version, workspaceDisposition: 'retain' } })
+      assert.equal(deleted.status, 'accepted', JSON.stringify(deleted))
+      await until(() => !database.prepare('SELECT 1 FROM camp WHERE id=?').get(threadId), 'historical Thread business deletion')
+      await until(() => database.prepare("SELECT 1 FROM camp_attachment_view_operation WHERE command_id=? AND kind='camp_delete_cleanup' AND status='completed'").get(deletionId), 'historical Thread managed-resource cleanup')
+      historicalResourceCleanup = { missionEntryAvailable: true, worktreeRemoved: true, branchRemoved: true, oldAckMissingBeforeDeletion: true, threadDeletionCompleted: true }
+    }
+    const report = { passed: true, adapterKind, unexpectedExit, stopDuringLaunch, historicalResourceCleanup, sourceStatus: oldState.status, successorStatus: second.status,
       cleanupAcknowledged: !historicalStartup, cleanupMs, appRestarted: historicalStartup,
       databaseModifiedByTest: historicalStartup, historicalFaultFilesRetained: retainedHistoricalFiles.length,
       historicalOpenMs, cleanup: historicalStartup ? core.stderr().split('\n').find(line => line.includes('stage=historical_process_cleanup')) : null }

@@ -1318,6 +1318,7 @@ impl ExecutionRuntimeService {
         &self,
         database: &Database,
         camp_id: &str,
+        active_executions: &[crate::planned_shutdown::ActiveExecutionKey],
     ) -> Result<Vec<ThreadRuntimeCleanupTarget>> {
         let mut statement = database.connection().prepare(
             r#"
@@ -1360,6 +1361,11 @@ impl ExecutionRuntimeService {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows
             .into_iter()
+            .filter(|(run_id, epoch, _)| {
+                active_executions
+                    .iter()
+                    .any(|key| key.agent_run_id == *run_id && key.execution_epoch == *epoch)
+            })
             .filter_map(|(agent_run_id, execution_epoch, adapter_kind)| {
                 Some(ThreadRuntimeCleanupTarget {
                     agent_run_id,

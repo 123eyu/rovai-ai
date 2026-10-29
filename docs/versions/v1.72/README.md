@@ -19,6 +19,13 @@ last_updated: 2026-10-29
 取舍见 [D68](decisions.md#v1-72-d68)，当前规则见 [Availability-first Runtime](../../architecture/availability-first-runtime.md)
 与 [Availability v3](../../contracts/desktop-runtime-availability-v3.md#数据库启动与有界重试)，验收、测试退役与交付边界见
 [实施记录](database-startup-simplification.md)。本次替代下方 10 月 28 日的来源标记特判方案，不更换当前版本指针。
+## 手动停止保留执行条（2026-10-29）
+
+公开手动停止保留静态状态、最终耗时及图标继续入口；失败改为图标重试。每位队员仅保留最新未受理
+继续的停止／普通失败，继续受理或新 Run 出现后收起；输入过大拒绝保留原输入详情。
+排队、启动、等待和成功沿用既有规则。只调整 Renderer，未改变 Core 状态或模型上下文。
+当前规则见 [Run Process Detail Surface v57](../../contracts/run-process-detail-surface-v57.md)，
+实施与验证见[实施记录](implementation-plan.md#手动停止保留执行条2026-10-29)。
 
 ## 安全 HTML 与选文引用简化（2026-10-29）
 
@@ -86,7 +93,7 @@ Issue #891 按 User 确认的范围统一启动／重新检测／主动检查的
 
 按 User 确认的交互稿收敛为前端展示修正：启动阶段统一文案，Delivery 简化准备／排队提示，
 停止时移除有色提示与重复停止按钮，状态图标保留时间线。无 Core 字段、状态机或调度变更。
-当前规则见 [Run Process Detail Surface v56](../../contracts/run-process-detail-surface-v56.md)，
+当时规则见 [Run Process Detail Surface v56](../../contracts/run-process-detail-surface-v56.md)，
 实施与验证见[实施记录](implementation-plan.md#run-启动与停止展示2026-10-26)。
 
 ## Hermes Runtime（2026-10-25）

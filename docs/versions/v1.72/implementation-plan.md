@@ -14,6 +14,22 @@ last_updated: 2026-10-29
 当前合同为 [Desktop Runtime Availability v3](../../contracts/desktop-runtime-availability-v3.md#数据库启动与有界重试)，
 不新增 Migration、不改业务格式。日常宿主保护与原有会话保留是交付边界。
 
+## 手动停止保留执行条（2026-10-29）
+
+- Worktree：`../rovai-ai-retain-stopped-run`；
+  分支 `rovai/retain-stopped-run`，基线 `4d3aba9a550f2798245a18af403d0cbaa7bea7f8`；Governance：none。
+- 沿用现有公开 Run 投影、继续命令与样式，手动停止保留静态状态和最终耗时；停止／失败的操作只显示图标。
+  每位队员保留最新未受理继续的停止／普通失败，输入过大拒绝仍保留原输入详情且不可重试。
+- 停止条跟随最后回复／完整产物组，没有输出则留在启动锚点；保留期间省去重复中断标记。
+  `hasAcceptedContinuation`、缓存首屏门禁与新 Run 替换负责跨会话／刷新收起，不新增状态或存储。
+- 已通过类型检查、全部 Vitest（3022 passed / 2 skipped）、文档治理单测与上述基线的差分门禁。
+  presence 浏览器 owner 独立通过 38 个状态、6 个视口以及停止／继续／刷新链路；
+  [日夜截图](../../../.github/assets/run-stop-retained/README.md)使用真实组件与固定演示数据。
+- `pnpm test` 的 Node 层为 357 passed / 2 skipped / 1 failed：Product Contract Fingerprint
+  固定期望 schema 167，当前源码为 168。聚合 `test:run-presence-ui` 的 reply-details 在
+  `regroup-middle` 断言失败。两者均在未改动基线 `4d3aba9a5` 独立复现；不改写无关断言。
+- 默认 Rust workspace PR 回归 `pnpm test:rust:pr` 通过。审查补齐了停止条未知回执保持普通入口，
+  以及 Applied 回执先于权威投影时同时恢复历史中断标记的边界；对应浏览器回归覆盖同一 commandId 核对。
 
 ## Windows Fleet 记录存储修复（2026-10-29）
 

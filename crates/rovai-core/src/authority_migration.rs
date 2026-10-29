@@ -21,12 +21,13 @@ use crate::{
         observe_authority_identity_token,
     },
     db::{Database, DatabaseMigrationError, DatabaseOpenError},
-    platform::private_storage::create_private_new_file,
+    platform::private_storage::create_data_new_file,
 };
 
 #[cfg(all(test, feature = "extended-tests"))]
 use crate::platform::private_storage::{
-    atomic_write_private_json, prepare_private_directory, publish_private_temporary_file,
+    atomic_write_private_json, create_private_new_file, prepare_private_directory,
+    publish_private_temporary_file,
 };
 
 const MIGRATION_BACKUP_ROOT: &str = ".rovai-authority-migration-backups";
@@ -269,7 +270,7 @@ fn legacy_snapshot_switch_for_test(
         for artifact in artifacts {
             let backup_file_name = format!("original-{}", artifact_kind_name(artifact.kind));
             let backup_path = backup_directory.join(&backup_file_name);
-            copy_private_file(&artifact.path, &backup_path)?;
+            copy_authority_file(&artifact.path, &backup_path)?;
             let backup_identity =
                 observe_authority_identity_token(&backup_path).map_err(|error| {
                     DatabaseMigrationError::io(
@@ -619,7 +620,7 @@ fn backup_directory(lease: &CoreDataDirLease, operation_id: Uuid) -> PathBuf {
         .join(operation_id.to_string())
 }
 
-fn copy_private_file(source: &Path, destination: &Path) -> Result<(), DatabaseMigrationError> {
+fn copy_authority_file(source: &Path, destination: &Path) -> Result<(), DatabaseMigrationError> {
     let mut input = open_existing_no_follow(source).map_err(|error| {
         DatabaseMigrationError::io(
             "authority_migration_backup_source_open_failed",
@@ -628,7 +629,7 @@ fn copy_private_file(source: &Path, destination: &Path) -> Result<(), DatabaseMi
             error,
         )
     })?;
-    let mut output = create_private_new_file(destination).map_err(|error| {
+    let mut output = create_data_new_file(destination).map_err(|error| {
         DatabaseMigrationError::io(
             "authority_migration_backup_destination_create_failed",
             "create preserved authority artifact",
@@ -667,7 +668,7 @@ fn open_existing_no_follow(path: &Path) -> io::Result<File> {
 
 #[cfg(windows)]
 fn open_existing_no_follow(path: &Path) -> io::Result<File> {
-    crate::platform::private_storage::open_private_read_file(path)
+    crate::platform::private_storage::open_data_read_file(path)
         .map_err(|error| io::Error::other(error.to_string()))
 }
 
@@ -807,7 +808,7 @@ fn restore_original_sidecars(
                 false,
             ));
         }
-        copy_private_file(&backup, &source)?;
+        copy_authority_file(&backup, &source)?;
     }
     Ok(())
 }
@@ -1714,7 +1715,7 @@ mod tests {
             if refused_by_os.get() {
                 let database =
                     result.expect("a rejected OS mutation leaves the original database usable");
-                assert_eq!(database.path(), source);
+                assert_eq!(database.path(), source.canonicalize().unwrap());
                 assert!(matches!(
                     classify_database_contract(database.connection()).unwrap(),
                     DatabaseContractClassification::Current(_)
@@ -1764,6 +1765,12 @@ mod tests {
                 "rovai-authority-migration-kill-test-{}",
                 Uuid::new_v4()
             ));
+            // The old snapshot writer required this private root. Reproduce
+            // its original setup, then admit ordinary ACLs during recovery.
+            #[cfg(windows)]
+            if interruption.starts_with("legacy_") {
+                prepare_private_directory(&directory).unwrap();
+            }
             let mut database = crate::test_support::fresh_schema_database_fast_at(&directory);
             database
                 .connection()
@@ -1817,25 +1824,42 @@ mod tests {
                 .stderr(Stdio::piped())
                 .spawn()
                 .unwrap();
-
-            let deadline = std::time::Instant::now() + Duration::from_secs(20);
-            while !marker.exists() {
-                if let Some(status) = child.try_wait().unwrap() {
-                    let output = child.wait_with_output().unwrap();
-                    panic!(
-                        "migration helper exited before the switch marker ({status}):\nstdout:\n{}\nstderr:\n{}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr),
-                    );
+            // Drain both pipes while the helper migrates: Windows pipe buffers
+            // can fill before the failpoint and otherwise block the child.
+            let mut stdout = child.stdout.take().unwrap();
+            let stdout = thread::spawn(move || {
+                let mut bytes = Vec::new();
+                stdout.read_to_end(&mut bytes).unwrap();
+                bytes
+            });
+            let mut stderr = child.stderr.take().unwrap();
+            let stderr = thread::spawn(move || {
+                let mut bytes = Vec::new();
+                stderr.read_to_end(&mut bytes).unwrap();
+                bytes
+            });
+            let deadline = std::time::Instant::now() + Duration::from_secs(60);
+            let reached_marker = loop {
+                if marker.exists() {
+                    break true;
                 }
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "migration helper did not reach the switch boundary"
-                );
+                if child.try_wait().unwrap().is_some() || std::time::Instant::now() >= deadline {
+                    break false;
+                }
                 thread::sleep(Duration::from_millis(20));
+            };
+            if child.try_wait().unwrap().is_none() {
+                child.kill().unwrap();
             }
-            child.kill().unwrap();
             let status = child.wait().unwrap();
+            let stdout = stdout.join().unwrap();
+            let stderr = stderr.join().unwrap();
+            assert!(
+                reached_marker,
+                "migration helper did not reach the switch boundary ({status}):\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr),
+            );
             assert!(
                 !status.success(),
                 "helper must be terminated at the failpoint"
@@ -1849,6 +1873,25 @@ mod tests {
                 directory.join(MIGRATION_BACKUP_ROOT).exists(),
                 interruption.starts_with("legacy_")
             );
+
+            #[cfg(windows)]
+            if interruption.starts_with("legacy_") {
+                for path in [
+                    directory.clone(),
+                    directory.join(AUTHORITY_MIGRATION_MANIFEST_FILE),
+                ] {
+                    let output = Command::new("icacls.exe")
+                        .arg(&path)
+                        .arg("/inheritance:e")
+                        .output()
+                        .unwrap();
+                    assert!(
+                        output.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&output.stdout)
+                    );
+                }
+            }
 
             let lease = CoreDataDirLease::acquire(&directory).unwrap();
             let AdmissionAssessment::RequiresMigration(ticket) =

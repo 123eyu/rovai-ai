@@ -31,7 +31,7 @@ last_updated: 2026-10-29
 | 新库发布竞态 | 两 namespace 确认无 main/log 后 staging + no-replace | 原子文件发布 |
 | Windows 已有 ACL 模板/owner/WRITE_DAC | 数据库/启动必需路径删除模板准入与修权 | OS 实际读写；新对象创建保护 |
 | 凭据 private API、Runtime 授权边界 | 不因启动减重放宽，按调用点区分 | 专用存储/平台合同 |
-| 旧 manifest identity/state | 仅已存在的旧切换恢复仍需辨别原库/新库，保留 | Legacy recovery |
+| 旧 manifest identity/state | 仅已存在的旧切换恢复仍需辨别原库/新库，保留；读取 manifest、备份日志及恢复文件不检查 ACL 模板 | Legacy recovery + OS 实际读写 |
 
 所有宿主经 `application::run_core` → DatabaseAdmission → Database/AuthorityMigrationRunner，共享锁/连接/迁移策略。
 Desktop 窗口由 Electron 独立维持；SQLite 每次锁争用 5 秒等待，Core 不套恢复重试；Desktop 明确瞬时失败最多再启动一次，
@@ -92,8 +92,8 @@ Standards 2 项：Windows 持锁文件意外共享删除、身份观察吞 I/O �
 | Renderer 启动呈现 | 1 passed；真实 Electron 的首帧画布与恢复门禁 |
 | typecheck / docs | typecheck、docs:test、docs:check:ci 通过；最终文档更新后继续运行相同通用门禁 |
 | macOS arm64 daily 包 | 构建、App/Host/CLI 签名架构门通过；隔离打包 App 首次初始化、带来源标记重开、成员/Thread 保留、quick_check=ok |
-| 打包窗口锁等待 | Core starting 时 Renderer 300ms 内产生 18 个 animation frames；释放 WAL 写锁后直接 ready，无用户重试 |
-| Windows | 原生 runner 编译、SQLite crash recovery 已通过；ACL 夹具顺序修正后完整 native matrix 重跑中，不以模拟结果代替 |
+| 打包窗口锁等待 | Core starting 时 Renderer 300ms 内产生 17 个 animation frames；释放 WAL 写锁后直接 ready，无用户重试 |
+| Windows | 原生 runner 的 admission 10 项及历史迁移矩阵通过；旧中断恢复读取 ACL 模板遗漏与长短路径比较已修正，完整 native matrix 重跑中 |
 
 [macOS 打包报告](../../../.github/assets/database-startup/packaged-macos.json)与[截图](../../../.github/assets/database-startup/packaged-macos.png)
 使用完全隔离 data/Skill Library/MCP，没有真实模型请求。物理系统主动写入 provenance 的事件未重复触发，证据是原生

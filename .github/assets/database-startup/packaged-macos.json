@@ -1,6 +1,6 @@
 {
   "channel": "isolated-packaged-app",
-  "source": "35adf7308",
+  "source": "af3616474 (same production startup code as 742c50edc; includes main PR #949)",
   "checks": {
     "firstOpen": true,
     "lockWaitResponsive": true,
@@ -11,7 +11,7 @@
   "duringWait": {
     "state": "starting"
   },
-  "animationFrames": 18,
+  "animationFrames": 17,
   "notVerified": [
     "Windows GUI",
     "Daily host restart (running old host preserved)",

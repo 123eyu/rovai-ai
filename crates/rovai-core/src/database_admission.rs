@@ -1398,7 +1398,10 @@ mod tests {
                 .creation_flags(CREATE_NO_WINDOW)
                 .output()
                 .unwrap();
-            assert!(output.status.success(), "ACL fixture failed: {output:?}");
+            assert!(
+                output.status.success(),
+                "ACL fixture failed for {path:?} {args:?}: {output:?}"
+            );
             output.stdout
         };
         let main = root.join("rovai.sqlite");
@@ -1411,20 +1414,16 @@ mod tests {
                     acl(root, &["/grant", "*S-1-1-0:(OI)(CI)R", "/T", "/Q"]);
                 }
                 "modify-only" => {
-                    // Protect each child before reducing parent rights. Recursive
-                    // icacls would inherit OWNER RIGHTS first and lock itself out
-                    // before it reached the next child's ACL.
+                    // Finish each leaf before the parent; recursive ACL edits
+                    // could inherit a deny before the next child is prepared.
+                    // Install WDAC deny as the LAST ACL write, while preserving
+                    // normal file I/O regardless of runner group membership.
                     let lock = root.join(crate::core_data_dir_lock::CORE_DATA_DIR_LOCK_FILE);
                     for (path, mask) in [
-                        (main.as_path(), "M"),
-                        (lock.as_path(), "M"),
-                        (root, "(OI)(CI)M"),
+                        (main.as_path(), "F"),
+                        (lock.as_path(), "F"),
+                        (root, "(OI)(CI)F"),
                     ] {
-                        acl(
-                            path,
-                            &["/grant:r", &format!("{user}:F"), "*S-1-3-4:F", "/Q"],
-                        );
-                        acl(path, &["/inheritance:r", "/Q"]);
                         acl(
                             path,
                             &[
@@ -1434,11 +1433,7 @@ mod tests {
                                 "/Q",
                             ],
                         );
-                    }
-                    // CI accounts can retain access via another group ACE.
-                    // A non-inheritable WDAC deny makes this fixture exact
-                    // while leaving Modify/read/write/delete rights usable.
-                    for path in [main.as_path(), lock.as_path(), root] {
+                        acl(path, &["/inheritance:r", "/Q"]);
                         acl(path, &["/deny", &format!("{user}:(WDAC)"), "/Q"]);
                     }
                     for path in [root, main.as_path()] {

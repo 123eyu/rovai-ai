@@ -99,7 +99,7 @@ Standards 2 项：Windows 持锁文件意外共享删除、身份观察吞 I/O �
 使用完全隔离 data/Skill Library/MCP，没有真实模型请求。物理系统主动写入 provenance 的事件未重复触发，证据是原生
 setxattr 注入同名属性与真实 ctime/WAL 变化；Windows GUI、真实日常宿主重启不在已验证项内。原生 Windows runner 的组授权会让仅改 Allow ACE 的夹具仍持有 WRITE_DAC；
 权限矩阵用 [icacls 的显式 WDAC deny](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)
-固定该条件，同时保留 Modify 读写/删除，避免以模拟布尔值冒充真实权限。
+固定该条件，同时保留普通读写/删除，避免以模拟布尔值冒充真实权限。
 
 早期默认 Rust 同时与 Release 编译运行时，两项既有短时限进程测试超时；降低测试并发后完整 workspace 通过，未改测试阈值。
 全量 `core-startup-availability.test.mjs` 有 6 项失败（含父套件），保存的未修改基线二进制复现相同失败：旧草稿 RPC、

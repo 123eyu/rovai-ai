@@ -16485,6 +16485,7 @@ impl Core {
         if execution.runtime.adapter_kind.as_str() != "codex-cli" {
             anyhow::bail!("AgentRun selected an unsupported Runtime Adapter");
         }
+        let reasoning_effort = codex::model_reasoning_effort(&execution.runtime.model.options)?;
         let execution_root = PathBuf::from(&execution.workspace.execution_root);
         if !execution_root.is_dir() {
             anyhow::bail!(
@@ -16702,7 +16703,6 @@ impl Core {
                 false,
             )?;
         }
-        let reasoning_effort = execution.runtime.model.options["reasoning_effort"].as_str();
         let delivery = {
             let mut database = self.database.lock().await;
             ContextService.prepare_input_delivery_for_context(

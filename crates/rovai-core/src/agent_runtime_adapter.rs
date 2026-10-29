@@ -1705,6 +1705,7 @@ pub fn normalize_model_catalog(models: Vec<ModelDescriptor>) -> Vec<ModelDescrip
         if model.display_name.trim().is_empty() {
             model.display_name.clone_from(&model.id);
         }
+        model.runtime_metadata = model.runtime_metadata.filter(Value::is_object);
         if let Some(existing) = merged.iter_mut().find(|entry| entry.id == model.id) {
             if existing.display_name == existing.id && model.display_name != model.id {
                 existing.display_name = model.display_name;
@@ -2899,7 +2900,8 @@ pub fn acp_model_catalog_for_adapter(
             if current.as_deref() != Some(&model.id) {
                 model.options.clear();
             } else {
-                model.runtime_metadata = Some(json!({"dshOptionsResolved": true}));
+                model.runtime_metadata.get_or_insert_with(|| json!({}))["dshOptionsResolved"] =
+                    json!(true);
                 for option in &mut model.options {
                     // Empty is DSH's provider-default sentinel. Rovai represents
                     // model default by omitting the override altogether.
@@ -4019,6 +4021,47 @@ mod tests {
                 choice("future", "future")
             ]
         );
+        // Native per-entry metadata is optional; malformed metadata cannot
+        // poison a DSH catalog or hide valid metadata from a duplicate entry.
+        for invalid in [
+            json!("bad"),
+            json!([]),
+            json!([1]),
+            json!(42),
+            json!(true),
+            Value::Null,
+        ] {
+            let session = json!({"models":{"currentModelId":"current", "availableModels":[
+                {"modelId":"current", "_meta":{"provider":"current-provider"}},
+                {"modelId":"partial", "_meta":invalid},
+                {"modelId":"duplicate", "_meta":invalid},
+                {"modelId":"duplicate", "_meta":{"provider":"retained-provider"}}
+            ]}, "_meta":{"rovaiDshModels":{"webProviders":[],"rejectedProviders":[],"diagnostics":[]},
+                "rovaiDshOptionsContext":"context-a"}});
+            let models =
+                acp_model_catalog_for_adapter(AdapterKind::DeepseekHarness, &session).unwrap();
+            assert_eq!(models.len(), 3);
+            assert!(
+                models
+                    .iter()
+                    .all(|model| model.runtime_metadata.as_ref().unwrap()["dshSource"] == "native")
+            );
+            for (id, provider) in [
+                ("current", "current-provider"),
+                ("duplicate", "retained-provider"),
+            ] {
+                assert_eq!(
+                    models
+                        .iter()
+                        .find(|model| model.id == id)
+                        .unwrap()
+                        .runtime_metadata
+                        .as_ref()
+                        .unwrap()["provider"],
+                    provider
+                );
+            }
+        }
         let observation = AcpProbeObservation {
             adapter_kind: AdapterKind::HermesCli,
             reported_version: Some("0.22.4".into()),

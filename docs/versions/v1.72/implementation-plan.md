@@ -39,6 +39,15 @@ Renderer 复用参数单测与隔离 Electron Picker fixture；不使用日常 u
 
 真实原生验证只覆盖 Copilot 的目录查询；其他 Runtime 用确定性协议 fixture，未声称付费模型调用或跨平台实机验收。
 
+提交 `9f10e14ae` 审查补修：既有目录矩阵复现 DSH 非对象 `_meta` 在写入 `dshSource` 时 panic；
+既有 Codex 请求 owner 复现数字 `reasoning_effort` 被 `.as_str()` 静默省略。共享归一化现局部忽略异常
+元数据，保留模型及重复条目的有效元数据；DSH 补充字段保留原元数据。Codex 在创建 Host／发送输入前
+完成参数映射，无法表达的键或类型明确报出字段，目录外字符串值原样传递，不恢复目录白名单，不新增日志。
+回归扩展原目录与请求 owner 的输入矩阵；既有 Codex 进程 fixture 证明无法表达的参数不发起原生输入，
+目录外模型与可表达参数仍发送。没有新增 Rust 测试函数；进程 fixture 只覆盖协议传递，类型矩阵由纯函数拥有。
+本轮定向命令 `cargo test -p rovai-core --features slow-tests,extended-tests --lib -- agent_runtime_adapter::tests codex::tests`
+通过 50 项，1 项既有真实 Runtime 手动测试保持 ignored；修复前两个回归 owner 均失败。
+
 ## 手动停止保留执行条（2026-10-29）
 
 - Worktree：`../rovai-ai-retain-stopped-run`；

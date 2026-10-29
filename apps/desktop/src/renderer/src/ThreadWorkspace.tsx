@@ -3510,7 +3510,7 @@ export function ThreadWorkspace({
     runSourceNavigation.cancel()
     anchorNavigation.navigation.cancelNavigation()
     const threadId = snapshot.thread.id
-    if (quote.source.scope !== 'camp' || quote.source.campId !== threadId) throw new Error('quote.owner_mismatch')
+    if (quote.source?.scope !== 'camp' || quote.source.campId !== threadId) throw new Error('quote.owner_mismatch')
     const messageId = quote.source.messageId
     setConversationView('conversation')
     setQuoteSourceId(messageId)
@@ -3526,7 +3526,7 @@ export function ThreadWorkspace({
     if (activeThreadIdRef.current !== threadId) return
     const target = timelineScrollRef.current?.querySelector<HTMLElement>(`[data-message-quote-body="${CSS.escape(messageId)}"][data-quote-owner="thread:${CSS.escape(threadId)}"]`)
     if (!target) throw new Error('quote.source_unavailable')
-    await revealMessageQuote(quote, target, source.authorType === 'user' ? source.body.replace(/\r\n/gu, '\n') : undefined)
+    revealMessageQuote(target)
   }
 
   const revealReplyParent = async (messageId: string, fromDetails = false): Promise<void> => {

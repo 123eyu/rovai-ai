@@ -11,6 +11,17 @@ last_updated: 2026-10-28
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 安全 HTML 与选文引用简化（2026-10-29）
+
+按 User 已确认的[变更说明](model-context-change-html-quotes-simple.md)，SafeMarkdown 统一使用现成
+HTML 解析与默认清洗器；选文直接保存，仅保留可选来源跳转，不重算来源或维护跨端投影。
+新模型引用只有 kind/text；旧引用新请求使用保存文字，冻结输入恢复保留原字节。
+当前规范见 [Message Quotes v2](../../contracts/message-quotes-v2.md)、[ContextManifest v43/v44](../../contracts/context-manifest-evidence-v44.md)、
+[History v17](../../contracts/camp-history-v17.md)、[Transport v45](../../contracts/builtin-tool-transport-v45.md)、
+[架构](../../architecture/message-quotes.md)与[会话 UI](../../ui/components/conversation-workspace.md#原始-html-与字面文本)。
+影响限 Renderer、选文数据/模型入口、现有版本准入及相关测试文档；承载消息权限、预算、Runtime 协议与平台资格保持。
+不增加渲染框架、配置开关、标记系统或历史修复；替代下方 10 月 22 日的字面 HTML / 投影 v3 方案。
+
 ## macOS 来源标记导致的启动误拦截（2026-10-28）
 
 补齐 main/WAL/journal 的系统来源标记识别，以及 current authority 以读写方式打开后的有界重新准入。
@@ -139,6 +150,8 @@ schema 162，Team 顺延到 Migration 213 / schema 163，本地展示偏好 sche
 验证与交付记录见同一[实施记录](team-management-implementation.md#v10-收口与-main-整合2026-10-22)。
 
 ## 消息字面 HTML 与引用投影（2026-10-22）
+
+以下为已交付历史记录；当前行为由上方“安全 HTML 与选文引用简化”替代。
 
 聊天正文保留尖括号占位符和原始 HTML 文字，并在可信 Mention 替换前完成文本化。
 更新日志、Markdown 文件与 Skill 阅读面显式保留隐藏策略；执行过程可见性判断和引用投影 v3 同步。

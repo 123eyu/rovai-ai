@@ -2551,6 +2551,7 @@
   "· 接受前已编辑": "· Edited before acceptance",
   "已引用 {0} 段": "Cited {0} segment(s)",
   "{0} {1} 段引用，来自{2}": "{0} {1} segment(s) cited, from {2}",
+  "第 {0} 段引用": "Excerpt {0}",
   "引用 · {0} 段": "Citation · {0} segment(s)",
   "定位第 {0} 段引用，来自{1}": "Located the {0}th cited segment, from {1}",
   "移除第 {0} 段引用": "Remove the {0}th cited segment",

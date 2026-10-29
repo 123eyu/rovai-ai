@@ -13,7 +13,7 @@ import { MobileLayoutProvider } from '../../../apps/desktop/src/renderer/src/Mob
 import { model, profiles, installations, snippets, documents } from './model'
 import { SafeMarkdown } from '../../../apps/desktop/src/renderer/src/SafeMarkdown'
 import { MarkdownCodeFrame } from '../../../apps/desktop/src/renderer/src/MarkdownCodeFrame'
-import { projectQuoteBody } from '../../../apps/desktop/src/renderer/src/message-quote-selection'
+import { readMessageQuoteText } from '../../../apps/desktop/src/renderer/src/message-quote-selection'
 import { createFileFindDomIndex } from '../../../apps/desktop/src/renderer/src/file-find-dom'
 import { changeInterfaceLanguage } from '../../../apps/desktop/src/renderer/src/interface-language'
 import '../../../apps/desktop/src/renderer/src/styles.css'
@@ -35,7 +35,7 @@ function PreviewControls({ setTheme }: any) {
   }, [])
   Object.assign(window, { __codeCopy: { setTheme, openDocument, hidePreview: preview.hidePane, showPreview: preview.showPane,
     snippets, documents, getState: model.get,
-    quote: () => projectQuoteBody(document.querySelector('.conversation-bubble.agent .safe-markdown') as HTMLElement).text,
+    quote: () => readMessageQuoteText(document.querySelector('.conversation-bubble.agent .safe-markdown') as HTMLElement),
     find: () => createFileFindDomIndex(document.querySelector('.file-preview-tab-panel:not([hidden]) .file-preview-markdown .safe-markdown') as HTMLElement).text,
     language: (interfaceLanguage: string) => changeInterfaceLanguage(languageTestApi, interfaceLanguage as any)
   } })

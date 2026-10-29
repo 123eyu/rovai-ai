@@ -66,6 +66,12 @@ Fast 可用性补修按 User 最新取舍执行：移除 Codex 新增的键／�
 本轮复验：新增启动 owner 通过全部六种组合，Adapter/Codex 定向 50 passed / 1 个既有 ignored，
 `cargo test --workspace` 479 passed / 1 个既有 ignored；格式、文档通用门禁通过，新增生产日志语句为零。
 
+## 数据库启动减重（2026-10-29）
+
+实现与验收归 [数据库启动实施记录](database-startup-simplification.md)；替代本页旧 macOS 来源标记重新准入方案。
+当前合同为 [Desktop Runtime Availability v3](../../contracts/desktop-runtime-availability-v3.md#数据库启动与有界重试)，
+不新增 Migration、不改业务格式。日常宿主保护与原有会话保留是交付边界。
+
 ## 手动停止保留执行条（2026-10-29）
 
 - Worktree：`../rovai-ai-retain-stopped-run`；

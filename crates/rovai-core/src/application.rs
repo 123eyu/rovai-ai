@@ -19781,7 +19781,7 @@ async fn run_core(
         .and_then(AdmissionAssessment::source_contract_version)
         .map(str::to_string);
     trace_startup_stage(
-        "authority_assessment",
+        "authority_open_and_version",
         assessment_started.elapsed(),
         source_contract.as_deref(),
     );
@@ -19881,7 +19881,7 @@ async fn run_core(
                 attachment_views.root_identity_digest(),
             );
             trace_startup_stage(
-                "authority_open",
+                "authority_configuration",
                 opening_started.elapsed(),
                 source_contract.as_deref(),
             );

@@ -18,6 +18,15 @@ last_updated: 2026-10-29
 当前规范见 [Runtime Launch v74](../../contracts/runtime-launch-and-verification-v74.md)，验证归属与结果见
 [实施记录](implementation-plan.md#模型目录兼容与原生执行2026-10-29)。不改 schema、模型上下文或发布版本。
 
+## 数据库启动减重（2026-10-29）
+
+按 User 明确要求，以普通用户稳定打开和旧数据保留为首要目标：现有 SQLite 单次读写打开，原连接完成版本检查、
+必要迁移和运行配置；删除文件状态票据、macOS provenance 特判与重复准入。Windows 启动必需存储按实际权限访问，
+凭据专用边界保持。无 schema/业务格式变化，现有旧版本逐事务升级与 manifest 恢复继续支持。
+取舍见 [D68](decisions.md#v1-72-d68)，当前规则见 [Availability-first Runtime](../../architecture/availability-first-runtime.md)
+与 [Availability v3](../../contracts/desktop-runtime-availability-v3.md#数据库启动与有界重试)，验收、测试退役与交付边界见
+[实施记录](database-startup-simplification.md)。本次替代下方 10 月 28 日的来源标记特判方案，不更换当前版本指针。
+
 ## 手动停止保留执行条（2026-10-29）
 
 公开手动停止保留静态状态、最终耗时及图标继续入口；失败改为图标重试。每位队员仅保留最新未受理

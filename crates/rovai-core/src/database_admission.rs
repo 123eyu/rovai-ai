@@ -1411,18 +1411,30 @@ mod tests {
                     acl(root, &["/grant", "*S-1-1-0:(OI)(CI)R", "/T", "/Q"]);
                 }
                 "modify-only" => {
-                    // OWNER RIGHTS removes the owner's implicit WRITE_DAC.
-                    acl(
-                        root,
-                        &[
-                            "/grant:r",
-                            &format!("{user}:(OI)(CI)M"),
-                            "*S-1-3-4:(OI)(CI)M",
-                            "/T",
-                            "/Q",
-                        ],
-                    );
-                    acl(root, &["/inheritance:r", "/T", "/Q"]);
+                    // Protect each child before reducing parent rights. Recursive
+                    // icacls would inherit OWNER RIGHTS first and lock itself out
+                    // before it reached the next child's ACL.
+                    let lock = root.join(crate::core_data_dir_lock::CORE_DATA_DIR_LOCK_FILE);
+                    for (path, mask) in [
+                        (main.as_path(), "M"),
+                        (lock.as_path(), "M"),
+                        (root, "(OI)(CI)M"),
+                    ] {
+                        acl(
+                            path,
+                            &["/grant:r", &format!("{user}:F"), "*S-1-3-4:F", "/Q"],
+                        );
+                        acl(path, &["/inheritance:r", "/Q"]);
+                        acl(
+                            path,
+                            &[
+                                "/grant:r",
+                                &format!("{user}:{mask}"),
+                                &format!("*S-1-3-4:{mask}"),
+                                "/Q",
+                            ],
+                        );
+                    }
                     for path in [root, main.as_path()] {
                         let denied = std::fs::OpenOptions::new()
                             .access_mode(WRITE_DAC)

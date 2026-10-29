@@ -200,14 +200,22 @@ fn legacy_snapshot_switch_for_test(
         path: source,
         namespace,
         source_contract,
-        ..
-    } = &open.state
+        main_identity,
+        connection,
+    } = open.state
     else {
         unreachable!("upgrade path is selected by the caller")
     };
+    // Historical switch writers did not retain an open SQLite handle. Closing
+    // this fixture connection is essential on Windows before replacing main.
+    drop(connection);
+    let source = source.as_path();
+    let revalidate = || {
+        crate::database_admission::verify_selected_main(lease, source, namespace, &main_identity)
+            .map_err(DatabaseMigrationError::from_path)
+    };
     debug_assert!(!source_contract.contract_version.is_empty());
-    open.revalidate()
-        .map_err(DatabaseMigrationError::from_path)?;
+    revalidate()?;
     let operation_id = Uuid::new_v4();
     let staging_file_name = format!(".rovai-authority-migration-{operation_id}.sqlite");
     let staging = lease.data_dir().join(&staging_file_name);
@@ -223,8 +231,7 @@ fn legacy_snapshot_switch_for_test(
     let migration_result = (|| {
         progress(phase(AuthorityMigrationPhase::CreatingSnapshot));
         backup_authority(source, &staging, progress)?;
-        open.revalidate()
-            .map_err(DatabaseMigrationError::from_path)?;
+        revalidate()?;
 
         progress(phase(AuthorityMigrationPhase::MigratingCopy));
         Database::migrate_staged_authority_copy(
@@ -242,12 +249,11 @@ fn legacy_snapshot_switch_for_test(
                 error,
             )
         })?;
-        open.revalidate()
-            .map_err(DatabaseMigrationError::from_path)?;
+        revalidate()?;
 
         progress(phase(AuthorityMigrationPhase::PreservingOriginal));
         let backup_directory = prepare_backup_directory(lease, operation_id)?;
-        let artifacts = observe_source_artifacts(source, *namespace)?;
+        let artifacts = observe_source_artifacts(source, namespace)?;
         let source_main_identity = artifacts
             .iter()
             .find(|artifact| artifact.kind == AuthorityArtifactKind::Main)
@@ -286,14 +292,13 @@ fn legacy_snapshot_switch_for_test(
                 backup_identity,
             });
         }
-        open.revalidate()
-            .map_err(DatabaseMigrationError::from_path)?;
+        revalidate()?;
 
         let manifest_path = lease.data_dir().join(AUTHORITY_MIGRATION_MANIFEST_FILE);
         let mut manifest = AuthorityMigrationManifest {
             schema_version: 1,
             operation_id,
-            namespace: *namespace,
+            namespace: namespace,
             source_file_name: leaf_name(source)?,
             staging_file_name,
             backup_operation_id: operation_id,
@@ -1657,12 +1662,26 @@ mod tests {
                 panic!("source must require migration")
             };
             let source = directory.join("rovai.sqlite");
+            let refused_by_os = std::cell::Cell::new(false);
+            let mutate = |result: io::Result<()>| {
+                if cfg!(windows)
+                    && result
+                        .as_ref()
+                        .is_err_and(|e| matches!(e.raw_os_error(), Some(5 | 32 | 33)))
+                {
+                    // Windows may protect the live main handle itself. This is
+                    // successful data protection, not an application failure.
+                    refused_by_os.set(true);
+                } else {
+                    result.unwrap();
+                }
+            };
             match changed {
-                "removed" => std::fs::remove_file(&source).unwrap(),
+                "removed" => mutate(std::fs::remove_file(&source)),
                 "replaced" => {
                     let replacement = directory.join("replacement.test-fixture");
                     std::fs::write(&replacement, b"unrelated authority").unwrap();
-                    std::fs::rename(replacement, &source).unwrap();
+                    mutate(std::fs::rename(replacement, &source));
                 }
                 "other_namespace" => {
                     std::fs::write(directory.join("lumen.sqlite"), b"unexpected authority").unwrap()
@@ -1683,15 +1702,28 @@ mod tests {
                     if !interrupted && after_migration {
                         interrupted = true;
                         if changed == "removed_after_migration" {
-                            std::fs::remove_file(&source).unwrap();
+                            mutate(std::fs::remove_file(&source));
                         } else {
                             let replacement = directory.join("late-replacement.test-fixture");
                             std::fs::write(&replacement, b"unrelated late authority").unwrap();
-                            std::fs::rename(replacement, &source).unwrap();
+                            mutate(std::fs::rename(replacement, &source));
                         }
                         before = std::fs::read(&source).ok();
                     }
                 });
+            if refused_by_os.get() {
+                let database =
+                    result.expect("a rejected OS mutation leaves the original database usable");
+                assert_eq!(database.path(), source);
+                assert!(matches!(
+                    classify_database_contract(database.connection()).unwrap(),
+                    DatabaseContractClassification::Current(_)
+                ));
+                drop(database);
+                drop(lease);
+                std::fs::remove_dir_all(directory).unwrap();
+                continue;
+            }
             let error = match result {
                 Err(error) => error,
                 Ok(_) => panic!("changed authority must refuse"),

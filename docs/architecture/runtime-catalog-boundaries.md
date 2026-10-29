@@ -223,7 +223,7 @@ Host 的程序指纹与 Native Session 的协议／存储来源分别判断，�
 Windows 沿用 Registry／PATH 规则；只采集 PATH，失败仍走既有回退。主动检查即使旧入口存在也刷新，
 同次候选解析与检查进程使用该次搜索环境及 Runtime 通用配置。刷新保留已保存的路径和变量，输入比较、
 代次及并发保护沿用原机制。额外 shell 变量通过用户通用／队员配置传递，不增加版本管理器适配。
-精确范围见 [Runtime Launch v73](../contracts/runtime-launch-and-verification-v73.md)。
+精确范围见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md)。
 
 启动只静态解析入口、检查平台与执行条件、保存同次稳定的 fingerprint/file identity，不运行 Runtime。
 手动 rescan 保留未知或变化程序的有界版本补读，不执行认证或协议深检；单项检查只检查选中的 Runtime。
@@ -277,11 +277,15 @@ Camp Fast service 拥有可空偏好、保存绑定代次与 Run 冻结。活跃
 模型目录只服务 Picker 和主动诊断，沿用既有 60 秒/24 小时缓存及身份失效规则，不新增缓存或 LKG。
 打开 Picker 才按需使用既有有界 Check Manager 刷新；页面打开、Runtime 切换及默认模型任务均不触发目录刷新。
 历史目录可用于展示，不能证明当前 executable 支持某个模型，也不能形成运行授权。
-刷新只写明确取得的目录证据；失败保留原诊断记录，Superseded 不提交错误身份的结果。
+刷新只写明确取得的目录证据；失败保留有效缓存及原诊断记录，不推进目录成功时间；Superseded 不提交错误身份的结果。
+共享 Adapter 层合并重复模型 ID 和选项，逐条忽略无法表示的目录数据，保留其余有效条目。没有默认项或
+当前模型不在候选列表中不否定原生 Session 可用性；单个 Provider／模型的补充异常不丢弃整个目录。
 
 Core 原子保存显式模型和选项的精确意图及静态权限配置；过期、缺失目录或历史失败不阻止保存。
-真实 Host 负责原生握手和选项传递，不静默替换或忽略。Claude Code 将已有模型 ID 与可传递的显式选项交给
-原生 CLI 判定；不能仅因枚举缺失或目录不包含该 ID 而拒绝正文。其他 Adapter 的原生模型设置协议保持原合同。
+真实 Host 负责原生握手和选项传递，不静默替换或忽略。全部 Adapter 将明确模型 ID 与显式选项交给
+原生 Runtime 判定；不能因目录缺失、未枚举 ID／参数／值或 setter 未回显目录拒绝执行。
+冻结和模型切换保留用户显式选项，不从目录补入默认值或自动删除覆盖值。原生错误继续沿用现有错误路径，
+不新增日志。界面读取失败显示“尚未核对”，保留当前选择及有效缓存。规则见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md)。
 默认模型不依赖目录，内部 sentinel 只用于审计和冻结，不向原生 Runtime 发送。
 
 成员配置只拥有模型策略，不拥有某次 Run 的实际模型。使用 `runtime_default` 时，Core 只能从当前
@@ -311,7 +315,7 @@ Claude、ACP、Codex 模型／初始化及 Codex 原生配置查询，不删除�
 但保存的队员配置保留。原生成功目录在刷新失败时继续按已有 stale/expired 边界读取，失败不能更新成功时间。
 `model.catalog.initialize` 保留为既有持久化能力名，专用查询或兼容查询均可建立该目录证据；查询失败
 不制造 Ready，界面独立表达目录不可用。已有模型和选项可原样保存并执行；默认项由用户主动选择，
-本期不增加任意模型 ID 输入。正式会话仍完成 initialize 协议／权限握手，但不再据其目录拒绝已有配置。
+Picker 允许填写明确模型 ID。正式会话仍完成 initialize 协议／权限握手，但不再据其目录拒绝已有配置。
 显式模型 ID 原样传给 `--model`，effort 原样传给 `--effort`；不能传递的键或非字符串选项明确拒绝，
 不把未知原生枚举值静默删除。运行时默认省略模型参数。字段与错误边界见
 [Runtime Launch v49](../contracts/runtime-launch-and-verification-v49.md)。

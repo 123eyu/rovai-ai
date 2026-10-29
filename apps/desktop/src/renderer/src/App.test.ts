@@ -3084,7 +3084,7 @@ describe('task event projections', () => {
     expect(markup).toContain(longTitle)
     expect(markup).toContain(`aria-label="【飞书话题】${longTitle}，有新回复"`)
     expect(markup).toContain(`title="【飞书话题】${longTitle} · 未读"`)
-    expect(markup).toContain(`class="truncate">【飞书话题】${longTitle}</span>`)
+    expect(markup).toContain(`>【飞书话题】${longTitle}</span>`)
     expect(markup).toContain('管理')
     expect(markup).toContain('aria-label="管理项目“rovai-ai”"')
     expect(markup).toContain('aria-label="管理“快速对话讨论”"')

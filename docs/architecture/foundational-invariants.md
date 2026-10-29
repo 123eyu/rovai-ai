@@ -270,7 +270,7 @@ last_updated: 2026-10-26
   macOS/Linux 正常采集只读取交互式登录 shell 的 PATH，保留有界超时和原回退；主动检查不以入口存在为由跳过刷新，
   候选解析及检查进程绑定同次搜索环境与 Runtime 通用配置。配置重读、输入比较和代次／写回保护沿用既有机制。
   普通运行使用当前基础环境，不逐消息重扫；额外变量只经原通用／队员配置传递，不增加版本管理器适配。
-  详见 [Runtime Launch v73](../contracts/runtime-launch-and-verification-v73.md)。Windows 上，手动绝对路径、Adapter 专用环境 override、自动 PATH/known locations 是依次封闭的 candidate set；显式入口失败不能回退另一个同名 Runtime。Windows 每次 capture 只读合并 inherited process PATH、HKCU User PATH、HKLM Machine PATH 与 known locations，按该顺序稳定、大小写不敏感去重，并忽略无效或不存在目录；Registry 失败不阻断 inherited PATH。冻结 PATH 同时用于发现、version/deep/health Probe、AgentRun 与 Runtime 必要子命令。Windows 同目录候选只允许 `.exe → .cmd → .bat`，不随 PATHEXT 放开 `.ps1`。Codex npm/pnpm `.cmd` 只可作为受限 locator 解析到 package 内真实 native `codex.exe`；解析成功后脚本、Node entrypoint 与 `node.exe` 不成为 Installation 或 launch identity，但 Core 必须内部持久化 canonical shim/content、System32 interpreter identity 及 resolved target identity 的 locator evidence。locator digest 参与 Installation generation、snapshot 与 Host compatibility；shim 改写即使仍指向同一 native executable 也撤销旧 Ready evidence。其他 `.cmd/.bat` 必须保持 `windows_command_shim` identity，其 canonical path、内容 digest 与 canonical System32 interpreter identity 共同 fence snapshot/Host，并只经 Managed Runtime Process 的受控 batch serializer 启动。
+  详见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md)。Windows 上，手动绝对路径、Adapter 专用环境 override、自动 PATH/known locations 是依次封闭的 candidate set；显式入口失败不能回退另一个同名 Runtime。Windows 每次 capture 只读合并 inherited process PATH、HKCU User PATH、HKLM Machine PATH 与 known locations，按该顺序稳定、大小写不敏感去重，并忽略无效或不存在目录；Registry 失败不阻断 inherited PATH。冻结 PATH 同时用于发现、version/deep/health Probe、AgentRun 与 Runtime 必要子命令。Windows 同目录候选只允许 `.exe → .cmd → .bat`，不随 PATHEXT 放开 `.ps1`。Codex npm/pnpm `.cmd` 只可作为受限 locator 解析到 package 内真实 native `codex.exe`；解析成功后脚本、Node entrypoint 与 `node.exe` 不成为 Installation 或 launch identity，但 Core 必须内部持久化 canonical shim/content、System32 interpreter identity 及 resolved target identity 的 locator evidence。locator digest 参与 Installation generation、snapshot 与 Host compatibility；shim 改写即使仍指向同一 native executable 也撤销旧 Ready evidence。其他 `.cmd/.bat` 必须保持 `windows_command_shim` identity，其 canonical path、内容 digest 与 canonical System32 interpreter identity 共同 fence snapshot/Host，并只经 Managed Runtime Process 的受控 batch serializer 启动。
 - Managed Process 的普通 capture 只接受已存在的绝对 application file，不替调用方按 cwd 或 PATH 解析可执行文件。
   ACP Terminal 等明确准入的 derived child 可以提交 portable command；Managed Process 必须先形成请求最终 cwd 与环境
   覆盖，Unix bare command 才由 OS 按该 PATH 查找、相对 path 才按该 cwd 锚定，Windows 才在本次 launch 内按
@@ -278,8 +278,8 @@ last_updated: 2026-10-26
   Host 模板提前解析后再改变执行上下文。
 - 历史 capability snapshot、Probe attempt 和目录缓存仅供诊断/展示，不授权或否决新的真实启动，不新增 LKG、健康快照、轮询或重试调度。入口已检测到只代表可以尝试，版本未知不阻断任务；失败进入本次 Run 并展示具体原因。
 - Runtime Check Manager 仅拥有主动诊断及目录检查的有界 attempt：同 Runtime 单飞、全局并发二、deadline、前后身份围栏与进程树清理保持。Superseded 不提交错误身份结果；普通执行不进入此诊断队列，也不因历史失败等待其成功。 单项检查只验证初始化、认证和当前模型；MiniMax 全模型参数遍历属于完整目录请求，健康成功与目录成功时间分离。Pi/Grok/Kiro 不演练恢复或重复设置，ZCode 只在明确 probe 入口省略订阅和重复模式。细则由 [Runtime Launch v64](../contracts/runtime-launch-and-verification-v64.md#单项检查的必要工作) 拥有。
-- 所有 Runtime 的启动只做静态安装发现；手动 rescan 在缺少同身份可信版本时允许既有有界版本补读，不运行认证或协议深检。真实 Host 在输入前验证必要协议、显式模型/选项与权限，默认模型不等待完整目录。TRAE 模式须由本次 Session 明确确认；无历史 Ready 仍可尝试启动。
-- `MemberRuntimeConfiguration` 原子保存产品 Runtime、精确模型意图及 Adapter 静态权限配置；背景发现不创建、扩权或改写。历史 Probe/目录不成为配置保存和运行门禁，动态模型与权限应用在真实 Host 验证。既有 Adapter 权限默认保持，用户仍可选择较窄模式。
+- 所有 Runtime 的启动只做静态安装发现；手动 rescan 在缺少同身份可信版本时允许既有有界版本补读，不运行认证或协议深检。真实 Host 在输入前建立必要协议并应用用户明确的模型、选项与权限；原生 Runtime 判断模型配置，目录不参与准入。TRAE 模式须由本次 Session 明确确认；无历史 Ready 仍可尝试启动。
+- `MemberRuntimeConfiguration` 原子保存产品 Runtime、精确模型意图及 Adapter 静态权限配置；背景发现不创建、扩权或改写。历史 Probe/目录不成为配置保存和运行门禁，模型与参数原样传给真实 Host 的原生协议，权限沿用既有映射。既有 Adapter 权限默认保持，用户仍可选择较窄模式。
 - 成员保存的 model policy 与单次 AgentRun 的实际模型观测是不同事实。`runtime_default` 只在 Runtime-native、结构化且可归因到当前 Thread/Session 的字段出现时记录首个模型；目录默认值、请求参数、冻结配置、Usage 或文本输出不得补推。观测按 Run execution epoch、default-only、write-once 持久化，缺失或拒绝不改变 Run 终态，也不回写成员配置。
 - `ResolvedRuntimeBinding` 只是调度、诊断和 Run 冻结使用的内部执行状态，不进入普通 AgentProfile 读取或成员编辑。用户发送先按消息、目标和冻结配置完成业务接受，Runtime resolution、workspace launchability 和完整执行 Preflight 由 Scheduler 在真实执行边界重查；失败形成诚实 Run 结果，不回滚已接受消息或静默改派目标。
 - AgentRun 冻结 Adapter、Installation、auth scope、模型及权限的逻辑身份。排队 Run 可经 Core-owned 命令在同一身份内有界解析并原子 rebind，再由真实 Host 验证；不静默改换账户、Runtime 或权限，不先执行独立深检。输入已接收或接收未知时不自动重放。
@@ -288,6 +288,10 @@ last_updated: 2026-10-26
 <a id="runtime-process-verification"></a>
 
 ### 校验、进程与 Session 所有权
+
+模型目录是发现信息，不能作为显式配置的执行准入表。共享归一化合并重复 ID、局部处理坏条目；读取失败
+保留模型、参数和有效缓存。原生 Runtime 决定明确配置是否可执行，不按目录过滤或补入用户选项。
+当前规则见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md)。
 
 - 完整可执行文件 hash 不在消息发送热路径。安装、更新、受管迁移、轻量身份变化或用户显式检查才使用标准 SHA-256；成功后保存路径、hash、size、mtime 和平台文件 ID。执行边界先比较轻量身份，未变则不重读文件；变化时完整 hash 仍匹配冻结 fingerprint 才可更新轻量身份并继续。校验失败是已持久消息之后的诚实执行结果，不撤销消息。
 - 每个正式 AgentRun 独占一个 Runtime 进程，内部作业使用临时独占进程；Adapter 明确声明哪些 Runtime 可进入 IdleWarm，one-shot/Burst 终态后关闭。Native Session 连续性不授予并行共享进程的资格。

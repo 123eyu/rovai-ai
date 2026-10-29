@@ -48,7 +48,7 @@ use claude::{
 };
 use codex::{
     CodexAgentRunRuntimeRequest, CodexAgentThreadOptions, CodexCliRuntimeAdapter, CodexIncoming,
-    CodexLiveModelValidationError, CodexRuntime,
+    CodexRuntime,
 };
 use core_subsystems::{
     CoreSubsystems, SubsystemInitialization, SubsystemUnavailable, runtime_subsystem_id,
@@ -5755,6 +5755,10 @@ impl Core {
                 if !runtime_installation_revision_matches(&database, kind, &commit_target)? {
                     return Ok(RuntimeCheckOutcome::Superseded);
                 }
+                let catalog_unverified = catalog_requested
+                    && !rovai_core::agent_runtime_adapter::model_catalog_has_usable_entries(
+                        &snapshot.models,
+                    );
                 AgentProfileService::default().commit_verified_managed_installation(
                     &mut database,
                     VerifiedManagedInstallation {
@@ -5771,6 +5775,21 @@ impl Core {
                         entrypoint_locator_identity: candidate.entrypoint_locator_identity.clone(),
                     },
                 )?;
+                if catalog_unverified {
+                    AgentProfileService::default().record_managed_probe_failure(
+                        &mut database,
+                        ManagedProbeFailure {
+                            adapter_kind: kind,
+                            auth_scope: "default",
+                            candidate_path: &executable_path,
+                            fingerprint: Some(&candidate_fingerprint),
+                            source: Some(source),
+                            failure_class: "transient",
+                            diagnostic_code: "runtime_model_catalog_refresh_failed",
+                            failure: None,
+                        },
+                    )?;
+                }
                 drop(database);
                 self.publish_verified_runtime_discovery(RuntimeDiscoveryObservation {
                     runtime_kind: kind,
@@ -5796,7 +5815,11 @@ impl Core {
                     kind.as_str(),
                     commit_started.elapsed().as_secs_f64() * 1000.0,
                 );
-                return Ok(RuntimeCheckOutcome::Ready);
+                return Ok(if catalog_unverified {
+                    RuntimeCheckOutcome::StableFailure
+                } else {
+                    RuntimeCheckOutcome::Ready
+                });
             }
             let (failure_class, diagnostic_code) = match snapshot.probe_status.as_str() {
                 _ if !targets_current_installation => {
@@ -13956,10 +13979,6 @@ impl Core {
                     error.downcast_ref::<AcpLiveModelValidationError>()
                 {
                     model_error.code.to_string()
-                } else if let Some(model_error) =
-                    error.downcast_ref::<CodexLiveModelValidationError>()
-                {
-                    model_error.code.to_string()
                 } else {
                     public_failure
                         .as_ref()
@@ -16540,21 +16559,7 @@ impl Core {
             )));
         }
         let explicit_model = match execution.runtime.model.source.as_str() {
-            "explicit" => {
-                runtime
-                    .validate_explicit_model(model, &{
-                        let mut options = execution.runtime.model.options.clone();
-                        // Core's per-turn service tier annotation is not a native model option.
-                        if execution.runtime.camp_fast.is_some()
-                            && let Some(options) = options.as_object_mut()
-                        {
-                            options.remove("serviceTier");
-                        }
-                        options
-                    })
-                    .await?;
-                Some(model)
-            }
+            "explicit" => Some(model),
             "runtime_default" => None,
             _ => anyhow::bail!("Codex model source is invalid"),
         };

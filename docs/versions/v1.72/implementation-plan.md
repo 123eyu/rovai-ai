@@ -8,6 +8,37 @@ last_updated: 2026-10-29
 
 # v1.72 实施与验收
 
+## 模型目录兼容与原生执行（2026-10-29）
+
+现场 Copilot 1.0.105 的 ACP `session/new` 返回重复 `auto`；旧共享快照校验以重复 ID 拒绝整份目录。
+共享归一化合并模型、参数与枚举，保留可用条目；缺少默认项不否定 Ready。目录失败保留已有有效缓存及
+成功时间。明确模型与参数不再被目录过滤、补默认值或阻断，ACP/Codex/Pi/Antigravity/ZCode 复用原生
+设置路径；MiniMax 的逐模型补充和 Pi Provider 异常局部处理。前端保留覆盖值并显示“尚未核对”。
+本次不新增日志、审批、schema 或模型上下文。规则由 [Runtime Launch v74](../../contracts/runtime-launch-and-verification-v74.md) 拥有；属于可逆兼容修复，无需新增 Version Decision。
+
+验证归属：扩展既有 Adapter 目录矩阵、AgentProfile 保存／缓存 owner、ACP/Codex/Pi 真实协议进程 fixture、
+health 的目录／启动 owner 与 ZCode 内存协议 owner；不新增 Rust 测试函数。原“目录缺失或未枚举配置必须
+失败”、Pi 单 Provider 失败清空目录、Renderer 自动删除覆盖值的断言随旧行为退役，以原生调用／拒绝和
+保留用户意图断言替代。跨 Runtime 输入矩阵留在纯函数 owner，进程测试只证明原生协议传递。
+Renderer 复用参数单测与隔离 Electron Picker fixture；不使用日常 userData，不启动模型 Prompt。
+
+验证结果：
+
+- `cargo test --workspace`：479 passed、1 个既有 ignored；`cargo fmt --all --check` 通过。
+- `cargo test -p rovai-core --features slow-tests,extended-tests --lib` 的定向 owner：Adapter 目录矩阵、保存意图与缓存、
+  Codex/ACP/Pi 原生传参、ZCode 目录外模型、Antigravity 无目录启动、ACP 健康与 MiniMax 目录检查均通过。
+  ACP 进程 owner 独立运行通过，避免并发环境 fixture 临时 PATH 对 `env python3` 的干扰。
+- `pnpm typecheck`、`MemberRuntimeParameters.test.ts`（35 passed）、`pnpm test:runtime-model-picker` 通过。
+  隔离 Electron 验证失败抛错／空失败响应保留缓存、参数不清空、手填 ID、异步读取、Day/Night 和窗口缩放；
+  复核真实生产组件截图，无布局改动。Impeccable detect 返回空问题列表。
+- `pnpm docs:test`、`pnpm docs:check`、带固定 base 的 `pnpm docs:check:ci` 通过；新增生产日志扫描为空。
+- 真实 Copilot CLI 1.0.105，经本分支构建的 `rovai-host`、全新隔离 data/Skills/MCP 查询：24 个唯一模型、
+  `auto` 一项、`claude-opus-5.5` 保留 `low/medium/high/xhigh/max`。启动配置代次变更使首次请求 deferred，
+  同一隔离实例重读 completed/fresh；第二次正常目录读取 not_required 且目录相同。查询约 3.5 秒，无 Prompt。
+  隔离 Host 已关闭，临时数据与派生 Runtime files root 已清理，日常 App 配置未改。
+
+真实原生验证只覆盖 Copilot 的目录查询；其他 Runtime 用确定性协议 fixture，未声称付费模型调用或跨平台实机验收。
+
 ## 手动停止保留执行条（2026-10-29）
 
 - Worktree：`../rovai-ai-retain-stopped-run`；

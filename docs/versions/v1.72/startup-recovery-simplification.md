@@ -37,7 +37,10 @@ Adapter 初始化还会重复执行同一清理。Fleet 构造与 Stop 确认同
 共享目录和 Mission workspace；Continuation owner 显式提供当前执行身份。macOS 既有 PID/ledger owner 扩展为
 EPERM、损坏混批、格式/权限异常、不可读目录、不能删除、零预算和当前进程保留；Fleet receipt owner 验证构造/Stop
 不触发历史 sweep，显式维护才逐条处理。原子数据库/内核身份断言不能由静态文本检查替代。
-Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任务写入失败、历史诊断保留”；本机未运行 Windows 用例。
+Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任务写入失败、历史诊断保留”；
+原生 Windows 2022 的既有 `windows-runtime` CI 矩阵已通过，包含全 targets、ManagedProcess、Fleet、迁移与中断恢复、
+实例互斥、数据目录、附件、Skill、Named Pipe 和 MCP 权限检查。验证提交为 `214adc50f65d925ec2f6a31d7daa9e67b3b86a3b`，
+此后 Rust 变动仅格式调整；[运行记录](https://github.com/murray17/rovai-ai/actions/runs/40891321117)。这不是 Windows 桌面实机验收。
 
 既有 `scripts/smoke-stop-continue.mjs --historical-startup` 扩展真实 Core + 合成 ACP 路径：先产生并停止执行，关闭 Core，
 只撤去旧 ACK 并加入脱敏坏记录、8192 条损坏文件与 32768 条已消失的生命周期身份。原 Thread/member/Runtime/输入保留；
@@ -64,10 +67,12 @@ Windows 既有 owner storage 测试同步改为“构造不阻断、实际新任
 | 通用文档治理三项 | 通过 |
 | 合并当前主线后的默认 Rust 门禁 | 再次通过，477 通过、1 项原有 ignored |
 | arm64 打包与签名 | `pnpm package:mac:daily` 通过，隔离运行通过 |
-| P2：ACP/Pi 异常退出后收尾 | 均通过；ACK 分别在 129ms / 233ms 落库，同 Conversation/member/Runtime/installation 后继成功，无数据库修补 |
-| P2：Host 初始化途中 Stop | 通过；258ms 取得 ACK，旧输入未发送，用户显式继续后唯一新 prompt 成功 |
+| P2：ACP/Pi 异常退出后收尾 | 均通过；ACK 分别在 113ms / 112ms 落库，同 Conversation/member/Runtime/installation 后继成功，无数据库修补 |
+| P2：Host 初始化途中 Stop | 通过；123ms 取得 ACK，旧输入未发送，用户显式继续后唯一新 prompt 成功 |
 | P2：无 handle 的当前收尾归属 | 扩展原 Core owner 通过；登记保留至真实 ACK，重复扫描不重复收尾 |
 | P2：历史故障与正常退出重开 | 再次通过；历史会话读取 90ms、预算耗尽仍可继续；正常退出 40ms，未重投旧输入 |
+| 原生 Windows 既有矩阵 | Windows full 通过，未跳过或关闭现有步骤 |
+| P2 PR CI | `0107c0872` 通过；包含格式门禁及本次变更所需检查 |
 
 `pnpm dev` 在独立目录真实启动 Desktop、Host 与 Codex。首次执行 `printf STARTUP_DEV_OK` 成功发布回执；
 第二次 `sleep 120` 在命令实际运行时通过 UI Stop，SQLite 记录真实 ACK。正常退出该开发实例后，只移除该 ACK，
@@ -97,7 +102,8 @@ Host SHA-256 为 `a69ce9d48c2e0e1583bf3f0678db89320bb1123c5bb7748dd729a15d75027c
 CLI 为 `35bbe7e12caaa9e1f854bd21edd5d4792cf004ce1f147894d53c5410bec6fc3e`。
 复用上述开发现场，UI 上真实 Codex 新任务 `STARTUP_P2_PACKAGE_OK` 成功；随后运行 `sleep 120` 并明确 Stop，
 当前 Run 在约 99ms 后取得 ACK；新输入 `STARTUP_P2_AFTER_STOP_OK` 再次成功。7 次 Run 的 Conversation、
-agent_1、Runtime 和 installation 相同；历史取消 Run 的 ACK 仍为空，8194 个文件摘要不变。正常退出完成，
+agent_1、Runtime 和 installation 相同；历史取消 Run 的 ACK 仍为空，8194 个文件摘要不变。正常退出并重开后，
+7 次 Run 和原消息仍可读，没有新增自动重放的 Run；再次正常退出，两次进程退出码均为 0。
 证据在 `p2-packaged-acceptance.json`，日常安装的两个二进制摘要仍与上表相同。
 
 P2 默认 Rust 门禁首次在并行打包时出现 `runtime_probe_stdout_cleanup_timed_out`，该测试原有清理窗口为 500ms。

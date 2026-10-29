@@ -3,7 +3,7 @@ document_type: architecture
 architecture: windows-desktop-platform
 authority: windows-desktop-platform-composition
 status: accepted
-last_updated: 2026-10-11
+last_updated: 2026-10-29
 ---
 
 # Windows Desktop Platform
@@ -41,6 +41,10 @@ Windows Web credentials have a narrow availability exception inside the storage 
 already admitted Core directory as its trust boundary, accepts inherited file permissions, and hardens only new empty
 atomic siblings on a best-effort basis. General private-file rules stay strict. See
 [Windows Web credential exception](../contracts/windows-private-storage-v2.md#windows-web-credential-exception).
+
+Fleet's internal owner ledger uses ordinary inherited Windows permissions inside the admitted Core root. Directory
+preparation and record writes do not inspect or repair ACLs; atomic replacement and process cleanup receipts remain.
+See [Runtime Fleet owner records](../contracts/windows-private-storage-v2.md#runtime-fleet-owner-records).
 
 ## 3. Managed processes and shutdown
 

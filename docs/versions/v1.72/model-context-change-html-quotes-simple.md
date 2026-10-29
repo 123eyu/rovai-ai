@@ -101,9 +101,9 @@ Single Chat Charter 变更前完整被删行：
 - Branch：`rovai/html-quotes-simple`
 - Base：`6996d1042bd1f0387e85d6c9455489500eb933b6`
 - Governance：与代码同分支；无主线文档先行要求。
-- Status：ready；保留独立 worktree 供 review。
+- Status：实现完成；合入状态见 [PR #944](https://github.com/murray17/rovai-ai/pull/944)。
 - Validation：下方本地验收通过。
-- Next：提交并推送本分支，按会话偏好不自动创建 PR。
+- Next：User sequence 15 已授权 PR 到 main 并合并；检查通过后合入并清理本 worktree。
 
 
 ## 实施与验收记录
@@ -156,3 +156,7 @@ Rust 测试退役：`camp_quote_projection_rechecks_source_visibility_for_each_a
 修复前复现返回空结果；修复后 81 组取文用例及上述两种可见控件对照通过，typecheck 通过。
 首次完整交互回归在既有工具栏显示断言失败，代码不变重跑通过；未改该测试时序。
 本次未改 Core、来源语义或模型格式，也未重跑 Rust 或真实 Runtime。
+
+PR #944 收口时同步最新 main，版本概览保留 HTML/引用与 Windows Fleet 两边记录。
+首轮 CI 发现五个旧 HTML 策略断言和一个脚注属性序列化断言未同步；仅更新原测试，生产实现不变。
+本地全量 Vitest：259 个文件通过，3018 项通过、2 项跳过；Rust 格式检查通过。

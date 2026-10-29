@@ -13318,12 +13318,32 @@ impl Core {
         }
     }
 
+    /// Snapshot existing ownership only. Hold the database lock so a launch
+    /// cannot be committed between this snapshot and the admission query.
+    async fn current_runtime_execution_keys(&self) -> Vec<ActiveExecutionKey> {
+        let mut keys = self
+            .planned_shutdown
+            .active_snapshots()
+            .await
+            .into_iter()
+            .map(|entry| entry.key)
+            .collect::<HashSet<_>>();
+        keys.extend(self.runtime_fleet.active_execution_keys().await);
+        keys.extend(self.claude_code_cli.active_execution_keys());
+        keys.extend(self.antigravity_app.active_execution_keys().await);
+        keys.into_iter().collect()
+    }
+
     async fn collect_delivery_batch_dispatch_candidates(
         self: &Arc<Self>,
     ) -> Result<Vec<rovai_core::runtime::QueuedAgentRunCandidate>> {
         let missions = {
             let database = self.database.lock().await;
-            rovai_core::delivery_queue::waiting_mission_batch_workspaces(&database)?
+            let active_executions = self.current_runtime_execution_keys().await;
+            rovai_core::delivery_queue::waiting_mission_batch_workspaces(
+                &database,
+                &active_executions,
+            )?
         };
         // Preparing a Mission can take time. Each Camp owns one short-lived job;
         // ordinary lanes continue through selection and dispatch immediately.
@@ -13403,11 +13423,13 @@ impl Core {
                         [],
                         |row| row.get(0),
                     )?;
+                    let active_executions = self.current_runtime_execution_keys().await;
                     let runs =
                         rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
                             &mut database,
                             DELIVERY_BATCH_SCHEDULER_PAGE_LIMIT,
                             &ready,
+                            &active_executions,
                         )?;
                     let mut statement = database.connection().prepare(
                         "SELECT DISTINCT camp_id FROM agent_run WHERE id IN (SELECT value FROM json_each(?1)) AND camp_id IS NOT NULL
@@ -13601,10 +13623,12 @@ impl Core {
         }
         let pending_cleanup = {
             let database = self.database.lock().await;
+            let active_executions = self.current_runtime_execution_keys().await;
             ExecutionRuntimeService::default().runtime_cleanup_blocked_since(
                 &database,
                 &candidate.conversation_id,
                 &candidate.agent_run_id,
+                &active_executions,
             )
         };
         match pending_cleanup {
@@ -14235,11 +14259,17 @@ impl Core {
     ) -> Result<Option<tokio::time::Instant>> {
         let candidates = {
             let database = self.database.lock().await;
+            let active_executions = self.current_runtime_execution_keys().await;
             let mut candidates = Vec::new();
             let mut offset = 0;
             loop {
                 let mut page = ExecutionRuntimeService::default()
-                    .list_cancellation_candidates_page(&database, 32, offset)?;
+                    .list_cancellation_candidates_page(
+                        &database,
+                        32,
+                        offset,
+                        Some(&active_executions),
+                    )?;
                 let count = page.len();
                 candidates.append(&mut page);
                 if count < 32 {
@@ -19960,18 +19990,6 @@ async fn run_core(
     let compaction_detector_policies =
         DesiredCompactionDetectorPolicies::from_process_environment();
     let recovery = (|| -> Result<_> {
-        // An old native tool can outlive Core. Reclaim persisted ownership before
-        // readiness, so another Runtime sharing its execution root cannot race it.
-        #[cfg(target_os = "macos")]
-        rovai_core::managed_process::ManagedProcess::recover_runtime_descendants(
-            &data_dir.join("runtime"),
-        )?;
-        // Retired backend: recover only processes proven owned by the generic
-        // kernel-identity ledger. Never launch it or touch persistent history/credentials.
-        #[cfg(target_os = "macos")]
-        rovai_core::managed_process::ManagedProcess::recover_runtime_descendants(
-            &data_dir.join("runtime/cline-hub/hosts"),
-        )?;
         ManagedBlobStore::new(&data_dir).recover_gc_state(&mut database)?;
         recover_legacy_pending_cancellations(&mut database)?;
         rovai_core::single_chat::recover_pending_edit_sessions(&database)?;
@@ -20362,6 +20380,35 @@ async fn run_core(
         source_contract.as_deref(),
     );
     eprintln!("rovai-core {} ready", env!("CARGO_PKG_VERSION"));
+    // Exactly one historical cleanup attempt per Core, outside retryable
+    // subsystem initialization, the database lock and the RPC request loop.
+    // The worker shares one budget across both ledger formats and never
+    // publishes a feature failure or manufactures a task cleanup ACK.
+    let historical_cleanup_core = core.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut report =
+            rovai_core::managed_process::HistoricalProcessCleanup::new(Duration::from_secs(3));
+        #[cfg(target_os = "macos")]
+        for root in ["runtime", "runtime/cline-hub/hosts"] {
+            if historical_cleanup_core.planned_shutdown.shutdown_started() {
+                break;
+            }
+            rovai_core::managed_process::ManagedProcess::recover_runtime_descendants(
+                &historical_cleanup_core.data_dir.join(root),
+                &mut report,
+            );
+        }
+        if !historical_cleanup_core.planned_shutdown.shutdown_started() {
+            historical_cleanup_core
+                .runtime_fleet
+                .recover_previous_processes(&mut report);
+        }
+        report.expired();
+        eprintln!(
+            "[startup] stage=historical_process_cleanup cleaned={} skipped={} budget_exhausted={} diagnostics={:?}",
+            report.cleaned, report.skipped, report.budget_exhausted, report.diagnostics
+        );
+    });
     let runtime_discovery_core = core.clone();
     let mut runtime_discovery_handle = tokio::spawn(async move {
         runtime_discovery_core

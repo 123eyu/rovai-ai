@@ -46,6 +46,7 @@ Electron ready
        -> exact legacy cancellation settlement
        -> remaining mandatory execution/input/delivery recovery (failure => typed refusal)
        -> ready(authority origin, initializing subsystems)
+       -> one background historical-process cleanup attempt (independent of retries and authority)
   -> Supervisor enables authoritativeWorkspace/coreRequests
   -> Renderer mounts authority-backed hooks inside the restored route
        -> initialize optional services -> ready or feature-scoped degraded
@@ -77,6 +78,15 @@ Skill/MCP/adapter 对象先无 I/O 构造。ready 后独立初始化其存储与
 安装缺失、路径失效、版本、认证、capability 和平台资格继续由 Runtime discovery、Availability、Readiness 与 dispatch
 preflight 分层拥有；其中任何结果都不反向污染 optional subsystem health。Adapter 私有存储真实初始化失败仍可只降级
 对应 Runtime，并由原进程内重试修复。
+
+历史进程清理属于一次后台维护，不属于可选功能健康状态或启动准入。Core ready 后唯一启动调用在阻塞工作线程
+遍历 macOS ownership ledger、退役 Cline ledger 和 Fleet 历史记录，共享有限总预算与有限诊断；每条失败继续，
+预算耗尽保留余项。它不持有会话读取的数据库锁，不进入可重试 maintenance、Adapter 初始化或任务停止路径。
+当前 Core 的生命周期身份或 Fleet generation 排除本次启动的新进程。历史异常、缺 ACK、身份未知均不阻断新任务，
+也不伪造已退出或批量补写 ACK。工作区准备、消息领取、共享执行目录检查与任务 dispatch 共用当前精确执行所有权判断；
+仅当前 Core 持有的 Run/epoch 且清理未确认时保留对应任务的冲突门禁。业务恢复与旧输入不可自动重投规则保持。
+规范与取舍见 [Managed Process](../contracts/managed-runtime-process-v2.md#macos-acp-descendants) 和
+[V1.72-D69](../versions/v1.72/decisions.md#v1-72-d69)。
 
 退役两阶段取消协议的持久中间态在数据库 open/migration 后先按精确 cancel intent 与未完成关联状态查询，并复用统一
 settlement；它先于通用 execution/input/delivery recovery，避免旧取消工作被重新准入。重复启动不再次结算，失败与其他

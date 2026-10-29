@@ -342,6 +342,15 @@ pub struct ClaudeCodeCliRuntimeAdapter {
 }
 
 impl ClaudeCodeCliRuntimeAdapter {
+    pub(crate) fn active_execution_keys(&self) -> Vec<crate::planned_shutdown::ActiveExecutionKey> {
+        self.active
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .keys()
+            .map(|(id, epoch)| crate::planned_shutdown::ActiveExecutionKey::new(id, *epoch))
+            .collect()
+    }
+
     #[cfg(all(test, feature = "extended-tests"))]
     pub fn new(data_dir: &Path) -> Result<Self> {
         let adapter = Self::deferred(data_dir);

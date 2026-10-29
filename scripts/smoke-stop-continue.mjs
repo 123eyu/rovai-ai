@@ -2,7 +2,7 @@
 // SQLite is read-only evidence. --shutdown-text verifies normal exit/reopen;
 // the default stop/continue scenario never restarts or repairs state directly.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -18,6 +18,10 @@ const fixture = await realpath(process.env.ROVAI_STOP_CONTINUE_FIXTURE_ROOT ?? a
 const data = join(fixture, 'core'), home = join(fixture, 'home'), workspace = join(fixture, 'workspace')
 const journal = join(fixture, 'prompts.jsonl'), executable = join(fixture, 'copilot-fixture')
 const shutdownText = process.argv.includes('--shutdown-text')
+const historicalStartup = process.argv.includes('--historical-startup')
+let retainedHistoricalFiles = []
+let restoreHistoricalDirectories = []
+let historicalOpenMs = null
 const expectedText = '退出前已接收的正文🙂\n'.repeat(process.argv.includes('--spooled') ? 5000 : 16)
 const textFile = join(fixture, 'unfinished-text.txt')
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`
@@ -97,6 +101,26 @@ try {
       'owned process cleanup acknowledgment')
     assert.throws(() => process.kill(native.pid, 0), { code: 'ESRCH' }, 'the old process was stopped')
     assert.equal((await prompts()).length, 1, 'stopping does not replay input')
+    if (historicalStartup) {
+      await core.request('core.shutdown', { protocolVersion: 3, deadlineMs: 10_000 })
+      await core.exited()
+      database.close()
+      database = null
+      // Preserve the original Thread/member/Runtime/input, deliberately remove
+      // only its old cleanup ACK, and keep all fault files during acceptance.
+      const seed = new DatabaseSync(join(data, 'rovai.sqlite'))
+      seed.prepare('UPDATE agent_run SET cancel_acknowledged_at=NULL WHERE id=?').run(first.id)
+      seed.close()
+      await seedHistoricalFaults(native.pid)
+      core = startCore()
+      const openedAt = Date.now()
+      assert.ok((await snapshot()).agentRuns.some(run => run.id === first.id))
+      historicalOpenMs = Date.now() - openedAt
+      assert.ok(historicalOpenMs < 3000, 'historical cleanup must not delay Thread reads')
+      await core.request('runtime.subsystems.retry')
+      database = new DatabaseSync(join(data, 'rovai.sqlite'), { readOnly: true })
+      assert.equal(database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id).cancel_acknowledged_at, null)
+    }
     const oldState = database.prepare('SELECT * FROM agent_run WHERE id=?').get(first.id)
     assert.equal(oldState.status, 'cancelled')
     const oldDelivery = database.prepare('SELECT * FROM runtime_input_delivery WHERE agent_run_id=?').get(first.id)
@@ -112,8 +136,26 @@ try {
     assert.deepEqual(database.prepare('SELECT * FROM runtime_input_delivery WHERE agent_run_id=?').get(first.id), oldDelivery,
       'continuation preserves the unknown result of the source input')
     assert.equal(database.prepare('SELECT status FROM runtime_input_delivery WHERE agent_run_id=?').get(second.id).status, 'accepted')
-    console.log(JSON.stringify({ passed: true, sourceStatus: oldState.status, successorStatus: second.status,
-      cleanupAcknowledged: true, appRestarted: false, databaseModifiedByTest: false }))
+    if (historicalStartup) {
+      await until(() => core.stderr().includes('stage=historical_process_cleanup'), 'single background cleanup report')
+      await core.request('runtime.subsystems.retry')
+      assert.equal(core.stderr().match(/stage=historical_process_cleanup/g)?.length, 1,
+        'feature retries do not rescan historical processes')
+      if (process.platform === 'darwin') {
+        assert.ok(core.stderr().includes('budget_exhausted=true'), 'large valid history must exhaust the shared budget')
+        assert.ok((await prompts())[1].startedAt < core.historicalCleanupFinishedAt(),
+          'the new native prompt must start while historical maintenance is still running')
+      }
+      for (const [path, bytes] of retainedHistoricalFiles) assert.equal(await readFile(path, 'utf8'), bytes)
+      assert.equal(database.prepare('SELECT cancel_acknowledged_at FROM agent_run WHERE id=?').get(first.id).cancel_acknowledged_at, null,
+        'new work never manufactures a historical cleanup ACK')
+    }
+    const report = { passed: true, sourceStatus: oldState.status, successorStatus: second.status,
+      cleanupAcknowledged: !historicalStartup, appRestarted: historicalStartup,
+      databaseModifiedByTest: historicalStartup, historicalFaultFilesRetained: retainedHistoricalFiles.length,
+      historicalOpenMs, cleanup: historicalStartup ? core.stderr().split('\n').find(line => line.includes('stage=historical_process_cleanup')) : null }
+    if (historicalStartup) await writeFile(join(fixture, 'acceptance.json'), JSON.stringify(report, null, 2))
+    console.log(JSON.stringify(report))
   }
 } catch (error) {
   console.error(core?.stderr().slice(-12_000))
@@ -121,8 +163,60 @@ try {
 } finally {
   database?.close()
   await core?.stop()
-  await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home })
-  await rm(fixture, { recursive: true, force: true })
+  if (historicalStartup) {
+    console.error(`Historical regression fixture retained: ${fixture}`)
+  } else {
+    for (const path of restoreHistoricalDirectories) await chmod(path, 0o700)
+    await removeEphemeralRuntimeCampFilesRoot(data, { homeDirectory: home })
+    await rm(fixture, { recursive: true, force: true })
+  }
+}
+
+async function seedHistoricalFaults(oldPid) {
+  const owners = join(data, 'runtime/copilot-cli/owned-processes')
+  const fleet = join(data, 'runtime-fleet/owners')
+  await Promise.all([owners, fleet].map(path => mkdir(path, { recursive: true, mode: 0o700 })))
+  for (const path of [join(owners, 'broken.json'), join(fleet, 'broken.json')]) {
+    const bytes = 'sanitized historical record: truncated JSON {'
+    await writeFile(path, bytes, { mode: 0o600 })
+    retainedHistoricalFiles.push([path, bytes])
+  }
+  if (process.platform === 'darwin') {
+    const boot = execFileSync('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid'], { encoding: 'utf8' }).trim()
+    const identity = { pid: oldPid, unique: 900001, parent: 900000, version: 1, uid: process.getuid() }
+    const ledger = { schema: 1, boot, owner: { ...identity, pid: 1, unique: 900000 }, root: identity.unique,
+      processes: { [identity.unique]: identity } }
+    const path = join(owners, 'reused-system-pid.json'), bytes = JSON.stringify(ledger)
+    await writeFile(path, bytes, { mode: 0o600 })
+    retainedHistoricalFiles.push([path, bytes])
+    for (const [name, mode] of [['unreadable', 0], ['cannot-delete', 0o500]]) {
+      const directory = join(data, 'runtime', name, 'owned-processes')
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+      const fault = join(directory, 'previous-boot.json')
+      const content = JSON.stringify({ ...ledger, boot: 'previous-boot-fixture' })
+      await writeFile(fault, content, { mode: 0o600 })
+      if (mode) retainedHistoricalFiles.push([fault, content])
+      await chmod(directory, mode)
+      restoreHistoricalDirectories.push(directory)
+    }
+    // Valid dead ownership forces bounded kernel snapshots. Impossible lifetime
+    // IDs avoid matching any current process while consuming the shared budget.
+    const deadLedger = JSON.stringify({ ...ledger,
+      owner: { ...identity, pid: 2147483647, unique: 'OWNER_UNIQUE' },
+      root: 'ROOT_UNIQUE',
+      processes: { '18446744073709551606': { ...identity, pid: 2147483646, unique: 'ROOT_UNIQUE' } }
+    }).replaceAll('"OWNER_UNIQUE"', '18446744073709551614').replaceAll('"ROOT_UNIQUE"', '18446744073709551606')
+    for (let offset = 0; offset < 32768; offset += 128) {
+      await Promise.all(Array.from({ length: 128 }, (_, i) =>
+        writeFile(join(owners, `dead-${offset + i}.json`), deadLedger, { mode: 0o600 })))
+    }
+  }
+  // A large retained batch checks that filesystem work does not own the RPC
+  // loop or database mutex; the zero-budget unit cases own deadline determinism.
+  for (let offset = 0; offset < 8192; offset += 128) {
+    await Promise.all(Array.from({ length: 128 }, (_, i) =>
+      writeFile(join(owners, `bulk-${offset + i}.json`), '{', { mode: 0o600 })))
+  }
 }
 
 async function until(read, description) {
@@ -136,17 +230,25 @@ async function until(read, description) {
 }
 
 function startCore() {
-  const child = spawn(join(root, 'target/debug/rovai-core'), [
+  const child = spawn(process.env.ROVAI_CORE_BIN ?? join(root, 'target/debug/rovai-core'), [
     ...coreDataDirectoryArguments(data, { homeDirectory: home }),
     '--skill-library-root', join(data, 'managed-skill-library'), '--mcp-config-path', join(data, 'mcp.json')
   ], { cwd: fixture, stdio: ['pipe', 'pipe', 'pipe'], env: {
     HOME: home, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', TMPDIR: fixture, ROVAI_COPILOT_BIN: executable
   } })
   const closed = once(child, 'close'), pending = new Map()
-  let nextId = 0, stderr = ''
-  child.stderr.on('data', value => { stderr += value })
+  let nextId = 0, stderr = '', historicalCleanupFinishedAt = null
+  child.stderr.on('data', value => {
+    stderr += value
+    if (historicalCleanupFinishedAt === null && stderr.includes('stage=historical_process_cleanup')) {
+      historicalCleanupFinishedAt = Date.now()
+    }
+  })
   createInterface({ input: child.stdout }).on('line', line => {
     const message = JSON.parse(line), entry = pending.get(message.id)
+    if (message.kind === 'core_startup' && ['blocked', 'failed'].includes(message.status)) {
+      stderr += `Core startup ${message.status}: ${message.error?.code}\n`
+    }
     if (!entry) return
     clearTimeout(entry.timer); pending.delete(message.id)
     if (message.error) entry.reject(new Error(message.error.message))
@@ -158,6 +260,7 @@ function startCore() {
   })
   return {
     stderr: () => stderr,
+    historicalCleanupFinishedAt: () => historicalCleanupFinishedAt,
     async exited() {
       let timer
       try {

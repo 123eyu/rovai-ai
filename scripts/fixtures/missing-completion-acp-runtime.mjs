@@ -25,7 +25,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     try { previous = readFileSync(journal, 'utf8').trim().split('\n').filter(Boolean) } catch (error) {
       if (error.code !== 'ENOENT') throw error
     }
-    appendFileSync(journal, JSON.stringify({ pid: process.pid, sessionId, prompt: message.params }) + '\n')
+    appendFileSync(journal, JSON.stringify({ pid: process.pid, sessionId, startedAt: Date.now(), prompt: message.params }) + '\n')
     send({ method: 'session/update', params: { sessionId, update: {
       sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: unfinishedText ?? (previous.length
         ? 'Continuation finished successfully.' : 'Work performed; completion response deliberately missing.') }

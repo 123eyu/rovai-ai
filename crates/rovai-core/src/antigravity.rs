@@ -161,6 +161,17 @@ async fn reap_antigravity_process(
 }
 
 impl AntigravityAppRuntimeAdapter {
+    pub(crate) async fn active_execution_keys(
+        &self,
+    ) -> Vec<crate::planned_shutdown::ActiveExecutionKey> {
+        self.active
+            .lock()
+            .await
+            .keys()
+            .map(|(id, epoch)| crate::planned_shutdown::ActiveExecutionKey::new(id, *epoch))
+            .collect()
+    }
+
     #[cfg(test)]
     pub fn new(data_dir: &Path) -> Result<Self> {
         let adapter = Self::deferred(data_dir);

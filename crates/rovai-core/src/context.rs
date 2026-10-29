@@ -13601,7 +13601,11 @@ mod slow_tests {
                     .runtime_cleanup_blocked_since(
                         &fixture.database,
                         &execution.conversation_id,
-                        "next-run"
+                        "next-run",
+                        &[crate::planned_shutdown::ActiveExecutionKey::new(
+                            &fixture.run_id,
+                            fixture.execution_epoch
+                        )]
                     )
                     .unwrap()
                     .is_some()
@@ -13626,7 +13630,11 @@ mod slow_tests {
                     .runtime_cleanup_blocked_since(
                         &fixture.database,
                         &execution.conversation_id,
-                        "next-run"
+                        "next-run",
+                        &[crate::planned_shutdown::ActiveExecutionKey::new(
+                            &fixture.run_id,
+                            fixture.execution_epoch
+                        )]
                     )
                     .unwrap()
                     .is_none()

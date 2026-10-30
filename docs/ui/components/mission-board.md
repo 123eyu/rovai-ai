@@ -2,7 +2,7 @@
 document_type: ui-contract
 authority: mission-renderer-presentation
 status: accepted
-last_updated: 2026-10-25
+last_updated: 2026-10-30
 ---
 
 # Mission board
@@ -11,7 +11,7 @@ The board header's creation entry is **新使命**, using the current theme prim
 (`--conversation-action` / `--conversation-action-contrast`, black in Day) and their hover token.
 This entry still opens the same creation dialog; the dialog's labels and submission choices are unchanged.
 
-Desktop and wide Web expose one 使命板 navigation entry between 记忆 and 定时任务, and retain its surface, route and interaction model.
+Desktop and wide Web expose one 使命板 navigation entry in the order defined by [App Shell](app-shell-navigation.md).
 When one or more Missions have unread Agent replies, a blue dot sits at the entry's right edge and is vertically
 centered; the accessible label includes the number of Missions with unread replies, but the visual indicator never
 renders a numeral. The indicator follows Core-owned `MissionRecord.hasUnread`, independent of Mission status and
@@ -97,7 +97,7 @@ clears it. Failed or uncertain creation retains the exact definition, attachment
 safe retry.
 
 Production Edit opens only from the card/list right-click or Shift+F10 menu. It reuses the same wide writing
-dialog; prototype-only previews may expose a direct shortcut. Name, description, tags and source attachments
+dialog. Name, description, tags and source attachments
 remain editable. Project and existing member/lead management remain locked in the definition dialog; references can add outsiders on save. Cancel and Save remain at
 the right; the attachment action stays at the left. Save is disabled until normalized content or the attachment
 set differs and validates against 1–200 name / 12,000 description limits. It submits the internal revision
@@ -122,7 +122,7 @@ Message/turn targeting hides a compact preview first, retaining its tabs and rea
 
 The drawer hides the conversation title and places close/expand at the left. Full presentation shows
 project › conversation title, preceded by return-to-board and fold-to-drawer; the fold control keeps its existing
-position and uses the inward-corner collapse glyph from the approved board prototype. Both use one full-width
+position and uses the inward-corner collapse glyph. Both use one full-width
 AppHeader with 执行、任务、队员、单聊、活动 in the message column and the preview toggle at the far
 right. There is no Mission ellipsis action in the conversation header. With bottom execution placement, entering
 the drawer or producing a Run from its Composer does not automatically select a member or expand execution;
@@ -204,7 +204,7 @@ the Mission title, worktree path or branch. When a workspace record exists it ad
 `同时清理 Worktree 及本地分支` option and a focusable `?` explaining that unchecked resources stay in place.
 The existing card/list right-click menu shows `清理使命 Worktree` only from Core's `cleanupAvailable`; there is
 no conversation-header ellipsis or retained-workspace page. Its dialog states that it removes the Worktree and
-local branch, lists the two identifiers, and uses only neutral `取消` / `清理` actions. A cleanup preflight refusal
+local branch, lists the two identifiers, and uses ordinary `取消` / `清理` actions under [DESIGN.md](../../../DESIGN.md#components). A cleanup preflight refusal
 for unsaved content or an unsafe detached commit is reported asynchronously, keeps the Mission workspace ready and
 shows the existing inline alert with the exact reason, resource status and `再次清理` action. A cleanup failure after partial or uncertain deletion keeps the
 Mission and returns to the same explicit retry path. After Core durably accepts the cleanup intent, the
@@ -263,7 +263,7 @@ atomically; failures retain the draft for correction/retry. A successful save do
 
 Mission reading renders the same blue inline names and a basic member-profile popover; unavailable references
 retain their ID and are visually unavailable. Creation dismissal retains structured content alongside the existing
-draft. Editing keeps its revision conflict behavior. Day/Night and narrow layouts share this implementation.
+draft. Editing keeps its revision conflict behavior. All registered palettes and narrow layouts share this implementation.
 
 ### Resize settlement
 

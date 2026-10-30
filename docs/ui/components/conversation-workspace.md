@@ -2,12 +2,12 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # Camp 会话工作区
 
-## Public Camp v1.60 当前边界
+## Public Camp 当前边界
 
 - 已激活及普通一键 Pending Camp 的输入内容按 Camp 保存本机快照，切换、刷新、重建窗口和普通重启后恢复。
   普通 Pending 输入保存后显示侧栏草稿行；同一项目可以保留多份，清空后隐藏。AI 创建队员仍按其窗口内草稿合同运行。
@@ -28,11 +28,9 @@ last_updated: 2026-10-29
   Structured Content，也不进入复制、选文引用、搜索、`camp.read` 或渠道正文；显式寻址、广播、零/多接收者和
   Agent 发言不增加前缀。
 
-字段与状态见 [Message Delivery v11](../../contracts/message-delivery-v11.md)、
-[Camp Composer Draft v16](../../contracts/camp-composer-draft-v16.md)和
-[Camp History v10](../../contracts/camp-history-v10.md)。本文件后续仍描述的 Core-owned public Draft/Pending、
-CampTurn Stop、Gather 或恢复旧 Run 状态的重试均为历史交互，不再适用于当前 public Camp；本机草稿与 recipient
-continuation 是当前 Desktop 行为。
+字段与状态见 [Public Message/Delivery 架构](../../architecture/public-a2a-message-delivery.md)、
+[Public Composer 架构](../../architecture/camp-composer-draft.md)和
+[Camp History v16](../../contracts/camp-history-v16.md)。
 
 ## 回复详情
 
@@ -49,13 +47,13 @@ continuation 是当前 Desktop 行为。
 “完整阅读”可手动替换内容列。Escape 先收起执行过程等上层，再关闭详情；返回触发位置。
 文件预览与回复详情不同时占用两个阅读侧列，打开另一个时收起当前回复详情。
 
-执行来源采用确认的 B 样式：保留“回复”，来源行左右内缩 14px，与灰色执行条内容对齐。
+执行来源保留“回复”，来源行左右内缩 14px，与灰色执行条内容对齐。
 其原输入/批量来源行为不变。详情中的活动执行行复用当前灰底、转圈、文本与计时，行和时间都可
 打开精确 Run 的现有执行过程；不增加停止/重试按钮。执行浮层关闭后仍回到当前回复详情。
 
 ## 输入框上下键历史
 
-公共与单聊首次 ↑ 从当前已加载消息及现有 Pending 提取本轮固定的文本/结构化内容；
+首次 ↑ 从当前已加载消息提取本轮固定的文本/结构化内容；只有单聊追加其活动 Pending，公共会话只读取当前可见消息。
 结束后释放，下一轮使用最新数据。按钮、接收者提示与发送资格跟随预览，
 原草稿继续保留。Up 在文档起点回看，浏览中的 Down 在文档终点前进；Esc 恢复并消费事件，
 单聊不同时收起。编辑/发送预览后进入普通草稿流程，候选菜单、IME、选区、修饰键优先。
@@ -145,7 +143,7 @@ Camp open/refresh 仅返回最多 96 个 Run 摘要与每个返回 Run 的原始
 阅读滚动时轨道跟随可见锚点范围；鼠标、键盘或触控板正在浏览轨道时不抢走其位置。
 
 悬浮及键盘聚焦时展示同一个中性预览：标题使用 Core 返回的可读短标题，`--ink`、12px、单行超长省略；
-正文按需读取 Core 确定的首条有效直接 reply 队员回复。按 User 选定的 C 方案，标题下方留 7px，
+正文按需读取 Core 确定的首条有效直接 reply 队员回复。标题下方留 7px，
 单独一行展示该回复作者的 16px 头像与当前姓名：间距 6px，姓名 `--muted`、11px、16px 行高，超长单行省略。
 头像复用 `MemberAvatar` 的受控引用、原取景及首字回退；与可读姓名并列时为装饰内容，不重复朗读。
 作者行下方留 4px，再显示回复摘要，`--muted`、12px、最多三行省略；卡片仍宽 260px。
@@ -362,9 +360,8 @@ Markdown 正文中的代码块提供[与文件预览一致的复制入口](file-
 可读正文上限约束，紧凑会话列按 Composer 实际内边距等比例收窄。
 用户消息的图片与文件区不继承正文底面的固有宽度或三分之二上限：它拥有独立工件轨道，右边缘与正文、
 头像间距保持同轴，内容增加时向左扩展，最远到同列队员头像或姓名轨道，不越出时间线。图片和文件在该
-轨道内从右侧开始排列；短正文不能把附件压成窄列，少量附件也不被强制拉伸。用户文件卡在 Composer 与
-Timeline 中的最大宽度均为 220px，长基础文件名使用单行省略号；完整 `displayName` 继续保留在 `title` 与
-操作按钮的可访问名称中。这个上限不改变图片附件或 Agent 交付文件卡。
+轨道内从右侧开始排列；短正文不能把附件压成窄列，少量附件也不被强制拉伸。用户文件卡尺寸由[消息附件](#runtime-图片与消息图片)和[Composer 附件](#composer-附件)规定，
+长基础文件名使用单行省略号；完整 `displayName` 保留在 `title` 与操作按钮的可访问名称中。
 Agent 公共消息继续左对齐，仅正文使用与用户消息相同的雾灰底面、1px 边框、12px 圆角和
 `9px 12px 10px` 内边距。父引用、图片、文件、转交 footer 和 Files Changed 各自保持独立边界；
 纯附件消息不生成空正文框，不添加身份色气泡或整条消息 hover 底色。消息边线与底色相同，保留边框占位，
@@ -440,7 +437,7 @@ Agent 公共消息继续左对齐，仅正文使用与用户消息相同的雾�
 块内顶部以共享线性系统图标、“系统”和消息时间标明来源，使用 muted 元数据；正文使用正常 ink、聊天字号和
 阅读行高，保留完整纯文本、换行和原生选文，长路径自然换行。复制入口位于块外左下方，复用普通消息的
 悬停、键盘聚焦、粗指针可见性与复制反馈，不提供回复、撤回或个人资料入口。
-Day/Night 使用同一组件树与现有语义 token；展示调整不改变作者身份、模型输入、Delivery 或消息可搜索范围。
+所有已注册配色使用同一组件树与当前主题语义 Token；展示调整不改变作者身份、模型输入、Delivery 或消息可搜索范围。
 Web 与 Desktop 共用上述结构和样式；Mobile 横竖屏均取消额外左缩进，保留消息区两侧 14px 留白、共享灰阶
 表面和系统来源头部。正文沿用手机阅读字号（默认 12.5px），复制入口常驻，复用 17px 图标、24px 背景区域与
 32px 纵向点击区域，不另外引入手机消息组件或业务状态。完整适配规则见 [Mobile WebUI](../host-web-mobile.md#对话与执行)。
@@ -472,8 +469,7 @@ Web 与 Desktop 共用上述结构和样式；Mobile 横竖屏均取消额外左
 一层紧凑父引用，作者与摘要同样只占一个可视行，超出显示省略号；点击通过 same-Camp anchor load 定位并
 聚焦原消息。父消息不可用时显示“引用的消息当前不可用”，不落到最近消息。不递归展开祖先、不缩进
 时间线，也不创建私密 thread。失效作者错误和替代成员选择独立展开，不受单行引用规则裁切。领域与字段边界见
-[Camp Composer Draft v16](../../contracts/camp-composer-draft-v16.md)，评审方向见
-[HTML 交互稿](https://github.com/murray17/rovai-ai/blob/0de773a75231038e384c03cd761fea56344a6e4f/docs/prototypes/message-reply-chain/README.md)。
+[Public Composer 架构](../../architecture/camp-composer-draft.md)。
 
 渠道 `external_quote` 复用相同的回复图标、作者与单行摘要，无独立底色或边框；附件名称并入摘要，长内容省略。
 外部引用没有本地父消息导航关系，因此是不可点击、不可 Tab 聚焦、无交互悬停态的静态预览；保留真实引用作者，
@@ -510,8 +506,7 @@ reply、显式 Member Mention、多人 Mention 和 `@所有队员` 都比 contin
 标签出现后对象在空白 Draft 失效时，标签消失并持久抑制该来源；正文或附件已经存在时，保留全部 Draft，
 展开“原接收者当前不可接收，请选择其他成员”，禁用发送并把焦点交给第一个有效替代选择。不得隐藏错误、
 自动插入失效 Mention 或改投 Lead。字段和竞态边界见
-[Camp Composer Draft v16](../../contracts/camp-composer-draft-v16.md)，交互探索见
-[延续路由原型](https://github.com/murray17/rovai-ai/blob/0de773a75231038e384c03cd761fea56344a6e4f/docs/prototypes/composer-continuation-routing/index.html)。
+[Public Composer 架构](../../architecture/camp-composer-draft.md)。
 
 ## Camp 内单聊
 
@@ -966,7 +961,7 @@ Evidence 的 Run 不生成卡片；Review 也只读取同一 projection/detail�
 
 使用“智能体默认”的 Run 在既有 `.execution-run-meta` 中保持一个模型字段：尚无可信观测时显示
 “模型 智能体默认”，首次 Runtime-native 观测到达后原位收敛为“模型 {modelId} · 默认”。固定模型
-不增加本版字段；运行中后续换模不覆盖首值。长 ID 使用等宽单行省略并允许键盘聚焦取得完整 title，底部和
+不增加额外模型字段；运行中后续换模不覆盖首值。长 ID 使用等宽单行省略并允许键盘聚焦取得完整 title，底部和
 Inspector 复用同一语义。刷新不得自动打开执行台、改变 Run selection、移动焦点或创建 Toast/时间线消息。
 
 当权威 AgentRun 已取消时，该 Run 中仍为 running 的 Tool Call 停止所有运行动画，并以中性图形和
@@ -1137,7 +1132,7 @@ Core 领取完整输入后确认 `context_payload_too_large` 时，对应执行�
 文件附件或拆分发送的恢复建议只放在详情内。原消息完整保留，该错误行不因后续普通执行消失。
 此类失败不提供原样重试／继续按钮；Composer 不估算最终输入预算、不提前拒绝发送。
 
-公开会话执行条使用 User 确认的浅灰整行、独立转圈与无底停止图标。其余会话界面沿用生产样式。
+公开会话执行条使用浅灰整行、独立转圈与无底停止图标。其余会话界面沿用生产样式。
 每个 Run 尚未发送自己的公开消息时，固定在 Core 领取本次输入时的公开消息末尾；自己的消息成功进入公开时间线后，
 按最高公开 sequence 接到该 Run 最新消息及其附属产物之后。其他队员、同一队员的另一个 Run、追加输入、
 发送失败或尚未提交的乐观消息不移动它。公开消息、Task 和产物保持原有顺序。
@@ -1222,11 +1217,10 @@ queued 与初始化 `runtime_initializing` 统一显示“启动中…”，不�
 
 ## Camp Composer
 
-Core Draft/Pending/revision/lease 规则已退役；public Camp 当前以 Desktop-local、按 Camp 隔离的唯一 snapshot
-为准，不建立跨客户端合并或恢复列表。
+public Camp 使用客户端本机、按 Camp 隔离的唯一 snapshot，不建立跨客户端合并或恢复列表。
 
 Composer 与消息轨道共享中心轴但拥有独立宽度；`.composer-box` 与 `.composer-route-rail` 必须同宽、
-居中、同轴，Inspector 显隐不得改变这些关系。发送、Stop、Approval Dock、
+居中、同轴，Inspector 显隐不得改变这些关系。发送、Approval Dock、
 附件、Skill 候选、Mention、reply intent 和 continuation intent 都使用同一 Camp-local Draft；任何浮层
 都不能建立第二份草稿真源。回复条位于附件队列之上、正文编辑器之内，并与 Composer 共用开放工作面，
 不创建 focus trap。鼠标点击 Composer 任意位置都不增加编辑器内层描边；键盘进入保留输入光标，不增加局部焦点框或光晕。
@@ -1241,8 +1235,7 @@ Draft Coordinator，因此直接呈现已恢复内容或就绪的默认接收人
 读取失败继续走 loading/error 与重试流程，不能用空时间线推定空 Draft。
 
 Draft 首次读取只有 loading、ready 和 error。loading 与 error 时正文、附件、Reply/Continuation 和发送不可操作；
-error 在 Composer 上方原位显示“草稿无法加载”、具体错误与“重新加载草稿”，不能渲染可编辑的 revision-zero 空
-Draft。发送和路由 mutation 在第一个异步等待前同步禁用编辑器；本地路由 mutation 改变正文时在解除禁用前回写
+error 在 Composer 上方原位显示“草稿无法加载”、具体错误与“重新加载草稿”，不能用可编辑的空 Draft 替代错误。发送和路由 mutation 在第一个异步等待前同步禁用编辑器；本地路由 mutation 改变正文时在解除禁用前回写
 Lexical。发送前需要邀请队员时，先冻结并保存草稿。Active 会话逐人沿用成员加入命令，全部成功后发送；Pending 草稿直接以首消息事务原子邀请、激活和发布。
 邀请部分成功时显示已加入与失败名单，消息不发送，草稿与每处 Mention 保留。加入成功后发送失败时提示先查会话
 再重试；成员加入不回滚。发送失败保留正文并恢复交互，成功则以空 Draft/continuation 替换。导航或卸载前的同步本地保存失败时，
@@ -1258,12 +1251,10 @@ Composer 为空时根据当前用户可见的 Camp 会话/任务时间线选择�
 
 ### Skill 快速选择
 
-Composer 在折叠光标前的 `/query` 位于正文开头、空白或中文标点 `，。！？；：、` 之后时，打开当前
-Lead 可用 Skill 的原生候选；已有正文不影响触发。查询词不包含空白、`/`、`@`，也不跨越结构化 token，
+Composer 在折叠光标前的 `/query` 位于正文开头、空白或中文标点 `，。！？；：、` 之后时，打开当前 Thread 的 Skill 候选；已有正文不影响触发。查询词不包含空白、`/`、`@`，也不跨越结构化 token，
 URL、路径和紧贴普通正文或 token 的斜杠不触发。输入、粘贴、删除和原生输入同步都从编辑后的结构化正文与
-光标推导；选区先被输入替换为折叠光标再判断。候选来自真实
-Skill/生效组 Read Side；每行在 28×28 紧凑槽位复用 Skill 管理页由名称缩写和持久 Skill ID 稳定色
-组成的身份标记，但名称仍是主识别信息，身份色不表达启用、选中或健康状态。标记对辅助技术隐藏；
+光标推导；选区先被输入替换为折叠光标再判断。候选来源、分组和 Rovai 图标由 [Skills 与会话选择](skills-settings.md#thread-composer-的--候选)规定；
+装饰图标对辅助技术隐藏。
 方向键移动并保持当前项可见，Enter/Tab 选择，Shift+Enter 换行，Esc 关闭；IME 合成期间不选择或提交。
 光标离开查询范围、形成选区或正文不再满足触发规则时关闭。选中只替换当前 `/query`，保留前后正文，
 创建一个原子结构化 Skill token；视觉与正文投影仍为 `/<skill-name>`，随后补一个可编辑普通空格，
@@ -1302,7 +1293,7 @@ Message Mention 通知导航必须以 `campId + sourceMessageId` 加载和定位
 [Camp Attachment v9](../../contracts/camp-attachment-v9.md)，发送边界见
 [Camp Composer Draft v16](../../contracts/camp-composer-draft-v16.md)。
 
-准备区固定使用 D 档：普通文件项高 48px、约 11px 圆角并始终显示浅边框，采用用户侧中性图形；文件名独占
+准备区普通文件项高 48px、约 11px 圆角并始终显示浅边框，采用用户侧中性图形；文件名独占
 首行，格式标签放在下一行，不显示大小或右侧分隔线，不可用时第二行改为既有错误提示。图片是 48×48px
 圆角缩略块，不显示文件名。两者共处一条不换行的附件带，删除按钮固定在每项右上角，普通文件删除按钮的
 命中区为 24×24px。超宽时隐藏视觉滚动条，保留触控板水平滚动；普通鼠标的主滚轮在附件带仍有可滚空间
@@ -1317,16 +1308,16 @@ Message Mention 通知导航必须以 `campId + sourceMessageId` 加载和定位
 Renderer 对新 source refs、Managed v2 和 legacy 附件只消费同一个无路径 View，不显示或分支判断底层
 storage model。历史加载时 `availability = unknown`，不得为了填充附件卡而批量 `stat`、启动 watcher 或
 持久化状态。图片接近可视区域时按需预览，或用户执行预览、打开、显示所在位置后，当前卡片才按该次结果更新为 available、missing、
-unreadable 或 kind_changed；重新读取历史仍从 unknown 开始。状态使用既有 Porcelain Day / Steel Night
-语义 token，不引入新的视觉世界，也不暴露 source、Authority/View 路径或内部 operation ID。
+unreadable 或 kind_changed；重新读取历史仍从 unknown 开始。状态使用当前主题的语义 Token，
+不引入新的视觉世界，也不暴露 source、Authority/View 路径或内部 operation ID。
 
 普通文件单击继续进入应用内文件预览或受控系统打开，目录单击在 Finder / 文件资源管理器中打开。Timeline
 文件项右键菜单提供同一
 主动作和“在 Finder / 文件资源管理器中显示”；菜单支持键盘循环、Escape 关闭、collision handling 与关闭后
 焦点回到真实卡片。执行中单卡防重复提交；目标 parent 不可枚举、target 消失或 native 请求失败时均显示固定
 的无路径提示，不把 best-effort Shell dispatch 当作文件管理器已确认选择。高风险文件由 Desktop Main 使用原生
-确认，不在 Renderer 判断。Composer 附件保持既有预览/移除交互；所有动作都提交 composer、pending、
-pending_edit 或 message 的精确 owner locator，不提交路径。
+确认，不在 Renderer 判断。Composer 附件保持既有预览/移除交互；公屏附件按上文的 Camp+attachment authority 重验，
+消息与私聊附件按各自当前合同提交精确 owner，不提交路径。
 精确动作与结果合同见 [File Preview v5](../../contracts/file-preview-v5.md)和
 [Camp Attachment v9](../../contracts/camp-attachment-v9.md)。
 
@@ -1422,7 +1413,7 @@ Camp Header 显示会话定位、待审批摘要和详情直接入口；文件 T
 
 ## Theme, keyboard and failure states
 
-Day/Night 复用同一 DOM 和状态矩阵。主要操作支持键盘；Drawer、stage、Dock、menus、disclosure
+所有已注册配色复用同一 DOM 和状态矩阵。主要操作支持键盘；Drawer、stage、Dock、menus、disclosure
 和 Stop 均可通过键盘操作，不添加额外焦点装饰。Loading、Empty、Partial、Error、Disabled、Submitting 与 Recovery 必须
 保留当前上下文、草稿和可恢复导航，而不是用通用错误页覆盖整个工作区。
 
@@ -1430,44 +1421,12 @@ Day/Night 复用同一 DOM 和状态矩阵。主要操作支持键盘；Drawer�
 `--conversation-focus`、`--conversation-focus-soft`、`--conversation-route-accent` 和主操作 token。
 不改变布局、路由占位、禁用、附件或发送/停止行为；状态与身份颜色保留。
 
-## 连续消息与待发送编辑（public Camp 已退役）
-
-以下 Pending 队列交互只解释历史实现。当前等待区只展示已经公开的 Delivery 数量；未发送编辑不入 Core 队列，不能移回、排序、暂停或恢复。
+## 输入与进度刷新
 
 Composer 输入和 Runtime 进度刷新不重新解析正文未变的历史 Markdown；文件链接、标题跳转回调和
 本地图片投影仍使用当前权威。仅作为叙述分界的 thought/reasoning 事件保留顺序，但不单独触发 React
 刷新；可见 Runtime 进度在短窗口内批量呈现，不截断事件或丢失文本 delta。私有待发送队列按变更事件、
 前台恢复和 Core 重连刷新，不每秒轮询；入队本身不触发公共会话或侧栏全量读取。
-
-执行期间 Composer 保持可输入，右侧主操作始终只有一个 32px 圆角图标按钮：输入框没有正文（含仅空白字符）时
-使用中性表面的方形停止图标，有正文时切换为 `--conversation-action` 底的向上发送图标，删空后恢复停止图标；空闲时只显示发送图标。
-空输入框按 Enter 不触发停止。按钮不显示“发送”“停止”或“正在提交停止请求”等可见文字，通过 tooltip、`aria-label`
-和 `aria-busy` 保留动作与提交状态；停止请求处理中在按钮内部用环形反馈围绕停止图标，不改变按钮宽度。提交期间禁用正文、
-附件、路由和发送，附件准备期间只禁用发送；不改成“加入待发送”或“提交中”。队列未空时，即使当前
-没有运行也继续入队。队列条位于 Composer 上方，与输入框同宽、同轴，按 FIFO 排列，不显示单条
-序号，不提供排序或合并；较长队列在有界区域滚动。Pending 不作为用户消息显示在公共时间线。
-普通排队不额外显示自动续发说明。队列使用系统字体、10.5px 正文、32px 最小行高与 6px 空心圆点；
-普通底色由 `--surface-subtle` 44% 与 `--conversation-surface` 混合。Day/Night 使用相同结构。
-
-仅右侧 24px 铅笔按钮触发编辑，正文和行背景不响应。点击后把完整消息移出队列，覆盖普通输入框的正文、
-附件、@成员、Reply 和选文引用，并把光标置于末尾。提示文字为“移回输入框编辑（覆盖当前内容）”。
-原行消失，不保留蓝色编辑行、“正在编辑”标记、独立编辑器或保存/取消按钮。再次点击其他行按同一规则覆盖。
-再次发送按新消息处理：执行中或队列非空时进入队尾，否则直接发送，不恢复原序号或位置。
-
-移回请求在 Core 事务内完成出队和 Draft 写入，成功前锁定普通输入框及附件/路由操作；期间离开 Camp 被 guard
-阻止。失败保留输入；若消息已经先发出，提示它已变化或发出并刷新队列。未知结果或成功后的 Draft 读取失败
-先显示加载错误，用户重读后再恢复输入，不能用旧正文覆盖已经移回的 Draft。切换 Camp、页面和关窗均沿用
-普通 Composer Draft 的保存路径。旧版遗留编辑占用使用中性的“上次编辑未完成 · 请移回输入框”提示；移回或删除
-会清除该行占用，新 Desktop 不再创建占用。
-
-Pending 行只展示正文，不展示附件或附件数量；纯附件摘要留空。移回后完整复用普通 Composer 的横向附件带、
-预览、移除、引用与 Mention 能力；失败附件可先移回再修复。用户原文件不移动、不删除。
-
-上一轮正常结束、失败终态或停止完成都取当前队列第一条；输入框编辑不阻塞续发。停止仍只结束当前执行，
-待其完全结算才发送下一条，不提供暂停/继续队列入口。队首发送失败时原位展示错误并阻塞后续；用户移回编辑
-或删除后，剩余队列继续推进。移回的消息需要用户再次发送才重新进入队列。
-
-上述持久化、双方 revision 与移回竞争只属于 [Pending Camp Input v4（历史）](../../contracts/pending-camp-input-v4.md)。
 
 ## 原始 HTML 与字面文本
 
@@ -1503,15 +1462,15 @@ Agent Markdown 的中文标点与相邻中文使用 CJK 兼容强调解析；代
 ## 用户主动继续执行
 
 公开 batch Run 的失败／停止卡片沿用现有布局，在折叠操作旁提供 24×24 的纯图标按钮。
-title 和 aria-label 为“继续执行”，键盘可达；提交中禁用。续做新请求不产生公屏系统消息，也不进入消息历史、搜索与定位；已生成的记录保留原样。waiting 请求和新 Run 使用
+title 和 aria-label 为“继续执行”，键盘可达。续做新请求不产生公屏系统消息，也不进入消息历史、搜索与定位；已生成的记录保留原样。waiting 请求和新 Run 使用
 现有时间线／执行区；原卡片终态与输出不变，受理后仍可再次点击，各次 Run 不显示关联状态。
 会话自动选择遵循下节规则；无恢复向导。合同见
 [Run Process Detail Surface v47](../../contracts/run-process-detail-surface-v47.md)。
 
 ### 继续执行的会话选择
 
-失败／停止卡片的 24×24 继续图标直接提交，Core 自动复用或选择新会话，不显示会话确认弹窗。
-提交中保持原尺寸并禁用；受理后恢复可点，原 Run 状态和工作区保留。响应未知时沿用同一 commandId 核对。
+继续图标直接提交，Core 自动复用或选择新会话，不显示会话确认弹窗。
+提交中保持原尺寸并禁用；响应未知时沿用同一 commandId 核对。
 恢复失败的投递前降级由 [AgentRun Continuation v3](../../contracts/agent-run-continuation-v3.md) 拥有。
 
 ## 运行中插话

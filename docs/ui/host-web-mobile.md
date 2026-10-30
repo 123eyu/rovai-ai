@@ -1,25 +1,14 @@
 ---
-document_type: ui-interaction-draft
-authority: host-web-mobile-interaction-proposal
-status: implemented
-target_version: v1.70
-last_updated: 2026-10-25
+document_type: ui-platform-guidance
+authority: renderer-mobile-layout
+last_updated: 2026-10-30
 ---
 
 # Mobile WebUI
 
-2026-09-14 用户确认交互稿并授权实施，当时补充蓝色新动态点位于会话标题左侧、定时任务完整六种计划与手机日期选择。
-2026-09-16 追加确认会话行对齐、项目目录选择和空 Camp 起步状态的精简方案。
-2026-09-19 确认侧栏 v2，将左侧新动态点改为 12×12px 右侧状态槽内的 6px 蓝点；该结论取代此前左侧点位。
-2026-09-23 确认 v3：会话列表改为左侧抽屉；会话与执行共用一个工作区；记忆、定时和设置恢复正式控件并压缩概览。
-2026-09-26 确认使命板交互稿 v7：统一主菜单抽屉取代底栏，使命会话返回使命板，设置改为无搜索的分组总览和独立分类页。
-实际 `apps/web` 入口现已提供手机工作台，继续挂载共享 `BusinessApp`、Camp、Composer 和正式管理页；
+`apps/web` 的手机工作台挂载共享 `BusinessApp`、Camp、Composer 和正式管理页；
 没有复制交互稿的本地业务状态，也没有增加 Host、账号系统或移动专用业务后台。网络与归属仍遵循
 [Host Web v3](../contracts/host-web-v3.md)，领域操作继续由同一个 Rust Host / Core 处理。
-
-本文记录已实施的页面适配与验证边界。此前单文件 HTML 为评审历史，仍通过 Camp 附件取得，
-[旧示例证据](../versions/v1.59/evidence/mobile-review/validation.json)不证明生产能力；本地原型继续按
-[仓库规则](../README.md#本地原型)忽略，产品构建不依赖 `docs/prototypes/`。
 
 ## 入口与视觉
 
@@ -27,8 +16,9 @@ last_updated: 2026-10-25
 768–1039px 的其他浏览器窗口沿用共享紧凑布局，更宽时沿用宽屏 Web。原生 Desktop 不启用手机布局。
 `MobileLayout` 仅提供展示上下文，Host 能力与浏览器设备平台仍由显式依赖区分。
 
-沿用 UI-UX-Pro-Max 的触摸和响应式指导，以 [DESIGN](../../DESIGN.md) 与共享主题为视觉依据。
-手机主要阅读面为白 / 黑，身份、状态、证据和控件继续使用语义 token；列表新动态点使用 Desktop 同款 `--conversation-unread`。
+以 [DESIGN](../../DESIGN.md)、[共享主题](themes/README.md)和[无障碍基线](qa/accessibility.md)为视觉与交互依据。
+手机主要阅读面保留 `--mobile-page` 局部覆盖：按配色的明暗模式使用白／黑底，包括会话与执行台；
+身份、状态、证据和控件继续使用所选配色的语义 Token。列表新动态点使用 Desktop 同款 `--conversation-unread`。
 普通主按钮（含“使用此目录”）使用当前主题的共享操作色；状态与链接使用各自语义 Token。
 Web / Mobile 浏览器页签统一为 `Rovai AI`。远程连接中的“退出登录”保持单行，不拉伸字距。
 普通页面仅保留标题与操作，登录和关于页保留品牌。根页面和普通会话由标题左侧打开统一主菜单抽屉，
@@ -38,11 +28,11 @@ Web / Mobile 浏览器页签统一为 `Rovai AI`。远程连接中的“退出�
 根入口替换当前浏览器历史条目，分类和会话详情入栈；所有导航仍经过共享的离开检查。
 设置不显示 Desktop 的折叠、后退、前进三按钮。
 
-主要触摸入口至少 44px，编辑输入不小于 16px；消息操作与任务工具条按确认稿采用紧凑控件。
+主要触摸入口至少 44px，编辑输入不小于 16px；消息操作与任务工具条使用下文定义的紧凑控件。
 处理安全区和可视视口变化，缩放不重写工作台高度。
 所有手机页面、子页和弹层统一隐藏滚动条，保留原有滚动容器、滚动行为与内容布局，包含消息区、定时任务和设置各层级。
 日期、时间和业务弹窗在可视范围内滚动。移除焦点专用黑框、描边和光晕，保留 DOM 焦点、键盘操作、
-控件静态边界与选中状态。日夜主题、减少动效继续复用原组件，不分叉业务。
+控件静态边界与选中状态。全部已注册配色与减少动效偏好继续复用原组件，不分叉业务。
 
 ## 对话与执行
 
@@ -52,7 +42,7 @@ Web / Mobile 浏览器页签统一为 `Rovai AI`。远程连接中的“退出�
 选中态的中性灰底覆盖完整会话行，左右边界与相邻会话一致，不再随项目子列表缩进错位。
 抽屉的“对话”行提供打开项目和搜索，顶部“新对话”提供创建入口；项目使用现有圆角开合文件夹与普通加号。
 搜索点开后进入共享搜索器。沿用 CampNavigation 的读取与分页状态：手机初始 5 个、每次增加 5 个、收起回到 5 个；
-Desktop 保留初始 5 个、每次增加 10 个。此前交互稿将两端增量均称作现状 5 个的表述已修正。
+Desktop 保留初始 5 个、每次增加 10 个。
 
 手机会话和项目行移除常驻「···」，长按约 480ms 打开既有操作菜单；移动超过 10px、开始滚动或取消触摸时取消等待。
 松开长按不打开会话、不选择菜单项；轻点仍打开会话或开合项目，右键、Shift+F10 与屏幕阅读器操作入口也可打开菜单。
@@ -175,24 +165,18 @@ Server 更新通过统一 Rust Host 的认证接口完成，使用独立 Server 
 
 ## 验证
 
-生产入口验证见 [Mobile 自动验收](../versions/v1.59/evidence/mobile-compact/validation.json)，
-[执行组件验证](../versions/v1.59/evidence/mobile-compact/execution-validation.json)和
-[独立 Server 验证](../versions/v1.59/evidence/mobile-compact/server-validation.json)。
-最终紧凑稿的包级检查和本机安装交接见[验收记录](../versions/v1.59/evidence/mobile-compact/README.md)。
-
 `pnpm build:web` 后运行 `pnpm test:host-web-mobile`；需要本机已构建的 `rovai-host`、`rovai-server`、macOS Chrome 和已安装的 Codex CLI。
 新建使命用例在隔离数据内配置队员使用 Runtime 默认模型，只保存使命，并断言没有启动 Run。
 `ROVAI_MOBILE_OUTPUT=<绝对路径>` 可保留截图与 JSON。测试使用隔离数据根、Skill Library、MCP config 和浏览器目录，
 日志记录绝对位置，不使用日常 App 数据，也不启动真实 Runtime。
 
-真实 Host 用例覆盖登录、列表 5 → 10 → 11 → 5、会话抽屉、执行入口、二级面板关闭返回、切换/刷新草稿、Return、@、共享管理和六种计划。
-使命扩展用例覆盖真实创建记录、状态筛选与搜索、使命会话草稿、预览优先返回、返回使命板、长按改状态、编辑及新建草稿恢复。
-设置总览的完整分类和无搜索约束使用生产入口验证，分类历史的浏览器返回/刷新由导航适配器测试覆盖。
-附件上传、来源授权与 HTML 读取由共享 Host Web 用例覆盖；手机文件预览的独立实体设备验收仍待完成。
-多队员连续 Run、执行弹层几何和展开状态来自共享生产组件 fixture，明确标记模拟证据，不冒充真实模型执行。
-独立 Server 用例验证渠道隐藏、真实版本和仅 Server 可见的更新控件；安装重启与真实 Release 验收分别记录。
-截图覆盖 360/390/430px、触摸横屏 844px 与日夜主题；它们是 macOS Chrome 模拟，**不等于实体手机验收**。
-实体 iOS Safari / Android Chrome 的软键盘、图库/相机、后台恢复与移动网络切换，以及第二实体设备联调仍待完成。
+验收覆盖登录与恢复、列表分页、会话抽屉、执行与二级面板、切换/刷新草稿、Return、@、共享管理、六种计划，
+以及使命创建、筛选、长按菜单、编辑草稿与预览优先返回。设置分类须覆盖浏览器返回、前进与刷新。
+附件上传、来源授权与 HTML 读取复用 Host Web 验收；Server 另验渠道隐藏、真实版本和更新控件。
+多队员连续 Run 与执行弹层的组件 fixture 不证明真实模型执行；安装重启与 Release 验收独立执行。
+视口至少覆盖 360/390/430px 和触摸横屏 844px，并按[全部配色矩阵](qa/theme-matrix.md)验收。
+浏览器模拟不能替代实体 iOS Safari / Android Chrome：软键盘、图库/相机、文件预览、后台恢复、
+移动网络切换和第二设备联调必须另留真机证据，缺失时不得宣称完成。
 
 ### 会话模型信息
 

@@ -2,7 +2,7 @@
 document_type: ui-theme-index
 authority: renderer-theme-routing
 status: accepted
-last_updated: 2026-10-25
+last_updated: 2026-10-30
 ---
 
 # Renderer 主题
@@ -90,7 +90,8 @@ Web 使用同一外观页面、主题和阅读偏好模型，由浏览器入口�
 所有配色沿用相同消息几何与交互，不增加主题专属聚焦装饰、动画或功能。
 
 `--scrollbar-thumb` 拥有通用滚动块与 Mission 文件树底色，不复用选中区域色；
-Memory / Automation 的无彩色工作区使用 `--neutral-selected`。透明轨道、尺寸和拖动反馈保持一致。
+Memory 与 Automation 的滚动块局部使用 `--neutral-selected`；这不把 Automation 的操作色改为无彩色。
+透明轨道、尺寸和拖动反馈保持一致。
 
 `--execution-surface` 拥有执行台在底部、浮层和右侧标签中的统一阅读底色，包括头像状态背板与滚动渐隐。
 晨雾的会话使用轻暖白、执行台使用中性白；其他配色的执行台与会话底色一致。

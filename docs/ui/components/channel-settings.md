@@ -3,7 +3,7 @@ document_type: ui-component
 component: channel-settings
 authority: channel-settings-presentation-and-interaction
 status: accepted
-last_updated: 2026-09-28
+last_updated: 2026-10-30
 ---
 
 # 渠道设置
@@ -43,7 +43,7 @@ Web 页面定时授权读取进度，读取失败保留原发布记录并将实�
 
 ## 页面结构
 
-页面沿用设置工作区的 Porcelain Day / Steel Night 世界和现有 `SettingsPageHeader`：
+页面遵循 [DESIGN.md](../../../DESIGN.md) 与[设置工作区 brief](../surfaces/settings-workspace.md)，复用现有 `SettingsPageHeader`：
 
 1. `Settings / Channels` eyebrow、标题“渠道”、Owner 本机说明；
 2. 飞书与钉钉可选 Provider Tab，均使用打包进 App 的真实品牌图标，并显示各自真实连接状态；
@@ -251,7 +251,7 @@ Run 卡头、状态图形、工具组、命令结果与 Markdown 正文沿用桌
 ## References
 
 - [全局设计系统](../../../DESIGN.md)
-- [设置工作区 brief](../../../apps/desktop/.impeccable/surfaces/settings-workspace.md)
+- [设置工作区 brief](../surfaces/settings-workspace.md)
 - [Feishu Channel v17](../../contracts/feishu-channel-v17.md)
 - [飞书渠道架构](../../architecture/feishu-channel.md)
 - [Lark Channel v1](../../contracts/lark-channel-v1.md)

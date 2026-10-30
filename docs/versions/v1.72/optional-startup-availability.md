@@ -84,10 +84,14 @@ User 明确要求合入 main，替代此前保持 Draft 的流程安排；未完
 
 ## MCP 快照目录权限残留修正（2026-10-31）
 
-用户在 `b71a555db` 隔离复现：外部 MCP 为空且目录实际可读写时，`runtime/mcp` 为 `0755` 仍阻止任务准备，改为 `0700` 才通过。修复基线为已同步 main `be1ff587b531775efdd62deef4dc5f5ecafe5ed2`；分支 `rovai/mcp-snapshot-directory-access`，worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-mcp-snapshot-directory-access`，Governance：none，Status：active。
+用户在 `b71a555db` 隔离复现：外部 MCP 为空且目录实际可读写时，`runtime/mcp` 为 `0755` 仍阻止任务准备，改为 `0700` 才通过。修复基线为已同步 main `be1ff587b531775efdd62deef4dc5f5ecafe5ed2`；分支 `rovai/mcp-snapshot-directory-access`，worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-mcp-snapshot-directory-access`，Governance：none，Status：ready。后续同步主线文档提交 `e679fc1e5`，生产代码与已验证的 `940ee9238` 一致。
 
 现有 MCP 根、Run 和快照/epoch 目录按实际访问使用，不以 Unix mode 或 Windows DACL 模板拒绝；不自动修改原目录权限。Windows 复用数据目录准入，并让旧文件读取与原子提交使用同一父目录规则；新 staging/文件的创建权限、canonical 文件权限、类型/reparse、路径/卷/身份、内容与冻结快照检查保留。不新增恢复状态或改变快照格式。
 
-扩展既有 `projection_filters_assignment_and_keeps_secrets_out_of_exposure`、`later_epoch_reuses_the_first_projection_after_config_changes` 和 `concurrent_run_snapshot_publishers_reuse_one_complete_winner` owners：无外部 MCP 的 Codex/Claude、已配置 MCP、旧 epoch 与 Run 快照复用、并发不可覆盖发布均使用普通目录权限，并核对权限未被修复。Windows 子场景启用继承 DACL，Unix 使用 `0755`；新增独立 Rust 测试函数为零。最小命令为 `cargo test -p rovai-core --features extended-tests --lib mcp_projection::tests::`。原始失败复现属于 macOS 存储边界，不能当作 Windows 或完整界面任务证据；本轮执行结果另行追加。
+扩展既有 `projection_filters_assignment_and_keeps_secrets_out_of_exposure`、`later_epoch_reuses_the_first_projection_after_config_changes` 和 `concurrent_run_snapshot_publishers_reuse_one_complete_winner` owners：无外部 MCP 的 Codex/Claude、已配置 MCP、旧 epoch 与 Run 快照复用、并发不可覆盖发布均使用普通目录权限，并核对权限未被修复。Windows 子场景启用继承 DACL，Unix 使用 `0755`；新增独立 Rust 测试函数为零。最小命令为 `cargo test -p rovai-core --features extended-tests --lib mcp_projection::tests::`。原始失败复现属于 macOS 存储边界；本轮按平台分别记录下面的实际结果。
 
-本地 macOS 定向 MCP owner 9 项通过；默认 feature workspace 477 项通过、0 失败、1 个原有 ignored。`cargo fmt --all --check` 与三项文档门禁通过。Windows 原生与隔离真实任务结果待追加；不把本地编译作为跨平台运行证据。
+本地 macOS 定向 MCP owner 9 项通过；默认 feature workspace 477 项通过、0 失败、1 个原有 ignored。`cargo fmt --all --check` 与三项文档门禁通过。Windows 的继承 ACL 存储 owner 与实际 Core RPC 已在 `windows-2022` 上通过；完整原生矩阵的最终结果保留在 [CI 执行记录](https://github.com/murray17/rovai-ai/actions/runs/41097527600)。此 CI 不包含 Windows Desktop 或真实模型任务。
+
+生产提交 `940ee923856fff0d88487b3c50e153f10fcc1063` 的独立 Core/CLI 构建后，在 `/private/tmp/rovai-mcp-directory-native-a999ig1p` 完成真实 Codex 0.165.0 新任务、隔离 Core 正常退出与重开、同一 Thread/队员/conversation 后继任务。两次 Run 均 succeeded，外部 MCP 为零，根及手动放宽的旧快照目录保持 `0755`，canonical 文件保持 `0600`、旧内容未改变。Core SHA-256 为 `f1f1b81beecf730996820ff2d84470cd2ea1df15e5033a1d6c8efa13de53231d`；复制的认证/配置已删除，未退出或修改日常 App。该场景属于新建隔离 Thread，不替代此前真实用户原现场或完整 GUI 验收。
+
+User sequence 42（“mergwe”）已明确授权本轮合入 main；通过当前原生检查后按 [PR #962](https://github.com/murray17/rovai-ai/pull/962) 合并，同步主线并收口独立 worktree。此前未完成的真实原现场与安装路径验收不因本次专项通过而改记完成。

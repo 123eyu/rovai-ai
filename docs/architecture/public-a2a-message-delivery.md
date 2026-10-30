@@ -3,14 +3,14 @@ document_type: architecture
 architecture: public-a2a-message-delivery
 authority: public-message-delivery-and-agent-run-boundaries
 status: accepted
-last_updated: 2026-10-28
+last_updated: 2026-10-31
 ---
 
 # Public Thread Message、Delivery 与 AgentRun
 
-本架构定义公开 Thread 的统一消息执行主链。字段合同见 [Camp Message Send v25](../contracts/camp-message-send-v25.md)、
-[Message Delivery v18](../contracts/message-delivery-v18.md)、[ContextManifest 39](../contracts/context-manifest-evidence-v40.md)
-与 [Camp History v11](../contracts/camp-history-v11.md)。Single Chat 不使用本主链。
+本架构定义公开 Thread 的统一消息执行主链。字段合同见 [Camp Message Send v29](../contracts/camp-message-send-v29.md)、
+[Message Delivery v18](../contracts/message-delivery-v18.md)、[ContextManifest v43/v44](../contracts/context-manifest-evidence-v44.md)
+与 [Camp History v17](../contracts/camp-history-v17.md)。Single Chat 不使用本主链。
 
 ## 三类事实
 

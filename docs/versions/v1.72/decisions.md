@@ -3,10 +3,24 @@ document_type: version-decisions
 version: v1.72
 authority: decision-rationale
 lifecycle: current
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # v1.72 版本决定
+
+<a id="v1-72-d70"></a>
+## V1.72-D70：可选历史文件与单个 Runtime 故障不阻断原工作区
+
+- 状态：accepted
+- 日期：2026-10-30
+- 授权：User sequence 31 确认六项全部实施，①②③优先、⑥同步、④⑤同轮；要求保留现场的原会话与原使命副本验收。
+- 当前权威：[Availability-first Runtime](../../architecture/availability-first-runtime.md#optional-startup-boundary)、[附件](../../contracts/camp-attachment-v12.md#历史存储的故障范围)、[Runtime 设置](../../contracts/runtime-launch-and-verification-v74.md#本机配置的局部故障)、[MCP 快照](../../contracts/input-snapshot-storage-v1.md#mcp-snapshot-storage-layout)、[文件变化与 Blob](../../architecture/runtime-file-change-observation.md#故障边界)。
+
+健康数据库仍可能被旧附件根身份、损坏临时记录、未使用 Runtime 配置或外部 MCP 文件阻断；把历史扫描移到后台但继续持有全局数据库锁，仍会阻塞原会话读取与新任务。选择把错误收窄到实际文件、Runtime 或工具，以现有状态与错误投影表达；Runtime discovery 独立启动，历史维护逐条有界且不随功能重试重跑。
+
+接受无法证明归属的残留继续占用磁盘，不通过全盘库存、额外持久队列或恢复服务换取彻底清理。保留实例锁、迁移事务、冻结 Run 快照、当前真实停止结果、具体目标身份检查和删除前的引用复核。损坏配置区别于缺失：保留原值及错误，只允许用户显式、版本检查后的修正，不自动换程序或账号。
+
+本决定替代当前规范中旧附件根身份/遍历决定全局准入、MCP 全局 ready 决定普通执行、Adapter 初始化必须清理旧文件的要求。派生视图可按需重建；不改数据库 schema、不补成功回执、不清空原会话。跨平台与原用户数据副本验收分别记录，开发启动或合成数据不能替代交付门槛。
 
 <a id="v1-72-d69"></a>
 ## V1.72-D69：历史进程清理不决定工作区可用性

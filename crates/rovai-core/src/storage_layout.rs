@@ -250,7 +250,7 @@ mod tests {
     // The older root-admission fixture is Unix-only. This owner preserves its
     // standalone cases and also exercises Windows native private-directory ACLs.
     #[test]
-    fn standalone_runtime_root_preserves_native_admission_and_owner() {
+    fn standalone_runtime_root_preserves_native_layout_without_eager_attachment_storage() {
         use crate::camp_attachment_view::ThreadAttachmentViewStore;
         let parent = std::fs::canonicalize(std::env::temp_dir()).unwrap();
         let requested = parent.join(format!("rovai-server-layout-{}", uuid::Uuid::new_v4()));
@@ -263,10 +263,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(server.root(), root);
+        let second = ThreadAttachmentViewStore::admit(root, &paths.data_dir, &[]).unwrap();
+        assert_eq!(second.root(), root);
         assert!(
-            ThreadAttachmentViewStore::admit(root, &paths.data_dir, &[]).is_err(),
-            "the standalone root still has one owner"
+            !root.exists(),
+            "admission must not initialize the legacy root"
         );
+        drop(second);
         assert!(
             ThreadAttachmentViewStore::admit(
                 &paths.data_dir.join("instances/wrong/runtime-files"),

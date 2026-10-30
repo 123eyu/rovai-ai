@@ -181,7 +181,7 @@ impl McpProjectionService {
     pub fn prepare(
         &self,
         database: &Database,
-        config_store: &McpConfigStore,
+        config_store: Result<&McpConfigStore>,
         request: &McpProjectionRequest<'_>,
     ) -> Result<PreparedMcpProjection> {
         validate_request(request)?;
@@ -221,46 +221,67 @@ impl McpProjectionService {
         self.load_and_validate(&target, request, None)
     }
 
-    pub fn cleanup_terminal_and_orphaned(&self, database: &Database) -> Result<usize> {
-        if !self.root.exists() {
-            return Ok(0);
+    pub fn cleanup_terminal(
+        &self,
+        database: &tokio::sync::Mutex<Database>,
+        budget: &mut crate::maintenance_budget::MaintenanceBudget,
+    ) -> usize {
+        if let Err(error) =
+            crate::camp_attachment_view::reject_existing_symlink_components(&self.root)
+        {
+            budget.report("MCP cleanup target", error);
+            return 0;
         }
-        ensure_private_directory(&self.root)?;
+        let entries = match fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return 0,
+            Err(error) => {
+                budget.report("MCP enumeration", error);
+                return 0;
+            }
+        };
         let mut removed = 0;
-        for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
-            if !file_type.is_dir() {
-                continue;
+        for entry in entries {
+            if !budget.take() {
+                break;
             }
-            let run_id = entry.file_name().to_string_lossy().to_string();
-            let status = database
-                .connection()
-                .query_row(
-                    "SELECT status FROM agent_run WHERE id = ?1",
-                    [&run_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?;
-            if status
-                .as_deref()
-                .is_none_or(|status| matches!(status, "succeeded" | "failed" | "cancelled"))
-            {
-                fs::remove_dir_all(&path)?;
-                removed += 1;
-                continue;
-            }
-            for child in fs::read_dir(&path)? {
-                let child = child?;
-                if child.file_name().to_string_lossy().starts_with('.')
-                    && child.file_type()?.is_dir()
-                {
-                    fs::remove_dir_all(child.path())?;
+            let result = (|| -> Result<bool> {
+                let entry = entry?;
+                if !entry.file_type()?.is_dir() {
+                    return Ok(false);
                 }
+                let run_id = entry.file_name().to_string_lossy().into_owned();
+                if Uuid::parse_str(&run_id).is_err() {
+                    return Ok(false);
+                }
+                let discarded = {
+                    let Ok(database) = database.try_lock() else {
+                        return Ok(false);
+                    };
+                    let stopped: bool = database.connection().query_row(
+                        "SELECT EXISTS(SELECT 1 FROM agent_run WHERE id=?1 AND status IN ('succeeded','failed','cancelled') AND cancel_acknowledged_at IS NOT NULL)",
+                        [&run_id], |row| row.get(0),
+                    )?;
+                    // Neither directory age, a missing Run nor an unacknowledged
+                    // terminal is evidence that a process no longer uses its files.
+                    if !stopped {
+                        return Ok(false);
+                    }
+                    ensure_private_directory(&self.root)?;
+                    ensure_private_directory(&entry.path())?;
+                    let discarded = self.root.join(format!("discard-{}", Uuid::new_v4()));
+                    fs::rename(entry.path(), &discarded)?;
+                    discarded
+                };
+                crate::maintenance_budget::remove_owned_tree(&discarded, budget)
+            })();
+            match result {
+                Ok(true) => removed += 1,
+                Ok(false) => {}
+                Err(error) => budget.report("MCP cleanup", error),
             }
         }
-        Ok(removed)
+        removed
     }
 
     fn find_previous(
@@ -475,11 +496,27 @@ impl McpProjectionService {
 }
 
 fn materialize_projection(
-    config_store: &McpConfigStore,
+    config_store: Result<&McpConfigStore>,
     request: &McpProjectionRequest<'_>,
 ) -> Result<ProjectionFile> {
     let known = [request.agent_id.to_string()].into_iter().collect();
-    let (view, config) = config_store.get_with_raw(&known)?;
+    let (view, config) = match config_store.and_then(|store| store.get_with_raw(&known)) {
+        Ok(value) => value,
+        Err(_) => {
+            let capability =
+                AgentRuntimeAdapterRegistry::default().mcp_projection(request.adapter_kind);
+            let mut projection = empty_legacy_projection(request);
+            projection.exposure.config_digest = "sha256:unavailable-mcp-config".into();
+            projection.exposure.config_status = "invalid".into();
+            projection.exposure.projection_mode = capability.external_mcp_projection;
+            projection.exposure.same_name_policy = capability.same_name_policy;
+            projection
+                .exposure
+                .warnings
+                .push("mcp.config_unavailable".into());
+            return Ok(projection);
+        }
+    };
     let capability = AgentRuntimeAdapterRegistry::default().mcp_projection(request.adapter_kind);
     let mut exposure = McpExposureSnapshot {
         schema_version: MCP_PROJECTION_SCHEMA_VERSION,
@@ -1085,7 +1122,7 @@ mod tests {
         let prepared = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&run_id, 1, &root, AdapterKind::CodexCli),
             )
             .unwrap();
@@ -1139,7 +1176,7 @@ mod tests {
         let first = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&run_id, 1, &root, AdapterKind::CodexCli),
             )
             .unwrap();
@@ -1157,7 +1194,7 @@ mod tests {
         let recovered = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&run_id, 2, &root, AdapterKind::CodexCli),
             )
             .unwrap();
@@ -1245,7 +1282,7 @@ mod tests {
         let unsupported = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&run_id, 1, &root, AdapterKind::AntigravityApp),
             )
             .unwrap();
@@ -1265,7 +1302,7 @@ mod tests {
         let codex = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&codex_run_id, 1, &root, AdapterKind::CodexCli),
             )
             .unwrap();
@@ -1284,7 +1321,7 @@ mod tests {
             service
                 .prepare(
                     &database,
-                    &store,
+                    Ok(&store),
                     &request(&codex_run_id, 1, &root, AdapterKind::CodexCli),
                 )
                 .is_err()
@@ -1305,7 +1342,7 @@ mod tests {
         let prepared = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&run_id, 1, &root, AdapterKind::CodexCli),
             )
             .unwrap();
@@ -1321,8 +1358,16 @@ mod tests {
             McpExposureStatus::MissingEnvironment
         );
         assert!(prepared.canonical_path.exists());
-        assert_eq!(service.cleanup_terminal_and_orphaned(&database).unwrap(), 1);
-        assert!(!prepared.canonical_path.exists());
+        let database = tokio::sync::Mutex::new(database);
+        let mut budget = crate::maintenance_budget::MaintenanceBudget::new(
+            32,
+            std::time::Duration::from_secs(1),
+        );
+        assert_eq!(service.cleanup_terminal(&database, &mut budget), 0);
+        assert!(
+            prepared.canonical_path.exists(),
+            "unknown ownership preserves the snapshot"
+        );
         drop(database);
         let _ = fs::remove_dir_all(root);
     }
@@ -1341,7 +1386,7 @@ mod tests {
         let prepared = service
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &request(&run_id, 1, &root, AdapterKind::CodexCli),
             )
             .unwrap();
@@ -1446,7 +1491,9 @@ mod tests {
         create_effective(&store, "docs", r#"{"command":"node"}"#);
         let run_id = Uuid::new_v4().to_string();
         let codex_request = request(&run_id, 1, &root, AdapterKind::CodexCli);
-        let mut prepared = service.prepare(&database, &store, &codex_request).unwrap();
+        let mut prepared = service
+            .prepare(&database, Ok(&store), &codex_request)
+            .unwrap();
         prepared.finalize_native_name_conflicts(&BTreeSet::from(["Docs".to_string()]));
         let entry = prepared
             .snapshot
@@ -1465,7 +1512,7 @@ mod tests {
 
         let recovered_request = request(&run_id, 2, &root, AdapterKind::CodexCli);
         let mut recovered = service
-            .prepare(&database, &store, &recovered_request)
+            .prepare(&database, Ok(&store), &recovered_request)
             .unwrap();
         recovered.finalize_native_name_conflicts(&BTreeSet::from(["docs".to_string()]));
         assert_eq!(recovered.snapshot, prepared.snapshot);

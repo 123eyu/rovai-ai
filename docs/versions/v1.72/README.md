@@ -6,10 +6,15 @@ authority: version-scope-and-status
 design_status: confirmed
 implementation_status: in_progress
 model_context_change: true
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # Rovai-ai v1.72：Lark 独立渠道
+
+## 可选启动与历史维护减重（2026-10-30，实施中）
+
+六项同轮处理：旧附件根不参加启动/任务准入，临时 Blob 逐条有界恢复，Runtime 配置逐项报错，外部 MCP 降级投影，Adapter 不清扫历史输入，发现与维护分开调度。沿用锁、事务、错误状态和显式配置版本检查，不新增恢复系统。
+取舍见 [D70](decisions.md#v1-72-d70)，改动、回归归属及尚未完成的原用户数据副本、Windows 和安装门槛见 [实施记录](optional-startup-availability.md)。未完成门槛不能用单元测试或新会话成功替代。
 
 ## 评测指标采集修复（2026-10-30）
 

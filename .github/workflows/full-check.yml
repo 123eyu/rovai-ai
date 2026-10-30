@@ -295,7 +295,7 @@ jobs:
       - name: Exercise optional storage and Runtime fault isolation
         shell: pwsh
         run: |
-          foreach ($owner in @('managed_blob::tests::', 'mcp_projection::tests::', 'runtime_mcp::tests::', 'camp_attachment_view::tests::', 'runtime_custom_api::tests::', 'member_environment::tests::', 'core_subsystems::tests::')) {
+          foreach ($owner in @('managed_blob::tests::', 'mcp_projection::tests::', 'runtime_mcp::tests::', 'camp_attachment_view::tests::', 'runtime_custom_api::tests::', 'runtime_startup::tests::', 'member_environment::tests::', 'core_subsystems::tests::')) {
             cargo test -p rovai-core --features extended-tests --lib --target x86_64-pc-windows-msvc $owner -- --test-threads=2
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

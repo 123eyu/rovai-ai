@@ -42,16 +42,14 @@ Thread API、Thread path 和 Agent-facing Thread locator 只接受 `rvcamp_...`�
 - Attachment 与 Runtime-managed home 先解析 Thread ID，再把 canonical value 当作单一路径组件。
 - Conversation/Runtime 层保留 provider-native ID，不从 Thread ID 推导、补全或猜测 Session ID。
 
-## Persistence and clean break
+## Persistence and recovery
 
-Migration 94 先安装 Runtime public failure schema 49；Migration 95 再安装 Context Formatter 20 / schema 50。
-生产打开旧预发布本地数据时，Core 将不兼容的 Rovai-owned database/files 移入
-`inactive-data-quarantine/` 后建立当前 store，不生成 `old UUID → ThreadId` 映射。schema 49 到 50 的显式迁移
-同时清除旧 Manifest、Bootstrap/Delivery evidence、Native binding 和 accepted boundary，并失败关闭非终态
-Run、Turn、Delivery 与 Gather。
+数据库打开、升级与阻断遵循 [Database authority](availability-first-runtime.md#database-authority-state-machine)：
+支持的旧库在原库迁移；未知合同、损坏或歧义保留原数据并明确阻断，不能通过隔离或重置创建替代库。
+Thread 改名不重写既有 ID、外键或路径，不生成 `old UUID → ThreadId` 猜测映射。
 
-本机 Renderer storage 也采用版本 clean break：timeline storage v2 与 Thread-aware navigation/onboarding state
-只恢复 canonical Thread ID。丢弃旧 locator 不删除任何外部 Runtime Session。
+本机 timeline、navigation 与 onboarding locator 只恢复 canonical Thread ID；丢弃失效 locator
+不删除数据库记录或任何外部 Runtime Session。
 
 ## Stable boundaries
 

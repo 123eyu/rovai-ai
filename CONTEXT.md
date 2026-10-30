@@ -1508,18 +1508,13 @@ The Mapping Registry's description of how much activity a Runtime protocol actua
 quality, or permission; a lower level must not be upgraded by inferring hidden steps.
 _Avoid_: Runtime support tier, feature promise, inferred internal event coverage
 
-**v0.41 Local Data Clean Break**:
-The v0.41 persistence boundary that accepts only the v0.41 data contract. Rovai AI does not migrate or
-backfill incompatible v0.40-or-earlier local application data; when the Rovai-owned store cannot meet
-the v0.41 contract, it is reset only within the confirmed closed allowlist: `rovai.sqlite` and its
-SQLite sidecars (including incompatible legacy `lumen.sqlite` remnants), `managed-blobs/**`,
-`camp-attachments/**`, the registered Runtime projection roots, `runtime-private/**`,
-`codex-homes/**`, `quick-chat/**`, and reset-manifest-registered app-owned staging/lock/temp paths.
-The Core may clean its exact process-owned Built-in CLI IPC socket separately, but may not sweep `/tmp`.
-User workspaces, user files, external Runtime configuration and credentials, Native Runtime Homes, and
-project `.codex`/native Runtime state are outside this reset. Allowlist additions require a new manifest,
-tests, and an explicit architectural decision.
-_Avoid_: workspace deletion, Runtime reinstall, silent partial migration, historical Projection replay
+**Database Admission**:
+Core's classification of the selected SQLite authority while holding the data-directory lease. Current
+data opens in place, supported older data follows the existing migration chain, and unknown, ambiguous
+or unreadable data remains intact with a diagnostic blocker. Initialization requires confirmed absence
+of both current and legacy main databases and recovery logs; an existing-store failure never authorizes
+quarantine, reset or a replacement database. See [database authority](docs/architecture/availability-first-runtime.md#database-authority-state-machine).
+_Avoid_: automatic clean break, fallback empty database, directory-scan recovery guess
 
 **AgentRun Execution Evidence**:
 A durable, user-visible record of provider-reported reasoning summaries, Agent progress narration, plans, steps, and structured tool/command/file lifecycle for exactly one AgentRun: text is retained as independently finalized message blocks, while tool and execution facts remain append-only. It is separate from public messages and Agent context or Memory sources, and contains only normalized Runtime-public information, never hidden raw reasoning or invented progress.

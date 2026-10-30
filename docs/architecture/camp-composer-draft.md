@@ -99,11 +99,11 @@ Web 复用上传回执，不调用 Electron Main。Host 接收时直写同一 Th
 
 普通弹窗的零消息 Active 不因清空而丢弃；一键 Pending 继续使用既有 presence、离开与启动清理，并补齐
 输出目录删除。首次发布后身份与路径不变。不建立新的草稿事务、发送对账或垃圾回收框架；
-精确接口与负例由 [v19](../contracts/camp-composer-draft-v20.md) 拥有。
+精确接口与负例由 [v20](../contracts/camp-composer-draft-v20.md) 拥有。
 
 ## 撤回与短期重新编辑
 
-发送后的本地 Principal 消息在首次目标 claim 前可以撤回。撤回操作针对已发布 ThreadMessage，原子取消 waiting Delivery
+发送后的本地 User 消息在首次目标 claim 前可以撤回。撤回操作针对已发布 ThreadMessage，原子取消 waiting Delivery
 并擦除受控原文；撤回本身不会把内容放回 Composer。首次 claim 后撤回资格永久关闭。
 输入历史不另行监听撤回；本轮已提取内容仍可由 User 回填，下一轮依据最新消息数据，重新发送算新提交。
 

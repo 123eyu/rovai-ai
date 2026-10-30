@@ -117,7 +117,7 @@ export function renderSystemOverview() {
   const core =
     component(42, 708, 220, 223, 'A2A 消息与路由', 'ThreadMessage · Delivery', ['显式收件人 · 独立投递', '目标 FIFO · 有序 claim', '多输入 Run · 回复锚点'], P.peer)
     + component(282, 708, 220, 223, '协作组织与责任', 'Task · Mission · Delivery', ['目标 · 负责人 · 验收', '普通消息 · 多人邀请', '业务对象各自结算'], P.responsibility)
-    + component(522, 708, 220, 223, '动态上下文', 'Bootstrap · ContextManifest', ['同伴名册 · 任务责任', '增量公共历史', '运行事实 · 工作区', '完整 RUN_INPUT 批次'], P.context)
+    + component(522, 708, 220, 223, '动态上下文', 'Bootstrap · ContextManifest', ['同伴名册 · 任务责任', 'Skills 索引 · 历史按需读', '运行事实 · 工作区', '完整 RUN_INPUT 批次'], P.context)
     + component(762, 708, 220, 223, '长期记忆', ['Hearth · Companion', 'Relationship'], ['用户审核 · 正式晋升', '修订 · 替代 · 退役 · 遗忘', '按 Scope 授权读取'], P.memory)
     + component(1002, 708, 220, 223, 'CLI + Skill Toolkit', 'Skill · CLI · Router', ['Skill 按需提供协作方法', 'rovai CLI 表达平台动作', '认证 IPC · Run 身份', '结构化结果 · 原生投影'], P.toolkit)
     + component(1242, 708, 220, 223, 'AgentRun 执行', 'AgentRun · Runtime Fleet', ['队列准入 · 执行配置', 'Runtime Adapter · 协议', '模型 / 权限 · 按能力接入', '原生事件 · 过程与结果'], P.runtime);

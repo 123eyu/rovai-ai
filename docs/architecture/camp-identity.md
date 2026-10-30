@@ -17,7 +17,7 @@ Thread creation
   └─ ThreadId::new (UUIDv7 → canonical Crockford Base32)
       ├─ camp.id / every camp_id foreign key
       ├─ Core read/write models and Desktop threadId
-      ├─ SHARED_CONVERSATION and Context evidence
+      ├─ RUN_INPUT, RUN_FACTS and Context evidence
       ├─ Built-in Thread/Task outputs and Thread History targets
       └─ Rovai-owned camp-attachments / codex-homes path component
 

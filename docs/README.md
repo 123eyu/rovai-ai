@@ -37,7 +37,7 @@ last_updated: 2026-10-27
 | 修改 Domain Command Gateway、`command.result` 持久回放、事件 payload/订阅、`event_log` 回执存储或幂等结果 | [Domain Command Result v1](contracts/domain-command-result-v1.md)、[Core 事务与 Read Side 不变量](architecture/foundational-invariants.md#core-command-transaction)、[Availability-first Runtime](architecture/availability-first-runtime.md)及[v1.53 实施计划](versions/v1.53/implementation-plan.md) |
 | 新增或修改 Version Decision、Architecture、Contract、版本文档或文档路由 | [决策治理与准入](decisions/README.md)、[当前决定导航](decisions/CURRENT.md)、对应目录 README，并运行通用文档门禁；禁止新增数字 ADR |
 | 判断当前版本目标、范围、进度或验收口径 | 从[版本索引中的唯一 `current` 条目](versions/README.md)进入对应版本概览与实施计划 |
-| 修改 public Thread 输入框、发送失败保留、撤回、附件 source refs 或 Desktop-local 编辑状态 | [Camp Composer Draft v19](contracts/camp-composer-draft-v19.md)、[Public Thread Composer 架构](architecture/camp-composer-draft.md)、[Camp Message Send v26](contracts/camp-message-send-v26.md)、[结构化 Mention 与 Atom](ui/components/structured-mentions.md)及[Thread 会话工作区](ui/components/conversation-workspace.md) |
+| 修改 public Thread 输入框、发送失败保留、撤回、附件 source refs 或 Desktop-local 编辑状态 | [Camp Composer Draft v20](contracts/camp-composer-draft-v20.md)、[Public Thread Composer 架构](architecture/camp-composer-draft.md)、[Camp Message Send v28](contracts/camp-message-send-v28.md)、[结构化 Mention 与 Atom](ui/components/structured-mentions.md)及[Thread 会话工作区](ui/components/conversation-workspace.md) |
 | 修改公共/单聊输入框上下键历史、本轮内容提取或草稿预览 | [Input History v1](contracts/input-history-v1.md)、[Public Thread Composer 架构](architecture/camp-composer-draft.md)、[Single Chat Architecture](architecture/single-chat.md)及[本版实施与验收](versions/v1.72/input-history-implementation.md) |
 | 修改撤回消息两分钟重新编辑、本机恢复副本或撤回回执核对 | [Message Reedit v1](contracts/message-reedit-v1.md)、[Public Thread Composer 架构](architecture/camp-composer-draft.md)、[Domain Command Result v1](contracts/domain-command-result-v1.md)及[输入历史](contracts/input-history-v1.md) |
 | 修改 Thread 内单聊、私有 Conversation、Single Chat Context/Built-in policy、私有 terminal 路由、结束/取消、Conversation 级待发送队列或单聊 UI | [Single Chat v9](contracts/single-chat-v9.md)、[Single Chat Architecture](architecture/single-chat.md)、[Camp Attachment v11](contracts/camp-attachment-v11.md)、[Thread 会话工作区](ui/components/conversation-workspace.md#thread-内单聊) |
@@ -165,4 +165,4 @@ last_updated: 2026-10-27
 6. 新版本、新决定或任何主题文档都使用同一动态门禁；不得为某个 Skill、功能名或版本新增通配例外。
 
 
-消息选文引用变更：先读[已确认上下文说明](versions/v1.56/model-context-change-partial-message-quotes.md)、[Message Quotes v1](contracts/message-quotes-v1.md)与[架构](architecture/message-quotes.md)，再读 Composer/Pending/Single Chat 及会话 UI 合同。
+消息选文引用变更：先读 [Message Quotes v2](contracts/message-quotes-v2.md)与[架构](architecture/message-quotes.md)，再读 Composer/Pending/Single Chat 及会话 UI 合同；历史理由按对应合同链接追溯。

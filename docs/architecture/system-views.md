@@ -78,21 +78,21 @@ Rovai 以长期队员为协作主体，通过 Thread 组织共同工作，并连
 
 ### 图 07：Rovai CLI 平台内置 Toolkit
 
-Skill 经原生发现路径提供协作方法，Agent 使用 `rovai` CLI 调用平台动作。经认证的本地 IPC 将请求交给 Core，由领域服务执行并返回适合 Agent 使用的结构化结果。
+Rovai Skills 通过 Bootstrap/动态索引提供平台方法，其他 native Skills 保持原始发现路径；Agent 使用 `rovai` CLI 调用平台动作。经认证的本地 IPC 将请求交给 Core，由领域服务执行并返回适合 Agent 使用的结构化结果。
 
-![Toolkit 架构：原生 Skill 发现、CLI 命令、本地 IPC、Core Router 与领域能力](assets/system-views/07-toolkit.svg)
+![Toolkit 架构：Skill 索引与原生文件、CLI 命令、本地 IPC、Core Router 与领域能力](assets/system-views/07-toolkit.svg)
 
 ## 八、动态上下文
 
 ### 图 08：从 Session Bootstrap 到动态上下文
 
-Session Bootstrap 在顶部展开会话约定、队员身份和记忆入口三层；每次 Run 的动态输入再按职责展开同伴、责任、增量公共历史、运行事实、工作区和有序输入六层。Context Profile 决定可见范围和输入预算，ContextManifest 记录实际选择，本批输入完整保留。
+Bootstrap 按顺序提供会话约定、身份、可选团队指引、平台 Skills 和记忆入口；Single Chat 省略团队指引与记忆入口。公开动态输入按条件提供名册、任务和工作区，并包含运行事实、附加 Skills 索引与完整 RUN_INPUT。历史按需读取，Profile 按实际字节预算选择完整批次，Manifest 冻结最终输入。精确条件见 [Bootstrap](../contracts/native-session-bootstrap-v6.md) 与 [ContextManifest](../contracts/context-manifest-evidence-v44.md)。
 
-![九层输入：顶部三层稳定会话引导，下方同伴、责任、增量公共历史、运行事实、工作区与 RUN_INPUT 六层动态上下文](assets/system-views/08-dynamic-context.svg)
+![Bootstrap 与公开动态输入：条件名册、可选任务、运行事实、条件工作区、附加 Skills 和完整 RUN_INPUT；历史按需读取](assets/system-views/08-dynamic-context.svg)
 
 ### 图 09：长会话中的稳定引导与动态输入
 
-普通成员会话在建立时获得 Bootstrap，后续 Run 持续接收新的动态上下文。对于已接入原生压缩信号的 Runtime 路径，平台在后续受控输入中补送稳定引导，接续同一个 Native Session。
+普通成员会话在建立时获得 Bootstrap，后续 Run 持续接收新的动态上下文。对于支持压缩补发的 Runtime 路径，平台在后续受控输入中补送稳定引导，接续同一个 Native Session。
 
 ![四格手绘：咕咕建立会话、接收新工作、原生历史压缩，以及稳定引导的补送](assets/system-views/09-session-context.svg)
 

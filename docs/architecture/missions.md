@@ -11,9 +11,10 @@ Mission is the durable purpose of a public team Thread. Core owns its opaque rel
 latest definition, independent business status, activity facts and execution workspace. Thread remains the sole owner of conversation, membership, lead,
 drafts, published files and execution. Renderer does not create a parallel conversation model.
 
-`MissionService` applies atomic commands through the existing gateway. The scheduler enters preparing
-only after execution admission; the application coordinator then resolves or recovers the Mission workspace
-outside the SQLite lock. Preparation and cleanup admission share a short fence so an accepted cleanup intent
+`MissionService` applies atomic commands through the existing gateway. For public batches, the application coordinator
+prepares or recovers the Mission workspace and captures Git facts before claim, outside the SQLite lock.
+Claim revalidates and freezes that actual workspace under [Context Delivery Profile](../contracts/context-delivery-profile-v13.md).
+Preparation and cleanup admission share a short fence so an accepted cleanup intent
 cannot race reuse of the same workspace. The durable intent then runs under a separate serialized cleanup worker,
 so Git removal does not hold preparation or ordinary Mission operations for unrelated workspaces. Preparation
 persists association before Git work and rechecks claim fences before launching the Runtime. Non-Git projects
@@ -21,8 +22,8 @@ retain their original cwd. A worktree is retained throughout ordinary Mission us
 two asynchronous steps in its existing association; a later preparing phase restores the branch/worktree
 according to actual resource state.
 
-`MissionGit` reads the source checkout's current local branch and `HEAD` when the first admitted Run enters
-preparing, and again only when both previously managed Git resources have been removed. It uses the resolved
+`MissionGit` reads the source checkout's current local branch and `HEAD` during initial workspace preparation,
+and again only when both previously managed Git resources have been removed. It uses the resolved
 commit, the Host-resolved Git executable and verified ownership to create, restore or clean worktrees. Cleanup
 verifies the directory and managed branch as independent resources, persists the managed-branch OID on the first
 attempt, and removes the verified clean Worktree without force before checking branch use and conditionally deleting

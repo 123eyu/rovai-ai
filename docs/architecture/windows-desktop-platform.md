@@ -31,8 +31,10 @@ Host envelope 通过不等于 Runtime 可选。每个 Adapter 还必须通过
 | Executable identity | device/inode + fingerprint | opened volume/file ID + fingerprint | frozen executable identity |
 | Private storage | create-new + 0700/0600 | creation-time protected DACL | private create/atomic write helpers |
 | Attachment traversal | `openat`/no-follow | handle-relative reparse-safe traversal | bounded immutable snapshot |
-| SkillProjection | managed native links | copy + journal + root gate | reconcile/verify/Snapshot |
+| Legacy Skill projection cleanup | observation-owned native links | known managed copies + journal + root gate | explicit user-authorized cleanup |
 | Window chrome | hidden titlebar + traffic lights | hidden title strip + top-level menu projection + native submenu/WCO | platform presentation only |
+
+New Skills use original native paths and managed release files under [Skills](skills.md); the legacy projection row covers cleanup only.
 
 These are real two-adapter seams. Domain callers do not select OS implementations or import `windows-sys`; Windows API
 use remains inside the corresponding adapter.

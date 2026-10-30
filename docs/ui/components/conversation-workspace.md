@@ -30,7 +30,7 @@ last_updated: 2026-10-30
 
 字段与状态见 [Public Message/Delivery 架构](../../architecture/public-a2a-message-delivery.md)、
 [Public Composer 架构](../../architecture/camp-composer-draft.md)和
-[Camp History v16](../../contracts/camp-history-v16.md)。
+[Camp History v17](../../contracts/camp-history-v17.md)。
 
 ## 回复详情
 

@@ -84,8 +84,8 @@ Single Chat Pending 接续与 non-batch Run 由自己的提交后通知推进，
 
 ## 可见性与撤回
 
-本地 Principal Composer 消息在所有目标仍未 claim 时可撤回。首个目标 claim 原子关闭撤回资格。
-已发布消息在 claim 前可由显式 `thread.read`、`thread.search` 和 `history.search` 读取；主动查询不领取 Delivery 或关闭撤回资格。已 claim 目标通过 `RUN_INPUT` 接收；未 claim 的目标仍不从冻结输入或 quote-source 投影取得原文。撤回成功取消所有 waiting Delivery 并擦除 Rovai 活跃数据中的原文；Agent 后续 `thread.read` 只返回 `Message withdrawn` 状态项，搜索不再命中。
+本地 User Composer 消息在所有目标仍未 claim 时可撤回。首个目标 claim 原子关闭撤回资格。
+已发布消息在 claim 前可由显式 `thread.read`、`thread.search` 和 `history.search` 读取；主动查询不领取 Delivery 或关闭撤回资格。已 claim 目标通过 `RUN_INPUT` 接收；未 claim 的目标仍不从 RUN_INPUT 取得该消息正文。撤回成功取消所有 waiting Delivery 并擦除 Rovai 活跃数据中的原文；Agent 后续 `thread.read` 只返回 `Message withdrawn` 状态项，搜索不再命中。
 
 人类执行台读取与 Agent-facing 上下文隔离不同：Thread Open 把未 tombstone 消息关联的当前
 `camp_message_delivery` 全部投影到 `messageDeliveries`，不按消息作者过滤。用户消息没有 `sourceAgentRunId` 仍是
@@ -93,10 +93,11 @@ Single Chat Pending 接续与 non-batch Run 由自己的提交后通知推进，
 [Camp Open Projection v25](../contracts/camp-open-projection-v25.md)，展示见
 [Run Process Detail Surface v46](../contracts/run-process-detail-surface-v46.md)。
 
-`RUN_INPUT` 与 quote-source 沿用冻结输入可见性；显式 read/search 使用 Thread History v11 的主动查询可见性。公共 Thread 历史对所有受认证
-队员可读；目标 Thread membership 只控制参与、寻址与执行，不是历史 ACL。外层消息可见不代表它引用的 source 可见；
-每条 quote snapshot 在投影时按查看 Agent 和边界重新校验 source。ContextManifest 冻结当前输入和 discovery
-时序证据，但 Run 内的 `thread.read` 始终按调用时最新状态直接解析存续 Thread，不受 Manifest 上下界限制。
+RUN_INPUT 沿用冻结输入可见性；显式 read/search 使用 [History v17](../contracts/camp-history-v17.md) 的主动查询可见性。
+公共 Thread 历史对所有受认证队员可读；membership 只控制参与、寻址与执行，不是历史 ACL。
+已保存 quotes 按承载消息的权限投影 kind/text，不重读或过滤来源，见 [Message Quotes v2](../contracts/message-quotes-v2.md)。
+ContextManifest 冻结当前输入和 discovery 时序证据，但 `thread.read` 按调用时最新状态解析存续 Thread，
+不受 Manifest 上下界限制。
 
 ## 终态、停止与恢复
 
@@ -127,11 +128,11 @@ Migration 172/schema 122 只扩展新公开 Formatter/Manifest 29、Profile 9 �
 保留旧业务行及审计原字节。旧格式执行不再继续派发或恢复，也不转换、双读或自动重播；需要继续工作时
 建立新执行，必要时使用新 Session。新格式 Run 的 `historyHint` 和输入保持冻结。
 
-## 正文 Principal 寻址
+## 正文 User 寻址
 
-Agent Send 在共享解析模块识别行首连续提及中的稳定 `@Principal`，并与显式 `mentionUser` 合并为当前用户结构化身份。
+Agent Send 在共享解析模块识别行首连续提及中的稳定 `@User`，并与显式 `mentionUser` 合并为当前用户结构化身份。
 PublicOnly 只抑制 Agent 路由，仍允许用户提及；通知沿用当前原子、消息局部和幂等投影。显示名称由当前用户资料解析，
-不持久化到身份字段。精确位置、排除规则与未改变的 Runtime final/quote 来源见 [Send v25](../contracts/camp-message-send-v25.md)。
+不持久化到身份字段。兼容别名见 [User Naming v1](../contracts/user-naming-v1.md)。精确位置、排除规则与未改变的 Runtime final/quote 来源见 [Send v25](../contracts/camp-message-send-v25.md)。
 
 ## 公开执行查询
 

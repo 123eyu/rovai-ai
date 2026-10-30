@@ -2,7 +2,7 @@
 document_type: implementation-record
 version: v1.72
 status: in_progress
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 ---
 
 # 可选启动与历史维护减重
@@ -77,3 +77,7 @@ MCP 导入读取改为与设置读取、提交一致的按需初始化，保留�
 macOS 验证：Context/派发、旧 View、历史查询、MCP 导入及目录准入共 42 项定向 Rust owner 通过；复用单附件读取器的路径与归属安全 owner 另 1 项通过。`pnpm test:rust:pr` 完整 workspace 477 通过、0 失败、1 个原有 ignored，上一轮两项失败均已修复。Core binary 构建通过；重建后的隔离 Core RPC 场景 8 项通过。文档测试、文档版本/决策检查和以 `0a8c95847` 为基线的变更检查通过。日志按本轮提交保存在附件验收目录。
 
 本轮仅使用独立数据目录及测试夹具，不连接真实模型、不操作日常 App。上述 macOS 结果不代替当前修改的 Windows 原生验证、真实用户原会话/原使命副本与安装路径验收；这些门槛仍待完成，PR 保持 Draft。
+
+## 主线合入授权（User sequence 50）
+
+User 明确要求合入 main，替代此前保持 Draft 的流程安排；未完成的 Windows、真实用户副本与安装路径验收仍按上述记录保留，不以合入代替验证。sequence 47 提出的旧文件链接临界长度修补已按 sequence 48 撤回，未形成提交；本机只读核查发现旧记录存在，但无关联的当前批次或待执行输入，尚未证明该场景实际可达，因此不增加兼容机制。

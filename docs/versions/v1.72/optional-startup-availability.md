@@ -36,14 +36,18 @@ Core RPC 相关场景 11 项通过；macOS 的隐藏系统 Pi 不适用场景按
 
 独立开发版使用关闭后的旧测试库 SQLite Backup 副本 `/private/tmp/rovai-optional-native-app-VJeU3w`，不是日常用户数据。真实 Codex 0.165.0 在同一旧 Thread、同一队员及原 conversation 下完成新任务、Stop（222ms 收到真实清理确认）、后继任务；原有 15 条 Run 和 12 条缺 ACK 状态保持。Pi 损坏项在真实设置页显示“配置异常”，未经明确选择不能保存；用户操作路径显式“恢复自动”并保存后，revision 9→10，同一 Core 检查 Ready。外部 MCP 文件依旧不可读，任务 exposure 保持 invalid 与原因。
 
-提交 `c0d0d27955ba513cc869bb4f4e4f1e9d505bc61d` 重建开发版后再次打开同一副本，Core 61ms ready；同一旧 conversation 真实新任务、新 Thread、新 Mission 真实任务通过，Mission 工作区/分支清理及三个 Thread 删除完成。旧历史状态在删除前逐条核对未补写。运行中 Desktop 的 App Updates IPC 与 Core health 都报告 0.5.4；开发 Core SHA-256 为 `287d508049f65e1e31faa68af51cf8764cd8f052d5742f8f4a53ff95f84a3fb5`。该证据属于开发通道，不能代替安装路径验收。验收脚本首次使用已退役的 Renderer `camps.delete` 名称被拒绝，没有产生删除；改用现行 `threads.delete` 后完成，错误和修正均保留在报告中。
+提交 `c0d0d27955ba513cc869bb4f4e4f1e9d505bc61d` 重建开发版后再次打开同一副本，Core 61ms ready；同一旧 conversation 真实新任务、新 Thread、新 Mission 真实任务通过，Mission 工作区/分支清理及三个 Thread 删除完成。旧历史状态在删除前逐条核对未补写。运行中 Desktop 的 App Updates IPC 与 Core health 都报告 0.5.4。Desktop 启动内嵌 Core 的 Host；开发记录中的独立 `rovai-core` 摘要不作为实际 Host 身份证据，最终构建核对以下文打包 Host 摘要为准。该证据属于开发通道，不能代替安装路径验收。验收脚本首次使用已退役的 Renderer `camps.delete` 名称被拒绝，没有产生删除；改用现行 `threads.delete` 后完成，错误和修正均保留在报告中。
 
 [PR #958](https://github.com/murray17/rovai-ai/pull/958) 保持 Draft。PR gate 已通过；[Windows 首轮原生执行](https://github.com/murray17/rovai-ai/actions/runs/41043770825)的编译、进程/数据库/权限、Blob、MCP、附件和 Runtime 设置 owner 通过，但既有环境变量退役测试因仍持有新建密钥文件句柄、删除夹具目录被 Windows 拒绝而失败。补充 `drop(file)` 后本地及[第二轮 Windows owner](https://github.com/murray17/rovai-ai/actions/runs/41045905471)全部通过，保留全部断言。
 
 第二轮实际 Core RPC 发现本轮路径比较的 Windows 回归：普通路径与 `std::fs::canonicalize` 的 `\\?\` 前缀形式被误判为不同实例，导致启动拒绝。复用现有路径等价比较，重叠检查也接受同一表示差异；没有恢复附件树巡检。现有根准入 owner 扩展到 Windows，覆盖普通/扩展表示、超 260 字符路径、交叉表示重叠拒绝以及未创建根的准入。Mac owner 25 项通过，Windows 原生矩阵重新执行；两轮失败均不能记为全绿。
 
+路径修正提交 `ed758df730d9762c2cb3e7ed75f06a18e6e0d1d5` 的[第三轮 Windows 原生验证](https://github.com/murray17/rovai-ai/actions/runs/41049869522)于 2026-10-30 11:57 UTC 完成，`windows-2022` 上 Windows full job 成功。相关 Rust owner 46 项、实际 Core RPC 10 项通过，后续进程、数据库、迁移中断、目录、Skill、Named Pipe 与权限矩阵完成。既有 7 个 subprocess helper 和 1 个手动真实 Runtime smoke 仍按原标记 ignored；本轮没有新增跳过。相关检查移到较早阶段以便先发现入口错误，没有取消后续矩阵。此 CI 证据不包含 Windows Desktop 界面、用户原数据或真实模型 Runtime 验收。
+
 补跑全量 all-targets/all-features Clippy 未通过，包含基线已有的 `cline.rs` 文档空行、`authority_migration.rs` 冗余字段名等告警；本轮引入的无效尾部检查、unit struct 默认调用、Blob 多余引用和 MCP 分支写法已修正，未为通过门禁扩大到无关代码。
 
 `pnpm package:mac:daily` 构建与 App/Host/CLI arm64、ad-hoc 签名门禁通过；这里只构建产物，未安装到日常路径。生产代码对应 `6dd1be3fc823ce332cbbc570cbe9a353c2038786`，Host 0.5.4 的 SHA-256 为 `6d193b225a752cc180f26f4da36d7fa53fa454551adb382869f64d69b665a6ac`。打包 App 在全新隔离目录 `/private/tmp/rovai-optional-packaged-1HcZCs` 打开同一旧测试库副本，Core 25ms ready；真实 Codex 新任务、Stop（219ms）和后继任务通过，Pi 仍局部报损坏、外部 MCP 保持 invalid。Pi 显式 CAS 修正后同一 Core 检查 Ready。正常退出并重开后 Core 23ms ready，修正值保留；同一旧 conversation、新 Thread、新 Mission 的真实任务、Mission 工作区清理及三个 Thread 删除均通过。打包通道与真实原数据、安装路径验收继续分开记录。
 
-以下仍是未完成交付门槛：保留现场的真实用户原会话/原使命副本，及其中同一原队员的真实任务、Stop/重开/清理/删除；Windows 原生执行的最终结果及真实原数据/Runtime 验收；安装路径及 App/Core 构建核对。日常宿主 App 保持运行，未向其数据库或会话发送测试操作。既有关闭后副本规则与当前会话宿主保护仍适用；不能用这里的合成历史副本替代用户原现场。
+路径修正后再次按 `ed758df73` 构建并验签，在新隔离目录 `/private/tmp/rovai-optional-final-packaged-NYKWJ2` 完整复跑上述打包通道：真实 Codex 任务、Stop（210ms）、继续、重开、旧/新 Thread 及新 Mission 任务、清理和删除全部通过；Pi 同 Core 显式修正后 Ready，历史 15 条 Run/12 条缺 ACK 在删除前未改变。运行中 App/Core 均为 0.5.4，最终 Host SHA-256 为 `f469a5862526e4fdaf3bba50545f45dae50412131eb2bd48802f43aa152ee2ac`。隔离 App 已正常退出，测试库和故障文件保留；本轮日常安装版未改变。
+
+以下仍是未完成交付门槛：保留现场的真实用户原会话/原使命副本，及其中同一原队员的真实任务、Stop/重开/清理/删除；Windows 真实原数据/Runtime 与 Desktop 验收；安装路径及 App/Core 构建核对。日常宿主 App 保持运行，未向其数据库或会话发送测试操作。既有关闭后副本规则与当前会话宿主保护仍适用；不能用这里的合成历史副本替代用户原现场。

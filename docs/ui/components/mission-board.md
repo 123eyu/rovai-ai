@@ -2,7 +2,7 @@
 document_type: ui-contract
 authority: mission-renderer-presentation
 status: accepted
-last_updated: 2026-10-25
+last_updated: 2026-10-30
 ---
 
 # Mission board
@@ -204,7 +204,7 @@ the Mission title, worktree path or branch. When a workspace record exists it ad
 `同时清理 Worktree 及本地分支` option and a focusable `?` explaining that unchecked resources stay in place.
 The existing card/list right-click menu shows `清理使命 Worktree` only from Core's `cleanupAvailable`; there is
 no conversation-header ellipsis or retained-workspace page. Its dialog states that it removes the Worktree and
-local branch, lists the two identifiers, and uses only neutral `取消` / `清理` actions. A cleanup preflight refusal
+local branch, lists the two identifiers, and uses ordinary `取消` / `清理` actions under [DESIGN.md](../../../DESIGN.md#components). A cleanup preflight refusal
 for unsaved content or an unsafe detached commit is reported asynchronously, keeps the Mission workspace ready and
 shows the existing inline alert with the exact reason, resource status and `再次清理` action. A cleanup failure after partial or uncertain deletion keeps the
 Mission and returns to the same explicit retry path. After Core durably accepts the cleanup intent, the
@@ -263,7 +263,7 @@ atomically; failures retain the draft for correction/retry. A successful save do
 
 Mission reading renders the same blue inline names and a basic member-profile popover; unavailable references
 retain their ID and are visually unavailable. Creation dismissal retains structured content alongside the existing
-draft. Editing keeps its revision conflict behavior. Day/Night and narrow layouts share this implementation.
+draft. Editing keeps its revision conflict behavior. All registered palettes and narrow layouts share this implementation.
 
 ### Resize settlement
 

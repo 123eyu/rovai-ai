@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # Camp 会话工作区
@@ -440,7 +440,7 @@ Agent 公共消息继续左对齐，仅正文使用与用户消息相同的雾�
 块内顶部以共享线性系统图标、“系统”和消息时间标明来源，使用 muted 元数据；正文使用正常 ink、聊天字号和
 阅读行高，保留完整纯文本、换行和原生选文，长路径自然换行。复制入口位于块外左下方，复用普通消息的
 悬停、键盘聚焦、粗指针可见性与复制反馈，不提供回复、撤回或个人资料入口。
-Day/Night 使用同一组件树与现有语义 token；展示调整不改变作者身份、模型输入、Delivery 或消息可搜索范围。
+所有已注册配色使用同一组件树与当前主题语义 Token；展示调整不改变作者身份、模型输入、Delivery 或消息可搜索范围。
 Web 与 Desktop 共用上述结构和样式；Mobile 横竖屏均取消额外左缩进，保留消息区两侧 14px 留白、共享灰阶
 表面和系统来源头部。正文沿用手机阅读字号（默认 12.5px），复制入口常驻，复用 17px 图标、24px 背景区域与
 32px 纵向点击区域，不另外引入手机消息组件或业务状态。完整适配规则见 [Mobile WebUI](../host-web-mobile.md#对话与执行)。
@@ -1317,8 +1317,8 @@ Message Mention 通知导航必须以 `campId + sourceMessageId` 加载和定位
 Renderer 对新 source refs、Managed v2 和 legacy 附件只消费同一个无路径 View，不显示或分支判断底层
 storage model。历史加载时 `availability = unknown`，不得为了填充附件卡而批量 `stat`、启动 watcher 或
 持久化状态。图片接近可视区域时按需预览，或用户执行预览、打开、显示所在位置后，当前卡片才按该次结果更新为 available、missing、
-unreadable 或 kind_changed；重新读取历史仍从 unknown 开始。状态使用既有 Porcelain Day / Steel Night
-语义 token，不引入新的视觉世界，也不暴露 source、Authority/View 路径或内部 operation ID。
+unreadable 或 kind_changed；重新读取历史仍从 unknown 开始。状态使用当前主题的语义 Token，
+不引入新的视觉世界，也不暴露 source、Authority/View 路径或内部 operation ID。
 
 普通文件单击继续进入应用内文件预览或受控系统打开，目录单击在 Finder / 文件资源管理器中打开。Timeline
 文件项右键菜单提供同一
@@ -1422,7 +1422,7 @@ Camp Header 显示会话定位、待审批摘要和详情直接入口；文件 T
 
 ## Theme, keyboard and failure states
 
-Day/Night 复用同一 DOM 和状态矩阵。主要操作支持键盘；Drawer、stage、Dock、menus、disclosure
+所有已注册配色复用同一 DOM 和状态矩阵。主要操作支持键盘；Drawer、stage、Dock、menus、disclosure
 和 Stop 均可通过键盘操作，不添加额外焦点装饰。Loading、Empty、Partial、Error、Disabled、Submitting 与 Recovery 必须
 保留当前上下文、草稿和可恢复导航，而不是用通用错误页覆盖整个工作区。
 
@@ -1447,7 +1447,7 @@ Composer 输入和 Runtime 进度刷新不重新解析正文未变的历史 Mark
 没有运行也继续入队。队列条位于 Composer 上方，与输入框同宽、同轴，按 FIFO 排列，不显示单条
 序号，不提供排序或合并；较长队列在有界区域滚动。Pending 不作为用户消息显示在公共时间线。
 普通排队不额外显示自动续发说明。队列使用系统字体、10.5px 正文、32px 最小行高与 6px 空心圆点；
-普通底色由 `--surface-subtle` 44% 与 `--conversation-surface` 混合。Day/Night 使用相同结构。
+普通底色由 `--surface-subtle` 44% 与 `--conversation-surface` 混合。所有已注册配色使用相同结构。
 
 仅右侧 24px 铅笔按钮触发编辑，正文和行背景不响应。点击后把完整消息移出队列，覆盖普通输入框的正文、
 附件、@成员、Reply 和选文引用，并把光标置于末尾。提示文字为“移回输入框编辑（覆盖当前内容）”。

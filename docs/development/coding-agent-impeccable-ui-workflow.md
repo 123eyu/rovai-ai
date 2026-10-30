@@ -1,7 +1,7 @@
 ---
 document_type: development-workflow
 authority: local-coding-agent-tooling-and-ui-document-routing
-last_updated: 2026-10-25
+last_updated: 2026-10-30
 ---
 
 # Coding Agent UI 与设计文档工作流
@@ -10,7 +10,7 @@ last_updated: 2026-10-25
 
 1. 读 `AGENTS.md`、[文档导航](../README.md)、[DESIGN.md](../../DESIGN.md)与[UI 索引](../ui/README.md)。
 2. 按目标读取主题合同、组件合同和匹配的 surface brief；只在涉及产品用途、术语或品牌时读 `PRODUCT.md`。
-3. 检查对应生产组件、CSS、Token 和测试。发现文档—实现漂移时，标明已确认规则、实际实现和本次修复范围。
+3. 以已确认设计核对生产组件、CSS、Token 和测试，不从遗留样式推导新规范。发现文档—实现漂移时，标明规范、实现与本次修复范围。
 4. 保持现有视觉系统；仅在用户明确要求重设计时更换方向。
 
 ## 内容归属
@@ -35,7 +35,7 @@ last_updated: 2026-10-25
 - 删除重复说明、方案比较、会话 sequence、评审过程、旧名称解释和已完成迁移步骤。
 - 全局规则只写一次；页面文档链接继承，仅写局部差异。必要的错误恢复和交互约束必须保留。
 - 索引只放入口与读取边界，不承载功能流水账或实施状态。
-- 不从遗留样式推导新规范；以已确认设计为准，单独记录未完成的实现修复。
+- 交互稿遵循同一设计与组件规则；复用生产样式须包含宿主作用域和 Portal 的 Token 映射。
 - 更新所有受影响的当前引用和 fragment；不改写历史决定，不增加兼容空壳或重复权威。
 
 `DESIGN.md` 使用以下章节顺序：Overview、Colors、Typography、Layout、Elevation & Depth、Shapes、

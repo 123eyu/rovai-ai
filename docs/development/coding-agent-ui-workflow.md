@@ -21,7 +21,7 @@ last_updated: 2026-10-30
 | 全局视觉、通用控件、色彩职责 | `DESIGN.md` |
 | 配色注册、明暗解析、完整 Token | `docs/ui/themes/` |
 | Rovai 特有复杂组件的结构、状态呈现与交互 | `docs/ui/components/` |
-| 页面信息优先级、构图与局部约束 | `apps/desktop/.impeccable/surfaces/` |
+| 页面信息优先级、构图与局部约束 | `docs/ui/surfaces/` |
 | 主题、键盘、缩放和无障碍验收 | `docs/ui/qa/` |
 | 领域、权限、持久化、Runtime 语义 | 当前 Architecture / Contract |
 | 范围、进度、实施证据与历史理由 | 当前或对应历史版本文档 |
@@ -44,19 +44,7 @@ Components、Do's and Don'ts。Front matter 只保留真实复用的稳定值；
 主题文档保留稳定 ID、模式、必要的配色约束、完整 Token、实现入口与验收要求。
 所有已注册配色覆盖同一组件和状态；`system` 只负责解析偏好。
 
-仅为具有持久局部策略的页面建立 brief。保留 `version`、`slug`、`primary_target`、`related_targets`；
-修改时核对目标路径和实际组件，不为每个基础控件创建独立文件。
-
-## Impeccable 本地工具
-
-- Impeccable 可选；共享规则不得依赖某个 Provider、Slash Command、Hook 或 Plugin。
-- 使用当前 Agent 已发现的 Skill 路径。原生发现不可用时，直接读已安装的 `SKILL.md` 与所需 reference。
-- 应用 Skill 时按其说明运行一次 context，并加载当前目标的参考流程；不要重复运行上下文提取。
-- 文档维护采用现有设计的提取/整理流程；不重复创意访谈，不自行重设计或因 detector 偏好改变产品规则。
-- 未获明确授权不安装或启用 Hook/Plugin。需要安装 Skill 时只安装实际使用的 Provider 完整 payload，并核对其来源和版本。
-- 第三方 Skill、companion agents、缓存、评审结果及生成 comps 仅在本地保存，使用精确忽略规则。
-- 不自动生成或启用 `design.json` sidecar；采用前须明确其同步维护责任。
-- Provider 适配文件只链接共享入口并补充必要装载方式，不复制设计、架构或测试规则。
+页面指引标明目标组件，仅补充构图、信息优先级和局部差异；不为每个基础控件创建独立文件。
 
 ## 验证与交付
 

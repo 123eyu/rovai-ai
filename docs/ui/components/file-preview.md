@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-file-preview
 status: accepted
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # Camp 文件预览区
@@ -258,7 +258,7 @@ Markdown 中的每个围栏或缩进代码块在右上角常驻复制图标，�
 复制控件和状态不进入消息引用或正文查找。行内代码、文档语法高亮和消息既有排版保持各自原有行为。
 
 Viewer 底色与会话阅读区共用语义 surface。选中文字只保留普通系统选择/复制行为，不出现“附加到会话”浮层，
-也不向 Composer 添加引用卡片；引用能力留待后续整体设计。
+也不向 Composer 添加引用卡片。
 
 焦点在文件正文时，`Cmd/Ctrl+A` 只全选当前阅读器的内容，不跨入会话、文件 Tabs、路径行或其他 Tab。
 Markdown 选择渲染正文；代码/文本选择已加载全文（包含未渲染的滚动区外行），分页文本只选择当前页；
@@ -318,7 +318,7 @@ HTML 沿用整页候选替换与滚动恢复；自动检查确认同版本时保
 ## 平台
 
 macOS/Windows 复用同一 DOM、reducer、Viewer 和主题 token，只投影 `⌘/Ctrl`、Finder/文件资源管理器、系统字体和
-既有 window chrome 差异。焦点状态使用现有 2px focus token，焦点不得被 sticky 内容完全遮挡。
+既有 window chrome 差异。焦点呈现遵循 [DESIGN.md](../../../DESIGN.md#components)，保留键盘可达，焦点不得被 sticky 内容完全遮挡。
 
 
 ## HTML 运行反馈

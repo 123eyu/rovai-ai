@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-app-shell-navigation
 status: accepted
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # App Shell 与统一侧栏
@@ -169,7 +169,6 @@ Desktop 导航快捷键由[快捷键设置](shortcut-settings.md)统一分发，
 历史不写文件、数据库、localStorage 或 sessionStorage，不引入 schema/存储迁移。
 最小化、托盘隐藏、原窗口内普通数据刷新不清空；前端重载、窗口销毁或新的 App 会话重新初始化。
 现有布局和启动位置保存机制独立保留，不把它们扩展成历史恢复。
-未来 WebUI 复用业务入口但连接浏览器历史，本次不实现 WebUI。
 
 回归：`desktop-navigation.test.ts` 验证内存状态与异步提交；`window-navigation.test.ts` 验证宿主来源；
 `pnpm test:navigation-shell` 验证正式组件输入、布局和刷新清空；`pnpm test:startup-presentation`
@@ -291,7 +290,7 @@ App 前台可见时使用约 20 秒低频安全刷新修复偶发丢失事件；
 普通侧栏更新入口使用透明背景、34px 点击高度和 11.5px 状态文字；英文 200px 窄栏可另起一行。
 “关于与更新”行显示同语义、非交互的 11px 状态，图标槽和状态的宽度规则分别归属，不能挤压或重叠。
 下载中同时显示动作与百分比；下载/安装失败显示失败状态，页面才提供对应重试操作。设置页面的局部构图见
-[`settings-workspace` surface brief](../../../apps/desktop/.impeccable/surfaces/settings-workspace.md)。
+[`settings-workspace` surface brief](../surfaces/settings-workspace.md)。
 
 启动设置有未保存的程序路径或通用环境配置时，左侧“返回 App”等应用内离开入口与页内返回复用同一个
 放弃确认。取消保留当前页面与草稿；确认后再导航。切换设置分类仍保留草稿，随后离开 App 设置也须确认。
@@ -360,9 +359,6 @@ App Shell 在不抢夺焦点的全局浮层中短暂显示实际缩放比例，�
 - [Camp Workspace 不变量](../../architecture/foundational-invariants.md#camp-workspace)
 - [产品与导航不变量](../../architecture/foundational-invariants.md#product-navigation)
 - [Camp 生命周期不变量](../../architecture/foundational-invariants.md#camp-lifecycle)
-- [v0.57 Project remove 实施计划](../../versions/v0.57/implementation-plan.md)
-- [v0.58 实施计划](../../versions/v0.58/implementation-plan.md)
-- [v0.61 实施计划](../../versions/v0.61/implementation-plan.md)
 
 ## Jump search and overlay closure
 

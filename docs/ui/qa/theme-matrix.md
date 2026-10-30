@@ -24,7 +24,7 @@ last_updated: 2026-10-30
 | Memory | 内容与浮层使用无彩色 `--memory-*` 家族；共享侧栏仍跟随 App 主题 |
 | Automation | 操作跟随当前主题 action 家族，选中与悬浮用中性表面；保留独立滚动块 |
 | Runtime Monitoring | Empty/Partial/Populated/Stale/Error、Coverage、未知值与长表格 |
-| 提醒与关闭等待 | heads-up、后台暂存、不抢焦点；关闭进度和未知效果说明，无操作按钮 |
+| 提醒与关闭等待 | heads-up、后台暂存、不抢焦点；关闭进度与条件取消说明，无操作按钮 |
 | 活动 UI 中切换配色 | focus、Draft、选择、滚动、Dialog 和页面挂载保持不变 |
 
 ## Viewport and environment matrix

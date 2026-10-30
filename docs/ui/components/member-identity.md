@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-member-identity
 status: accepted
-last_updated: 2026-10-25
+last_updated: 2026-10-30
 ---
 
 # 队员身份与图像
@@ -24,7 +24,7 @@ GIF 保持动画；各 `MemberAvatar` 用同一取景区域显示原动画。旧
 与[成员投影不变量](../../architecture/foundational-invariants.md#member-projection)。
 
 队员页的当前局部结构见
-[`member-workspace` surface brief](../../../apps/desktop/.impeccable/surfaces/member-workspace.md)；
+[`member-workspace` surface brief](../surfaces/member-workspace.md)；
 会话内锚定身份卡见[结构化 Mention](structured-mentions.md#锚定人物信息卡)。
 
 进入队员页时先显示现有名册，再异步读取 `members.list`；已打开队员页收到 Core 的
@@ -61,6 +61,7 @@ GIF 保持动画；各 `MemberAvatar` 用同一取景区域显示原动画。旧
 智能体类型菜单展示现有产品图标，模型、推理强度和权限菜单共用中性选中底色、行高、勾选标记与浮层样式。
 正常配置的队员信息、名册入口和运行配置区不附加“可用／可尝试运行”或验证机制说明，tooltip 与可访问名称
 遵守同一规则。保留智能体名称、配置区已知版本，以及未配置、检查中和异常时的必要反馈与处理入口。
+模型选项区分 Runtime 显示名称与选择 ID；有原生描述时展示，并可悬浮读取全文，不推断型号系列或版本标签。
 模型菜单顶部只保留搜索框，按模型名称或 ID 在当前目录中本地筛选；不显示目录标题、刷新按钮或“最新”提示。
 搜索框同时接受模型 ID：去掉首尾空白后，非空且不含控制字符的输入与原生目录 ID、当前手动 ID 均不完全相同时，
 在结果列表内提供“使用 {ID}”（`Use {ID}`）选项，点击或 Enter 选择；不另设常驻入口、弹窗或模型管理列表。

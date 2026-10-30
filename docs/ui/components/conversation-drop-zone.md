@@ -58,8 +58,6 @@ Core-owned Draft 或 Pending 编辑会话。拖放本身不发送消息、
 
 ## References
 
-- [方向原型](https://github.com/murray17/rovai-ai/blob/0de773a75231038e384c03cd761fea56344a6e4f/docs/prototypes/conversation-drop-zone/rovai-conversation-drop-zone.html)
-- [设计说明](https://github.com/murray17/rovai-ai/blob/0de773a75231038e384c03cd761fea56344a6e4f/docs/prototypes/conversation-drop-zone/PROJECT_DESIGN.md)
 - [Camp Attachment v10](../../contracts/camp-attachment-v10.md)
 - [Camp Composer Draft v16](../../contracts/camp-composer-draft-v16.md)
 - [Camp 资源不变量](../../architecture/foundational-invariants.md#camp-resources)

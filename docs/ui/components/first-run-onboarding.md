@@ -39,8 +39,8 @@ Desktop 用已完成 onboarding 快照中的 `quickChatThreadId` 识别首次会
 纯文字表示，与左侧选择控件分开；可用状态仍保留语义色。两组单选支持方向键、Home / End 与可见焦点。
 
 智能体页左侧以小头像和姓名横排呈现，不再使用带边框的纵向队员卡片或重复加入说明；模型表单使用分隔线
-下的开放布局。常用、可选、当前选中和实验性智能体保持直接可见，其余条目置于“其他智能体”折叠区，
-保留完整目录与真实资格状态。重新扫描位于智能体面板标题右侧。
+下的开放布局。常用、可选和当前选中的智能体保持直接可见，其余条目置于“其他智能体”折叠区。
+目录与平台准入遵循 [Runtime Catalog](../../architecture/runtime-catalog-boundaries.md)，不增加实验性或资格提示。重新扫描位于面板标题右侧。
 
 欢迎页和队员页没有 Skip。Runtime 正常配置分支仍必须完成配置，按钮为“开始对话”；只有统一空结果页提供“稍后配置”，其
 语义是终止训练营并延后 Runtime 配置，不是跳过前置页或暂停。Back 只回到前一页，并且 provisioning 开始后
@@ -49,16 +49,14 @@ Desktop 用已完成 onboarding 快照中的 `quickChatThreadId` 识别首次会
 
 ## Runtime 状态
 
-扫描只表达“查找安装入口 / 执行无副作用的有界身份命令”，使用真实 discovery 与 managed Installation，且不
-自动启动登录、ACP、Session 或模型目录深检。`light_ready` 显示“可用”，严格表示 executable 已成功轻度启动、
-输出未超限且身份可识别，可以选择并尝试运行；支持文案说明登录、模型与能力将在显式检查或首次任务的统一
-Dispatch Preflight 中确认。
-只找到 executable 的 `found_uninspected` 不显示“正在检查”或“可用”。不可用、需要登录、版本不支持和
-旧 `installed_unverified` 不能被改写成深检 Ready，也不能继续 onboarding；页面引导用户先执行“检查可用性”。
-当前 TRAE light-ready、模型目录与 Dispatch Preflight 行为使用统一 Runtime 规则。
+引导与设置、队员配置使用同一 Core 平台准入及当前安装可用性。扫描不自动登录、建立 Session 或深检。
+已准入且检测到可执行入口时可选择并尝试运行；历史健康状态或缺少预检结果不单独阻止配置。
+真实的平台、安装、认证和启动阻断按当前投影给出错误与下一步，不伪造 Ready 或静默替换配置，
+也不常驻解释验证机制。检查与执行边界见 [Runtime Launch](../../contracts/runtime-launch-and-verification-v74.md)。
 
-模型字段复用队员运行配置的 schema 驱动组件。Runtime Default 不依赖 catalog；显式模型需要 24 小时内可服务
-且未失效的 catalog。打开 Picker 使用 Core-owned 60 秒 stale-while-revalidate，切换 Runtime 不触发 discovery。
+模型字段复用队员运行配置的 schema 驱动组件，遵循 [Runtime Launch v74](../../contracts/runtime-launch-and-verification-v74.md)。
+目录只用于发现和选择，不作为保存或执行准入；读取失败保留当前值与有效缓存并显示“尚未核对”。
+打开 Picker 使用 Core-owned 60 秒 stale-while-revalidate，切换 Runtime 不触发 discovery。
 菜单的搜索、默认项置底及推理强度样式与[队员配置](member-identity.md#队员配置页)同步。初始模型保持 Runtime Default；
 用户从 Runtime Default 首次选择固定模型后，推理强度保持跟随模型默认值，不预填 schema 的推荐值。
 此后在同一 Runtime 内切换固定模型时，按队员配置的显式覆盖值兼容规则处理；过期历史目录和异步刷新均

@@ -668,13 +668,13 @@ impl ManagedBlobStore {
             transaction.commit()?;
             return Ok(None);
         }
-        if blob_is_referenced(&transaction, &references, &blob_id)? {
-            attach_gc_candidate(&transaction, &blob_id)?;
+        if blob_is_referenced(&transaction, &references, blob_id)? {
+            attach_gc_candidate(&transaction, blob_id)?;
             transaction.commit()?;
             return Ok(None);
         }
 
-        let path = safe_blob_path(&self.root, &digest)?;
+        let path = safe_blob_path(&self.root, digest)?;
         let quarantine_dir = self.root.join("tmp");
         validate_gc_directory(&self.root)?;
         fs::create_dir_all(&quarantine_dir)?;

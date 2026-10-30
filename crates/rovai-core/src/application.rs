@@ -20134,7 +20134,7 @@ async fn run_core(
         database: Arc::new(Mutex::new(database)),
         pasted_text_operations: Mutex::new(()),
         subsystems: CoreSubsystems::new(),
-        subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
+        subsystem_initialization: Mutex::new(SubsystemInitialization),
         removed_skill_project_roots,
         builtin_tool_listener: Mutex::new(None),
         builtin_tool_listener_notify: Notify::new(),

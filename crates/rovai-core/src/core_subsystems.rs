@@ -278,11 +278,6 @@ impl super::Core {
             .await;
             self.finish_subsystem("skills", result);
         }
-        tokio::task::yield_now().await;
-
-        if self.planned_shutdown.shutdown_started() {
-            return;
-        }
         // Historical cleanup is started once by run_core, independently of
         // feature initialization/retry. Unknown old attachment and Skill trees
         // are retained: directory age alone cannot prove exclusive ownership.

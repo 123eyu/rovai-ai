@@ -30,8 +30,14 @@ User sequence 31 授权六项同轮，优先保证健康数据库打开原会话
 
 ## 验收状态
 
-已完成 macOS 针对性 owner：附件 25 项、Blob 3 项、MCP projection 9 项、当前 MCP 文件 2 项、Runtime 设置保存 1 项、通用环境变量 4 项、启动配置 2 项、共享执行门禁 2 项、MCP 管理 11 项、冻结 MCP 跨重开 1 项。UI 3 个测试文件共 10 项、TypeScript 与三项文档门禁通过。实际日志保留在本轮验收目录，后续原生结果继续追加。
+已完成 macOS 针对性 owner：附件 25 项、Blob 3 项、MCP projection 9 项、当前 MCP 文件 2 项、Runtime 设置保存 1 项、通用环境变量 4 项、启动配置 2 项、共享执行门禁 2 项、MCP 管理 11 项、冻结 MCP 跨重开 1 项。UI 4 个测试文件共 35 项、TypeScript 与三项文档门禁通过。实际日志保留在本轮验收目录，后续原生结果继续追加。
 
 Core RPC 相关场景 11 项通过；macOS 的隐藏系统 Pi 不适用场景按原平台条件跳过。组合故障受控 ACP 夹具已通过：旧附件标记与不可读子目录、坏 Blob intent、Pi 坏配置、不可读外部 MCP、不可删除旧 MCP 输入与大量历史进程文件并存；原夹具 Thread 重开读取 80ms，原队员继续及新增任务成功，MCP exposure 保留 invalid，Pi 在同一 Core 修正并检查 Ready。原任务 Stop 112ms；Mission 清理及 Thread 删除通过，历史缺 ACK 未补写。夹具位于 `/private/tmp/rovai-optional-combined-mv50sq8v`，保留故障文件供复核；这是合成现场及受控协议进程，不能冒充真实用户副本或真实模型任务。
 
-以下仍是未完成交付门槛：保留现场的真实原会话/原使命副本、同一原队员的真实健康 Runtime 新任务、修正后原进程恢复、Windows 实际运行结果、安装路径及 App/Core 版本核对。日常宿主 App 保持运行，未向其数据库或会话发送测试操作。
+独立开发版使用关闭后的旧测试库 SQLite Backup 副本 `/private/tmp/rovai-optional-native-app-VJeU3w`，不是日常用户数据。真实 Codex 0.165.0 在同一旧 Thread、同一队员及原 conversation 下完成新任务、Stop（222ms 收到真实清理确认）、后继任务；原有 15 条 Run 和 12 条缺 ACK 状态保持。Pi 损坏项在真实设置页显示“配置异常”，未经明确选择不能保存；用户操作路径显式“恢复自动”并保存后，revision 9→10，同一 Core 检查 Ready。外部 MCP 文件依旧不可读，任务 exposure 保持 invalid 与原因。
+
+提交 `c0d0d27955ba513cc869bb4f4e4f1e9d505bc61d` 重建开发版后再次打开同一副本，Core 61ms ready；同一旧 conversation 真实新任务、新 Thread、新 Mission 真实任务通过，Mission 工作区/分支清理及三个 Thread 删除完成。旧历史状态在删除前逐条核对未补写。运行中 Desktop 的 App Updates IPC 与 Core health 都报告 0.5.4；开发 Core SHA-256 为 `287d508049f65e1e31faa68af51cf8764cd8f052d5742f8f4a53ff95f84a3fb5`。该证据属于开发通道，不能代替安装路径验收。验收脚本首次使用已退役的 Renderer `camps.delete` 名称被拒绝，没有产生删除；改用现行 `threads.delete` 后完成，错误和修正均保留在报告中。
+
+[PR #958](https://github.com/murray17/rovai-ai/pull/958) 保持 Draft。PR gate 已通过；[Windows 原生执行](https://github.com/murray17/rovai-ai/actions/runs/41043770825)进行中，不将编译完成当作整个矩阵完成。补跑全量 all-targets/all-features Clippy 未通过，包含基线已有的 `cline.rs` 文档空行、`authority_migration.rs` 冗余字段名等告警；本轮引入的无效尾部检查、unit struct 默认调用、Blob 多余引用和 MCP 分支写法已修正，未为通过门禁扩大到无关代码。
+
+以下仍是未完成交付门槛：保留现场的真实用户原会话/原使命副本，及其中同一原队员的真实任务、Stop/重开/清理/删除；Windows 原生执行的最终结果及真实原数据/Runtime 验收；安装路径及 App/Core 构建核对。日常宿主 App 保持运行，未向其数据库或会话发送测试操作。既有关闭后副本规则与当前会话宿主保护仍适用；不能用这里的合成历史副本替代用户原现场。

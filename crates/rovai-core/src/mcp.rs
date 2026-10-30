@@ -1069,13 +1069,10 @@ impl McpConfigStore {
     }
 
     fn load_or_initialize(&self) -> Result<LoadedConfig> {
-        match fs::symlink_metadata(&self.path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if self.write_new(&McpConfigFile::empty()).is_err() {
-                    return self.load();
-                }
-            }
-            _ => {}
+        if matches!(fs::symlink_metadata(&self.path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        {
+            // A raced or failed creation still reports the actual file state below.
+            let _ = self.write_new(&McpConfigFile::empty());
         }
         self.load()
     }

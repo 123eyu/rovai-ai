@@ -1,7 +1,7 @@
 ---
 document_type: development-workflow
 authority: local-coding-agent-tooling-and-ui-document-routing
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 ---
 
 # Coding Agent UI 与设计文档工作流
@@ -17,7 +17,8 @@ last_updated: 2026-10-30
 
 | 内容 | 唯一维护位置 |
 |---|---|
-| 产品用途、用户、术语、品牌承诺 | `PRODUCT.md` |
+| 产品用途、用户、界面称呼与品牌承诺 | `PRODUCT.md` |
+| 共享领域术语与概念边界 | `CONTEXT.md` |
 | 全局视觉、通用控件、色彩职责 | `DESIGN.md` |
 | 配色注册、明暗解析、完整 Token | `docs/ui/themes/` |
 | Rovai 特有复杂组件的结构、状态呈现与交互 | `docs/ui/components/` |

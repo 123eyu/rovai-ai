@@ -472,6 +472,8 @@ pub(super) async fn process_housekeeping(
         Duration::from_secs(15),
     );
     pending_execution_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    // Advance past attempted failures; wrap only after reaching the end.
+    let mut file_change_recovery_cursor: Option<String> = None;
     let mut managed_blob_gc_interval = tokio::time::interval_at(
         tokio::time::Instant::now() + Duration::from_secs(60),
         Duration::from_secs(60),
@@ -539,17 +541,19 @@ pub(super) async fn process_housekeeping(
                 core.recover_pending_execution_intents().await;
                 let candidates = {
                     let database = core.database.lock().await;
-                    AgentRunFileChangeProjector.terminal_recovery_candidates(&database)
+                    AgentRunFileChangeProjector.terminal_recovery_candidates(&database, file_change_recovery_cursor.as_deref())
                 };
                 let mut budget = rovai_core::maintenance_budget::MaintenanceBudget::new(8, Duration::from_secs(1));
                 let mut recovered = 0;
                 match candidates {
+                    Ok(candidates) if candidates.is_empty() => file_change_recovery_cursor = None,
                     Ok(candidates) => for (run, epoch) in candidates {
                         if !budget.take() { break; }
                         let result = {
                             let Ok(mut database) = core.database.try_lock() else { break; };
                             AgentRunFileChangeProjector.project_terminal_run(&mut database, &ManagedBlobStore::new(&core.data_dir), &run, epoch)
                         };
+                        file_change_recovery_cursor = Some(run);
                         match result {
                             Ok(_) => recovered += 1,
                             Err(error) => budget.report("file-change projection", error),

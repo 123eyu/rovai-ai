@@ -1325,12 +1325,6 @@ impl Core {
                     &mut database,
                     &user_command_envelope(params.command_id, params.command),
                 )?;
-                if execution.result.status == CommandResultStatus::Applied
-                    && let Some(camp_id) = execution.result.payload["threadId"].as_str()
-                {
-                    self.attachment_views
-                        .ensure_empty_camp_ready(&mut database, camp_id)?;
-                }
                 emit_missions_invalidated(
                     &self.output,
                     "missions.create",

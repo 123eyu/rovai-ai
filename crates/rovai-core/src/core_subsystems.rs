@@ -34,9 +34,6 @@ impl std::error::Error for SubsystemUnavailable {}
 /// Process-local feature gates, never database admission or substitute authority.
 pub(crate) struct CoreSubsystems(RwLock<BTreeMap<String, SubsystemSnapshot>>);
 
-#[derive(Default)]
-pub(crate) struct SubsystemInitialization;
-
 impl CoreSubsystems {
     pub fn new() -> Self {
         let ids = [

@@ -51,3 +51,17 @@ Core RPC 相关场景 11 项通过；macOS 的隐藏系统 Pi 不适用场景按
 路径修正后再次按 `ed758df73` 构建并验签，在新隔离目录 `/private/tmp/rovai-optional-final-packaged-NYKWJ2` 完整复跑上述打包通道：真实 Codex 任务、Stop（210ms）、继续、重开、旧/新 Thread 及新 Mission 任务、清理和删除全部通过；Pi 同 Core 显式修正后 Ready，历史 15 条 Run/12 条缺 ACK 在删除前未改变。运行中 App/Core 均为 0.5.4，最终 Host SHA-256 为 `f469a5862526e4fdaf3bba50545f45dae50412131eb2bd48802f43aa152ee2ac`。隔离 App 已正常退出，测试库和故障文件保留；本轮日常安装版未改变。
 
 以下仍是未完成交付门槛：保留现场的真实用户原会话/原使命副本，及其中同一原队员的真实任务、Stop/重开/清理/删除；Windows 真实原数据/Runtime 与 Desktop 验收；安装路径及 App/Core 构建核对。日常宿主 App 保持运行，未向其数据库或会话发送测试操作。既有关闭后副本规则与当前会话宿主保护仍适用；不能用这里的合成历史副本替代用户原现场。
+
+## P2 可用性收口（User sequence 43）
+
+复用原分支与 worktree，基线 `2bca8e020`；Governance：none；Status：implemented（PR 仍为 Draft）。修复配置 CAS 冲突返回最新基线、取消新使命旧 View 预初始化、接通当前任务 Thread 的旧附件按需恢复、放行 MCP 管理读取，以及终态文件变化的有界轮转。空 `SubsystemInitialization` 类型改用原 `Mutex<()>`，串行初始化语义保留。
+
+扩展现有 Rust owner：`startup_saves_preserve_native_files_and_merge_only_local_preferences` 验证冲突不落盘、更新基线后可修正；`follow_up_without_new_attachments_preserves_published_view` 验证三种未 ready 状态恢复；`source_ref_dispatch_admission_ignores_broken_legacy_view` 验证生产派发前接通旧附件定位且不影响 source-only Thread；`terminal_runs_in_a_non_git_directory_project_independent_replayable_cards` 验证前八项持续失败后第九项仍被处理、末尾轮转仍可重试失败项。无新增 Rust 测试函数或 fixture 文件。
+
+实际 Core RPC 复用 `core-startup-availability.test.mjs` 的使命/Thread 输出、可选初始化与 Runtime 设置场景。修改前的 Core 已分别复现 `.staging` 文件导致使命提交后报错、MCP 管理读取被拒绝、损坏配置 revision 冲突后无法重试；日志保留，不将这些预期失败记为修复验证。
+
+最小验证命令：`cargo test -p rovai-core --features extended-tests,slow-tests --lib <上述 owner>`；RPC 先 `cargo build -p rovai-core --bins`，再按上述场景名称过滤 Node 测试。修复后附件 25 项、其余三个 Rust owner 各 1 项通过；首次初始化用例包含 generation 0、尚未生成目录条目的真实恢复形状。Core 构建通过，选定实际 RPC 场景共 8 项通过（含可选服务的子场景）；格式检查、文档测试及两项文档检查通过。
+
+`pnpm test:rust:pr` 未全绿：Core lib 429 通过、2 失败、1 个原有 ignored，后续 workspace target 未因此获得通过结论。失败为 `mcp_import::tests::import_commit_rehydrates_credentials_and_fences_replacement_before_startup` 与 `storage_layout::tests::standalone_runtime_root_preserves_native_admission_and_owner`。在独立的修复前 `2bca8e020` worktree 复跑，两项在同一断言处失败；属于本轮前已有失败，未删除、放宽或跳过断言。修复前后日志均保留。
+
+已有真实用户副本、Windows Desktop/Runtime 与安装路径验收缺口不因本轮修复消失，PR 保持 Draft。本轮仅启动隔离 Core 和测试夹具进程，未运行真实模型任务、未退出或替换日常 App。

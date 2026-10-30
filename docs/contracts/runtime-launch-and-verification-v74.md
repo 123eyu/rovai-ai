@@ -52,4 +52,6 @@ Fast 沿用 `camp_fast → serviceTierForTurn`：开启传 `priority`，关闭�
 
 Owner 设置入口仍返回损坏项的版本与明确错误，不能将默认外形的错误投影解释为有效空配置。显式重新选择程序或恢复自动发现时，以 `expectedRevision` 加 `programPath` edit 通过既有 CAS 替换；旧版本拒绝，不对坏 JSON 做字段合并。保存刷新现有 Runtime 状态，用户可在同一 Core 检查及使用修正项。
 
+字段编辑遇到 revision 不符时返回既有 `status: conflict`、`latest` 和字段冲突；页面更新版本基线并保留草稿，用户解决冲突后可以继续保存。不能只返回“再次保存”错误而让页面一直持有旧版本；提交时的 CAS 仍保留。
+
 通用环境变量单条不可解密时，管理入口返回 `commonEnvironment.error` 与原 revision；执行和检查保留该项不可用语义，不回退到其他账号。用户重新填写后沿用既有 revision 校验追加新版本，保留损坏旧记录；未修改的错误投影不得被提交为空值。原本不继承通用变量的独立队员仍按既有规则使用自身环境。

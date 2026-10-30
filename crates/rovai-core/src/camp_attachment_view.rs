@@ -464,7 +464,7 @@ impl ThreadAttachmentViewStore {
         database: &mut Database,
         attachment_store: &ThreadAttachmentStore,
     ) -> Result<()> {
-        self.recover_incomplete_operations(database, attachment_store)?;
+        self.recover_incomplete_operations(database, None)?;
         let camp_ids = {
             let mut statement = database
                 .connection()
@@ -2282,6 +2282,39 @@ impl ThreadAttachmentViewStore {
         self.record_integrity_degradation(database, camp_id)
     }
 
+    /// Only actual legacy records can require a View. Source references and
+    /// new Threads never acquire a legacy directory merely by being used.
+    pub fn camp_needs_recovery(&self, database: &Database, camp_id: &str) -> Result<bool> {
+        ThreadId::parse(camp_id)?;
+        database.connection().query_row(
+            r#"
+            SELECT EXISTS(SELECT 1 FROM camp WHERE id = ?1 AND deletion_operation_id IS NULL)
+              AND EXISTS(SELECT 1 FROM message_attachment WHERE camp_id = ?1)
+              AND (
+                NOT EXISTS(SELECT 1 FROM camp_attachment_view WHERE camp_id = ?1 AND state = 'ready')
+                OR EXISTS(SELECT 1 FROM message_attachment WHERE camp_id = ?1 AND runtime_projection_state = 'recovery_required')
+                OR EXISTS(SELECT 1 FROM camp_attachment_view_operation WHERE camp_id = ?1 AND status NOT IN ('completed', 'rolled_back'))
+              )
+            "#,
+            [camp_id], |row| row.get(0),
+        ).map_err(Into::into)
+    }
+
+    pub fn recover_camp_on_demand(
+        &self,
+        database: &mut Database,
+        attachment_store: &ThreadAttachmentStore,
+        camp_id: &str,
+    ) -> Result<()> {
+        if !self.camp_needs_recovery(database, camp_id)?
+            || self.camp_has_active_runtime(database, camp_id)?
+        {
+            return Ok(());
+        }
+        self.recover_incomplete_operations(database, Some(camp_id))?;
+        self.reconcile_camp(database, attachment_store, camp_id)
+    }
+
     fn rebuild_integrity_failed_camp(
         &self,
         database: &mut Database,
@@ -2749,7 +2782,7 @@ impl ThreadAttachmentViewStore {
     fn recover_incomplete_operations(
         &self,
         database: &mut Database,
-        _attachment_store: &ThreadAttachmentStore,
+        camp_id: Option<&str>,
     ) -> Result<()> {
         // Builds after Migration 102 could cancel a cleanup without settling
         // its writer intent. Repair only that terminal legacy shape before the
@@ -2761,15 +2794,16 @@ impl ThreadAttachmentViewStore {
             WHERE kind = 'camp_delete_cleanup'
               AND status = 'rolled_back'
               AND resolution_state = 'unresolved'
+              AND (?1 IS NULL OR camp_id = ?1)
             "#,
-            [],
+            [camp_id],
         )?;
         let operations = {
             let mut statement = database.connection().prepare(
-                "SELECT id, camp_id, status, kind, command_id, source_kind, resolution_state FROM camp_attachment_view_operation WHERE status NOT IN ('completed','rolled_back') ORDER BY created_at, id",
+                "SELECT id, camp_id, status, kind, command_id, source_kind, resolution_state FROM camp_attachment_view_operation WHERE status NOT IN ('completed','rolled_back') AND (?1 IS NULL OR camp_id = ?1) ORDER BY created_at, id",
             )?;
             statement
-                .query_map([], |row| {
+                .query_map([camp_id], |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
@@ -6698,6 +6732,55 @@ mod tests {
             )
             .unwrap();
         publish_current_draft(&mut database, &data_dir, &camp_id, &view, initial.revision);
+
+        let attachment_id: String = database
+            .connection()
+            .query_row(
+                "SELECT id FROM message_attachment WHERE camp_id=?1",
+                [&camp_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        for state in ["initializing", "rebuilding", "integrity_failed"] {
+            if state == "initializing" {
+                let root = view.camp_attachment_root(&camp_id).unwrap();
+                set_directory_mode(&root, 0o700).unwrap();
+                remove_managed_tree(&root.join(&attachment_id)).unwrap();
+                set_directory_mode(&root, 0o500).unwrap();
+                database
+                    .connection()
+                    .execute(
+                        "DELETE FROM camp_attachment_view_entry WHERE camp_id=?1",
+                        [&camp_id],
+                    )
+                    .unwrap();
+                database
+                    .connection()
+                    .execute(
+                        "UPDATE camp_attachment_view SET generation=0, entry_count=0, aggregate_bytes=0, catalog_revision=0, catalog_digest=?2, semantic_catalog_digest=?2 WHERE camp_id=?1",
+                        params![camp_id, empty_catalog_digest().unwrap()],
+                    )
+                    .unwrap();
+            }
+            database
+                .connection()
+                .execute(
+                    "UPDATE camp_attachment_view SET state=?2 WHERE camp_id=?1",
+                    params![camp_id, state],
+                )
+                .unwrap();
+            assert!(
+                resolve_published_attachment_path(database.connection(), &camp_id, &attachment_id)
+                    .is_err()
+            );
+            view.recover_camp_on_demand(&mut database, &attachment_store, &camp_id)
+                .unwrap();
+            let path =
+                resolve_published_attachment_path(database.connection(), &camp_id, &attachment_id)
+                    .unwrap();
+            assert_eq!(fs::read(path).unwrap(), b"published once");
+            assert!(!view.camp_needs_recovery(&database, &camp_id).unwrap());
+        }
 
         let follow_up = attachment_store
             .save_body(

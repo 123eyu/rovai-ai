@@ -50,9 +50,7 @@ use codex::{
     CodexAgentRunRuntimeRequest, CodexAgentThreadOptions, CodexCliRuntimeAdapter, CodexIncoming,
     CodexRuntime,
 };
-use core_subsystems::{
-    CoreSubsystems, SubsystemInitialization, SubsystemUnavailable, runtime_subsystem_id,
-};
+use core_subsystems::{CoreSubsystems, SubsystemUnavailable, runtime_subsystem_id};
 use pi::{
     PiAgentRunRuntimeRequest, PiIncoming, PiPromptImage, PiRpcRuntimeAdapter, PiRuntime,
     PreparedPiPromptImage, prepare_prompt_images,
@@ -2434,7 +2432,7 @@ struct Core {
     pasted_text_operations: Mutex<()>,
     notification_interruption_reader: Mutex<NotificationInterruptionReader>,
     subsystems: CoreSubsystems,
-    subsystem_initialization: Mutex<SubsystemInitialization>,
+    subsystem_initialization: Mutex<()>,
     removed_skill_project_roots: RemovedSkillProjectRoots,
     builtin_tool_listener: Mutex<Option<LocalIpcListener>>,
     builtin_tool_listener_notify: Notify,
@@ -2965,7 +2963,7 @@ impl Core {
     }
 
     async fn verified_camp_attachment_admission(
-        &self,
+        self: &Arc<Self>,
         camp_id: &str,
         workspace: &Path,
     ) -> Result<(ThreadAttachmentReadAdmission, ThreadOutputDirectory)> {
@@ -7996,7 +7994,12 @@ impl Core {
         if request.method.starts_with("skills.") {
             self.subsystems.require("skills")?;
         }
-        if request.method.starts_with("mcp.") && request.method != "mcp.config.repairPermissions" {
+        if request.method.starts_with("mcp.")
+            && !matches!(
+                request.method.as_str(),
+                "mcp.config.get" | "mcp.config.repairPermissions"
+            )
+        {
             self.subsystems.require("mcp")?;
         }
         let _ = &request.params;
@@ -16408,12 +16411,54 @@ impl Core {
     }
 
     async fn verified_camp_runtime_authorization(
-        &self,
+        self: &Arc<Self>,
         camp_id: &str,
         _workspace: &Path,
     ) -> Result<ThreadOutputDirectory> {
+        // Repair only the current Thread before its context is frozen. An
+        // unavailable legacy source must not gate ordinary source-ref tasks.
+        if let Err(error) = self.recover_legacy_camp_attachments(camp_id).await {
+            eprintln!("legacy_attachment_recovery_pending camp_id={camp_id}: {error:#}");
+        }
         let database = self.database.lock().await;
         ThreadOutputDirectory::prepare(&database, camp_id)
+    }
+
+    async fn recover_legacy_camp_attachments(self: &Arc<Self>, camp_id: &str) -> Result<()> {
+        {
+            let database = self.database.lock().await;
+            if !self
+                .attachment_views
+                .camp_needs_recovery(&database, camp_id)?
+            {
+                return Ok(());
+            }
+        }
+        let (guard, _) = self.acquire_camp_attachment_mutation(camp_id).await?;
+        {
+            let database = self.database.lock().await;
+            if self
+                .attachment_views
+                .camp_has_active_runtime(&database, camp_id)?
+            {
+                return Ok(());
+            }
+        }
+        self.runtime_fleet
+            .fence_camp_for_attachment_mutation(camp_id)
+            .await?;
+        let core = Arc::clone(self);
+        let camp_id = camp_id.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            core.attachment_views.recover_camp_on_demand(
+                &mut core.database.blocking_lock(),
+                &ThreadAttachmentStore::new(&core.data_dir),
+                &camp_id,
+            )
+        })
+        .await
+        .context("legacy Attachment recovery task failed")?
     }
 
     async fn launch_agent_run(
@@ -20134,7 +20179,7 @@ async fn run_core(
         database: Arc::new(Mutex::new(database)),
         pasted_text_operations: Mutex::new(()),
         subsystems: CoreSubsystems::new(),
-        subsystem_initialization: Mutex::new(SubsystemInitialization),
+        subsystem_initialization: Mutex::new(()),
         removed_skill_project_roots,
         builtin_tool_listener: Mutex::new(None),
         builtin_tool_listener_notify: Notify::new(),
@@ -28682,7 +28727,7 @@ mod tests {
             pasted_text_operations: Mutex::new(()),
             automation_scheduler_control: RwLock::new(None),
             subsystems: CoreSubsystems::ready_for_test(),
-            subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
+            subsystem_initialization: Mutex::new(()),
             removed_skill_project_roots: RemovedSkillProjectRoots::default(),
             builtin_tool_listener: Mutex::new(None),
             builtin_tool_listener_notify: Notify::new(),
@@ -31283,7 +31328,7 @@ done
         let root = root.canonicalize().unwrap();
         let workspace = root.join("data/quick-chat");
         fs::create_dir_all(&workspace).unwrap();
-        let core = runtime_resolution_test_core(&root).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
 
         let (camp_id, execution) = {
             let mut database = core.database.lock().await;
@@ -31364,7 +31409,7 @@ done
         let root = root.canonicalize().unwrap();
         let workspace = root.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
-        let core = runtime_resolution_test_core(&root).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
 
         let camp_id = {
             let mut database = core.database.lock().await;
@@ -31550,7 +31595,7 @@ done
         let root = root.canonicalize().unwrap();
         let workspace = root.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
-        let core = runtime_resolution_test_core(&root).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
         let source = root.join("published.txt");
         fs::write(&source, b"published source reference").unwrap();
 
@@ -31640,28 +31685,93 @@ done
             );
         }
 
-        let view_attachment_root = core
-            .attachment_views
-            .root()
-            .join("camps")
-            .join(&camp_id)
-            .join("attachments");
+        // Actual historical attachments take the targeted recovery path before
+        // dispatch freezes context; source-only Threads above remain untouched.
+        fs::write(&source, b"historical attachment").unwrap();
+        let attachment_id = {
+            let mut database = core.database.lock().await;
+            let store = ThreadAttachmentStore::new(&core.data_dir);
+            core.attachment_views
+                .ensure_empty_camp_ready(&mut database, &camp_id)
+                .unwrap();
+            let draft = store
+                .save_body(&mut database, &camp_id, "Legacy message")
+                .unwrap();
+            let draft = store
+                .prepare_from_path(
+                    &mut database,
+                    &camp_id,
+                    draft.revision,
+                    &source,
+                    "published.txt",
+                )
+                .unwrap();
+            let command_id = uuid::Uuid::new_v4().to_string();
+            let publication = core
+                .attachment_views
+                .stage_publication(&mut database, &store, &camp_id, &command_id, draft.revision)
+                .unwrap()
+                .unwrap();
+            core.attachment_views
+                .gate_publication(&mut database, &publication)
+                .unwrap();
+            core.attachment_views
+                .promote_publication(&mut database, &publication)
+                .unwrap();
+            let execution = CollaborationService::default()
+                .send_user_camp_draft_with_publication(
+                    &mut database,
+                    &CommandEnvelope {
+                        command_id,
+                        actor: ActorRef::User {
+                            user_id: "test-user".into(),
+                        },
+                        camp_id: Some(camp_id.clone()),
+                        expected_versions: vec![],
+                        execution_epoch: None,
+                        payload: rovai_core::collaboration::SendUserThreadDraftCommand {
+                            draft_client: Default::default(),
+                            camp_id: camp_id.clone(),
+                            draft_revision: draft.revision,
+                            execution: None,
+                        },
+                    },
+                    Some(&publication.operation_id),
+                )
+                .unwrap();
+            assert_eq!(execution.result.status, CommandResultStatus::Applied);
+            core.attachment_views
+                .complete_publication(&mut database, &publication.operation_id)
+                .unwrap();
+            core.attachment_views
+                .mark_legacy_view_broken_for_test(&mut database, &camp_id)
+                .unwrap();
+            publication.attachment_ids[0].clone()
+        };
+        core.verified_camp_attachment_admission(&camp_id, &workspace)
+            .await
+            .unwrap();
+        {
+            let database = core.database.lock().await;
+            let path = rovai_core::camp_attachment_view::resolve_published_attachment_path(
+                database.connection(),
+                &camp_id,
+                &attachment_id,
+            )
+            .expect("dispatch must restore the locator used by the context reader");
+            assert_eq!(fs::read(path).unwrap(), b"historical attachment");
+        }
+
+        let camps_root = core.attachment_views.root().join("camps");
         drop(admission);
+        core.attachment_views
+            .remove_camp_view(&mut *core.database.lock().await, &camp_id)
+            .unwrap();
         ThreadAttachmentStore::new(&core.data_dir)
             .remove_camp(&camp_id)
             .unwrap();
         drop(core);
-        fs::set_permissions(&view_attachment_root, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::set_permissions(
-            view_attachment_root.parent().unwrap(),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
-        fs::set_permissions(
-            view_attachment_root.parent().unwrap().parent().unwrap(),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
+        fs::set_permissions(&camps_root, fs::Permissions::from_mode(0o700)).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

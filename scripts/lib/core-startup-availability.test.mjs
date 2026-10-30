@@ -10,6 +10,7 @@ import test from 'node:test'
 import { composerDocumentForAddress } from './create-configured-camp.mjs'
 import {
   coreDataDirectoryArguments,
+  runtimeCampFilesRootForDataDirectory,
   removeEphemeralRuntimeCampFilesRoot
 } from './runtime-camp-files-root.mjs'
 
@@ -31,6 +32,19 @@ test('Thread output directories follow Pending presence and preserve zero-messag
     await core.ready
     await core.settled()
     const agent = (await core.request('members.list')).find(profile => profile.presence === 'present')
+    const legacyRoot = runtimeCampFilesRootForDataDirectory(dataDir)
+    await mkdir(legacyRoot, { recursive: true, mode: 0o700 })
+    await writeFile(join(legacyRoot, '.staging'), 'retain malformed historical staging')
+    const missionRequest = { commandId: randomUUID(), command: {
+      title: 'Mission without legacy View', description: 'No Runtime launch',
+      projectBindingKind: 'directory', projectPath: fixture,
+      memberAgentIds: [agent.agentId], defaultLeadAgentId: agent.agentId
+    } }
+    const mission = await core.request('missions.create', missionRequest)
+    assert.equal(mission.status, 'applied')
+    assert.equal((await core.request('missions.create', missionRequest)).payload.missionId, mission.payload.missionId)
+    assert.equal(await readFile(join(legacyRoot, '.staging'), 'utf8'), 'retain malformed historical staging')
+    await rm(join(legacyRoot, '.staging'))
     const threads = []
     for (const [activationState, present] of [['active', false], ['pending', false], ['pending', true]]) {
       const created = await core.request('threads.create', {
@@ -165,12 +179,9 @@ test('optional startup failures preserve authority RPC and can recover without r
         assert.ok((await core.request('members.list')).length > 0)
         assert.ok(await core.request('navigation.snapshot'))
         if (scenario.method) {
-          await assert.rejects(core.request(scenario.method), (error) =>
-            error.code === 'subsystem_unavailable'
-            && error.kind === 'infrastructure_failure'
-            && error.retryable === true
-            && error.details.subsystem === scenario.id
-          )
+          const configuration = await core.request(scenario.method)
+          assert.ok(configuration.fileIssue, 'management reads retain the actual file issue')
+          assert.equal(configuration.path, mcpPath)
         }
         assert.equal(core.process.exitCode, null, 'a local initializer failure must not kill Core')
         await rename(faultPath, `${faultPath}.retained`)
@@ -630,6 +641,27 @@ exit 1
     assert.deepEqual((await core.request('runtime.startup.get', { runtimeKind: 'pi' })).commonEnvironment.environment, {})
     assert.equal((await core.request('runtime.startup.save', { runtimeKind, expectedRevision: 0, configuration })).revision, 1, 'retrying the same write is idempotent')
     await assert.rejects(core.request('runtime.startup.save', { runtimeKind, expectedRevision: 0, configuration: { programPath: null, environment: [] } }))
+    // Two settings windows: the first keeps its repair draft while the second
+    // advances the damaged record. The conflict response must enable a retry.
+    const database = new DatabaseSync(join(dataDir, 'rovai.sqlite'))
+    try {
+      database.exec('PRAGMA ignore_check_constraints=ON')
+      database.prepare(`INSERT INTO runtime_startup_setting(runtime_kind, revision, configuration_json, updated_at)
+        VALUES ('pi', 7, '{broken', ?) ON CONFLICT(runtime_kind) DO UPDATE SET
+        revision=7, configuration_json='{broken'`).run(new Date().toISOString())
+      const firstWindow = await core.request('runtime.startup.get', { runtimeKind: 'pi' })
+      assert.ok(firstWindow.configuration.configurationError)
+      database.exec("UPDATE runtime_startup_setting SET revision=8 WHERE runtime_kind='pi'")
+      const repair = { runtimeKind: 'pi', expectedRevision: firstWindow.revision,
+        edits: [{ path: ['programPath'], before: null, after: null, label: 'program' }] }
+      const conflict = await core.request('runtime.startup.save', repair)
+      assert.equal(conflict.status, 'conflict')
+      assert.equal(conflict.latest.revision, 8)
+      assert.equal(conflict.conflicts.length, 1)
+      const repaired = await core.request('runtime.startup.save', { ...repair, expectedRevision: conflict.latest.revision })
+      assert.equal(repaired.revision, 9)
+      assert.equal(repaired.configuration.configurationError, undefined)
+    } finally { database.close() }
     await core.close()
     core = startCore(dataDir, join(dataDir, 'managed-skill-library'), join(dataDir, 'mcp.json'), [], environment)
     await core.ready

@@ -306,10 +306,17 @@ fn startup_saves_preserve_native_files_and_merge_only_local_preferences() {
             assert!(search.candidates(kind, std::iter::empty()).is_empty());
             let correction = || vec![edit(Value::Null, Value::Null)];
             assert!(runtime_startup::prepare_save(&db, kind, correction(), None).is_err());
-            assert!(
-                runtime_startup::prepare_save(&db, kind, correction(), Some(invalid.revision + 1))
-                    .is_err()
-            );
+            let conflict = runtime_startup::prepare_save(
+                &db,
+                kind,
+                correction(),
+                Some(invalid.revision.saturating_sub(1)),
+            )
+            .unwrap();
+            assert_eq!(conflict.current.revision, invalid.revision);
+            assert_eq!(conflict.conflicts.len(), 1);
+            let latest_revision = conflict.current.revision;
+            assert!(runtime_startup::commit_save(&mut db, kind, conflict, 4).is_err());
             let unchanged: String = db
                 .connection()
                 .query_row(
@@ -320,7 +327,7 @@ fn startup_saves_preserve_native_files_and_merge_only_local_preferences() {
                 .unwrap();
             assert_eq!(unchanged, broken);
             let prepared =
-                runtime_startup::prepare_save(&db, kind, correction(), Some(invalid.revision))
+                runtime_startup::prepare_save(&db, kind, correction(), Some(latest_revision))
                     .unwrap();
             let repaired = runtime_startup::commit_save(&mut db, kind, prepared, 4).unwrap();
             assert!(repaired.reconnect_required);

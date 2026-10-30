@@ -344,12 +344,7 @@ pub fn prepare_save(
 ) -> Result<PreparedSave> {
     ensure!(edits.len() <= 512, "修改字段过多。");
     let current = load(database, kind)?;
-    if let Some(revision) = expected_revision {
-        ensure!(
-            revision == current.revision,
-            "启动设置已被更新，请保留草稿并再次保存。"
-        );
-    }
+    let revision_changed = expected_revision.is_some_and(|revision| revision != current.revision);
     let replacing_invalid = current.configuration.configuration_error.is_some();
     ensure!(
         !replacing_invalid || (expected_revision.is_some() && edits.len() == 1),
@@ -366,10 +361,10 @@ pub fn prepare_save(
             "修改字段无效或重复。"
         );
         let now = value_at(&value, &edit.path).clone();
-        if now == edit.after && !replacing_invalid {
+        if now == edit.after && !replacing_invalid && !revision_changed {
             continue;
         }
-        if now != edit.before {
+        if now != edit.before || revision_changed {
             conflicts.push(FieldConflict {
                 edit: edit.clone(),
                 current: now,

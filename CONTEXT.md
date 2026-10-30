@@ -1,6 +1,6 @@
-# Rovai-ai
+# Rovai AI
 
-Rovai-ai is a local multi-Agent workbench in which long-lived Agent identities collaborate inside Threads while retaining independent conversational continuity.
+Rovai AI is a local multi-Agent workbench in which long-lived Agent identities collaborate inside Threads while retaining independent conversational continuity.
 
 ## Domain Glossary
 
@@ -17,8 +17,7 @@ The opaque internal `rvm_...` primary key shared by database relations, internal
 _Avoid_: display number as Agent selector, bare number, ID conversion layer, mutable title locator
 
 **Mission Workspace**:
-The Git worktree association prepared by Core at the first admitted Mission Run's preparing boundary, reused for later Runs and recovery against one fixed initial commit. Non-Git Missions use their configured original directory and have no branch or Git Diff. Workspace facts are informational and acknowledged once per native binding; they grant no filesystem authority. See [Mission v6](docs/contracts/mission-v6.md).
-_Avoid_: per-Turn snapshot, Agent sandbox, directory inferred from a title
+The Core-owned execution-directory association for a Mission. Public batch preparation creates or reuses the worktree and captures Git facts before claim; claim revalidates and freezes that actual workspace. Later Runs reuse the recorded association and initial commit. Non-Git Missions use their original directory. Workspace context grants no filesystem authority. See [Context Delivery Profile](docs/contracts/context-delivery-profile-v13.md).
 
 
 **Gather (Retired)**:
@@ -32,7 +31,7 @@ A User-owned named Thread creation template containing a member roster, Default 
 _Avoid_: live Thread membership, automatically migrated default team, editable conversation guidance
 
 **Thread**:
-A shared collaboration aggregate containing participants, public discussion, private Agent continuities, resources, and outcomes. Its Core-owned Activation State is `pending | active`: explicit Dialog creation becomes Active immediately and may validly contain no public messages, while one-click creation begins as a Pending Thread Draft and becomes Active only with its first accepted user message. A Thread created without a user-configured name starts as `未命名对话`; its first accepted user message generates the name only while the user has never explicitly named or renamed that Thread. The product may present an Active Thread as a conversation, but domain code must not call it a Conversation. User deletion permanently removes the Thread aggregate; Rovai-ai does not model Thread archive or trash.
+A shared collaboration aggregate containing participants, public discussion, private Agent continuities, resources, and outcomes. Its Core-owned Activation State is `pending | active`: explicit Dialog creation becomes Active immediately and may validly contain no public messages, while one-click creation begins as a Pending Thread Draft and becomes Active only with its first accepted user message. A Thread created without a user-configured name starts as `未命名对话`; its first accepted user message generates the name only while the user has never explicitly named or renamed that Thread. The product may present an Active Thread as a conversation, but domain code must not call it a Conversation. User deletion permanently removes the Thread aggregate; Rovai AI does not model Thread archive or trash.
 _Avoid_: Public Conversation, Task, Project, Archived Thread
 
 **Thread Deletion Intent**:
@@ -79,7 +78,7 @@ The user-only, idempotent Core action that atomically creates one Thread row and
 _Avoid_: Renderer-only state transition, eager Conversation allocation, implicit Active state inference
 
 **Quick Chat**:
-The product-facing and domain name for Rovai-ai's application-managed workspace group for Threads that are not bound to a user-selected directory, displayed in Chinese as `快速对话`. It uses one managed workspace directory but is neither a Thread nor a Project; each contained Thread keeps its own identity and lifecycle.
+The product-facing and domain name for Rovai AI's application-managed workspace group for Threads that are not bound to a user-selected directory, displayed in Chinese as `快速对话`. It uses one managed workspace directory but is neither a Thread nor a Project; each contained Thread keeps its own identity and lifecycle.
 _Avoid_: Lobby, 大厅, Project, Quick Chat entity
 
 **Automation**:
@@ -104,7 +103,7 @@ One provider-scoped attempt series to send a frozen AutomationRun result or fail
 _Avoid_: AutomationRun retry, ThreadMessage, execution result, configured recipient
 
 **Main Window Session**:
-The lifetime of one top-level Rovai-ai window, from its creation during application launch or macOS reopen until that window closes. It is distinct from the longer-lived application process; focusing or restoring the same window, a Core restart, and a Navigation refresh remain within the same Main Window Session.
+The lifetime of one top-level Rovai AI window, from its creation during application launch or macOS reopen until that window closes. It is distinct from the longer-lived application process; focusing or restoring the same window, a Core restart, and a Navigation refresh remain within the same Main Window Session.
 _Avoid_: application process lifetime, Native Session, Core session, Navigation refresh
 
 **Restorable Location**:
@@ -116,7 +115,7 @@ The user-selected policy applied once at the beginning of each Main Window Sessi
 _Avoid_: execution recovery policy, default Project, last transient surface, process-only launch option
 
 **Login Item Registration**:
-The macOS-owned registration state that determines whether the installed Rovai-ai application is requested or enabled to open after login. Its authoritative states are not registered, enabled, awaiting system approval, and service not found; awaiting approval is a registered request that is not yet effective.
+The macOS-owned registration state that determines whether the installed Rovai AI application is requested or enabled to open after login. Its authoritative states are not registered, enabled, awaiting system approval, and service not found; awaiting approval is a registered request that is not yet effective.
 _Avoid_: application-owned login Boolean, hidden launch, background-only launch, Runtime setting
 
 **Project**:
@@ -124,7 +123,7 @@ A product-facing read-time group of `directory` Threads whose canonical `project
 _Avoid_: Project entity, Project aggregate, standalone project record
 
 **Thread Workspace Binding**:
-The durable `projectBindingKind: quick_chat | directory` and canonical absolute `projectPath` carried by every Thread. `quick_chat` uses Rovai-ai's managed Quick Chat directory and remains Quick Chat even if Git metadata appears there. `directory` uses the exact safe directory explicitly selected by the user. The directory is the persistent workspace identity; no Repository Binding or Repository Scope is stored.
+The durable `projectBindingKind: quick_chat | directory` and canonical absolute `projectPath` carried by every Thread. `quick_chat` uses Rovai AI's managed Quick Chat directory and remains Quick Chat even if Git metadata appears there. `directory` uses the exact safe directory explicitly selected by the user. The directory is the persistent workspace identity; no Repository Binding or Repository Scope is stored.
 _Avoid_: Repository Binding, Repository Scope, Project foreign key, Git identity
 
 **New Conversation Workspace Selection**:
@@ -148,7 +147,7 @@ An explicit structured reference from one user-authored Thread message to one cu
 _Avoid_: parsed `@` text, textual mention, Handle mention
 
 **Agent Addressing Token**:
-A reserved `@agent_<positive integer>` token in an Agent-authored `camp.message.send` body. Only an exact Agent ID valid in the current Thread and located in a parseable body region participates in recipient resolution; escaped tokens, inline or fenced code, URLs, and ordinary `agent_id` text remain literal.
+A reserved `@agent_<positive integer>` token in an Agent-authored `thread.message.send` body. Only an exact Agent ID valid in the current Thread and located in a parseable body region participates in recipient resolution; escaped tokens, inline or fenced code, URLs, and ordinary `agent_id` text remain literal.
 _Avoid_: Member Mention, natural-language mention, display-name match, handle parsing
 
 **Effective Recipients**:
@@ -216,16 +215,22 @@ The optional `成长课题` statement naming a direction a Member currently inte
 _Avoid_: performance score, current Task, AgentRun Dynamic Context, Memory body, automatic Memory trigger, permanent trait
 
 **Member Identity Bootstrap Projection**:
-The required private `MEMBER_IDENTITY` section transiently formatted from one AgentProfile's latest committed six identity fields at an eligible Native Session Bootstrap delivery. It is the sole self-identity projection for that Native Session and is neither persisted as a Snapshot nor frozen into an AgentRun. New Session, existing Resume Bootstrap paths and qualified compaction redelivery retain their existing delivery matrix; an identity edit alone does not patch Dynamic Context or rotate the Session.
-_Avoid_: Member Identity Snapshot, AgentRun identity context, Session identity revision, Collaboration State self entry, avatar, Runtime configuration, Capability bundle, live Runtime update
+The private `MEMBER_IDENTITY` section containing the current Agent's six identity fields. Public Run claim freezes the
+identity used for that Run's Bootstrap preparation and byte budget; later edits apply at a subsequent eligible delivery.
+It is not a separate identity-history model or a Dynamic Context patch, and identity edits do not rotate the Native Session.
+Stable Bootstrap component evidence excludes identity; see [Context Delivery Profile](docs/contracts/context-delivery-profile-v13.md).
+
 
 **Member Identity Update**:
 The versioned atomic user command that saves exactly one AgentProfile's six identity fields. Avatar, Runtime configuration, permissions, Presence, Memory state, and other Profile concerns have independent mutation boundaries and cannot partially join or roll back an Identity Update.
 _Avoid_: whole-profile save, avatar update, Runtime update, Memory update, multi-section transaction
 
 **Peer Member Identity Projection**:
-The Collaboration State v2 subset of another current Thread Member's identity containing exactly Agent ID, Name, Team Role, and Professional Responsibilities. The current Agent is never a peer; away and leave-requested relationships remain current until formally left. Each newly frozen AgentRun receives the then-current peer set. An already frozen Run is never patched with a roster delta, and no peer entry, `rosterVersion`, “Member joined” or “Member left this turn” notice is added to model context. Personality Traits, Working Principles, Growth Topic, availability, busy state, Runtime eligibility and execution reason remain outside this projection.
-_Avoid_: complete Member Identity Bootstrap Projection, personality profile, peer instruction, availability projection, Capability projection
+The Collaboration State subset of another current Thread Member: exactly `agentId`, `name`, and `teamRole`.
+The current Agent is excluded; away and leave-requested relationships remain until formally left. Responsibilities and
+other identity details are available through authorized member reads, not this directory.
+See [Collaboration State v4](docs/contracts/collaboration-state-v4.md).
+
 
 **Agent UUID**:
 The immutable, opaque persistence identity of one AgentProfile, visible only inside Core storage and never exposed to users, Agent Runtimes, model context, or tools.
@@ -256,11 +261,11 @@ The application-global persistent domain object behind one Member, containing it
 _Avoid_: Member in domain code, Teammate, AgentInstance
 
 **Memory Library**:
-Rovai-ai's application-global, user-governed collection of durable memories, independent of every Thread, Project, Conversation, Native Session, Runtime, and repository. References to collaboration or repository records may explain a memory's origin but do not change its ownership or visibility.
+Rovai AI's application-global, user-governed collection of durable memories, independent of every Thread, Project, Conversation, Native Session, Runtime, and repository. References to collaboration or repository records may explain a memory's origin but do not change its ownership or visibility.
 _Avoid_: Thread memory, Project memory, Runtime memory, conversation history, task state
 
 **Memory Store**:
-The normalized Memory-domain state inside Rovai-ai's existing authoritative SQLite database: Memory, immutable Revision, isolated Hearth Review Item, Supersession, and reconstructible retrieval indexes. It is neither one JSON aggregate nor an event-replayed or file-backed database.
+The normalized Memory-domain state inside Rovai AI's existing authoritative SQLite database: Memory, immutable Revision, isolated Hearth Review Item, Supersession, and reconstructible retrieval indexes. It is neither one JSON aggregate nor an event-replayed or file-backed database.
 _Avoid_: memory.json, Markdown database, event-sourced Memory, FTS as authority, separate database
 
 **Memory**:
@@ -304,15 +309,15 @@ An irreversible user action that removes a Memory's readable content, Retrieval 
 _Avoid_: retire, reversible archive, global content erasure
 
 **Memory Export Boundary**:
-The user-initiated extraction of Memory data directly from authoritative SQLite state. v0.10 adds no Memory-specific automatic backup or cloud sync, and exported copies leave Rovai-ai's Forget control; format and selected history are implementation-protocol details.
-_Avoid_: Projection backup, automatic replication, recoverable Forget, Rovai-ai-controlled external copy
+The user-initiated extraction of Memory data directly from authoritative SQLite state. v0.10 adds no Memory-specific automatic backup or cloud sync, and exported copies leave Rovai AI's Forget control; format and selected history are implementation-protocol details.
+_Avoid_: Projection backup, automatic replication, recoverable Forget, Rovai AI-controlled external copy
 
 **Memory Review**:
 An advisory user-governance reminder scheduled by `reviewAfter`; becoming due does not change a Memory's active state or content. Review may lead the user to continue, reschedule, revise, retire, or forget through separate explicit commands.
 _Avoid_: automatic expiry, validity window, lifecycle transition
 
 **Memory Projection**:
-A deterministic, read-only rendering of authoritative SQLite Memory state in Rovai-ai-private user data for internal diagnostics, export compatibility, or debugging. It is disposable, rebuildable, never authoritative, and no longer a supported Agent read surface.
+A deterministic, read-only rendering of authoritative SQLite Memory state in Rovai AI-private user data for internal diagnostics, export compatibility, or debugging. It is disposable, rebuildable, never authoritative, and no longer a supported Agent read surface.
 _Avoid_: Agent Memory API, Memory source of truth, editable memory file, project document, Git-tracked state
 
 **Projection File Safety Limit**:
@@ -344,7 +349,7 @@ An authorized, bounded read of the latest current Revision for stable Memory IDs
 _Avoid_: frozen Entrypoint body, historical Revision read, Session rotation, capability by reference
 
 **Preference Memory**:
-A stable choice about how Rovai-ai or a Companion should communicate, present information, or work with the user.
+A stable choice about how Rovai AI or a Companion should communicate, present information, or work with the user.
 _Avoid_: inferred personality, temporary request, project fact
 
 **Agreement Memory**:
@@ -356,7 +361,7 @@ A reusable course of action distilled from a real experience, without turning th
 _Avoid_: observation profile, performance rating, conversation summary
 
 **Hearth Memory**:
-A durable memory whose scope includes every AgentProfile in the local Rovai-ai home across Threads. Users may write it directly; an Agent-authored candidate becomes active only after an explicit per-Review-Item user decision.
+A durable memory whose scope includes every AgentProfile in the local Rovai AI home across Threads. Users may write it directly; an Agent-authored candidate becomes active only after an explicit per-Review-Item user decision.
 _Avoid_: Thread-wide memory, global prompt, shared chat history
 
 **Companion Memory**:
@@ -396,140 +401,48 @@ The exact-version user action to accept, edit body/keys then accept, or reject o
 _Avoid_: Memory confirmation, Agent approval, stale rebase, drawer dismiss
 
 **Skill**:
-A reusable directory package of instructions and optional supporting resources that an Agent Runtime can discover and load when relevant.
+A file-based guide with optional supporting resources that a Runtime can read when relevant. It grants no tool, routing, mutation or approval authority. Current source and delivery boundaries belong to [Skills Architecture](docs/architecture/skills.md).
 _Avoid_: System Prompt, Built-in CLI operation, MCP Server, AgentProfile
 
-**Skill Library**:
-Rovai-ai's application-global collection of managed Skills, independent of their import source and of every Runtime's personal Skill directories.
-_Avoid_: Runtime personal Skill store, Project Skill directory, source folder
+**Rovai Platform Skills**:
+The fixed `cli-operations` and `memory-stewardship` guides indexed by `ROVAI_PLATFORM_SKILLS` in Bootstrap. The index uses the execution Host's managed root and is frozen with this Run's startup material; Runtime rules determine delivery. It is not proof the model read a file.
+_Avoid_: optional toolbox selection, Runtime-native inventory, permission grant
 
-**Rovai Skill**:
-A stable Skill identity in the Rovai Skill Library whose Name is globally unique. It is either supplied officially by Rovai-ai or explicitly imported by the user; Runtime-native Skills are outside this identity and may use the same Name.
-_Avoid_: Runtime-native Skill, Agent-wide Skill toggle, imported source directory
-
-**SkillRevision**:
-An immutable complete content snapshot of one Rovai Skill, published by an official application release or a user-confirmed import or update. A Rovai Skill selects one current SkillRevision while older revisions remain distinct for as long as that Skill is retained. Importing the same Name from another source updates the existing non-official Rovai Skill by creating a new SkillRevision rather than creating a second Skill.
-_Avoid_: mutable Skill directory, in-place update, source checkout, parallel same-name Rovai Skill, Runtime cache
-
-**SkillProjection**:
-A mutable, reconstructible Rovai-ai-managed filesystem view that exposes current Skill Library state through a Runtime's native project-level discovery path for one execution root. Runs sharing that root do not receive lifetime-isolated Revision directories.
-_Avoid_: Skill source of truth, Runtime personal installation, per-Run immutable Skill directory, proof that a model loaded the Skill
-
-**Execution Root Projection Gate**:
-The Windows copy-projection admission that serializes a short AgentRun launch registration with recovery or replacement of SkillProjection entries in one exact execution root. It prevents a Runtime launch from overlapping a partial directory swap; it is not a SkillRevision lease, lifetime file lock, or cross-root scheduler.
-_Avoid_: SkillExposureSnapshot lock, global AgentRun gate, per-Run projection, Runtime process lease
-
-**Skill Projection Observation**:
-The durable last-known fact for one Rovai-managed SkillProjection entry, used to prove ownership and explain or repair its observed state. Observation history neither authorizes nor schedules later access to its execution root.
-_Avoid_: filesystem watcher, access grant, reconciliation schedule, live directory health
-
-**Skill Projection Root Access**:
-The local policy stating whether Rovai-ai may automatically prepare or repair SkillProjection entries in one execution root. Removing a Project suspends new access until the directory is explicitly restored, while an already active AgentRun may finish and trigger its one required terminal cleanup.
-_Avoid_: Project aggregate, Thread deletion, filesystem permission, historical observation
-
-**SkillExposureSnapshot**:
-The immutable start-time evidence of Skill identities, Revisions, delivery paths, states, and conflicts actually observed by one AgentRun preflight. It does not promise that shared projection files remain byte-identical for the Run lifetime and does not prove the Runtime loaded them.
-_Avoid_: per-Run Skill copy, lifetime Revision lease, model-read receipt, Skill Library authority
-
-**Skill Mention**:
-The structured `skillId + nameAtSend` reference created only when a user selects a Rovai Skill through the Composer Picker. Its visible and stored body marker remains `/nameAtSend`; handwritten, pasted, and historical lookalike text is never a Skill Mention.
-_Avoid_: parsed Slash text, Slash Command, Skill path, Runtime-native Skill reference
-
-**Skill Selection Snapshot**:
-The immutable per-AgentRun record created at Delivery claim from the ordered batch's first occurrence of each Skill Mention, recording whether that exact Skill is active, enabled, name-matched, and assigned to one Runtime Delivery Group frozen for the new Run. It contains no path or Exposure; waiting Delivery carries no Skill eligibility, and later changes cannot rewrite a frozen Run selection.
-_Avoid_: send-time Run snapshot, Draft selection, current Skill Library view, SkillExposureSnapshot, Runtime load receipt
-
-**Current Input Skill Resolution**:
-The legacy name of immutable ContextManifest evidence that intersects one batch Skill Selection Snapshot with materialization-time Skill Library availability and the verified SkillExposureSnapshot, recording an included file path or exact omission reason for every selection. Public Formatter 27 applies the result to relevant RUN_INPUT messages; Single Chat retains the original CURRENT_INPUT projection. It does not replace the full Exposure or exact rendered-payload evidence.
-_Avoid_: SkillProjection reconciliation, Skill eligibility authority, model field, Runtime Input Delivery
-
-**Current Input Skill Link**:
-The optional model-visible `{name,path}` entry projected into a public `RUN_INPUT.messages[].skills` item whose message selected that Skill and whose batch resolution found a ready Rovai projection's absolute `SKILL.md`. Single Chat retains `CURRENT_INPUT.skills`. It is not an Attachment, permission, Prompt Skill fallback, Runtime load receipt, or proof the model read the file.
-_Avoid_: batch-global model field, inline Skill content, Provider Skill item, project directory, SkillExposureSnapshot, model-read proof
-
-**Skill Enablement**:
-The application-global delivery pause state of one Rovai Skill. A new official or imported Skill starts enabled; disabling it suspends all Rovai-managed delivery without deleting or changing its Skill Group Assignments, those Assignments remain editable while disabled, and re-enabling restores delivery from the saved Assignments.
-_Avoid_: Skill Group Assignment, permission grant, deleted assignment, per-Member enablement
+**Rovai Toolbox Skills**:
+The closed set `campfire`, `grill-duo`, `grill-duo-with-docs`, `member-studio` and `review-duo`. A teammate's saved selections and this input's explicit toolbox mentions form the Run's `ROVAI_ADDITIONAL_SKILLS` index. `member-studio` is selected initially; an explicit removal is preserved. Per-message selection does not change teammate configuration.
+_Avoid_: global enablement, Runtime Group assignment, project projection, tool permission
 
 **Runtime-native Skill**:
-A Skill independently owned and discovered by an Agent Runtime outside the Rovai Skill Library. Rovai-ai neither imports nor takes ownership of it, and a same-named Rovai Skill may remain visible alongside it without implying which one the Runtime will use.
-_Avoid_: Rovai Skill, imported Skill, Rovai-managed conflict winner
+A user- or project-level Skill owned by its Harness at its original path. Core discovers it read-only on the execution Host, deduplicates aliases by canonical target and retains distinct identities for same-name files. Settings lists user sources; a Thread's Composer combines applicable user and project sources. Native Skills do not enter either Rovai index.
+_Avoid_: imported Rovai copy, name-based identity, automatic model loading
 
-**Duplicate-visible Skill**:
-A positive, best-effort observation that an exact same-name entry exists in a known unmanaged discovery location for an Agent Runtime that can also receive the Rovai Skill. Rovai-ai may check that exact path while planning an assigned delivery, but it does not enumerate, parse, index, import, modify, or choose between Runtime-native Skills; absence of the observation is not proof that no duplicate is visible.
-_Avoid_: Runtime winner, native Skill inventory, exhaustive scan result, resolved name conflict
+**Skill Mention**:
+A structured `skillId + nameAtSend` reference selected from Core-discovered Composer candidates. `rovai:<name>` identifies a toolbox item; `native:<canonical-path-hash>` identifies a native entry; historical UUIDs retain their legacy identity. The body marker is `/nameAtSend`; plain lookalikes never become mentions.
+_Avoid_: arbitrary client path, parsed Slash text, Slash Command, Attachment
 
-**Shadowed Skill Delivery**:
-A Rovai Skill delivery whose exact intended projection path is already occupied by a directory, file, or symbolic link that Rovai-ai does not own. The existing entry is left unchanged, and the blocked Delivery Group is not silently replaced by an unselected Group.
-_Avoid_: overwritten native Skill, duplicate-visible Skill, implicit fallback delivery
+**Skill Selection Snapshot**:
+The immutable Selection v2 created at claim, recording each mentioned Skill's source identity and first message/segment location. It contains no Runtime Group assignment or proof of file availability. Later configuration changes cannot rewrite the frozen selection.
+_Avoid_: Draft selection, current inventory, Runtime load receipt
 
-**Skill Delivery Group**:
-An application-defined Skill delivery channel associated with a Runtime-native project Skill entry and the Agent Runtimes known to discover it. Delivery Groups may overlap, so one Runtime's effective Rovai Skill set is the union of every Group it can discover. Group definitions are fixed by verified Adapter behavior rather than created or edited by the user, and Rovai-managed delivery never uses the shared `.agents/skills` channel.
-_Avoid_: mutually exclusive Runtime partition, Member Skill scope, Project Skill scope, user-defined Runtime group
+**Skill Resolution**:
+The immutable Resolution v2 produced during input preparation from the frozen selection and actual source availability. It records the source path or an exact unavailable reason and binds to the selection digest. Unavailable references remain in the message but provide no file link; they never bind to a same-name replacement.
+_Avoid_: project reconciliation, model-read receipt, current configuration cache
 
-**Skill Group Assignment**:
-The application-global relationship that selects one current SkillRevision for one Skill Delivery Group across all applicable Run Workspaces. Its existence is the complete assignment state, multiple explicit Assignments are retained when Delivery Groups overlap, and publishing a newly confirmed Revision advances every existing Assignment to that Revision. Every newly installed Skill, whether official or imported, starts with all fixed Delivery Groups assigned; after that default transition, user additions and removals remain authoritative. An Assignment records user intent rather than requiring a distinct physical projection when another selected Delivery Group already makes the same Revision visible.
-_Avoid_: physical link identity, global all-Runtime toggle, Member Assignment, Project Assignment, disabled Assignment
-
-**Effective Skill Delivery**:
-The minimal derived set of Rovai-managed projections that satisfies the explicit Skill Group Assignments for one Run Workspace without making the same Rovai SkillRevision redundantly visible to an Agent Runtime. An overlapping Assignment may be satisfied through another selected Delivery Group and becomes directly projected again if that shared coverage is later removed. A blocked Delivery Group may use another explicitly assigned Group where that still satisfies the saved intent, but delivery never invents an unselected Assignment as a fallback.
-_Avoid_: Skill Group Assignment, persisted user intent, implicit fallback Assignment, duplicate physical projection, Runtime-native Skill
-
-**Skill Delivery Group Member View**:
-The transient list of current Agent Profiles whose currently selected Agent Runtime can discover one Skill Delivery Group. It is derived whenever displayed rather than assigned or persisted, and an empty Member View does not remove or hide its Delivery Group.
-_Avoid_: Skill Assignment, persisted Group membership, Thread membership, historical Member snapshot
+**Model Skill Link**:
+An optional `{name,path}` entry in the relevant `RUN_INPUT.messages[].skills`, or Single Chat's `CURRENT_INPUT.skills`, when that input selected an available Skill. It points to the original native file or managed Rovai file; it is neither inline Skill content nor proof of loading. Frozen input and recovery reuse the recorded payload.
+_Avoid_: batch-global selection, project projection requirement, Attachment, permission
 
 **Official Skill Inventory**:
-The exact application-release-owned set of official Rovai Skill identities: `analyze-agent-codebase`, `campfire`, `cli-operations`, `diagnosing-bugs`, `grill-duo`, `grill-duo-with-docs`, `member-studio`, `memory-stewardship`, `review-duo`, `tasteful-ui`, `tdd`, `worktree`, and `writing-for-agents`. It is not a scan of Runtime-native Skills, and changing the set requires a successor architecture decision and coordinated package/UI/fixture update.
-_Avoid_: Runtime-native inventory, dynamic directory scan, enabled Skill set, effective Runtime exposure
+The release-owned managed directories comprise the two platform Skills, five toolbox Skills, `analyze-agent-codebase` and `worktree`. The last two are supporting bundled files, not additional model-index entries. Files and inventories do not grant execution authority; current index membership is defined by [Skills Rebuild](docs/contracts/skills-rebuild-v2.md).
+_Avoid_: every repository Skill directory, native inventory, automatic exposure
 
-**CLI Operations Skill**:
-The ordinary official Rovai Skill `cli-operations` that guides command-family choice, message-to-Task escalation, multi-operation coordination, and complex business recovery. Routine single-operation calls, recipient flags, and exact operation flags use that operation's `--help` without loading this Skill; the Skill grants no command, routing, mutation, or recovery authority.
-_Avoid_: universal CLI manual, routine `--to-user` flag manual, required Skill, family-level help alias, permission grant
-
-**Memory Stewardship Skill**:
-The system-required official Rovai Skill `memory-stewardship` (“共同记忆维护”) that best-effort teaches durable-memory judgment, exact-Scope View before online add/revise, Search/Read for broad recall, copyable target use, atomic wording, Retrieval Keys, duplicate and secret checks, actor-bounded mutation, and the Hearth Review boundary. It is enabled and assigned to every Skill Delivery Group, but availability neither proves per-turn model loading nor grants Capability or fallback prompt injection.
-_Avoid_: permission grant, per-Scope Skill, Memory authority, mandatory System Prompt, unsupported-Runtime emulation
-
-**Worktree Skill**:
-The official Rovai Skill `worktree` (“Git Worktree”) that creates or reuses one isolated Git worktree for one logical development change, keeps its branch and immutable base explicit across handoffs, and can make a mainline governance-document commit the coding baseline when repository rules require it. It is enabled and assigned to every Skill Delivery Group by default, does not create or clean a worktree until the current request and repository rules authorize that lifecycle step, and never grants filesystem or Git authority.
-_Avoid_: duplicate worktree per session, implicit implementation permission, hidden stash or history rewrite, forced cleanup, unsafe primary-checkout mutation
-
-**Agent Codebase Analysis Skill**:
-The self-contained official Rovai Skill `analyze-agent-codebase` (“Agent 代码库分析”) that reconstructs Coding Agent and multi-Agent repository behavior from entrypoints, call chains, state transitions, persistence, and tests; separates confirmed facts, inferences, unknowns, and documentation drift; and optionally produces one indexed topic dossier when the user requests files. It is enabled and assigned to every Skill Delivery Group by default, remains read-only by default, and grants no filesystem, documentation, collaboration, Tool, or permission authority.
-_Avoid_: README paraphrase, keyword-only architecture label, automatic document mutation, implementation authority, required multi-member Thread
-
-**Grill Duo Skill**:
-The self-contained official Rovai Skill `grill-duo` (“双人追问”) in which an inviter and one fixed eligible Thread partner review one bounded open round of one to four independent, stable-numbered questions through explicit Public A2A Messages. Only the current partner's direct reply to the current effective invitation is formal advice; send acceptance never implies that the partner started or completed. The Skill excludes sessions that must also maintain domain vocabulary or qualifying ADRs.
-_Avoid_: synchronous member call, Gather, hidden second opinion, arbitrary question batch, documentation-maintaining grill, bundled `grilling` dependency
-
-**Grill Duo with Docs Skill**:
-The self-contained official Rovai Skill `grill-duo-with-docs` (“双人追问与文档”) that uses the same bounded open-round protocol while maintaining only user-confirmed domain language and qualifying architectural decisions. It is enabled and assigned to every Skill Delivery Group by default; its executable duo protocol lives in its own `SKILL.md`, and its immutable Revision carries only the additional domain-modeling, glossary, and ADR references rather than requiring another Skill Assignment.
-_Avoid_: dependent `grill-duo` assignment, unconfirmed documentation fact, generic `domain-modeling` bundled Skill, implementation-before-agreement, documentation batch after the session
+**Legacy Skill State**:
+Skill Library, SkillRevision, SkillProjection, SkillExposureSnapshot, global enablement and Runtime delivery-group assignments describe retained historical records and recovery evidence. They do not govern new Skill selection or create new project projections. Observations and root-access policy still bound explicit cleanup; see [historical projection ownership](docs/architecture/skill-projection-reconciliation.md).
+_Avoid_: current settings model, new Run admission, automatic project cleanup
 
 **Grill Duo Open Round**:
-A Skill-owned set of one to four prerequisite-confirmed, mutually independent questions with stable `Q1`–`Q4` identifiers. It stays open until every question is answered, cancelled, or invalidated; unchanged unanswered questions retain existing partner advice, a changed question alone is re-reviewed, and new questions wait for the next round. It is expressed in public messages and is not a Core-persisted entity.
-_Avoid_: ThreadTurn, Gather Barrier, persisted Round, omission-as-agreement, renumbered partial answer
-
-**Review Duo Skill**:
-The session-semantic official Rovai Skill `review-duo` (“双人代码评审”) in which one Lead and one fixed eligible Thread partner independently review the same immutable Git or patch range along Spec and Standards axes. Its normal workflow uses four ordinary Thread Messages, accepts only the current trusted partner's direct reply with the same range, bounds each complete axis result to one message, and publishes a compact final report without creating a Gather or persisted review transaction.
-_Avoid_: ordinary solo review, live-worktree dual read, Gather Barrier, review key, completion locator, parts/manifest transport, deterministic recovery after complete conversation-context loss
-
-**Tasteful UI Skill**:
-The official Rovai Skill `tasteful-ui` (“品味优先 UI 设计”) vendored from one exact MIT-licensed upstream revision with its complete taste exploration, reference catalog, project-design format, implementation workflow, and result critique. It is enabled and assigned to every Skill Delivery Group by default; its task-local investment gates guide UI work but never grant Tool, network, filesystem, implementation, approval, or product authority.
-_Avoid_: floating upstream branch, partial reference bundle, Core-enforced design approval, automatic network access, UI permission grant
-
-**Diagnosing Bugs Skill**:
-The pinned GitHub-origin official Rovai Skill `diagnosing-bugs` (“系统化故障诊断”) that requires a tight red-capable feedback loop before root-cause hypotheses for explicit hard, intermittent, performance, regression, or failed-fix investigations. It is enabled and assigned to every Skill Delivery Group by default; diagnosis does not grant permission to instrument production, expose secrets, or implement a fix.
-_Avoid_: generic compile-error helper, speculative diagnosis without a feedback loop, implicit fix authorization, unredacted artifact
-
-**TDD Skill**:
-The pinned GitHub-origin official Rovai Skill `tdd` (“测试驱动开发”) that implements an explicitly test-first request through red-green vertical slices at user-agreed public seams. It is enabled and assigned to every Skill Delivery Group by default; ordinary work that happens to add tests does not trigger it, and the Skill does not choose a public seam or authorize implementation on the user's behalf.
-_Avoid_: tests-after implementation, internal-detail testing, unconfirmed seam, automatic implementation permission
-
-**Writing for Agents Skill**:
-The pinned GitHub-origin official Rovai Skill `writing-for-agents` (“Agent 文档写作”) that shapes Skills and other coding-agent instructions through precise invocation metadata, progressive disclosure, explicit completion criteria, and low-noise wording. It is enabled and assigned to every Skill Delivery Group by default; ordinary user documentation, product copy, and code comments stay outside its scope.
-_Avoid_: general technical writing, product copy editor, verbose agent handbook, implicit document mutation authority
+A Skill-owned set of one to four mutually independent questions with stable `Q1`–`Q4` identifiers. The round stays open until each is answered, cancelled or invalidated; changing one question does not discard unchanged advice. It exists in public messages, not as a Core entity.
+_Avoid_: ThreadTurn, persisted Round, omission-as-agreement
 
 **Agent Memory Mutation Run Quota**:
 The hard limit of four successfully persisted effective writes and pending Hearth Review Items per source AgentRun. Idempotent replays and failed calls do not consume another slot, while a later user Review Decision does not restore one.
@@ -592,7 +505,7 @@ The persistent membership relationship that associates an AgentProfile with one 
 _Avoid_: rejoined Member, resurrected Run, eager Conversation allocation, Member Presence copy
 
 **Current ThreadMember**:
-A ThreadMember whose membership in one Thread is currently effective. It is independent of Member Presence: an away AgentProfile may remain a Current ThreadMember, while ending the membership immediately removes that Thread-scoped participation relationship. Every Thread must retain at least one Current ThreadMember.
+A ThreadMember whose membership in one Thread is currently effective. It is independent of Member Presence: an away AgentProfile may remain a Current ThreadMember, while ending membership removes that participation relationship. An existing Thread may have no current members and retains its history with no Default Lead; initial creation still requires a nonempty team. See [Membership v3](docs/contracts/camp-membership-v3.md).
 _Avoid_: active ThreadMember, present Member, Executable Assignee
 
 **Thread Membership Generation**:
@@ -611,8 +524,8 @@ The durable audit of the exact Run set affected by a Thread Membership Cutover. 
 _Avoid_: polling hint, Renderer progress authority, Run revival, implicit success
 
 **Executable Assignee**:
-A Task Assignee who is both a Current ThreadMember and has `present` Member Presence. It is an identity eligibility condition for admitting new Task-linked execution, not a claim about Runtime Readiness or immediate process availability.
-_Avoid_: active assignee, Runtime-ready assignee, Current ThreadMember
+The historical Task-linked admission term for an Assignee who was a current ThreadMember with present Member Presence. New sends do not create Task execution links; message and Runtime admission use their own current rules.
+
 
 **Initial Thread Membership**:
 The non-empty, user-selected set of present AgentProfiles that become ThreadMembers when a New Conversation Draft's creation is accepted. An unselected Member is outside that Thread rather than merely omitted from its first execution. The creation UI prevents removing the final selected Member and explains that at least one Member must remain, preserving a valid Default Lead candidate. Later Thread-scoped additions and removals use the independent Dynamic Thread Membership commands and do not rewrite this creation fact.
@@ -635,11 +548,11 @@ The present ThreadMember persisted as the destination for unaddressed execution 
 _Avoid_: Task Assignee, universal administrator, Native Session owner, Runtime fallback target
 
 **Task Coordination Authority**:
-The Thread-scoped authority held by the User and Default Lead to create durable Tasks and define or change their responsibility boundary, including title, description, Acceptance Criteria, Assignee, reassignment, release, and cancellation. It neither grants authority outside the Task domain nor changes the separate execution-state authority of a current Assignee or the uniform availability of Built-in Task operations to eligible Members.
-_Avoid_: universal administrator, Task ownership, Member Capability, operation allowlist
+The Thread-scoped authority of the User and Default Lead to create Tasks and change title, description, assignment, release or cancellation when Task capability is enabled. It is separate from an Assignee's execution-state authority and grants no general administrative power.
+
 
 **Initial Default Lead Selection**:
-The required selection of one Initial Thread Membership member as the Thread's Default Lead. The creation UI initially selects the first Runtime Ready member in stable Member Order, or the first selected member when none is Ready. Every selected member remains eligible regardless of Runtime Readiness; Readiness affects later execution admission rather than Lead identity. A manually selected Lead remains selected while included in Initial Thread Membership; removing that member automatically selects the first remaining member in stable Member Order as the replacement Lead.
+The required selection of one initial member as Default Lead. The creation UI preserves the saved Lead when that member remains among the eligible selected members; otherwise it chooses the first selected member in stable order. A manual choice remains selected while included, and removing it selects the first remaining member. Candidate availability follows the current creation contract; prior deep-probe success is not a separate Lead requirement.
 _Avoid_: Runtime-determined Lead validity, Runtime fallback target, automatic recipient
 
 **Conversation**:
@@ -651,19 +564,19 @@ The local User's active private Conversation with one present Member inside one 
 _Avoid_: Direct Message channel, private ThreadMessage, private attachment content store, Thread-wide pending queue, second execution system, Prompt-only privacy, Runtime sandbox, recoverable old Turn, cross-Conversation cleanup queue
 
 **Task**:
-An optional durable responsibility item inside one Thread, used when work must remain visible across messages, AgentRuns, or member coordination. Its closed lifecycle is `pending | in_progress | blocked | completed | cancelled`; `completed` records an authorized actor's declaration of completion, not verification by Rovai-ai Core. Tasks do not form a dependency DAG or a Core-enforced workflow. An addressed send may explicitly link one `pending` or `in_progress` Task assigned to its Executable Assignee at acceptance, but the frozen historical link neither transfers responsibility nor proves completion. Later Task blocking, completion, cancellation, or reassignment never cancels, fails, retargets, or wakes that accepted Message Delivery; its Run may observe the latest collaboration state and act accordingly. An A2A target Run never inherits the source Run's Task association. A Task may describe a filesystem path as ordinary semantic content, but it does not own or structurally transfer an AgentRun working directory.
-_Avoid_: Thread, Conversation, chat thread, internal plan, one-off A2A request, workflow node
+An optional durable responsibility item inside one Thread, with lifecycle `pending | in_progress | blocked | completed | cancelled`. Its scope and requirements live in one `description`; completion is an authorized actor's declaration, not Core verification. Task capability is controlled by the instance setting and defaults off. New sends do not link Tasks or derive recipients from them; retained historical links do not control execution. See [Durable Task v6](docs/contracts/durable-task-v6.md).
+
 
 **Task Creation Restraint**:
 The default domain rule that a Task is created only for a durable responsibility that must survive across AgentRuns or handoffs, has one explicit owner, and can independently be completed, blocked, or transferred. Planning steps, analysis, consultation, one-off review, tool operations, and internal Task steps stay in local plans or A2A; the Lead should prefer advancing an existing Task over creating another one. Core enforces only deterministic authority, shape, and capacity limits; it does not perform semantic deduplication or infer whether two responsibilities are “the same.”
 _Avoid_: Task-per-step, execution checklist, tool-call Task, ephemeral subtask, automatic Task fan-out
 
 **Task Responsibility Definition**:
-The durable boundary of one Task's title, description, Acceptance Criteria, explicit Assignee, and terminal cancellation decision. It is owned by the User and Default Lead and is distinct from the current Assignee's execution-state updates; an unassigned recovery state is an exception awaiting Lead disposition, not a second ownership model.
-_Avoid_: execution progress, status note, AgentRun instruction, local plan
+The durable boundary expressed by a Task's title, description, explicit Assignee and cancellation decision. The User and Default Lead own these fields; the Assignee's execution-state updates remain separate. Unassigned is a holding state, not an implicit shared owner.
+
 
 **Task Execution State**:
-The current Assignee's bounded declaration that one owned Task is pending, in progress, blocked, or completed, together with the matching blocker or completion note. An Assignee may move `pending` to `in_progress`, `blocked`, or `completed`; `in_progress` to `blocked` or `completed`; and `blocked` to `in_progress` or `completed`, but may not return a Task to `pending`, cancel it, or alter its responsibility definition. An unassigned Task must remain `pending`, and a `completed` Task must retain an Assignee as well as a non-empty completion summary. This state describes responsibility progress but does not verify the Acceptance Criteria or grant permission to redefine or cancel the Task.
+The current Assignee's bounded declaration that one owned Task is pending, in progress, blocked, or completed, together with the matching blocker or completion note. An Assignee may move `pending` to `in_progress`, `blocked`, or `completed`; `in_progress` to `blocked` or `completed`; and `blocked` to `in_progress` or `completed`, but may not return a Task to `pending`, cancel it, or alter its responsibility definition. An unassigned Task must remain `pending`, and a `completed` Task must retain an Assignee as well as a non-empty completion summary. This state describes responsibility progress but does not verify the requirements or grant permission to redefine or cancel the Task.
 _Avoid_: workflow engine state, Runtime status, completion proof, responsibility definition
 
 **Unassigned Task**:
@@ -675,28 +588,33 @@ The read-only ability of every currently fenced Thread Agent to list compact sum
 _Avoid_: Task write permission, cross-Thread Task access, ID-based capability, shared mutation authority
 
 **Advisory Action Metadata**:
-The `availableActions` value returned in Task reads is advisory capability metadata for presentation and dispatch hints only. Core authorization and field-level mutation rules are authoritative; an Agent Assignee's `update` hint permits only the confirmed execution-state patch on its own Task and never implies title, description, Acceptance Criteria, assignment, release, reassignment, or cancellation authority.
-_Avoid_: capability grant, field allowlist, claim permission, client-authoritative authorization
+The `availableActions` metadata in Core/UI Task projections provides presentation hints only. Current Agent Task outputs omit it. Core rechecks actor, feature setting, state and field authority for each mutation; an Assignee's update authority does not extend to responsibility-definition fields.
+
 
 **Self Active Task Projection**:
-The independent `[SELF_ACTIVE_TASKS]` Dynamic Context section containing a compact, bounded AgentRun awareness snapshot of at most eight of the current Agent's assigned `pending`, `in_progress`, and `blocked` Tasks, selected deterministically by `updatedAt DESC, taskId DESC` and emitted on every direct or A2A Run. A true empty candidate set is the explicit clearing snapshot `{"tasks":[]}`; whole-section absence means only that candidates existed but Runtime payload budget excluded every Task entry. Its v1 model projection contains only canonical `taskId`, `title`, and `status` fields per selected Task, plus `omittedCount` for candidates excluded by the selection or Runtime payload budget; selection-only timestamps never enter the payload. Optional public history yields first when the payload budget is tight, then Tasks are removed from the selection tail. The common AgentRun materialization path freezes it separately from Session Charter, Collaboration State, Run Facts, Shared Conversation, and Current Input. It never includes Thread-wide, unassigned, terminal, or creator-only Tasks, gives the Default Lead no wider projection, and is not the authoritative source for a later update.
-_Avoid_: Thread Task Board, Task instruction, live Task state, Task delta, Lead-wide Task Context
+The optional `SELF_ACTIVE_TASKS` section for public Runs with Task capability enabled. It contains at most eight of the
+Agent's own active Tasks, ordered by `updatedAt DESC, taskId DESC`, with `taskId/title/status` and an omission count when
+needed. A true empty set clears prior awareness with `{"tasks":[]}`; budget pressure can omit the section. Complete
+RUN_INPUT takes priority. Single Chat omits it. Later mutations still require live Task authorization.
+
 
 **Self Active Task Evidence**:
-The ContextManifest machine evidence for a Self Active Task Projection: an inclusion fact, ordered selected Task references carrying canonical `taskId`, `version`, and selection-only `updatedAt`, an optional truncation count, and the exact projection digest. It explains and verifies the frozen selection without duplicating model-facing title/status fields or exposing omitted Task identities, and it never creates a Task freshness watermark.
-_Avoid_: model payload, live Task query, Task history, delta cursor, ACK state
+Legacy per-projection proof stored by older ContextManifests. New manifests retain the final input Blob and necessary
+source/omission metadata without duplicating the Task proof object or digest. Recovery uses frozen input bytes.
+See [Input Snapshot Storage](docs/contracts/input-snapshot-storage-v1.md).
+
 
 **Task Acceptance Criteria**:
-The ordered textual conditions stored with one Task to make its expected outcome explicit. They have no individual completion state, dependency semantics, or Core verification effect; completing the Task remains an authorized actor's declaration about the responsibility as a whole.
-_Avoid_: checklist progress, test evidence, workflow gate, completion proof
+The historical separate requirements array. Current Task input and output use one `description`; legacy stored criteria are composed into that description on read without becoming a checklist, completion proof or new mutable field.
+
 
 **Task Closure Metadata**:
 The actor-derived identity and Core timestamp frozen when a non-terminal Task enters `completed` or `cancelled`. It is never caller input, is absent from non-terminal snapshots, and records who closed the responsibility rather than who verified its result or stopped related execution.
 _Avoid_: completion evidence, AgentRun outcome, caller-authored audit fields, execution cancellation
 
 **Task-linked Responsibility Admission**:
-The one-time boundary at which Core accepts either a Direct linked queued AgentRun or an A2A linked Message Delivery against a `pending` or `in_progress` Task and its Executable Assignee. It freezes the admitted Task version and Assignee identity as audit facts, while later Task state or content changes neither requalify nor revoke that accepted responsibility.
-_Avoid_: continuous Task execution fence, dispatch-time Task revalidation, Task snapshot
+The historical one-time association between a Task, its Assignee and accepted execution. New sends no longer create this association or enforce a Task gate. Existing queued work and continuations do not recheck Task status or assignment; frozen audit records remain intact. See [Send v28](docs/contracts/camp-message-send-v28.md).
+
 
 **Task Related Execution Projection**:
 The read-only Renderer summary derived from ThreadSnapshot relationships between one Task and its current or historical Message Deliveries and AgentRuns. It explains execution facts beside responsibility state without becoming TaskRecord content, changing Task status, or collapsing the two lifecycles.
@@ -1071,7 +989,7 @@ The per-checklist state produced when the frozen independent Judge replicas retu
 _Avoid_: Hard Outcome conflict, low confidence, unavailable Judge, composite variance score
 
 **Native Session**:
-A replaceable external Runtime handle currently bound to a Conversation and identified only by provider-native Session, Thread, Turn, or Binding values. Rovai-ai owns only the binding reference and portable context, not the Runtime's persisted Session files, retention, deletion, or physical isolation; deleting the Thread removes the binding without proving deletion of external Runtime state. A Thread ID cannot be passed to Runtime resume or load operations, and a provider-native identifier cannot locate a Thread.
+A replaceable external Runtime handle currently bound to a Conversation and identified only by provider-native Session, Thread, Turn, or Binding values. Rovai AI owns only the binding reference and portable context, not the Runtime's persisted Session files, retention, deletion, or physical isolation; deleting the Thread removes the binding without proving deletion of external Runtime state. A Thread ID cannot be passed to Runtime resume or load operations, and a provider-native identifier cannot locate a Thread.
 _Avoid_: Conversation, Session Chain, Rovai-owned Session files, Thread deletion guarantee, Thread ID resume target
 
 **Native Session Compatibility Key**:
@@ -1083,12 +1001,18 @@ The single fenced, pre-input attempt to load an existing Native Session when com
 _Avoid_: AgentRun retry, blind Resume, duplicate input delivery, Conversation replacement
 
 **Native Session Bootstrap**:
-The complete model-facing Session startup configuration transiently formatted in the fixed order Session Charter, latest Member Identity Bootstrap Projection, optional frozen Team Guidance, Platform Skills, then optional Memory Entrypoint. Team Guidance is fixed when its public Thread is created, omitted for Single Chat, and never refreshed by Team edits. Every Runtime receives it for a new Native Session; Claude Code and Codex also receive it on Resume, using the original stable components and latest committed identity. Stable Charter and Entrypoint evidence persists, but the complete Bootstrap bytes and identity do not.
-_Avoid_: AgentRun context, immutable complete prompt, Member Identity Snapshot, Runtime hot update, complete Bootstrap evidence
+The Session startup material ordered as Session Charter, Member Identity, optional frozen Team Guidance, Platform Skills,
+and Memory Entrypoint. Single Chat omits Team Guidance and Memory Entrypoint. Runtime-specific new-session, resume and
+compaction rules determine delivery; claim-time startup material keeps preparation and byte budgeting consistent.
+See [Bootstrap v6](docs/contracts/native-session-bootstrap-v6.md), including Hermes's frozen user-layer delivery exception.
+
 
 **Native Session Bootstrap Evidence**:
-The immutable Core evidence for one Native Binding generation's stable Session Charter, Platform Skills, optional immutable Thread Team Guidance, Memory Entrypoint, observed Memory revisions, authorization basis and delivery mode. Its component digest excludes Member Identity and cannot prove or reconstruct the complete Native Session Bootstrap or combined first payload.
-_Avoid_: complete Bootstrap snapshot, Member Identity history, Runtime prompt digest, proof of model adoption
+The Run/Binding/generation's immutable evidence for stable Charter, Platform Skills, optional Thread Team Guidance and Memory
+Entrypoint components. Its component digest excludes Member Identity and does not prove the complete combined input.
+Claim-time startup material and Hermes's complete Bootstrap Blob have their own recovery responsibilities under
+[Bootstrap v6](docs/contracts/native-session-bootstrap-v6.md).
+
 
 **Bootstrap Redelivery Requirement**:
 The durable, Native-Binding-generation-scoped requirement that a later Rovai-controlled Runtime input restore Bootstrap after an eligible Runtime observation indicates that ordinary Session context may have been compacted. Product state derives `clean` or `pending_redelivery` from monotonic requested and accepted-input-acknowledged revisions: a Delivery Gate freezes the requested revision it carries, and only that Runtime Input Delivery's accepted acknowledgement advances the acknowledged revision. Failure, unknown delivery, Core restart, or acknowledgement of an older revision cannot consume a newer requirement. It is neither a user task, Thread Message, new Native Session, nor Adapter-local Boolean.
@@ -1103,8 +1027,11 @@ The single version-qualified Runtime lifecycle point whose correctly routed obse
 _Avoid_: universal pre-event policy, sticky in-progress flag, completed-event consumption fence, token delta, guessed terminal state, socket-send cutoff, cross-version event-name alias
 
 **Bootstrap Redelivery Input Overlay**:
-The transient, non-ContextManifest prefix selected atomically with one Runtime Input Delivery when that Binding generation has a pending Bootstrap Redelivery Requirement. Its versioned envelope declares `reason="context_compaction"`, states that the payload is Core recovery context for the existing Native Session rather than a new task or Session, and encloses the complete Bootstrap assembled from the Binding's original Session Charter, latest committed Member Identity, and original Memory Entrypoint. ContextManifest remains dynamic-only; Delivery evidence retains the selected Requirement revision, stable Bootstrap Evidence reference, and envelope/formatter versions but never the complete Bootstrap, an identity-bearing digest, or a reconstructable Member Identity snapshot.
-_Avoid_: second Bootstrap model, ContextManifest section, persisted combined prompt, identity history, truncatable Bootstrap, unbudgeted prefix
+The recovery prefix selected with a Runtime Input Delivery when its Binding generation has a pending Bootstrap Redelivery
+Requirement. It uses the applicable frozen startup material, is included in the actual input budget, and remains outside
+Dynamic Context. Only the matching accepted ACK advances the selected requirement revision. Runtime delivery and storage
+exceptions follow [Bootstrap v6](docs/contracts/native-session-bootstrap-v6.md).
+
 
 **Native Session Compaction Observer Lease**:
 A narrow, non-AgentRun authority binding one verified Runtime Host/Session route to the current Native Binding generation and detector policy epoch. It may outlive individual AgentRuns and submit only version-qualified Session-scoped compaction observations; it grants no prompt, Built-in Tool, collaboration, Memory, Task, or Runtime-control authority. Binding or Host replacement, Session invalidation, or detector policy epoch change fences it; resuming the same external Session on a new Host creates a new Observer identity. Host/relay interruption alone is not compaction evidence: only an already-known observation whose Core submission outcome is uncertain may conservatively advance one deduplicated Requirement. Runtime Hook relays stage that known observation in a private metadata-only durable outbox before submission; Core ACK removes it, while Core restart or matching Host exit replays it before fencing.
@@ -1123,43 +1050,40 @@ The versioned, privacy-filtered field set serialized into Native Session Bootstr
 _Avoid_: audit projection, internal domain state, ContextManifest, Runtime Input Delivery
 
 **Context Projection Evidence**:
-The privacy-minimized immutable ContextManifest facts sufficient to verify how Context Source State produced one exact Model Context Projection: stable source references and content digests, selection/truncation/omission parameters, and rendered bytes plus digest. It is neither a complete source-value snapshot nor evidence that the Runtime accepted or the model understood the projection.
-_Avoid_: audit projection, copied business history, full SharedMessage snapshot, Runtime Input Delivery
+The immutable Manifest association, necessary source/omission metadata and final input Blob used to recover a model projection. New inputs omit redundant per-projection proof copies and digests under [Input Snapshot Storage](docs/contracts/input-snapshot-storage-v1.md). This evidence does not prove Runtime acceptance or model understanding.
+
 
 **Executable Retrieval Locator**:
 A model-visible canonical operation plus a complete input object that maps without translation to that operation's current schema; Core still reauthorizes every referenced ID at invocation. It is distinct from a Compact Message Continuation Offset, which intentionally carries only the missing offset because its Thread and Message identity already exist in the enclosing projection.
 _Avoid_: approximate locator, transport command, missing required input, authorization token, sequence envelope
 
 **Compact Message Continuation Offset**:
-The retired `nextBodyOffset` used by historical truncated Shared Conversation messages. Current public Context includes
-only complete messages and uses `historyReadCursor` for omitted whole messages.
-_Avoid_: current field, byte offset, authorization token, automatic retrieval
+The retired `nextBodyOffset` for truncated historical Shared Conversation messages. It is not a current read cursor;
+current public input uses complete messages and on-demand history reads.
+
 
 **AgentRun Dynamic Context**:
-The immutable model-facing payload for exactly one AgentRun. Public Thread Formatter 27 composes optional Collaboration
-State, Self Active Tasks and Shared Conversation, mandatory Run Facts, optional Workspace, and mandatory multi-message
-RUN_INPUT. Single Chat retains Formatter 25 and final CURRENT_INPUT. It contains no Member Identity Bootstrap Projection,
-self identity patch, full Task snapshot, or independently synthesized deliverable.
-_Avoid_: Native Session Bootstrap, Member Identity Context, mutable live prompt, Work Brief, Task Context
+The frozen model-facing dynamic input for one Runtime input delivery. A public Run can have an initial batch and later
+Steer deliveries, each with its own Manifest. Current public sections are conditional Collaboration State, optional Self
+Active Tasks, Run Facts, conditional Workspace, Additional Skills and complete ordered RUN_INPUT. Public history is read
+on demand; Single Chat uses its separate CURRENT_INPUT contract.
+See [ContextManifest](docs/contracts/context-manifest-evidence-v44.md).
+
 
 **Default Recipient Mention Projection**:
-The ContextManifest v27-only Agent-facing Member Mention derived for a default-addressed public ThreadMessage from its one
-frozen recipient identity. Claim stores the then-current display name on AgentRunInput; the projection appears only in
-RUN_INPUT and Shared Conversation bodies and is frozen with that evidence, a RunInput context-version marker and the exact
-payload digests. Pre-Migration-166 claimed RunInput remains on v26 without this projection. It does not modify
-authored content, addressing, Delivery, live Thread reads or quotes.
-_Avoid_: authored Member Mention, literal @ text, route authority, current Default Lead lookup, persisted message body
+The model-facing default-recipient prefix derived from a public message's frozen recipient identity and name. It remains separate from authored content, routing and the structured mentions list; live reads do not add the input prefix. New input bodies and their final bytes follow [Message Mentions v1](docs/contracts/message-mentions-v1.md); historical inputs retain their original serializer.
+
 
 **ContextManifest**:
-The immutable Core evidence that freezes one AgentRun's ordered input-message references, anchor, previous/current public
-tails, visibility fence, execution configuration, context-delivery profile, Bootstrap reference, formatter versions,
-Collaboration/Task/Shared/Run Fact/Workspace/Skill selection and exact rendered Dynamic Context. Recovery reuses the
-payload byte-for-byte. It does not bound later live thread.read and never proves transport acceptance or model understanding.
-_Avoid_: audit projection, Runtime Input Delivery, complete Runtime prompt evidence, Member Identity Snapshot, prompt template, live context query, proof the model understood input
+The immutable evidence associated with one Run input delivery, its source identities, configuration, history boundaries,
+formatter versions and final Dynamic Context Blob. Recovery reuses that Blob byte-for-byte; new manifests omit redundant
+intermediate proof copies under [Input Snapshot Storage](docs/contracts/input-snapshot-storage-v1.md).
+A Manifest neither limits later live `thread.read` nor proves transport acceptance or model understanding.
+
 
 **Runtime Input Delivery**:
-The durable delivery-attempt evidence binding one ContextManifest to one AgentRun execution epoch and Native Binding generation. Its accepted acknowledgement may advance the ContextManifest's watermarks, while failure or unknown delivery does not; it neither selects model fields nor stores a complete identity-bearing Runtime payload.
-_Avoid_: ContextManifest, Model Context Projection, transport log, proof the model read or understood input
+The durable delivery-attempt evidence binding one ContextManifest to a Run execution epoch and Native Binding generation. Only a matching accepted ACK advances input boundaries; failure or unknown delivery does not. Bootstrap material and Runtime-specific full-input evidence remain governed by [Bootstrap v6](docs/contracts/native-session-bootstrap-v6.md).
+
 
 **Native Turn**:
 One Provider-owned model execution created by submitting one prompt inside a Native Session. Its identity, running state and terminal result are distinct from the Session handle and from Rovai's Runtime Input Delivery or local correlation ID; cross-process recovery exists only when the Provider exposes and Rovai verifies a stable Turn-level reconciliation contract.
@@ -1182,15 +1106,17 @@ An Adapter capability, provisionally named `native_turn.reconcile.v1`, proven on
 _Avoid_: session/load capability, Native Session Compatibility Key, inferred reattach, local prompt ID, best-effort resume
 
 **Collaboration State**:
-A bounded schema-v2 model-facing directory of Peer Member Identity Projections, a nullable Default Lead Agent ID reference, and a derived `selfIsDefaultLead` Boolean. It excludes the current Agent's identity text and is emitted for Bootstrap-required input or a changed complete peer-routing projection. Its digest always identifies the complete final v2 object, while ContextManifest separately records whether the section was rendered. It contains no availability, leave-request state, busy reason, changes hint, or current-Turn inference; Core rechecks live eligibility for every addressed send.
-_Avoid_: self identity patch, `members`, `defaultLead` identity object, routing authority, availability promise, Capability list, raw presence/readiness state, current task, current Turn participant state
+The model-facing directory of peer `agentId/name/teamRole`, nullable `defaultLeadAgentId`, and `selfIsDefaultLead`.
+It is sent when Bootstrap is required or the complete projection changes. The accepted delivery's complete digest tracks
+that change; availability, detailed responsibilities and current execution eligibility remain outside the directory.
+Core rechecks live eligibility at send time. See [Collaboration State v4](docs/contracts/collaboration-state-v4.md).
+
 
 **Shared Conversation**:
-The deterministic model-facing incremental public window for one `(ThreadId, AgentId)`, bounded by the last successfully
-accepted public tail and the current claim tail. It preserves original order and self-authored messages, emits at most the
-latest fifteen complete eligible messages, and uses paired `omittedCount/historyReadCursor` when earlier candidates do
-not fit. A message may also appear in RUN_INPUT; only RUN_INPUT creates processing responsibility.
-_Avoid_: summary, private Conversation, unread receipt, current-input replacement, Native Session-local watermark
+The historical automatic public-history section. New public Runs do not generate it; `RUN_FACTS.historyHint` supplies
+only a reference hint and Agents read required history through `thread.read/search`. Existing frozen inputs retain their
+original section and serializer for recovery.
+
 
 **Run Fact**:
 A typed, compact model-facing fact already determined by authoritative Core state and directly relevant to the current AgentRun. Public Run Facts schema 11 provides `attachmentOutputRoot` and `historyHint` plus optional Mission, Session continuity and real external-effect facts. Single Chat schema 13 provides the attachment output root and optional unsettled external effect, without the former fixed `singleChat` object. Stable Single Chat rules remain in its Charter and Guidance. Optional facts are omitted when absent, but the section itself is mandatory. A fact guides current decisions but is not an authorization token, mutable source snapshot or prose warning.
@@ -1202,53 +1128,49 @@ RUN_INPUT instead; CURRENT_INPUT must not be synthesized from one arbitrary mess
 _Avoid_: current public Run input, batch anchor, Work Brief, source reply alias
 
 **Run Input**:
-The mandatory ordered `RUN_INPUT.messages[]` for one public AgentRun. It contains every message atomically claimed for
-that Run with trusted identity, sequence, complete body, optional anchor, quotes, attachments, Skills and mention flag.
-It is the only processing-responsibility truth; the last item deterministically supplies the Run anchor. No message is
-truncated, summarized or split across native prompts.
-_Avoid_: one trigger, additionalMessages, source-type branch, Shared Conversation, per-output response list
+The mandatory ordered `RUN_INPUT.messages[]` of a public input delivery, containing its complete claimed messages with
+trusted identity, body, quotes, attachments, Skills and mentions. It alone establishes processing responsibility;
+the last message supplies the input anchor. Messages are not truncated, summarized or split across prompts.
+Later Steer deliveries retain their own ordered input and Manifest.
+
 
 **Accepted Public Context Boundary**:
-The monotonic public ThreadMessage sequence boundary maintained for each `(ThreadId, AgentId)`. It records the claim tail
-frozen by the latest exact AgentRun input accepted on the correct binding/generation and survives Native Session
-replacement. Prepared, rejected, unknown, claim-only and stale acknowledgements do not advance it. It selects the next
-automatic incremental window but never limits live `thread.read` or proves model understanding.
-_Avoid_: Native Session-local state, proof of reading, unread-message set, retrieval cursor, model-visible boundary
+The monotonic public message sequence boundary for `(ThreadId, AgentId)`, advanced only by the exact input's accepted ACK
+on the correct Binding generation. It survives Native Session replacement and supplies the next Run's `historyHint`.
+It neither selects automatic history nor limits live reads; claim-only, unknown, rejected and stale inputs do not advance it.
+
 
 **Accepted Collaboration Projection Digest**:
-The complete canonical Collaboration State v2 projection digest last advanced by an accepted Runtime Input ACK for one current Native Binding generation. Every ContextManifest records the complete current digest and independently records whether the section was included; send failure, `delivery_unknown`, process loss and unaccepted input do not advance the Conversation watermark. It is not a digest of internal Member State, a delta, a rendered fragment, Member Identity, or proof that the model understood the directory.
-_Avoid_: member state digest, inclusion flag, self identity version, presence watermark, model-read proof
+The complete current Collaboration State projection digest last advanced by an accepted Runtime Input ACK for a Native Binding generation. Inclusion is recorded separately. Failed, unknown, lost and unaccepted deliveries do not advance it; it is neither a partial roster digest nor evidence that the model understood the directory.
+
 
 **Bounded Raw Public Messages**:
-The latest fixed-count complete subset of visible ThreadMessages inside one accepted-boundary-to-claim-tail window. Bodies,
-quotes and metadata are indivisible; after the fifteen-message bound, whole oldest candidates are removed until the
-remaining Runtime payload budget fits, then emitted in ascending sequence.
-_Avoid_: summarized history, body prefix, relevance window, reply-tree expansion, RUN_INPUT eviction
+The historical complete-message selection for Shared Conversation, bounded by its frozen Profile and accepted-to-claim window. New public Runs do not select this automatic history window; they keep complete RUN_INPUT and read other history on demand.
+
 
 **Originating Public User Message**:
-The retired lineage-specific history container from single-trigger public Runs. Current Shared Conversation has one
-ordered `messages[]` list and does not synthesize an origin item.
-_Avoid_: current context field, batch root, mandatory ancestor
+The retired lineage-specific history container from single-trigger Runs. Current RUN_INPUT contains the actual claimed
+messages and does not synthesize a root or require an ancestor message.
+
 
 **Public Reference Context Closure**:
-The retired automatic ancestor-expansion container. Current Shared Conversation exposes `anchorMessageId` but does not
-inject anchor ancestors; an Agent can use live `thread.read` when earlier context is required.
-_Avoid_: current context field, implicit private context, routing source, full reply graph
+The retired automatic ancestor-expansion container. Current input does not inject reply ancestors; Agents use `thread.read`
+when the work needs earlier context. Saved message excerpts follow the carrier-message rules in
+[Message Quotes v2](docs/contracts/message-quotes-v2.md).
+
 
 **Omitted Public Messages Envelope**:
-A paired model-visible `omittedCount + historyReadCursor` emitted only when one or more visible candidates in the frozen
-incremental window do not enter Shared Conversation. The cursor is an opaque starting point for live `thread.read`; it does
-not restore the frozen snapshot or guarantee the same count later.
-_Avoid_: executable sequence range, body continuation, Manifest replay cursor, automatic retrieval request
+The historical `omittedCount + historyReadCursor` pair for omitted Shared Conversation messages. New public inputs do not
+generate this envelope; frozen historical inputs preserve it. It is not an automatic retrieval request or recovery cursor.
+
 
 **Context Delivery Profile**:
-A versioned application configuration for deterministic model-input selection. Current public Profile v11 gives mandatory
-sections and the largest complete FIFO RUN_INPUT prefix priority. An unspecified Runtime payload budget defaults to
-256 KiB; explicit limits keep their existing meaning. Claim sizing uses the complete section formatter and reserves
-128 KiB plus actual separators/redelivery wrappers for a Bootstrap sharing that input. Messages, quotes, attachments
-and Skills remain indivisible; public history stays on demand. Non-batch Profile v12 retains the prior selection rules.
-Historical inputs retain their own frozen Profile and serializer.
-_Avoid_: formatter constants, model DTO schema, Evidence schema, Member Runtime Parameters, mutable user preference, summary model configuration
+The versioned policy for selecting and budgeting model input. Public claim prioritizes mandatory sections and the largest
+complete FIFO RUN_INPUT prefix, then optional Tasks. The default input budget is 256 KiB; an explicit Runtime budget wins.
+Sizing includes actual frozen Bootstrap bytes and wrappers when they share the input, without truncating messages or
+required sections. Historical inputs recover with their frozen policy; version pairing belongs to
+[ContextManifest](docs/contracts/context-manifest-evidence-v44.md), not this glossary.
+
 
 **Cross-Thread History Search**:
 An explicit, on-demand lookup by an authenticated running Agent across public messages in surviving Threads. Target-Thread
@@ -1257,15 +1179,13 @@ private Conversations and deleted Threads remain outside it. Retrieval does not 
 _Avoid_: membership-gated public history, private Conversation search, unbounded future search, Memory recall
 
 **Thread History Retrieval**:
-The model-facing discovery and raw-read surface for public ThreadMessages. Every call rederives live authorization and
-message visibility; `thread.read` is not bounded by the current ContextManifest and can see later published messages.
-It uses a default limit of 20 and a maximum of 100, returning the selected page completely without aggregate-size
-shrinking. Current request shapes are timeline `before/limit`, exact `messageId`, and reply chain `replyChain/before/limit`;
-legacy `thread` remains an input alias for `replyChain`. Retired `mode/direction/around` fields are not translated.
-Published recallable messages and messages with waiting Deliveries remain explicitly readable without claiming those
-Deliveries or closing recall. Withdrawn items expose a marker without their body and are excluded from search;
-quote sources retain their separate visibility checks. Reading has no claim or ACK side effect.
-_Avoid_: Manifest-bounded read, unread-only retrieval, truncated success, attachment file access, bearer cursor, Memory recall
+The live authorized read surface for public messages. `thread.read` accepts exact `messageId`, or timeline/reply-chain
+pagination with mutually exclusive `before` or `after` and `limit` (default 20, maximum 100). `after: 0` starts at the oldest
+visible message; returned pages are ordered chronologically. Legacy `thread` is an alias for `replyChain`.
+Reads do not claim Deliveries, close recall or advance accepted input state. Withdrawn items expose only their status;
+saved quotes are projected from the visible carrier without rechecking their source. See
+[Camp History v17](docs/contracts/camp-history-v17.md).
+
 
 **Cross-Thread History Fence**:
 The immutable global public-message publication boundary for one AgentRun's cross-Thread `thread.search` and `history.search`.
@@ -1281,7 +1201,7 @@ nor backfills their directory evidence.
 _Avoid_: current-Run directory requirement, live Thread updated time, cross-Run discovery cache
 
 **Product Runtime Catalog**:
-The closed set of Agent Runtime products that Rovai-ai has integrated and can use to create AgentRuns. Catalog membership is independent of local discovery, installation, authentication, and current readiness; compatibility-evaluation candidates remain outside it.
+The closed set of Agent Runtime products that Rovai AI has integrated and can use to create AgentRuns. Catalog membership is independent of local discovery, installation, authentication, and current readiness; compatibility-evaluation candidates remain outside it.
 _Avoid_: installed Runtime list, compatibility candidate list, marketplace
 
 **Host Platform Key**:
@@ -1305,7 +1225,7 @@ A shared durable local launch identity: the selected Adapter, executable entry, 
 _Avoid_: Adapter version, immutable binary, immutable executable path
 
 **Managed Default Installation**:
-The single Rovai-ai-managed AdapterInstallation that internally resolves an ordinary Member Runtime Configuration for one Product Runtime and authentication scope. Discovery priority, upgrades, and verified relocation update its launch evidence in place; advanced custom launch entries remain separate unless explicitly promoted.
+The single Rovai AI-managed AdapterInstallation that internally resolves an ordinary Member Runtime Configuration for one Product Runtime and authentication scope. Discovery priority, upgrades, and verified relocation update its launch evidence in place; advanced custom launch entries remain separate unless explicitly promoted.
 _Avoid_: dynamically best Installation, per-Member Installation, custom wrapper
 
 **Verified Installation Relocation**:
@@ -1313,8 +1233,11 @@ The bounded replacement of an unavailable launch path within the same Adapter an
 _Avoid_: name-only rebinding, new Installation, rewriting frozen Run Runtime Configuration
 
 **Adapter Capability Snapshot**:
-The latest successful persisted deep-probe evidence for one AdapterInstallation, covering its observed executable identity, authentication, models, permissions, protocols, and capabilities. It is authoritative input for which model identifiers and model-option values a Runtime-specific Member editor may offer, while the Core Adapter remains authoritative for recognized native permission fields, values, defaults, and schema version. Unknown fields are never automatically rendered or passed through. The snapshot informs configuration and Runtime Readiness but remains advisory until Delivery claim freezes the current configuration and the Execution Dispatch Check independently verifies the launch target.
-_Avoid_: Runtime Discovery Observation, permanent compatibility claim, generic arbitrary-option form, execution admission
+Persisted deep-probe evidence for an AdapterInstallation's observed executable, authentication, models, permissions and
+protocols. Model catalogs support discovery and selection; they do not prohibit an explicitly entered unlisted model or
+option. Core still owns native permission schemas, and the task Host validates execution configuration before input.
+The snapshot is diagnostic evidence, not execution admission.
+
 
 **Adapter Probe Attempt**:
 One bounded deep inspection of an AdapterInstallation or ordered relocation candidate whose outcome may replace its successful Adapter Capability Snapshot or record a failed attempt and retry schedule without erasing that snapshot. Failure against a candidate other than the current canonical Installation is candidate-local and cannot mark the current snapshot stale. Retaining prior evidence does not make it usable after the current Installation itself becomes stale.
@@ -1325,7 +1248,7 @@ The age and launch-identity validity of historical diagnostic/catalog evidence. 
 _Avoid_: treating age alone as staleness, permanent Ready, refresh due as a Run blocker
 
 **Product Runtime Selection**:
-A Member editor draft's choice of one Product Runtime. It is one component of Member Runtime Configuration and is never persisted as a standalone preference. Rovai-ai resolves a successfully saved complete configuration through an internally managed AdapterInstallation; ordinary Member configuration never exposes executable paths, discovery provenance, fingerprints, or Installation identity.
+A Member editor draft's choice of one Product Runtime. It is one component of Member Runtime Configuration and is never persisted as a standalone preference. Rovai AI resolves a successfully saved complete configuration through an internally managed AdapterInstallation; ordinary Member configuration never exposes executable paths, discovery provenance, fingerprints, or Installation identity.
 _Avoid_: durable adapter-only preference, executable-path selection, AdapterInstallation selection, automatic execution
 
 **Product Runtime Availability**:
@@ -1354,15 +1277,17 @@ _Avoid_: authoritative execution admission, synchronous deep probing or executab
 
 **Adapter Permission Configuration**:
 The Adapter-native permissions explicitly saved with Member Runtime Configuration. Core validates the shipped static schema and preserves chosen values; the actual Host must apply or confirm them before task input. Background discovery never materializes or widens permissions.
-_Avoid_: Rovai-ai permission level, Capability, arbitrary CLI arguments, enum-order defaults, background permission expansion
+_Avoid_: Rovai AI permission level, Capability, arbitrary CLI arguments, enum-order defaults, background permission expansion
 
 **Runtime Default Model Selection**:
 A Member model policy that follows the Product Runtime's current default model together with that model's default options. It persists neither a model identifier nor model options; selecting and configuring model-specific options requires an Explicit Model Selection.
 _Avoid_: current default model snapshot, implicit fixed model, Runtime default model with overridden options
 
 **Explicit Model Selection**:
-The exact model identifier and options saved by the User. Picker metadata assists selection but is not execution authority. The real task Host must validate or explicitly accept the requested model and every option before input; silent replacement is forbidden.
-_Avoid_: arbitrary model string, Runtime Default Model Selection with overrides, cross-Runtime model options
+The exact model identifier and options saved by the User, including an explicitly entered model absent from the catalog.
+The task Host must validate or explicitly accept them before input; silent replacement is forbidden.
+_Avoid_: Runtime Default Model Selection with overrides, cross-Runtime model options
+
 
 **Member Runtime Configuration**:
 The atomically saved Product Runtime, exact model policy and Adapter-native permission values. Saving validates configuration syntax and static permission schema against the selected Installation without requiring historical Ready. Dynamic protocol/model requirements are validated in the real Host before task input. Discovery never creates or rewrites Member configuration.
@@ -1373,7 +1298,7 @@ The immutable Adapter, model, and Adapter Permission Configuration snapshot sele
 _Avoid_: live AgentProfile settings, sender Runtime configuration, Core permission policy
 
 **Runtime-Managed Permission**:
-A permission boundary in which an Agent's Adapter Permission Configuration and native Runtime decide filesystem, Shell, and network access. Rovai-ai persists and relays interactive native permission requests and user decisions but adds no Workspace-derived authorization policy; a Runtime bypass mode may receive a direct protocol-compatible allow response. ACP Client Filesystem requests never mint, consume, or depend on a second Core file authorization.
+A permission boundary in which an Agent's Adapter Permission Configuration and native Runtime decide filesystem, Shell, and network access. Rovai AI persists and relays interactive native permission requests and user decisions but adds no Workspace-derived authorization policy; a Runtime bypass mode may receive a direct protocol-compatible allow response. ACP Client Filesystem requests never mint, consume, or depend on a second Core file authorization.
 _Avoid_: Core permission, unrestricted mode, Agent self-authorization
 
 **ACP Client Filesystem Proxy**:
@@ -1385,7 +1310,7 @@ The immutable authorization interpretation frozen for one AgentRun. Existing non
 _Avoid_: permission preference, application mode switch, permanent dual-policy system
 
 **Runtime Permission Request**:
-A native Runtime request asking the ACP client to select one exact native decision for an operation or resource scope. In an interactive Runtime mode, Rovai-ai persists its complete fenced identity and options, presents the safe actionable view, records the user's selection, and returns it to the same Runtime binding. In a frozen bypass mode, Core may directly select the native non-persistent allow option only for protocol compatibility. Neither path grants ACP Client Filesystem access or upgrades the Run Workspace.
+A native Runtime request asking the ACP client to select one exact native decision for an operation or resource scope. In an interactive Runtime mode, Rovai AI persists its complete fenced identity and options, presents the safe actionable view, records the user's selection, and returns it to the same Runtime binding. In a frozen bypass mode, Core may directly select the native non-persistent allow option only for protocol compatibility. Neither path grants ACP Client Filesystem access or upgrades the Run Workspace.
 _Avoid_: Core file permission, Workspace upgrade, ACP filesystem token, unfenced automatic grant
 
 **Runtime Permission Attention Episode**:
@@ -1433,7 +1358,7 @@ The immutable Notification Occurrence created atomically with one ThreadMessage 
 _Avoid_: per-message Inbox row, merged acknowledgement, Message Delivery, read receipt, body-matched alert
 
 **In-App Dynamic Approval**:
-An Adapter capability that lets a native Runtime pause an operation, send its exact permission options to Rovai-ai, and resume from the user's recorded decision. Its absence is an explicit Runtime limitation and never causes Rovai-ai to synthesize a request or reinstate Core resource authorization.
+An Adapter capability that lets a native Runtime pause an operation, send its exact permission options to Rovai AI, and resume from the user's recorded decision. Its absence is an explicit Runtime limitation and never causes Rovai AI to synthesize a request or reinstate Core resource authorization.
 _Avoid_: universal Runtime feature, synthetic Approval, Core permission fallback
 
 **Runtime Permission Decision**:
@@ -1539,7 +1464,7 @@ _Avoid_: execution result, authorization grant, localized title, semantic intent
 
 **Semantic Activity Kind**:
 An optional, namespaced refinement of an Activity Domain, such as `file.write`, `git.mutate`, or
-`tool.camp.message.send`. It may be assigned only from validated Core Catalog evidence or a bound
+`tool.web.search`. It may be assigned only from validated Core Catalog evidence or a bound
 Runtime structured event; command-text guesses cannot promote it to canonical meaning.
 _Avoid_: arbitrary command classifier, permission policy, provider label
 
@@ -1562,7 +1487,7 @@ The rule that only a Runtime-reported or Core-proven operation may enter Runtime
 _Avoid_: sandbox boundary, permission boundary, workspace-diff inference
 
 **Runtime Public Output Mode**:
-The immutable Adapter capability that determines whether an AgentRun's ordinary final assistant output can become a Public Message. `explicit_send_only` publishes only accepted `camp.message.send` calls through ordinary Runtime output handling; `assistant_final_visible` may publish one reliable Adapter-delimited final as a recipient-free Public Message at Run completion. Every currently shipped Adapter is frozen to `explicit_send_only`; `assistant_final_visible` remains a reserved protocol capability with no current Adapter assignment. The mode is independent from Missing-Send Recovery Publication, is not a user or model setting, and never changes the addressing or Delivery contract.
+The immutable Adapter capability that determines whether an AgentRun's ordinary final assistant output can become a Public Message. `explicit_send_only` publishes only accepted `thread.message.send` calls through ordinary Runtime output handling; `assistant_final_visible` may publish one reliable Adapter-delimited final as a recipient-free Public Message at Run completion. Every currently shipped Adapter is frozen to `explicit_send_only`; `assistant_final_visible` remains a reserved protocol capability with no current Adapter assignment. The mode is independent from Missing-Send Recovery Publication, is not a user or model setting, and never changes the addressing or Delivery contract.
 _Avoid_: Missing-Send Recovery Publication, Renderer heuristic, per-message toggle, inferred final, private A2A mode
 
 **Adapter Final Boundary**:
@@ -1583,18 +1508,13 @@ The Mapping Registry's description of how much activity a Runtime protocol actua
 quality, or permission; a lower level must not be upgraded by inferring hidden steps.
 _Avoid_: Runtime support tier, feature promise, inferred internal event coverage
 
-**v0.41 Local Data Clean Break**:
-The v0.41 persistence boundary that accepts only the v0.41 data contract. Rovai-ai does not migrate or
-backfill incompatible v0.40-or-earlier local application data; when the Rovai-owned store cannot meet
-the v0.41 contract, it is reset only within the confirmed closed allowlist: `rovai.sqlite` and its
-SQLite sidecars (including incompatible legacy `lumen.sqlite` remnants), `managed-blobs/**`,
-`camp-attachments/**`, the registered Runtime projection roots, `runtime-private/**`,
-`codex-homes/**`, `quick-chat/**`, and reset-manifest-registered app-owned staging/lock/temp paths.
-The Core may clean its exact process-owned Built-in CLI IPC socket separately, but may not sweep `/tmp`.
-User workspaces, user files, external Runtime configuration and credentials, Native Runtime Homes, and
-project `.codex`/native Runtime state are outside this reset. Allowlist additions require a new manifest,
-tests, and an explicit architectural decision.
-_Avoid_: workspace deletion, Runtime reinstall, silent partial migration, historical Projection replay
+**Database Admission**:
+Core's classification of the selected SQLite authority while holding the data-directory lease. Current
+data opens in place, supported older data follows the existing migration chain, and unknown, ambiguous
+or unreadable data remains intact with a diagnostic blocker. Initialization requires confirmed absence
+of both current and legacy main databases and recovery logs; an existing-store failure never authorizes
+quarantine, reset or a replacement database. See [database authority](docs/architecture/availability-first-runtime.md#database-authority-state-machine).
+_Avoid_: automatic clean break, fallback empty database, directory-scan recovery guess
 
 **AgentRun Execution Evidence**:
 A durable, user-visible record of provider-reported reasoning summaries, Agent progress narration, plans, steps, and structured tool/command/file lifecycle for exactly one AgentRun: text is retained as independently finalized message blocks, while tool and execution facts remain append-only. It is separate from public messages and Agent context or Memory sources, and contains only normalized Runtime-public information, never hidden raw reasoning or invented progress.
@@ -1650,11 +1570,10 @@ An immutable Thread system message presentation for a Task state change, carryin
 _Avoid_: A2A message, mutable current-state card, parsed English system body, Execution Evidence, synthetic message ordering
 
 **Public A2A Message**:
-A published Agent-authored public Thread message that may address zero or more Thread Members. Subject to current authorization
-and recipient-specific suppression, it participates in public history, search and Shared Conversation and appears only
-once regardless of target count; delivery and target execution remain separate facts. Agent messages are not eligible for
-User original-text withdrawal.
-_Avoid_: private handoff, per-recipient message copy, delivery status message, user-only projection
+A published Agent-authored Thread message that may address zero or more members. It appears once in public history
+regardless of recipient count; live authorization, recipient suppression, delivery and execution remain separate concerns.
+Agent-authored messages are not eligible for User original-text withdrawal.
+
 
 **Recallable User Message**:
 A local-Composer User ThreadMessage whose every target Delivery remains unclaimed and whose content has not entered any
@@ -1721,7 +1640,7 @@ explicit preflight-failed Run without starting Runtime, settles that Delivery fa
 _Avoid_: send-transaction preflight, truncated input, Runtime capacity wait, whole-message rollback
 
 **Thread Message Send**:
-The authenticated current-AgentRun action exposed as `camp.message.send` and `rovai send`, and the sole Agent-intent path
+The authenticated current-AgentRun action exposed as `thread.message.send` and `rovai send`, and the sole Agent-intent path
 for publishing into its Thread. Core resolves explicit targets, rejects self-send, atomically writes one public message and
 one waiting Delivery per target, may add independent User attention, and applies the Run's frozen anchor for display.
 No caller-return, depth, fanout budget or Gather capture is inferred. In a Channel-bound Thread the same transaction creates
@@ -1752,7 +1671,7 @@ Delivery records processing, each Run records execution, and Task/Mission/Automa
 _Avoid_: current authority, ResponsibilitySet replacement, business-result verification
 
 **Application-Managed File Safety**:
-The path, symlink, ownership, permission, size, and atomic-write protections applied when Rovai-ai manages its own blobs, projections, private configurations, sockets, logs, or temporary files. It is independent of Runtime-Managed Permission and remains Core-enforced.
+The path, symlink, ownership, permission, size, and atomic-write protections applied when Rovai AI manages its own blobs, projections, private configurations, sockets, logs, or temporary files. It is independent of Runtime-Managed Permission and remains Core-enforced.
 _Avoid_: Agent filesystem permission, Run Workspace boundary, Runtime sandbox
 
 **Local Attachment Source Ref**:
@@ -1770,34 +1689,42 @@ recovery UI creates or activates Prepared Attachment state.
 _Avoid_: current user attachment, Local Attachment Source Ref, Published Attachment, Runtime-readable file
 
 **Thread Composer Draft**:
-The Renderer-local, non-durable user preparation for one future public ThreadMessage, containing current editor content,
-source attachment references, quotes, reply anchor, explicit recipients and selected Skills. It exists only while the
-Renderer surface remains mounted; success clears it and send failure preserves it. Single Chat owns a separate private
-draft contract.
-_Avoid_: Core record, revisioned autosave, Pending queue, recovery model, public message
+The client-local preparation for a future public ThreadMessage: editor content, source attachments, quotes, reply anchor,
+recipients and Skills. Active and ordinary one-click Pending Threads save per-Thread snapshots across switching, reload,
+window recreation and normal exit. Confirmed publication clears the sent snapshot; failure preserves it. Core owns only
+Pending presence and publication, not draft content or cross-client merging. See
+[Public Thread Composer](docs/architecture/camp-composer-draft.md).
+
 
 **Thread Composer Draft Revision**:
-The retired Core identity for persisted public Draft state. Current public send snapshots the mounted Renderer content
-and uses only the publication command identity for idempotency.
-_Avoid_: current field, Renderer counter, ThreadMessage version
+The retired Core identity for public Draft state. Current clients save local snapshots; publication command identity owns
+send idempotency. There is no Core Draft revision or cross-client content merge.
+
 
 **ComposerDocument**:
-The closed version-2 Draft/Pending domain protocol containing only adjacent-normalized `Text(text)` and typed `Atom(member | all_members | skill)` segments. Newlines are characters inside Text; Lexical Paragraph/LineBreak nodes, selection, history, node keys, DOM and presentation never enter it. Core derives plain `body` from this document and maps it to public Structured Thread Message Content only at publication.
-_Avoid_: Lexical JSON, rich-text document, public Message Content, independent body state, presentation label
+The closed version-2 local Draft/Pending protocol of normalized `Text(text)` and typed member, all-members, Skill,
+Thread-reference or Mission-reference Atoms. Newlines remain Text; editor nodes, selection and DOM do not enter it.
+Core maps the immutable send snapshot to public structured content at publication. Reference types and scope follow
+[Thread Reference v1](docs/contracts/thread-reference-v1.md).
+
 
 **Draft Mutation Coordinator**:
-The retired public-Thread bridge that serialized mutations against a Core Draft revision. Current Renderer components share
-one local editor state and create a single immutable send snapshot; no Core Draft view exists to coordinate.
-_Avoid_: current authority, autosave result cache, second local draft
+The retired bridge that serialized public Draft mutations against a Core revision. Current components share one local
+editor state, a per-Thread local snapshot store and one immutable send snapshot; Core does not coordinate draft content.
+
 
 **Composer Local Sync**:
-The mounted Renderer's live Lexical editing state. It may track local dirty/submitting/error UI, but performs no public
-Thread autosave, Core flush or restart recovery. A lightweight leave warning remains a Renderer-only product choice.
-_Avoid_: Core Draft authority, persistence protocol, cross-window merge, swallowed send error
+The client-local save, restore and flush coordination for public Thread drafts. Ordinary Pending's first save and nonempty
+state changes also require Core presence confirmation; failure preserves input and protects against leaving. Subsequent
+nonempty edits save locally. It does not create a Core content record or merge drafts across clients.
+
 
 **Structured Thread Message Content**:
-The authoritative ordered public content of one ThreadMessage, using the closed `Text`, `MemberMention(agentId)`, `AllMembersMention`, `SkillMention(skillId, nameAtSend)` and Core-generated `CurrentUserMention(local_user)` segments. Core maps user ComposerDocument into it only during accepted publication. Plain-text display, search, Context and historical accessibility projections derive from it; Draft/Pending persistence uses ComposerDocument instead.
-_Avoid_: ComposerDocument, generic rich-text document, HTML, Markdown AST, mention character offsets, parsed user lookalike, Draft authority
+The authoritative ordered public content of a ThreadMessage: Text, MemberMention, AllMembersMention, SkillMention,
+Core-generated CurrentUserMention, and typed `thread_reference`/`mission_reference` segments. Core publishes reference
+IDs with captured titles; display, search and model text derive from the stored content. ComposerDocument remains the
+local editing format. See [Thread Reference v1](docs/contracts/thread-reference-v1.md).
+
 
 **Published Attachment**:
 A legacy immutable Authority or Managed Attachment adopted by an accepted public ThreadMessage. New Agent sends and Desktop user attachments use Local Attachment Source Refs and are not Published Attachments in this legacy storage sense. The original message commit shared a Published Attachment with the whole Thread regardless of addressing or whether it appeared in a particular AgentRun's Context. Its successful publication history is immutable, while current readability may become unavailable for only that attachment after legacy kind, size, digest, path or tree verification fails. Access to an actual historical record enters the corresponding compatibility resolver; new publication and ordinary Runs do not require this storage system.
@@ -1844,15 +1771,15 @@ inputs/anchor, and binds every selected Delivery. No later message can join that
 _Avoid_: message publication, queued Run placeholder, source-specific batch, skip-ahead selection, Runtime launch
 
 **Execution Dispatch Check**:
-The pre-launch boundary for one already claimed AgentRun. For a Mission, Core first creates or reuses its recorded workspace without changing the original Thread binding. It revalidates canonical Workspace safety, current Runtime/executable identity against the Run-frozen configuration, execution-isolation fences, Skill exposure and referenced attachment access, then records starting Git observation before Runtime launch. Failure marks that Run failed and settles its bound Deliveries without removing the published messages, creating business retry or writing a false start observation.
-_Avoid_: message-send preflight, Message Publication Admission, Delivery Claim, Renderer readiness guess, ThreadTurn settlement
+The pre-launch check for an already claimed Run: validate the actual Host, Runtime configuration, workspace safety, execution-isolation fences, Skill source availability and attachment access. Public Mission batches prepare and observe their workspace before claim; dispatch does not select a new one. Failure settles the Run and bound Deliveries without deleting published messages or claiming a successful launch.
+
 
 **Capability**:
-A Core-enforced business authorization atom that allows an Agent to request a class of Rovai-ai domain mutation outside the uniform Built-in Tool Catalog contract. It is distinct from record visibility, operation-specific invariants, and Adapter filesystem/Shell/network permissions; it cannot vary which canonical built-in operations an eligible Member may invoke.
+A Core-enforced business authorization atom that allows an Agent to request a class of Rovai AI domain mutation outside the uniform Built-in Tool Catalog contract. It is distinct from record visibility, operation-specific invariants, and Adapter filesystem/Shell/network permissions; it cannot vary which canonical built-in operations an eligible Member may invoke.
 _Avoid_: Built-in Tool availability, visibility scope, Adapter permission, universal administrator role
 
 **MCP Library**:
-Rovai-ai's application-global collection of user-visible external MCP Server definitions. It is an independent source of truth and never includes Rovai built-in operations.
+Rovai AI's application-global collection of user-visible external MCP Server definitions. It is an independent source of truth and never includes Rovai built-in operations.
 _Avoid_: Runtime personal MCP configuration, remote marketplace, Built-in CLI catalog
 
 **MCP Import**:
@@ -1864,11 +1791,11 @@ A read-only, transient discovery result from a known Runtime user-level configur
 _Avoid_: Imported Server, synchronized record, project configuration
 
 **MCP Tool Policy**:
-A future cross-Runtime policy that would define tool visibility, execution denial, and approval semantics independently of one Runtime's native configuration dialect. Rovai-ai currently has no such portable policy, so source tool filters, auto-approval, trust, OAuth, sandbox, or approval fields cannot be claimed as equivalent or migrated automatically.
+A future cross-Runtime policy that would define tool visibility, execution denial, and approval semantics independently of one Runtime's native configuration dialect. Rovai AI currently has no such portable policy, so source tool filters, auto-approval, trust, OAuth, sandbox, or approval fields cannot be claimed as equivalent or migrated automatically.
 _Avoid_: MCP Assignment, Server enablement, ignored Runtime-specific tool rules
 
 **MCP Server Definition**:
-A named external MCP Server connection definition in the MCP Library, expressed to users as standard `mcpServers` JSON and translated by each AgentRuntimeAdapter into Runtime-native configuration. It contains neither Member allocation nor an MCP Assignment; Rovai-ai management metadata is not part of the user-authored connection definition.
+A named external MCP Server connection definition in the MCP Library, expressed to users as standard `mcpServers` JSON and translated by each AgentRuntimeAdapter into Runtime-native configuration. It contains neither Member allocation nor an MCP Assignment; Rovai AI management metadata is not part of the user-authored connection definition.
 _Avoid_: MCP Assignment, split connection form, Runtime-specific configuration blob, running MCP process
 
 **MCP Server ID**:
@@ -1888,7 +1815,7 @@ The Adapter-declared rule for resolving a collision between a requested Rovai MC
 _Avoid_: universal Rovai precedence, universal native precedence, field merge, unrecorded collision
 
 **MCP Configuration File**:
-The application-global `~/.rovai/mcp.json` file that is the sole source of truth for external MCP Server definitions, enablement, immutable Server identities, and MCP Assignments. Its public `mcpServers` object contains only connection definitions, while one hidden sibling `_rovai` object contains schema version, identity, enablement, provenance, and Assignment state. A new file starts with an empty Library; Rovai-ai does not materialize product-owned third-party Servers. Production code neither falls back to old brand paths nor accepts an old MCP schema; SQLite does not duplicate MCP Assignment truth. Parsing rejects duplicate JSON object keys rather than accepting last-key-wins behavior. Existing local storage may contain literal credentials: on Unix the file is private plaintext (`0600`, parent `0700`); Windows uses the existing private storage ACL. Runtime projections likewise use the existing Core-owned private storage. This is not encryption or a new key vault. Public JSON masks sensitive env fields and all Headers; unchanged masks and omitted/blank sensitive fields preserve values at the same transport/key, while an unbound mask is rejected. Inspection, mutation results, exposure snapshots and diagnostics must not expose credential values.
+The application-global `~/.rovai/mcp.json` file that is the sole source of truth for external MCP Server definitions, enablement, immutable Server identities, and MCP Assignments. Its public `mcpServers` object contains only connection definitions, while one hidden sibling `_rovai` object contains schema version, identity, enablement, provenance, and Assignment state. A new file starts with an empty Library; Rovai AI does not materialize product-owned third-party Servers. Production code neither falls back to old brand paths nor accepts an old MCP schema; SQLite does not duplicate MCP Assignment truth. Parsing rejects duplicate JSON object keys rather than accepting last-key-wins behavior. Existing local storage may contain literal credentials: on Unix the file is private plaintext (`0600`, parent `0700`); Windows uses the existing private storage ACL. Runtime projections likewise use the existing Core-owned private storage. This is not encryption or a new key vault. Public JSON masks sensitive env fields and all Headers; unchanged masks and omitted/blank sensitive fields preserve values at the same transport/key, while an unbound mask is rejected. Inspection, mutation results, exposure snapshots and diagnostics must not expose credential values.
 _Avoid_: MCP database truth, generated Runtime projection, synchronized source config
 
 **MCP Environment Reference**:
@@ -1920,7 +1847,7 @@ The diagnostics-only read model of one Adapter's dynamic projection capability a
 _Avoid_: MCP configuration gate, Member capability restriction, ordinary settings warning, Assignment validation
 
 **External MCP Runtime Minimum**:
-The earliest Runtime version for which development-time acceptance proves an Adapter's declared additive dynamic channel and Same-Name Policy. Versions below the minimum are unsupported; versions at or above it continue to use the proven mechanism without an upper version cap or a user-machine capability Smoke. A newer Runtime is not disabled merely because Rovai-ai has not pinned that exact version.
+The earliest Runtime version for which development-time acceptance proves an Adapter's declared additive dynamic channel and Same-Name Policy. Versions below the minimum are unsupported; versions at or above it continue to use the proven mechanism without an upper version cap or a user-machine capability Smoke. A newer Runtime is not disabled merely because Rovai AI has not pinned that exact version.
 _Avoid_: tested-version ceiling, exact-version allowlist, user-machine preflight Smoke
 
 **Real MCP Smoke**:
@@ -1932,7 +1859,7 @@ The Adapter-native realization of one Additive MCP Projection when Rovai launche
 _Avoid_: replacement config, Runtime personal MCP source of truth, central MCP proxy, empty-set retry
 
 **Canonical Operation**:
-The Core-owned dotted identity of one Rovai built-in business operation, such as `camp.message.send`. It is used by Core contracts, routing, receipts, replay, audit, Dynamic Context, and Canonical Runtime Activity, and maps one-to-one to a fixed Agent-facing Built-in Tool CLI Command.
+The Core-owned dotted identity of one Rovai built-in business operation, such as `thread.message.send`. It is used by Core contracts, routing, receipts, replay, audit, Dynamic Context, and Canonical Runtime Activity, and maps one-to-one to a fixed Agent-facing Built-in Tool CLI Command.
 _Avoid_: Tool name, Agent-facing command spelling, MCP tool, generic invoke target, Runtime-native alias
 
 **Built-in Tool Transport**:
@@ -1952,7 +1879,7 @@ The concise, command-specific usage surface for one fixed Built-in Tool CLI Comm
 _Avoid_: Tool Discovery, full JSON Schema, Envelope documentation, generic invoke help, hidden discovery command
 
 **Built-in Tool CLI Command**:
-The stable, domain-grouped shell spelling that maps one-to-one to a Canonical Operation, such as `rovai send` for `camp.message.send` or `rovai memory write` for `memory.write`. The command is the fixed Agent-facing presentation with bounded Agent Command Help, while the canonical dotted operation remains the identity used internally by Core, receipts, replay, audit, Dynamic Context, and Canonical Runtime Activity.
+The stable, domain-grouped shell spelling that maps one-to-one to a Canonical Operation, such as `rovai send` for `thread.message.send` or `rovai memory write` for `memory.write`. The command is the fixed Agent-facing presentation with bounded Agent Command Help, while the canonical dotted operation remains the identity used internally by Core, receipts, replay, audit, Dynamic Context, and Canonical Runtime Activity.
 _Avoid_: canonical operation rename, Runtime-specific alias, `rovai tool call`, MCP tool name
 
 **Built-in Tool CLI Input**:

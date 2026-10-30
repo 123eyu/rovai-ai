@@ -13,8 +13,8 @@ Renderer 继续使用同一组件树、信息架构、主题 Token、领域动�
 
 ## 1. 保持不变的产品结构
 
-- App Shell 使用默认 270px、可调宽且可完全收起的 rail、50px App 顶行及同一 Project / Camp / Quick Chat 导航；
-- 设置分类、队员工作区、Camp 工作区、Memory、Diagnostics、Onboarding 和 Planned Shutdown 不增删一级入口；
+- App Shell 使用默认 270px、可调宽且可完全收起的 rail、50px App 顶行及同一 Project / Thread / Quick Chat 导航；
+- 设置分类、队员工作区、Thread 工作区、Memory、Diagnostics、Onboarding 和 Planned Shutdown 不增删一级入口；
 - 五套配色使用同一生产组件；`system` 只解析为 Day / Night，不改变内容或能力；
 - Core command、Draft、selection、focus return、version check、Recovery 和未保存 Runtime 草稿保护保持同义；
 - Runtime 平台准入、机器可用性与 Settings Preview 是三个正交事实，任何一个都不得借另一个的视觉状态表达。
@@ -54,7 +54,7 @@ Windows `BrowserWindow` 保留系统 frame，但以 `titleBarStyle: hidden` 隐�
 隐藏标题文字层后，Windows 复用既有 `.topbar`、
 `.window-drag-strip` 与 `.unified-sidebar-drag` 受控拖拽区；既有按钮继续保持 `no-drag`。
 
-Windows 的统一侧栏只把 traffic-light 预留从 38px 收至 8px；品牌、一级导航、Project / Camp、设置和所有右侧
+Windows 的统一侧栏只把 traffic-light 预留从 38px 收至 8px；品牌、一级导航、Project / Thread、设置和所有右侧
 页面结构、内容与尺寸不变。Windows 主窗口的 caption close / Alt+F4 由 Main 统一处理；默认显示现有 AppDialog
 风格的“关闭窗口”，提供“最小化到托盘”“退出 Rovai”和默认未选中的“记住我的选择”。取消、Esc 和弹窗 × 保留窗口。
 不记住只执行本次选择；记住后立即同步设置并在重启后保留。设置 → 通用 → 窗口提供“每次询问 / 最小化到系统托盘 /
@@ -104,7 +104,7 @@ Windows 目录选择继续使用系统 Dialog。选择后，Core 的 Host/Storag
 - Explorer 动作只在对象仍通过 Core identity 验证时可用；失败保留对象上下文并允许重试或重新选择。
 
 路径使用等宽数字/证据字体、`overflow-wrap: anywhere` 和可复制原文；不全局小写、不用盘符字符串决定同一对象。
-普通设置、队员和 Camp 页面不显示 `%LOCALAPPDATA%` 私有目录；需要诊断时沿用 allowlist/redaction 和显式 Save Dialog。
+普通设置、队员和 Thread 页面不显示 `%LOCALAPPDATA%` 私有目录；需要诊断时沿用 allowlist/redaction 和显式 Save Dialog。
 
 ## 6. Installer、Upgrade 与 Uninstall
 

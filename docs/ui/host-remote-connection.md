@@ -18,7 +18,7 @@ Desktop/Web 共用生产组件。Host 能力与授权边界见 [Host Web v4](../
 | 部位 | 直接复用的源码 | 页面规则 |
 | --- | --- | --- |
 | 应用壳层 | `styles.css` 的 `.app-shell`、`WindowDragStrip` | 270px 侧栏，50px 顶部占位；没有第三套壳层 |
-| 分组与选中行 | `CampNavigation`、`SettingsSidebarNavigation`、`SETTINGS_SIDEBAR_GROUPS` | 遵循 [App Shell 导航](components/app-shell-navigation.md) 的“能力”分组与中性选中态 |
+| 分组与选中行 | `ThreadNavigation`、`SettingsSidebarNavigation`、`SETTINGS_SIDEBAR_GROUPS` | 遵循 [App Shell 导航](components/app-shell-navigation.md) 的“能力”分组与中性选中态 |
 | 页头 | `SettingsPageHeader`、`settings-workspace.css` | 24px/620 标题、12px 说明、无装饰边线；和通用页同一内容轴 |
 | 内容区 | `.settings-panel-general`、`.general-settings`、`.general-settings-section` | 880px 开放阅读面、24px 分区间距与细分隔线；保留稳定滚动条占位，避免短页标题移动 |
 | 控件 | 通用设置的开关、quiet/primary button、输入边界 | 共享主题操作色、白色关闭态滑块、6px 控件圆角；状态保留独立语义色 |
@@ -49,7 +49,7 @@ Desktop 和 Web 的“能力”组在“智能体”之后、“渠道”之前�
 
 登录成功的 Owner 可直接使用 Host 有权访问的目录；设置中没有目录预授权名单。浏览器“选择工作目录”
 使用 `HostWorkspacePicker` 读取 Host 文件系统，支持主目录、根/盘符、上一级、子目录和绝对路径输入。
-提交当前目录前必须先成功读取；项目校验与 Camp 创建继续走同一 Core。失败保留输入并明确反馈。
+提交当前目录前必须先成功读取；项目校验与 Thread 创建继续走同一 Core。失败保留输入并明确反馈。
 
 令牌由 Rust Host 在首次本机读取或开启时生成，同一 Host 进程内关闭、再次开启沿用同一令牌。
 关闭仍撤销全部浏览器会话；重新开启后需重新登录。正常 Host 退出与重启保留令牌及未过期会话。

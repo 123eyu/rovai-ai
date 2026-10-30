@@ -118,7 +118,7 @@ Rovai 概念。该表单由 Desktop 与 Mobile 共用；版本不兼容也复用
 编辑通用配置进入对应的智能体启动设置，顶部显示“返回 {队员名} 的队员配置”。返回保留队员、未保存草稿、
 展开状态、预览模式和滚动位置；直接从设置进入时保持原“智能体”返回。离开通用草稿沿用保存/放弃确认。
 
-Camp 队员列表不提供“重置队员会话”入口或确认弹窗，Desktop 与 Mobile 一致。
+Thread 队员列表不提供“重置队员会话”入口或确认弹窗，Desktop 与 Mobile 一致。
 队长、模型信息及移出当前会话仍使用既有操作；边界见 [Runtime Launch v61](../../contracts/runtime-launch-and-verification-v61.md)。
 值归 Host 私有存储，不进入普通队员资料或“应用到其他队员”。精确行为见
 [Runtime Launch v69](../../contracts/runtime-launch-and-verification-v69.md)。

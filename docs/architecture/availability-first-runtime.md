@@ -53,7 +53,9 @@ Electron ready
        -> initialize optional services -> ready or feature-scoped degraded
 ```
 
-Runtime 附件根只在数据库分类且 lease 仍持有后核对实例路径派生；旧标记、物理身份变化、坏条目与不可读子目录不参加启动准入。具体文件在读写或删除时检查本次目标，任何失败都不能反向创建另一个 SQLite authority。Full Core ready 之前，Renderer 不调用 `navigation.snapshot`、Camp、Member、Memory 或 Onboarding 的
+Runtime 附件根只在数据库分类且 lease 仍持有后核对实例路径派生；旧标记、物理身份变化、坏条目与不可读子目录不参加启动准入。
+具体文件在读写或删除时检查本次目标，任何失败都不能反向创建另一个 SQLite authority。Full Core ready 之前，
+Renderer 不调用 `navigation.snapshot`、Thread、Member、Memory 或 Onboarding 的
 Core-backed read path。
 
 页面框架不是权威查询树。Root 从首次挂载起就用不透明整窗品牌画布遮住框架；正常检查、迁移和自动重启都保留既有

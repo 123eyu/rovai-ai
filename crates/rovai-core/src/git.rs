@@ -188,7 +188,7 @@ pub async fn observe_git(path: &Path) -> GitObservation {
             dirty: None,
             observed_at,
             diagnostic: Some(if bare_repository {
-                "bare Git repositories cannot be used as Camp workspaces".to_string()
+                "bare Git repositories cannot be used as Thread workspaces".to_string()
             } else {
                 "Git metadata does not describe a working tree".to_string()
             }),

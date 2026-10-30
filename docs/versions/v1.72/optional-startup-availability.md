@@ -81,3 +81,13 @@ macOS 验证：Context/派发、旧 View、历史查询、MCP 导入及目录准
 ## 主线合入授权（User sequence 50）
 
 User 明确要求合入 main，替代此前保持 Draft 的流程安排；未完成的 Windows、真实用户副本与安装路径验收仍按上述记录保留，不以合入代替验证。sequence 47 提出的旧文件链接临界长度修补已按 sequence 48 撤回，未形成提交；本机只读核查发现旧记录存在，但无关联的当前批次或待执行输入，尚未证明该场景实际可达，因此不增加兼容机制。
+
+## MCP 快照目录权限残留修正（2026-10-31）
+
+用户在 `b71a555db` 隔离复现：外部 MCP 为空且目录实际可读写时，`runtime/mcp` 为 `0755` 仍阻止任务准备，改为 `0700` 才通过。修复基线为已同步 main `be1ff587b531775efdd62deef4dc5f5ecafe5ed2`；分支 `rovai/mcp-snapshot-directory-access`，worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-mcp-snapshot-directory-access`，Governance：none，Status：active。
+
+现有 MCP 根、Run 和快照/epoch 目录按实际访问使用，不以 Unix mode 或 Windows DACL 模板拒绝；不自动修改原目录权限。Windows 复用数据目录准入，并让旧文件读取与原子提交使用同一父目录规则；新 staging/文件的创建权限、canonical 文件权限、类型/reparse、路径/卷/身份、内容与冻结快照检查保留。不新增恢复状态或改变快照格式。
+
+扩展既有 `projection_filters_assignment_and_keeps_secrets_out_of_exposure`、`later_epoch_reuses_the_first_projection_after_config_changes` 和 `concurrent_run_snapshot_publishers_reuse_one_complete_winner` owners：无外部 MCP 的 Codex/Claude、已配置 MCP、旧 epoch 与 Run 快照复用、并发不可覆盖发布均使用普通目录权限，并核对权限未被修复。Windows 子场景启用继承 DACL，Unix 使用 `0755`；新增独立 Rust 测试函数为零。最小命令为 `cargo test -p rovai-core --features extended-tests --lib mcp_projection::tests::`。原始失败复现属于 macOS 存储边界，不能当作 Windows 或完整界面任务证据；本轮执行结果另行追加。
+
+本地 macOS 定向 MCP owner 9 项通过；默认 feature workspace 477 项通过、0 失败、1 个原有 ignored。`cargo fmt --all --check` 与三项文档门禁通过。Windows 原生与隔离真实任务结果待追加；不把本地编译作为跨平台运行证据。

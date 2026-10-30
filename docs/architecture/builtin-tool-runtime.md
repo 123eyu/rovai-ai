@@ -348,7 +348,7 @@ aggregate。重放不重新读源，身份漂移只清理本 operation 尚未拥
 推导。首次调用将它写入内部 `ThreadMessageSendCommand.camp_id`；持久 Replay 读取已记录的
 `camp_id + source AgentRun + executionEpoch`，不重新使用当前活跃身份。Thread History service 先认证调用方
 Run/epoch，再把所有存续公共 Thread 作为可读范围；目标 Thread membership/profile 不参与授权。`thread.read` 直接解析目标
-Thread 并使用调用时 sequence boundary；ContextManifest history catalog 不限制它。`camp.list`、跨 Thread
+Thread 并使用调用时 sequence boundary；ContextManifest history catalog 不限制它。`thread.list`、跨 Thread
 `thread.search` 和 `history.search` 继续使用冻结 global public boundary 保持 discovery 时序，并为旧 Manifest
 漏掉的 Thread 动态补足 catalog。显式 read/search 在发布边界内可读取 recallable 或 waiting 原文，但不 claim Delivery 或关闭撤回；撤回后 read 只返回 `Message withdrawn`，搜索不命中。任何 message ID 都不能绕过 publication、tombstone 或 quote-source 边界。
 
@@ -713,7 +713,7 @@ user-configured MCP    ── Runtime-native MCP Projection
 两条路径不共享 catalog、授权、receipt、生命周期或代理层。外部 MCP 继续由 Library、Assignment、
 Projection 和 Exposure Snapshot 管理；built-in operations 永不进入 `McpProjectionInput`、
 Runtime MCP config 或 MCP runtime-name mapping。`rovai_team` 没有保留语义，同名外部 Server 只是
-普通第三方 MCP。新建 MCP Library 为空，Rovai-ai 不物化或恢复任何产品内置第三方 Server；定义只
+普通第三方 MCP。新建 MCP Library 为空，Rovai AI 不物化或恢复任何产品内置第三方 Server；定义只
 来自用户手动添加或确认导入。见
 [外部 MCP 不变量](foundational-invariants.md#skills-external-mcp)。
 

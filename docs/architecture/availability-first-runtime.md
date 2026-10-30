@@ -53,7 +53,7 @@ Electron ready
 ```
 
 Runtime attachment storage admission发生在数据库已经分类且 lease 仍持有之后；任何失败都不能反向创建另一个 SQLite
-authority。Full Core ready 之前，Renderer 不调用 `navigation.snapshot`、Camp、Member、Memory 或 Onboarding 的
+authority。Full Core ready 之前，Renderer 不调用 `navigation.snapshot`、Thread、Member、Memory 或 Onboarding 的
 Core-backed read path。
 
 页面框架不是权威查询树。Root 从首次挂载起就用不透明整窗品牌画布遮住框架；正常检查、迁移和自动重启都保留既有

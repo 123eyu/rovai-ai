@@ -317,7 +317,7 @@ AI 创建队员的专项窗口内生命周期继续由 D09 对应合同约束。
 
 - 状态：accepted
 - 日期：2026-10-06
-- 当前权威：[Camp Member Fast v3](../../contracts/camp-member-fast-v3.md)、[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#camp-队员-fast-边界)
+- 当前权威：[Camp Member Fast v3](../../contracts/camp-member-fast-v3.md)、[Runtime 边界](../../architecture/runtime-catalog-boundaries.md#thread-队员-fast-边界)
 
 ### 背景与选择
 
@@ -451,7 +451,7 @@ User 确认交互稿及模型仍读取 `@名字` 文字后，授权实现、创�
 
 - 状态：accepted
 - 日期：2026-10-09
-- 当前权威：[Managed Runtime Process v2](../../contracts/managed-runtime-process-v2.md#4-ownership-and-termination)、[Windows Desktop Platform](../../architecture/windows-desktop-platform.md#3-managed-processes-and-shutdown)、[Cancellation Settlement v2](../../contracts/cancellation-settlement-v2.md#后续执行与清理)、[Camp 会话工作区](../../ui/components/conversation-workspace.md#public-camp-当前边界)
+- 当前权威：[Managed Runtime Process v2](../../contracts/managed-runtime-process-v2.md#4-ownership-and-termination)、[Windows Desktop Platform](../../architecture/windows-desktop-platform.md#3-managed-processes-and-shutdown)、[Cancellation Settlement v2](../../contracts/cancellation-settlement-v2.md#后续执行与清理)、[Camp 会话工作区](../../ui/components/conversation-workspace.md#public-thread-当前边界)
 
 ### 背景与选择
 
@@ -885,7 +885,7 @@ User 确认 1—5 一起实施。SQL 全文比对、上下文中间副本与摘�
 
 - 状态：accepted
 - 日期：2026-10-13
-- 当前权威：[Camp Membership v3](../../contracts/camp-membership-v3.md)、[成员生命周期](../../architecture/foundational-invariants.md#member-lifecycle)和[会话队员 UI](../../ui/components/conversation-workspace.md#camp-队员管理)
+- 当前权威：[Camp Membership v3](../../contracts/camp-membership-v3.md)、[成员生命周期](../../architecture/foundational-invariants.md#member-lifecycle)和[会话队员 UI](../../ui/components/conversation-workspace.md#thread-队员管理)
 
 ### 背景与选择
 

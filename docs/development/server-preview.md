@@ -53,7 +53,7 @@ Server workflow 在四个原生目标与三套 Linux OS 检查通过后创建该
 - Gate A：对同一 release profile/source SHA/归档，在三套目标 OS 的普通用户环境完成安装、Web 登录、认证读写、
   数据与 Session/Token 持久化、同根互斥和 SIGTERM 停止重开。独立入口为
   `python3 scripts/smoke-linux-server.py <已安装程序目录> --expected-source <SHA> --output <报告>`。
-- Gate B：按 Runtime × version × OS 记录原生 Provider/认证、实际 Camp、文件/命令、Built-in CLI、审批、
+- Gate B：按 Runtime × version × OS 记录原生 Provider/认证、实际 Thread、文件/命令、Built-in CLI、审批、
   取消/子进程回收、warm/cold resume 和既有 First-Class 能力轴。API/模型不可用不等于 Linux 不支持；
   安装成功或一次文本回复不等于完整资格通过。任一 Runtime 的探测结果不自动晋升其他准入行。
 - Server 和 Runtime 分别记录 CPU/RAM、峰值、swap、并发与任务规模。2 GB VPS 的低配实验不替代
@@ -164,7 +164,7 @@ Desktop「设置 → 远程连接」控制当前 Host，Web 默认关闭，端�
 当前 Core 和任务继续；重启 Desktop 后默认关闭。开发 Desktop 开启前运行 `pnpm build:web`，打包时则
 随包携带同一 WebUI 构建产物。
 
-## 首个真实 Camp 复验
+## 首个真实 Thread 复验
 
 使用源码构建产物进行自动验收，不启动日常 App：
 
@@ -176,10 +176,10 @@ pnpm smoke:host-web-runtime
 ```
 
 两条验收命令目前在 macOS 使用独立 Chrome profile；`ROVAI_REVIEW_CHROME` 可指定 Chrome 可执行文件。
-第一条启动隔离 Electron，与实际浏览器对照同一 Camp、日夜主题和三个客户端草稿，不调用模型。
+第一条启动隔离 Electron，与实际浏览器对照同一 Thread、日夜主题和三个客户端草稿，不调用模型。
 `ROVAI_KEEP_HOST_WEB_LIVE_FIXTURE=1` 保留其截图与隔离目录。
 
-第二条会调用本机已认证的 Codex，在空目录初始化的独立 Host 中，通过正式浏览器页面检查 Runtime、配置队员并创建 Camp，
+第二条会调用本机已认证的 Codex，在空目录初始化的独立 Host 中，通过正式浏览器页面检查 Runtime、配置队员并创建 Thread，
 随后从正式浏览器页面上传、发送、选择 Host 提供的一次审批、阅读产物与停止另一个运行。
 只审批脚本中精确限定的夹具发布命令，不修改用户级 Runtime 权限。命令打印隔离路径并保留脱敏报告和截图；
 原始目录可能包含 Runtime 会话材料，不得整体上传。它不证明其他 Runtime、其他平台或同 UID 强隔离。设置 `ROVAI_HOST_ENTRY=desktop` 运行同一真实流程，

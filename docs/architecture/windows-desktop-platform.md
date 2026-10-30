@@ -90,9 +90,9 @@ MCP 管理初始化按[外部 MCP 配置边界](foundational-invariants.md#skill
 不改写 JSON。通用私有存储准入仍拒绝未知对象。权限审计使用元数据句柄，读取失败保留为检查失败；
 诊断自检不调用初始化或修复。
 
-The derived legacy Camp Published Attachment View is the explicit `<data_dir>\runtime-files` private child; Windows never
+The derived legacy Thread Published Attachment View is the explicit `<data_dir>\runtime-files` private child; Windows never
 uses the macOS Home-based instance directory. Root/managed containers accept effective ordinary access while retaining native type/identity/reparse checks, and Runtime
-may receive only one current-Camp `attachments` descendant. Existing Authority remains under Core `camp-attachments`;
+may receive only one current-Thread `attachments` descendant. Existing Authority remains under Core `camp-attachments`;
 new Desktop user attachments instead keep source refs and use current Run Temp only when the source lies outside
 executionRoot. This storage backend does not qualify any Adapter: every `windows-x64` row remains `not_qualified` until
 independent exact-root, read-only, sandbox and lifecycle evidence exists.

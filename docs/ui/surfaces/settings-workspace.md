@@ -66,7 +66,7 @@ The one-click summary shows only saved teammate count and Lead; omit duplicate s
 World-map availability appears in a 会话 section immediately after 新对话 and before 窗口.
 Read the saved availability; a profile without preferences starts disabled. Changes commit immediately.
 The row does not repeat the default as a badge, add a
-current-effective summary or add a conversation-page preview action. Turning it off forces Camp reading
+current-effective summary or add a conversation-page preview action. Turning it off forces Thread reading
 surfaces back to the timeline and removes the entire 会话 / 地图 switcher and map route controls. Do not
 retain a disabled entry, explanatory popover or settings shortcut. Conversation find remains available
 independently. Re-enabling the setting restores the switcher without opening the map automatically.
@@ -141,7 +141,7 @@ Conversation contains 待审批、提到你、本轮完成、单聊回复、执�
 Mission status is default-on with completed selected. Status choices expand inline and persist with the same CAS save.
 Conversation spans the two left rows on wide layouts; Mission and Task stack on the right. Stack all three below 960px.
 Master/category disabling retains values and filters. Save errors restore current values, focus and scroll and allow retry.
-The attentive foreground Camp stays quiet for its conversation, Mission and Tasks; leaving does not replay suppressed cards.
+The attentive foreground Thread stays quiet for its conversation, Mission and Tasks; leaving does not replay suppressed cards.
 Mission needs-you question copy comes only from an explicit source message. Never invent a question or infer it from an @mention.
 
 Notification behavior and exact acknowledgements follow the

@@ -4,7 +4,7 @@ authority: development-routing
 last_updated: 2026-10-29
 ---
 
-# Rovai-ai 开发者指南
+# Rovai AI 开发者指南
 
 本目录是本地开发命令的唯一常青入口。根目录
 [`package.json`](../../package.json)中的 scripts 决定命令实际行为；本文档负责说明
@@ -19,7 +19,7 @@ last_updated: 2026-10-29
 或执行 startup recovery 之前获取 data-dir 的进程级独占锁；这些约束是启动器检查之外的最终写入边界。
 
 为 durable Task 创建或复用隔离目录时，同时阅读
-[Git Worktree 生命周期与清理](worktrees.md)。Rovai-ai 的 Rust、Electron 和打包生成物会让每个
+[Git Worktree 生命周期与清理](worktrees.md)。Rovai AI 的 Rust、Electron 和打包生成物会让每个
 活跃 worktree 占用数 GiB；Task 已合入或明确放弃后，清理 worktree 是同一次任务收口的一部分，
 不能无限期留待以后处理。
 
@@ -111,7 +111,7 @@ App，以受控本机 API 和时钟验证首帧画布、就绪交接与 authorit
 夹具验证键盘操作与动态布局，不启动 Core 或模型。
 修改消息选文引用时运行 `pnpm test:message-quotes`：隔离 Electron 使用生产正文、引用组件与共享投影样例，验证选区排除、原生悬浮、键盘、完整选文和整行定位。验收窗口使用独立 userData，不启动 Core 或模型；其他会争用 OS 焦点的 Electron 验收应顺序运行。
 修改发布说明语言分段或更新页语言选择时运行 `pnpm test:release-notes-ui`：隔离 Electron 挂载正式更新页，验证即时中英文切换、当前/新版本 tab 保留、历史与单语回退、引用链接及安全 Markdown，不启动 Core 或模型；`ROVAI_KEEP_RELEASE_NOTES_FIXTURE=1` 保留截图。
-修改用户消息锚点时运行 `pnpm test:message-anchors`：隔离 Electron 使用生产 CampWorkspace，验证用户数量阈值、日夜主题、原生悬浮、可见范围、首条回复、长轨道与内部滚动、键盘定位、历史加载和草稿保留；不启动 Core 或模型。
+修改用户消息锚点时运行 `pnpm test:message-anchors`：隔离 Electron 使用生产 ThreadWorkspace，验证用户数量阈值、日夜主题、原生悬浮、可见范围、首条回复、长轨道与内部滚动、键盘定位、历史加载和草稿保留；不启动 Core 或模型。
 修改队员运行配置批量应用时运行 `pnpm test:member-runtime-apply`：隔离 Electron 挂载正式 MembersView，验证选择、覆盖、逐人版本校验、部分失败重试、未知回执核对、两部分草稿、提交中的离开保护、中英文、手机横竖屏和缩放。使用显式 transport fixture，不启动 Core 或模型；`ROVAI_KEEP_MEMBER_RUNTIME_APPLY_FIXTURE=1` 保留截图及验证记录。原有 `node --test scripts/lib/member-editor.test.mjs` 仍保护队员编辑主流程。
 修改飞书接口扫码时运行 `pnpm test:feishu-login`：隔离 Electron 使用生产 Session HTTP、被动 HTML bootstrap、Cookie
 恢复和 QR Dialog 验证登录没有隐藏窗口、进度与本地提交的取消边界。默认使用受控响应；
@@ -129,7 +129,7 @@ App，以受控本机 API 和时钟验证首帧画布、就绪交接与 authorit
 真实 Runtime Smoke、完整 macOS 打包、Windows 打包/安装和 UI 截图验收耗时更长，且部分命令会调用上游
 模型。它们保持独立，不进入普通 commit 门禁；运行前先阅读对应文档。
 
-修改执行台指标读取生命周期时运行 `pnpm test:execution-metrics-ui`：使用生产 CampWorkspace 和 CSS、
+修改执行台指标读取生命周期时运行 `pnpm test:execution-metrics-ui`：使用生产 ThreadWorkspace 和 CSS、
 隔离 Electron 与 500 个合成 Run，验证视口范围、展开、隐藏／恢复、稳定终态停止轮询、
 迟到 Usage 和 Session Context 换代／失效；不启动 Core 或真实 Runtime。
 
@@ -217,6 +217,6 @@ HTML／TSV、悬浮和键盘、失败重试、流式更新、宽表滚动与主�
   [缓存排障流程](troubleshooting.md#target-占用异常增长或磁盘不足)清理，不在每次构建前执行 `cargo clean`。
 - 清理前停止相关进程；保留源码、Git 历史、必要验收记录和用户数据。
 
-Camp、运行、事件和审批数据位于 Electron `userData`。诊断中心和 v5 导出不再显示或输出绝对
+Thread、运行、事件和审批数据位于 Electron `userData`。诊断中心和 v5 导出不再显示或输出绝对
 `userData` / SQLite 路径；需要制作数据库副本时，应从已退出的隔离验收环境或 Electron 开发日志取得精确位置，
 不根据文档推测。

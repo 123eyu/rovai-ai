@@ -6,7 +6,7 @@ last_updated: 2026-10-28
 
 # 本地开发与 App 隔离流程
 
-本文是人类开发者和 AI Agent 在本机构建、启动或验收 Rovai-ai 时的执行合同。目标不是约定某台
+本文是人类开发者和 AI Agent 在本机构建、启动或验收 Rovai AI 时的执行合同。目标不是约定某台
 机器的绝对路径，而是保证正在日常使用的 App、开发进程、打包产物和测试夹具不会共享可变二进制
 或 `userData`。
 
@@ -14,7 +14,7 @@ last_updated: 2026-10-28
 
 | 通道 | App / Core 来源 | `userData` | 允许用途 |
 | --- | --- | --- | --- |
-| 日常安装版 | 仓库外的已安装 `.app`，通常位于 `/Applications` 或 `~/Applications` | Electron 日常数据目录 | 用户真实 Camp 和 Runtime 工作；开发任务默认只读 |
+| 日常安装版 | 仓库外的已安装 `.app`，通常位于 `/Applications` 或 `~/Applications` | Electron 日常数据目录 | 用户真实 Thread 和 Runtime 工作；开发任务默认只读 |
 | 开发版 | `pnpm dev` 使用 `resources/bin/` 与 Electron Vite | 启动器生成的逐仓库隔离目录 | HMR、功能开发、手工调试 |
 | 打包产物 | `dist/mac-arm64/Rovai AI.app` | 每次验收显式创建的隔离目录 | 签名、打包和一次性 App 验收 |
 | 自动验收 | 脚本声明的 App/Core 与 fixture | 脚本创建的临时目录 | Smoke、截图和回归测试 |
@@ -55,7 +55,7 @@ Windows 的 `--user-data-dir=<root>` 是隔离 data-root 开关，不直接等�
 4. 在命令执行前解析精确、绝对的 `userData` 和隔离 Skill Library；没有两者的独立目录证据时不得
    启动开发、Smoke 或验收 App/Core；Core 的启动参数门和独占锁是最终防线，不替代通道选择；
 5. 真实日常数据默认只读。诊断不授权启动第二个 Core、写 SQLite、取消 Run、Retry 或发送消息；
-6. 当前会话宿主保护：默认保持承载当前 AI/Camp 会话的日常 App 运行。一般性的“安装”“升级”或
+6. 当前会话宿主保护：默认保持承载当前 AI/Thread 会话的日常 App 运行。一般性的“安装”“升级”或
    “打包到 Applications”不构成退出、终止或重启该宿主的授权；用户已经明确要求安装或升级时，优先按
    [非终止安装交接](#当前会话中的非终止安装交接)保留当前进程并替换磁盘上的日常安装版。前置条件不满足时
    停在安装边界，交由用户手动处理，或先取得针对本次退出的明确即时授权；
@@ -109,7 +109,7 @@ node scripts/dev-desktop.mjs --print-config
 ROVAI_DEV_USER_DATA_DIR="$(mktemp -d)/user-data" pnpm dev
 ```
 
-不要用 `electron-vite dev` 绕过启动器。不要把日常数据库复制到默认开发目录；复现真实 Camp 时按
+不要用 `electron-vite dev` 绕过启动器。不要把日常数据库复制到默认开发目录；复现真实 Thread 时按
 [桌面 UI 验收](ui-acceptance.md#从明确来源创建只读隔离副本)创建一次性副本。
 
 ## 钉钉 Web Session 验收前置
@@ -200,7 +200,7 @@ pnpm install:mac:daily --backup "/Applications/Rovai AI.backup-before-<timestamp
 
 ### 当前会话中的非终止安装交接
 
-用户明确要求把新构建安装到日常位置、而当前日常 App 正承载同一 AI/Camp 会话时，按以下顺序完成安装，
+用户明确要求把新构建安装到日常位置、而当前日常 App 正承载同一 AI/Thread 会话时，按以下顺序完成安装，
 无需终止当前进程：
 
 1. 记录当前 App、Core 和 Helper 的 PID，并确认它们都来自同一个日常 `.app`；新构建必须通过
@@ -220,7 +220,7 @@ pnpm install:mac:daily --backup "/Applications/Rovai AI.backup-before-<timestamp
 
 ## 日常数据诊断边界
 
-排查真实 Camp 时可以执行与问题直接相关的只读检查，但不能启动另一份 Core 来“读取”数据。允许的
+排查真实 Thread 时可以执行与问题直接相关的只读检查，但不能启动另一份 Core 来“读取”数据。允许的
 典型操作包括进程列表、文件元数据、`sqlite3 -readonly` 和系统日志查询。需要数据库副本时，先退出
 日常 App，再使用 SQLite Backup API；不得复制单独的主数据库文件而忽略 WAL。
 

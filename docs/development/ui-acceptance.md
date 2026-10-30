@@ -47,7 +47,7 @@ ROVAI_ALLOW_ISOLATED_INSTANCE=1 \
   --user-data-dir="$FIXTURE_ROOT/user-data"
 ```
 
-`capture-desktop.mjs` 支持的主题、窗口、Runtime、Camp 和管理 selector 以脚本顶部的
+`capture-desktop.mjs` 支持的主题、窗口、Runtime、Thread 和管理 selector 以脚本顶部的
 环境变量读取为准。通用尺寸示例：
 
 ```bash
@@ -74,7 +74,7 @@ node scripts/capture-desktop.mjs "$ROVAI_APP" "$FIXTURE_ROOT/compact"
 自动化验收仍使用隔离 `userData`；不能把这个参数当作操作日常 App 或发真实飞书消息的默认授权。
 
 预览只复用指定已发布队员的现有长连接，向该 App 冻结且本机已记录的 Owner 发送。不会创建应用、改变发布配置、启动
-第二条 WebSocket、运行示例 command，或写入 Camp、Message、Turn、Run、Outbox/console fixture。它只读 Core 当前数据目录
+第二条 WebSocket、运行示例 command，或写入 Thread、Message、Turn、Run、Outbox/console fixture。它只读 Core 当前数据目录
 中 exact Bot/Owner identity，不读取 credential payload；发送使用 Main 已有的 SDK client。
 
 模拟 timeline 和已脱敏页面只保存在 Main 内存，所有卡片明确标为预览。每次翻页核对可信 callback operator、App、消息 ID、
@@ -145,7 +145,7 @@ pnpm accept:onboarding-ui
 - Configured：Runtime/模型使用真实准入状态；分别在队员页和 Runtime 页重启恢复；完成后只创建所选队员的
   `初次集结`。点击 starter 只写本机草稿并恢复焦点/光标，消息与 Run 数量不变；重启恢复同一会话和未发送草稿。
 - Deferred：使用确定性零 Runtime 环境，验证重新扫描、安装指南和“稍后配置”；保存 deferred 完成状态，
-  不新增 onboarding 队员配置、Camp、Run 或 restore target，重启进入普通 App。
+  不新增 onboarding 队员配置、Thread、Run 或 restore target，重启进入普通 App。
 
 ### 计划内关闭真实 Runtime 门禁
 
@@ -166,7 +166,7 @@ App 退出。macOS 验收按该隔离 App 的精确 PID 通过 `NSRunningApplica
 Core 首次启动仍进行本地初始化时触发慢退出，以免截图流程反过来拖慢或误判已经足够快的真实退出。
 
 验收依据 [Planned Shutdown v8](../contracts/planned-shutdown-v8.md)、
-[Public Composer](../architecture/camp-composer-draft.md)和[关闭等待面](../ui/components/conversation-workspace.md#camp-顶栏与关闭等待面)：
+[Public Composer](../architecture/camp-composer-draft.md)和[关闭等待面](../ui/components/conversation-workspace.md#thread-顶栏与关闭等待面)：
 
 - 先保存草稿，再输入最后一段 Lexical 正文并立即正常退出；同一隔离目录重启后读回包含最后一段的本机快照，
   证明输入 flush 在 Core shutdown 前完成，不依赖 Core Draft revision。
@@ -202,7 +202,7 @@ pnpm accept:member-lifecycle-ui
 ### Agent 执行过程门禁
 
 Renderer 的权威行为见 [Run Process Detail Surface v57](../contracts/run-process-detail-surface-v57.md) 与
-[当前 UI 详规：Camp 执行过程](../ui/components/conversation-workspace.md#camp-执行过程)。修改 AgentRun 分组、执行台、Drawer、
+[当前 UI 详规：Thread 执行过程](../ui/components/conversation-workspace.md#thread-执行过程)。修改 AgentRun 分组、执行台、Drawer、
 Task Related execution、停止结果或 Inspector 页签后，至少运行：
 
 ```bash
@@ -220,11 +220,11 @@ Built-in 去重后的命令与输出另由 `pnpm test:command-view` 挂载生产
 
 需要把生产 App 留给人工检查时，可运行
 `node scripts/accept-runtime-activity-ui.mjs "dist/mac-arm64/Rovai AI.app" --preview`。
-它创建同样的隔离 fixture、打开明确标注“模拟数据”的执行 Camp 并等待用户关闭 App；不调用真实模型，
+它创建同样的隔离 fixture、打开明确标注“模拟数据”的执行 Thread 并等待用户关闭 App；不调用真实模型，
 不执行自动交互矩阵，也不把人工预览报告记为自动验收通过。缺省每次使用新的临时 `userData` 和隔离 Skill Library。
 
 头像轨道的 8/12/20 位队员、176px 固定步长、键盘/滚轮、Tooltip、重复精确导航与滚动保留，
-另由 `pnpm test:execution-avatar-rail` 在真实 Electron 中挂载生产 CampWorkspace 验证；该 fixture
+另由 `pnpm test:execution-avatar-rail` 在真实 Electron 中挂载生产 ThreadWorkspace 验证；该 fixture
 使用隔离 `userData`、受控本机数据，不启动 Core 或真实 Runtime。
 
 受控夹具至少包含同一队员的多个历史/当前 Run、8/12/20 位队员、单 Run 15 条以上 Tool operation，
@@ -232,10 +232,10 @@ Built-in 去重后的命令与输出另由 `pnpm test:command-view` 挂载生产
 
 | 覆盖类别 | 行为依据 |
 | --- | --- |
-| 按队员聚合、精确 Run 定位、发送后的选择与焦点、进入/后台事件边界 | [Camp 执行过程](../ui/components/conversation-workspace.md#camp-执行过程) |
-| 头像轨道、滚轮/键盘、Drawer 调宽、同 DOM 的位置切换、偏好失败和阅读位置保留 | [Camp 执行过程](../ui/components/conversation-workspace.md#camp-执行过程) |
-| 顶栏入口、浮层关闭、Approval Dock 和精确 Run Stop | [Camp 详情浮层](../ui/components/conversation-workspace.md#camp-详情浮层)与[Task、Approval 与停止](../ui/components/conversation-workspace.md#taskapproval-与停止) |
-| Tool chronology、连续分组、类型/状态图标、Shell 展开、Built-in 去重、结果预算与惰性读取 | [Run Process Detail Surface](../contracts/run-process-detail-surface-v57.md)与[执行过程](../ui/components/conversation-workspace.md#camp-执行过程) |
+| 按队员聚合、精确 Run 定位、发送后的选择与焦点、进入/后台事件边界 | [Thread 执行过程](../ui/components/conversation-workspace.md#thread-执行过程) |
+| 头像轨道、滚轮/键盘、Drawer 调宽、同 DOM 的位置切换、偏好失败和阅读位置保留 | [Thread 执行过程](../ui/components/conversation-workspace.md#thread-执行过程) |
+| 顶栏入口、浮层关闭、Approval Dock 和精确 Run Stop | [Thread 详情浮层](../ui/components/conversation-workspace.md#thread-详情浮层)与[Task、Approval 与停止](../ui/components/conversation-workspace.md#taskapproval-与停止) |
+| Tool chronology、连续分组、类型/状态图标、Shell 展开、Built-in 去重、结果预算与惰性读取 | [Run Process Detail Surface](../contracts/run-process-detail-surface-v57.md)与[执行过程](../ui/components/conversation-workspace.md#thread-执行过程) |
 
 验证真实焦点、滚动与最终可见位置，不能只检查外层 DOM 存在；精确 Run 停止直接提交，未知结果按原 commandId
 核对且不重复发送。覆盖 `2560×1440`、`1440×920`、`1040×700`、200% zoom、reduced motion 和全部配色。
@@ -243,7 +243,7 @@ fixture 不启动真实 Runtime；真实执行、审批与停止结果由对应 
 
 ### Task 详情门禁
 
-Renderer 的权威行为见[当前 UI 详规：Camp 详情浮层](../ui/components/conversation-workspace.md#camp-详情浮层)。
+Renderer 的权威行为见[当前 UI 详规：Thread 详情浮层](../ui/components/conversation-workspace.md#thread-详情浮层)。
 修改 Task 首层入口、空状态、创建/编辑表单、列表或详情后，至少运行：
 
 ```bash
@@ -255,7 +255,7 @@ pnpm accept:task-card-ui
 
 - 标题栏“任务”直接入口打开按需浮层，状态筛选与新建入口可用；不恢复常驻侧栏、独立折叠按钮或解释性空状态；
 - 列表和时间线卡片打开完整只读详情；新建/编辑使用标准 Dialog，标题输入框立即获得焦点；
-- 关闭新建 Dialog 返回原列表并保留草稿，不写入 Task、CampMessage 或其他 Core 状态；跨详情切换和浮层收起
+- 关闭新建 Dialog 返回原列表并保留草稿，不写入 Task、ThreadMessage 或其他 Core 状态；跨详情切换和浮层收起
   后重开草稿仍在；并行修改其他字段后，提交仅写入用户实际编辑的字段；
 - 编辑、取消任务均使用既有任务命令，取消必须填写原因，不启动或停止 AgentRun；
 - Task 创建、五态原卡更新、terminal 详情、字段补丁、审计、Related execution、
@@ -304,9 +304,9 @@ fixture。夹具固定本次 Host 的 Runtime 启动路径，并在退出后核�
 
 保留以下验证方法：
 
-- 三位唯一收件人的发送按 `inputMessageIds` 与 `anchorMessageId` 核对受理消息，不要求独立领取的 Run 具有相同时间戳或 CampTurn。
+- 三位唯一收件人的发送按 `inputMessageIds` 与 `anchorMessageId` 核对受理消息，不要求独立领取的 Run 具有相同时间戳或 ThreadTurn。
 - 真实鼠标跨 Mention 拖选并执行系统复制，确认完整可见文本和不误开人物卡；普通文本也继续支持原生选择。
-- 打开人物卡前后仍停留当前 Camp，不进入队员管理页；分别保存 Composer 与已发送 Mention 的人物卡截图。
+- 打开人物卡前后仍停留当前 Thread，不进入队员管理页；分别保存 Composer 与已发送 Mention 的人物卡截图。
 - 测试前的系统剪贴板按全部 flavor 完整恢复；隔离 `userData` 不污染日常 App。
 
 专项脚本成功时输出 JSON 证据并生成 `composer-skill-picker.png`；完整脚本还会生成
@@ -323,8 +323,8 @@ Composer 与历史消息的人物信息卡截图是此交互的必留视觉证�
 | `scripts/accept-new-conversation-ui.mjs` | 新对话 Dialog 与创建流程 | 使用脚本创建的独立 App 数据；精确参数见源码 |
 | `scripts/capture-mcp.mjs` | MCP 设置完整操作链 | 脚本创建临时 Home、来源配置和 `userData` |
 | `scripts/accept-rebuilt-skills-ui.mjs` | 当前 Skills／工具箱隔离验收与截图 | 必须设置 `ROVAI_CAPTURE_USER_DATA_DIR`；支持 Day／Night 与 200% 缩放 |
-| `scripts/capture-camp-inspectors.mjs` | 已有 Camp 的 Inspector 截图 | 必须设置 `ROVAI_CAPTURE_USER_DATA_DIR` |
-| `scripts/capture-desktop.mjs` | 通用页面、Runtime 和 Camp 流程 | 必须设置隔离 `userData`；省略或指向日常目录即拒绝启动 |
+| `scripts/capture-camp-inspectors.mjs` | 已有 Thread 的 Inspector 截图 | 必须设置 `ROVAI_CAPTURE_USER_DATA_DIR` |
+| `scripts/capture-desktop.mjs` | 通用页面、Runtime 和 Thread 流程 | 必须设置隔离 `userData`；省略或指向日常目录即拒绝启动 |
 
 当前页面合同见[Skills／工具箱／会话选择](../ui/components/skills-settings.md)。专项脚本给验收 App
 配置独立 `userData`、Skill Library 和临时原生 Home，只读发现一项合成 Codex Skill，并核对正文预览。
@@ -344,7 +344,7 @@ ROVAI_CAPTURE_THEME=night ROVAI_CAPTURE_ZOOM_FACTOR=2 \
 
 ## 从明确来源创建只读隔离副本
 
-需要复现已有 Camp 时，先彻底退出 Rovai AI。诊断导出不显示绝对 SQLite 路径；只使用用户明确提供、Electron 开发日志记录或隔离启动参数已证明的来源路径。然后使用 SQLite
+需要复现已有 Thread 时，先彻底退出 Rovai AI。诊断导出不显示绝对 SQLite 路径；只使用用户明确提供、Electron 开发日志记录或隔离启动参数已证明的来源路径。然后使用 SQLite
 Backup API 创建副本：
 
 ```bash

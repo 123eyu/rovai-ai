@@ -196,4 +196,4 @@ reportDefinitionVersion=3 区分当日交接群组未结束数与包含跨日的
 cargo run -p rovai-core --features slow-tests --example export_execution_trace -- /absolute/confirmed/rovai.sqlite /private/params.json /private/new-trace.json
 ```
 
-参数文件使用既有 `since`、`until`、`campIds`、`excludeCampIds`、`excludeAutomationIds`；数据库路径必须来自明确来源。此入口只读、无迁移或 Core/Runtime 启动，拒绝覆盖输出，执行原有行数／字节限制。它不证明安装版 CLI 或每日 Automation 已部署，不属于 Agent CLI help/context，也不新增产品权限入口。
+参数文件使用 `since`、`until`、`threadIds`、`excludeThreadIds`、`excludeAutomationIds`；数据库路径必须来自明确来源。此入口只读、无迁移或 Core/Runtime 启动，拒绝覆盖输出，执行原有行数／字节限制。它不证明安装版 CLI 或每日 Automation 已部署，不属于 Agent CLI help/context，也不新增产品权限入口。

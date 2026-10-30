@@ -8,13 +8,13 @@ last_updated: 2026-10-08
 
 # Rovai AI 多 Agent 协作架构
 
-Rovai AI 是本地优先的多 Agent 协作工作台。队员拥有长期身份，在 Camp 中直接交流，通过各自的 Agent Runtime 执行工作，并将值得保留的经验沉淀为记忆。协作采用 **Peer 模式与轻量 Lead**：成员可以彼此委托和反馈，Lead 提供默认承接、组织与汇总。
+Rovai AI 是本地优先的多 Agent 协作工作台。队员拥有长期身份，在 Thread 中直接交流，通过各自的 Agent Runtime 执行工作，并将值得保留的经验沉淀为记忆。协作采用 **Peer 模式与轻量 Lead**：成员可以彼此委托和反馈，Lead 提供默认承接、组织与汇总。
 
 | 章节 | 关注的问题 | 图 |
 | --- | --- | --- |
 | 一、协作模型与系统全景 | 长期队员、协作空间、Core 与原生 Runtime 如何组成系统？ | 01 系统全景架构 |
 | 二、队员身份与 Runtime | 长期队员与执行引擎是什么关系？ | 02 咕咕的会话、Runtime 与记忆 |
-| 三、Camp、Conversation 与 AgentRun | 共享讨论与独立会话如何共同承载执行？ | 03 会话与执行关系 |
+| 三、Thread、Conversation 与 AgentRun | 共享讨论与独立会话如何共同承载执行？ | 03 会话与执行关系 |
 | 四、A2A 通信与成果交接 | 如何寻址、委托、返回并交付成果？ | 04 A2A 调用与返回 |
 | 五、协作组织与任务责任 | 如何选择协作方式、分配责任并交接成果？ | 05 协作组织与任务责任 |
 | 六、一次 AgentRun 的生命周期 | 平台在什么时机准备能力、提供输入并承接执行结果？ | 06 加载与执行时序 |
@@ -27,9 +27,9 @@ Rovai AI 是本地优先的多 Agent 协作工作台。队员拥有长期身份�
 
 ### 图 01：系统全景架构
 
-Rovai 以长期队员为协作主体，通过 Camp 组织共同工作，并连接本机已有的 Coding Agent Runtime。
+Rovai 以长期队员为协作主体，通过 Thread 组织共同工作，并连接本机已有的 Coding Agent Runtime。
 
-![Rovai AI 系统全景架构：用户入口、长期队员、Camp、Core、Runtime 与工作资源](assets/system-views/01-collaboration.svg)
+![Rovai AI 系统全景架构：用户入口、长期队员、Thread、Core、Runtime 与工作资源](assets/system-views/01-collaboration.svg)
 
 ## 二、队员身份与 Runtime
 
@@ -39,7 +39,7 @@ Rovai 以长期队员为协作主体，通过 Camp 组织共同工作，并连�
 
 ![手绘示意：咕咕连接两个会话、Codex 与 Claude Code，以及共同记忆、队员记忆和队员间记忆](assets/system-views/02-identity-runtime.svg)
 
-## 三、Camp、Conversation 与 AgentRun
+## 三、Thread、Conversation 与 AgentRun
 
 ### 图 03：三位队员协作完成 CSV 导出功能
 

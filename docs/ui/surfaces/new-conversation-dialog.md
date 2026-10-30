@@ -48,10 +48,10 @@ arrow-key navigation, `Esc` dismissal and focus return.
    Team shows a read-only snapshot; Custom retains its draft and the teammate/Lead controls below.
    Initialize Custom from the saved custom roster filtered to currently available teammates,
    otherwise all available teammates in Member Order. A candidate is available only when its runtime
-   configuration is saved and readiness is `ready` or `light_ready`; both display green “可用”.
+   configuration is saved and readiness is `ready`, `light_ready` or `installed_unverified`; all display green “可用”.
    Unconfigured candidates display “未配置智能体”; configured but unavailable candidates display
    “智能体不可用”. Both remain visible, gray and unselectable. All-selection and Lead candidates use
-   the same rule; do not prefer deep readiness over light readiness. No routine explanatory footer or
+   the same rule. No routine explanatory footer or
    runtime warning appears. When no candidates are available, show the empty state.
    These are shared selection rules; they do not change Core structural preflight or dispatch checks.
    Keep the existing teammate dropdown entry. Its menu uses two columns (four teammates occupy two rows),
@@ -75,12 +75,12 @@ Footer contains “取消 / 新建”. The creation action follows the shared th
 ## Submission and recovery
 
 Submitting locks controls that could mutate the Draft and prevents duplicate create. Close only after
-Core atomically accepts the Active Camp, then refresh Navigation, enter it and focus Composer. A Camp
+Core atomically accepts the Active Thread, then refresh Navigation, enter it and focus Composer. A Thread
 with no messages, AgentRun or prebuilt Conversation is valid.
 
 If one-click was requested, persist the team and enable flag in one Host-owned preference write only
 after Core accepts creation. Cancel or creation failure must not change preferences. A preference-write
-failure still opens the accepted Camp and reports that defaults were not saved; it must not invite a
+failure still opens the accepted Thread and reports that defaults were not saved; it must not invite a
 second creation. Ordinary saves in General settings preserve the existing one-click flag.
 
 Failure preserves directory, teammate selection, Lead, name, scroll and focus. Candidate refresh must
@@ -96,4 +96,5 @@ Submit the existing `peer` semantics without exposing a collaboration-mode selec
 
 Inherit root [`DESIGN.md`](../../../DESIGN.md), the [theme registry](../themes/README.md) and
 [accessibility baseline](../qa/accessibility.md). This brief cannot alter directory
-safety, Camp creation transactions, Pending/Active semantics, Member Order or Core draft authority.
+safety, Thread creation transactions, Pending/Active semantics, Member Order or
+[client-local public Composer ownership](../../architecture/camp-composer-draft.md).

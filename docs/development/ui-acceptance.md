@@ -1,7 +1,7 @@
 ---
 document_type: development-guide
 authority: desktop-ui-acceptance-infrastructure
-last_updated: 2026-10-12
+last_updated: 2026-10-30
 ---
 
 # 桌面 UI 验收与隔离数据
@@ -140,8 +140,8 @@ Scheme C 转交 footer，诊断中心双尺寸、只读自检、MCP 权限修复
 保留原文件、隔离业务树、显式重试不消耗 crash budget、Day/Night、1040×700、窄窗口、
 200% 等效布局、reduced motion、键盘焦点和无横向溢出回归。available 到失败的完整状态/动作/fallback 矩阵由 Renderer
 测试覆盖；签名 macOS/Windows 跨版本升级仍属于各平台 Release qualification。
-当前 Neutral Porcelain + Steel 视觉迁移还必须按当前版本实施计划覆盖 2K Composer、八个设置页、
-队员半身照与 Runtime 入口、记忆 Workbench、New Conversation 和各类 Dialog/Drawer。
+当前 UI 变更按[全部配色矩阵](../ui/qa/theme-matrix.md)与[当前版本](../versions/README.md)实施计划，
+覆盖受影响的页面、控件、尺寸与状态；历史视觉迁移清单不作为新的全局设计要求。
 具体 Schema/Migration 编号属于测试 fixture 和版本证据，不是本文的常青要求。
 
 ### 首次训练门禁

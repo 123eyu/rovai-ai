@@ -3,7 +3,7 @@ document_type: ui-component
 authority: notification-attention-presentation
 status: accepted
 target_version: cross-version
-last_updated: 2026-10-17
+last_updated: 2026-10-30
 ---
 
 # 应用内提醒与会话未读
@@ -44,10 +44,10 @@ resolved Approval 的旧 pending signal 必须删除，即使该 Occurrence 仍�
 ## 会话未读点
 
 Camp 与使命行以非撤回 Agent 消息首次发布水位判断新回复；Run 终态本身不生成新回复。
-Camp 行只用小点提示“有新回复”，不显示跨会话总数。小点使用 attention 语义色，并同时通过整行
-`aria-label` 与 title 表达“有新回复”，不能只靠颜色。它位于固定的 12×12px 右侧状态槽内，Desktop / 宽屏 Web
-为 7px，Mobile 为 6px；正在打开或运行时同槽优先显示 loading，未读事实不因此清除，loading 结束后仍按真实状态显示小点。
-状态槽无内容时保持尺寸，左侧不渲染未读占位，状态切换不得移动标题。
+Camp 行只用 `--conversation-unread` 小点提示“有新回复”，不显示跨会话总数；整行 `aria-label` 与 title
+同时表达“有新回复”，不能只靠颜色。Desktop / 宽屏 Web 的点位、运行状态并列和操作入口遵循
+[App Shell 导航](app-shell-navigation.md)，Mobile 的尺寸与状态优先级遵循 [Mobile WebUI](../host-web-mobile.md#对话与执行)。
+状态布局不改变未读事实。
 
 Camp Snapshot 加载、后台刷新、停留在设置/记忆/队员页或应用失焦都不能消除小点。只有目标 Camp 已是
 当前“会话”页面、Snapshot identity 匹配、文档可见且窗口拥有焦点时，Renderer 才提交该 Camp 的
@@ -69,8 +69,8 @@ Occurrence。
 
 ## 视觉与无障碍
 
-浮层沿用 Porcelain Day / Steel Night 的 raised overlay、Steel edge 和开放行，不增加渐变、glow 或独立
-卡片世界。长会话名和 CJK/emoji 摘要允许收缩/换行；支持键盘操作、`aria-live=polite`、reduced motion、
+浮层使用当前主题的 raised surface、`--line-strong` 边界和开放行，遵循 [DESIGN.md](../../../DESIGN.md#elevation--depth)。
+长会话名和 CJK/emoji 摘要允许收缩/换行；支持键盘操作、`aria-live=polite`、reduced motion、
 最小窗口与 200% zoom，出现和更新都不得抢走当前键盘焦点。
 
 ## References

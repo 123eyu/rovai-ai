@@ -2,7 +2,7 @@
 document_type: ui-component-spec
 authority: first-run-onboarding-presentation
 status: accepted
-last_updated: 2026-10-05
+last_updated: 2026-10-30
 ---
 
 # 首次训练与“初次集结”
@@ -95,7 +95,7 @@ Camp Composer 规则恢复。仅辅助技术可见的 live status 说明“内�
 
 - 最低验收尺寸为 `1040×700`；主操作、队员四行、Runtime footer、三条 starter 与 Composer 必须可见或
   在明确的局部纵向滚动区内到达，页面和会话时间线不得横向溢出。
-- Porcelain Day 与 Steel Night 共享结构、Token 和状态；主题切换不能丢失进度。
+- 所有已注册配色共享结构、语义 Token 和状态；主题切换不能丢失进度。
 - Radio 行使用真实 `role="radio"` / `aria-checked`；扫描和填草稿反馈使用 live region。
 - 所有主操作、Back、主题、Runtime、安装说明和 starter 行支持键盘与 `:focus-visible`。
 - `prefers-reduced-motion` 下停止扫描点和位移动画，但不隐藏状态。

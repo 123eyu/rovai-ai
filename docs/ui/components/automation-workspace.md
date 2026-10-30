@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-automation-workspace
 status: accepted
-last_updated: 2026-10-27
+last_updated: 2026-10-30
 ---
 
 # Automation 工作区
@@ -85,7 +85,7 @@ Renderer 使用 `cron-parser` 提供就地反馈，最终接受与求值仍由 C
 ## 可访问性与主题
 
 所有表单控件有持久 label，计划参数仅在对应类型下出现；通知组合使用 fieldset/legend。任务行、模板和操作均可键盘触发，
-保留 DOM 焦点与键盘交互，焦点装饰遵循当前 DESIGN；手机不新增 focus ring。状态不能只依靠颜色；Day/Night 只使用现有语义 token，不增加主题专属业务结构。
+保留 DOM 焦点与键盘交互，焦点装饰遵循当前 DESIGN；手机不新增 focus ring。状态不能只依靠颜色；所有已注册配色使用同一组件结构与当前主题语义 Token。
 
 ## References
 

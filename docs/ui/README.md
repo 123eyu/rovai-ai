@@ -4,7 +4,7 @@ authority: renderer-ui-routing
 status: accepted
 design_direction: porcelain-day-steel-night
 target_version: cross-version
-last_updated: 2026-10-27
+last_updated: 2026-10-30
 ---
 
 # Rovai AI UI 规范
@@ -67,6 +67,5 @@ Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brie
 ## Runtime 平台路由
 
 Runtime 入口消费 Core 的[平台准入](../contracts/runtime-platform-admission-v2.md)与[产品范围](../architecture/runtime-catalog-boundaries.md)。
-Command Code 在 macOS Apple Silicon、Intel、Windows x64 与 Linux x64 沿现有 Preview 开放；
 设置、引导、队员选择和 CLI 使用同一准入。所有 Runtime 不展示 Preview／测试／实验标签或资格记录未齐备的提示，
 仅呈现实际安装、登录与运行状态及可处理的错误；内部平台准入与诊断证据保留。

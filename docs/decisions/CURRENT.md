@@ -1,10 +1,12 @@
 ---
 document_type: current-decision-navigation
 authority: current-authority-and-rationale-routing
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # 当前规范与决定理由导航
+
+可选存储与单个 Runtime 的故障范围：[Availability-first Runtime](../architecture/availability-first-runtime.md#optional-startup-boundary)、[Runtime 设置](../contracts/runtime-launch-and-verification-v74.md#本机配置的局部故障)、[附件](../contracts/camp-attachment-v12.md#历史存储的故障范围)及 [MCP 快照](../contracts/input-snapshot-storage-v1.md#mcp-snapshot-storage-layout)；保留残留、继续服务的选择见 [V1.72-D70](../versions/v1.72/decisions.md#v1-72-d70)。
 
 历史进程清理与启动可用性：[Availability-first Runtime](../architecture/availability-first-runtime.md#optional-startup-boundary)、
 [Managed Process](../contracts/managed-runtime-process-v2.md#macos-acp-descendants)、[Run recovery](../architecture/agent-run-recovery.md#4-cleanuplane-与-execution-root)；

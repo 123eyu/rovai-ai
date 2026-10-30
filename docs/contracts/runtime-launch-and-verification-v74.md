@@ -4,7 +4,7 @@ name: Runtime Launch and Verification
 version: v74
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # Runtime Launch and Verification v74
@@ -45,3 +45,13 @@ Fast 沿用 `camp_fast → serviceTierForTurn`：开启传 `priority`，关闭�
 读取失败明确显示“尚未核对”，保留当前模型、参数及有效缓存；不把缺少目录证据显示为“不支持”或
 “当前目录未提供”。保存的未枚举参数可更改或清除。同一 Runtime 内切换显式模型时保留显式覆盖值，
 切换到 Runtime Default 则按用户选择清除覆盖值。异步目录更新只更新候选项，不改写草稿或已存配置。
+
+## 本机配置的局部故障
+
+`runtime_startup_setting` 按 Runtime 单独读取、解析和校验。无记录沿用自动发现；已有记录不可读取或格式无效时，返回该项的 `configuration.configurationError`，保留原始 JSON 与 revision。该项不产出默认发现候选、不读取默认原生凭据，其余 Runtime 正常加载。错误不进入新的数据库表或恢复队列。
+
+Owner 设置入口仍返回损坏项的版本与明确错误，不能将默认外形的错误投影解释为有效空配置。显式重新选择程序或恢复自动发现时，以 `expectedRevision` 加 `programPath` edit 通过既有 CAS 替换；旧版本拒绝，不对坏 JSON 做字段合并。保存刷新现有 Runtime 状态，用户可在同一 Core 检查及使用修正项。
+
+字段编辑遇到 revision 不符时返回既有 `status: conflict`、`latest` 和字段冲突；页面更新版本基线并保留草稿，用户解决冲突后可以继续保存。不能只返回“再次保存”错误而让页面一直持有旧版本；提交时的 CAS 仍保留。
+
+通用环境变量单条不可解密时，管理入口返回 `commonEnvironment.error` 与原 revision；执行和检查保留该项不可用语义，不回退到其他账号。用户重新填写后沿用既有 revision 校验追加新版本，保留损坏旧记录；未修改的错误投影不得被提交为空值。原本不继承通用变量的独立队员仍按既有规则使用自身环境。

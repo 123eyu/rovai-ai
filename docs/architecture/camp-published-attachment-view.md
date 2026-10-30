@@ -3,7 +3,7 @@ document_type: architecture
 architecture: camp-attachments
 authority: live-source-references-and-legacy-attachment-reads
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-30
 ---
 
 # Camp Attachments：原路径引用、默认输出与历史读取
@@ -50,6 +50,8 @@ Run Facts 只投影顶层 attachmentOutputRoot，含义是默认输出位置；�
 现有 Runtime additional directories 接入它，遵循原生模式。文件内容不参与 Bootstrap 或会话兼容摘要。
 普通 Run、新建 Camp、自动任务和新发布不依赖旧 View 的状态或回执。
 
+历史 `runtime-files` 根标记及物理身份不决定 Core 启动、任务准备或其他附件读取。没有全目录准入扫描；未知目录与原文件保留。旧视图的目标路径、内容和提交回执仍在实际使用时核对，可重建视图按需重建，单个失效源只影响该内容。写入和删除核对本次具体目标与既有 owner，不根据全局根的旧身份拒绝整条任务。
+
 ## 读取与预览
 
 公开 Camp 模型在每条 `RUN_INPUT.messages[].attachments: string[]` 接收路径；Single Chat 继续使用
@@ -77,3 +79,7 @@ Run 结束、消息删除、预览关闭/LRU 不删除永久输出。外部原�
 只有访问历史记录时进入 Managed/legacy 定位、必要恢复和原完整性校验。历史文件不迁移、不批量 chmod，
 消息引用与已冻结 Context 不重写。数据库 Migration 156 仅放宽新 Context 的明确版本/可选旧回执组合，
 保留原约束分支；新记录不为适配旧表制造摘要。用户旧 Prepared Draft 的原互斥兼容流程保持。
+
+新输入复用既有消息选择和正文预算，只为最终需要的旧附件取读取候选；数据库锁内不遍历、校验或复制附件。锁外复用单附件读取器校验原文件的路径、归属和内容摘要，回到锁内复核记录后冻结输入。原文件可读时直接使用其既有 Authority 路径，不要求整份 View ready，不补写全目录成功回执。个别源损坏或缺失只省略该附件；未选中的旧附件不参与任务准备。
+
+历史消息查询只返回经过归属校验的原文件位置，不为路径元数据查询读取正文。派生文件丢失、旧 View 的 initializing/rebuilding/integrity_failed 状态和无关暂存清理失败都不阻断完好原文件读取；读取不触发旧清理，未知内容保留。已冻结 Context 与旧回执继续按原格式读取，不重写历史证据。新使命创建不预初始化旧附件 View。

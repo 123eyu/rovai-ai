@@ -50,9 +50,7 @@ use codex::{
     CodexAgentRunRuntimeRequest, CodexAgentThreadOptions, CodexCliRuntimeAdapter, CodexIncoming,
     CodexRuntime,
 };
-use core_subsystems::{
-    CoreSubsystems, SubsystemInitialization, SubsystemUnavailable, runtime_subsystem_id,
-};
+use core_subsystems::{CoreSubsystems, SubsystemUnavailable, runtime_subsystem_id};
 use pi::{
     PiAgentRunRuntimeRequest, PiIncoming, PiPromptImage, PiRpcRuntimeAdapter, PiRuntime,
     PreparedPiPromptImage, prepare_prompt_images,
@@ -112,7 +110,6 @@ use rovai_core::{
         ThreadAttachmentStore, desktop_target_for_source_attachment,
         legacy_attachment_belongs_to_owner, preview_source_attachment,
     },
-    camp_attachment_publication::unresolved_publication_camp_ids,
     camp_attachment_view::{PreparedThreadAttachmentCleanup, ThreadAttachmentViewStore},
     camp_content::ComposerDocument,
     camp_deletion::{
@@ -191,7 +188,6 @@ use rovai_core::{
         LocalAttachmentFailure, LocalAttachmentOwnerLocator, load_agent_run_source_attachments,
         observe_source_attachment, resolve_source_attachments_for_run,
     },
-    managed_attachment::ManagedAttachmentStore,
     managed_blob::ManagedBlobStore,
     mcp::{
         CommitMcpImportParams, CreateMcpServerParams, DeleteMcpServerParams, McpConfigStore,
@@ -2436,9 +2432,8 @@ struct Core {
     pasted_text_operations: Mutex<()>,
     notification_interruption_reader: Mutex<NotificationInterruptionReader>,
     subsystems: CoreSubsystems,
-    subsystem_initialization: Mutex<SubsystemInitialization>,
+    subsystem_initialization: Mutex<()>,
     removed_skill_project_roots: RemovedSkillProjectRoots,
-    startup_pending_camp_ids: Vec<String>,
     builtin_tool_listener: Mutex<Option<LocalIpcListener>>,
     builtin_tool_listener_notify: Notify,
     runtime_usage: Mutex<RuntimeUsageBuffer>,
@@ -2968,7 +2963,7 @@ impl Core {
     }
 
     async fn verified_camp_attachment_admission(
-        &self,
+        self: &Arc<Self>,
         camp_id: &str,
         workspace: &Path,
     ) -> Result<(ThreadAttachmentReadAdmission, ThreadOutputDirectory)> {
@@ -3140,10 +3135,14 @@ impl Core {
     }
 
     async fn cleanup_mcp_projections_best_effort(&self) {
-        let database = self.database.lock().await;
-        if let Err(error) = self.mcp_projection.cleanup_terminal_and_orphaned(&database) {
-            eprintln!("failed to clean MCP Runtime projections: {error:#}");
-        }
+        let database = self.database.clone();
+        let service = McpProjectionService::new(&self.data_dir);
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut budget =
+                rovai_core::maintenance_budget::MaintenanceBudget::new(128, Duration::from_secs(2));
+            service.cleanup_terminal(&database, &mut budget);
+        })
+        .await;
     }
 
     async fn forget_deleted_camp_runtimes(&self, camp_id: &str) {
@@ -5216,6 +5215,7 @@ impl Core {
                     rovai_core::runtime_startup::RuntimeStartupConfiguration {
                         custom_api_snapshot: None,
                         common_environment_unavailable: false,
+                        configuration_error: None,
                         program_path: Some(
                             existing_entrypoint_locator
                                 .as_ref()
@@ -7994,7 +7994,12 @@ impl Core {
         if request.method.starts_with("skills.") {
             self.subsystems.require("skills")?;
         }
-        if request.method.starts_with("mcp.") && request.method != "mcp.config.repairPermissions" {
+        if request.method.starts_with("mcp.")
+            && !matches!(
+                request.method.as_str(),
+                "mcp.config.get" | "mcp.config.repairPermissions"
+            )
+        {
             self.subsystems.require("mcp")?;
         }
         let _ = &request.params;
@@ -15116,22 +15121,34 @@ impl Core {
         let source_attachment_paths = self
             .resolve_agent_run_source_attachment_paths(execution)
             .await?;
-        let materialization = {
-            let mut database = self.database.lock().await;
-            ContextService.materialize_with_exposures_and_source_attachments(
-                &mut database,
-                &ManagedBlobStore::new(&self.data_dir),
-                skill_exposure,
-                mcp_projection,
-                &source_attachment_paths,
-                &MaterializeContextRequest {
-                    agent_run_id: &execution.agent_run_id,
-                    execution_epoch: execution.execution_epoch,
-                    charter_delivery_mode: request.charter_delivery_mode,
-                    max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
-                },
-            )
-        }?;
+        let mut reads = rovai_core::context::LegacyAttachmentReads::new();
+        let materialization = loop {
+            let result = {
+                let mut database = self.database.lock().await;
+                ContextService.materialize_with_attachment_reads(
+                    &mut database,
+                    &ManagedBlobStore::new(&self.data_dir),
+                    Some(skill_exposure),
+                    Some(mcp_projection),
+                    &source_attachment_paths,
+                    &MaterializeContextRequest {
+                        agent_run_id: &execution.agent_run_id,
+                        execution_epoch: execution.execution_epoch,
+                        charter_delivery_mode: request.charter_delivery_mode,
+                        max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
+                    },
+                    None,
+                    &reads,
+                )
+            };
+            match result {
+                Ok(materialization) => break materialization,
+                Err(error) => {
+                    self.resolve_pending_legacy_attachment_reads(error, &mut reads)
+                        .await?
+                }
+            }
+        };
         match materialization {
             ContextMaterialization::Ready(prepared) => Ok(Some(prepared)),
             ContextMaterialization::Waiting(wait) => {
@@ -15164,56 +15181,59 @@ impl Core {
         let source_attachment_paths = self
             .resolve_agent_run_source_attachment_paths(execution)
             .await?;
-        let preparation = {
-            // The Core database mutex is the logical Runtime Input preparation
-            // boundary. A Compaction Observer cannot commit between selecting
-            // the pending revision and persisting RuntimeInputDelivery.prepared.
-            let mut database = self.database.lock().await;
-            let materialize_request = MaterializeContextRequest {
-                agent_run_id: &execution.agent_run_id,
-                execution_epoch: execution.execution_epoch,
-                charter_delivery_mode: request.charter_delivery_mode,
-                max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
-            };
-            let materialization = match mcp_projection {
-                Some(mcp_projection) => ContextService
-                    .materialize_with_exposures_and_source_attachments(
-                        &mut database,
-                        &ManagedBlobStore::new(&self.data_dir),
-                        skill_exposure,
-                        mcp_projection,
-                        &source_attachment_paths,
-                        &materialize_request,
-                    )?,
-                None => ContextService.materialize_with_skill_exposure_and_source_attachments(
+        let mut reads = rovai_core::context::LegacyAttachmentReads::new();
+        let preparation = loop {
+            let attempt: Result<_> = async {
+                // The Core database mutex is the logical Runtime Input preparation
+                // boundary. A Compaction Observer cannot commit between selecting
+                // the pending revision and persisting RuntimeInputDelivery.prepared.
+                let mut database = self.database.lock().await;
+                let materialize_request = MaterializeContextRequest {
+                    agent_run_id: &execution.agent_run_id,
+                    execution_epoch: execution.execution_epoch,
+                    charter_delivery_mode: request.charter_delivery_mode,
+                    max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
+                };
+                let materialization = ContextService.materialize_with_attachment_reads(
                     &mut database,
                     &ManagedBlobStore::new(&self.data_dir),
-                    skill_exposure,
+                    Some(skill_exposure),
+                    mcp_projection,
                     &source_attachment_paths,
                     &materialize_request,
-                )?,
-            };
-            match materialization {
-                ContextMaterialization::Ready(context) => {
-                    let delivery = match request.proposed_delivery_id {
-                        Some(identity) => ContextService
-                            .prepare_input_delivery_for_context_with_identity(
+                    None,
+                    &reads,
+                )?;
+                Ok(match materialization {
+                    ContextMaterialization::Ready(context) => {
+                        let delivery = match request.proposed_delivery_id {
+                            Some(identity) => ContextService
+                                .prepare_input_delivery_for_context_with_identity(
+                                    &mut database,
+                                    &execution.agent_run_id,
+                                    execution.execution_epoch,
+                                    &context,
+                                    identity,
+                                )?,
+                            None => ContextService.prepare_input_delivery_for_context(
                                 &mut database,
                                 &execution.agent_run_id,
                                 execution.execution_epoch,
                                 &context,
-                                identity,
                             )?,
-                        None => ContextService.prepare_input_delivery_for_context(
-                            &mut database,
-                            &execution.agent_run_id,
-                            execution.execution_epoch,
-                            &context,
-                        )?,
-                    };
-                    Some(Ok((context, delivery)))
+                        };
+                        Some(Ok((context, delivery)))
+                    }
+                    ContextMaterialization::Waiting(wait) => Some(Err(wait)),
+                })
+            }
+            .await;
+            match attempt {
+                Ok(preparation) => break preparation,
+                Err(error) => {
+                    self.resolve_pending_legacy_attachment_reads(error, &mut reads)
+                        .await?
                 }
-                ContextMaterialization::Waiting(wait) => Some(Err(wait)),
             }
         };
         match preparation {
@@ -15234,6 +15254,38 @@ impl Core {
             }
             None => Ok(None),
         }
+    }
+
+    async fn resolve_pending_legacy_attachment_reads(
+        &self,
+        error: anyhow::Error,
+        reads: &mut rovai_core::context::LegacyAttachmentReads,
+    ) -> Result<()> {
+        let pending = error.downcast::<rovai_core::context::PendingLegacyAttachmentReads>()?;
+        let store = ThreadAttachmentStore::new(&self.data_dir);
+        let resolved = tokio::task::spawn_blocking(move || {
+            pending
+                .0
+                .into_iter()
+                .map(|candidate| {
+                    let id = candidate.attachment_id().to_owned();
+                    let path = match store.verify_runtime_read_candidate(&candidate) {
+                        Ok(path) => Some(path),
+                        Err(error) => {
+                            eprintln!(
+                                "legacy_attachment_read_unavailable attachment_id={id}: {error:#}"
+                            );
+                            None
+                        }
+                    };
+                    (id, (candidate, path))
+                })
+                .collect::<rovai_core::context::LegacyAttachmentReads>()
+        })
+        .await
+        .context("legacy Attachment read task failed")?;
+        reads.extend(resolved);
+        Ok(())
     }
 
     async fn resolve_agent_run_source_attachment_paths(
@@ -15296,13 +15348,12 @@ impl Core {
         &self,
         execution: &AgentRunExecution,
     ) -> Result<PreparedMcpProjection> {
-        self.subsystems.require("mcp")?;
         let execution_root = PathBuf::from(&execution.workspace.execution_root);
         let mut projection = {
             let database = self.database.lock().await;
             self.mcp_projection.prepare(
                 &database,
-                self.mcp_config()?,
+                self.mcp_config(),
                 &McpProjectionRequest {
                     agent_run_id: &execution.agent_run_id,
                     execution_epoch: execution.execution_epoch,
@@ -16407,7 +16458,7 @@ impl Core {
     }
 
     async fn verified_camp_runtime_authorization(
-        &self,
+        self: &Arc<Self>,
         camp_id: &str,
         _workspace: &Path,
     ) -> Result<ThreadOutputDirectory> {
@@ -20038,12 +20089,16 @@ async fn run_core(
             .with_startup_configurations(rovai_core::runtime_startup::load_all(&database)?),
     );
     runtime_search_environment.activate_for_runtime_commands();
+    let search_summary = runtime_search_environment.summary();
+    database.record_runtime_search_environment_generation(
+        search_summary.generation,
+        &search_summary.created_at,
+    )?;
     // These recoveries fence durable execution/input state. Unlike optional
     // filesystem maintenance, their failure cannot expose normal execution.
     let compaction_detector_policies =
         DesiredCompactionDetectorPolicies::from_process_environment();
     let recovery = (|| -> Result<_> {
-        ManagedBlobStore::new(&data_dir).recover_gc_state(&mut database)?;
         recover_legacy_pending_cancellations(&mut database)?;
         rovai_core::single_chat::recover_pending_edit_sessions(&database)?;
         AutomationService::default().recover_interrupted(&mut database)?;
@@ -20090,15 +20145,6 @@ async fn run_core(
         )?;
         return Ok(());
     }
-    // Freeze candidate IDs before exposing RPC, then recheck eligibility at
-    // deletion time. A failed optional snapshot skips cleanup for this boot;
-    // neither fail authority readiness nor rescan newly created Camps on retry.
-    let startup_pending_camp_ids = CollaborationService::default()
-        .snapshot_pending_camps_for_startup_cleanup(&database)
-        .unwrap_or_else(|error| {
-            eprintln!("Startup pending Thread cleanup skipped: {error:#}");
-            Vec::new()
-        });
     let skill_library = SkillLibraryService::deferred(skill_library_root);
     let mcp_config = mcp_config_path
         .map_or_else(McpConfigStore::default_path, Ok)
@@ -20138,9 +20184,8 @@ async fn run_core(
         database: Arc::new(Mutex::new(database)),
         pasted_text_operations: Mutex::new(()),
         subsystems: CoreSubsystems::new(),
-        subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
+        subsystem_initialization: Mutex::new(()),
         removed_skill_project_roots,
-        startup_pending_camp_ids,
         builtin_tool_listener: Mutex::new(None),
         builtin_tool_listener_notify: Notify::new(),
         runtime_usage: Mutex::new(RuntimeUsageBuffer::default()),
@@ -20462,11 +20507,71 @@ async fn run_core(
             report.cleaned, report.skipped, report.budget_exhausted, report.diagnostics
         );
     });
+    let optional_core = core.clone();
+    tokio::spawn(async move {
+        optional_core.initialize_optional_subsystems().await;
+    });
+    let maintenance_core = core.clone();
+    let maintenance_cutoff = chrono::Utc::now().to_rfc3339();
+    tokio::spawn(async move {
+        let mut budget =
+            rovai_core::maintenance_budget::MaintenanceBudget::new(256, Duration::from_secs(3));
+        let candidates = {
+            let database =
+                tokio::time::timeout(Duration::from_millis(50), maintenance_core.database.lock())
+                    .await;
+            match database {
+                Ok(database) => CollaborationService::default()
+                    .snapshot_pending_camps_for_startup_cleanup(&database, &maintenance_cutoff),
+                Err(_) => Ok(Vec::new()),
+            }
+        };
+        match candidates {
+            Ok(candidates) => {
+                for camp in candidates {
+                    if !budget.take() {
+                        break;
+                    }
+                    let result = {
+                        let Ok(mut database) = tokio::time::timeout(
+                            Duration::from_millis(50),
+                            maintenance_core.database.lock(),
+                        )
+                        .await
+                        else {
+                            break;
+                        };
+                        CollaborationService::default()
+                            .discard_empty_pending_camps_on_startup(&mut database, &[camp])
+                    };
+                    match result {
+                        Ok(camps) => {
+                            for camp in camps {
+                                emit_navigation_invalidated(
+                                    &maintenance_core.output,
+                                    "camps.discardPending",
+                                    Some(&camp),
+                                );
+                                // Unreferenced output trees may contain newly written or
+                                // original files. Retain them instead of a historical sweep.
+                            }
+                        }
+                        Err(error) => budget.report("pending Thread retirement", error),
+                    }
+                }
+            }
+            Err(error) => budget.report("pending Thread candidates", error),
+        }
+        let cleanup_core = maintenance_core.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            ManagedBlobStore::new(&cleanup_core.data_dir)
+                .recover_gc_state(&cleanup_core.database, &mut budget);
+        })
+        .await;
+        maintenance_core.finish_subsystem("maintenance", Ok(()));
+    });
     let runtime_discovery_core = core.clone();
     let mut runtime_discovery_handle = tokio::spawn(async move {
-        runtime_discovery_core
-            .initialize_optional_subsystems()
-            .await;
         runtime_discovery_core.run_runtime_discovery().await;
         runtime_discovery_core
             .recover_pending_execution_intents()
@@ -28627,9 +28732,8 @@ mod tests {
             pasted_text_operations: Mutex::new(()),
             automation_scheduler_control: RwLock::new(None),
             subsystems: CoreSubsystems::ready_for_test(),
-            subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
+            subsystem_initialization: Mutex::new(()),
             removed_skill_project_roots: RemovedSkillProjectRoots::default(),
-            startup_pending_camp_ids: Vec::new(),
             builtin_tool_listener: Mutex::new(None),
             builtin_tool_listener_notify: Notify::new(),
             runtime_usage: Mutex::new(RuntimeUsageBuffer::default()),
@@ -30306,6 +30410,7 @@ done
                 rovai_core::runtime_startup::RuntimeStartupConfiguration {
                     custom_api_snapshot: None,
                     common_environment_unavailable: false,
+                    configuration_error: None,
                     program_path: Some(executable.to_string_lossy().into_owned()),
                     environment: vec![rovai_core::runtime_startup::RuntimeEnvironmentVariable {
                         name: "ROVAI_CATALOG_FIXTURE".into(),
@@ -30623,6 +30728,7 @@ done
                         rovai_core::runtime_startup::RuntimeStartupConfiguration {
                             custom_api_snapshot: None,
                         common_environment_unavailable: false,
+                    configuration_error: None,
                             program_path: Some(executable.to_string_lossy().into_owned()),
                             environment: Vec::new(),
                         },
@@ -31227,7 +31333,7 @@ done
         let root = root.canonicalize().unwrap();
         let workspace = root.join("data/quick-chat");
         fs::create_dir_all(&workspace).unwrap();
-        let core = runtime_resolution_test_core(&root).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
 
         let (camp_id, execution) = {
             let mut database = core.database.lock().await;
@@ -31308,7 +31414,7 @@ done
         let root = root.canonicalize().unwrap();
         let workspace = root.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
-        let core = runtime_resolution_test_core(&root).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
 
         let camp_id = {
             let mut database = core.database.lock().await;
@@ -31494,7 +31600,7 @@ done
         let root = root.canonicalize().unwrap();
         let workspace = root.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
-        let core = runtime_resolution_test_core(&root).unwrap();
+        let core = Arc::new(runtime_resolution_test_core(&root).unwrap());
         let source = root.join("published.txt");
         fs::write(&source, b"published source reference").unwrap();
 
@@ -31584,28 +31690,112 @@ done
             );
         }
 
-        let view_attachment_root = core
-            .attachment_views
-            .root()
-            .join("camps")
-            .join(&camp_id)
-            .join("attachments");
+        // Dispatch does not inspect historical attachments. Selected input reads
+        // use the original file verifier outside the shared database mutex.
+        fs::write(&source, b"historical attachment").unwrap();
+        let attachment_id = {
+            let mut database = core.database.lock().await;
+            let store = ThreadAttachmentStore::new(&core.data_dir);
+            core.attachment_views
+                .ensure_empty_camp_ready(&mut database, &camp_id)
+                .unwrap();
+            let draft = store
+                .save_body(&mut database, &camp_id, "Legacy message")
+                .unwrap();
+            let draft = store
+                .prepare_from_path(
+                    &mut database,
+                    &camp_id,
+                    draft.revision,
+                    &source,
+                    "published.txt",
+                )
+                .unwrap();
+            let command_id = uuid::Uuid::new_v4().to_string();
+            let publication = core
+                .attachment_views
+                .stage_publication(&mut database, &store, &camp_id, &command_id, draft.revision)
+                .unwrap()
+                .unwrap();
+            core.attachment_views
+                .gate_publication(&mut database, &publication)
+                .unwrap();
+            core.attachment_views
+                .promote_publication(&mut database, &publication)
+                .unwrap();
+            let execution = CollaborationService::default()
+                .send_user_camp_draft_with_publication(
+                    &mut database,
+                    &CommandEnvelope {
+                        command_id,
+                        actor: ActorRef::User {
+                            user_id: "test-user".into(),
+                        },
+                        camp_id: Some(camp_id.clone()),
+                        expected_versions: vec![],
+                        execution_epoch: None,
+                        payload: rovai_core::collaboration::SendUserThreadDraftCommand {
+                            draft_client: Default::default(),
+                            camp_id: camp_id.clone(),
+                            draft_revision: draft.revision,
+                            execution: None,
+                        },
+                    },
+                    Some(&publication.operation_id),
+                )
+                .unwrap();
+            assert_eq!(execution.result.status, CommandResultStatus::Applied);
+            core.attachment_views
+                .complete_publication(&mut database, &publication.operation_id)
+                .unwrap();
+            core.attachment_views
+                .mark_legacy_view_broken_for_test(&mut database, &camp_id)
+                .unwrap();
+            publication.attachment_ids[0].clone()
+        };
+        core.verified_camp_attachment_admission(&camp_id, &workspace)
+            .await
+            .unwrap();
+        let database = core.database.lock().await;
+        assert!(
+            rovai_core::camp_attachment_view::resolve_published_attachment_path(
+                database.connection(),
+                &camp_id,
+                &attachment_id
+            )
+            .is_err()
+        );
+        let candidate = ThreadAttachmentStore::new(&core.data_dir)
+            .desktop_open_candidate(&database, &camp_id, &attachment_id)
+            .unwrap()
+            .unwrap();
+        let mut reads = rovai_core::context::LegacyAttachmentReads::new();
+        // Holding the DB mutex here deterministically catches a regression that
+        // reacquires it for file verification (a timeout reports that deadlock).
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            core.resolve_pending_legacy_attachment_reads(
+                rovai_core::context::PendingLegacyAttachmentReads(vec![candidate]).into(),
+                &mut reads,
+            ),
+        )
+        .await
+        .expect("file reads must not acquire the global database mutex")
+        .unwrap();
+        let path = reads[&attachment_id].1.as_ref().unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"historical attachment");
+        drop(database);
+
+        let camps_root = core.attachment_views.root().join("camps");
         drop(admission);
+        core.attachment_views
+            .remove_camp_view(&mut *core.database.lock().await, &camp_id)
+            .unwrap();
         ThreadAttachmentStore::new(&core.data_dir)
             .remove_camp(&camp_id)
             .unwrap();
         drop(core);
-        fs::set_permissions(&view_attachment_root, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::set_permissions(
-            view_attachment_root.parent().unwrap(),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
-        fs::set_permissions(
-            view_attachment_root.parent().unwrap().parent().unwrap(),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
+        fs::set_permissions(&camps_root, fs::Permissions::from_mode(0o700)).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

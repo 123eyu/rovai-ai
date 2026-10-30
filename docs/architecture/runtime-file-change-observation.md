@@ -193,6 +193,8 @@ read/write/edit 的唯一原生路径可补齐相对 location；共享 normalize
 
 ## 故障边界
 
+临时 Blob intent 恢复不再决定 Core ready。逐条解析与枚举在锁外且有条数、时间、诊断预算；短锁只做引用复核、状态提交和原子交接。周期 GC 在删除前再次复核全部引用及候选状态，选中后重新挂接的 Blob 必须保留；实际删除在锁外。坏记录、无法证明归属或删除失败均保留并继续其他条目，不新建恢复账本。文件变化补投影使用有界候选与逐 Run 短锁，继续发送既有完成通知。
+
 - 文件变化是附加观察能力；Evidence 归一化、投影或 detail blob 失败不能反向改变 Run 终态；
 - 失败只记录安全诊断并允许启动恢复重试，不扫描文件系统补偿；
 - 当前 detail Managed Blob 由 projection row 作为 GC root。重算替换的旧 detail 按解除引用时间进入封闭

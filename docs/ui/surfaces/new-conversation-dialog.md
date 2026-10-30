@@ -1,5 +1,4 @@
 ---
-version: 12
 slug: "new-conversation-dialog"
 primary_target: "apps/desktop/src/renderer/src/NewConversationDialog.tsx"
 related_targets:
@@ -26,7 +25,7 @@ teammate and Lead pickers use a second Radix sheet with a back button. Teammates
 form and restores the originating picker focus without reopening the name keyboard. Desktop
 retains its existing geometry and menus. Both presentations share one draft and submission path.
 Selected teammate checkboxes and the create action use the current theme action family, including Portal menus.
-Follow [DESIGN.md](../../../../DESIGN.md#colors); disabled candidates keep their muted treatment.
+Follow [DESIGN.md](../../../DESIGN.md#colors); disabled candidates keep their muted treatment.
 
 Header: title “新对话” and an accessibly named close button. Keep the description available to
 assistive technology without repeating it visually. Use the paired dialog label and field tokens,
@@ -45,7 +44,7 @@ arrow-key navigation, `Esc` dismissal and focus return.
    uses the semantic success foreground and surface, while the in-progress inspection state remains neutral.
    Before removed-Project authority is ready, keep Project choices disabled, do not inspect or submit a cached
    directory, and identify the wait with neutral loading copy; Quick Chat creation remains available.
-2. **Team / Custom、队员 / 队长** — source selection follows [Team workspace](../../../../docs/ui/components/team-workspace.md).
+2. **Team / Custom、队员 / 队长** — source selection follows [Team workspace](../components/team-workspace.md).
    Team shows a read-only snapshot; Custom retains its draft and the teammate/Lead controls below.
    Initialize Custom from the saved custom roster filtered to currently available teammates,
    otherwise all available teammates in Member Order. A candidate is available only when its runtime
@@ -95,6 +94,6 @@ Submit the existing `peer` semantics without exposing a collaboration-mode selec
 
 ## Inheritance and hard boundaries
 
-Inherit root [`DESIGN.md`](../../../../DESIGN.md), the [theme registry](../../../../docs/ui/themes/README.md) and
-[accessibility baseline](../../../../docs/ui/qa/accessibility.md). This brief cannot alter directory
+Inherit root [`DESIGN.md`](../../../DESIGN.md), the [theme registry](../themes/README.md) and
+[accessibility baseline](../qa/accessibility.md). This brief cannot alter directory
 safety, Camp creation transactions, Pending/Active semantics, Member Order or Core draft authority.

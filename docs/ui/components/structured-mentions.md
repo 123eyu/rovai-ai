@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-composer-atoms-and-structured-mentions
 status: accepted
-last_updated: 2026-10-26
+last_updated: 2026-10-30
 ---
 
 # 结构化 Mention 与 Composer Atom
@@ -183,9 +183,9 @@ Draft 自动保存失败时 Composer 保留内容与 dirty 状态，显示可恢
 EditorState 或 undo history。正文 autosave 回执不刷新整个 Workspace；批量附件只在批次开始前 flush 一次正文。
 
 Draft 加载失败显示原位“草稿无法加载”和重新加载入口；此时正文、附件、Reply/Continuation 与发送全部禁用，不能
-用 revision-zero 空 Draft 替代错误。ContentEditable 关闭浏览器 spellcheck。发送和路由 mutation 在第一个异步等待前
-同步锁定 Lexical；Core 路由 mutation 改变 content 时在解锁前 authoritative-replace，发送成功则加载下一 Draft 后
-replace。失败保留现有正文并恢复交互。
+用可编辑的空 Draft 替代错误。ContentEditable 关闭浏览器 spellcheck。发送和本地路由 mutation 在第一个异步等待前
+同步锁定 Lexical；路由变更在解锁前回写编辑器，确认发送成功后才用新本机草稿替换已发送快照。
+失败保留现有正文并恢复交互；未知结果按原 commandId 核对。
 
 <a id="current-user-mention"></a>
 
@@ -229,8 +229,7 @@ Agent 消息中的 Current User Mention 可为前缀，也可位于任意已解�
 | 自动化与打包 App 回归 | [结构化 Mention 门禁](../../development/ui-acceptance.md#结构化-mention-门禁) |
 
 改为富文本/Markdown编辑、全局角色 Toast、页面跳转、模态 Dialog、每 Atom React Root 或其他信息架构属于产品
-变更，必须同步更新本文、当前 Contracts/Architecture、Renderer 测试和真实 App 验收。历史原型只解释已确认的
-信息卡选型，不是生产真源：[Mention Popover 原型](https://github.com/murray17/rovai-ai/blob/0de773a75231038e384c03cd761fea56344a6e4f/docs/prototypes/mention-popover/README.md)。
+变更，必须同步更新本文、当前 Contracts/Architecture、Renderer 测试和真实 App 验收。
 
 ## 公开引用候选
 

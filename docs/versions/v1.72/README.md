@@ -338,7 +338,7 @@ Claude Code、Copilot、Qwen 正式启动禁用提问工具；Kimi 与 Qwen 的�
 按 User 确认稿实现无蓝色的记忆工作区、压缩通知和编辑界面。保留副标题、三项摘要、审核入口和新增通知，
 增加“全部”范围，移除容量展示与治理筛选，详情/版本逐级展开；新增与修订使用中性主按钮。
 修复修订通知误报新建/共同范围，边界与验证见[实施记录](implementation-plan.md#记忆工作区-r42026-10-19)，
-布局规范见[Memory surface brief](../../../apps/desktop/.impeccable/surfaces/memory-workspace.md)。
+布局规范见[Memory surface brief](../../ui/surfaces/memory-workspace.md)。
 
 ## Antigravity 长任务与工具收尾（2026-10-19）
 

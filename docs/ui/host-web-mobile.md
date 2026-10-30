@@ -1,8 +1,6 @@
 ---
-document_type: ui-interaction-draft
-authority: host-web-mobile-interaction-proposal
-status: implemented
-target_version: v1.70
+document_type: ui-platform-guidance
+authority: renderer-mobile-layout
 last_updated: 2026-10-30
 ---
 
@@ -11,10 +9,6 @@ last_updated: 2026-10-30
 `apps/web` 的手机工作台挂载共享 `BusinessApp`、Camp、Composer 和正式管理页；
 没有复制交互稿的本地业务状态，也没有增加 Host、账号系统或移动专用业务后台。网络与归属仍遵循
 [Host Web v3](../contracts/host-web-v3.md)，领域操作继续由同一个 Rust Host / Core 处理。
-
-本文记录已实施的页面适配与验证边界。此前单文件 HTML 为评审历史，仍通过 Camp 附件取得，
-[旧示例证据](../versions/v1.59/evidence/mobile-review/validation.json)不证明生产能力；本地原型继续按
-[仓库规则](../README.md#本地原型)忽略，产品构建不依赖 `docs/prototypes/`。
 
 ## 入口与视觉
 
@@ -34,7 +28,7 @@ Web / Mobile 浏览器页签统一为 `Rovai AI`。远程连接中的“退出�
 根入口替换当前浏览器历史条目，分类和会话详情入栈；所有导航仍经过共享的离开检查。
 设置不显示 Desktop 的折叠、后退、前进三按钮。
 
-主要触摸入口至少 44px，编辑输入不小于 16px；消息操作与任务工具条按确认稿采用紧凑控件。
+主要触摸入口至少 44px，编辑输入不小于 16px；消息操作与任务工具条使用下文定义的紧凑控件。
 处理安全区和可视视口变化，缩放不重写工作台高度。
 所有手机页面、子页和弹层统一隐藏滚动条，保留原有滚动容器、滚动行为与内容布局，包含消息区、定时任务和设置各层级。
 日期、时间和业务弹窗在可视范围内滚动。移除焦点专用黑框、描边和光晕，保留 DOM 焦点、键盘操作、
@@ -171,24 +165,18 @@ Server 更新通过统一 Rust Host 的认证接口完成，使用独立 Server 
 
 ## 验证
 
-生产入口验证见 [Mobile 自动验收](../versions/v1.59/evidence/mobile-compact/validation.json)，
-[执行组件验证](../versions/v1.59/evidence/mobile-compact/execution-validation.json)和
-[独立 Server 验证](../versions/v1.59/evidence/mobile-compact/server-validation.json)。
-最终紧凑稿的包级检查和本机安装交接见[验收记录](../versions/v1.59/evidence/mobile-compact/README.md)。
-
 `pnpm build:web` 后运行 `pnpm test:host-web-mobile`；需要本机已构建的 `rovai-host`、`rovai-server`、macOS Chrome 和已安装的 Codex CLI。
 新建使命用例在隔离数据内配置队员使用 Runtime 默认模型，只保存使命，并断言没有启动 Run。
 `ROVAI_MOBILE_OUTPUT=<绝对路径>` 可保留截图与 JSON。测试使用隔离数据根、Skill Library、MCP config 和浏览器目录，
 日志记录绝对位置，不使用日常 App 数据，也不启动真实 Runtime。
 
-真实 Host 用例覆盖登录、列表 5 → 10 → 11 → 5、会话抽屉、执行入口、二级面板关闭返回、切换/刷新草稿、Return、@、共享管理和六种计划。
-使命扩展用例覆盖真实创建记录、状态筛选与搜索、使命会话草稿、预览优先返回、返回使命板、长按改状态、编辑及新建草稿恢复。
-设置总览的完整分类和无搜索约束使用生产入口验证，分类历史的浏览器返回/刷新由导航适配器测试覆盖。
-附件上传、来源授权与 HTML 读取由共享 Host Web 用例覆盖；手机文件预览的独立实体设备验收仍待完成。
-多队员连续 Run、执行弹层几何和展开状态来自共享生产组件 fixture，明确标记模拟证据，不冒充真实模型执行。
-独立 Server 用例验证渠道隐藏、真实版本和仅 Server 可见的更新控件；安装重启与真实 Release 验收分别记录。
-截图覆盖 360/390/430px、触摸横屏 844px 与日夜主题；它们是 macOS Chrome 模拟，**不等于实体手机验收**。
-实体 iOS Safari / Android Chrome 的软键盘、图库/相机、后台恢复与移动网络切换，以及第二实体设备联调仍待完成。
+验收覆盖登录与恢复、列表分页、会话抽屉、执行与二级面板、切换/刷新草稿、Return、@、共享管理、六种计划，
+以及使命创建、筛选、长按菜单、编辑草稿与预览优先返回。设置分类须覆盖浏览器返回、前进与刷新。
+附件上传、来源授权与 HTML 读取复用 Host Web 验收；Server 另验渠道隐藏、真实版本和更新控件。
+多队员连续 Run 与执行弹层的组件 fixture 不证明真实模型执行；安装重启与 Release 验收独立执行。
+视口至少覆盖 360/390/430px 和触摸横屏 844px，并按[全部配色矩阵](qa/theme-matrix.md)验收。
+浏览器模拟不能替代实体 iOS Safari / Android Chrome：软键盘、图库/相机、文件预览、后台恢复、
+移动网络切换和第二设备联调必须另留真机证据，缺失时不得宣称完成。
 
 ### 会话模型信息
 

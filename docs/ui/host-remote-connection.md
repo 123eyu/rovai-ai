@@ -1,31 +1,18 @@
 ---
-document_type: ui-interaction-draft
-authority: host-remote-connection-settings-review
-status: implemented
-target_version: v1.59
+document_type: ui-platform-guidance
+authority: renderer-host-remote-connection
 last_updated: 2026-10-30
 ---
 
-# 设置 · 远程连接交互稿
+# 设置 · 远程连接
 
 远程连接设置管理 Desktop 的浏览器访问入口，并显示 Web 当前连接状态；不提供切换 Host 或服务发现。
-Desktop/Web 共用生产组件，离线评审仅注入模拟依赖。Host 能力与平台边界见[宽屏对照](host-web-parity.md)。
-
-## 可直接查看的稿件
-
-运行 `pnpm review:remote-connection`，打开输出的
-`out/review-delivery/remote-connection/remote-connection-review.html`。它是可离线打开的单文件交互稿，
-外层工具栏提供 Desktop/Web、日夜主题、状态与三种宽屏尺寸。工具栏属于评审器，不进入产品。
-菜单中的“通用”“外观”直接挂载当前生产页面，便于同视口对照。
-
-[Renderer 入口](../../scripts/fixtures/remote-connection/renderer.tsx)和
-[构建脚本](../../scripts/review-remote-connection.mjs)沿用现有 Vite/React fixture 方式。
-开启、关闭、登录只修改该稿的内存。地址、路径、会话数、令牌均为固定示例；
-不连接 Host、不打开监听端口、不读写工作区、不启动 Runtime。复制动作只复制稿中示例。
+Desktop/Web 共用生产组件。Host 能力与授权边界见 [Host Web v4](../contracts/host-web-v4.md)，
+平台呈现差异见 [Desktop/Web 共用界面](host-web-parity.md)。
 
 ## 共享组件与页面布局
 
-页面遵循 [DESIGN.md](../../DESIGN.md) 与[设置工作区 brief](../../apps/desktop/.impeccable/surfaces/settings-workspace.md)。
+页面遵循 [DESIGN.md](../../DESIGN.md) 与[设置工作区 brief](surfaces/settings-workspace.md)。
 单字段错误就近显示；开启失败后焦点回到对应字段。浏览器快捷键取客户端设备平台，Host 的操作系统和 Runtime 能力另行读取。
 
 | 部位 | 直接复用的源码 | 页面规则 |
@@ -77,21 +64,6 @@ Web 的同一菜单显示当前 Host 地址及连接状态，可退出本页登�
 同页重新登录保留编辑身份、Composer 与原命令核对。Web 不需要本机管理密钥读取能力来访问业务页面。
 不构建多租户、强隔离执行或用户可配置的安全平台；范围见 [Host Web v3](../contracts/host-web-v3.md)。
 
-## 生产组件与验收
+## 验证
 
-- `HostWebSettings`：Desktop 的实际服务状态、地址选择、令牌读取及生命周期协调。
-- `RemoteConnectionStatus`：实际浏览器与离线稿共用的连接状态页面。
-- `SettingsSidebarNavigation`、`SettingsPageHeader`、General/Appearance：原生产导航和对照基准。
-- `HostWorkspacePicker`：浏览器文件系统适配，不复制 Core 的工作区业务规则。
-
-`pnpm test:remote-connection-review` 在隔离 Chrome profile 验证双主题、几何、键盘错误定位、
-图标复制反馈与恢复、令牌显隐、一键开启、直接关闭、端口延迟应用与切页保留、关闭后令牌仍可用、页面返回后读取令牌、地址切换不改令牌、两类地址的二维码解码结果与地址一致、
-空地址禁用复制和二维码、窄宽屏及减少动效。
-该稿使用模拟 API，不能替代实际网络验收。真实 `pnpm test:host-web` 证明无预授权目录的 HTTP 项目操作、
-令牌重复读取不撤销登录，以及已有草稿/上传/回执/撤销/关闭边界。真实 Desktop/Web 页面验收由
-`pnpm test:host-web-live` 拥有；早期结果与当时缺口见 [v1.59 实施记录](../versions/v1.59/implementation-plan.md)，当前验收范围从[版本索引](../versions/README.md)进入。
-
-早期评审外观见[日间](../versions/v1.59/evidence/retained-token/remote-day.png)与
-[夜间](../versions/v1.59/evidence/retained-token/remote-night.png)与
-[复制反馈](../versions/v1.59/evidence/retained-token/remote-copied.png)；
-[交互/产物哈希记录](../versions/v1.59/evidence/retained-token/remote-connection-review.json)明确标记模拟 API。
+按 [UI 验收流程](../development/ui-acceptance.md#独立-ui-验收)分别验证组件交互、Host 授权与真实 Desktop/Web 连接。

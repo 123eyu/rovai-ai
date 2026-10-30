@@ -29,11 +29,11 @@ Automation、队员、设置能力、Mention、提醒、渠道与首次训练。
 
 ## 页面局部 Brief
 
-- [队员工作区](../../apps/desktop/.impeccable/surfaces/member-workspace.md)
-- [记忆工作区](../../apps/desktop/.impeccable/surfaces/memory-workspace.md)
-- [设置工作区](../../apps/desktop/.impeccable/surfaces/settings-workspace.md)
-- [运行监控](../../apps/desktop/.impeccable/surfaces/runtime-monitoring.md)
-- [新对话 Dialog](../../apps/desktop/.impeccable/surfaces/new-conversation-dialog.md)
+- [队员工作区](surfaces/member-workspace.md)
+- [记忆工作区](surfaces/memory-workspace.md)
+- [设置工作区](surfaces/settings-workspace.md)
+- [运行监控](surfaces/runtime-monitoring.md)
+- [新对话 Dialog](surfaces/new-conversation-dialog.md)
 
 Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brief 时读取现有组件与测试，不创建空占位。
 
@@ -52,7 +52,7 @@ Brief 只补充页面信息优先级、构图与局部约束。没有匹配 brie
 - [全部配色覆盖矩阵](qa/theme-matrix.md)
 - [无障碍基线](qa/accessibility.md)
 - [桌面 UI 验收](../development/ui-acceptance.md)
-- [Coding Agent UI 与设计文档工作流](../development/coding-agent-impeccable-ui-workflow.md)
+- [Coding Agent UI 与设计文档工作流](../development/coding-agent-ui-workflow.md)
 
 修改 UI 后按[最小验证矩阵](../development/local-workflow.md#最小验证矩阵)执行检查。
 原型按[本地原型规则](../README.md#本地原型)保存；不能替代生产组件验收。

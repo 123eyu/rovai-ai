@@ -170,7 +170,7 @@ HTML／TSV、悬浮和键盘、失败重试、流式更新、宽表滚动与主�
 | 构建 Release Core、App、DMG，检查签名 | [macOS 构建与打包](packaging.md) |
 | 构建或验收 Windows x64 sidecar、NSIS、签名与升级 | [Windows x64 构建、打包与发布](packaging-windows.md) |
 | 使用隔离 `userData` 运行真实 App、截图或桌面验收 | [桌面 UI 验收](ui-acceptance.md) |
-| 维护设计规则、页面 brief 或 Agent UI 工作流 | [Coding Agent UI 与设计文档工作流](coding-agent-impeccable-ui-workflow.md) |
+| 维护设计规则、页面 brief 或 Agent UI 工作流 | [Coding Agent UI 与设计文档工作流](coding-agent-ui-workflow.md) |
 | 处理 Core、Runtime、Git、签名、测试卡住或 Rust `target/` 膨胀 | [常见问题排查](troubleshooting.md) |
 
 具体版本的页面矩阵、Schema 版本、Migration 路径和验收证据属于

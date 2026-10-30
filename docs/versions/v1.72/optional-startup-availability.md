@@ -62,6 +62,18 @@ Core RPC 相关场景 11 项通过；macOS 的隐藏系统 Pi 不适用场景按
 
 最小验证命令：`cargo test -p rovai-core --features extended-tests,slow-tests --lib <上述 owner>`；RPC 先 `cargo build -p rovai-core --bins`，再按上述场景名称过滤 Node 测试。修复后附件 25 项、其余三个 Rust owner 各 1 项通过；首次初始化用例包含 generation 0、尚未生成目录条目的真实恢复形状。Core 构建通过，选定实际 RPC 场景共 8 项通过（含可选服务的子场景）；格式检查、文档测试及两项文档检查通过。
 
-`pnpm test:rust:pr` 未全绿：Core lib 429 通过、2 失败、1 个原有 ignored，后续 workspace target 未因此获得通过结论。失败为 `mcp_import::tests::import_commit_rehydrates_credentials_and_fences_replacement_before_startup` 与 `storage_layout::tests::standalone_runtime_root_preserves_native_admission_and_owner`。在独立的修复前 `2bca8e020` worktree 复跑，两项在同一断言处失败；属于本轮前已有失败，未删除、放宽或跳过断言。修复前后日志均保留。
+`pnpm test:rust:pr` 当轮未全绿：Core lib 429 通过、2 失败、1 个原有 ignored，后续 workspace target 未因此获得通过结论。失败为 `mcp_import::tests::import_commit_rehydrates_credentials_and_fences_replacement_before_startup` 与 `storage_layout::tests::standalone_runtime_root_preserves_native_admission_and_owner`。在 `2bca8e020` 复跑只能证明同一个 PR 的旧提交也有问题，不能证明 main 原本失败。User sequence 45 纠正分类：MCP 导入是本 PR 引入的缺陷；目录独占断言与本 PR 的延迟初始化行为不符，应更新原 owner。前后日志保留。
 
 已有真实用户副本、Windows Desktop/Runtime 与安装路径验收缺口不因本轮修复消失，PR 保持 Draft。本轮仅启动隔离 Core 和测试夹具进程，未运行真实模型任务、未退出或替换日常 App。
+
+## 旧附件读取与首次 MCP 导入修正（User sequence 45）
+
+基线 `0a8c95847`；Governance：none；Status：implemented（PR 仍为 Draft）。上一轮整 Thread 恢复虽在后台线程执行，仍持有全局数据库锁并依赖旧清理，现已撤掉。沿用实际输入的消息选择和大小预算，分成锁内候选、锁外单文件校验、锁内记录复核与冻结；复用既有 Authority 原文件和校验器，不复制目录、修复无关 operation 或标记整个 View 已恢复。历史查询也使用具体原文件位置。已冻结输入保留原路径与证据。
+
+MCP 导入读取改为与设置读取、提交一致的按需初始化，保留只读 inspect 和现有冲突检查。目录准入测试改验不创建旧根、不取得旧根独占；原路径、重叠拒绝、token 与日志断言保留，没有恢复启动门槛。
+
+测试归属：扩展原 Context 附件 owner，覆盖 ready 但派生文件丢失、三种未 ready 状态、无关清理未完成及未知文件保留、所选坏源不影响好源、未选择的历史附件不读取。原 View follow-up owner 回归其发布职责，上一轮新增的三状态读取断言由 Context owner 承接；不删除测试函数。Core 派发 owner 持有数据库锁调用文件读取，验证读取不会再取得该锁。MCP 导入 owner 保留真实文件及本地接收进程，覆盖无需先打开设置即可导入。Context owner 的当前格式版本断言改用现行版本常量，历史冻结版本断言保留。派生文件丢失夹具复用跨平台移除权限工具，未新增 Windows 跳过。无新增独立 Rust 测试函数、持久状态或测试豁免。
+
+macOS 验证：Context/派发、旧 View、历史查询、MCP 导入及目录准入共 42 项定向 Rust owner 通过；复用单附件读取器的路径与归属安全 owner 另 1 项通过。`pnpm test:rust:pr` 完整 workspace 477 通过、0 失败、1 个原有 ignored，上一轮两项失败均已修复。Core binary 构建通过；重建后的隔离 Core RPC 场景 8 项通过。文档测试、文档版本/决策检查和以 `0a8c95847` 为基线的变更检查通过。日志按本轮提交保存在附件验收目录。
+
+本轮仅使用独立数据目录及测试夹具，不连接真实模型、不操作日常 App。上述 macOS 结果不代替当前修改的 Windows 原生验证、真实用户原会话/原使命副本与安装路径验收；这些门槛仍待完成，PR 保持 Draft。

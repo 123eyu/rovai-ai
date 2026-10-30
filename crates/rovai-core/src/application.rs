@@ -15121,22 +15121,34 @@ impl Core {
         let source_attachment_paths = self
             .resolve_agent_run_source_attachment_paths(execution)
             .await?;
-        let materialization = {
-            let mut database = self.database.lock().await;
-            ContextService.materialize_with_exposures_and_source_attachments(
-                &mut database,
-                &ManagedBlobStore::new(&self.data_dir),
-                skill_exposure,
-                mcp_projection,
-                &source_attachment_paths,
-                &MaterializeContextRequest {
-                    agent_run_id: &execution.agent_run_id,
-                    execution_epoch: execution.execution_epoch,
-                    charter_delivery_mode: request.charter_delivery_mode,
-                    max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
-                },
-            )
-        }?;
+        let mut reads = rovai_core::context::LegacyAttachmentReads::new();
+        let materialization = loop {
+            let result = {
+                let mut database = self.database.lock().await;
+                ContextService.materialize_with_attachment_reads(
+                    &mut database,
+                    &ManagedBlobStore::new(&self.data_dir),
+                    Some(skill_exposure),
+                    Some(mcp_projection),
+                    &source_attachment_paths,
+                    &MaterializeContextRequest {
+                        agent_run_id: &execution.agent_run_id,
+                        execution_epoch: execution.execution_epoch,
+                        charter_delivery_mode: request.charter_delivery_mode,
+                        max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
+                    },
+                    None,
+                    &reads,
+                )
+            };
+            match result {
+                Ok(materialization) => break materialization,
+                Err(error) => {
+                    self.resolve_pending_legacy_attachment_reads(error, &mut reads)
+                        .await?
+                }
+            }
+        };
         match materialization {
             ContextMaterialization::Ready(prepared) => Ok(Some(prepared)),
             ContextMaterialization::Waiting(wait) => {
@@ -15169,56 +15181,59 @@ impl Core {
         let source_attachment_paths = self
             .resolve_agent_run_source_attachment_paths(execution)
             .await?;
-        let preparation = {
-            // The Core database mutex is the logical Runtime Input preparation
-            // boundary. A Compaction Observer cannot commit between selecting
-            // the pending revision and persisting RuntimeInputDelivery.prepared.
-            let mut database = self.database.lock().await;
-            let materialize_request = MaterializeContextRequest {
-                agent_run_id: &execution.agent_run_id,
-                execution_epoch: execution.execution_epoch,
-                charter_delivery_mode: request.charter_delivery_mode,
-                max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
-            };
-            let materialization = match mcp_projection {
-                Some(mcp_projection) => ContextService
-                    .materialize_with_exposures_and_source_attachments(
-                        &mut database,
-                        &ManagedBlobStore::new(&self.data_dir),
-                        skill_exposure,
-                        mcp_projection,
-                        &source_attachment_paths,
-                        &materialize_request,
-                    )?,
-                None => ContextService.materialize_with_skill_exposure_and_source_attachments(
+        let mut reads = rovai_core::context::LegacyAttachmentReads::new();
+        let preparation = loop {
+            let attempt: Result<_> = async {
+                // The Core database mutex is the logical Runtime Input preparation
+                // boundary. A Compaction Observer cannot commit between selecting
+                // the pending revision and persisting RuntimeInputDelivery.prepared.
+                let mut database = self.database.lock().await;
+                let materialize_request = MaterializeContextRequest {
+                    agent_run_id: &execution.agent_run_id,
+                    execution_epoch: execution.execution_epoch,
+                    charter_delivery_mode: request.charter_delivery_mode,
+                    max_payload_bytes: runtime_max_context_payload_bytes(&execution.runtime),
+                };
+                let materialization = ContextService.materialize_with_attachment_reads(
                     &mut database,
                     &ManagedBlobStore::new(&self.data_dir),
-                    skill_exposure,
+                    Some(skill_exposure),
+                    mcp_projection,
                     &source_attachment_paths,
                     &materialize_request,
-                )?,
-            };
-            match materialization {
-                ContextMaterialization::Ready(context) => {
-                    let delivery = match request.proposed_delivery_id {
-                        Some(identity) => ContextService
-                            .prepare_input_delivery_for_context_with_identity(
+                    None,
+                    &reads,
+                )?;
+                Ok(match materialization {
+                    ContextMaterialization::Ready(context) => {
+                        let delivery = match request.proposed_delivery_id {
+                            Some(identity) => ContextService
+                                .prepare_input_delivery_for_context_with_identity(
+                                    &mut database,
+                                    &execution.agent_run_id,
+                                    execution.execution_epoch,
+                                    &context,
+                                    identity,
+                                )?,
+                            None => ContextService.prepare_input_delivery_for_context(
                                 &mut database,
                                 &execution.agent_run_id,
                                 execution.execution_epoch,
                                 &context,
-                                identity,
                             )?,
-                        None => ContextService.prepare_input_delivery_for_context(
-                            &mut database,
-                            &execution.agent_run_id,
-                            execution.execution_epoch,
-                            &context,
-                        )?,
-                    };
-                    Some(Ok((context, delivery)))
+                        };
+                        Some(Ok((context, delivery)))
+                    }
+                    ContextMaterialization::Waiting(wait) => Some(Err(wait)),
+                })
+            }
+            .await;
+            match attempt {
+                Ok(preparation) => break preparation,
+                Err(error) => {
+                    self.resolve_pending_legacy_attachment_reads(error, &mut reads)
+                        .await?
                 }
-                ContextMaterialization::Waiting(wait) => Some(Err(wait)),
             }
         };
         match preparation {
@@ -15239,6 +15254,38 @@ impl Core {
             }
             None => Ok(None),
         }
+    }
+
+    async fn resolve_pending_legacy_attachment_reads(
+        &self,
+        error: anyhow::Error,
+        reads: &mut rovai_core::context::LegacyAttachmentReads,
+    ) -> Result<()> {
+        let pending = error.downcast::<rovai_core::context::PendingLegacyAttachmentReads>()?;
+        let store = ThreadAttachmentStore::new(&self.data_dir);
+        let resolved = tokio::task::spawn_blocking(move || {
+            pending
+                .0
+                .into_iter()
+                .map(|candidate| {
+                    let id = candidate.attachment_id().to_owned();
+                    let path = match store.verify_runtime_read_candidate(&candidate) {
+                        Ok(path) => Some(path),
+                        Err(error) => {
+                            eprintln!(
+                                "legacy_attachment_read_unavailable attachment_id={id}: {error:#}"
+                            );
+                            None
+                        }
+                    };
+                    (id, (candidate, path))
+                })
+                .collect::<rovai_core::context::LegacyAttachmentReads>()
+        })
+        .await
+        .context("legacy Attachment read task failed")?;
+        reads.extend(resolved);
+        Ok(())
     }
 
     async fn resolve_agent_run_source_attachment_paths(
@@ -16415,50 +16462,8 @@ impl Core {
         camp_id: &str,
         _workspace: &Path,
     ) -> Result<ThreadOutputDirectory> {
-        // Repair only the current Thread before its context is frozen. An
-        // unavailable legacy source must not gate ordinary source-ref tasks.
-        if let Err(error) = self.recover_legacy_camp_attachments(camp_id).await {
-            eprintln!("legacy_attachment_recovery_pending camp_id={camp_id}: {error:#}");
-        }
         let database = self.database.lock().await;
         ThreadOutputDirectory::prepare(&database, camp_id)
-    }
-
-    async fn recover_legacy_camp_attachments(self: &Arc<Self>, camp_id: &str) -> Result<()> {
-        {
-            let database = self.database.lock().await;
-            if !self
-                .attachment_views
-                .camp_needs_recovery(&database, camp_id)?
-            {
-                return Ok(());
-            }
-        }
-        let (guard, _) = self.acquire_camp_attachment_mutation(camp_id).await?;
-        {
-            let database = self.database.lock().await;
-            if self
-                .attachment_views
-                .camp_has_active_runtime(&database, camp_id)?
-            {
-                return Ok(());
-            }
-        }
-        self.runtime_fleet
-            .fence_camp_for_attachment_mutation(camp_id)
-            .await?;
-        let core = Arc::clone(self);
-        let camp_id = camp_id.to_owned();
-        tokio::task::spawn_blocking(move || {
-            let _guard = guard;
-            core.attachment_views.recover_camp_on_demand(
-                &mut core.database.blocking_lock(),
-                &ThreadAttachmentStore::new(&core.data_dir),
-                &camp_id,
-            )
-        })
-        .await
-        .context("legacy Attachment recovery task failed")?
     }
 
     async fn launch_agent_run(
@@ -31685,8 +31690,8 @@ done
             );
         }
 
-        // Actual historical attachments take the targeted recovery path before
-        // dispatch freezes context; source-only Threads above remain untouched.
+        // Dispatch does not inspect historical attachments. Selected input reads
+        // use the original file verifier outside the shared database mutex.
         fs::write(&source, b"historical attachment").unwrap();
         let attachment_id = {
             let mut database = core.database.lock().await;
@@ -31751,16 +31756,35 @@ done
         core.verified_camp_attachment_admission(&camp_id, &workspace)
             .await
             .unwrap();
-        {
-            let database = core.database.lock().await;
-            let path = rovai_core::camp_attachment_view::resolve_published_attachment_path(
+        let database = core.database.lock().await;
+        assert!(
+            rovai_core::camp_attachment_view::resolve_published_attachment_path(
                 database.connection(),
                 &camp_id,
-                &attachment_id,
+                &attachment_id
             )
-            .expect("dispatch must restore the locator used by the context reader");
-            assert_eq!(fs::read(path).unwrap(), b"historical attachment");
-        }
+            .is_err()
+        );
+        let candidate = ThreadAttachmentStore::new(&core.data_dir)
+            .desktop_open_candidate(&database, &camp_id, &attachment_id)
+            .unwrap()
+            .unwrap();
+        let mut reads = rovai_core::context::LegacyAttachmentReads::new();
+        // Holding the DB mutex here deterministically catches a regression that
+        // reacquires it for file verification (a timeout reports that deadlock).
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            core.resolve_pending_legacy_attachment_reads(
+                rovai_core::context::PendingLegacyAttachmentReads(vec![candidate]).into(),
+                &mut reads,
+            ),
+        )
+        .await
+        .expect("file reads must not acquire the global database mutex")
+        .unwrap();
+        let path = reads[&attachment_id].1.as_ref().unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"historical attachment");
+        drop(database);
 
         let camps_root = core.attachment_views.root().join("camps");
         drop(admission);

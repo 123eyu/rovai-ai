@@ -1011,7 +1011,7 @@ impl McpConfigStore {
         &self,
         known_agent_ids: &BTreeSet<String>,
     ) -> Result<(McpConfigView, Option<McpConfigFile>)> {
-        let loaded = self.load()?;
+        let loaded = self.load_or_initialize()?;
         let view = self.view(&loaded, known_agent_ids)?;
         Ok((view, loaded.config))
     }

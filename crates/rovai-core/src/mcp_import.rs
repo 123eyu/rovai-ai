@@ -1222,7 +1222,13 @@ mod tests {
                 .scan_specs(&store, &agents(), specs())
                 .unwrap()
         };
+        assert!(!store.path().exists());
         let inspection = scan();
+        assert_eq!(
+            inspection.config_digest,
+            store.get(&agents()).unwrap().config_digest,
+            "direct import and settings must observe the same initial revision"
+        );
         let selections = inspection
             .candidates
             .iter()

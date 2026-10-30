@@ -917,6 +917,7 @@ mod tests {
                 let mut configuration = RuntimeStartupConfiguration {
                     custom_api_snapshot: None,
                     common_environment_unavailable: false,
+                    configuration_error: None,
                     program_path: None,
                     environment: vec![RuntimeEnvironmentVariable {
                         name: if cfg!(windows) { "USERPROFILE" } else { "HOME" }.to_owned(),
@@ -1073,6 +1074,7 @@ mod tests {
         let configuration = RuntimeStartupConfiguration {
             custom_api_snapshot: None,
             common_environment_unavailable: false,
+            configuration_error: None,
             program_path: None,
             environment: vec![RuntimeEnvironmentVariable {
                 name: if cfg!(windows) { "USERPROFILE" } else { "HOME" }.to_owned(),
@@ -1253,6 +1255,7 @@ mod tests {
         let configuration = RuntimeStartupConfiguration {
             custom_api_snapshot: None,
             common_environment_unavailable: false,
+            configuration_error: None,
             program_path: None,
             environment: vec![RuntimeEnvironmentVariable {
                 name: if cfg!(windows) { "USERPROFILE" } else { "HOME" }.to_owned(),

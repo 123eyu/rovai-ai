@@ -210,33 +210,6 @@ fn environment_pairs(values: &BTreeMap<String, String>) -> Vec<Value> {
         .collect()
 }
 
-pub(crate) fn remove_stale_mcp_configs(private_runtime_dir: &Path) -> Result<()> {
-    let directory = private_runtime_dir.join("external-mcp");
-    if !directory.exists() {
-        return Ok(());
-    }
-    set_private_directory_permissions(&directory)?;
-    for entry in fs::read_dir(&directory)
-        .with_context(|| format!("failed to inspect {}", directory.display()))?
-    {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let file_type = entry.file_type()?;
-        if file_type.is_file()
-            && (name.starts_with(COPILOT_CONFIG_PREFIX) || name.starts_with(ADDITIVE_CONFIG_PREFIX))
-            && name.ends_with(CONFIG_SUFFIX)
-        {
-            fs::remove_file(entry.path())
-                .with_context(|| format!("failed to remove stale external MCP config {name}"))?;
-        } else if file_type.is_dir() && name.starts_with(GROK_PLUGIN_PREFIX) {
-            fs::remove_dir_all(entry.path())
-                .with_context(|| format!("failed to remove stale Grok MCP plugin {name}"))?;
-        }
-    }
-    Ok(())
-}
-
 pub(crate) struct EphemeralMcpConfigFile {
     path: PathBuf,
     cleanup: EphemeralMcpCleanup,
@@ -349,7 +322,8 @@ mod tests {
             fs::create_dir_all(path).unwrap();
             fs::write(path.join(".mcp.json"), b"retained material").unwrap();
         }
-        // Initialization owns the cleanup; no Run completion calls it.
+        // Initialization cannot prove ownership of historical files. Preserve them;
+        // only the live per-task handle removes its own generated plugin.
         #[cfg(feature = "extended-tests")]
         {
             let (incoming, _receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -363,11 +337,10 @@ mod tests {
                 crate::compaction::CompactionDetectorPolicy::Disabled,
             );
             adapter.initialize_storage().unwrap();
-            assert!(!stale.exists());
+            assert!(stale.exists());
         }
-        remove_stale_mcp_configs(&directory).unwrap();
-        assert!(!stale.exists());
-        for path in [&legacy, &unrelated] {
+        assert!(stale.exists());
+        for path in [&legacy, &unrelated, &stale] {
             assert_eq!(
                 fs::read(path.join(".mcp.json")).unwrap(),
                 b"retained material"

@@ -112,7 +112,6 @@ use rovai_core::{
         ThreadAttachmentStore, desktop_target_for_source_attachment,
         legacy_attachment_belongs_to_owner, preview_source_attachment,
     },
-    camp_attachment_publication::unresolved_publication_camp_ids,
     camp_attachment_view::{PreparedThreadAttachmentCleanup, ThreadAttachmentViewStore},
     camp_content::ComposerDocument,
     camp_deletion::{
@@ -191,7 +190,6 @@ use rovai_core::{
         LocalAttachmentFailure, LocalAttachmentOwnerLocator, load_agent_run_source_attachments,
         observe_source_attachment, resolve_source_attachments_for_run,
     },
-    managed_attachment::ManagedAttachmentStore,
     managed_blob::ManagedBlobStore,
     mcp::{
         CommitMcpImportParams, CreateMcpServerParams, DeleteMcpServerParams, McpConfigStore,
@@ -2438,7 +2436,6 @@ struct Core {
     subsystems: CoreSubsystems,
     subsystem_initialization: Mutex<SubsystemInitialization>,
     removed_skill_project_roots: RemovedSkillProjectRoots,
-    startup_pending_camp_ids: Vec<String>,
     builtin_tool_listener: Mutex<Option<LocalIpcListener>>,
     builtin_tool_listener_notify: Notify,
     runtime_usage: Mutex<RuntimeUsageBuffer>,
@@ -3140,10 +3137,14 @@ impl Core {
     }
 
     async fn cleanup_mcp_projections_best_effort(&self) {
-        let database = self.database.lock().await;
-        if let Err(error) = self.mcp_projection.cleanup_terminal_and_orphaned(&database) {
-            eprintln!("failed to clean MCP Runtime projections: {error:#}");
-        }
+        let database = self.database.clone();
+        let service = McpProjectionService::new(&self.data_dir);
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut budget =
+                rovai_core::maintenance_budget::MaintenanceBudget::new(128, Duration::from_secs(2));
+            service.cleanup_terminal(&database, &mut budget);
+        })
+        .await;
     }
 
     async fn forget_deleted_camp_runtimes(&self, camp_id: &str) {
@@ -5216,6 +5217,7 @@ impl Core {
                     rovai_core::runtime_startup::RuntimeStartupConfiguration {
                         custom_api_snapshot: None,
                         common_environment_unavailable: false,
+                        configuration_error: None,
                         program_path: Some(
                             existing_entrypoint_locator
                                 .as_ref()
@@ -15296,13 +15298,12 @@ impl Core {
         &self,
         execution: &AgentRunExecution,
     ) -> Result<PreparedMcpProjection> {
-        self.subsystems.require("mcp")?;
         let execution_root = PathBuf::from(&execution.workspace.execution_root);
         let mut projection = {
             let database = self.database.lock().await;
             self.mcp_projection.prepare(
                 &database,
-                self.mcp_config()?,
+                self.mcp_config(),
                 &McpProjectionRequest {
                     agent_run_id: &execution.agent_run_id,
                     execution_epoch: execution.execution_epoch,
@@ -20038,12 +20039,16 @@ async fn run_core(
             .with_startup_configurations(rovai_core::runtime_startup::load_all(&database)?),
     );
     runtime_search_environment.activate_for_runtime_commands();
+    let search_summary = runtime_search_environment.summary();
+    database.record_runtime_search_environment_generation(
+        search_summary.generation,
+        &search_summary.created_at,
+    )?;
     // These recoveries fence durable execution/input state. Unlike optional
     // filesystem maintenance, their failure cannot expose normal execution.
     let compaction_detector_policies =
         DesiredCompactionDetectorPolicies::from_process_environment();
     let recovery = (|| -> Result<_> {
-        ManagedBlobStore::new(&data_dir).recover_gc_state(&mut database)?;
         recover_legacy_pending_cancellations(&mut database)?;
         rovai_core::single_chat::recover_pending_edit_sessions(&database)?;
         AutomationService::default().recover_interrupted(&mut database)?;
@@ -20090,15 +20095,6 @@ async fn run_core(
         )?;
         return Ok(());
     }
-    // Freeze candidate IDs before exposing RPC, then recheck eligibility at
-    // deletion time. A failed optional snapshot skips cleanup for this boot;
-    // neither fail authority readiness nor rescan newly created Camps on retry.
-    let startup_pending_camp_ids = CollaborationService::default()
-        .snapshot_pending_camps_for_startup_cleanup(&database)
-        .unwrap_or_else(|error| {
-            eprintln!("Startup pending Thread cleanup skipped: {error:#}");
-            Vec::new()
-        });
     let skill_library = SkillLibraryService::deferred(skill_library_root);
     let mcp_config = mcp_config_path
         .map_or_else(McpConfigStore::default_path, Ok)
@@ -20140,7 +20136,6 @@ async fn run_core(
         subsystems: CoreSubsystems::new(),
         subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
         removed_skill_project_roots,
-        startup_pending_camp_ids,
         builtin_tool_listener: Mutex::new(None),
         builtin_tool_listener_notify: Notify::new(),
         runtime_usage: Mutex::new(RuntimeUsageBuffer::default()),
@@ -20462,11 +20457,71 @@ async fn run_core(
             report.cleaned, report.skipped, report.budget_exhausted, report.diagnostics
         );
     });
+    let optional_core = core.clone();
+    tokio::spawn(async move {
+        optional_core.initialize_optional_subsystems().await;
+    });
+    let maintenance_core = core.clone();
+    let maintenance_cutoff = chrono::Utc::now().to_rfc3339();
+    tokio::spawn(async move {
+        let mut budget =
+            rovai_core::maintenance_budget::MaintenanceBudget::new(256, Duration::from_secs(3));
+        let candidates = {
+            let database =
+                tokio::time::timeout(Duration::from_millis(50), maintenance_core.database.lock())
+                    .await;
+            match database {
+                Ok(database) => CollaborationService::default()
+                    .snapshot_pending_camps_for_startup_cleanup(&database, &maintenance_cutoff),
+                Err(_) => Ok(Vec::new()),
+            }
+        };
+        match candidates {
+            Ok(candidates) => {
+                for camp in candidates {
+                    if !budget.take() {
+                        break;
+                    }
+                    let result = {
+                        let Ok(mut database) = tokio::time::timeout(
+                            Duration::from_millis(50),
+                            maintenance_core.database.lock(),
+                        )
+                        .await
+                        else {
+                            break;
+                        };
+                        CollaborationService::default()
+                            .discard_empty_pending_camps_on_startup(&mut database, &[camp])
+                    };
+                    match result {
+                        Ok(camps) => {
+                            for camp in camps {
+                                emit_navigation_invalidated(
+                                    &maintenance_core.output,
+                                    "camps.discardPending",
+                                    Some(&camp),
+                                );
+                                // Unreferenced output trees may contain newly written or
+                                // original files. Retain them instead of a historical sweep.
+                            }
+                        }
+                        Err(error) => budget.report("pending Thread retirement", error),
+                    }
+                }
+            }
+            Err(error) => budget.report("pending Thread candidates", error),
+        }
+        let cleanup_core = maintenance_core.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            ManagedBlobStore::new(&cleanup_core.data_dir)
+                .recover_gc_state(&cleanup_core.database, &mut budget);
+        })
+        .await;
+        maintenance_core.finish_subsystem("maintenance", Ok(()));
+    });
     let runtime_discovery_core = core.clone();
     let mut runtime_discovery_handle = tokio::spawn(async move {
-        runtime_discovery_core
-            .initialize_optional_subsystems()
-            .await;
         runtime_discovery_core.run_runtime_discovery().await;
         runtime_discovery_core
             .recover_pending_execution_intents()
@@ -28629,7 +28684,6 @@ mod tests {
             subsystems: CoreSubsystems::ready_for_test(),
             subsystem_initialization: Mutex::new(SubsystemInitialization::default()),
             removed_skill_project_roots: RemovedSkillProjectRoots::default(),
-            startup_pending_camp_ids: Vec::new(),
             builtin_tool_listener: Mutex::new(None),
             builtin_tool_listener_notify: Notify::new(),
             runtime_usage: Mutex::new(RuntimeUsageBuffer::default()),
@@ -30306,6 +30360,7 @@ done
                 rovai_core::runtime_startup::RuntimeStartupConfiguration {
                     custom_api_snapshot: None,
                     common_environment_unavailable: false,
+                    configuration_error: None,
                     program_path: Some(executable.to_string_lossy().into_owned()),
                     environment: vec![rovai_core::runtime_startup::RuntimeEnvironmentVariable {
                         name: "ROVAI_CATALOG_FIXTURE".into(),
@@ -30623,6 +30678,7 @@ done
                         rovai_core::runtime_startup::RuntimeStartupConfiguration {
                             custom_api_snapshot: None,
                         common_environment_unavailable: false,
+                    configuration_error: None,
                             program_path: Some(executable.to_string_lossy().into_owned()),
                             environment: Vec::new(),
                         },

@@ -4,7 +4,7 @@ contract: camp-attachment
 version: 12
 status: accepted
 authority: live-source-attachment-presentation
-last_updated: 2026-10-21
+last_updated: 2026-10-30
 ---
 
 # Camp Attachment v12
@@ -37,3 +37,8 @@ Core 的无路径附件 View 透传该字段；模型的附件 History View 不�
 用户消息与 Composer 文件卡片最大宽度 224px，短名称按内容收窄；Agent 文件列表填满可用宽度，
 上限 620px，窄容器内收缩。图片缩略图尺寸不变。
 具体组件样式由[会话工作区](../ui/components/conversation-workspace.md)约束。
+
+## 历史存储的故障范围
+
+旧根标记、根物理身份变化、无关坏条目或不可读子目录不参与 Core ready 或普通 Run 准备。正常消息及无关附件继续可读，具体源无法访问时仅该内容报错。禁止通过全目录检查决定整条任务是否可用。
+写入和删除仍核对具体目标的 owner、路径与当前对象；原文件及无法确认归属的历史目录保留。旧派生视图可在实际访问时重建，不启动全盘恢复，不用补写成功回执放行。

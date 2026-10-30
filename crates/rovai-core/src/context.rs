@@ -12945,7 +12945,7 @@ mod slow_tests {
             execution_root: &fixture.directory,
         };
         let projection = projection_service
-            .prepare(&fixture.database, &config_store, &projection_request)
+            .prepare(&fixture.database, Ok(&config_store), &projection_request)
             .unwrap();
         let snapshot_root = fixture.directory.join("runtime/mcp").join(&fixture.run_id);
         assert_eq!(
@@ -13025,7 +13025,7 @@ mod slow_tests {
         // The real Manifest writer leaves both retired digests NULL. The next
         // prepare must still recover the original private configuration.
         let repeated = projection_service
-            .prepare(&fixture.database, &config_store, &projection_request)
+            .prepare(&fixture.database, Ok(&config_store), &projection_request)
             .unwrap();
         assert_eq!(repeated.snapshot, projection.snapshot);
         assert_eq!(repeated.servers, projection.servers);
@@ -13034,7 +13034,7 @@ mod slow_tests {
         fixture.database = Database::open(&fixture.directory).unwrap();
         let reopened_service = McpProjectionService::new(&fixture.directory);
         let reopened = reopened_service
-            .prepare(&fixture.database, &config_store, &projection_request)
+            .prepare(&fixture.database, Ok(&config_store), &projection_request)
             .unwrap();
         assert_eq!(reopened.snapshot, projection.snapshot);
         assert_eq!(reopened.servers, projection.servers);
@@ -13043,7 +13043,7 @@ mod slow_tests {
         let redispatched = reopened_service
             .prepare(
                 &fixture.database,
-                &config_store,
+                Ok(&config_store),
                 &McpProjectionRequest {
                     execution_epoch: fixture.execution_epoch + 1,
                     ..projection_request
@@ -13093,7 +13093,7 @@ mod slow_tests {
                 )
                 .unwrap();
             let error = reopened_service
-                .prepare(&fixture.database, &config_store, &projection_request)
+                .prepare(&fixture.database, Ok(&config_store), &projection_request)
                 .unwrap_err();
             assert!(
                 error
@@ -13106,7 +13106,7 @@ mod slow_tests {
             reopened_service
                 .prepare(
                     &fixture.database,
-                    &config_store,
+                    Ok(&config_store),
                     &McpProjectionRequest {
                         agent_run_id: &other_run,
                         ..projection_request.clone()
@@ -13124,22 +13124,28 @@ mod slow_tests {
             .unwrap();
         assert!(
             reopened_service
-                .prepare(&fixture.database, &config_store, &projection_request)
+                .prepare(&fixture.database, Ok(&config_store), &projection_request)
                 .is_ok()
         );
 
-        // Existing maintenance removes crashed staging without retiring a live Run.
+        // A live Run's temporary directory may still be in use; leave it intact.
         let staging = snapshot_root.join(".interrupted.tmp");
         std::fs::create_dir(&staging).unwrap();
         std::fs::write(staging.join("canonical.json"), b"partial").unwrap();
-        reopened_service
-            .cleanup_terminal_and_orphaned(&fixture.database)
-            .unwrap();
-        assert!(!staging.exists());
+        let guard = tokio::sync::Mutex::new(fixture.database);
+        reopened_service.cleanup_terminal(
+            &guard,
+            &mut crate::maintenance_budget::MaintenanceBudget::new(
+                128,
+                std::time::Duration::from_secs(2),
+            ),
+        );
+        fixture.database = guard.into_inner();
+        assert!(staging.exists());
         assert!(projection.canonical_path.exists());
 
         if run_scoped {
-            assert_eq!(std::fs::read_dir(&snapshot_root).unwrap().count(), 1);
+            assert_eq!(std::fs::read_dir(&snapshot_root).unwrap().count(), 2);
             // Losing a frozen snapshot must not fall back to global config or
             // import an epoch directory, even if one contains identical bytes.
             let legacy = snapshot_root.join("99");
@@ -13148,7 +13154,7 @@ mod slow_tests {
             std::fs::write(legacy.join("canonical.json"), &bytes).unwrap();
             std::fs::remove_dir_all(projection.canonical_path.parent().unwrap()).unwrap();
             let error = reopened_service
-                .prepare(&fixture.database, &config_store, &projection_request)
+                .prepare(&fixture.database, Ok(&config_store), &projection_request)
                 .unwrap_err();
             assert!(
                 error
@@ -13166,9 +13172,36 @@ mod slow_tests {
                 [&fixture.run_id],
             )
             .unwrap();
-        reopened_service
-            .cleanup_terminal_and_orphaned(&fixture.database)
+        let guard = tokio::sync::Mutex::new(fixture.database);
+        reopened_service.cleanup_terminal(
+            &guard,
+            &mut crate::maintenance_budget::MaintenanceBudget::new(
+                128,
+                std::time::Duration::from_secs(2),
+            ),
+        );
+        fixture.database = guard.into_inner();
+        assert!(
+            snapshot_root.exists(),
+            "terminal alone is not a real cleanup receipt"
+        );
+        fixture
+            .database
+            .connection()
+            .execute(
+                "UPDATE agent_run SET cancel_acknowledged_at=updated_at WHERE id=?1",
+                [&fixture.run_id],
+            )
             .unwrap();
+        let guard = tokio::sync::Mutex::new(fixture.database);
+        reopened_service.cleanup_terminal(
+            &guard,
+            &mut crate::maintenance_budget::MaintenanceBudget::new(
+                128,
+                std::time::Duration::from_secs(2),
+            ),
+        );
+        fixture.database = guard.into_inner();
         assert!(!snapshot_root.exists());
         fixture.cleanup();
     }

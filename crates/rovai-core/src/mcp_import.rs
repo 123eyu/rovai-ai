@@ -1443,7 +1443,7 @@ mod tests {
         let prepared = McpProjectionService::new(&root.join("data"))
             .prepare(
                 &database,
-                &store,
+                Ok(&store),
                 &McpProjectionRequest {
                     agent_run_id: &run_id,
                     execution_epoch: 1,

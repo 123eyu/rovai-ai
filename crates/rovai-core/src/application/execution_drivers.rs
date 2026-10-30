@@ -537,35 +537,57 @@ pub(super) async fn process_housekeeping(
             },
             _ = pending_execution_interval.tick() => {
                 core.recover_pending_execution_intents().await;
-                let projection_recovery = {
-                    let mut database = core.database.lock().await;
-                    AgentRunFileChangeProjector.recover_terminal_runs(
-                        &mut database,
-                        &ManagedBlobStore::new(&core.data_dir),
-                    )
+                let candidates = {
+                    let database = core.database.lock().await;
+                    AgentRunFileChangeProjector.terminal_recovery_candidates(&database)
                 };
-                match projection_recovery {
-                    Ok(recovered) if recovered > 0 => emit(
-                        &core.output,
-                        "agent_run.file_changes_completed",
-                        json!({ "recovered": recovered }),
-                    ),
-                    Ok(_) => {}
-                    Err(error) => eprintln!(
-                        "AgentRun file-change projection recovery remains pending: {error:#}"
-                    ),
+                let mut budget = rovai_core::maintenance_budget::MaintenanceBudget::new(8, Duration::from_secs(1));
+                let mut recovered = 0;
+                match candidates {
+                    Ok(candidates) => for (run, epoch) in candidates {
+                        if !budget.take() { break; }
+                        let result = {
+                            let Ok(mut database) = core.database.try_lock() else { break; };
+                            AgentRunFileChangeProjector.project_terminal_run(&mut database, &ManagedBlobStore::new(&core.data_dir), &run, epoch)
+                        };
+                        match result {
+                            Ok(_) => recovered += 1,
+                            Err(error) => budget.report("file-change projection", error),
+                        }
+                        tokio::task::yield_now().await;
+                    },
+                    Err(error) => budget.report("file-change candidates", error),
+                }
+                if recovered > 0 {
+                    emit(&core.output, "agent_run.file_changes_completed", json!({ "recovered": recovered }));
                 }
             },
             _ = managed_blob_gc_interval.tick() => {
-                let cutoff = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
-                let result = {
-                    let mut database = core.database.lock().await;
-                    ManagedBlobStore::new(&core.data_dir)
-                        .collect_gc_candidates_before(&mut database, &cutoff, 32)
-                };
-                if let Err(error) = result {
-                    eprintln!("Managed Blob candidate collection remains pending: {error:#}");
-                }
+                let cleanup_core = Arc::clone(&core);
+                let _ = tokio::task::spawn_blocking(move || {
+                    let cutoff = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+                    let store = ManagedBlobStore::new(&cleanup_core.data_dir);
+                    let mut budget = rovai_core::maintenance_budget::MaintenanceBudget::new(32, Duration::from_secs(2));
+                    let candidates = {
+                        let Ok(database) = cleanup_core.database.try_lock() else { return; };
+                        store.gc_candidates(&database, &cutoff, 32)
+                    };
+                    let candidates = match candidates { Ok(value) => value, Err(error) => { budget.report("Blob candidates", error); return; } };
+                    for (id, digest) in candidates {
+                        if !budget.take() { break; }
+                        let result = {
+                            let Ok(mut database) = cleanup_core.database.try_lock() else { break; };
+                            store.collect_gc_candidate(&mut database, &cutoff, &id, &digest)
+                        };
+                        match result {
+                            Ok(Some((_, Some(path)))) => {
+                                if let Err(error) = std::fs::remove_file(path) { budget.report("Blob removal", error); }
+                            }
+                            Ok(_) => {},
+                            Err(error) => budget.report("Blob collection", error),
+                        }
+                    }
+                }).await;
             },
             _ = camp_deletion_interval.tick() => {
                 let deletion_core = Arc::clone(&core);

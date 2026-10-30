@@ -284,11 +284,10 @@ impl AgentRunFileChangeProjector {
         load_card(database, agent_run_id, execution_epoch)
     }
 
-    pub fn recover_terminal_runs(
+    pub(crate) fn terminal_recovery_candidates(
         &self,
-        database: &mut Database,
-        blob_store: &ManagedBlobStore,
-    ) -> Result<usize> {
+        database: &Database,
+    ) -> Result<Vec<(String, i64)>> {
         let candidates = {
             let mut statement = database.connection().prepare(
                 r#"
@@ -318,7 +317,7 @@ impl AgentRunFileChangeProjector {
                       WHERE evidence.agent_run_id = agent_run.id
                         AND evidence.execution_epoch = agent_run.execution_epoch
                   )
-                ORDER BY agent_run.ended_at, agent_run.id
+                ORDER BY agent_run.ended_at, agent_run.id LIMIT 8
                 "#,
             )?;
             statement
@@ -327,6 +326,16 @@ impl AgentRunFileChangeProjector {
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
+        Ok(candidates)
+    }
+
+    #[cfg(test)]
+    pub fn recover_terminal_runs(
+        &self,
+        database: &mut Database,
+        blob_store: &ManagedBlobStore,
+    ) -> Result<usize> {
+        let candidates = self.terminal_recovery_candidates(database)?;
         let mut recovered = 0_usize;
         for (agent_run_id, execution_epoch) in candidates {
             match self.project_terminal_run(database, blob_store, &agent_run_id, execution_epoch) {

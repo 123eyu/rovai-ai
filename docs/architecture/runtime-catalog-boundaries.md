@@ -158,6 +158,8 @@ continuation、Built-in Tool、Approval、cancel、terminal、process cleanup �
 
 ## 本机启动设置
 
+各 Runtime 的程序设置读取失败独立投影，不使 `load_all()` 整体失败。缺失才沿用默认；损坏保留原配置、错误与 revision，禁止静默使用默认程序或凭据。Owner 通过现有设置入口显式修正，复用 CAS 与刷新，无需重启 Core；当前字段及坏记录替换见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md#本机配置的局部故障)。
+
 Runtime Startup Settings 保存本机程序路径及按 Runtime 隔离的通用环境变量。环境由 Core 私有加密存储管理，
 新 CLI 按 Host、可选的 Runtime 通用配置、队员覆盖合并，同名后者优先、不同名追加；删除队员条目恢复下层值。
 队员可选择是否继承通用配置，新队员默认继承，升级前非空队员配置保持独立。

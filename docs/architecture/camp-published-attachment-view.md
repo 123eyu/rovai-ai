@@ -3,7 +3,7 @@ document_type: architecture
 architecture: camp-attachments
 authority: live-source-references-and-legacy-attachment-reads
 status: accepted
-last_updated: 2026-10-21
+last_updated: 2026-10-30
 ---
 
 # Camp Attachments：原路径引用、默认输出与历史读取
@@ -49,6 +49,8 @@ Host 准备普通目录，Agent 可用正常名称直接生成长期交付，再
 Run Facts 只投影顶层 attachmentOutputRoot，含义是默认输出位置；不代表清单、读取根或权限授予。
 现有 Runtime additional directories 接入它，遵循原生模式。文件内容不参与 Bootstrap 或会话兼容摘要。
 普通 Run、新建 Camp、自动任务和新发布不依赖旧 View 的状态或回执。
+
+历史 `runtime-files` 根标记及物理身份不决定 Core 启动、任务准备或其他附件读取。没有全目录准入扫描；未知目录与原文件保留。旧视图的目标路径、内容和提交回执仍在实际使用时核对，可重建视图按需重建，单个失效源只影响该内容。写入和删除核对本次具体目标与既有 owner，不根据全局根的旧身份拒绝整条任务。
 
 ## 读取与预览
 

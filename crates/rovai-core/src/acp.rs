@@ -64,9 +64,8 @@ use crate::{
         RuntimeCompatibilityKey, RuntimeProcessHost,
     },
     runtime_mcp::{
-        EphemeralMcpConfigFile, external_acp_server, remove_stale_mcp_configs,
-        write_ephemeral_additive_mcp_config, write_ephemeral_copilot_config,
-        write_ephemeral_grok_mcp_plugin,
+        EphemeralMcpConfigFile, external_acp_server, write_ephemeral_additive_mcp_config,
+        write_ephemeral_copilot_config, write_ephemeral_grok_mcp_plugin,
     },
 };
 
@@ -6754,17 +6753,6 @@ impl AcpCliRuntimeAdapter {
         if !launchable_acp_adapter(kind) {
             bail!("{} is not a launchable ACP Adapter", kind.as_str());
         }
-        if matches!(
-            kind,
-            AdapterKind::CopilotCli
-                | AdapterKind::GrokBuild
-                | AdapterKind::KiroCli
-                | AdapterKind::QoderCli
-                | AdapterKind::CodebuddyCli
-                | AdapterKind::QwenCode
-        ) {
-            remove_stale_mcp_configs(&self.private_runtime_dir)?;
-        }
         Ok(())
     }
 
@@ -12441,6 +12429,7 @@ while IFS= read -r ignored; do :; done
                     }],
                     custom_api_snapshot: None,
                     common_environment_unavailable: false,
+                    configuration_error: None,
                 },
             );
         crate::runtime_discovery::with_runtime_configuration(

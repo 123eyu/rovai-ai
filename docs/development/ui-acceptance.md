@@ -89,7 +89,7 @@ Windows 构建使用 `pnpm package:windows:x64`；安装与关闭验收使用
 运行平台、参数及发布步骤见 [Windows 打包与验收](packaging-windows.md)，命令以 `package.json#scripts` 为准。
 
 Windows lane 使用与生产 `%LOCALAPPDATA%\Rovai AI` 同构但完全隔离的绝对 data root，分别隔离 Core、Electron
-User Data、Session Data、Logs、CrashDumps 和 Skill Library；拒绝日常目录、junction/symlink 别名、UNC、
+User Data、Session Data、Logs、CrashDumps 和 Skill 文件目录；拒绝日常目录、junction/symlink 别名、UNC、
 network/removable/non-NTFS 目标。unpacked App 与 installed App 使用不同 fixture。
 
 自动化与真实客户端分别执行 [Windows 交互矩阵](../ui/windows-interaction-delta.md#7-可访问性与真机矩阵)，
@@ -221,7 +221,7 @@ Built-in 去重后的命令与输出另由 `pnpm test:command-view` 挂载生产
 需要把生产 App 留给人工检查时，可运行
 `node scripts/accept-runtime-activity-ui.mjs "dist/mac-arm64/Rovai AI.app" --preview`。
 它创建同样的隔离 fixture、打开明确标注“模拟数据”的执行 Thread 并等待用户关闭 App；不调用真实模型，
-不执行自动交互矩阵，也不把人工预览报告记为自动验收通过。缺省每次使用新的临时 `userData` 和隔离 Skill Library。
+不执行自动交互矩阵，也不把人工预览报告记为自动验收通过。缺省每次使用新的临时 `userData` 和隔离 Skill 文件目录。
 
 头像轨道的 8/12/20 位队员、176px 固定步长、键盘/滚轮、Tooltip、重复精确导航与滚动保留，
 另由 `pnpm test:execution-avatar-rail` 在真实 Electron 中挂载生产 ThreadWorkspace 验证；该 fixture
@@ -327,7 +327,7 @@ Composer 与历史消息的人物信息卡截图是此交互的必留视觉证�
 | `scripts/capture-desktop.mjs` | 通用页面、Runtime 和 Thread 流程 | 必须设置隔离 `userData`；省略或指向日常目录即拒绝启动 |
 
 当前页面合同见[Skills／工具箱／会话选择](../ui/components/skills-settings.md)。专项脚本给验收 App
-配置独立 `userData`、Skill Library 和临时原生 Home，只读发现一项合成 Codex Skill，并核对正文预览。
+配置独立 `userData`、Skill 文件目录和临时原生 Home，只读发现一项合成 Codex Skill，并核对正文预览。
 它还验证五项工具箱及 `member-studio` 默认队员配置，通过界面切换一次 `campfire` 复选框并恢复；
 分别留下 Skills 与工具箱截图及 JSON 报告。Day 常规比例与 Night 200% 缩放使用两份全新的隔离目录：
 

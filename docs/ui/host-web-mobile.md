@@ -167,7 +167,7 @@ Server 更新通过统一 Rust Host 的认证接口完成，使用独立 Server 
 
 `pnpm build:web` 后运行 `pnpm test:host-web-mobile`；需要本机已构建的 `rovai-host`、`rovai-server`、macOS Chrome 和已安装的 Codex CLI。
 新建使命用例在隔离数据内配置队员使用 Runtime 默认模型，只保存使命，并断言没有启动 Run。
-`ROVAI_MOBILE_OUTPUT=<绝对路径>` 可保留截图与 JSON。测试使用隔离数据根、Skill Library、MCP config 和浏览器目录，
+`ROVAI_MOBILE_OUTPUT=<绝对路径>` 可保留截图与 JSON。测试使用隔离数据根、Skill 文件目录、MCP config 和浏览器目录，
 日志记录绝对位置，不使用日常 App 数据，也不启动真实 Runtime。
 
 验收覆盖登录与恢复、列表分页、会话抽屉、执行与二级面板、切换/刷新草稿、Return、@、共享管理、六种计划，

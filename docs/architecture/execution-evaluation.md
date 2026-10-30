@@ -35,7 +35,7 @@ Core 是执行状态与元数据查询的权威，Rust 导出器只读取既有�
 
 日报逻辑位于共享 TypeScript 模块，供 Node CLI 与 Electron Main 复用；它负责日历边界、冻结、趋势、可比较性和分析输入。Main 准备器与原有 Automation 派发相互独立，准备受阻不能使普通定时任务停摆。分析 Agent 必须验证昨日报告身份再解释，不能把旧文件当成功。
 
-Gate CLI 只编排既有测试与 Qualification 能力。用户终端的 `rovai app eval` 经 Main EvaluationHostService 提交固定动作；配置显式指向开发者源码与 Node 安装，按内容摘要验证后启动同一 Runner。Core、Skill Library、工作区和 MCP 按每个 Trial 隔离；仍使用当前主机的 Runtime 安装／认证，不宣称独立主机 Formal qualification。Runner 保存实际版本、预算、产物、终态、Ledgers 和 Evidence；规则与 Judge 各自保留证据，外层 Gate 不覆盖 HardOutcome。
+Gate CLI 只编排既有测试与 Qualification 能力。用户终端的 `rovai app eval` 经 Main EvaluationHostService 提交固定动作；配置显式指向开发者源码与 Node 安装，按内容摘要验证后启动同一 Runner。Core、Skill 文件目录、工作区和 MCP 按每个 Trial 隔离；仍使用当前主机的 Runtime 安装／认证，不宣称独立主机 Formal qualification。Runner 保存实际版本、预算、产物、终态、Ledgers 和 Evidence；规则与 Judge 各自保留证据，外层 Gate 不覆盖 HardOutcome。
 
 评分配置与 Case 题目分别冻结。Judge 的显式 generic-task profile 保留 Process／Outcome 证据隔离，代码将逐项判定汇总为通用质量三个维度和协作状态分布。质量先汇总同一 Case 的计划重复，再使用固定 Case 权重；协作以计划 Trial 为统计单位。旧 Judge profile 不改写，评分升级不重新解释历史报告。没有汇总协作分，也不把运行健康次数接入任务质量。
 

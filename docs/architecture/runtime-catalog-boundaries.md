@@ -463,8 +463,8 @@ digest 不进入，Server 定义变化仍 fence 旧 Host。stdio、Streamable HT
 保持 Disabled；Compaction 通过 Kimi-only Prompt lifecycle correlation 与 idle/detached exact completion frame
 以 `best_effort` 接入。History Restore
 仅作为 load-only fallback。异步 command/config
-advertisement 只安全路由为私有 metadata，当前没有产品消费者，不作为遗留项。Rovai managed Skill 投影目标为
-`.kimi-code/skills`。
+advertisement 只安全路由为私有 metadata，当前没有产品消费者，不作为遗留项。Skills 使用共享的原址发现与
+受管文件索引，不建立新的项目投影，见 [Skills 架构](skills.md)。
 
 本机 `kimi 0.32.0` 使用 MiniMax M3 在 macOS arm64 完成真实 prompt、Shell allow/deny、六类 terminal output、
 Missing-Send、cancel 与 cleanup。早期 Built-in CLI `0/15` 是 fixture 在第一项 canonical operation 前错误检查
@@ -504,7 +504,7 @@ Host/Session。三个宿主平台共享 `grok >= 1.0.0` 最低版本门；light 
 External MCP 为 `AdditivePerRun / NativeWinsSkip`。`grok 0.2.118` 的 ACP Session 忽略 `mcpServers`，Core 因此
 在私有 Runtime 目录生成临时 Plugin 并用 process `--plugin-dir` 追加；`grok inspect --json` 已发现的所有
 native 名称都保留，冲突 Assignment skip，不同名 Server 可追加，完整集合进入 Host compatibility，Plugin 随
-Host 清理。Core 不写 project/user config。managed Skill 投影到 `.grok/skills`。Usage/Cost 保持 Disabled。
+Host 清理。Core 不写 project/user config；Skills 使用共享原址发现与受管文件索引。Usage/Cost 保持 Disabled。
 
 `grok-build × macos-arm64` 与 `grok-build × windows-x64` 分别绑定独立、目标主机生成的
 adapter-scoped qualification evidence；macOS x64 仍保持

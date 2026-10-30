@@ -190,7 +190,7 @@ impl ThreadOutputDirectory {
                 [camp_id],
                 |row| row.get::<_, bool>(0),
             )?,
-            "Camp no longer exists"
+            "Thread no longer exists"
         );
         let output_root = camp_attachment_output_root(database.runtime_camp_files_root(), camp_id)?;
         crate::camp_attachment_view::reject_existing_symlink_components(&output_root)?;
@@ -202,7 +202,7 @@ impl ThreadOutputDirectory {
     }
 }
 
-/// Only the Camp's computed output directory is owned. Source refs are never traversed.
+/// Only the Thread's computed output directory is owned. Source refs are never traversed.
 pub fn remove_camp_attachment_output(runtime_files_root: &Path, camp_id: &str) -> Result<()> {
     let root = camp_attachment_output_root(runtime_files_root, camp_id)?;
     crate::camp_attachment_view::reject_existing_symlink_components(

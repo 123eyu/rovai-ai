@@ -14,8 +14,8 @@ last_updated: 2026-10-29
 
 先阅读[本地开发与 App 隔离流程](local-workflow.md)。日常使用的 `.app` 必须安装在仓库外；
 `dist/` 只是可覆盖的打包产物。开发、打包验收和自动测试都不得共享日常 `userData`。
-所有 `rovai-core` 启动都必须收到显式绝对 `--data-dir`，并在互斥的日常默认 Skill Library 与绝对
-隔离 `--skill-library-root` 中恰好选择一个；开发和测试只能选择隔离 Library。Core 会在打开 SQLite
+所有 `rovai-core` 启动都必须收到显式绝对 `--data-dir`，并在互斥的日常默认 Skill 文件目录与绝对
+隔离 `--skill-library-root` 中恰好选择一个；开发和测试只能选择隔离目录。Core 会在打开 SQLite
 或执行 startup recovery 之前获取 data-dir 的进程级独占锁；这些约束是启动器检查之外的最终写入边界。
 
 为 durable Task 创建或复用隔离目录时，同时阅读
@@ -35,7 +35,7 @@ pnpm dev
 `pnpm dev` 会构建 Debug 版 `rovai-host`、兼容 `rovai-core` 与 bundled `rovai` Agent CLI、复制到
 `resources/bin/`，然后启动 Electron Vite 开发环境。该入口通过 `scripts/dev-desktop.mjs`
 自动传入隔离 `userData`、拒绝日常
-数据目录和独立 Skill Library，并锁定单一开发实例；Core 还会独占同一数据目录。不要直接运行
+数据目录和独立 Skill 文件目录，并锁定单一开发实例；Core 还会独占同一数据目录。不要直接运行
 `electron-vite dev` 绕过它。
 
 只重新构建 Debug Core：
@@ -151,7 +151,7 @@ HTML／TSV、悬浮和键盘、失败重试、流式更新、宽表滚动与主�
 记忆工作区运行 `pnpm test:memory-workspace-ui`：隔离 Chrome 挂载生产 MemoryLibrary、通知和导航组件，
 验证全部范围、精简布局、版本展开、通知查看/关闭、编辑草稿、失败/冲突重试、变更操作及双主题桌面/手机尺寸。
 `ROVAI_MEMORY_UI_OUTPUT` 可指定截图和报告目录；`ROVAI_TEST_CHROME` 可指定 Chrome。该夹具只替换 transport，
-不启动 Core 或模型。`pnpm test:memory-web-ui` 使用独立 userData、Skill Library、MCP 与生产 Web/Host，
+不启动 Core 或模型。`pnpm test:memory-web-ui` 使用独立 userData、Skill 文件目录、MCP 与生产 Web/Host，
 验证手机记忆新增、修订、返回及重入；需先构建 Web/Host，可用 `ROVAI_HOST_BIN`、`ROVAI_WEB_UI` 指定产物，
 `ROVAI_MEMORY_WEB_OUTPUT` 保留截图。真实持久化、重开及复核设置仍运行隔离打包 App 的 `pnpm accept:memory-ui`。
 

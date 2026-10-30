@@ -9,8 +9,8 @@ last_updated: 2026-10-29
 # Windows Desktop Platform
 
 本文组合 Windows x64 Desktop 的平台模块、进程、IPC、存储、Renderer 与发布边界。它不重新拥有 Runtime
-领域、Built-in operation、Skill Library 或 AgentRun terminal 语义；这些长期权威仍由对应 ADR、Contract 与
-Architecture 持有。
+领域、Built-in operation、Skills 来源与投递或 AgentRun terminal 语义；这些长期权威由对应的当前
+Architecture 与 Contract 持有。
 
 ## 1. Supported host envelope
 
@@ -151,4 +151,4 @@ Signed release qualification requires real Windows 10 22H2 and Windows 11 machin
 - [Runtime 平台安全不变量](foundational-invariants.md#runtime-platform-security)
 - [Built-in 运输不变量](foundational-invariants.md#skills-builtin-transport)
 - [Runtime 平台安全不变量](foundational-invariants.md#runtime-platform-security)
-- [Skill Library 与投影不变量](foundational-invariants.md#skills-library-projection)
+- [Skills 来源与投递不变量](foundational-invariants.md#skills-library-projection)

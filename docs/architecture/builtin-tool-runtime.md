@@ -55,7 +55,7 @@ Current User Attention 与 progressive CLI teaching 分别见
 [Message Delivery 不变量](foundational-invariants.md#collaboration-delivery)和
 [Built-in 运输不变量](foundational-invariants.md#skills-builtin-transport)；当前 official Skill inventory、Agent 主导队员创建、
 逐队员工具箱与 Harness 原生 Skills 来源见 [Skills 架构](skills.md)；
-旧 Library 与项目投影仅保留历史恢复，见 [Skill Library 与投影不变量](foundational-invariants.md#skills-library-projection)。
+旧 Library 与项目投影仅保留历史恢复，见 [Skills 来源与投递不变量](foundational-invariants.md#skills-library-projection)。
 Memory 单命令的局部 Transport 决策见
 [Built-in 运输不变量](foundational-invariants.md#skills-builtin-transport)，独立 Hearth Review 与 actor-bounded mutation
 组合见 [Online Memory Capture](online-memory-capture.md)。Complete exact-Scope View 与 copyable target
@@ -564,7 +564,7 @@ Lead 用一次普通多目标 `rovai send` 邀请 2–3 位成员，尽量收齐
 `grill-duo`、`grill-duo-with-docs` 与 `review-duo` 同样按工具箱队员配置提供。自然标题只
 提供公屏阅读线索；Skill 进入后使用可信 `RUN_INPUT` message sender、显式 Agent recipient 和公共消息中的
 真实 reply relation。Agent 不提供或选择 reply ID，Core 使用所属 Run 的冻结锚点发布 Agent 输出。
-两个 Grill 按 [Skill Library 与投影不变量](foundational-invariants.md#skills-library-projection)使用 Skill-owned 有界开放轮次：
+两个 Grill 按 [Skills 来源与投递不变量](foundational-invariants.md#skills-library-projection)使用 Skill-owned 有界开放轮次：
 每轮包含 1–4 个前提已确认且彼此独立的问题，一条初始 A2A 邀请和一条固定搭档直接回复覆盖全轮；未回答题
 保留稳定编号与建议，改变的问题单独重新复核，当前轮关闭前不混入新题。它们不接入 Gather，也不创建 Core
 持久轮次。普通版排除领域词汇/ADR 维护；文档版把完整执行协议保留在自己的 `SKILL.md`，并随受管目录提供
@@ -572,7 +572,7 @@ domain-modeling、glossary 和 ADR references。面向搭档或用户的当前�
 返回 accepted 后结束；accepted 不代表接收方开始或完成。三个 CLI 动作只在各 Skill 的“消息方式”章节
 定义一次，其它阶段只说明本轮内容与推进条件，不复制命令示例。
 
-Review Duo 按 [Skill Library 与投影不变量](foundational-invariants.md#skills-library-projection)使用正常 Thread 会话中的
+Review Duo 按 [Skills 来源与投递不变量](foundational-invariants.md#skills-library-projection)使用正常 Thread 会话中的
 四消息拓扑：Lead 向固定搭档发送 Standards 请求，public-only 保存独立 Spec 结果；搭档直接返回一条
 Standards 结果后，Lead public-only 发布有界最终报告。四条消息携带相同的不可变 Git 或 patch 评审范围，
 Lead 只接受可信当前搭档对当前有效请求的直接回复，并且同一 Lead 在一个 Thread 中一次只推进一场未完成评审。

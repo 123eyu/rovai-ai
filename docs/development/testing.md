@@ -339,7 +339,7 @@ ACP 的 `command_code_acp.rs`、System Mod、Cline、共享 ACP、文件证据�
 历史 v163 fixture 在重新 claim 前补齐 191/192/193，旧迁移数据保留与回滚断言不变。
 
 完整私有 RPC seam 使用 `node scripts/smoke-member-environment.mjs`（先构建 Core）；Host 数据、
-Skill Library、MCP 全隔离，CLI 与凭据均为 fixture。`node scripts/smoke-member-environment-ui.mjs`
+Skill 文件目录、MCP 全隔离，CLI 与凭据均为 fixture。`node scripts/smoke-member-environment-ui.mjs`
 使用生产组件验证保存回读、重置 CAS/活动任务拒绝、进程启动文案与双语移动布局，不启动 Core 或真实 Runtime。
 
 升级后原生续接使用 `node scripts/smoke-member-environment-upgrade.mjs /absolute/previous/rovai-core`
@@ -348,7 +348,7 @@ Skill Library、MCP 全隔离，CLI 与凭据均为 fixture。`node scripts/smok
 通过正式保存、发送、执行与重启路径生成旧绑定，默认 Host 同时具有可读取的原生连接。它检查升级后的
 实际 `--resume`/`thread/resume` 携带旧 Session ID、绑定代次保持，以及进程读取当前 Host＋队员配置。
 私有 RPC smoke 没有执行消息，单元/迁移测试只检查记录，均不能替代此跨版本进程边界。
-无需真实账号或模型；数据、Home、Skill Library 与 MCP 均使用自动清理的临时目录。
+无需真实账号或模型；数据、Home、Skill 文件目录与 MCP 均使用自动清理的临时目录。
 
 摘要选择的输入矩阵扩展既有 `agent_profile::slow_tests::discovered_entry_configures_and_freezes_without_health_evidence`，
 覆盖两种 Runtime 的旧绑定、默认 Host 绑定、未知摘要与原权限语义；不新增 Rust fixture owner。
@@ -590,7 +590,7 @@ Claude/Pi 空思考块和 ACP 订阅协商扩展已有 Runtime owner（`--featur
 `node --test scripts/lib/execution-state-transition.test.mjs` 验证真实浏览器布局、旧读取/旧 epoch 隔离与重连恢复。
 
 显式真实模型验收：`node scripts/smoke-runtime-thinking.mjs codex-cli copilot-cli claude-code-cli pi`。
-脚本使用独立 Core data-dir、Skill Library 与 Workspace，只保留 phase/标题长度和终态元数据。
+脚本使用独立 Core data-dir、Skill 文件目录与 Workspace，只保留 phase/标题长度和终态元数据。
 Pi 默认未开启思考时可用 `ROVAI_THINKING_PI_MODEL` 指定该机器已配置的原生模型 ID，在隔离成员上设置
 `thinking_level=high`；不修改全局配置。可选标题是否实际产生与原生 Runtime/模型有关，未观察到不能报告标题实测成功。
 
@@ -639,7 +639,7 @@ Desktop/Web 的原始文件检查共用 `packages/contracts/src/member-avatar-im
 `cargo build -p rovai-core --bin rovai-core` 后运行 `pnpm test:member-avatar-flow`：真实编辑器与
 Web 序列化适配调用独立 Core，覆盖动画预览、调整取景不重建 Blob URL、超宽图规范化后
 保存/重开/重新裁剪、页面刷新与渠道静态 PNG 首帧。夹具通过 Chromium 指定测试文件，不启动真实 Runtime；
-userData、Skill Library 和 MCP 路径均为本次临时目录，成功后清理。可通过
+userData、Skill 文件目录和 MCP 路径均为本次临时目录，成功后清理。可通过
 `ROVAI_CORE_BINARY` 指定已构建 Core，`ROVAI_KEEP_MEMBER_AVATAR_FIXTURE=1` 保留验收数据。
 
 ## Thread 执行查询
@@ -830,7 +830,7 @@ pnpm test:camp-open-projection
 
 Electron 回归使用生产 adapter、ThreadWorkspace 与 CSS，验证空事件下的三类卡片、Task 业务原因、已加载
 旧页与 DOM 阅读锚点，以及后台新消息不抢位置。排序/时钟回拨输入矩阵由既有 `App.test.ts` owner 负责。
-夹具创建临时绝对 `userData`，不启动 Core/SQLite/Skill Library/Runtime；`ROVAI_KEEP_CAMP_OPEN_FIXTURE=1`
+夹具创建临时绝对 `userData`，不启动 Core 或 Runtime，不访问日常数据；`ROVAI_KEEP_CAMP_OPEN_FIXTURE=1`
 保留测量和双主题截图。手动 Full check 的 Linux job 使用 `xvfb-run -a pnpm test:camp-open-projection`。这些分别是数据库边界
 和生产组件组合测试，不冒充已安装 App 的真实会话端到端耗时。
 
@@ -865,7 +865,7 @@ writer-only owner 无法覆盖该解析链路，使用 extended-tests 的内存 
 既有 `claude::tests` 进程清理与 stdout owner 改为原生初始化/结构化输入夹具，保留原先的故障、取消、
 多结果和私有文件清理边界。原 Hook/完整工具输入匹配测试随生产路径退出，Git 保留旧实现。
 真实允许、拒绝、取消与 Core receipt 使用 `ROVAI_CLAUDE_APPROVAL_SMOKE=1 node scripts/smoke-claude-runtime.mjs`；
-实际 Desktop 点击由 `node scripts/accept-claude-permission.mjs` 在独立 userData/Skill Library/MCP 下验证。
+实际 Desktop 点击由 `node scripts/accept-claude-permission.mjs` 在独立 userData/Skill 文件目录/MCP 下验证。
 允许一次、拒绝之后追加原生记忆点击，核对隔离项目的 settings 只保存选中规则，再执行相同命令验证无新增
 Approval 且有本轮 Core send receipt 和 exact message；记忆按钮、scope 与 CLI 版本随证据保存。
 模型 Smoke 不进入普通 Rust 测试。旧 Hook Smoke 不作为原生协议通过记录。
@@ -1020,7 +1020,7 @@ required 模式，防止未来迁移到 macOS runner 时把环境阻断当成通
 执行台的头像轨道与协作投递收件人行运行 `pnpm test:execution-avatar-rail`。夹具挂载真实 ThreadWorkspace，
 用原生指针和键盘验证队员轨道、来源归属、重复投递去重、0 / 1 / 2 / 16 / 48 人的完整单行与溢出名单，
 以及名单滚动、焦点返回、Escape 层级、承载位置切换和双主题尺寸适配。它只使用临时 `userData` 与封闭
-演示投影，不启动 Core、Skill Library 或模型，不访问日常数据；`ROVAI_KEEP_EXECUTION_AVATAR_FIXTURE=1`
+演示投影，不启动 Core 或模型，不访问日常数据；`ROVAI_KEEP_EXECUTION_AVATAR_FIXTURE=1`
 保留截图与 fixture。Core 的投递来源 SQL → DTO seam 由 `read_model::tests::public_delivery_projection_preserves_causal_source_not_target_lineage`
 独立验证，不用 UI 夹具代替数据库读取验证。
 
@@ -1048,7 +1048,7 @@ Approval/Recovery Dock，验证大屏中 481/480/450/420px 会话的容器断点
 的区域排除、预留空白及真实点击；系统标题栏双击的最大化/还原行为仍需平台验收。
 查询行为仍由会话查找测试拥有。纯宽度输入矩阵仍由 `file-preview-layout.test.ts` 拥有；
 静态 Markup/CSS 测试不能替代指针捕获、ResizeObserver 和浏览器布局组合。
-夹具只使用临时绝对 `userData` 与受控文件 API，不启动 Core/SQLite/Skill Library/Runtime，不读取真实 Thread。
+夹具只使用临时绝对 `userData` 与受控文件 API，不启动 Core 或 Runtime，不读取真实 Thread。
 `ROVAI_KEEP_FILE_PREVIEW_FIXTURE=1` 保留双主题、宽/窄窗口、关闭提示和 200%/reduced-motion 截图；
 默认清理本次夹具。手动 Full check 的 Linux job 使用 `xvfb-run -a pnpm test:file-preview-layout`。
 
@@ -1109,7 +1109,7 @@ Headless Host 的进程准入与 Unix 受控停止使用 `pnpm test:host-startup
 pnpm test:core-startup
 ```
 
-该入口构建真实 Core，在独立 data-dir/Skill Library/MCP config/Runtime Files Root 中注入可选存储故障，验证
+该入口构建真实 Core，在独立 data-dir/Skill 文件目录/MCP config/Runtime Files Root 中注入可选存储故障，验证
 authority ready、业务 RPC 可达和同进程重试；另验证 mandatory recovery 失败为结构化拒绝而不是 crash 或 false ready。
 不启动真实 Runtime 或调用模型。它拥有进程 seam，具体 cleanup/identity 规则仍由 Rust 单一 owner 测试；Rust fast CI
 同时执行它。Windows bootstrap composition 由 `windows-bootstrap.test.ts` 拥有，native DACL/helper/identity 由
@@ -1238,7 +1238,7 @@ Team Case 可在密封 manifest 中声明 `collaboration` 合同。Runner 将它
 `pnpm test:runtime-model-picker` 在隔离 Electron 中挂载生产模型、推理强度、权限与运行时选择组件，
 验证队员页和训练营共享字段的默认值、本地搜索、中文输入法、键盘与焦点、目录失败/迟到响应和双主题布局。
 覆盖 1040×700、1440×920、2560×1440 与 200% 缩放。它属于 `test:desktop:integration`；Linux 使用 `xvfb-run -a`。
-不启动 Core、Skill Library 或 Runtime。`ROVAI_KEEP_RUNTIME_PICKER_FIXTURE=1` 保留截图；
+不启动 Core 或 Runtime，不访问日常数据。`ROVAI_KEEP_RUNTIME_PICKER_FIXTURE=1` 保留截图；
 `ROVAI_RUNTIME_PICKER_FIXTURE` 可指定已存在、位于系统临时目录下且以 `rovai-runtime-picker-` 开头的独立绝对路径。
 
 `pnpm test:notification-attention` 在隔离 Electron 中挂载生产通知 Controller 与 CSS，验证当前公屏 / 精确
@@ -1307,7 +1307,7 @@ pnpm test:settings-workspace
 ```
 
 Renderer 复用生产设置组件和既有隔离 Electron fixture，增加恢复自动、失败预览及离开后迟到结果检查。
-测试中的 `userData` 与 Skill Library 均属于临时夹具，不启动真实 Core 或 Runtime。
+测试中的 `userData` 与 Skill 文件目录均属于临时夹具，不启动真实 Core 或 Runtime。
 
 ### 通用隔离规则
 
@@ -1329,7 +1329,7 @@ Renderer 复用生产设置组件和既有隔离 Electron fixture，增加恢复
 分别验证 History 初始化、query 内部画布、依赖加载及错误诊断。服务路径和访问矩阵由 `packages/html-preview`
 Vitest owner 负责，窗口/代际释放由 Main 既有 service owner 负责，文件布局与查找继续归 `test:file-preview-layout`。
 
-所有浏览器使用临时绝对 userData/profile，Electron 不启动 Core、Runtime 或日常 Skill Library。
+所有浏览器使用临时绝对 userData/profile，Electron 不启动 Core 或 Runtime，不访问日常 Skill 文件目录。
 `ROVAI_TEST_CHROME` 指定普通 Chrome 路径；缺失时该项标记未运行，不能宣称跨端验收已通过。
 `ROVAI_HTML_HISTORY_SAMPLE` 和 `ROVAI_HTML_CANVAS_SAMPLE` 可提供两份独立原稿，测试仅复制、核验摘要并验证实际正文与
 子画布联动；`ROVAI_KEEP_HTML_PREVIEW_FIXTURE=1` 保留临时资源和截图。详见
@@ -1416,7 +1416,7 @@ DSH 原生精确 total 与缺失/矛盾分类，后者增加数值 Context、Ses
 实测报告必须独立列出字段可用性，不能用 null/null 的对照通过替代采集完整性。
 
 `node scripts/probe-runtime-execution-metrics.mjs <runtime-kind>` 创建独立 Core、bundled CLI、data-dir、
-Skill Library、MCP 和工作区，执行包含只读工具调用的原生用量／上下文任务，最长观察 8 分钟。
+Skill 文件目录、MCP 和工作区，执行包含只读工具调用的原生用量／上下文任务，最长观察 8 分钟。
 探针只保存原生字段形态、匿名身份、Token／Gauge 数值、观测时刻及持久化读回，不采集字符数量、
 速度、正文、思考正文或内容哈希；`rendererVerified` 固定为 false，不能作为界面验收。
 
@@ -1793,7 +1793,7 @@ node scripts/smoke-hermes-native-session.mjs /absolute/official-source /absolute
 ```
 
 真实分支读取当前原生配置中的默认模型及 Responses Provider，使用一次性用户 Home、独立 Core data、
-Skill Library、MCP 文件和未修改的源码副本。测试 relay 原样转发真实模型响应，凭据只留在测试进程内，
+Skill 文件目录、MCP 文件和未修改的源码副本。测试 relay 原样转发真实模型响应，凭据只留在测试进程内，
 不复制到 fixture；不生成工具调用或伪造模型回复。测试用 stdio observer 只记录 ACP 方法、Session、
 模型/模式等白名单元数据，不改变消息。它不是生产代理、插件或 CLI wrapper。
 两成员真实工具与 Send、原 Session 冷恢复、同值省略设置、目录外显式模型切换和固定 Skills 文件选择

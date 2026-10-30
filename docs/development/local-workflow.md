@@ -21,12 +21,12 @@ last_updated: 2026-10-28
 
 `dist/` 是可被 `pnpm package:mac` 覆盖的生成目录，不是安装位置。日常 App 不得从仓库的
 `dist/`、`out/` 或 `resources/` 运行。只把 `.app` 复制到另一个目录仍不足以完成隔离：开发和验收
-进程还必须使用独立 `userData`。显式隔离的 Desktop 实例会同时把 Core Skill Library 绑定到该
-`userData` 下的 `managed-skill-library/`；只隔离 SQLite、却继续共享日常 Skill Library 不构成完整隔离。
+进程还必须使用独立 `userData`。显式隔离的 Desktop 实例会同时把 Core 的 Skill 文件目录绑定到该
+`userData` 下的 `managed-skill-library/`；只隔离 SQLite、却继续共享日常 Skill 文件目录不构成完整隔离。
 带 `ROVAI_ALLOW_ISOLATED_INSTANCE=1` 与显式 `--user-data-dir` 的开发/验收 Desktop 还把 MCP config 固定到
 Core data-dir 下的 `mcp.json`；直接启动验收 Core 时显式传入 `--mcp-config-path`，不能迁移或清理日常全局 MCP 文件。
 
-无论通道如何，Core 都只接受显式绝对 `--data-dir`，并要求 Skill Library 选择恰好为以下一种：
+无论通道如何，Core 都只接受显式绝对 `--data-dir`，并要求 Skill 文件目录选择恰好为以下一种：
 日常 macOS Desktop 显式传入 `--use-default-skill-library`；Windows Desktop、显式收到
 `--user-data-dir` 的 Desktop，以及其他开发、Smoke 或验收入口，都必须显式传入绝对
 `--skill-library-root`。缺失或同时传入两种选择时，
@@ -38,7 +38,7 @@ Windows 的 `--user-data-dir=<root>` 是隔离 data-root 开关，不直接等�
 已打包的 `rovai.exe --prepare-windows-bootstrap-root <instance-key>` 原生创建独立私有 Electron 壳层 profile，绑定后
 判定 single-instance；只有 primary 在 `app.ready` 前调用 `rovai-host.exe --prepare-windows-data-root <root>` 准备正式布局，把 Core
 绑定到 `<root>\Core`，把 Electron `userData` / `sessionData` 分别绑定到
-`<root>\Electron\User Data` / `<root>\Electron\Session Data`，并将隔离 Skill Library 放在
+`<root>\Electron\User Data` / `<root>\Electron\Session Data`，并将隔离 Skill 文件目录放在
 `<root>\Core\managed-skill-library`。验收 root 必须独立于日常数据；可以是尚不存在或普通继承 ACL 的可用目录。
 新对象在创建时保护，已有对象按实际访问结果处理，不要求 protected DACL 模板或改 ACL 权限。macOS 的现有
 `--user-data-dir` 语义保持不变。
@@ -52,7 +52,7 @@ Windows 的 `--user-data-dir=<root>` 是隔离 data-root 开关，不直接等�
 1. 先读取根目录 `AGENTS.md`、[开发者指南](README.md)和本文；
 2. 执行 `git status --short`，保留不属于当前任务的并行改动；
 3. 明确本次属于“开发版”“打包产物”还是“自动验收”，并在更新中写出目标通道；
-4. 在命令执行前解析精确、绝对的 `userData` 和隔离 Skill Library；没有两者的独立目录证据时不得
+4. 在命令执行前解析精确、绝对的 `userData` 和隔离 Skill 文件目录；没有两者的独立目录证据时不得
    启动开发、Smoke 或验收 App/Core；Core 的启动参数门和独占锁是最终防线，不替代通道选择；
 5. 真实日常数据默认只读。诊断不授权启动第二个 Core、写 SQLite、取消 Run、Retry 或发送消息；
 6. 当前会话宿主保护：默认保持承载当前 AI/Thread 会话的日常 App 运行。一般性的“安装”“升级”或
@@ -92,7 +92,7 @@ pnpm dev
 `pnpm dev` 先构建 Debug Core 与 bundled Agent CLI，再通过 `scripts/dev-desktop.mjs` 启动 Electron。启动器会：
 
 - 为当前仓库解析稳定、独立的开发 `userData` 并在启动日志中打印精确路径；
-- 让 Desktop 通过显式 Core 参数把 Skill Library 固定在该开发 `userData` 内；
+- 让 Desktop 通过显式 Core 参数把 Skill 文件目录固定在该开发 `userData` 内；
 - 同时传入 `--user-data-dir` 与 `ROVAI_ALLOW_ISOLATED_INSTANCE=1`；
 - 拒绝已知的日常 Rovai/历史 Lumen 数据目录及其子目录；
 - 使用开发启动锁拒绝两个 `pnpm dev` 共享同一 `userData`；Core 再用进程级锁封住所有其他入口。
@@ -119,7 +119,7 @@ ROVAI_DEV_USER_DATA_DIR="$(mktemp -d)/user-data" pnpm dev
 或 DWS。用户须在具备企业应用开发能力的授权组织中扫码；能进入后台本身不等于具有创建/发布权限。
 不能借用第三方 Client Secret、用户 Chrome Profile 或日常 App 的 Cookie，也不能用 Bot AppKey 代替开发者登录。
 
-真实验收使用本节前述独立 `userData`/Skill Library。Cookie Snapshot 与 App Secret 只写隔离 SQLite；数据库中这些值
+真实验收使用本节前述独立 `userData`/Skill 文件目录。Cookie Snapshot 与 App Secret 只写隔离 SQLite；数据库中这些值
 是明文，目录和备份须按秘密数据保护，不得上传、复制进仓库或进入日志/诊断。请求 URL 可能含平台 access_token query，
 只记录封闭阶段、状态与身份匹配结果，不打印完整 URL、响应正文、Cookie 或 Secret。
 
@@ -131,7 +131,7 @@ ROVAI_DEV_USER_DATA_DIR="$(mktemp -d)/user-data" pnpm dev
 明确撤销后重连、Cookie CAS 保存，以及私聊/群聊的 queue/execution carrier recall；普通网络异常不得清空 Session。没有独立生产 OAuth Client 已不构成阻塞，
 但 Owner/Core/群聊/卡片等关键链路证据不完整时仍保持 NO-GO。
 
-登录呈现改动运行 `pnpm test:dingtalk-login` 与 `pnpm test:desktop-bridge`。前者在全新临时 userData/Skill Library
+登录呈现改动运行 `pnpm test:dingtalk-login` 与 `pnpm test:desktop-bridge`。前者在全新临时 userData/Skill 文件目录
 使用生产 Renderer/preload/native view、仅本机 HTTP fixture 验证 UI 和 IPC，不启动 Core，不扫码或创建应用。
 `ROVAI_KEEP_DINGTALK_LOGIN_FIXTURE=1` 可保留测试生成的截图；原生页面截图与 Renderer 截图分开，不把占位图当作已绘制的远端页。
 真实扫码后的组织选择与安全挑战仍需在隔离实例单独验收，不能用本地模拟页面替代。
@@ -157,8 +157,8 @@ ROVAI_ALLOW_ISOLATED_INSTANCE=1 \
 
 Desktop 检测到这组显式隔离标记后，会以
 `--skill-library-root "$FIXTURE_ROOT/user-data/managed-skill-library"` 启动 Core；验收脚本不得绕过
-Desktop 另起一个仍指向日常全局 Skill Library 的 Core。隔离实例与日常 App 都保持 `app.setName(APP_NAME)`；隔离只由显式
-`userData`、独立 `rovai.sqlite` 和独立 Skill Library 提供，不创建或访问 Keychain namespace。每次验证重新执行
+Desktop 另起一个仍指向日常全局 Skill 文件目录的 Core。隔离实例与日常 App 都保持 `app.setName(APP_NAME)`；隔离只由显式
+`userData`、独立 `rovai.sqlite` 和独立 Skill 文件目录提供，不创建或访问 Keychain namespace。每次验证重新执行
 `mktemp -d`，避免旧数据库、渠道 credential 或 Developer Session 污染结果。
 
 AI Agent 不得把 `open "$(pwd)/dist/mac-arm64/Rovai AI.app"` 当作打包验证，因为该命令没有证明

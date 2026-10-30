@@ -505,7 +505,7 @@ The persistent membership relationship that associates an AgentProfile with one 
 _Avoid_: rejoined Member, resurrected Run, eager Conversation allocation, Member Presence copy
 
 **Current ThreadMember**:
-A ThreadMember whose membership in one Thread is currently effective. It is independent of Member Presence: an away AgentProfile may remain a Current ThreadMember, while ending the membership immediately removes that Thread-scoped participation relationship. Every Thread must retain at least one Current ThreadMember.
+A ThreadMember whose membership in one Thread is currently effective. It is independent of Member Presence: an away AgentProfile may remain a Current ThreadMember, while ending membership removes that participation relationship. An existing Thread may have no current members and retains its history with no Default Lead; initial creation still requires a nonempty team. See [Membership v3](docs/contracts/camp-membership-v3.md).
 _Avoid_: active ThreadMember, present Member, Executable Assignee
 
 **Thread Membership Generation**:
@@ -552,7 +552,7 @@ The Thread-scoped authority of the User and Default Lead to create Tasks and cha
 
 
 **Initial Default Lead Selection**:
-The required selection of one Initial Thread Membership member as the Thread's Default Lead. The creation UI initially selects the first Runtime Ready member in stable Member Order, or the first selected member when none is Ready. Every selected member remains eligible regardless of Runtime Readiness; Readiness affects later execution admission rather than Lead identity. A manually selected Lead remains selected while included in Initial Thread Membership; removing that member automatically selects the first remaining member in stable Member Order as the replacement Lead.
+The required selection of one initial member as Default Lead. The creation UI preserves the saved Lead when that member remains among the eligible selected members; otherwise it chooses the first selected member in stable order. A manual choice remains selected while included, and removing it selects the first remaining member. Candidate availability follows the current creation contract; prior deep-probe success is not a separate Lead requirement.
 _Avoid_: Runtime-determined Lead validity, Runtime fallback target, automatic recipient
 
 **Conversation**:

@@ -3,10 +3,19 @@ document_type: implementation-plan
 version: v1.72
 authority: version-implementation-and-acceptance
 status: in_progress
-last_updated: 2026-10-29
+last_updated: 2026-10-30
 ---
 
 # v1.72 实施与验收
+
+## 评测指标采集修复（2026-10-30）
+
+独立 worktree 修复 Regression 静态 Runtime 准入、当前 lifecycle 命令证据关联及全指标采集汇总。
+三轮完整真实 LLM 评测后，质量 112/112、协作 17/17 采齐，未知为 0；最终质量 95.8333，
+DEMO-105 未交付报告、DEMO-106 声明佐证不足的扣分保留。采集验收完成，Gate 仍如实记录验收失败。
+实现、冻结身份、旧失败、Rust 测试归属与验证边界见[实施记录](evaluation-metric-coverage.md)，
+当前合同为 [Execution Evaluation v16](../../contracts/execution-evaluation-v16.md)。
+本次不修改题目、评分权重、产品模型上下文或生产数据库 schema。
 
 ## 模型目录兼容与原生执行（2026-10-29）
 

@@ -399,7 +399,8 @@ Architecture 解释组件如何组成，Version 概览记录交付范围；它�
 | [Runtime Monitoring v1（历史）](runtime-monitoring-v1.md) | Clean-break collection/enrollment、稀疏 Usage Observation、Native Session fact、三类查询、Coverage、Tool Duration 与 Cost layer |
 | [Diagnostics Center v2（当前）](diagnostics-center-v2.md) | 继承 v1；Windows 只读检查登记项目中无 observation 的固定名称 Skill 入口，显式清理后复检 |
 | [Diagnostics Center v1（历史）](diagnostics-center-v1.md) | `diagnostics.check` typed read model、三态分类、显式单项修复映射、Recovery 与集中脱敏的 `rovai-diagnostics-v5` |
-| [Execution Evaluation v15（当前）](execution-evaluation-v15.md) | Weekly 显式无时间上限、Core 冻结时间策略与独立评分故障 |
+| [Execution Evaluation v16（当前）](execution-evaluation-v16.md) | 当前 Regression 安装准入、质量与协作逐项采集完整性 |
+| [Execution Evaluation v15（历史）](execution-evaluation-v15.md) | Weekly 显式无时间上限、Core 冻结时间策略与独立评分故障 |
 | [Execution Evaluation v14（历史）](execution-evaluation-v14.md) | 评分执行故障与任务失败、证据问题分开 |
 | [Execution Evaluation v13](execution-evaluation-v13.md) | 每日分析有限引用 schema、已知零值与真实失败尝试保留 |
 | [Execution Evaluation v12（历史）](execution-evaluation-v12.md) | 每日跨日积压、全部工具终态与健康分析证据边界 |

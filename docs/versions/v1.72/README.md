@@ -11,6 +11,13 @@ last_updated: 2026-10-29
 
 # Rovai-ai v1.72：Lark 独立渠道
 
+## 评测指标采集修复（2026-10-30）
+
+按 User 授权修复 Gate/Weekly 的当前执行兼容与指标采集；保留 12 个通用任务、原评分及合理扣分。
+三轮真实 LLM 验证后，质量 112/112、协作 17/17 采齐，未知为 0；质量 95.8333，硬验收 11/12，
+真实扣分及任务失败保留。完整结果见[实施记录](evaluation-metric-coverage.md)，当前字段见
+[Execution Evaluation v16](../../contracts/execution-evaluation-v16.md)。本轮为单臂采集验收，未进行产品基线比较。
+
 ## 历史进程恢复减重（2026-10-29）
 
 历史 ledger/Fleet 清理移出 Core 与 Adapter 启动门槛，只在 ready 后做一次有界后台尝试。

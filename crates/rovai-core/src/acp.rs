@@ -6754,8 +6754,6 @@ impl AcpCliRuntimeAdapter {
         if !launchable_acp_adapter(kind) {
             bail!("{} is not a launchable ACP Adapter", kind.as_str());
         }
-        #[cfg(target_os = "macos")]
-        ManagedProcess::recover_descendants(&self.private_runtime_dir.join("owned-processes"))?;
         if matches!(
             kind,
             AdapterKind::CopilotCli

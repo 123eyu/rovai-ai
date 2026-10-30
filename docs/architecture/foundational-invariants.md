@@ -1,7 +1,7 @@
 ---
 document_type: architecture
 authority: current-foundational-invariants
-last_updated: 2026-10-26
+last_updated: 2026-10-29
 ---
 
 # 当前基础架构不变量
@@ -150,7 +150,7 @@ last_updated: 2026-10-26
   幂等创建首个成员、Runtime 选择和“初次集结”Camp，不把半完成状态伪装为已完成；无可用 Runtime 且
   provisioning 尚未开始时可以原子完成为 `runtime_deferred`，但不得创建成员、Runtime 配置、Camp、Run 或
   onboarding restore target，也不得在以后启动时重新打开训练营。
-- Camp 永久删除保持 User-only、exact-version、单事务聚合删除和不可撤销。所有 Runtime 状态共用异步受理：短事务原子结算当前业务、在 Camp 写 Deletion Intent 并关闭新执行准入，前台返回 `accepted + operationId`，不等待 Runtime、数据库聚合或文件系统。后台只有在精确 Runtime 停止/隔离确认后，才在同一事务建立既有 cleanup journal handoff、删除 Camp 聚合并产生 `camp.deleted`；journal 与可选 Mission cleanup 完成全部承诺资源后才产生 `camp.deletion_completed`。删库前由 Camp marker 恢复，删库后由既有 journal 恢复，不新增全过程删除表；accepted receipt 必须存活以支持 replay。旧 Starting、lease 和 callback 不能恢复业务写入，正常 read side 排除 deleting Camp。Camp 清理自己的 Authority 附件根、永久输出目录和 legacy View，包括已编辑/未发布内容；外部 Source Ref、项目目录、Runtime 原生 Home 与明确 retain 的 Mission Workspace 不删除。自动恢复耗尽后只暴露原 operation 的统一重试，不把内部阶段交给用户。完整组件与协议见 [Camp 永久删除](camp-deletion.md)和 [Camp Permanent Deletion v4](../contracts/camp-permanent-deletion-v4.md)。
+- Camp 永久删除保持 User-only、exact-version、单事务聚合删除和不可撤销。所有 Runtime 状态共用异步受理：短事务原子结算当前业务、在 Camp 写 Deletion Intent 并关闭新执行准入，前台返回 `accepted + operationId`，不等待 Runtime、数据库聚合或文件系统。后台只将本次 Core 持有的精确 Run/epoch 作为停止目标与提交前清理门禁，前代 ACK 或回执缺失不单独阻断删除且不回填 ACK；当前 Runtime 停止/隔离与 Fleet fence 确认后，才在同一事务建立既有 cleanup journal handoff、删除 Camp 聚合并产生 `camp.deleted`；journal 与可选 Mission cleanup 完成全部承诺资源后才产生 `camp.deletion_completed`。删库前由 Camp marker 恢复，删库后由既有 journal 恢复，不新增全过程删除表；accepted receipt 必须存活以支持 replay。旧 Starting、lease 和 callback 不能恢复业务写入，正常 read side 排除 deleting Camp。Camp 清理自己的 Authority 附件根、永久输出目录和 legacy View，包括已编辑/未发布内容；外部 Source Ref、项目目录、Runtime 原生 Home 与明确 retain 的 Mission Workspace 不删除。自动恢复耗尽后只暴露原 operation 的统一重试，不把内部阶段交给用户。完整组件与协议见 [Camp 永久删除](camp-deletion.md)和 [Camp Permanent Deletion v4](../contracts/camp-permanent-deletion-v4.md)。
 
 ## 成员身份、生命周期与投影
 
@@ -325,7 +325,7 @@ last_updated: 2026-10-26
 - Runtime accepted input 只有在能证明原 Native Turn 的 identity、接受状态和可重连终态时才能恢复。证据不足必须终态为诚实失败并保留 typed unknown evidence，不能重发可能已经产生外部效果的输入；主界面只展示普通红色失败。
 - 新输入的恢复验证冻结 Manifest attachment receipt 的 closed shape/digest，再独立验证 admitted Runtime Files Root identity、精确 Camp root containment 与当前 Camp-root Auth Receipt；不要求 legacy View ready、append-only successor 或 generation 匹配。路径和历史 payload 不重新解析、探测或改写。Migration 99/100 的旧非终态输入按 delivery/action evidence 诚实终结，历史 Manifest/Blob/Auth Receipt/ACK 保留但不可再 dispatch。
 - Cancellation 在业务事务内把精确目标 Run 结算为 cancelled；Stop 使用 `agentRunId + version` CAS，不暂停 `(CampId, AgentId)` lane、不取消 waiting Delivery，也不能命中 successor。未发送 Input 为 not_accepted；accepted/delivery_unknown 与可能已执行的 Action 证据保留，原输入禁止自动重发。User 可主动授权新的续做执行；不提供“用户确认后强制放行”入口。
-- Run 业务终态不证明旧执行已经停止。Adapter cleanup/isolation 未确认时，后继 Delivery 只保持 waiting，不创建必败 Run；旧执行仍可能写某 execution root 时，临时阻止该 root 的新 dispatch。没有输出不是隔离证明。unknown 后默认新 Native Session，但换 Session 或撤销 Core 写权限不能替代旧进程清理。
+- Run 业务终态不证明旧执行已经停止。当前 Core 仍精确持有 Run/epoch 且 Adapter cleanup/isolation 未确认时，后继 Delivery 保持 waiting，并临时阻止相同 execution root 的冲突 dispatch。工作区准备、消息领取、共享 root 与执行入口共用此判断；历史缺 ACK、不可读或身份未知不构成活跃冲突。前代进程只在 ready 后尝试一次有界后台清理，不阻断工作区或 Runtime，不补写旧 ACK，不重投旧输入。当前任务停止和退出仍如实确认。
 - 计划关闭保留 protocolVersion 3/report 和既有 writer/route barrier；public Composer 不再有持久 Draft 前置 fence。持久化 cycle 后先统一结算业务，barrier 后补齐再完成 cycle，Runtime 清理只影响清理事实与 deadline。未知外部效果保留，不伪造 Runtime outcome。
 - Diagnostics 是严格只读、最小化数据的 Core view；修复必须是用户显式选择的独立动作。导出集中脱敏，不能把 secret、完整路径、模型输入或 Runtime 原始输出作为便利诊断数据。
 

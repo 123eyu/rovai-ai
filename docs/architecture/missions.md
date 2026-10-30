@@ -2,7 +2,7 @@
 document_type: architecture
 authority: mission-architecture
 status: accepted
-last_updated: 2026-09-26
+last_updated: 2026-10-29
 ---
 
 # Missions
@@ -35,6 +35,10 @@ refusal leaves a ready workspace ready. Startup/periodic recovery scans unfinish
 becomes `cleanup_failed` unless an intact-resource audit proves that no Worktree removal occurred for a still-live
 Mission, in which case the attempt ends back at `ready`; failed rows are never automatically retried. The same audit
 lets an explicit retry or later execution recover legacy non-destructive failures without trusting checkpoint booleans.
+Cleanup availability and command admission use the same occupancy predicate. Nonterminal Runs and waiting
+Deliveries still occupy the workspace; terminal cleanup blocks only for exact Run/epoch keys owned by this
+Core, including other Threads sharing the execution root. Historical missing ACKs alone do not block cleanup
+and are not repaired. The existing in-memory ownership snapshot supplies this request context.
 The cleanup request performs only permission, durable-state, occupancy and idempotency admission; the worker owns
 the only filesystem/Git safety observation. Its ordinary successful attached-worktree path combines identity,
 `HEAD`, managed OID and actual checkout into one Git observation, then uses non-force Worktree removal, one branch

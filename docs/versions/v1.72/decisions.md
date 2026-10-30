@@ -8,6 +8,26 @@ last_updated: 2026-10-29
 
 # v1.72 版本决定
 
+<a id="v1-72-d69"></a>
+## V1.72-D69：历史进程清理不决定工作区可用性
+
+- 状态：accepted
+- 日期：2026-10-29
+- 授权：User sequence 6 确认四条实施边界并要求独立 worktree；sequence 8 要求先验开发包，稍后退出日常 App。
+- 当前权威：[Availability-first Runtime](../../architecture/availability-first-runtime.md#optional-startup-boundary)、[Managed Process](../../contracts/managed-runtime-process-v2.md#macos-acp-descendants)、[Run recovery](../../architecture/agent-run-recovery.md#4-cleanuplane-与-execution-root)。
+
+前代 PID 被复用、身份查询无权限或账本损坏会通过启动恢复与 Adapter 初始化重复传播；即使打开窗口，旧任务缺 ACK
+也会在工作区准备、领取和共享目录门禁继续阻止新工作。选择 ready 后唯一有界后台尝试，逐条保留诊断，失败不降级运行环境。
+四处任务准入、Mission 清理入口/命令与会话删除统一使用现有内存中的精确 Run/epoch 所有权；
+历史缺 ACK 或未知状态不作为活跃冲突，也不回填虚假清理成功。排队提示只使用当前执行或 Core 的等待原因，
+不从历史 ACK 推断。该边界同样覆盖新会话在 App 崩溃、强制退出或断电后留下的记录。
+
+接受少量前代残留继续存在和旧清理事实保持未知，优先保证老用户在原会话、原成员、原 Runtime 继续工作。
+保留当前执行的真实停止/退出结果、共享进程范围和旧输入不自动重投语义。数据库打开、迁移和业务任务恢复仍各自报告真实错误。
+不选择持久清理队列、恢复服务、合并全部账本或全局放宽进程身份查询；这些方案增加机制或会让当前停止误报结果。
+本决定替代 D26 中“前代回收失败关闭启动准入”的当前要求，其他进程生命周期判断保持。无 schema 变更。
+
+
 <a id="v1-72-d06"></a>
 ## V1.72-D06：Claude Code 打印模式通过原生双向控制协议接入审批
 

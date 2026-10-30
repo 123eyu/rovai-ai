@@ -1752,8 +1752,14 @@ pub fn execution_directory(connection: &Connection, camp_id: &str) -> Result<Opt
     Ok(connection.query_row("SELECT w.working_directory FROM mission_workspace w JOIN mission m ON m.id=w.mission_id WHERE m.camp_id=?1 AND w.state='ready' ORDER BY w.created_at LIMIT 1",[camp_id],|r|r.get(0)).optional()?)
 }
 
-pub fn workspace_in_use(connection: &Connection, workspace: &MissionWorkspace) -> Result<bool> {
-    Ok(connection.query_row(
+pub fn workspace_in_use(
+    connection: &Connection,
+    workspace: &MissionWorkspace,
+    active_executions: &[crate::planned_shutdown::ActiveExecutionKey],
+) -> Result<bool> {
+    use crate::runtime::{RuntimeCleanupScope, runtime_cleanup_blocked_since_connection};
+
+    let pending: bool = connection.query_row(
         "SELECT EXISTS(
             SELECT 1
             FROM agent_run r
@@ -1762,10 +1768,7 @@ pub fn workspace_in_use(connection: &Connection, workspace: &MissionWorkspace) -
                 c.camp_id=?1
                 OR json_extract(r.workspace_json,'$.executionRoot')=?2
             )
-              AND (
-                r.status IN ('queued','running','waiting')
-                OR (r.cancel_requested_at IS NOT NULL AND r.cancel_acknowledged_at IS NULL)
-              )
+              AND r.status IN ('queued','running','waiting')
             UNION ALL
             SELECT 1
             FROM camp_message_delivery d
@@ -1773,13 +1776,27 @@ pub fn workspace_in_use(connection: &Connection, workspace: &MissionWorkspace) -
         )",
         params![workspace.camp_id, workspace.working_directory],
         |row| row.get(0),
-    )?)
+    )?;
+    if pending {
+        return Ok(true);
+    }
+    for scope in [
+        RuntimeCleanupScope::Camp(&workspace.camp_id),
+        RuntimeCleanupScope::ExecutionRoot(&workspace.working_directory),
+    ] {
+        if runtime_cleanup_blocked_since_connection(connection, active_executions, scope)?.is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn cleanup_projection(
     connection: &Connection,
     mission_id: &str,
     camp_id: &str,
+    active_executions: &[crate::planned_shutdown::ActiveExecutionKey],
 ) -> Result<(bool, bool, bool, Option<MissionWorkspaceCleanupProjection>)> {
     let workspaces = load_workspaces(connection, mission_id)?;
     let Some(workspace) = workspaces.first() else {
@@ -1795,7 +1812,7 @@ pub fn cleanup_projection(
         && workspace.execution_host_id == current_host
         && workspace.camp_id == camp_id
         && workspace.state == "ready"
-        && !workspace_in_use(connection, workspace)?;
+        && !workspace_in_use(connection, workspace, active_executions)?;
     let cleanup = if workspace.cleanup_finished() {
         Some(MissionWorkspaceCleanupProjection {
             state: "cleaned".into(),

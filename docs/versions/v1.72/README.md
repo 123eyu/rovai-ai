@@ -18,6 +18,14 @@ last_updated: 2026-10-29
 真实扣分及任务失败保留。完整结果见[实施记录](evaluation-metric-coverage.md)，当前字段见
 [Execution Evaluation v16](../../contracts/execution-evaluation-v16.md)。本轮为单臂采集验收，未进行产品基线比较。
 
+## 历史进程恢复减重（2026-10-29）
+
+历史 ledger/Fleet 清理移出 Core 与 Adapter 启动门槛，只在 ready 后做一次有界后台尝试。
+任务准入、Mission 清理和会话删除共用当前 Run/epoch 所有权判断；旧 ACK 缺失、记录损坏、不可读和身份未知不阻止新工作或资源清理，
+也不自动重投旧输入或补写清理成功。当前任务停止保留实际结果，无新表、队列或恢复服务。
+取舍见 [D69](decisions.md#v1-72-d69)，实施、安装路径回归与尚待完成的原会话副本验收见
+[实施记录](startup-recovery-simplification.md)。
+
 ## 模型目录兼容与原生执行（2026-10-29）
 
 按 User 明确授权统一目录兼容策略：共享合并重复模型 ID，坏条目局部处理；读取失败保留选择、参数与有效缓存，

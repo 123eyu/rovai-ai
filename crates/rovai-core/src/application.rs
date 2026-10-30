@@ -3225,8 +3225,12 @@ impl Core {
             let runtime_result = async {
                 let targets = {
                     let database = self.database.lock().await;
-                    ExecutionRuntimeService::default()
-                        .list_camp_runtime_cleanup_targets(&database, &candidate.camp_id)
+                    let active_executions = self.current_runtime_execution_keys().await;
+                    ExecutionRuntimeService::default().list_camp_runtime_cleanup_targets(
+                        &database,
+                        &candidate.camp_id,
+                        &active_executions,
+                    )
                 }?;
                 self.stop_deleted_camp_runtimes(&targets).await?;
                 self.runtime_fleet
@@ -3263,12 +3267,14 @@ impl Core {
                 };
                 let group_key = {
                     let mut database = self.database.lock().await;
+                    let active_executions = self.current_runtime_execution_keys().await;
                     let group_key = navigation_group_key(&database, &candidate.camp_id)?;
                     service.commit_business_delete(
                         &mut database,
                         &self.attachment_views,
                         &candidate,
                         &cleanup,
+                        &active_executions,
                     )?;
                     self.mark_skill_projections_dirty_best_effort(&mut database, true);
                     group_key
@@ -13341,12 +13347,55 @@ impl Core {
         }
     }
 
+    async fn release_active_execution(&self, key: &ActiveExecutionKey) {
+        // A terminal result releases the route, but not a current execution's
+        // outstanding cleanup responsibility. Serialize with Stop and claim so
+        // an unbound launch cannot disappear between cancellation and cleanup.
+        let database = self.database.lock().await;
+        let pending = database.connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM agent_run WHERE id = ?1 AND execution_epoch = ?2
+             AND cancel_requested_at IS NOT NULL AND cancel_acknowledged_at IS NULL)",
+            rusqlite::params![key.agent_run_id, key.execution_epoch],
+            |row| row.get::<_, bool>(0),
+        );
+        match pending {
+            Ok(true) => {
+                self.planned_shutdown.cancel_active(key).await;
+                self.agent_run_cancellation_notify.notify_one();
+            }
+            Ok(false) => {
+                self.planned_shutdown.remove_active(key).await;
+            }
+            Err(error) => eprintln!("failed to inspect current execution cleanup: {error:#}"),
+        }
+    }
+
+    /// Snapshot existing ownership only. Hold the database lock so a launch
+    /// cannot be committed between this snapshot and the admission query.
+    async fn current_runtime_execution_keys(&self) -> Vec<ActiveExecutionKey> {
+        let mut keys = self
+            .planned_shutdown
+            .active_snapshots()
+            .await
+            .into_iter()
+            .map(|entry| entry.key)
+            .collect::<HashSet<_>>();
+        keys.extend(self.runtime_fleet.active_execution_keys().await);
+        keys.extend(self.claude_code_cli.active_execution_keys());
+        keys.extend(self.antigravity_app.active_execution_keys().await);
+        keys.into_iter().collect()
+    }
+
     async fn collect_delivery_batch_dispatch_candidates(
         self: &Arc<Self>,
     ) -> Result<Vec<rovai_core::runtime::QueuedAgentRunCandidate>> {
         let missions = {
             let database = self.database.lock().await;
-            rovai_core::delivery_queue::waiting_mission_batch_workspaces(&database)?
+            let active_executions = self.current_runtime_execution_keys().await;
+            rovai_core::delivery_queue::waiting_mission_batch_workspaces(
+                &database,
+                &active_executions,
+            )?
         };
         // Preparing a Mission can take time. Each Camp owns one short-lived job;
         // ordinary lanes continue through selection and dispatch immediately.
@@ -13426,11 +13475,13 @@ impl Core {
                         [],
                         |row| row.get(0),
                     )?;
+                    let active_executions = self.current_runtime_execution_keys().await;
                     let runs =
                         rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
                             &mut database,
                             DELIVERY_BATCH_SCHEDULER_PAGE_LIMIT,
                             &ready,
+                            &active_executions,
                         )?;
                     let mut statement = database.connection().prepare(
                         "SELECT DISTINCT camp_id FROM agent_run WHERE id IN (SELECT value FROM json_each(?1)) AND camp_id IS NOT NULL
@@ -13624,10 +13675,12 @@ impl Core {
         }
         let pending_cleanup = {
             let database = self.database.lock().await;
+            let active_executions = self.current_runtime_execution_keys().await;
             ExecutionRuntimeService::default().runtime_cleanup_blocked_since(
                 &database,
                 &candidate.conversation_id,
                 &candidate.agent_run_id,
+                &active_executions,
             )
         };
         match pending_cleanup {
@@ -13721,6 +13774,7 @@ impl Core {
                 return;
             }
         };
+        let adapter_kind = runtime.adapter_kind;
         match self
             .prepare_runtime_for_dispatch(&candidate, runtime, &workspace)
             .await
@@ -13772,9 +13826,9 @@ impl Core {
                 return;
             }
         };
-        let claim = {
+        let (claim, registered) = {
             let mut database = self.database.lock().await;
-            ExecutionRuntimeService::default().claim_agent_run(
+            let claim = ExecutionRuntimeService::default().claim_agent_run(
                 &mut database,
                 &CommandEnvelope {
                     command_id: uuid::Uuid::new_v4().to_string(),
@@ -13797,7 +13851,25 @@ impl Core {
                         starting_git_observation,
                     },
                 },
-            )
+            );
+            // Stop and cleanup admission use this same database lock. Publish
+            // ownership with the claim, before input materialization can yield
+            // or a stop can make the Run terminal.
+            let registered = if let Ok(claim) = &claim
+                && claim.result.status == CommandResultStatus::Accepted
+                && let Some(epoch) = claim.result.payload["executionEpoch"].as_i64()
+            {
+                self.planned_shutdown
+                    .register_active(
+                        &launch_permit,
+                        ActiveExecutionKey::new(&candidate.agent_run_id, epoch),
+                        adapter_kind,
+                    )
+                    .await
+            } else {
+                false
+            };
+            (claim, registered)
         };
         let claim = match claim {
             Ok(claim) if claim.result.status == CommandResultStatus::Accepted => claim,
@@ -13880,15 +13952,7 @@ impl Core {
         ) {
             return;
         }
-        if !self
-            .planned_shutdown
-            .register_active(
-                &launch_permit,
-                active_key.clone(),
-                execution.runtime.adapter_kind,
-            )
-            .await
-        {
+        if !registered {
             drop(database);
             let error = anyhow::anyhow!(
                 "AgentRun execution could not enter the generation-local active registry"
@@ -13934,9 +13998,13 @@ impl Core {
             }
             if launch_cancelled { return; }
             if launch_result.is_ok() {
-                core.planned_shutdown
-                    .remove_active_if_unbound(&active_key)
-                    .await;
+                if core
+                    .planned_shutdown
+                    .launch_finished_without_route(&active_key)
+                    .await
+                {
+                    core.release_active_execution(&active_key).await;
+                }
                 return;
             }
             if let Err(error) = launch_result {
@@ -14074,7 +14142,7 @@ impl Core {
                                 .await
                             {
                                 Ok(settlement) => {
-                                    core.planned_shutdown.remove_active(&active_key).await;
+                                    core.release_active_execution(&active_key).await;
                                     terminal_admission.complete_settlement();
                                     runtime_route_permit.complete_callback();
                                     emit_agent_run_terminal(
@@ -14122,7 +14190,7 @@ impl Core {
                                         "reasonCode": delivered_error_code,
                                     }),
                                 );
-                                core.planned_shutdown.remove_active(&active_key).await;
+                                core.release_active_execution(&active_key).await;
                             }
                             terminal_admission.complete_settlement();
                             runtime_route_permit.complete_callback();
@@ -14162,7 +14230,7 @@ impl Core {
                     public_failure,
                 )
                 .await;
-                core.planned_shutdown.remove_active(&active_key).await;
+                core.release_active_execution(&active_key).await;
             }
         });
     }
@@ -14254,11 +14322,17 @@ impl Core {
     ) -> Result<Option<tokio::time::Instant>> {
         let candidates = {
             let database = self.database.lock().await;
+            let active_executions = self.current_runtime_execution_keys().await;
             let mut candidates = Vec::new();
             let mut offset = 0;
             loop {
                 let mut page = ExecutionRuntimeService::default()
-                    .list_cancellation_candidates_page(&database, 32, offset)?;
+                    .list_cancellation_candidates_page(
+                        &database,
+                        32,
+                        offset,
+                        Some(&active_executions),
+                    )?;
                 let count = page.len();
                 candidates.append(&mut page);
                 if count < 32 {
@@ -14429,6 +14503,9 @@ impl Core {
             }
             self.runtime_fleet
                 .acknowledge_cleanup(agent_run_id, execution_epoch)
+                .await;
+            self.planned_shutdown
+                .cleanup_completed(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
                 .await;
         } else {
             self.agent_run_cancellation_notify.notify_one();
@@ -17805,12 +17882,11 @@ impl Core {
                 )
             }?;
             let Some(current) = current else {
-                self.planned_shutdown
-                    .remove_active(&ActiveExecutionKey::new(
-                        &execution.agent_run_id,
-                        execution.execution_epoch,
-                    ))
-                    .await;
+                self.release_active_execution(&ActiveExecutionKey::new(
+                    &execution.agent_run_id,
+                    execution.execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 return Ok(());
@@ -17860,12 +17936,11 @@ impl Core {
                 }
             }?;
             if terminal.result.status != CommandResultStatus::Rejected {
-                self.planned_shutdown
-                    .remove_active(&ActiveExecutionKey::new(
-                        &execution.agent_run_id,
-                        execution.execution_epoch,
-                    ))
-                    .await;
+                self.release_active_execution(&ActiveExecutionKey::new(
+                    &execution.agent_run_id,
+                    execution.execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -19233,6 +19308,7 @@ impl Core {
             }
         }
         if failure_persisted {
+            self.agent_run_cancellation_notify.notify_one();
             self.delivery_batch_scheduler_notify.notify_one();
             self.execution_wake.runs.notify_one();
         }
@@ -19967,18 +20043,6 @@ async fn run_core(
     let compaction_detector_policies =
         DesiredCompactionDetectorPolicies::from_process_environment();
     let recovery = (|| -> Result<_> {
-        // An old native tool can outlive Core. Reclaim persisted ownership before
-        // readiness, so another Runtime sharing its execution root cannot race it.
-        #[cfg(target_os = "macos")]
-        rovai_core::managed_process::ManagedProcess::recover_runtime_descendants(
-            &data_dir.join("runtime"),
-        )?;
-        // Retired backend: recover only processes proven owned by the generic
-        // kernel-identity ledger. Never launch it or touch persistent history/credentials.
-        #[cfg(target_os = "macos")]
-        rovai_core::managed_process::ManagedProcess::recover_runtime_descendants(
-            &data_dir.join("runtime/cline-hub/hosts"),
-        )?;
         ManagedBlobStore::new(&data_dir).recover_gc_state(&mut database)?;
         recover_legacy_pending_cancellations(&mut database)?;
         rovai_core::single_chat::recover_pending_edit_sessions(&database)?;
@@ -20369,6 +20433,35 @@ async fn run_core(
         source_contract.as_deref(),
     );
     eprintln!("rovai-core {} ready", env!("CARGO_PKG_VERSION"));
+    // Exactly one historical cleanup attempt per Core, outside retryable
+    // subsystem initialization, the database lock and the RPC request loop.
+    // The worker shares one budget across both ledger formats and never
+    // publishes a feature failure or manufactures a task cleanup ACK.
+    let historical_cleanup_core = core.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut report =
+            rovai_core::managed_process::HistoricalProcessCleanup::new(Duration::from_secs(3));
+        #[cfg(target_os = "macos")]
+        for root in ["runtime", "runtime/cline-hub/hosts"] {
+            if historical_cleanup_core.planned_shutdown.shutdown_started() {
+                break;
+            }
+            rovai_core::managed_process::ManagedProcess::recover_runtime_descendants(
+                &historical_cleanup_core.data_dir.join(root),
+                &mut report,
+            );
+        }
+        if !historical_cleanup_core.planned_shutdown.shutdown_started() {
+            historical_cleanup_core
+                .runtime_fleet
+                .recover_previous_processes(&mut report);
+        }
+        report.expired();
+        eprintln!(
+            "[startup] stage=historical_process_cleanup cleaned={} skipped={} budget_exhausted={} diagnostics={:?}",
+            report.cleaned, report.skipped, report.budget_exhausted, report.diagnostics
+        );
+    });
     let runtime_discovery_core = core.clone();
     let mut runtime_discovery_handle = tokio::spawn(async move {
         runtime_discovery_core
@@ -21790,8 +21883,7 @@ async fn persist_pi_prompt_completion(
                 },
             )
             .await?;
-        core.planned_shutdown
-            .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
+        core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
             .await;
         terminal_admission.complete_settlement();
         runtime_route_permit.complete_callback();
@@ -21903,9 +21995,11 @@ async fn persist_pi_prompt_completion(
         };
         match terminal {
             Ok(terminal) if terminal.result.status != CommandResultStatus::Rejected => {
-                core.planned_shutdown
-                    .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -22000,9 +22094,6 @@ async fn process_pi_agent_run_exit(
     core.pi
         .forget_agent_run(agent_run_id, execution_epoch)
         .await;
-    core.planned_shutdown
-        .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-        .await;
     core.stop_network_recovery(
         agent_run_id,
         execution_epoch,
@@ -22028,6 +22119,8 @@ async fn process_pi_agent_run_exit(
         public_failure,
     )
     .await;
+    core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
+        .await;
 }
 
 async fn process_acp_events(
@@ -24650,9 +24743,11 @@ async fn persist_acp_prompt_completion(
         if let Some((execution, command)) = recovery {
             match command {
                 Ok(command) if command.result.status != CommandResultStatus::Rejected => {
-                    core.planned_shutdown
-                        .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                        .await;
+                    core.release_active_execution(&ActiveExecutionKey::new(
+                        agent_run_id,
+                        execution_epoch,
+                    ))
+                    .await;
                     runtime_route_permit.complete_callback();
                     if core.planned_shutdown.shutdown_started() {
                         eprintln!(
@@ -24721,8 +24816,7 @@ async fn persist_acp_prompt_completion(
                 },
             )
             .await?;
-        core.planned_shutdown
-            .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
+        core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
             .await;
         terminal_admission.complete_settlement();
         runtime_route_permit.complete_callback();
@@ -24822,9 +24916,11 @@ async fn persist_acp_prompt_completion(
         };
         match terminal {
             Ok(terminal) if terminal.result.status != CommandResultStatus::Rejected => {
-                core.planned_shutdown
-                    .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -24961,9 +25057,6 @@ async fn process_acp_agent_run_exit(
             .forget_agent_run(agent_run_id, execution_epoch)
             .await;
     }
-    core.planned_shutdown
-        .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-        .await;
     core.stop_network_recovery(
         agent_run_id,
         execution_epoch,
@@ -24978,6 +25071,8 @@ async fn process_acp_agent_run_exit(
         None,
     )
     .await;
+    core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
+        .await;
 }
 
 async fn buffer_runtime_usage(
@@ -25828,9 +25923,11 @@ async fn process_agent_run_codex_message(
             .await
         {
             Ok(settlement) => {
-                core.planned_shutdown
-                    .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -25975,9 +26072,11 @@ async fn process_agent_run_codex_message(
         };
         match terminal {
             Ok(terminal) if terminal.result.status != CommandResultStatus::Rejected => {
-                core.planned_shutdown
-                    .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-                    .await;
+                core.release_active_execution(&ActiveExecutionKey::new(
+                    agent_run_id,
+                    execution_epoch,
+                ))
+                .await;
                 terminal_admission.complete_settlement();
                 runtime_route_permit.complete_callback();
                 emit_agent_run_terminal(
@@ -26331,9 +26430,6 @@ async fn process_agent_run_exit(
     core.codex_cli
         .forget_agent_run(agent_run_id, execution_epoch)
         .await;
-    core.planned_shutdown
-        .remove_active(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
-        .await;
     core.stop_network_recovery(
         agent_run_id,
         execution_epoch,
@@ -26348,6 +26444,8 @@ async fn process_agent_run_exit(
         None,
     )
     .await;
+    core.release_active_execution(&ActiveExecutionKey::new(agent_run_id, execution_epoch))
+        .await;
 }
 
 async fn dispatch_pending_single_chat_inputs(core: &Core) -> Result<()> {
@@ -34471,7 +34569,13 @@ done
                 .next()
                 .expect("accepted Camp deletion should be due");
             ThreadDeletionService::default()
-                .commit_business_delete(&mut database, &core.attachment_views, &deletion, &cleanup)
+                .commit_business_delete(
+                    &mut database,
+                    &core.attachment_views,
+                    &deletion,
+                    &cleanup,
+                    &[],
+                )
                 .unwrap();
             cleanup
         };
@@ -34661,11 +34765,17 @@ done
         );
         let agent_run_id = {
             let mut database = core.database.lock().await;
-            claim_waiting_delivery_batches(&mut database, 1)
-                .unwrap()
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| panic!("waiting Delivery did not create an AgentRun: {sent:#}"))
+            let current = core.current_runtime_execution_keys().await;
+            rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
+                &mut database,
+                1,
+                &Default::default(),
+                &current,
+            )
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("waiting Delivery did not create an AgentRun: {sent:#}"))
         };
         let (version, execution_epoch) = {
             let mut database = core.database.lock().await;
@@ -35009,8 +35119,11 @@ done
                         .await
                 );
             }
+            core.release_active_execution(&key).await;
+            assert!(core.current_runtime_execution_keys().await.contains(&key));
             let cleanup = {
                 let mut database = core.database.lock().await;
+                let current = core.current_runtime_execution_keys().await;
                 if delivered_failure {
                     let action: (String, String) = database.connection().query_row(
                     "SELECT status, effect_disposition FROM action_execution WHERE id = 'approved-action'",
@@ -35037,13 +35150,18 @@ done
                     )
                 );
                 assert!(
-                    claim_waiting_delivery_batches(&mut database, 100)
-                        .unwrap()
-                        .is_empty(),
+                    rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
+                        &mut database,
+                        100,
+                        &Default::default(),
+                        &current,
+                    )
+                    .unwrap()
+                    .is_empty(),
                     "a failed Run alone must not release the old execution's lane"
                 );
                 ExecutionRuntimeService::default()
-                    .list_cancellation_candidates(&database, 100)
+                    .list_cancellation_candidates_page(&database, 100, 0, Some(&current))
                     .unwrap()
                     .pop()
                     .unwrap()
@@ -35052,6 +35170,7 @@ done
                 core.finish_agent_run_runtime_cleanup(&core.output, cleanup)
                     .await
             );
+            assert!(!core.current_runtime_execution_keys().await.contains(&key));
             let next_run_id = {
                 let mut database = core.database.lock().await;
                 let next = claim_waiting_delivery_batches(&mut database, 100).unwrap();
@@ -35907,10 +36026,16 @@ for line in sys.stdin:
             .unwrap();
         {
             let mut database = core.database.lock().await;
+            let current = core.current_runtime_execution_keys().await;
             assert!(
-                claim_waiting_delivery_batches(&mut database, 100)
-                    .unwrap()
-                    .is_empty()
+                rovai_core::delivery_queue::claim_waiting_delivery_batches_with_workspaces(
+                    &mut database,
+                    100,
+                    &Default::default(),
+                    &current,
+                )
+                .unwrap()
+                .is_empty()
             );
             let state: (i64, i64, String) = database.connection().query_row(
                 "SELECT (SELECT COUNT(*) FROM agent_run WHERE camp_id = ?1),
@@ -36018,6 +36143,14 @@ for line in sys.stdin:
             assert_eq!(cancelled.result.code, "agent_run.cancelled");
         }
 
+        // Stop can commit before the launch finishes or the cleanup worker
+        // sets its cancellation flag. A terminal/launch callback must retain
+        // this exact current execution even when no Adapter handle exists.
+        assert!(permit.check_cancelled().is_ok());
+        core.release_active_execution(&key).await;
+        assert!(permit.check_cancelled().is_err());
+        assert!(core.current_runtime_execution_keys().await.contains(&key));
+
         tokio::time::timeout(
             Duration::from_secs(1),
             core.dispatch_agent_run_cancellations(&core.output),
@@ -36088,6 +36221,22 @@ for line in sys.stdin:
         })
         .await
         .expect("background cleanup should acknowledge and release its de-duplication key");
+        assert!(!core.current_runtime_execution_keys().await.contains(&key));
+        let acknowledged = core
+            .database
+            .lock()
+            .await
+            .connection()
+            .query_row(
+                "SELECT cancel_acknowledged_at IS NOT NULL FROM agent_run WHERE id = ?1",
+                [&agent_run_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap();
+        assert!(
+            acknowledged,
+            "release requires the actual current cleanup ACK"
+        );
         stop_tx.send(true).unwrap();
         cleanup_driver.await.unwrap();
         core.abort_agent_run_tasks().await;

@@ -38,8 +38,12 @@ Core RPC 相关场景 11 项通过；macOS 的隐藏系统 Pi 不适用场景按
 
 提交 `c0d0d27955ba513cc869bb4f4e4f1e9d505bc61d` 重建开发版后再次打开同一副本，Core 61ms ready；同一旧 conversation 真实新任务、新 Thread、新 Mission 真实任务通过，Mission 工作区/分支清理及三个 Thread 删除完成。旧历史状态在删除前逐条核对未补写。运行中 Desktop 的 App Updates IPC 与 Core health 都报告 0.5.4；开发 Core SHA-256 为 `287d508049f65e1e31faa68af51cf8764cd8f052d5742f8f4a53ff95f84a3fb5`。该证据属于开发通道，不能代替安装路径验收。验收脚本首次使用已退役的 Renderer `camps.delete` 名称被拒绝，没有产生删除；改用现行 `threads.delete` 后完成，错误和修正均保留在报告中。
 
-[PR #958](https://github.com/murray17/rovai-ai/pull/958) 保持 Draft。PR gate 已通过；[Windows 首轮原生执行](https://github.com/murray17/rovai-ai/actions/runs/41043770825)的编译、进程/数据库/权限、Blob、MCP、附件和 Runtime 设置 owner 通过，但既有环境变量退役测试因仍持有新建密钥文件句柄、删除夹具目录被 Windows 拒绝而失败。补充 `drop(file)` 后本地同一 owner 通过，保留全部断言并继续 Windows 重跑；不能把首轮矩阵标为全绿。补跑全量 all-targets/all-features Clippy 未通过，包含基线已有的 `cline.rs` 文档空行、`authority_migration.rs` 冗余字段名等告警；本轮引入的无效尾部检查、unit struct 默认调用、Blob 多余引用和 MCP 分支写法已修正，未为通过门禁扩大到无关代码。
+[PR #958](https://github.com/murray17/rovai-ai/pull/958) 保持 Draft。PR gate 已通过；[Windows 首轮原生执行](https://github.com/murray17/rovai-ai/actions/runs/41043770825)的编译、进程/数据库/权限、Blob、MCP、附件和 Runtime 设置 owner 通过，但既有环境变量退役测试因仍持有新建密钥文件句柄、删除夹具目录被 Windows 拒绝而失败。补充 `drop(file)` 后本地及[第二轮 Windows owner](https://github.com/murray17/rovai-ai/actions/runs/41045905471)全部通过，保留全部断言。
 
-`pnpm package:mac:daily` 构建与 App/Host/CLI arm64、ad-hoc 签名门禁通过；这里只构建产物，未安装到日常路径。生产代码对应 `6dd1be3fc823ce332cbbc570cbe9a353c2038786`，Host 0.5.4 的 SHA-256 为 `6d193b225a752cc180f26f4da36d7fa53fa454551adb382869f64d69b665a6ac`。打包 App 在全新隔离目录 `/private/tmp/rovai-optional-packaged-1HcZCs` 打开同一旧测试库副本，Core 25ms ready；真实 Codex 新任务、Stop（219ms）和后继任务通过，Pi 仍局部报损坏、外部 MCP 保持 invalid。Pi 显式 CAS 修正后同一 Core 检查 Ready。打包通道与真实原数据、安装路径验收继续分开记录。
+第二轮实际 Core RPC 发现本轮路径比较的 Windows 回归：普通路径与 `std::fs::canonicalize` 的 `\\?\` 前缀形式被误判为不同实例，导致启动拒绝。复用现有路径等价比较，重叠检查也接受同一表示差异；没有恢复附件树巡检。现有根准入 owner 扩展到 Windows，覆盖普通/扩展表示、超 260 字符路径、交叉表示重叠拒绝以及未创建根的准入。Mac owner 25 项通过，Windows 原生矩阵重新执行；两轮失败均不能记为全绿。
+
+补跑全量 all-targets/all-features Clippy 未通过，包含基线已有的 `cline.rs` 文档空行、`authority_migration.rs` 冗余字段名等告警；本轮引入的无效尾部检查、unit struct 默认调用、Blob 多余引用和 MCP 分支写法已修正，未为通过门禁扩大到无关代码。
+
+`pnpm package:mac:daily` 构建与 App/Host/CLI arm64、ad-hoc 签名门禁通过；这里只构建产物，未安装到日常路径。生产代码对应 `6dd1be3fc823ce332cbbc570cbe9a353c2038786`，Host 0.5.4 的 SHA-256 为 `6d193b225a752cc180f26f4da36d7fa53fa454551adb382869f64d69b665a6ac`。打包 App 在全新隔离目录 `/private/tmp/rovai-optional-packaged-1HcZCs` 打开同一旧测试库副本，Core 25ms ready；真实 Codex 新任务、Stop（219ms）和后继任务通过，Pi 仍局部报损坏、外部 MCP 保持 invalid。Pi 显式 CAS 修正后同一 Core 检查 Ready。正常退出并重开后 Core 23ms ready，修正值保留；同一旧 conversation、新 Thread、新 Mission 的真实任务、Mission 工作区清理及三个 Thread 删除均通过。打包通道与真实原数据、安装路径验收继续分开记录。
 
 以下仍是未完成交付门槛：保留现场的真实用户原会话/原使命副本，及其中同一原队员的真实任务、Stop/重开/清理/删除；Windows 原生执行的最终结果及真实原数据/Runtime 验收；安装路径及 App/Core 构建核对。日常宿主 App 保持运行，未向其数据库或会话发送测试操作。既有关闭后副本规则与当前会话宿主保护仍适用；不能用这里的合成历史副本替代用户原现场。

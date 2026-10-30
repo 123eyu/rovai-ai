@@ -23,6 +23,7 @@ use crate::{
     collaboration::append_domain_event,
     command::{ActorRef, canonical_json_digest},
     db::Database,
+    git::persisted_workspace_path_matches_canonical,
     message_delivery::settle_attachment_projection_failure,
 };
 
@@ -372,7 +373,7 @@ impl ThreadAttachmentViewStore {
             .context("runtime_camp_files_root_invalid: data_dir is unavailable")?;
         let instance_key = instance_key(&canonical_data_dir)?;
         let server_root = crate::storage_layout::server_runtime_root(&canonical_data_dir)?;
-        let standalone = root == server_root;
+        let standalone = persisted_workspace_path_matches_canonical(root, &server_root);
         #[cfg(target_os = "macos")]
         if !standalone {
             let home = dirs::home_dir().context("current user Home is unavailable")?;
@@ -382,28 +383,31 @@ impl ThreadAttachmentViewStore {
                 .join(&instance_key)
                 .join("runtime-files");
             anyhow::ensure!(
-                root == expected,
+                persisted_workspace_path_matches_canonical(root, &expected),
                 "runtime_camp_files_root_invalid: wrong instance path"
             );
         }
         #[cfg(windows)]
         if !standalone {
             anyhow::ensure!(
-                root == canonical_data_dir.join("runtime-files"),
+                persisted_workspace_path_matches_canonical(
+                    root,
+                    &canonical_data_dir.join("runtime-files"),
+                ),
                 "runtime_camp_files_root_invalid: wrong instance path"
             );
         }
         #[cfg(not(any(target_os = "macos", windows)))]
         if !standalone {
             anyhow::ensure!(
-                !root.starts_with(&canonical_data_dir) && !canonical_data_dir.starts_with(root),
+                !paths_overlap_lexically(root, &canonical_data_dir),
                 "runtime_camp_files_root_invalid: managed roots overlap"
             );
         }
         for managed_root in other_managed_roots {
             validate_normalized_absolute(managed_root, "runtime_camp_files_root_invalid")?;
             anyhow::ensure!(
-                !root.starts_with(managed_root) && !managed_root.starts_with(root),
+                !paths_overlap_lexically(root, managed_root),
                 "runtime_camp_files_root_invalid: managed roots overlap"
             );
         }
@@ -5359,6 +5363,16 @@ fn validate_attachment_id(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn paths_overlap_lexically(left: &Path, right: &Path) -> bool {
+    // Reuse the existing Windows ordinary/verbatim spelling comparison without
+    // probing the optional tree, including when it has not been created yet.
+    left.ancestors()
+        .any(|path| persisted_workspace_path_matches_canonical(path, right))
+        || right
+            .ancestors()
+            .any(|path| persisted_workspace_path_matches_canonical(path, left))
+}
+
 fn validate_normalized_absolute(path: &Path, code: &str) -> Result<()> {
     if !path.is_absolute()
         || path
@@ -6592,11 +6606,8 @@ mod tests {
         assert!(validate_root_relative_path(Path::new("/escape")).is_err());
     }
 
-    #[cfg(unix)]
     #[test]
     fn runtime_root_admission_preserves_historical_entries_and_scopes_target_checks() {
-        use std::os::unix::fs::symlink;
-
         let fixture = std::env::temp_dir().join(format!(
             "rovai-runtime-root-admission-test-{}",
             Uuid::new_v4()
@@ -6604,10 +6615,13 @@ mod tests {
         fs::create_dir_all(&fixture).unwrap();
 
         let symlink_target = fixture.join("symlink-target");
-        let symlink_root = fixture.join("symlink-root");
         fs::create_dir(&symlink_target).unwrap();
-        symlink(&symlink_target, &symlink_root).unwrap();
-        assert!(reject_existing_symlink_components(&symlink_root).is_err());
+        #[cfg(unix)]
+        {
+            let symlink_root = fixture.join("symlink-root");
+            std::os::unix::fs::symlink(&symlink_target, &symlink_root).unwrap();
+            assert!(reject_existing_symlink_components(&symlink_root).is_err());
+        }
 
         let overlap_root = fixture.join("overlap");
         let overlap_child = overlap_root.join("child");
@@ -6620,7 +6634,8 @@ mod tests {
         let marker = root.join(ROOT_MARKER);
         fs::write(&marker, b"old or damaged marker").unwrap();
         fs::write(root.join("unknown"), b"preserve original").unwrap();
-        symlink(&symlink_target, root.join("old-link")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&symlink_target, root.join("old-link")).unwrap();
         let store = ThreadAttachmentViewStore::admit(&root, &data_dir, &[]).unwrap();
         assert_eq!(fs::read(&marker).unwrap(), b"old or damaged marker");
         assert_eq!(
@@ -6630,6 +6645,36 @@ mod tests {
         assert!(!root.join(ROOT_LOCK).exists());
         assert!(store.lock_file.lock().unwrap().is_none());
         drop(store);
+
+        #[cfg(windows)]
+        {
+            let ordinary = |path: &Path| {
+                let value = path.to_str().unwrap();
+                PathBuf::from(value.strip_prefix(r"\\?\").unwrap_or(value))
+            };
+            ThreadAttachmentViewStore::admit(&ordinary(&root), &data_dir, &[]).unwrap();
+            assert!(
+                ThreadAttachmentViewStore::admit(
+                    &ordinary(&root),
+                    &data_dir,
+                    &[root.join("overlapping-skill-root")],
+                )
+                .is_err()
+            );
+            let desktop_root = data_dir.join("runtime-files");
+            ThreadAttachmentViewStore::admit(&ordinary(&desktop_root), &data_dir, &[]).unwrap();
+            assert!(!desktop_root.exists(), "admission must not create the tree");
+
+            let long_data = data_dir
+                .join("long-directory".repeat(10))
+                .join("another-directory".repeat(8));
+            fs::create_dir_all(&long_data).unwrap();
+            let long_data = fs::canonicalize(long_data).unwrap();
+            let long_root = long_data.join("runtime-files");
+            assert!(ordinary(&long_root).as_os_str().len() > 260);
+            ThreadAttachmentViewStore::admit(&ordinary(&long_root), &long_data, &[]).unwrap();
+            assert!(!long_root.exists());
+        }
 
         fs::remove_dir_all(&fixture).unwrap();
     }

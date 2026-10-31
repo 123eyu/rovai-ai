@@ -202,11 +202,13 @@ impl Core {
     pub(super) async fn prepare_mission_workspace(
         &self,
         candidate: &rovai_core::runtime::QueuedAgentRunCandidate,
+        validated_project_path: &Path,
     ) -> Result<Option<rovai_core::runtime::AgentRunWorkspace>> {
         self.prepare_mission_execution_workspace(
             &candidate.camp_id,
             candidate.execution_workspace(),
             Some(candidate),
+            Some(validated_project_path),
         )
         .await
     }
@@ -218,7 +220,29 @@ impl Core {
         camp_id: &str,
         mut execution: rovai_core::runtime::AgentRunWorkspace,
         candidate: Option<&rovai_core::runtime::QueuedAgentRunCandidate>,
+        validated_project_path: Option<&Path>,
     ) -> Result<Option<rovai_core::runtime::AgentRunWorkspace>> {
+        // Dispatch already validated/canonicalized the selected project. Only
+        // that exact execution root can bypass the lifecycle gate. The database
+        // guard ends before waiting for the gate on shared or uncertain paths.
+        if let Some(root) = validated_project_path.filter(|root| {
+            crate::git::persisted_workspace_path_matches_canonical(
+                Path::new(&execution.execution_root),
+                root,
+            )
+        }) {
+            let database = self.database.lock().await;
+            let has_mission: bool = database.connection().query_row(
+                "SELECT EXISTS(SELECT 1 FROM mission WHERE camp_id=?1)",
+                [camp_id],
+                |row| row.get(0),
+            )?;
+            if !has_mission
+                && mission_workspace::execution_root_is_disjoint(database.connection(), root)?
+            {
+                return Ok(Some(execution));
+            }
+        }
         let _preparation = self.mission_workspace_gate.lock().await;
         let (mission, existing, host) = {
             let mut database = self.database.lock().await;

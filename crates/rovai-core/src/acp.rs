@@ -3343,7 +3343,12 @@ impl AcpHost {
         Ok(())
     }
 
-    async fn settle_loading_replay(&self, session_id: &str, owner: &AcpRuntimeOwner) -> Result<()> {
+    async fn settle_loading_replay(
+        &self,
+        session_id: &str,
+        owner: &AcpRuntimeOwner,
+        wait_for_history: bool,
+    ) -> Result<()> {
         let response_received_at = Instant::now();
         loop {
             let wait_for = {
@@ -3362,12 +3367,18 @@ impl AcpHost {
                 else {
                     bail!("ACP Session loading route failed Host/Run fencing");
                 };
-                let grace_remaining = ACP_HISTORY_RESTORE_POST_RESPONSE_GRACE
-                    .saturating_sub(response_received_at.elapsed());
-                let quiet_remaining = last_event_at.map_or(Duration::ZERO, |last_event_at| {
-                    ACP_HISTORY_RESTORE_QUIET_PERIOD.saturating_sub(last_event_at.elapsed())
-                });
-                let required_wait = grace_remaining.max(quiet_remaining);
+                // A successful resume does not replay history. Both restore methods
+                // still pass the same exact owner/phase transition above.
+                let required_wait = if wait_for_history {
+                    let grace_remaining = ACP_HISTORY_RESTORE_POST_RESPONSE_GRACE
+                        .saturating_sub(response_received_at.elapsed());
+                    let quiet_remaining = last_event_at.map_or(Duration::ZERO, |last_event_at| {
+                        ACP_HISTORY_RESTORE_QUIET_PERIOD.saturating_sub(last_event_at.elapsed())
+                    });
+                    grace_remaining.max(quiet_remaining)
+                } else {
+                    Duration::ZERO
+                };
                 if required_wait.is_zero() {
                     route.phase = AcpSessionPhase::Ready;
                     return Ok(());
@@ -4959,7 +4970,12 @@ pub(crate) fn build_acp_new_session_params(
         adapter_kind,
         AdapterKind::CursorAgent | AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli
     ) {
-        params["additionalDirectories"] = json!(additional_directories);
+        // Grok 1.0.70 accepts cwd-only sessions and rejects non-empty extra roots.
+        params["additionalDirectories"] = if adapter_kind == AdapterKind::GrokBuild {
+            json!([])
+        } else {
+            json!(additional_directories)
+        };
     }
     if let Some(rules) = native_rules {
         params["_meta"] = json!({"rules": rules});
@@ -5215,12 +5231,12 @@ impl AcpRuntime {
             continuation,
             new_session_native_rules,
         )?;
-        let (session_id, prebound_session) = match continuation {
+        let (session_id, restore_method) = match continuation {
             AcpSessionContinuation::ReuseSameHost => (
                 existing_session_id
                     .context("same-Host ACP continuation has no Session ID")?
                     .to_string(),
-                false,
+                None,
             ),
             AcpSessionContinuation::Resume | AcpSessionContinuation::HistoryRestore => {
                 let existing_session_id =
@@ -5319,7 +5335,7 @@ impl AcpRuntime {
                     return Err(anyhow::anyhow!(reason).context(AcpSessionRestoreError));
                 }
                 *self.session_result.write().await = Some(result);
-                (existing_session_id.to_string(), true)
+                (existing_session_id.to_string(), Some(method))
             }
             AcpSessionContinuation::New => {
                 let params = build_acp_new_session_params(
@@ -5336,7 +5352,7 @@ impl AcpRuntime {
                     .and_then(Value::as_str)
                     .context("ACP Session response did not include sessionId")?
                     .to_string();
-                (session_id, false)
+                (session_id, None)
             }
         };
         if self.session_result.read().await.is_none()
@@ -5587,7 +5603,7 @@ impl AcpRuntime {
                     .await?;
             }
         }
-        self.finish_session_attachment(&session_id, prebound_session)
+        self.finish_session_attachment(&session_id, restore_method)
             .await?;
         Ok(session_id)
     }
@@ -5595,11 +5611,11 @@ impl AcpRuntime {
     async fn finish_session_attachment(
         &self,
         session_id: &str,
-        prebound_session: bool,
+        restore_method: Option<&str>,
     ) -> Result<()> {
-        if prebound_session {
+        if let Some(method) = restore_method {
             self.host
-                .settle_loading_replay(session_id, &self.owner)
+                .settle_loading_replay(session_id, &self.owner, method == "session/load")
                 .await?;
         } else {
             self.host
@@ -9745,7 +9761,9 @@ mod route_policy_tests {
                 .count(),
             1
         );
-        assert_eq!(params["additionalDirectories"].as_array().unwrap().len(), 2);
+        assert_eq!(params["cwd"], "/workspace");
+        assert_eq!(params["mcpServers"], json!([]));
+        assert_eq!(params["additionalDirectories"], json!([]));
 
         let additional_directories = ["/attachments".to_string(), "/run-tmp".to_string()];
         let resume = build_acp_resume_session_params(
@@ -9772,6 +9790,35 @@ mod route_policy_tests {
             other["additionalDirectories"],
             json!(["/attachments", "/run-tmp"])
         );
+        let mcp_servers = [json!({"name":"example", "command":"example-mcp", "args":[], "env":[]})];
+        for kind in [
+            AdapterKind::GrokBuild,
+            AdapterKind::QwenCode,
+            AdapterKind::CursorAgent,
+            AdapterKind::DeepseekHarness,
+            AdapterKind::MinimaxCodeCli,
+        ] {
+            let params = build_acp_new_session_params(
+                kind,
+                "/workspace",
+                &mcp_servers,
+                &additional_directories,
+                None,
+            );
+            assert_eq!(params["cwd"], "/workspace");
+            assert_eq!(params["mcpServers"], json!(mcp_servers));
+            assert!(params.get("_meta").is_none());
+            match kind {
+                AdapterKind::GrokBuild => assert_eq!(params["additionalDirectories"], json!([])),
+                AdapterKind::QwenCode => {
+                    assert_eq!(
+                        params["additionalDirectories"],
+                        json!(additional_directories)
+                    );
+                }
+                _ => assert!(params.get("additionalDirectories").is_none()),
+            }
+        }
     }
 
     #[test]
@@ -14372,11 +14419,12 @@ for line in sys.stdin:
     async fn history_restore_replay_is_quarantined_and_only_current_prompt_accepts_input() {
         // Command uses the same transport and goes straight to native restore;
         // the fixture deliberately has no session/list response.
-        for (kind, control_outcome) in [
-            (AdapterKind::TraeCnCli, "end_turn"),
-            (AdapterKind::CommandCodeCli, "end_turn"),
-            (AdapterKind::CommandCodeCli, "error"),
-            (AdapterKind::CommandCodeCli, "cancelled"),
+        for (kind, control_outcome, resume_fallback) in [
+            (AdapterKind::TraeCnCli, "end_turn", false),
+            (AdapterKind::TraeCnCli, "end_turn", true),
+            (AdapterKind::CommandCodeCli, "end_turn", false),
+            (AdapterKind::CommandCodeCli, "error", false),
+            (AdapterKind::CommandCodeCli, "cancelled", false),
         ] {
             let root = std::env::temp_dir().join(format!(
                 "rovai-acp-resume-quarantine-{}",
@@ -14390,6 +14438,19 @@ for line in sys.stdin:
             } else {
                 json!({"jsonrpc":"2.0","id":4,"result":{"stopReason":control_outcome,"usage":{"totalTokens":999999}}})
             };
+            let fallback_response = if resume_fallback {
+                format!(
+                    r#"printf '%s\n' '{{"jsonrpc":"2.0","id":2,"error":{{"code":-32601,"message":"resume unavailable"}}}}'
+IFS= read -r load || exit 1
+printf '%s\n' "$load" >> '{}'
+"#,
+                    protocol_log.display()
+                )
+            } else {
+                String::new()
+            };
+            let restore_response_id = if resume_fallback { 3 } else { 2 };
+            let first_prompt_id = restore_response_id + 1;
             make_executable(
                 &executable,
                 &format!(
@@ -14402,10 +14463,11 @@ printf '%s\n' "$initialize" >> '{}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{"loadSession":true,"sessionCapabilities":{{"resume":{{}}}}}}}}}}'
 IFS= read -r resume || exit 1
 printf '%s\n' "$resume" >> '{}'
+{fallback_response}
 printf '%s\n' '{{"jsonrpc":"2.0","id":90,"method":"session/request_permission","params":{{"sessionId":"session-old","toolCall":{{"toolCallId":"historical-tool"}},"options":[]}}}}'
 IFS= read -r quarantined_permission || exit 1
-printf '%s\n' '{{"jsonrpc":"2.0","id":2,"result":{{"modes":{{"currentModeId":"default","availableModes":[{{"id":"default","name":"Default"}}]}}}}}}'
-prompt_id=3
+printf '%s\n' '{{"jsonrpc":"2.0","id":{restore_response_id},"result":{{"modes":{{"currentModeId":"default","availableModes":[{{"id":"default","name":"Default"}}]}}}}}}'
+prompt_id={first_prompt_id}
 if [ -n "$ROVAI_COMMAND_CODE_BOOTSTRAP_ROOT" ]; then
   IFS= read -r mode || exit 1
   printf '%s\n' '{{"jsonrpc":"2.0","id":3,"result":{{}}}}'
@@ -14484,7 +14546,7 @@ while IFS= read -r ignored; do :; done
                 .start_or_resume_session(
                     Some("session-old"),
                     AcpSessionCapabilities {
-                        can_resume: false,
+                        can_resume: resume_fallback,
                         can_load_history: true,
                     },
                     "runtime_default",
@@ -14580,11 +14642,81 @@ while IFS= read -r ignored; do :; done
                 }) if message.get("method").and_then(Value::as_str)
                     == Some("rovai/acp_prompt_completed")
             ));
+            if kind == AdapterKind::TraeCnCli && !resume_fallback {
+                // Poll only the post-RPC attachment transition with uncontended locks.
+                // Resume must finish without registering a timer; load must remain pending.
+                // This observes the wait directly, without wall-clock performance assertions.
+                for (method, immediate) in [("session/resume", true), ("session/load", false)] {
+                    host.bind_session(
+                        &session_id,
+                        &runtime.owner,
+                        AcpSessionPhase::loading_replay(),
+                    )
+                    .await
+                    .unwrap();
+                    let mut attachment = std::pin::pin!(
+                        runtime.finish_session_attachment(&session_id, Some(method))
+                    );
+                    let polled = std::future::poll_fn(|cx| {
+                        std::task::Poll::Ready(std::future::Future::poll(attachment.as_mut(), cx))
+                    })
+                    .await;
+                    assert_eq!(polled.is_ready(), immediate, "{method}: {polled:?}");
+                    if let std::task::Poll::Ready(result) = polled {
+                        result.unwrap();
+                    }
+                }
+                for invalid in ["owner", "epoch", "protocol", "ready"] {
+                    host.bind_session(
+                        &session_id,
+                        &runtime.owner,
+                        AcpSessionPhase::loading_replay(),
+                    )
+                    .await
+                    .unwrap();
+                    {
+                        let mut routes = host.routes.write().await;
+                        let route = routes.get_mut(&session_id).unwrap();
+                        match invalid {
+                            "owner" => route.owner.agent_run_id = "another-run".into(),
+                            "epoch" => route.owner.execution_epoch += 1,
+                            "protocol" => {
+                                route.phase = AcpSessionPhase::ProtocolViolated {
+                                    reason: "test violation".into(),
+                                }
+                            }
+                            _ => route.phase = AcpSessionPhase::Ready,
+                        }
+                    }
+                    assert!(
+                        runtime
+                            .finish_session_attachment(&session_id, Some("session/resume"))
+                            .await
+                            .is_err()
+                    );
+                    if invalid == "protocol" {
+                        assert!(matches!(
+                            host.routes.read().await[&session_id].phase,
+                            AcpSessionPhase::ProtocolViolated { .. }
+                        ));
+                    }
+                    host.routes.write().await.remove(&session_id);
+                }
+                assert!(
+                    runtime
+                        .finish_session_attachment(&session_id, Some("session/resume"))
+                        .await
+                        .is_err()
+                );
+            }
             host.shutdown().await;
 
             let protocol = std::fs::read_to_string(&protocol_log).unwrap();
             assert!(protocol.contains("\"method\":\"session/load\""));
-            assert!(!protocol.contains("\"method\":\"session/resume\""));
+            assert_eq!(
+                protocol.contains("\"method\":\"session/resume\""),
+                resume_fallback
+            );
             assert!(!protocol.contains("\"method\":\"session/list\""));
             std::fs::remove_dir_all(root).unwrap();
         }
@@ -14592,12 +14724,30 @@ while IFS= read -r ignored; do :; done
 
     #[tokio::test]
     async fn history_restore_protocol_anomalies_fail_closed() {
-        for (case_name, restore_response, expected_error) in [
-            ("invalid-json", "not-json-history", "invalid protocol JSON"),
+        for (case_name, restore_response, expected_error, can_resume) in [
+            (
+                "invalid-json",
+                "not-json-history",
+                "invalid protocol JSON",
+                false,
+            ),
+            (
+                "resume-invalid-json",
+                "not-json-history",
+                "invalid protocol JSON",
+                true,
+            ),
             (
                 "different-session-id",
                 r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"session-other"}}"#,
                 "different Session ID",
+                false,
+            ),
+            (
+                "resume-different-session-id",
+                r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"session-other"}}"#,
+                "different Session ID",
+                true,
             ),
         ] {
             let root = std::env::temp_dir().join(format!(
@@ -14655,7 +14805,7 @@ while IFS= read -r ignored; do :; done
                 .start_or_resume_session(
                     Some("session-old"),
                     AcpSessionCapabilities {
-                        can_resume: false,
+                        can_resume,
                         can_load_history: true,
                     },
                     "runtime_default",
@@ -14679,7 +14829,7 @@ while IFS= read -r ignored; do :; done
                 let routes = host.routes.read().await;
                 assert!(!routes.contains_key("session-other"));
                 assert!(routes.keys().all(|session_id| session_id == "session-old"));
-                if case_name == "different-session-id" {
+                if case_name.ends_with("different-session-id") {
                     assert!(matches!(
                         routes.get("session-old").map(|route| &route.phase),
                         Some(AcpSessionPhase::ProtocolViolated { .. })

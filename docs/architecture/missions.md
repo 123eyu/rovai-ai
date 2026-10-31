@@ -2,7 +2,7 @@
 document_type: architecture
 authority: mission-architecture
 status: accepted
-last_updated: 2026-10-29
+last_updated: 2026-10-31
 ---
 
 # Missions
@@ -14,10 +14,13 @@ drafts, published files and execution. Renderer does not create a parallel conve
 `MissionService` applies atomic commands through the existing gateway. For public batches, the application coordinator
 prepares or recovers the Mission workspace and captures Git facts before claim, outside the SQLite lock.
 Claim revalidates and freezes that actual workspace under [Context Delivery Profile](../contracts/context-delivery-profile-v13.md).
-Preparation and cleanup admission share a short fence so an accepted cleanup intent
-cannot race reuse of the same workspace. The durable intent then runs under a separate serialized cleanup worker,
-so Git removal does not hold preparation or ordinary Mission operations for unrelated workspaces. Preparation
-persists association before Git work and rechecks claim fences before launching the Runtime. Non-Git projects
+Mission preparation, cleanup and Thread deletion retain the existing serialized lifecycle gate,
+including the worker's Git operations. An ordinary non-Mission Run can bypass that gate only when its already
+validated canonical execution root is disjoint from every persisted Mission workspace's source, repository,
+Git common directory, worktree, working directory and derived preparation staging path. Ancestor/descendant
+relationships count as overlap; malformed or unavailable ownership information retains the existing wait.
+This does not split Mission locks or weaken shared-resource cleanup admission. Preparation persists association
+before Git work and rechecks claim fences before launching the Runtime. Non-Git projects
 retain their original cwd. A worktree is retained throughout ordinary Mission use. Standalone cleanup records
 two asynchronous steps in its existing association; a later preparing phase restores the branch/worktree
 according to actual resource state.
@@ -152,3 +155,7 @@ authoritative roster and Lead, adds distinct mentioned members, and freezes none
 the Thread. Mission insertion remains in the same transaction. There is no live Team binding or Mission-specific
 Bootstrap path; editing/deleting Teams cannot change existing Mission Threads. General defaults only initialize
 the dialog; Mission creation never writes one-click preferences. See [Mission v13](../contracts/mission-v13.md).
+
+If any Mission has no persisted workspace plan yet, existing records cannot rule out the path its first
+preparation will choose. Ordinary dispatch conservatively retains the gate in this case, including a
+not-yet-started Mission. No filesystem scan or extra coordination state is introduced to remove that wait.

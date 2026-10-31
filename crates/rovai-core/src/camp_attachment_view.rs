@@ -23,7 +23,7 @@ use crate::{
     collaboration::append_domain_event,
     command::{ActorRef, canonical_json_digest},
     db::Database,
-    git::persisted_workspace_path_matches_canonical,
+    git::{persisted_workspace_path_matches_canonical, workspace_paths_overlap},
     message_delivery::settle_attachment_projection_failure,
 };
 
@@ -400,14 +400,14 @@ impl ThreadAttachmentViewStore {
         #[cfg(not(any(target_os = "macos", windows)))]
         if !standalone {
             anyhow::ensure!(
-                !paths_overlap_lexically(root, &canonical_data_dir),
+                !workspace_paths_overlap(root, &canonical_data_dir),
                 "runtime_camp_files_root_invalid: managed roots overlap"
             );
         }
         for managed_root in other_managed_roots {
             validate_normalized_absolute(managed_root, "runtime_camp_files_root_invalid")?;
             anyhow::ensure!(
-                !paths_overlap_lexically(root, managed_root),
+                !workspace_paths_overlap(root, managed_root),
                 "runtime_camp_files_root_invalid: managed roots overlap"
             );
         }
@@ -5357,16 +5357,6 @@ fn validate_operation_id(value: &str) -> Result<()> {
 fn validate_attachment_id(value: &str) -> Result<()> {
     Uuid::parse_str(value).context("Published Attachment ID is invalid")?;
     Ok(())
-}
-
-fn paths_overlap_lexically(left: &Path, right: &Path) -> bool {
-    // Reuse the existing Windows ordinary/verbatim spelling comparison without
-    // probing the optional tree, including when it has not been created yet.
-    left.ancestors()
-        .any(|path| persisted_workspace_path_matches_canonical(path, right))
-        || right
-            .ancestors()
-            .any(|path| persisted_workspace_path_matches_canonical(path, left))
 }
 
 fn validate_normalized_absolute(path: &Path, code: &str) -> Result<()> {

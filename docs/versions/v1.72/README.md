@@ -1355,3 +1355,8 @@ Windows 实测与残余边界见[Windows Preview 开放](command-code-native-sim
 真实 Core/浏览器、能力、生命周期和已接受差异分别记录于
 [Linux 验收](../../research/command-code-runtime/linux-acceptance-2026-10-25.md)；
 公开范围见 [V1.72-D61](decisions.md#v1-72-d61)，不增加 Runtime 管理机制。
+
+## 局部可用性检查精简（2026-10-31）
+
+原路径附件显示名、ACP 恢复等待、原生 Skill 正文预览与普通任务的 Mission 等待按独立提交收窄。
+工作边界、回归证据与未验证项见[实施记录](usability-check-simplification.md)。

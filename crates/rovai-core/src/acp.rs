@@ -4970,7 +4970,12 @@ pub(crate) fn build_acp_new_session_params(
         adapter_kind,
         AdapterKind::CursorAgent | AdapterKind::DeepseekHarness | AdapterKind::MinimaxCodeCli
     ) {
-        params["additionalDirectories"] = json!(additional_directories);
+        // Grok 1.0.70 accepts cwd-only sessions and rejects non-empty extra roots.
+        params["additionalDirectories"] = if adapter_kind == AdapterKind::GrokBuild {
+            json!([])
+        } else {
+            json!(additional_directories)
+        };
     }
     if let Some(rules) = native_rules {
         params["_meta"] = json!({"rules": rules});
@@ -9756,7 +9761,9 @@ mod route_policy_tests {
                 .count(),
             1
         );
-        assert_eq!(params["additionalDirectories"].as_array().unwrap().len(), 2);
+        assert_eq!(params["cwd"], "/workspace");
+        assert_eq!(params["mcpServers"], json!([]));
+        assert_eq!(params["additionalDirectories"], json!([]));
 
         let additional_directories = ["/attachments".to_string(), "/run-tmp".to_string()];
         let resume = build_acp_resume_session_params(
@@ -9783,6 +9790,35 @@ mod route_policy_tests {
             other["additionalDirectories"],
             json!(["/attachments", "/run-tmp"])
         );
+        let mcp_servers = [json!({"name":"example", "command":"example-mcp", "args":[], "env":[]})];
+        for kind in [
+            AdapterKind::GrokBuild,
+            AdapterKind::QwenCode,
+            AdapterKind::CursorAgent,
+            AdapterKind::DeepseekHarness,
+            AdapterKind::MinimaxCodeCli,
+        ] {
+            let params = build_acp_new_session_params(
+                kind,
+                "/workspace",
+                &mcp_servers,
+                &additional_directories,
+                None,
+            );
+            assert_eq!(params["cwd"], "/workspace");
+            assert_eq!(params["mcpServers"], json!(mcp_servers));
+            assert!(params.get("_meta").is_none());
+            match kind {
+                AdapterKind::GrokBuild => assert_eq!(params["additionalDirectories"], json!([])),
+                AdapterKind::QwenCode => {
+                    assert_eq!(
+                        params["additionalDirectories"],
+                        json!(additional_directories)
+                    );
+                }
+                _ => assert!(params.get("additionalDirectories").is_none()),
+            }
+        }
     }
 
     #[test]

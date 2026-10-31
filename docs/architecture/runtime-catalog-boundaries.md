@@ -503,6 +503,10 @@ Host/Session。三个宿主平台共享 `grok >= 1.0.0` 最低版本门；light 
 只调用 exact `session/resume`；Grok 不声明或选择 `session.load` 产品能力，失败后只允许一次 fresh fallback。
 其他 Runtime 的通用 load/HistoryRestore 路径不变。
 
+Grok new/resume 均使用原 `cwd` 与 `additionalDirectories=[]`；`1.0.70` 拒绝 new 的非空附加目录。
+creation-only `_meta.rules`、Run tmp 环境绑定和文件访问错误保持，其他 ACP Adapter 仍按各自合同传递目录。
+具体请求边界见 [Runtime Launch v74](../contracts/runtime-launch-and-verification-v74.md#grok-cwd-only-session-参数)。
+
 External MCP 为 `AdditivePerRun / NativeWinsSkip`。`grok 0.2.118` 的 ACP Session 忽略 `mcpServers`，Core 因此
 在私有 Runtime 目录生成临时 Plugin 并用 process `--plugin-dir` 追加；`grok inspect --json` 已发现的所有
 native 名称都保留，冲突 Assignment skip，不同名 Server 可追加，完整集合进入 Host compatibility，Plugin 随

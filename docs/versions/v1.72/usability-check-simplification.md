@@ -44,3 +44,16 @@ resume 复用同一处 owner、epoch、LoadingReplay 校验和 Ready 转换；�
 协议异常 owner 同时覆盖 resume/load 返回错误 Session ID 或非法协议。历史恢复 3 个 owner 通过。
 原生模型设置 owner 与同 Host 复用 owner 各 1 项通过；文档检查通过。
 真实 Runtime 的跨 Core 续聊待隔离验收，不能以计时断言替代。
+
+## 设置页原生 Skill 正文
+
+目标路径先独立完成相对组件、逐段不跟随子链接、普通文件、canonical 根内及大小／文本检查。
+菜单只提供有界候选：最多 512 文件、8 层、2048 个访问条目；目录及失败条目也消耗访问预算，
+无关子树失败跳过。当前项与 SKILL.md 占用清单预算内的保留位置，无新缓存或后台扫描。
+
+扩展原 `native_skill_file_preview_stays_inside_its_source_directory` owner。新增 513 个无关资源后，
+修复前正常正文失败为 `Native Skill has too many files to preview`；修复后正文、选中资源和有界菜单通过。
+同一 owner 另覆盖超深子树、Unix 不可读子树、目标自身缺失／目录／过大／二进制、非法组件及根内外链接。
+读取深路径中的明确选中文件不依赖菜单是否列到它。未新增独立 Rust 测试函数。
+`native_skills::` 默认 feature 的 5 项 owner 与文档检查通过。
+设置页真实 Desktop 预览待本轮隔离构建统一验收；此项不改变智能体读取 Skill 的机制。

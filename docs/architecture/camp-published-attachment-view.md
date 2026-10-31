@@ -3,7 +3,7 @@ document_type: architecture
 architecture: camp-attachments
 authority: live-source-references-and-legacy-attachment-reads
 status: accepted
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 ---
 
 # Thread Attachments：原路径引用、默认输出与历史读取
@@ -33,7 +33,7 @@ CLI 只传指定路径，Core 在锁外观察此对象，提交前再次核对 R
 同 Thread 相同 sourcePath 可复用附件 ID，内容编辑不换身份；跨 Thread 分别保存引用，物理文件仍为同一份。
 目录仅保存位置，不遍历整树分配身份。失败不删除源文件。
 
-Source Ref 显示名只承担展示元数据职责：检查非空、120 码点上限及控制字符，保留冒号等原始字符，
+Source Ref 显示名只承担展示元数据职责：检查非空及控制字符，不设 120 码点上限，保留冒号等原始字符，
 不再复用落盘文件名的规范化相等检查。实际读取始终使用原 sourcePath；渠道下载、历史受管文件等
 创建文件的入口仍负责安全目标名称。已有记录和 Desktop 本地恢复绑定不重写。
 

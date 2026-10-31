@@ -110,6 +110,16 @@ pub fn persisted_workspace_path_matches_canonical(persisted: &Path, canonical: &
     false
 }
 
+pub(crate) fn workspace_paths_overlap(left: &Path, right: &Path) -> bool {
+    // Reuse the existing Windows ordinary/verbatim spelling comparison without
+    // probing the optional tree, including when it has not been created yet.
+    left.ancestors()
+        .any(|path| persisted_workspace_path_matches_canonical(path, right))
+        || right
+            .ancestors()
+            .any(|path| persisted_workspace_path_matches_canonical(path, left))
+}
+
 pub async fn inspect_workspace(
     path: &Path,
     application_data_dir: &Path,

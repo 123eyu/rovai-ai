@@ -50,6 +50,65 @@ pub struct MissionWorkspace {
     pub diagnostic: Option<String>,
 }
 
+/// Prove independence using the already persisted preparation/cleanup paths.
+/// Unknown historical paths retain the lifecycle gate; this never probes or
+/// repairs optional worktrees just to prepare an unrelated ordinary Thread.
+pub(crate) fn execution_root_is_disjoint(connection: &Connection, root: &Path) -> Result<bool> {
+    // A first preparation may still be inspecting Git before its plan is
+    // persisted. Existing paths cannot prove independence in that interval.
+    let unplanned: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM mission m WHERE NOT EXISTS(SELECT 1 FROM mission_workspace w WHERE w.mission_id=m.id))",
+        [], |row| row.get(0),
+    )?;
+    if unplanned {
+        return Ok(false);
+    }
+    let normalized = |path: &Path| {
+        path.is_absolute()
+            && !path.components().any(|component| {
+                matches!(
+                    component,
+                    std::path::Component::CurDir | std::path::Component::ParentDir
+                )
+            })
+    };
+    if !normalized(root) {
+        return Ok(false);
+    }
+    let mut statement = connection.prepare(
+        "SELECT source_directory,repository_root,git_common_dir,worktree_path,working_directory,preparation_token FROM mission_workspace"
+    )?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        for index in 0..5 {
+            let stored: String = row.get(index)?;
+            let path = Path::new(&stored);
+            if !normalized(path) || crate::git::workspace_paths_overlap(root, path) {
+                return Ok(false);
+            }
+        }
+        let repository: String = row.get(1)?;
+        let token: String = row.get(5)?;
+        if Uuid::parse_str(&token).is_err() {
+            return Ok(false);
+        }
+        let Ok(staging) = staging_root_for(&repository, &token) else {
+            return Ok(false);
+        };
+        if crate::git::workspace_paths_overlap(root, &staging) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn staging_root_for(repository_root: &str, preparation_token: &str) -> Result<PathBuf> {
+    Ok(Path::new(repository_root)
+        .parent()
+        .context("mission.repository_parent_missing")?
+        .join(format!(".rovai-mission-prepare-{preparation_token}")))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MissionWorkspaceCleanupProjection {
@@ -420,13 +479,7 @@ impl MissionGit {
         }
     }
     fn staging_root(workspace: &MissionWorkspace) -> Result<PathBuf> {
-        Ok(Path::new(&workspace.repository_root)
-            .parent()
-            .context("mission.repository_parent_missing")?
-            .join(format!(
-                ".rovai-mission-prepare-{}",
-                workspace.preparation_token
-            )))
+        staging_root_for(&workspace.repository_root, &workspace.preparation_token)
     }
     fn verify_staging_owner(root: &Path, workspace: &MissionWorkspace) -> Result<()> {
         ensure!(

@@ -13417,6 +13417,7 @@ impl Core {
                         &camp_id,
                         rovai_core::runtime::AgentRunWorkspace::runtime_managed_path(project_path),
                         None,
+                        None,
                     )
                     .await;
                 let value = match prepared {
@@ -13753,7 +13754,7 @@ impl Core {
             return;
         }
         let workspace = candidate.execution_workspace();
-        let _project_path = match self.validate_dispatch_workspace(&candidate).await {
+        let validated_project_path = match self.validate_dispatch_workspace(&candidate).await {
             Ok(path) => path,
             Err(error) => {
                 self.reject_agent_run_dispatch(
@@ -13799,7 +13800,10 @@ impl Core {
                 return;
             }
         }
-        let workspace = match self.prepare_mission_workspace(&candidate).await {
+        let workspace = match self
+            .prepare_mission_workspace(&candidate, &validated_project_path)
+            .await
+        {
             Ok(Some(workspace)) => workspace,
             Ok(None) => return,
             Err(error) => {
@@ -34681,6 +34685,171 @@ done
         assert!(worktree.exists());
         assert_ne!(worktree, source);
 
+        // A held lifecycle gate gives a deterministic admission boundary. The
+        // ordinary Thread must bypass it only for roots proven unrelated; no slow
+        // Git process is needed for these assertions.
+        let independent = root.join("independent");
+        let sibling_prefix = root.join(format!(
+            "{}-independent",
+            worktree.file_name().unwrap().to_str().unwrap()
+        ));
+        fs::create_dir(&independent).unwrap();
+        fs::create_dir(&sibling_prefix).unwrap();
+        let ordinary_camp = {
+            let mut database = core.database.lock().await;
+            let created = CollaborationService::default()
+                .create_camp(
+                    &mut database,
+                    &CommandEnvelope {
+                        command_id: uuid::Uuid::new_v4().to_string(),
+                        actor: ActorRef::User {
+                            user_id: "test-user".into(),
+                        },
+                        camp_id: None,
+                        expected_versions: vec![],
+                        execution_epoch: None,
+                        payload: CreateThreadCommand {
+                            team: None,
+                            name: Some("Independent workspace".into()),
+                            project_binding_kind: ProjectBindingKind::Directory,
+                            project_path: independent.to_string_lossy().into_owned(),
+                            member_agent_ids: vec![candidate.agent_id.clone()],
+                            default_lead_agent_id: candidate.agent_id.clone(),
+                            collaboration_mode: ThreadCollaborationMode::Peer,
+                            activation_state: ThreadActivationState::Active,
+                        },
+                    },
+                )
+                .unwrap();
+            created.result.payload["threadId"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let (workspace_id, preparation_token): (String, String) = core
+            .database
+            .lock()
+            .await
+            .connection()
+            .query_row(
+                "SELECT id,preparation_token FROM mission_workspace WHERE camp_id=?1",
+                [&camp_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let staging = root.join(format!(".rovai-mission-prepare-{preparation_token}"));
+        fs::create_dir(&staging).unwrap();
+        let nested = worktree.join("nested");
+        fs::create_dir(&nested).unwrap();
+        let lifecycle = core.mission_workspace_gate.lock().await;
+        for state in ["ready", "preparing", "cleanup_pending"] {
+            core.database
+                .lock()
+                .await
+                .connection()
+                .execute(
+                    "UPDATE mission_workspace SET state=?2 WHERE id=?1",
+                    rusqlite::params![workspace_id, state],
+                )
+                .unwrap();
+            for (thread, directory, immediate) in [
+                (ordinary_camp.as_str(), independent.as_path(), true),
+                (ordinary_camp.as_str(), sibling_prefix.as_path(), true),
+                (ordinary_camp.as_str(), worktree.as_path(), false),
+                (ordinary_camp.as_str(), nested.as_path(), false),
+                (ordinary_camp.as_str(), root.as_path(), false),
+                (ordinary_camp.as_str(), staging.as_path(), false),
+                (camp_id.as_str(), independent.as_path(), false),
+            ] {
+                let execution = AgentRunWorkspace::runtime_managed_path(
+                    directory.to_string_lossy().into_owned(),
+                );
+                let mut preparation = std::pin::pin!(core.prepare_mission_execution_workspace(
+                    thread,
+                    execution.clone(),
+                    None,
+                    Some(directory)
+                ));
+                let polled = std::future::poll_fn(|cx| {
+                    std::task::Poll::Ready(std::future::Future::poll(preparation.as_mut(), cx))
+                })
+                .await;
+                assert_eq!(
+                    polled.is_ready(),
+                    immediate,
+                    "{state}, {directory:?}: {polled:?}"
+                );
+                if let std::task::Poll::Ready(result) = polled {
+                    assert_eq!(result.unwrap(), Some(execution));
+                }
+            }
+        }
+        // Missing canonical validation and malformed historical ownership retain
+        // the serialized path, rather than adding a new refusal to ordinary runs.
+        for malformed in [false, true] {
+            if malformed {
+                core.database
+                    .lock()
+                    .await
+                    .connection()
+                    .execute(
+                        "UPDATE mission_workspace SET worktree_path='relative/unknown' WHERE id=?1",
+                        [&workspace_id],
+                    )
+                    .unwrap();
+            }
+            let execution =
+                AgentRunWorkspace::runtime_managed_path(independent.to_string_lossy().into_owned());
+            let mut preparation = std::pin::pin!(core.prepare_mission_execution_workspace(
+                &ordinary_camp,
+                execution,
+                None,
+                malformed.then_some(independent.as_path())
+            ));
+            let polled = std::future::poll_fn(|cx| {
+                std::task::Poll::Ready(std::future::Future::poll(preparation.as_mut(), cx))
+            })
+            .await;
+            assert!(polled.is_pending());
+        }
+        core.database
+            .lock()
+            .await
+            .connection()
+            .execute(
+                "UPDATE mission_workspace SET state='ready',worktree_path=?2 WHERE id=?1",
+                rusqlite::params![workspace_id, worktree.to_str().unwrap()],
+            )
+            .unwrap();
+        // Before the first plan is persisted, Git inspection can still choose a
+        // managed path. Missing association data is not evidence of independence.
+        {
+            let database = core.database.lock().await;
+            let connection = database.connection();
+            connection
+                .execute_batch("SAVEPOINT missing_workspace_proof")
+                .unwrap();
+            connection
+                .execute("DELETE FROM mission_workspace WHERE id=?1", [&workspace_id])
+                .unwrap();
+            let disjoint =
+                crate::mission_workspace::execution_root_is_disjoint(connection, &independent)
+                    .unwrap();
+            connection
+                .execute_batch(
+                    "ROLLBACK TO missing_workspace_proof; RELEASE missing_workspace_proof",
+                )
+                .unwrap();
+            assert!(
+                !disjoint,
+                "an unplanned Mission must retain lifecycle serialization"
+            );
+        }
+        drop(lifecycle);
+        fs::remove_dir(staging).unwrap();
+        fs::remove_dir(nested).unwrap();
+        assert!(worktree.join("tracked.txt").is_file());
+
         let wrapper_root = root.join("blocking-git");
         fs::create_dir_all(&wrapper_root).unwrap();
         let entered = wrapper_root.join("entered");
@@ -34704,7 +34873,11 @@ done
         let prepare_task = tokio::spawn({
             let core = core.clone();
             let candidate = candidate.clone();
-            async move { core.prepare_mission_workspace(&candidate).await }
+            let validated_source = source.clone();
+            async move {
+                core.prepare_mission_workspace(&candidate, &validated_source)
+                    .await
+            }
         });
         tokio::time::timeout(Duration::from_secs(10), async {
             while !entered.exists() {

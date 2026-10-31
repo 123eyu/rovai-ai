@@ -98,10 +98,24 @@ User sequence 42（“mergwe”）已明确授权本轮合入 main；通过当�
 
 ## Runtime 存储可用性收尾（User sequence 52、54）
 
-基线 `2e19f4fdce337237321fac73cb5fcb7a2835b30b`；分支 `rovai/runtime-storage-usability`；worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-runtime-storage-usability`；Governance：none；Status：active。生产修改限定 Antigravity 初始化和外部 MCP 临时投递，不扩展历史恢复或权限框架。
+基线 `2e19f4fdce337237321fac73cb5fcb7a2835b30b`；分支 `rovai/runtime-storage-usability`；worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-runtime-storage-usability`；Governance：none；Status：ready。生产修改限定 Antigravity 初始化和外部 MCP 临时投递，不扩展历史恢复或权限框架。
 
 ### 旧 agy 日志保留
 
 删除 Antigravity `initialize_storage()` 对旧 `runtime-private/agy` 的访问及递归删除。当前 `runtime-private/antigravity` 的初始化、创建权限、遗留日志处理及当前 Run 日志释放不变；不把当前目录真实不可用转换为成功。
 
 扩展原 `interrupt_after_acceptance_terminates_process_and_removes_private_logs` owner：Adapter 构造前写入旧日志，验证初始化后仍在，输入被模拟进程接收、Stop 完成后当前日志清空而旧日志字节不变。修复前该断言因旧文件已删除而失败，修复后通过；没有新增独立 Rust 测试函数。该 owner 使用受控子进程，不代表真实 Antigravity 模型验收。
+
+### 外部 MCP 临时目录复用
+
+`runtime_mcp.rs` 用同一个短小的 `DirBuilder` helper 替换目录创建后的 chmod。父目录递归创建，已存在时复用；Grok 本次 UUID 子目录保持非递归独占创建。Unix 创建 mode 为 `0700`，已有父目录权限原样保留。文件 `create_new`、`0600`、写入/flush 错误及本次资源的清理边界不变。
+
+扩展原 `external_configs_are_private_and_removed_on_drop`、`grok_plugin_is_private_additive_and_removed_on_drop`，覆盖新目录、0755 既有目录和旧内容保留、当前文件及 plugin Drop、非目录路径的真实创建错误、plugin 文件与目录不可覆盖。修复前两个 owner 都因父目录被改成 0700 而失败；没有新增独立测试函数、权限预检或恢复状态。
+
+### 验证
+
+macOS 定向 Antigravity/MCP owner 18 项通过、1 项原有真实 Runtime ignored；另以 `extended-tests` 运行两个 MCP owner，覆盖 Grok 原初始化分支。默认 feature workspace 477 项通过、0 失败、1 项原有 ignored。Core/CLI 构建、格式和文档门禁通过。定向与默认层的测试有重叠，不累加为独立测试总数。
+
+隔离实际 Core 与 Claude Code 2.1.308 在 `/private/tmp/rovai-runtime-storage-native-1hfkg3o0` 完成两次非空外部 MCP 调用，中间正常关闭并重开 Core；两次 Run 均 succeeded，Thread、conversation 与原生 Session ID 相同。实际观察本次生成的临时配置和 `0600` 权限；父目录维持 `0755`，旧文件及首轮 canonical 快照字节/权限不变，当前临时配置已释放。旧 `agy` 设置为 `0500` 后 Antigravity subsystem 仍 ready，旧日志保留。两次 Core 退出码均为 0，无终止信号。验收 Core SHA-256 为 `e918597504390e9234e4fd630b0c1f6cad4dfdb99ef7fc252117104ab506f142`。
+
+验收脚本最初依赖旧 smoke helper 的静态 Ready/snapshot 字段，准备阶段失败，尚未提交模型任务；调整本次脚本使用当前检查返回与真实派发后完成上述验收，没有修改生产 Runtime 就绪规则。复制的 Claude 配置和认证材料已删除，日常 App 未退出或修改。本轮证据不覆盖 Windows 原生、完整 Desktop/安装路径、真实用户数据副本或真实 Antigravity/Grok 模型任务；既有未完成验收不因此改记通过。

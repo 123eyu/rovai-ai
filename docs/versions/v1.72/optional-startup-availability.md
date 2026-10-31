@@ -95,3 +95,13 @@ User 明确要求合入 main，替代此前保持 Draft 的流程安排；未完
 生产提交 `940ee923856fff0d88487b3c50e153f10fcc1063` 的独立 Core/CLI 构建后，在 `/private/tmp/rovai-mcp-directory-native-a999ig1p` 完成真实 Codex 0.165.0 新任务、隔离 Core 正常退出与重开、同一 Thread/队员/conversation 后继任务。两次 Run 均 succeeded，外部 MCP 为零，根及手动放宽的旧快照目录保持 `0755`，canonical 文件保持 `0600`、旧内容未改变。Core SHA-256 为 `f1f1b81beecf730996820ff2d84470cd2ea1df15e5033a1d6c8efa13de53231d`；复制的认证/配置已删除，未退出或修改日常 App。该场景属于新建隔离 Thread，不替代此前真实用户原现场或完整 GUI 验收。
 
 User sequence 42（“mergwe”）已明确授权本轮合入 main；通过当前原生检查后按 [PR #962](https://github.com/murray17/rovai-ai/pull/962) 合并，同步主线并收口独立 worktree。此前未完成的真实原现场与安装路径验收不因本次专项通过而改记完成。
+
+## Runtime 存储可用性收尾（User sequence 52、54）
+
+基线 `2e19f4fdce337237321fac73cb5fcb7a2835b30b`；分支 `rovai/runtime-storage-usability`；worktree `/Users/murray.xue/VSCodeProjects/opensource/rovai-ai-runtime-storage-usability`；Governance：none；Status：active。生产修改限定 Antigravity 初始化和外部 MCP 临时投递，不扩展历史恢复或权限框架。
+
+### 旧 agy 日志保留
+
+删除 Antigravity `initialize_storage()` 对旧 `runtime-private/agy` 的访问及递归删除。当前 `runtime-private/antigravity` 的初始化、创建权限、遗留日志处理及当前 Run 日志释放不变；不把当前目录真实不可用转换为成功。
+
+扩展原 `interrupt_after_acceptance_terminates_process_and_removes_private_logs` owner：Adapter 构造前写入旧日志，验证初始化后仍在，输入被模拟进程接收、Stop 完成后当前日志清空而旧日志字节不变。修复前该断言因旧文件已删除而失败，修复后通过；没有新增独立 Rust 测试函数。该 owner 使用受控子进程，不代表真实 Antigravity 模型验收。

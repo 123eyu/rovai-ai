@@ -30,3 +30,17 @@ Governance: none；Status: active。四项独立提交；第四项单独验证�
 均因 `Source Attachment display name exceeds 120 characters` 失败。修复后 Desktop 两文件 20 项通过、2 项原有 Windows-only 跳过；
 `local_attachment_source::` 5 项和 Single Chat owner 1 项通过；typecheck、fmt 与文档检查通过。
 恢复 IPC 和真实 Desktop 验收待最终构建统一执行，不能用目标解析测试替代。
+
+## ACP resume 的收尾等待
+
+最终成功的 RPC 方法从原恢复循环传入现有收尾入口；只有 load 计算 grace/quiet 等待。
+resume 复用同一处 owner、epoch、LoadingReplay 校验和 Ready 转换；错误状态不重新 bind。
+`-32601` 降级后按实际 load 处理，同 Host 复用不改变。
+
+扩展现有历史隔离及协议异常 owner。先仅传递方法、不改变旧等待行为，确定性首轮 poll 断言
+失败为 `session/resume: Pending`；取消计时后该断言立即完成，load 首轮仍 pending。
+同一用例覆盖 owner/epoch 错误、ProtocolViolated、错误 phase 和 route 缺失；原 RPC 夹具
+追加 resume 降级 load，并继续验证 response 后迟到的 assistant/tool/usage 不进入当前 Run 或 ACK。
+协议异常 owner 同时覆盖 resume/load 返回错误 Session ID 或非法协议。历史恢复 3 个 owner 通过。
+原生模型设置 owner 与同 Host 复用 owner 各 1 项通过；文档检查通过。
+真实 Runtime 的跨 Core 续聊待隔离验收，不能以计时断言替代。

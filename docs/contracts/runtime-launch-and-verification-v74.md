@@ -4,7 +4,7 @@ name: Runtime Launch and Verification
 version: v74
 status: accepted
 source_version: v1.72
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 ---
 
 # Runtime Launch and Verification v74
@@ -55,3 +55,12 @@ Owner 设置入口仍返回损坏项的版本与明确错误，不能将默认�
 字段编辑遇到 revision 不符时返回既有 `status: conflict`、`latest` 和字段冲突；页面更新版本基线并保留草稿，用户解决冲突后可以继续保存。不能只返回“再次保存”错误而让页面一直持有旧版本；提交时的 CAS 仍保留。
 
 通用环境变量单条不可解密时，管理入口返回 `commonEnvironment.error` 与原 revision；执行和检查保留该项不可用语义，不回退到其他账号。用户重新填写后沿用既有 revision 校验追加新版本，保留损坏旧记录；未修改的错误投影不得被提交为空值。原本不继承通用变量的独立队员仍按既有规则使用自身环境。
+
+## ACP 冷恢复收尾
+
+本次恢复调用链传递最终成功的原生 RPC 方法。成功 `session/resume` 在必要配置完成后，
+通过已有精确 Session route、Host/Run/epoch owner 与 LoadingReplay 状态校验直接进入 Ready，
+不等待历史重放 grace 或 quiet window；不能重新 bind Ready 覆盖错误状态。
+成功 `session/load`，包括 resume 的 `-32601` 后降级 load，保留既有有界迟到历史隔离与收尾。
+返回其他 Session ID、错误 route/owner、协议异常仍拒绝；当前输入 ACK、不重放和同 Host 复用边界保持。
+实际方法仅在本次调用内传递，不新增协议字段、数据库字段或恢复状态。

@@ -78,7 +78,11 @@ Skill/MCP/adapter 对象先无 I/O 构造。ready 后独立初始化当前所需
 
 Runtime discovery 与可选服务、历史维护分别启动，不等待目录扫描或批量回收。附件树不做启动 reconcile；旧视图在确需访问时按目标重建。Adapter 初始化不遍历旧 MCP 配置、Grok plugin 或 Claude 输入文件；当前任务仍精确释放自己创建的文件。目录年龄、名称前缀或缺少 Run 本身不构成旧文件可删除证据。
 
+Antigravity 初始化不访问或删除旧 `runtime-private/agy`；该目录不可清理不影响新任务或后继任务。当前 `runtime-private/antigravity` 的初始化、遗留日志处理及当前 Run 日志释放保持原有行为。
+
 普通任务只等待内置工具、当前 Skill 准备和对应 Adapter；外部 MCP 读取、迁移、初始化错误进入现有 Exposure 的 `invalid/warnings`，不成为共享执行门槛。原文件保留，既有冻结 Run 的快照与失败语义不改变。管理操作仍显示本功能错误，不能把加载失败标成正常空配置。
+
+外部 MCP 临时投递复用 `runtime-private/external-mcp` 时不修改已有目录权限。Unix 新目录在创建时请求 `0700`，新配置文件继续以 `0600`、不可覆盖方式创建；Grok 本次 UUID 子目录保持独占创建。真实创建、写入和 flush 错误仍中止本次投递，不能丢弃已选 MCP 后继续启动；失败与句柄释放只清理本次拥有的资源。
 
 `mcp.config.get` 管理读取不经过 MCP 健康门槛，返回现有文件路径与 `fileIssue`，使设置页能够展示并定位坏配置；写操作的门槛不变。
 
